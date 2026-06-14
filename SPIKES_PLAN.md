@@ -94,7 +94,9 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ---
 
-## Spike 4 — Deadline-evidence + lock-down · status: TODO
+## Spike 4 — Deadline-evidence + lock-down · status: PASS
+
+**Result (2026-06-14):** App snapshotted `spike01-provisioning-test` (main@947970a), demoted `tomccargo` admin→read at a mock deadline (verified read after), snapshotted again, recorded a 22s deadline→execution interval. Student is now read-only; self-restore blocked by the org-level App out-ranking repo admin. Details in `spikes/04-deadline/README.md`.
 
 **Goal.** Trusted automation snapshots a repo's submission ref on schedule, and at a mock deadline **demotes a test student admin → read via the App**, proving the student cannot restore access; capture a final snapshot and quantify the residual uncertainty interval.
 
@@ -134,7 +136,7 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 - [x] Spike 3 core mechanics pass (API star fires watch:started; actor + secret + org policy OK)
 - [x] Spike 3 public broker + non-member star + token-star confirmed
 - [ ] Spike 3 remaining: burst concurrency (~250 stars)
-- [ ] Spike 4 Pass + uncertainty interval recorded
+- [x] Spike 4 PASS — lock-down demotes admin→read via App; 22s interval recorded
 - [ ] Spike 5 Pass
 - [ ] Spike 6 Pass
 - [ ] `REQUIREMENTS.md` open decisions resolved; star-trigger confirmed or replaced
