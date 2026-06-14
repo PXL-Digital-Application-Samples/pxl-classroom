@@ -38,7 +38,8 @@ secret_available=yes (length=12)
 
 ## Still open (not yet tested)
 
-- [~] Public broker created (`PXLAutomation/spike03-acceptance-broker-public`): star fires `watch: started` with secret access on a public repo (run `27502857178`, actor `tomcoolpxl`, `secret_available=yes`). **Non-member proof pending:** star it from `tomccargo` (not an org member) and confirm `actor=tomccargo`.
+- [x] Public broker (`PXLAutomation/spike03-acceptance-broker-public`): star fires `watch: started` with secret access on a public repo. **Non-member confirmed** — `tomccargo` (not an org member) starred it; the workflow fired with `actor=tomccargo`, `secret_available=yes` (run `27502970140`).
+- [ ] Token can star: confirm the device-flow user token (Spike 2) can `PUT /user/starred/<broker>` — the linchpin tying auth to acceptance.
 - [ ] Browser token scoped to only the star permission (couples with Spike 2 auth).
 - [ ] Concurrency under a class-wide burst (~250 stars).
 

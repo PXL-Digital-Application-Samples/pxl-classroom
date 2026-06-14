@@ -58,6 +58,15 @@ async function poll() {
       console.log("token_expires_in=" + (tok.expires_in ?? "(none — non-expiring)"));
       console.log("has_refresh_token=" + Boolean(tok.refresh_token));
       console.log("scope=" + (tok.scope ?? "(GitHub App: governed by app permissions, not scopes)"));
+      // Linchpin: can this browser token perform the acceptance action (star the broker)?
+      if (process.env.STAR_TARGET) {
+        const star = await fetch(`https://api.github.com/user/starred/${process.env.STAR_TARGET}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${tok.access_token}`, "Content-Length": "0", "User-Agent": "pxl-spike-02" },
+        });
+        console.log(`star_${process.env.STAR_TARGET}=HTTP ${star.status}` + (star.status === 204 ? " (ok)" : ""));
+        if (star.status !== 204) console.log(await star.text());
+      }
       return;
     }
     if (tok.error === "authorization_pending") { /* keep waiting */ }

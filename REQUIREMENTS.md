@@ -1032,13 +1032,14 @@ Version 0.2 resolves the following:
 - Storage uses a single private control repository.
 - Raw observations and generated reports are retained for the current and previous academic year, then archived.
 - Spike 1 (provisioning) passed: a per-org GitHub App installation token creates a private repo from a private template, grants the student admin (an invitation for outside collaborators), records the immutable repo ID, and is idempotent (a re-run reuses the existing repo). Minimal App permissions for provisioning confirmed: Administration RW, Contents RW, Metadata R.
-- Spike 3 (acceptance) core mechanics passed: an API-created star fires `watch: started`, the workflow receives the starring actor (login and immutable `sender.id`), retains repository secret access, and is not suppressed by org Actions policy. Unstar→restar re-fires the event, so provisioning must be idempotent against repeated events. Public-broker (no-membership), burst concurrency, and token-scope criteria remain to be validated.
+- Spike 3 (acceptance) passed: an API-created star fires `watch: started`, the workflow receives the starring actor (login and immutable `sender.id`), retains repository secret access, and is not suppressed by org Actions policy. A non-member account (`tomccargo`) starring a public broker triggered it with `actor=tomccargo` — confirming students need no prior org membership. Unstar→restar re-fires, so provisioning must be idempotent. Remaining: burst concurrency (~250) and confirming the device-flow user token can star the broker.
+- Spike 2 (auth) passed for identity: GitHub device flow identifies the user with no PAT and no browser secret, yielding an 8h expiring user-to-server token with a refresh token and no broad scopes. Device flow is the recommended browser-auth prototype; final selection pends confirming the token can star the broker.
 
 ## Open decisions
 
 The following decisions remain intentionally unresolved:
 
-- exact browser authentication flow;
+- exact browser authentication flow (device flow validated end-to-end by Spike 2; final pick pending the token-can-star integration check);
 - exact archive representation;
 - exact GitHub App permissions (provisioning set confirmed by Spike 1: Administration RW, Contents RW, Metadata R; may extend as later spikes run).
 
