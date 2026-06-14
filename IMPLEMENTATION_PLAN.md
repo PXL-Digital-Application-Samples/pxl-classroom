@@ -17,7 +17,7 @@ this plan turns those proofs into durable components.
 ### Decisions locked for v1
 - **Pilot org:** PXLAutomation (templates exist, App installed, heavy Classroom user).
 - **Frontend:** one combined, role-gated Vue SPA on public GitHub Pages.
-- **Acceptance:** public broker → `repository_dispatch` → **private control repo** provisions (keeps roster/logs private).
+- **Acceptance:** **open** (any GitHub account; mandatory guardrails in §7); public broker → `repository_dispatch` → **private control repo** provisions (keeps roster/logs private).
 - Plus all `REQUIREMENTS.md` resolved decisions (Team-only, never Enterprise; snapshot evidence + lock-down; device-flow + Account/Starring; per-org control repos + runtime-fetch dashboard; single private control repo per org; 2-year retention; archive = branch in private repo).
 
 ## 2. Architecture
@@ -91,7 +91,7 @@ All third-party actions **SHA-pinned**; all scripts validate untrusted inputs ag
 Per-org private repo. Schema-versioned, machine-readable, Git-reviewable, source vs generated separated.
 
 ```
-assignments/<id>.yml         # definition (schema_version, template, opens/deadline, refs, state)
+assignments/<id>.yml         # definition (schema_version, template, opens/deadline, refs, state, acceptance_mode=open, max_acceptances)
 students/roster.yml          # student_id, display_name, class_group, github_login, github_id, active
 acceptances/<id>/<login>.json# accepted-at, actor login+id, star event ref
 repositories/<id>/<login>.json # repo_id (immutable), name, url, created_at, provision run id, access state
@@ -127,11 +127,17 @@ Every run records: run URL, actor, op, assignment, student/repo, times, outcome,
 1. **Publish** creates a **public broker repo** `broker-<assignment-id>` with a `watch:started` workflow on its default branch.
 2. **Student stars** the broker (SPA calls `PUT /user/starred` with the device-flow user token — Account/Starring permission). [Spike 3 ✓: fires with actor + immutable `sender.id`.]
 3. **Broker workflow** validates the actor and emits `repository_dispatch` (`event_type: acceptance`, payload `{assignment_id, github_login, github_id}`) to the **private control repo**. It does the minimum and logs nothing identifying beyond the (already public) star.
-4. **Control-repo acceptance-handler** gates the actor against the assignment's **eligible-`github_login` allowlist** (pre-populated roster — see *Eligibility gate*), binds the GitHub account (login + immutable id) to that roster entry, checks the registry for an existing repo (idempotent), and enqueues provisioning. A star carries only GitHub identity — there is no student-supplied key — so eligibility must come from the pre-populated roster, not from the event.
+4. **Control-repo acceptance-handler** accepts the actor **openly** (v1 has no eligible-login allowlist), records the GitHub identity (login + immutable id) as a roster entry, checks the registry for an existing repo (idempotent), and enqueues provisioning — subject to the guardrails below.
 5. **Provisioning** runs via the built reusable workflow, **throttled** (see §11) and **concurrency-guarded** per org+repo. Re-acceptance (unstar→restar re-fires — Spike 3) resolves to the same repo via the registry; never duplicates.
 6. **Student SPA** polls the student's own visible resources with their own token — `GET /repos/{org}/{deterministic-name}` and `GET /user/repository_invitations` — **never the private registry** — and shows the repo link / pending state.
 
-**Eligibility gate (security — resolves a real hole).** The broker is *public*, so anyone on GitHub could star it. v1 therefore gates acceptance to a **pre-populated eligible-login allowlist** in the roster (pre-association). This is within spec ("reject ineligible unless open acceptance") and consistent with "no institutional check" — it restricts *which* GitHub accounts may accept without verifying the human behind them. **Open acceptance** (no allowlist) is a per-assignment option but MUST add a mitigation (per-assignment count cap, or require the student be a pre-invited outside collaborator), else a stranger can trigger a real provision. Mapping login→real student stays a lecturer reconciliation step; MS 365/Forms verification is a future enhancement.
+**Open acceptance + mandatory guardrails (v1 choice).** Acceptance is **open**: any GitHub account that stars the broker is provisioned, and the lecturer reconciles login→real student afterward (the roster's `github_login` is filled from the event, not pre-populated). Because the broker is public, open acceptance is only safe with these guardrails, which are required, not optional:
+- **Open window** — the handler ignores stars outside `opens_at … deadline_at`.
+- **Per-assignment cap** (`max_acceptances`, default ≈ expected class size + margin) — beyond the cap, acceptances are **queued for lecturer review** instead of auto-provisioned, bounding abuse and the rate-limit budget.
+- **One repo per account** (idempotent) — re-stars/duplicates resolve to the same repo.
+- **Lecturer reconciliation** — the dashboard flags accepted accounts not matched to a known student; the lecturer confirms or removes them.
+
+Residual risk (accepted for v1): a stranger acting within the window and under the cap gets a repo until reconciled. Institutional verification (MS 365/Forms) is the future enhancement that would turn this open flow into a verified one.
 
 **Security of the public broker (important):** the broker is public, so its workflow must not hold powerful credentials in logs. Two options:
 - **(Recommended) Separate minimal "dispatcher" GitHub App** whose only ability is `repository_dispatch`/contents-write to the control repo. The public broker never holds repo-admin power; the powerful provisioning App stays out of public repos.
@@ -188,7 +194,7 @@ Single Vue app, built with Node tooling, deployed as static assets to a **public
 
 ### Phase 1 — Pilot vertical slice (one assignment, PXLAutomation)
 - [ ] **Prove the `repository_dispatch` hop FIRST** (public broker → private control repo): the riskiest *untested* integration. Confirm a star fires the broker workflow, which mints a token and successfully dispatches an event that triggers the control repo's handler. (Spike 3 proved star→watch→actor→secret, **not** this hop.)
-- [ ] Pre-populate the pilot roster with eligible `github_login`s (enables the eligibility gate, §7).
+- [ ] Configure the assignment's **open window** and **per-assignment cap** (`max_acceptances`) — the mandatory open-acceptance guardrails (§7).
 - [ ] Define one real assignment (e.g. from `template-automation-pe-1`); `publish-assignment` creates the public broker.
 - [ ] Build `acceptance/` (dispatch validate + roster match + enqueue) and wire broker→dispatch→provision.
 - [ ] Student SPA: auth → accept (star) → poll → repo link, end-to-end with `tomccargo`.
@@ -215,7 +221,7 @@ Single Vue app, built with Node tooling, deployed as static assets to a **public
 - **Lock-down not tamper-proof** — by design; report late activity; preservation is the safety net.
 - **Public broker credential surface** — mitigated by the dispatcher App (§7).
 - **GitHub outages / scheduled-run lateness** — cursors + resumable collection + manual finalize.
-- **Public broker + acceptance** — anyone could star a public broker, so v1 gates to a pre-populated eligible-login allowlist (pre-association); open acceptance needs a per-assignment cap/allowlist. Lecturer reconciles login→student; MS 365/Forms verification is future. (No institutional check in v1.)
+- **Open acceptance on a public broker (v1 choice)** — any GitHub account can accept. Mandatory guardrails: open-window check, per-assignment cap (queue beyond it for lecturer review), one-repo-per-account idempotency, lecturer reconciliation of login→student. Residual risk: a stranger within window+cap gets a repo until reconciled — accepted for v1. MS 365/Forms verification is future. (No institutional check in v1.)
 - **Untested dispatch hop** — broker→control `repository_dispatch` is proven nowhere yet; it is the first Phase-1 task.
 
 ## 15. Reuse map (already built/proven)
