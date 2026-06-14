@@ -52,6 +52,10 @@ scope=                        # GitHub App: governed by app permissions, not OAu
 
 **Device flow is the working prototype** and the simplest fit for a static Pages frontend (no redirect, no secret). Cost: one extra "enter this code" step. OAuth / GitHub App user-to-server **PKCE** would remove that step but requires handling a redirect + PKCE on the static page; keep it as the alternative if the extra step proves unacceptable.
 
-### Remaining (linchpin) — Spike 2 ↔ 3 integration
+### Linchpin result (2026-06-14): star BLOCKED → App needs the Starring permission
 
-The static frontend's acceptance action is **starring the broker with the user's token**. Must confirm the device-flow user token can call `PUT /user/starred/{broker}` — i.e. the App grants the user the star capability. Until confirmed, the browser-auth decision is "device flow, pending star-capability check."
+`PUT /user/starred/<broker>` with the device-flow token returned **HTTP 403 "Resource not accessible by integration."** The GitHub App's user token cannot star because the App was created **without the Account → Starring permission**.
+
+**Fix to try:** on the App, add **Account permissions → Starring → Read and write**, save, then re-authorize (a new account permission requires re-consent) and re-test with `STAR_TARGET` set. Expect `star_...=HTTP 204`. This keeps least privilege — one user-level Starring permission, far narrower than an OAuth App's `public_repo` scope.
+
+**If even that fails** (GitHub may not expose starring to GitHub App user tokens at all): fall back to an **OAuth App** device flow with `public_repo`, or choose a non-star acceptance action the App token *can* perform.
