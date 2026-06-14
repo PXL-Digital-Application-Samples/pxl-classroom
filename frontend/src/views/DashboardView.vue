@@ -162,7 +162,12 @@ async function loadOrgs() {
       .map((i) => i.account)
 
     // A GitHub App user-to-server token's installations already reflect what the user can access.
-    orgs.value = installOrgs
+    if (installOrgs.length > 0) {
+      orgs.value = installOrgs
+    } else {
+      console.warn("No installations found via API. Falling back to default config org.")
+      orgs.value = [{ login: config.defaultOrg, avatar_url: '' }]
+    }
 
     // Auto-select if only one
     if (orgs.value.length === 1) {
