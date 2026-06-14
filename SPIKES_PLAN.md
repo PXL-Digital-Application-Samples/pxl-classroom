@@ -70,7 +70,9 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ---
 
-## Spike 3 — Acceptance-event (star broker) · GATING (highest risk) · status: TODO
+## Spike 3 — Acceptance-event (star broker) · GATING (highest risk) · status: PASS core mechanics; public-exposure / burst / token-scope open
+
+**Result (2026-06-14):** private broker `PXLAutomation/spike03-acceptance-broker`; API star fired `watch: started` (run 27502697737) with actor `tomcoolpxl` + immutable `sender.id=71908551`, secret available, org policy allowed. Unstar→restar re-fired (run 27502723484) → provisioning must be idempotent. Details in `spikes/03-acceptance/README.md`.
 
 **Goal.** A browser star against a per-assignment **public broker repo** fires `watch: started`, carrying the student actor, triggering a trusted workflow that keeps secret access, identifies the assignment, and processes duplicate-safely under realistic org Actions policy and a class-wide burst.
 
@@ -127,7 +129,8 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 - [x] Spike 1 Pass single-org + minimal App permissions recorded (Administration RW, Contents RW, Metadata R)
 - [ ] Spike 1 two-org proof (needs App installed in a second org)
 - [ ] Spike 2 Pass + auth flow selected
-- [ ] Spike 3 Pass, **or** documented fallback to pre-provisioned mode
+- [x] Spike 3 core mechanics pass (API star fires watch:started; actor + secret + org policy OK)
+- [ ] Spike 3 remaining: public broker (no-membership star), burst concurrency (~250), browser token scope
 - [ ] Spike 4 Pass + uncertainty interval recorded
 - [ ] Spike 5 Pass
 - [ ] Spike 6 Pass

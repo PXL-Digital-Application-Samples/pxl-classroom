@@ -394,7 +394,7 @@ The acceptance mechanism shall satisfy all of these requirements:
 Confirmed mechanism details:
 
 - The `watch: started` workflow shall live on the broker repository's default branch.
-- A star fires `watch: started` at most once per user; unstarring and restarring do not reliably re-fire. Re-acceptance and idempotency shall therefore be driven by the control-repository registry state, not by a second star event.
+- A repeated identical star while already starred is a no-op (no event), but unstarring and then restarring re-fires `watch: started` (confirmed by Spike 3). The provisioning workflow shall therefore be idempotent against repeated `watch: started` events, keyed on control-repository registry state, rather than assume a single delivery per student.
 - The broker repository shall be public so that any authenticated eligible student can star it without prior organization membership. Star activity on a public repository is itself public; this exposure is accepted.
 - The provisioning workflow shall handle a class-wide burst of stars within Actions concurrency and secondary rate-limit constraints.
 
@@ -1032,6 +1032,7 @@ Version 0.2 resolves the following:
 - Storage uses a single private control repository.
 - Raw observations and generated reports are retained for the current and previous academic year, then archived.
 - Spike 1 (provisioning) passed: a per-org GitHub App installation token creates a private repo from a private template, grants the student admin (an invitation for outside collaborators), records the immutable repo ID, and is idempotent (a re-run reuses the existing repo). Minimal App permissions for provisioning confirmed: Administration RW, Contents RW, Metadata R.
+- Spike 3 (acceptance) core mechanics passed: an API-created star fires `watch: started`, the workflow receives the starring actor (login and immutable `sender.id`), retains repository secret access, and is not suppressed by org Actions policy. Unstar→restar re-fires the event, so provisioning must be idempotent against repeated events. Public-broker (no-membership), burst concurrency, and token-scope criteria remain to be validated.
 
 ## Open decisions
 
