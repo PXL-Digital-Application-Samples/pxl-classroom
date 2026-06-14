@@ -97,13 +97,15 @@ async function gh(method, path, body, { retries = 4 } = {}) {
 }
 
 async function main() {
-  // 1. Validate token / identity.
-  const who = await gh("GET", "/user");
-  record("auth: identify token", {
-    ok: who.ok,
-    note: who.ok ? `acting as ${who.data.login} (type=${who.data.type})` : `HTTP ${who.status}`,
+  // 1. Sanity-check the token is live. GitHub App installation tokens have no
+  //    user, so GET /user returns 403 — use /rate_limit, which any valid token
+  //    (installation token or PAT) can call.
+  const ping = await gh("GET", "/rate_limit");
+  record("auth: token live", {
+    ok: ping.ok,
+    note: ping.ok ? "token accepted" : `HTTP ${ping.status}`,
   });
-  if (!who.ok) { status.outcome = "fail:auth"; return finish(1); }
+  if (!ping.ok) { status.outcome = "fail:auth"; return finish(1); }
 
   // 2. Validate template exists and is a template.
   const tpl = await gh("GET", `/repos/${cfg.templateOwner}/${cfg.templateRepo}`);
