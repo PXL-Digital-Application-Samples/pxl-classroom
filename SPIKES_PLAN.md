@@ -37,7 +37,9 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ---
 
-## Spike 1 — Provisioning  · FOUNDATIONAL · status: IN PROGRESS
+## Spike 1 — Provisioning  · FOUNDATIONAL · status: PASS (single-org); two-org pending App install in org B
+
+**Result (2026-06-14):** App installation-token auth worked; created `PXLAutomation/spike01-provisioning-test` (id `1269297177`, private) from `template-automation-pe-1`; invited `tomccargo` as admin; idempotent re-run returned `reused`. Minimal App permissions confirmed: **Administration RW, Contents RW, Metadata R**. Two-org check against `PXLCloudAndAutomation` blocked until the App is installed there (clean `Not Found` on the missing installation).
 
 **Goal.** A workflow in the host repo, authenticating as the **per-org GitHub App installation token**, creates a private repo from a private template, grants a student admin, records the immutable repo ID, writes a status record, and is safe to retry — in **two different orgs** with the same App.
 
@@ -122,7 +124,8 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ## Definition of done → v1.0 freeze
 
-- [ ] Spike 1 Pass (incl. two-org proof) + minimal App permissions recorded
+- [x] Spike 1 Pass single-org + minimal App permissions recorded (Administration RW, Contents RW, Metadata R)
+- [ ] Spike 1 two-org proof (needs App installed in a second org)
 - [ ] Spike 2 Pass + auth flow selected
 - [ ] Spike 3 Pass, **or** documented fallback to pre-provisioned mode
 - [ ] Spike 4 Pass + uncertainty interval recorded

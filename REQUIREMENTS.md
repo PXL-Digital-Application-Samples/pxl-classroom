@@ -440,6 +440,8 @@ For each valid acceptance, PXL Classroom shall:
 - record provisioning timestamps and workflow run identifiers;
 - update generated dashboard data.
 
+Granting administrator access to a student who is not an organization member creates a repository invitation that the student must accept before access becomes effective. PXL Classroom shall treat such access as pending until accepted and shall surface invitation state in the dashboard. (Confirmed by Spike 1: the grant returns an invitation for an outside collaborator.)
+
 Repository creation shall be idempotent.
 
 A retry after a partial failure shall continue from recorded state rather than create another repository.
@@ -765,6 +767,8 @@ The trusted automation credential shall:
 - never be printed to logs;
 - be rotatable without modifying student repositories.
 
+The GitHub App permission set required for provisioning is confirmed by Spike 1 to be: Repository **Administration** (read/write), **Contents** (read/write), and **Metadata** (read). This set is sufficient to create a repository from a private template and grant a student administrator access. The set may extend (for example Organization Members read) as later spikes for collection, lock-down, and preservation run; it shall remain the minimum required.
+
 All third-party Actions shall be pinned to a full commit SHA in security-sensitive workflows.
 
 Untrusted assignment, roster, and event values shall not be interpolated into shell commands without safe encoding and validation.
@@ -1027,6 +1031,7 @@ Version 0.2 resolves the following:
 - Group assignments are deferred to version 2.
 - Storage uses a single private control repository.
 - Raw observations and generated reports are retained for the current and previous academic year, then archived.
+- Spike 1 (provisioning) passed: a per-org GitHub App installation token creates a private repo from a private template, grants the student admin (an invitation for outside collaborators), records the immutable repo ID, and is idempotent (a re-run reuses the existing repo). Minimal App permissions for provisioning confirmed: Administration RW, Contents RW, Metadata R.
 
 ## Open decisions
 
@@ -1034,7 +1039,7 @@ The following decisions remain intentionally unresolved:
 
 - exact browser authentication flow;
 - exact archive representation;
-- exact GitHub App permissions.
+- exact GitHub App permissions (provisioning set confirmed by Spike 1: Administration RW, Contents RW, Metadata R; may extend as later spikes run).
 
 These three remaining decisions are expected to be settled by the mandatory technical spikes and implementation rather than by policy choice.
 

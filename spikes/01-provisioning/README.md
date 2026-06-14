@@ -79,6 +79,12 @@ Actions → **Spike 01 - Provisioning** → Run workflow → set `org`, `target_
 - [ ] same flow works in a second organization with the same App
 - [ ] minimal App permission set recorded here:
 
-## Results
+## Results (2026-06-14) — PASS (single-org)
 
-_(fill in: run URLs, repo IDs, the confirmed minimal permission set, anything that forced a requirements change)_
+- Auth: GitHub App installation token via `actions/create-github-app-token` ✓
+- Created `PXLAutomation/spike01-provisioning-test`, id `1269297177`, private, from `template-automation-pe-1` ✓
+- Granted `tomccargo` admin → **invitation created** (outside collaborator must accept) ✓
+- Idempotent: second run returned `reused` (no duplicate) ✓
+- **Minimal App permissions confirmed:** Repository Administration (RW), Contents (RW), Metadata (R)
+- Two-org check (`PXLCloudAndAutomation`): **pending** — App not yet installed there (`/users/<org>/installation` → Not Found). Install the App in the second org, then re-run.
+- Note: pinned actions are on Node 20 (deprecation warning) and use version tags — convert to full commit SHAs and bump for Node 24 before production (security requirement).
