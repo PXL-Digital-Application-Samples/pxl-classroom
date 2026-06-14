@@ -1,0 +1,61 @@
+# PXL Classroom — Spike 4: deadline snapshot + lock-down
+#
+# Requires repo secrets SPIKE_APP_ID / SPIKE_APP_PRIVATE_KEY and the App
+# installed in the target org. TODO pin actions to full commit SHAs before prod.
+
+name: Spike 04 - Deadline lock-down
+
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: Target organization
+        required: true
+        default: PXLAutomation
+      repo:
+        description: Repository to snapshot + lock down
+        required: true
+        default: spike01-provisioning-test
+      student_login:
+        description: Student to demote admin -> read
+        required: true
+      deadline_at:
+        description: Mock deadline (ISO 8601) for the uncertainty interval
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-04-${{ inputs.org }}-${{ inputs.repo }}
+  cancel-in-progress: false
+
+jobs:
+  deadline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.SPIKE_APP_ID }}
+          private-key: ${{ secrets.SPIKE_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Snapshot + lock down
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          ORG: ${{ inputs.org }}
+          REPO: ${{ inputs.repo }}
+          STUDENT_LOGIN: ${{ inputs.student_login }}
+          DEADLINE_AT: ${{ inputs.deadline_at }}
+        run: node spikes/04-deadline/deadline.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-04-status
+          path: spikes/04-deadline/out/
+          if-no-files-found: warn
