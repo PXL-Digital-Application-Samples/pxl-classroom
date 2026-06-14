@@ -108,7 +108,9 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ---
 
-## Spike 5 — Submission-preservation · CONFIRMATORY · status: TODO
+## Spike 5 — Submission-preservation · CONFIRMATORY · status: PASS
+
+**Result (2026-06-14):** preserved `947970a…` from `spike01-provisioning-test` into private `spike05-archive` (`refs/heads/preserved/…`); hash verified; survived an orphan force-push of the source; object independently fetchable. Details in `spikes/05-preservation/README.md`.
 
 **Goal.** Trusted automation fetches a selected SHA from a private student repo, preserves it in an instructor-controlled repo, verifies the preserved hash, and confirms it survives a force-push of the source branch.
 
@@ -137,7 +139,7 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 - [x] Spike 3 public broker + non-member star + token-star confirmed
 - [ ] Spike 3 remaining: burst concurrency (~250 stars)
 - [x] Spike 4 PASS — lock-down demotes admin→read via App; 22s interval recorded
-- [ ] Spike 5 Pass
+- [x] Spike 5 PASS — preserved SHA verified; survives source force-push
 - [ ] Spike 6 Pass
 - [ ] `REQUIREMENTS.md` open decisions resolved; star-trigger confirmed or replaced
 - [ ] Version bumped Draft v0.2 → v1.0
