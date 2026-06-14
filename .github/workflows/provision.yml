@@ -1,0 +1,79 @@
+# PXL Classroom — reusable provisioning workflow.
+#
+# Per-assignment/per-org caller workflows invoke this via `workflow_call`.
+# It owns the concurrency guard (prevents duplicate provisioning for the same
+# org+repo) and delegates the work to the composite action in this repo.
+
+name: Provision (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      org:
+        required: true
+        type: string
+      template_owner:
+        required: true
+        type: string
+      template_repo:
+        required: true
+        type: string
+      target_repo:
+        required: true
+        type: string
+      student_login:
+        required: true
+        type: string
+      student_permission:
+        required: false
+        type: string
+        default: admin
+      repo_private:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      app_id:
+        required: true
+      app_private_key:
+        required: true
+    outputs:
+      repo_id:
+        description: Immutable GitHub repository ID
+        value: ${{ jobs.provision.outputs.repo_id }}
+      repo_url:
+        description: Repository HTML URL
+        value: ${{ jobs.provision.outputs.repo_url }}
+      outcome:
+        description: created | reused | fail:*
+        value: ${{ jobs.provision.outputs.outcome }}
+
+permissions:
+  contents: read
+
+# One in-flight provisioning per org+repo: prevents duplicate creation.
+concurrency:
+  group: provision-${{ inputs.org }}-${{ inputs.target_repo }}
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    outputs:
+      repo_id: ${{ steps.prov.outputs.repo-id }}
+      repo_url: ${{ steps.prov.outputs.repo-url }}
+      outcome: ${{ steps.prov.outputs.outcome }}
+    steps:
+      - name: Provision
+        id: prov
+        uses: PXL-Digital-Application-Samples/pxl-classroom/provisioning@v1
+        with:
+          app-id: ${{ secrets.app_id }}
+          app-private-key: ${{ secrets.app_private_key }}
+          org: ${{ inputs.org }}
+          template-owner: ${{ inputs.template_owner }}
+          template-repo: ${{ inputs.template_repo }}
+          target-repo: ${{ inputs.target_repo }}
+          student-login: ${{ inputs.student_login }}
+          student-permission: ${{ inputs.student_permission }}
+          repo-private: ${{ inputs.repo_private }}
