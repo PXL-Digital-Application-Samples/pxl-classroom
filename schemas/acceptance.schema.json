@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/acceptance.schema.json",
+  "title": "Acceptance",
+  "description": "An acceptance record stored in acceptances/<assignment-id>/<login>.json within a PXL Classroom control repository.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "github_login",
+    "github_id",
+    "accepted_at",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the assignment being accepted."
+    },
+    "github_login": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GitHub username of the student."
+    },
+    "github_id": {
+      "type": "integer",
+      "description": "Immutable GitHub user ID (sender.id from the star event)."
+    },
+    "accepted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the acceptance was recorded."
+    },
+    "star_event_ref": {
+      "type": "string",
+      "description": "URL of the workflow run that processed the star event."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["accepted", "provisioning", "provisioned", "failed"],
+      "description": "Current status of the acceptance lifecycle."
+    }
+  }
+}

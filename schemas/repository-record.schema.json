@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/repository-record.schema.json",
+  "title": "Repository Record",
+  "description": "A repository record stored in repositories/<assignment-id>/<login>.json within a PXL Classroom control repository.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "github_login",
+    "repo_id",
+    "repo_name",
+    "repo_url"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the assignment this repository belongs to."
+    },
+    "github_login": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GitHub username of the repository owner (student)."
+    },
+    "repo_id": {
+      "type": "integer",
+      "description": "Immutable GitHub repository ID."
+    },
+    "repo_name": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$",
+      "description": "Full repository name in org/repo format."
+    },
+    "repo_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "HTML URL of the repository on GitHub."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the repository was created."
+    },
+    "provisioned_by_run": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of the workflow run that provisioned this repository."
+    },
+    "student_permission": {
+      "type": "string",
+      "description": "Permission level granted to the student on this repository."
+    },
+    "access_state": {
+      "type": "string",
+      "enum": ["invited", "active", "removed", "unknown"],
+      "description": "Current state of the student's access to the repository."
+    },
+    "last_checked_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the last access-state check."
+    }
+  }
+}

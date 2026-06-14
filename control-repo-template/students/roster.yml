@@ -1,0 +1,12 @@
+# PXL Classroom — student roster.
+#
+# Full schema: schemas/roster.schema.json
+# github_login and github_id are filled during acceptance (v1 uses open acceptance).
+
+schema_version: 1
+students:
+  - student_id: "0123456"
+    display_name: Student Name
+    class_group: 3A
+    github_login: null
+    active: true

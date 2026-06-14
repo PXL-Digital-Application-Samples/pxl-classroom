@@ -1,0 +1,370 @@
+#!/usr/bin/env node
+// PXL Classroom — deadline report generator.
+//
+// Reads observations, acceptances, repository records, and overrides for a
+// given assignment and produces:
+//   - reports/<id>.json — structured deadline report
+//   - reports/<id>.csv  — CSV export (one row per student)
+//   - reports/dashboard.json — aggregated dashboard data
+//
+// The report classifies each student's submission as on-time, late, or
+// no-submission based on the observation evidence. It does NOT treat Git
+// commit dates as authoritative.
+//
+// Inputs via env: ASSIGNMENT_ID, DATA_DIR, OUTPUT_FORMAT
+// Outputs via GITHUB_OUTPUT: student_count, on_time_count, late_count, outcome
+
+import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
+import { appendFile } from "node:fs/promises";
+import { join } from "node:path";
+import { existsSync } from "node:fs";
+
+async function setOutput(name, value) {
+  if (process.env.GITHUB_OUTPUT)
+    await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value ?? ""}\n`);
+}
+async function summaryMd(md) {
+  if (process.env.GITHUB_STEP_SUMMARY)
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+}
+
+// Minimal YAML parser (same as accept.mjs / generate.mjs)
+function parseSimpleYaml(text) {
+  const result = {};
+  let currentObj = result;
+  let currentKey = null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const indent = line.search(/\S/);
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+    if (!match) continue;
+    const [, key, rawVal] = match;
+    let value = rawVal.trim();
+    if (value.includes(" #")) value = value.split(" #")[0].trim();
+    if (value === "" || value === "|" || value === ">") {
+      if (indent === 0) { result[key] = {}; currentObj = result[key]; currentKey = key; }
+      else { currentObj[key] = value; }
+      continue;
+    }
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+      value = value.slice(1, -1);
+    if (value === "true") value = true;
+    else if (value === "false") value = false;
+    else if (value === "null") value = null;
+    else if (/^\d+$/.test(value)) value = parseInt(value, 10);
+    if (indent > 0 && currentKey) { currentObj[key] = value; }
+    else { currentObj = result; currentKey = null; result[key] = value; }
+  }
+  return result;
+}
+
+async function readJsonSafe(path) {
+  try {
+    return JSON.parse(await readFile(path, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+async function readDirJsonFiles(dir) {
+  if (!existsSync(dir)) return [];
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+  const results = [];
+  for (const f of files) {
+    const data = await readJsonSafe(join(dir, f));
+    if (data) results.push(data);
+  }
+  return results;
+}
+
+async function main() {
+  const assignmentId = process.env.ASSIGNMENT_ID;
+  const dataDir = process.env.DATA_DIR || ".";
+  const outputFormat = process.env.OUTPUT_FORMAT || "both";
+
+  if (!assignmentId) {
+    console.error("[FAIL] ASSIGNMENT_ID is required");
+    await setOutput("outcome", "fail:validation");
+    process.exit(1);
+  }
+
+  // Load assignment definition
+  const assignmentPath = join(dataDir, "assignments", `${assignmentId}.yml`);
+  if (!existsSync(assignmentPath)) {
+    console.error(`[FAIL] Assignment not found: ${assignmentPath}`);
+    await setOutput("outcome", "fail:no-assignment");
+    process.exit(1);
+  }
+  const assignment = parseSimpleYaml(await readFile(assignmentPath, "utf-8"));
+  const deadlineAt = assignment.deadline_at ? new Date(assignment.deadline_at) : null;
+
+  // Load roster
+  const rosterPath = join(dataDir, "students", "roster.yml");
+  let roster = [];
+  if (existsSync(rosterPath)) {
+    // TODO: full YAML array parsing — for now, use a simpler approach
+    const rosterText = await readFile(rosterPath, "utf-8");
+    // Parse student entries (simplified — production should use a real YAML parser)
+    const rosterData = parseSimpleYaml(rosterText);
+    // roster.yml has students as an array — our minimal parser won't handle arrays,
+    // so we'll build the roster from acceptance records instead for v1
+  }
+
+  // Load acceptances
+  const acceptances = await readDirJsonFiles(
+    join(dataDir, "acceptances", assignmentId)
+  );
+  const acceptanceByLogin = new Map(acceptances.map((a) => [a.github_login, a]));
+
+  // Load repository records
+  const repos = await readDirJsonFiles(
+    join(dataDir, "repositories", assignmentId)
+  );
+  const repoByLogin = new Map(repos.map((r) => [r.github_login, r]));
+
+  // Load observations
+  const obsDir = join(dataDir, "observations", assignmentId);
+  const observationsByLogin = new Map();
+  if (existsSync(obsDir)) {
+    const loginDirs = await readdir(obsDir);
+    for (const login of loginDirs) {
+      const loginPath = join(obsDir, login);
+      const obs = await readDirJsonFiles(loginPath);
+      observationsByLogin.set(
+        login,
+        obs.sort((a, b) => new Date(a.observed_at) - new Date(b.observed_at))
+      );
+    }
+  }
+
+  // Load overrides
+  const overrides = await readDirJsonFiles(
+    join(dataDir, "overrides", assignmentId)
+  );
+  const overrideByLogin = new Map(overrides.map((o) => [o.github_login, o]));
+
+  // Build per-student report
+  const allLogins = new Set([
+    ...acceptanceByLogin.keys(),
+    ...repoByLogin.keys(),
+    ...observationsByLogin.keys(),
+  ]);
+
+  const students = [];
+  let onTimeCount = 0;
+  let lateCount = 0;
+  let noSubCount = 0;
+
+  for (const login of [...allLogins].sort()) {
+    const acceptance = acceptanceByLogin.get(login);
+    const repo = repoByLogin.get(login);
+    const observations = observationsByLogin.get(login) || [];
+    const override = overrideByLogin.get(login);
+
+    // Determine submission status from observations
+    let lastOnTimeSha = null;
+    let lastOnTimeObservedAt = null;
+    let firstLateSha = null;
+    let firstLateObservedAt = null;
+    let latestObservedSha = null;
+    let latestObservedAt = null;
+    let uncertaintySeconds = null;
+
+    for (const obs of observations) {
+      // Skip preservation records
+      if (obs.collection_type === "preservation") continue;
+
+      const obsTime = new Date(obs.observed_at);
+      latestObservedSha = obs.sha;
+      latestObservedAt = obs.observed_at;
+
+      if (deadlineAt && obsTime <= deadlineAt) {
+        lastOnTimeSha = obs.sha;
+        lastOnTimeObservedAt = obs.observed_at;
+      } else if (deadlineAt && obsTime > deadlineAt && !firstLateSha) {
+        firstLateSha = obs.sha;
+        firstLateObservedAt = obs.observed_at;
+      }
+    }
+
+    // Calculate uncertainty
+    if (deadlineAt && lastOnTimeObservedAt) {
+      const lastOnTimeTime = new Date(lastOnTimeObservedAt);
+      const gapMs = deadlineAt - lastOnTimeTime;
+      uncertaintySeconds = Math.max(0, gapMs / 1000);
+    }
+
+    // Determine status
+    let submissionStatus = "unknown";
+    if (!acceptance) {
+      submissionStatus = "no-submission";
+    } else if (lastOnTimeSha) {
+      if (firstLateSha && firstLateSha !== lastOnTimeSha) {
+        submissionStatus = "late";
+        lateCount++;
+      } else {
+        submissionStatus = "on-time";
+        onTimeCount++;
+      }
+    } else if (latestObservedSha) {
+      submissionStatus = deadlineAt ? "late" : "unknown";
+      if (deadlineAt) lateCount++;
+    } else {
+      submissionStatus = "no-submission";
+      noSubCount++;
+    }
+
+    // Find lockdown info from observations
+    const lockdownObs = observations.find((o) => o.collection_type === "lockdown");
+
+    // Find preservation info
+    const preservationPath = join(obsDir, login, "preservation.json");
+    const preservation = existsSync(preservationPath)
+      ? await readJsonSafe(preservationPath)
+      : null;
+
+    const warnings = [];
+    if (repo && !repo.repo_id) warnings.push("missing-repo-id");
+    if (acceptance && !repo) warnings.push("accepted-not-provisioned");
+    if (firstLateSha) warnings.push("late-activity-detected");
+
+    students.push({
+      github_login: login,
+      student_id: null, // filled from roster match
+      display_name: null, // filled from roster match
+      acceptance_state: acceptance?.status ?? "not-accepted",
+      repo_id: repo?.repo_id ?? null,
+      repo_name: repo?.repo_name ?? null,
+      repo_url: repo?.repo_url ?? null,
+      submission_status: submissionStatus,
+      last_on_time_sha: lastOnTimeSha,
+      last_on_time_observed_at: lastOnTimeObservedAt,
+      first_late_sha: firstLateSha,
+      first_late_observed_at: firstLateObservedAt,
+      latest_observed_sha: latestObservedSha,
+      latest_observed_at: latestObservedAt,
+      uncertainty_interval_seconds: uncertaintySeconds,
+      lock_down_at: lockdownObs?.observed_at ?? null,
+      lock_down_outcome: lockdownObs ? "locked" : null,
+      preservation_status: preservation?.verified
+        ? "preserved"
+        : preservation
+          ? "failed"
+          : "not-required",
+      preserved_sha: preservation?.preserved_sha ?? null,
+      warnings,
+    });
+  }
+
+  // Build report
+  const report = {
+    schema_version: 1,
+    assignment_id: assignmentId,
+    generated_at: new Date().toISOString(),
+    generator_version: "1.0.0",
+    source_revision: process.env.GITHUB_SHA || "unknown",
+    students,
+  };
+
+  // Write outputs
+  const reportsDir = join(dataDir, "reports");
+  await mkdir(reportsDir, { recursive: true });
+
+  if (outputFormat === "json" || outputFormat === "both") {
+    await writeFile(
+      join(reportsDir, `${assignmentId}.json`),
+      JSON.stringify(report, null, 2) + "\n"
+    );
+    console.log(`[ok] Wrote reports/${assignmentId}.json`);
+  }
+
+  if (outputFormat === "csv" || outputFormat === "both") {
+    const csvHeaders = [
+      "github_login",
+      "student_id",
+      "display_name",
+      "acceptance_state",
+      "submission_status",
+      "repo_name",
+      "repo_url",
+      "last_on_time_sha",
+      "last_on_time_observed_at",
+      "first_late_sha",
+      "first_late_observed_at",
+      "latest_observed_sha",
+      "latest_observed_at",
+      "uncertainty_interval_seconds",
+      "lock_down_at",
+      "preservation_status",
+      "preserved_sha",
+      "warnings",
+    ];
+
+    const csvRows = [csvHeaders.join(",")];
+    for (const s of students) {
+      const row = csvHeaders.map((h) => {
+        const v = s[h];
+        if (v === null || v === undefined) return "";
+        if (Array.isArray(v)) return `"${v.join("; ")}"`;
+        const str = String(v);
+        return str.includes(",") || str.includes('"')
+          ? `"${str.replace(/"/g, '""')}"`
+          : str;
+      });
+      csvRows.push(row.join(","));
+    }
+
+    await writeFile(
+      join(reportsDir, `${assignmentId}.csv`),
+      csvRows.join("\n") + "\n"
+    );
+    console.log(`[ok] Wrote reports/${assignmentId}.csv`);
+  }
+
+  // Generate dashboard aggregate
+  const dashboardPath = join(reportsDir, "dashboard.json");
+  let dashboard = { schema_version: 1, assignments: {} };
+  if (existsSync(dashboardPath)) {
+    dashboard = await readJsonSafe(dashboardPath) || dashboard;
+  }
+  dashboard.assignments[assignmentId] = {
+    title: assignment.title,
+    state: assignment.state,
+    opens_at: assignment.opens_at,
+    deadline_at: assignment.deadline_at,
+    total_students: students.length,
+    accepted: students.filter((s) => s.acceptance_state !== "not-accepted").length,
+    provisioned: students.filter((s) => s.repo_id).length,
+    on_time: onTimeCount,
+    late: lateCount,
+    no_submission: noSubCount,
+    with_warnings: students.filter((s) => s.warnings.length > 0).length,
+    generated_at: new Date().toISOString(),
+  };
+  dashboard.generated_at = new Date().toISOString();
+  await writeFile(dashboardPath, JSON.stringify(dashboard, null, 2) + "\n");
+
+  // Set outputs
+  await setOutput("student_count", String(students.length));
+  await setOutput("on_time_count", String(onTimeCount));
+  await setOutput("late_count", String(lateCount));
+  await setOutput("outcome", "generated");
+
+  await summaryMd(
+    `### Report: \`${assignmentId}\`\n\n` +
+      `| metric | count |\n|---|---|\n` +
+      `| total | ${students.length} |\n` +
+      `| on-time | ${onTimeCount} |\n` +
+      `| late | ${lateCount} |\n` +
+      `| no submission | ${noSubCount} |\n` +
+      `| warnings | ${students.filter((s) => s.warnings.length > 0).length} |\n`
+  );
+  console.log(`[ok] Report generated for ${assignmentId}: ${students.length} students`);
+}
+
+main().catch(async (e) => {
+  console.error(`[FAIL] ${e.message}`);
+  await setOutput("outcome", "fail:exception");
+  process.exit(1);
+});

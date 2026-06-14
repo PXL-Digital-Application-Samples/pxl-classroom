@@ -1,0 +1,131 @@
+# PXL Classroom — control repo: acceptance handler.
+#
+# Triggered by repository_dispatch from a public broker repo when a student
+# stars the broker. Validates the dispatch payload, records the acceptance,
+# and provisions the student's repository.
+#
+# This workflow runs in the PRIVATE per-org control repo.
+
+name: Accept assignment
+
+on:
+  repository_dispatch:
+    types: [acceptance]
+
+permissions:
+  contents: write  # to record acceptance and repo records
+
+# One acceptance at a time per assignment+student to prevent duplicate provisioning.
+concurrency:
+  group: accept-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.github_login }}
+  cancel-in-progress: false
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    outputs:
+      assignment_id: ${{ steps.accept.outputs.assignment-id }}
+      github_login: ${{ steps.accept.outputs.github-login }}
+      github_id: ${{ steps.accept.outputs.github-id }}
+      outcome: ${{ steps.accept.outputs.outcome }}
+      target_repo: ${{ steps.accept.outputs.target-repo }}
+    steps:
+      - name: Checkout control repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate and record acceptance
+        id: accept
+        uses: PXL-Digital-Application-Samples/pxl-classroom/acceptance@main
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ github.repository_owner }}
+          control-repo: ${{ github.event.repository.name }}
+
+      - name: Commit acceptance record
+        if: steps.accept.outputs.outcome == 'accepted'
+        shell: bash
+        run: |
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git add acceptances/
+          git commit -m "Accept ${{ steps.accept.outputs.github-login }} for ${{ steps.accept.outputs.assignment-id }}" || true
+          git push
+
+  provision:
+    needs: accept
+    if: needs.accept.outputs.outcome == 'accepted'
+    uses: PXL-Digital-Application-Samples/pxl-classroom/.github/workflows/provision.yml@main
+    with:
+      org: ${{ github.repository_owner }}
+      template_owner: ${{ github.repository_owner }}
+      template_repo: ${{ needs.accept.outputs.assignment_id && format('template-{0}', needs.accept.outputs.assignment_id) || '' }}
+      target_repo: ${{ needs.accept.outputs.target_repo }}
+      student_login: ${{ needs.accept.outputs.github_login }}
+    secrets:
+      app_id: ${{ secrets.PXL_APP_ID }}
+      app_private_key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+
+  record:
+    needs: [accept, provision]
+    if: always() && needs.accept.outputs.outcome == 'accepted'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout control repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Record repository
+        shell: bash
+        run: |
+          ASSIGNMENT_ID="${{ needs.accept.outputs.assignment_id }}"
+          LOGIN="${{ needs.accept.outputs.github_login }}"
+          REPO_ID="${{ needs.provision.outputs.repo_id }}"
+          REPO_URL="${{ needs.provision.outputs.repo_url }}"
+          OUTCOME="${{ needs.provision.outputs.outcome }}"
+          ORG="${{ github.repository_owner }}"
+
+          mkdir -p "repositories/${ASSIGNMENT_ID}"
+          cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF
+          {
+            "schema_version": 1,
+            "assignment_id": "${ASSIGNMENT_ID}",
+            "github_login": "${LOGIN}",
+            "repo_id": ${REPO_ID:-null},
+            "repo_name": "${ORG}/${OUTCOME:+${{ needs.accept.outputs.target_repo }}}",
+            "repo_url": "${REPO_URL}",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "provisioned_by_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "student_permission": "admin",
+            "access_state": "invited",
+            "last_checked_at": null
+          }
+          EOF
+
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git add "repositories/"
+          # Update acceptance status
+          if [ -f "acceptances/${ASSIGNMENT_ID}/${LOGIN}.json" ]; then
+            ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
+            if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+              # Use Node to update JSON (safe, no jq dependency)
+              node -e "
+                const fs = require('fs');
+                const d = JSON.parse(fs.readFileSync('${ACCEPT_FILE}','utf-8'));
+                d.status = 'provisioned';
+                fs.writeFileSync('${ACCEPT_FILE}', JSON.stringify(d, null, 2) + '\n');
+              "
+            else
+              node -e "
+                const fs = require('fs');
+                const d = JSON.parse(fs.readFileSync('${ACCEPT_FILE}','utf-8'));
+                d.status = 'failed';
+                fs.writeFileSync('${ACCEPT_FILE}', JSON.stringify(d, null, 2) + '\n');
+              "
+            fi
+            git add "acceptances/"
+          fi
+          git commit -m "Record repo for ${LOGIN} in ${ASSIGNMENT_ID} (${OUTCOME})" || true
+          git push

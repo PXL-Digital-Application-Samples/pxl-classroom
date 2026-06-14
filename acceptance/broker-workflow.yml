@@ -1,0 +1,100 @@
+# PXL Classroom — broker watch:started handler.
+#
+# This workflow lives on a PUBLIC broker repo's default branch (one per
+# assignment). When a student stars the broker, GitHub fires watch:started.
+# This workflow validates the actor and dispatches a repository_dispatch event
+# to the PRIVATE control repo, where the actual acceptance + provisioning runs.
+#
+# The broker is intentionally minimal: it holds NO roster, NO admin credentials
+# beyond what's needed to dispatch, and logs nothing identifying beyond the
+# (already public) star.
+#
+# Secrets required (set as org secrets scoped to broker repos, or repo secrets):
+#   DISPATCH_APP_ID        — Dispatcher App ID (or Provisioning App ID if single-App model)
+#   DISPATCH_APP_PRIVATE_KEY — Dispatcher App private key (PEM)
+#
+# Variables required:
+#   ASSIGNMENT_ID    — set when publish-assignment creates this repo
+#   CONTROL_REPO     — e.g. "pxl-classroom-control"
+#   CONTROL_ORG      — e.g. "PXLAutomation" (the org owning the control repo)
+
+name: Acceptance trigger
+
+on:
+  watch:
+    types: [started]
+
+permissions:
+  contents: read
+
+# One at a time per actor to avoid duplicate dispatches from rapid unstar/restar.
+concurrency:
+  group: accept-${{ github.actor }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    # Only fire for stars, not other watch events
+    if: github.event.action == 'started'
+    steps:
+      - name: Validate actor
+        id: validate
+        shell: bash
+        run: |
+          ACTOR="${{ github.actor }}"
+          ACTOR_ID="${{ github.event.sender.id }}"
+
+          # Basic validation — actor must be a real user, not a bot
+          if [[ -z "$ACTOR" || -z "$ACTOR_ID" ]]; then
+            echo "::error::Missing actor or actor ID"
+            exit 1
+          fi
+
+          # Log (public info only — the star itself is already public)
+          echo "Actor: $ACTOR (id: $ACTOR_ID)"
+          echo "actor=$ACTOR" >> "$GITHUB_OUTPUT"
+          echo "actor_id=$ACTOR_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Mint dispatcher token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.DISPATCH_APP_ID }}
+          private-key: ${{ secrets.DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ vars.CONTROL_ORG }}
+
+      - name: Dispatch to control repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          ASSIGNMENT_ID="${{ vars.ASSIGNMENT_ID }}"
+          CONTROL_ORG="${{ vars.CONTROL_ORG }}"
+          CONTROL_REPO="${{ vars.CONTROL_REPO }}"
+          ACTOR="${{ steps.validate.outputs.actor }}"
+          ACTOR_ID="${{ steps.validate.outputs.actor_id }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [[ -z "$ASSIGNMENT_ID" || -z "$CONTROL_ORG" || -z "$CONTROL_REPO" ]]; then
+            echo "::error::Missing ASSIGNMENT_ID, CONTROL_ORG, or CONTROL_REPO variable"
+            exit 1
+          fi
+
+          # Dispatch to the private control repo
+          gh api \
+            --method POST \
+            "/repos/${CONTROL_ORG}/${CONTROL_REPO}/dispatches" \
+            -f "event_type=acceptance" \
+            -f "client_payload[assignment_id]=${ASSIGNMENT_ID}" \
+            -f "client_payload[github_login]=${ACTOR}" \
+            -f "client_payload[github_id]=${ACTOR_ID}" \
+            -f "client_payload[workflow_run_url]=${RUN_URL}"
+
+          echo "### ✅ Dispatched acceptance" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| field | value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| assignment | ${ASSIGNMENT_ID} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| actor | ${ACTOR} (${ACTOR_ID}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| control | ${CONTROL_ORG}/${CONTROL_REPO} |" >> "$GITHUB_STEP_SUMMARY"

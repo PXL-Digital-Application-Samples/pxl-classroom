@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/report.schema.json",
+  "title": "Deadline Report",
+  "description": "A deadline report for an assignment, stored in reports/<assignment-id>.json.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "students"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the assignment this report covers."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this report was generated."
+    },
+    "generator_version": {
+      "type": "string",
+      "description": "Version of the report generator that produced this report."
+    },
+    "source_revision": {
+      "type": "string",
+      "description": "Git commit SHA of the control repo at generation time."
+    },
+    "students": {
+      "type": "array",
+      "description": "Per-student submission summary.",
+      "items": {
+        "type": "object",
+        "required": ["github_login"],
+        "additionalProperties": false,
+        "properties": {
+          "github_login": {
+            "type": "string",
+            "minLength": 1,
+            "description": "GitHub username of the student."
+          },
+          "student_id": {
+            "type": ["string", "null"],
+            "description": "Institutional student ID, if linked via roster."
+          },
+          "display_name": {
+            "type": ["string", "null"],
+            "description": "Display name from the roster."
+          },
+          "acceptance_state": {
+            "type": "string",
+            "description": "Acceptance status of the student for this assignment."
+          },
+          "repo_id": {
+            "type": ["integer", "null"],
+            "description": "GitHub repository ID, if a repo exists."
+          },
+          "repo_name": {
+            "type": ["string", "null"],
+            "description": "Full repository name in org/repo format."
+          },
+          "repo_url": {
+            "type": ["string", "null"],
+            "description": "HTML URL of the student's repository."
+          },
+          "submission_status": {
+            "type": "string",
+            "enum": ["on-time", "late", "no-submission", "unknown"],
+            "description": "Whether the submission was on time, late, missing, or indeterminate."
+          },
+          "last_on_time_sha": {
+            "type": ["string", "null"],
+            "description": "SHA of the last commit observed before the deadline."
+          },
+          "last_on_time_observed_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Timestamp of the last on-time observation."
+          },
+          "first_late_sha": {
+            "type": ["string", "null"],
+            "description": "SHA of the first commit observed after the deadline."
+          },
+          "first_late_observed_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Timestamp of the first late observation."
+          },
+          "latest_observed_sha": {
+            "type": ["string", "null"],
+            "description": "SHA of the most recent observation regardless of timing."
+          },
+          "latest_observed_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Timestamp of the most recent observation."
+          },
+          "uncertainty_interval_seconds": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Seconds between the last on-time and first late observation. Indicates confidence in the deadline boundary."
+          },
+          "lock_down_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Timestamp when the repository was locked down."
+          },
+          "lock_down_outcome": {
+            "type": ["string", "null"],
+            "description": "Outcome of the lock-down operation."
+          },
+          "preservation_status": {
+            "type": ["string", "null"],
+            "enum": ["preserved", "pending", "failed", "not-required", null],
+            "description": "Status of the deadline snapshot preservation."
+          },
+          "preserved_sha": {
+            "type": ["string", "null"],
+            "description": "SHA of the preserved deadline snapshot."
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Human-readable warnings about this student's submission."
+          }
+        }
+      }
+    }
+  }
+}

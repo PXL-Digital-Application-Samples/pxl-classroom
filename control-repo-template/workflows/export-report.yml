@@ -1,0 +1,51 @@
+# PXL Classroom — control repo: export report.
+#
+# Generate and commit a deadline report with CSV/JSON export.
+
+name: Export report
+
+on:
+  workflow_dispatch:
+    inputs:
+      assignment_id:
+        description: "Assignment ID"
+        required: true
+        type: string
+      format:
+        description: "json | csv | both"
+        required: false
+        type: string
+        default: "both"
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Generate report
+        uses: PXL-Digital-Application-Samples/pxl-classroom/report@main
+        with:
+          assignment-id: ${{ inputs.assignment_id }}
+          output-format: ${{ inputs.format }}
+
+      - name: Commit report
+        shell: bash
+        run: |
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git add reports/
+          git diff --cached --quiet || git commit -m "Export report for ${{ inputs.assignment_id }} [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
+          git push
+
+      - name: Upload export
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: report-${{ inputs.assignment_id }}
+          path: |
+            reports/${{ inputs.assignment_id }}.json
+            reports/${{ inputs.assignment_id }}.csv

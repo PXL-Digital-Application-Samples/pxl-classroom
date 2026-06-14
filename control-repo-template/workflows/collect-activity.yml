@@ -1,0 +1,68 @@
+# PXL Classroom — control repo: scheduled activity collector.
+#
+# Periodically snapshots the configured submission ref for all managed repos
+# in an assignment. Increases frequency around deadlines.
+#
+# Schedules:
+#   - Normal: every 6 hours
+#   - Near-deadline: every 15 minutes (±2h of deadline) — configure via
+#     a separate workflow or manual trigger
+#   - Manual: workflow_dispatch for on-demand collection
+
+name: Collect activity
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      assignment_id:
+        description: "Assignment ID (blank = all published)"
+        required: false
+        type: string
+      collection_type:
+        description: "scheduled | manual | deadline"
+        required: false
+        type: string
+        default: "manual"
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Mint App token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Collect snapshots
+        uses: PXL-Digital-Application-Samples/pxl-classroom/collect@main
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ github.repository_owner }}
+          assignment-id: ${{ inputs.assignment_id || '' }}
+          collection-type: ${{ inputs.collection_type || 'scheduled' }}
+
+      - name: Commit observations
+        shell: bash
+        run: |
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git add observations/
+          git diff --cached --quiet || git commit -m "Collect activity snapshots [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
+          git push

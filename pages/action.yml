@@ -1,0 +1,62 @@
+name: PXL Classroom Pages Generator
+description: >-
+  Generate public assignment metadata JSON for GitHub Pages, run the privacy
+  scanner, and output deployment-ready files. No private data (roster, per-student
+  state) is included — those are fetched at runtime.
+
+inputs:
+  data-dir:
+    description: Root of the control-repo data tree
+    required: false
+    default: "."
+  output-dir:
+    description: Directory to write public JSON files
+    required: false
+    default: "public"
+
+outputs:
+  generated-count:
+    description: Number of assignments in generated output
+    value: ${{ steps.generate.outputs.generated_count }}
+  scan-result:
+    description: clean | blocked
+    value: ${{ steps.scan.outputs.scan_result }}
+  outcome:
+    description: published | blocked | fail:*
+    value: ${{ steps.result.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: "20"
+
+    - name: Generate public metadata
+      id: generate
+      shell: bash
+      env:
+        DATA_DIR: ${{ inputs.data-dir }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: node "$GITHUB_ACTION_PATH/generate.mjs"
+
+    - name: Privacy scan
+      id: scan
+      shell: bash
+      env:
+        SCAN_DIR: ${{ inputs.output-dir }}
+      run: node "$GITHUB_ACTION_PATH/scan.mjs"
+
+    - name: Set outcome
+      id: result
+      shell: bash
+      run: |
+        SCAN="${{ steps.scan.outputs.scan_result }}"
+        if [ "$SCAN" = "clean" ]; then
+          echo "outcome=published" >> "$GITHUB_OUTPUT"
+        else
+          echo "outcome=blocked" >> "$GITHUB_OUTPUT"
+          echo "::error::Privacy scan blocked publication — see scan output"
+          exit 1
+        fi

@@ -1,0 +1,74 @@
+name: PXL Classroom Preserve
+description: >-
+  Preserve a candidate SHA from a student repo by pushing it to an
+  instructor-controlled archive repo, then verify the hash via ls-remote.
+
+inputs:
+  app-id:
+    description: GitHub App ID
+    required: true
+  app-private-key:
+    description: GitHub App private key (PEM)
+    required: true
+  org:
+    description: Target organization (App must be installed here)
+    required: true
+  assignment-id:
+    description: Assignment slug
+    required: true
+  source-repo:
+    description: Source repository name (without org prefix)
+    required: true
+  source-sha:
+    description: Full 40-char hex SHA to preserve
+    required: true
+  archive-repo:
+    description: Archive repository name (without org prefix)
+    required: true
+  login:
+    description: Student GitHub login
+    required: true
+  data-dir:
+    description: Root data directory containing observations/
+    required: true
+
+outputs:
+  preserved_sha:
+    description: The SHA that was preserved
+    value: ${{ steps.run.outputs.preserved_sha }}
+  verified:
+    description: "true if the preserved SHA was verified via ls-remote"
+    value: ${{ steps.run.outputs.verified }}
+  outcome:
+    description: preserved | fail:*
+    value: ${{ steps.run.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint App installation token for the target org
+      id: token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.app-private-key }}
+        owner: ${{ inputs.org }}
+
+    - name: Set up Node
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: "20"
+
+    - name: Preserve submission
+      id: run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+        ORG: ${{ inputs.org }}
+        ASSIGNMENT_ID: ${{ inputs.assignment-id }}
+        SOURCE_REPO: ${{ inputs.source-repo }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        ARCHIVE_REPO: ${{ inputs.archive-repo }}
+        STUDENT_LOGIN: ${{ inputs.login }}
+        DATA_DIR: ${{ inputs.data-dir }}
+      run: node "$GITHUB_ACTION_PATH/preserve.mjs"

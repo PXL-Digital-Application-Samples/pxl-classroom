@@ -1,0 +1,61 @@
+name: PXL Classroom Accept
+description: >-
+  Validate a repository_dispatch acceptance event from a broker, match against
+  the roster (or open-accept in v1), check guardrails, and record the
+  acceptance. Designed to run in the per-org PRIVATE control repository.
+
+inputs:
+  app-id:
+    description: GitHub App ID (provisioning App)
+    required: true
+  app-private-key:
+    description: GitHub App private key (PEM)
+    required: true
+  org:
+    description: Target organization
+    required: true
+  control-repo:
+    description: Control repository name (this repo)
+    required: true
+  data-dir:
+    description: Root of the control-repo data tree
+    required: false
+    default: "."
+
+outputs:
+  assignment-id:
+    description: Validated assignment ID
+    value: ${{ steps.accept.outputs.assignment_id }}
+  github-login:
+    description: Validated student GitHub login
+    value: ${{ steps.accept.outputs.github_login }}
+  github-id:
+    description: Immutable GitHub user ID
+    value: ${{ steps.accept.outputs.github_id }}
+  outcome:
+    description: accepted | already-accepted | rejected:* | fail:*
+    value: ${{ steps.accept.outputs.outcome }}
+  target-repo:
+    description: Deterministic target repository name
+    value: ${{ steps.accept.outputs.target_repo }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: "20"
+
+    - name: Validate acceptance
+      id: accept
+      shell: bash
+      env:
+        ASSIGNMENT_ID: ${{ github.event.client_payload.assignment_id }}
+        GITHUB_LOGIN: ${{ github.event.client_payload.github_login }}
+        GITHUB_ID: ${{ github.event.client_payload.github_id }}
+        WORKFLOW_RUN_URL: ${{ github.event.client_payload.workflow_run_url }}
+        ORG: ${{ inputs.org }}
+        CONTROL_REPO: ${{ inputs.control-repo }}
+        DATA_DIR: ${{ inputs.data-dir }}
+      run: node "$GITHUB_ACTION_PATH/accept.mjs"
