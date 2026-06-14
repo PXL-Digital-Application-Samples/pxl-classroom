@@ -120,7 +120,9 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ---
 
-## Spike 6 — Pages privacy · CONFIRMATORY · status: TODO
+## Spike 6 — Pages privacy · CONFIRMATORY · status: PASS
+
+**Result (2026-06-14):** `scan.mjs` privacy gate passes a clean public-metadata sample and blocks a leaky one (token, email, `student_id`, `display_name`). Pages = public metadata only + runtime-fetch for private state + scanner as a publish gate. Details in `spikes/06-pages-privacy/README.md`.
 
 **Goal.** Confirm the runtime-fetch model leaks nothing: pre-generated public Pages data contains only public assignment metadata; roster and private repo data are reachable only at runtime with the user's own token.
 
@@ -140,6 +142,6 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 - [ ] Spike 3 remaining: burst concurrency (~250 stars)
 - [x] Spike 4 PASS — lock-down demotes admin→read via App; 22s interval recorded
 - [x] Spike 5 PASS — preserved SHA verified; survives source force-push
-- [ ] Spike 6 Pass
+- [x] Spike 6 PASS — privacy scanner blocks private data in Pages output
 - [ ] `REQUIREMENTS.md` open decisions resolved; star-trigger confirmed or replaced
 - [ ] Version bumped Draft v0.2 → v1.0

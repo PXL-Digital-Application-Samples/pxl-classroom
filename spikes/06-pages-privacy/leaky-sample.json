@@ -1,0 +1,13 @@
+{
+  "_comment": "DELIBERATELY BAD — used only to prove the scanner catches leaks. Never publish anything like this.",
+  "students": [
+    {
+      "student_id": "0123456",
+      "display_name": "Jane Student",
+      "email": "jane.student@pxl.be",
+      "github_login": "janepxl",
+      "repo_url": "https://github.com/pxl-classroom/linux-processes-janepxl"
+    }
+  ],
+  "debug_token": "gho_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+}

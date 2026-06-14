@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-14T20:00:00Z",
+  "note": "This is the ONLY shape allowed in public Pages output: public assignment metadata. Per-student/private state is fetched at runtime with the requesting user's own token.",
+  "assignments": [
+    {
+      "id": "linux-processes-2026",
+      "title": "Linux Processes",
+      "description": "Short student-facing description",
+      "organization": "pxl-classroom",
+      "state": "published",
+      "opens_at": "2026-09-21T06:00:00Z",
+      "deadline_at": "2026-10-05T21:59:59Z",
+      "timezone": "Europe/Brussels",
+      "broker_repo": "pxl-classroom/broker-linux-processes-2026"
+    }
+  ]
+}
