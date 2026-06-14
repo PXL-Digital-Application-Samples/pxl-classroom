@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/override.schema.json",
+  "title": "Override",
+  "description": "Lecturer overrides for a student on an assignment, stored in overrides/<assignment-id>/<login>.json.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "github_login",
+    "overrides"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the assignment."
+    },
+    "github_login": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GitHub username of the student being overridden."
+    },
+    "overrides": {
+      "type": "array",
+      "description": "List of override entries applied by lecturers.",
+      "items": {
+        "type": "object",
+        "required": ["type", "reason", "overridden_by", "overridden_at"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "github_login",
+              "acceptance_state",
+              "repository",
+              "deadline_extension",
+              "submission_sha",
+              "late_status",
+              "exemption",
+              "annotation"
+            ],
+            "description": "Category of the override."
+          },
+          "value": {
+            "description": "Override value. Type depends on the override type."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable justification for the override."
+          },
+          "overridden_by": {
+            "type": "string",
+            "minLength": 1,
+            "description": "GitHub login of the lecturer who applied the override."
+          },
+          "overridden_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when the override was applied."
+          }
+        }
+      }
+    }
+  }
+}

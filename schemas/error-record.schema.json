@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/error-record.schema.json",
+  "title": "Error Record",
+  "description": "Error records for an assignment, stored in errors/<assignment-id>.json within a PXL Classroom control repository.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "errors"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the assignment these errors relate to."
+    },
+    "errors": {
+      "type": "array",
+      "description": "List of recorded errors.",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "category", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when the error occurred."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "provisioning",
+              "collection",
+              "lockdown",
+              "preservation",
+              "validation",
+              "dispatch"
+            ],
+            "description": "Error category indicating which subsystem failed."
+          },
+          "github_login": {
+            "type": ["string", "null"],
+            "description": "GitHub login of the affected student, if applicable."
+          },
+          "repo_id": {
+            "type": ["integer", "null"],
+            "description": "GitHub repository ID of the affected repo, if applicable."
+          },
+          "workflow_run": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "description": "URL of the workflow run where the error occurred."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable error message."
+          },
+          "resolved": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the error has been resolved."
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when the error was resolved."
+          }
+        }
+      }
+    }
+  }
+}

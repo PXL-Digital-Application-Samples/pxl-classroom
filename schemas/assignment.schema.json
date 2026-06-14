@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/assignment.schema.json",
+  "title": "Assignment",
+  "description": "An assignment definition stored in assignments/<id>.yml within a PXL Classroom control repository.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "organization",
+    "template",
+    "repository_name_pattern",
+    "opens_at",
+    "deadline_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,99}$",
+      "description": "URL-safe slug uniquely identifying the assignment."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable assignment title."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional longer description of the assignment."
+    },
+    "organization": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GitHub organization that owns this assignment."
+    },
+    "template": {
+      "type": "object",
+      "description": "Source template repository used to create student repos.",
+      "required": ["owner", "repository"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Owner (user or org) of the template repository."
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the template repository."
+        },
+        "repository_id": {
+          "type": "integer",
+          "description": "Immutable GitHub repository ID of the template. Set once on first use."
+        }
+      }
+    },
+    "repository_name_pattern": {
+      "type": "string",
+      "pattern": "\\{github_login\\}",
+      "description": "Naming pattern for student repositories. Must contain {github_login}."
+    },
+    "opens_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 date-time when the assignment opens for acceptance."
+    },
+    "deadline_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 date-time submission deadline."
+    },
+    "timezone": {
+      "type": "string",
+      "default": "Europe/Brussels",
+      "description": "IANA timezone used for display and scheduling. Defaults to Europe/Brussels."
+    },
+    "submission_ref": {
+      "type": "string",
+      "default": "refs/heads/main",
+      "description": "Git ref considered as the submission branch."
+    },
+    "student_permission": {
+      "type": "string",
+      "enum": ["pull", "triage", "push", "maintain", "admin"],
+      "default": "admin",
+      "description": "Permission level granted to the student on their repository."
+    },
+    "acceptance_mode": {
+      "type": "string",
+      "enum": ["self-service", "pre-provisioned"],
+      "default": "self-service",
+      "description": "How student repos are created: self-service (star event) or pre-provisioned."
+    },
+    "late_policy": {
+      "type": "string",
+      "enum": ["report", "block"],
+      "default": "report",
+      "description": "What happens on late submissions: report only, or block pushes."
+    },
+    "state": {
+      "type": "string",
+      "enum": ["draft", "published", "closed", "archived"],
+      "default": "draft",
+      "description": "Lifecycle state of the assignment."
+    },
+    "max_acceptances": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional guardrail limiting the number of accepted students."
+    },
+    "lock_down_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to lock down student repos after the deadline."
+    }
+  }
+}

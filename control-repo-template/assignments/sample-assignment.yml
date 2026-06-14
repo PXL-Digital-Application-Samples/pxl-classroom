@@ -1,0 +1,24 @@
+# PXL Classroom — sample assignment definition.
+# Copy this file and edit for your assignment.
+#
+# Full schema: schemas/assignment.schema.json
+
+schema_version: 1
+id: sample-assignment
+title: Sample Assignment
+description: A sample assignment for testing
+organization: PXLAutomation
+template:
+  owner: PXLAutomation
+  repository: template-automation-pe-1
+repository_name_pattern: sample-assignment-{github_login}
+opens_at: 2026-09-21T06:00:00Z
+deadline_at: 2026-10-05T21:59:59Z
+timezone: Europe/Brussels
+submission_ref: refs/heads/main
+student_permission: admin
+acceptance_mode: self-service
+late_policy: report
+state: draft
+max_acceptances: 50
+lock_down_enabled: true

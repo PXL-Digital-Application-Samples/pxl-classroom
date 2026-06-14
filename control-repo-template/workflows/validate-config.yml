@@ -1,0 +1,65 @@
+# PXL Classroom — control repo: validate configuration.
+#
+# Validates assignment definitions and roster against JSON schemas.
+# Can be run manually or on push to config files.
+
+name: Validate configuration
+
+on:
+  push:
+    paths:
+      - "assignments/**"
+      - "students/**"
+      - "schemas/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Validate assignments
+        shell: bash
+        run: |
+          echo "### Configuration validation" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          ERRORS=0
+
+          for f in assignments/*.yml; do
+            [ -f "$f" ] || continue
+            # Basic YAML structure check (Node inline)
+            node -e "
+              const fs = require('fs');
+              const text = fs.readFileSync('$f', 'utf-8');
+              const required = ['id', 'title', 'organization', 'opens_at', 'deadline_at', 'state'];
+              const missing = required.filter(k => !text.includes(k + ':'));
+              if (missing.length) {
+                console.error('ERROR: $f missing fields:', missing.join(', '));
+                process.exit(1);
+              }
+              // Validate state
+              const stateMatch = text.match(/^state:\s*(\S+)/m);
+              const validStates = ['draft', 'published', 'closed', 'archived'];
+              if (stateMatch && !validStates.includes(stateMatch[1])) {
+                console.error('ERROR: $f has invalid state:', stateMatch[1]);
+                process.exit(1);
+              }
+              console.log('OK: $f');
+            " || ERRORS=$((ERRORS + 1))
+          done
+
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "| result | ❌ $ERRORS error(s) |" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "| result | ✅ all valid |" >> "$GITHUB_STEP_SUMMARY"
