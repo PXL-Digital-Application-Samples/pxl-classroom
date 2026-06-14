@@ -10,6 +10,10 @@ Working conventions for this repo (`PXL-Digital-Application-Samples/pxl-classroo
 - Be terse and concrete. Do things rather than explain them; give exact values/clicks when the user must act.
 - Don't ask for command approval — permissions are set to bypass in `.claude/settings.local.json`.
 
+## Progress tracking
+- Implementation progress is tracked in `PROGRESS.md` — update it as tasks complete.
+- Implementation plan lives in `IMPLEMENTATION_PLAN.md`.
+
 ## Project facts
 - Target platform: **GitHub Team for Education. Never GitHub Enterprise.**
 - This repo is the shared codebase / spike host. Spikes live in `spikes/`; plan in `SPIKES_PLAN.md`; requirements in `REQUIREMENTS.md`.
