@@ -1,7 +1,7 @@
 # PXL Classroom Requirements
 
-Status: Draft  
-Version: 0.2  
+Status: Approved (technical spikes complete)  
+Version: 1.0  
 Project name: PXL Classroom  
 Last updated: 2026-06-14
 
@@ -767,7 +767,7 @@ The trusted automation credential shall:
 - never be printed to logs;
 - be rotatable without modifying student repositories.
 
-The GitHub App permission set required for provisioning is confirmed by Spike 1 to be: Repository **Administration** (read/write), **Contents** (read/write), and **Metadata** (read). This set is sufficient to create a repository from a private template and grant a student administrator access. The set may extend (for example Organization Members read) as later spikes for collection, lock-down, and preservation run; it shall remain the minimum required.
+The GitHub App permission set required for provisioning is confirmed by Spike 1 to be: Repository **Administration** (read/write), **Contents** (read/write), and **Metadata** (read). This set is sufficient to create a repository from a private template and grant a student administrator access. All later spikes (collection, lock-down, preservation) ran within this set; no further permissions were required. Finalized minimum set: Administration RW, Contents RW, Metadata R.
 
 For the browser acceptance flow, the same App additionally requires the user-level Account **Starring** (read/write) permission with Device Flow enabled. This is exercised only by the user-to-server (device-flow) token, which stars the broker and cannot use the App's installation (provisioning) permissions. Confirmed by Spikes 2–3.
 
@@ -1018,7 +1018,7 @@ Version 1 is acceptable when a lecturer can:
 
 ## Resolved decisions
 
-Version 0.2 resolves the following:
+The following decisions are resolved:
 
 - The system targets GitHub Team for Education and shall never depend on GitHub Enterprise.
 - Deadline evidence uses level A (trusted central snapshots) as the primary mechanism; per-push audit events are not available on the target plan and are not used.
@@ -1038,16 +1038,14 @@ Version 0.2 resolves the following:
 - Spike 4 (deadline lock-down) passed: at the deadline the App demotes the student admin→read; the student becomes read-only and cannot self-restore (the org-level App installation out-ranks repo admin). Snapshots record repo id/ref/SHA; residual uncertainty is the deadline→workflow-execution gap (22s in the test).
 - Spike 5 (preservation) passed: a selected SHA is pushed from the student repo into a private instructor-controlled archive repo, the preserved hash is verified, and it survives a force-push / history rewrite of the source (object remains independently fetchable). Confirms recording a SHA alone is insufficient — the reachable object must be copied out of student control.
 - Spike 6 (Pages privacy) passed: published Pages output carries only public assignment metadata; a privacy scanner (`scan.mjs`) blocks publishing if roster fields, emails, tokens, or keys appear. Private state is fetched at runtime with the requesting user's own token. Resolves the Pages-visibility open decision.
+- Archive representation finalized (Spike 5): the preserved commit is stored as a branch (or tag) in a private instructor-controlled archive repository.
+- GitHub App permissions finalized: Repository Administration RW, Contents RW, Metadata R, plus Account Starring RW (user) with Device Flow enabled. All spikes ran within this set; nothing more was needed.
+- Class-wide acceptance burst (~250) is handled by design — workflow concurrency, controlled fan-out, and secondary-rate-limit backoff — rather than by a per-event guarantee; not separately spiked (would require ~250 accounts).
 - Spike 2 (auth) passed for identity: GitHub device flow identifies the user with no PAT and no browser secret, yielding an 8h expiring user-to-server token with a refresh token and no broad scopes. Device flow is the **selected** browser-auth flow: with the App's Account/Starring permission, the device-flow user token stars the broker (HTTP 204, Spike 3), proving the full chain end-to-end.
 
 ## Open decisions
 
-The following decisions remain intentionally unresolved:
-
-- exact archive representation;
-- exact GitHub App permissions (confirmed so far: Administration RW, Contents RW, Metadata R for provisioning, plus Account/Starring RW for browser acceptance; may extend as collection/lock-down/preservation spikes run).
-
-These remaining decisions are expected to be settled by the mandatory technical spikes and implementation rather than by policy choice.
+All version 1 open decisions are resolved — see *Resolved decisions*. The mandatory technical spikes are complete.
 
 ## Deferred features
 

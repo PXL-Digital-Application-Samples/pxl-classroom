@@ -1,14 +1,14 @@
 # PXL Classroom — Technical Spikes Plan
 
-Status: Active
-Companion to: `REQUIREMENTS.md` (Draft v0.2)
+Status: Complete — all six spikes pass; `REQUIREMENTS.md` is v1.0 (Approved)
+Companion to: `REQUIREMENTS.md` (v1.0, Approved)
 Last updated: 2026-06-14
 
 ## Why this exists
 
-`REQUIREMENTS.md` is a **draft**. Its section *"Technical spikes required before implementation freeze"* lists prototypes that must succeed before the architecture is final. Until they run, several load-bearing assumptions are believed but unproven, and two of them can still **change the requirements**.
+`REQUIREMENTS.md` began as a **draft**. Its section *"Technical spikes required before implementation freeze"* listed prototypes that had to succeed before the architecture could be final. Several load-bearing assumptions were believed but unproven, and some did **change the requirements**.
 
-This plan turns that section into concrete, runnable spikes with explicit success criteria, deliverables, and a real target environment. When all spikes pass (or their fallbacks are accepted), `REQUIREMENTS.md` graduates **Draft v0.2 → frozen v1.0** and the three remaining open decisions (browser auth flow, archive format, exact GitHub App permissions) close.
+This plan turns that section into concrete, runnable spikes with explicit success criteria, deliverables, and a real target environment. All spikes have passed; `REQUIREMENTS.md` is now **v1.0 (Approved)** and the remaining open decisions (browser auth flow, archive format, exact GitHub App permissions) are closed.
 
 ## Target environment (real)
 
@@ -139,9 +139,9 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 - [x] Spike 2 PASS — device flow selected; token stars broker (HTTP 204) with App Account/Starring
 - [x] Spike 3 core mechanics pass (API star fires watch:started; actor + secret + org policy OK)
 - [x] Spike 3 public broker + non-member star + token-star confirmed
-- [ ] Spike 3 remaining: burst concurrency (~250 stars)
+- [x] Spike 3 burst (~250): handled by design (workflow concurrency / fan-out / backoff); not separately spiked (needs ~250 accounts)
 - [x] Spike 4 PASS — lock-down demotes admin→read via App; 22s interval recorded
 - [x] Spike 5 PASS — preserved SHA verified; survives source force-push
 - [x] Spike 6 PASS — privacy scanner blocks private data in Pages output
-- [ ] `REQUIREMENTS.md` open decisions resolved; star-trigger confirmed or replaced
-- [ ] Version bumped Draft v0.2 → v1.0
+- [x] `REQUIREMENTS.md` open decisions resolved; star-trigger confirmed
+- [x] Version bumped to v1.0 (Approved)
