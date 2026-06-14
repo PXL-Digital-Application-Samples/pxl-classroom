@@ -139,7 +139,9 @@
                   <span :class="['badge', preserveBadge(s.preservation_status)]">{{ s.preservation_status || '—' }}</span>
                 </td>
                 <td>
-                  <span v-if="s.warnings?.length" class="badge badge-warning">{{ s.warnings.length }}</span>
+                  <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
+                    <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
+                  </div>
                   <span v-else class="text-muted">—</span>
                 </td>
               </tr>
