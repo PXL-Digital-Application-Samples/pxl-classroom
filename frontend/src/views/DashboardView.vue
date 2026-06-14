@@ -153,7 +153,7 @@ async function loadOrgs() {
   if (!token) return
 
   try {
-    // Get installations
+    // Get installations accessible to this user token
     const installs = await getInstallations(token)
     if (!installs.ok) return
 
@@ -161,19 +161,8 @@ async function loadOrgs() {
       .filter((i) => i.account?.type === 'Organization')
       .map((i) => i.account)
 
-    // Filter to orgs the user owns
-    const userOrgs = await getUserOrgs(token)
-    if (!userOrgs.ok) return
-
-    const ownedOrgLogins = new Set()
-    for (const org of userOrgs.data) {
-      const membership = await getOrgMembership(token, org.login)
-      if (membership.ok && membership.data?.role === 'admin') {
-        ownedOrgLogins.add(org.login)
-      }
-    }
-
-    orgs.value = installOrgs.filter((o) => ownedOrgLogins.has(o.login))
+    // A GitHub App user-to-server token's installations already reflect what the user can access.
+    orgs.value = installOrgs
 
     // Auto-select if only one
     if (orgs.value.length === 1) {
