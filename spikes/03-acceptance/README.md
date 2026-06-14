@@ -38,7 +38,7 @@ secret_available=yes (length=12)
 
 ## Still open (not yet tested)
 
-- [ ] Public broker: a student who is **not** an org member can star without being added first (needs a public broker repo — deferred pending explicit go-ahead to publish).
+- [~] Public broker created (`PXLAutomation/spike03-acceptance-broker-public`): star fires `watch: started` with secret access on a public repo (run `27502857178`, actor `tomcoolpxl`, `secret_available=yes`). **Non-member proof pending:** star it from `tomccargo` (not an org member) and confirm `actor=tomccargo`.
 - [ ] Browser token scoped to only the star permission (couples with Spike 2 auth).
 - [ ] Concurrency under a class-wide burst (~250 stars).
 
