@@ -769,6 +769,8 @@ The trusted automation credential shall:
 
 The GitHub App permission set required for provisioning is confirmed by Spike 1 to be: Repository **Administration** (read/write), **Contents** (read/write), and **Metadata** (read). This set is sufficient to create a repository from a private template and grant a student administrator access. The set may extend (for example Organization Members read) as later spikes for collection, lock-down, and preservation run; it shall remain the minimum required.
 
+For the browser acceptance flow, the same App additionally requires the user-level Account **Starring** (read/write) permission with Device Flow enabled. This is exercised only by the user-to-server (device-flow) token, which stars the broker and cannot use the App's installation (provisioning) permissions. Confirmed by Spikes 2–3.
+
 All third-party Actions shall be pinned to a full commit SHA in security-sensitive workflows.
 
 Untrusted assignment, roster, and event values shall not be interpolated into shell commands without safe encoding and validation.
@@ -1032,18 +1034,17 @@ Version 0.2 resolves the following:
 - Storage uses a single private control repository.
 - Raw observations and generated reports are retained for the current and previous academic year, then archived.
 - Spike 1 (provisioning) passed: a per-org GitHub App installation token creates a private repo from a private template, grants the student admin (an invitation for outside collaborators), records the immutable repo ID, and is idempotent (a re-run reuses the existing repo). Minimal App permissions for provisioning confirmed: Administration RW, Contents RW, Metadata R.
-- Spike 3 (acceptance) passed: an API-created star fires `watch: started`, the workflow receives the starring actor (login and immutable `sender.id`), retains repository secret access, and is not suppressed by org Actions policy. A non-member account (`tomccargo`) starring a public broker triggered it with `actor=tomccargo` — confirming students need no prior org membership. Unstar→restar re-fires, so provisioning must be idempotent. Remaining: burst concurrency (~250) and confirming the device-flow user token can star the broker.
-- Spike 2 (auth) passed for identity: GitHub device flow identifies the user with no PAT and no browser secret, yielding an 8h expiring user-to-server token with a refresh token and no broad scopes. Device flow is the recommended browser-auth prototype; final selection pends confirming the token can star the broker.
+- Spike 3 (acceptance) passed: an API-created star fires `watch: started`, the workflow receives the starring actor (login and immutable `sender.id`), retains repository secret access, and is not suppressed by org Actions policy. A non-member account (`tomccargo`) starring a public broker triggered it with `actor=tomccargo` — confirming students need no prior org membership. Unstar→restar re-fires, so provisioning must be idempotent. The device-flow user token stars the broker (HTTP 204) once the App is granted Account/Starring. Remaining: burst concurrency (~250).
+- Spike 2 (auth) passed for identity: GitHub device flow identifies the user with no PAT and no browser secret, yielding an 8h expiring user-to-server token with a refresh token and no broad scopes. Device flow is the **selected** browser-auth flow: with the App's Account/Starring permission, the device-flow user token stars the broker (HTTP 204, Spike 3), proving the full chain end-to-end.
 
 ## Open decisions
 
 The following decisions remain intentionally unresolved:
 
-- exact browser authentication flow (device flow validated end-to-end by Spike 2; final pick pending the token-can-star integration check);
 - exact archive representation;
-- exact GitHub App permissions (provisioning set confirmed by Spike 1: Administration RW, Contents RW, Metadata R; may extend as later spikes run).
+- exact GitHub App permissions (confirmed so far: Administration RW, Contents RW, Metadata R for provisioning, plus Account/Starring RW for browser acceptance; may extend as collection/lock-down/preservation spikes run).
 
-These three remaining decisions are expected to be settled by the mandatory technical spikes and implementation rather than by policy choice.
+These remaining decisions are expected to be settled by the mandatory technical spikes and implementation rather than by policy choice.
 
 ## Deferred features
 

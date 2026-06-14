@@ -39,7 +39,7 @@ secret_available=yes (length=12)
 ## Still open (not yet tested)
 
 - [x] Public broker (`PXLAutomation/spike03-acceptance-broker-public`): star fires `watch: started` with secret access on a public repo. **Non-member confirmed** — `tomccargo` (not an org member) starred it; the workflow fired with `actor=tomccargo`, `secret_available=yes` (run `27502970140`).
-- [ ] Token can star: **blocked** — device-flow token returned HTTP 403 ("Resource not accessible by integration"). The App lacks the **Account → Starring** permission. Add it, re-authorize, re-test (see `spikes/02-auth/README.md`).
+- [x] Token can star: **confirmed HTTP 204** after granting the App the **Account → Starring** permission (first attempt 403 without it). The device-flow user token can perform the acceptance action.
 - [ ] Browser token scoped to only the star permission (couples with Spike 2 auth).
 - [ ] Concurrency under a class-wide burst (~250 stars).
 

@@ -58,9 +58,9 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ---
 
-## Spike 2 — Student authentication · GATING (open decision) · status: PASS for identity (device flow); token star-capability pending
+## Spike 2 — Student authentication · GATING · status: PASS — device flow selected
 
-**Result (2026-06-14):** device flow authorized as `tomccargo` (id 1250098); 8h expiring user-to-server token + refresh, no PAT, no browser secret, no broad scopes. Device flow recommended; linchpin left = confirm this token can star the broker. Details in `spikes/02-auth/README.md`.
+**Result (2026-06-14):** device flow authorized as `tomccargo` (id 1250098); 8h expiring user-to-server token + refresh, no PAT, no browser secret, no broad scopes. Linchpin closed: after adding the App's **Account/Starring** permission, the device-flow token starred the broker (**HTTP 204**). Browser-auth decision: device flow. Details in `spikes/02-auth/README.md`.
 
 **Goal.** A static page identifies the GitHub user with the minimum permission, no pasted PAT, no privileged credential, surviving refresh; documents token lifetime/storage.
 
@@ -72,7 +72,7 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 ---
 
-## Spike 3 — Acceptance-event (star broker) · GATING (highest risk) · status: PASS core mechanics; public-exposure / burst / token-scope open
+## Spike 3 — Acceptance-event (star broker) · GATING (highest risk) · status: PASS (mechanics + public broker + non-member + token-star); burst concurrency open
 
 **Result (2026-06-14):** private broker `PXLAutomation/spike03-acceptance-broker`; API star fired `watch: started` (run 27502697737) with actor `tomcoolpxl` + immutable `sender.id=71908551`, secret available, org policy allowed. Unstar→restar re-fired (run 27502723484) → provisioning must be idempotent. Details in `spikes/03-acceptance/README.md`.
 
@@ -130,9 +130,10 @@ Each spike is **Pass**, **Pass-with-change** (works, but a requirement must be e
 
 - [x] Spike 1 Pass single-org + minimal App permissions recorded (Administration RW, Contents RW, Metadata R)
 - [x] Spike 1 two-org proof (PXLCloudAndAutomation, same App)
-- [x] Spike 2 device flow works (identity, minimal token); selected pending token star-capability check
+- [x] Spike 2 PASS — device flow selected; token stars broker (HTTP 204) with App Account/Starring
 - [x] Spike 3 core mechanics pass (API star fires watch:started; actor + secret + org policy OK)
-- [ ] Spike 3 remaining: public broker (no-membership star), burst concurrency (~250), browser token scope
+- [x] Spike 3 public broker + non-member star + token-star confirmed
+- [ ] Spike 3 remaining: burst concurrency (~250 stars)
 - [ ] Spike 4 Pass + uncertainty interval recorded
 - [ ] Spike 5 Pass
 - [ ] Spike 6 Pass

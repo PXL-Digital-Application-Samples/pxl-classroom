@@ -52,10 +52,8 @@ scope=                        # GitHub App: governed by app permissions, not OAu
 
 **Device flow is the working prototype** and the simplest fit for a static Pages frontend (no redirect, no secret). Cost: one extra "enter this code" step. OAuth / GitHub App user-to-server **PKCE** would remove that step but requires handling a redirect + PKCE on the static page; keep it as the alternative if the extra step proves unacceptable.
 
-### Linchpin result (2026-06-14): star BLOCKED → App needs the Starring permission
+### Linchpin result (2026-06-14): RESOLVED — token stars after adding Starring permission
 
-`PUT /user/starred/<broker>` with the device-flow token returned **HTTP 403 "Resource not accessible by integration."** The GitHub App's user token cannot star because the App was created **without the Account → Starring permission**.
+First attempt: `PUT /user/starred/<broker>` returned **HTTP 403 "Resource not accessible by integration"** — the App had no Account/Starring permission. After granting **Account → Starring (read/write)** on the App and re-authorizing, the same call returned **HTTP 204**.
 
-**Fix to try:** on the App, add **Account permissions → Starring → Read and write**, save, then re-authorize (a new account permission requires re-consent) and re-test with `STAR_TARGET` set. Expect `star_...=HTTP 204`. This keeps least privilege — one user-level Starring permission, far narrower than an OAuth App's `public_repo` scope.
-
-**If even that fails** (GitHub may not expose starring to GitHub App user tokens at all): fall back to an **OAuth App** device flow with `public_repo`, or choose a non-star acceptance action the App token *can* perform.
+Conclusion: the device-flow user token *can* perform the acceptance action with one minimal user-level permission (Starring) — far narrower than an OAuth App's `public_repo` scope. **Browser auth = device flow on the GitHub App** (Device Flow enabled, Account/Starring granted). Full chain proven: device-flow auth → token stars broker (204) → `watch: started` → trusted provisioning.
