@@ -5,7 +5,7 @@
 
 export const config = {
   // GitHub App client ID (for device flow auth)
-  clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || '',
+  clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || 'Iv23li0H0Je93H2FkMPW',
 
   // Default organization (for single-org pilot)
   defaultOrg: import.meta.env.VITE_DEFAULT_ORG || 'PXLAutomation',
