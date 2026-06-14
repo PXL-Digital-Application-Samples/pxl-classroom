@@ -1,0 +1,84 @@
+# PXL Classroom — Spike 1: Provisioning
+#
+# Proves the trusted backend: authenticate as the per-org GitHub App
+# installation token, create a private repo from a private template, grant a
+# student admin, record the repo ID, write a status record, idempotent retry.
+#
+# Run from: PXL-Digital-Application-Samples/pxl-classroom (Actions → this workflow).
+# Requires repo secrets: SPIKE_APP_ID, SPIKE_APP_PRIVATE_KEY (the GitHub App).
+# The App must be installed in the target org (`org` input).
+#
+# NOTE: the third-party action below is pinned to a tag for the spike. Per the
+# security requirements it MUST be converted to a full commit SHA before this
+# leaves spike status.
+
+name: Spike 01 - Provisioning
+
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: Target organization (App must be installed here)
+        required: true
+        default: PXLAutomation
+      template_owner:
+        description: Template repository owner
+        required: true
+        default: PXLAutomation
+      template_repo:
+        description: Template repository name (must be a template)
+        required: true
+        default: template-automation-pe-1
+      target_repo:
+        description: New repository name to create
+        required: true
+        default: spike01-provisioning-test
+      student_login:
+        description: GitHub login to grant admin (the test "student")
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-01-${{ inputs.org }}-${{ inputs.target_repo }}
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # TODO pin to full commit SHA before production
+
+      - name: Mint App installation token for target org
+        id: app-token
+        uses: actions/create-github-app-token@v1 # TODO pin to full commit SHA before production
+        with:
+          app-id: ${{ secrets.SPIKE_APP_ID }}
+          private-key: ${{ secrets.SPIKE_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4 # TODO pin to full commit SHA before production
+        with:
+          node-version: "20"
+
+      - name: Provision
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          ORG: ${{ inputs.org }}
+          TEMPLATE_OWNER: ${{ inputs.template_owner }}
+          TEMPLATE_REPO: ${{ inputs.template_repo }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+          STUDENT_LOGIN: ${{ inputs.student_login }}
+          PRIVATE: "true"
+        run: node spikes/01-provisioning/provision.mjs
+
+      - name: Upload status record
+        if: always()
+        uses: actions/upload-artifact@v4 # TODO pin to full commit SHA before production
+        with:
+          name: spike-01-status
+          path: spikes/01-provisioning/out/
+          if-no-files-found: warn
