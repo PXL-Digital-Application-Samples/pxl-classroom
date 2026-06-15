@@ -7,7 +7,7 @@ Unlike GitHub Classroom, this system uses private, per-organization **Control Re
 ## Architecture
 
 ```mermaid
-graph LR
+graph TD
     User[Student / Lecturer] -->|Accesses| Dashboard[Frontend Dashboard]
     Dashboard -->|Reads/Writes via API| ControlRepo[Control Repository]
     Dashboard -.->|Authenticates| App[GitHub App]
