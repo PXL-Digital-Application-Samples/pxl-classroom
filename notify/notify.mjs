@@ -32,49 +32,35 @@ const EMOJI_MAP = {
   "preservation-failed": "💾",
 };
 
-async function findOrCreateTrackingIssue() {
-  // Search for existing tracking issue
-  const search = await gh(
-    "GET",
-    `/repos/${process.env.ORG}/${process.env.CONTROL_REPO}/issues?labels=pxl-tracking&state=open&per_page=1`
-  );
-  if (search.ok && search.data.length > 0) {
-    return search.data[0].number;
-  }
-
-  // Create tracking issue
-  const create = await gh(
-    "POST",
-    `/repos/${process.env.ORG}/${process.env.CONTROL_REPO}/issues`,
-    {
-      title: TRACKING_ISSUE_TITLE,
-      body:
-        "This issue is automatically managed by PXL Classroom.\n\n" +
-        "Significant events are posted as comments. Do not close this issue.\n\n" +
-        "---\n\nLabels: `pxl-tracking`",
-      labels: ["pxl-tracking"],
-    }
-  );
-
-  if (!create.ok) {
-    console.error(`[FAIL] Could not create tracking issue: HTTP ${create.status}`);
-    await setOutput("outcome", "fail:create-issue");
-    process.exit(1);
-  }
-
-  return create.data.number;
-}
-
-async function main() {
-  const eventType = env("EVENT_TYPE");
-  const assignmentId = env("ASSIGNMENT_ID");
-  const details = env("DETAILS", "");
-  const dedupKey = env("DEDUP_KEY", "");
-
+export async function notifyEvent({ org, controlRepo, eventType, assignmentId, details, dedupKey }) {
   const emoji = EMOJI_MAP[eventType] || "ℹ️";
   const now = new Date().toISOString();
 
-  const issueNumber = await findOrCreateTrackingIssue();
+  // Search for existing tracking issue
+  let issueNumber;
+  const search = await gh(
+    "GET",
+    `/repos/${org}/${controlRepo}/issues?labels=pxl-tracking&state=open&per_page=1`
+  );
+  if (search.ok && search.data.length > 0) {
+    issueNumber = search.data[0].number;
+  } else {
+    // Create tracking issue
+    const create = await gh(
+      "POST",
+      `/repos/${org}/${controlRepo}/issues`,
+      {
+        title: TRACKING_ISSUE_TITLE,
+        body:
+          "This issue is automatically managed by PXL Classroom.\n\n" +
+          "Significant events are posted as comments. Do not close this issue.\n\n" +
+          "---\n\nLabels: `pxl-tracking`",
+        labels: ["pxl-tracking"],
+      }
+    );
+    if (!create.ok) throw new Error(`Could not create tracking issue: HTTP ${create.status}`);
+    issueNumber = create.data.number;
+  }
 
   // Build comment body
   const commentBody =
@@ -88,7 +74,7 @@ async function main() {
   if (dedupKey) {
     const comments = await gh(
       "GET",
-      `/repos/${process.env.ORG}/${process.env.CONTROL_REPO}/issues/${issueNumber}/comments?per_page=100`
+      `/repos/${org}/${controlRepo}/issues/${issueNumber}/comments?per_page=100`
     );
     if (comments.ok) {
       const existing = comments.data.find(
@@ -98,12 +84,10 @@ async function main() {
         // Update existing comment
         await gh(
           "PATCH",
-          `/repos/${process.env.ORG}/${process.env.CONTROL_REPO}/issues/comments/${existing.id}`,
+          `/repos/${org}/${controlRepo}/issues/comments/${existing.id}`,
           { body: commentBody }
         );
-        console.log(`[ok] Updated existing notification (dedup: ${dedupKey})`);
-        await setOutput("outcome", "deduplicated");
-        return;
+        return "deduplicated";
       }
     }
   }
@@ -111,22 +95,32 @@ async function main() {
   // Post new comment
   const post = await gh(
     "POST",
-    `/repos/${process.env.ORG}/${process.env.CONTROL_REPO}/issues/${issueNumber}/comments`,
+    `/repos/${org}/${controlRepo}/issues/${issueNumber}/comments`,
     { body: commentBody }
   );
 
-  if (!post.ok) {
-    console.error(`[FAIL] Could not post comment: HTTP ${post.status}`);
-    await setOutput("outcome", "fail:post-comment");
-    process.exit(1);
-  }
-
-  console.log(`[ok] Posted notification for ${eventType} on ${assignmentId}`);
-  await setOutput("outcome", "notified");
+  if (!post.ok) throw new Error(`Could not post comment: HTTP ${post.status}`);
+  return "notified";
 }
 
-main().catch(async (e) => {
-  console.error(`[FAIL] ${e.message}`);
-  await setOutput("outcome", "fail:exception");
-  process.exit(1);
-});
+async function main() {
+  const eventType = env("EVENT_TYPE");
+  const assignmentId = env("ASSIGNMENT_ID");
+  const details = env("DETAILS", "");
+  const dedupKey = env("DEDUP_KEY", "");
+  const org = process.env.ORG;
+  const controlRepo = process.env.CONTROL_REPO;
+
+  const outcome = await notifyEvent({ org, controlRepo, eventType, assignmentId, details, dedupKey });
+  console.log(`[ok] ${outcome === "deduplicated" ? "Updated existing notification" : "Posted notification"} for ${eventType} on ${assignmentId}`);
+  await setOutput("outcome", outcome);
+}
+
+// Only run main if executed directly
+if (process.argv[1] && process.argv[1].endsWith('notify.mjs')) {
+  main().catch(async (e) => {
+    console.error(`[FAIL] ${e.message}`);
+    await setOutput("outcome", "fail:exception");
+    process.exit(1);
+  });
+}

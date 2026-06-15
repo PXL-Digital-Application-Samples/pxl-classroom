@@ -7,7 +7,7 @@ const routes = [
     component: () => import('../views/HomeView.vue'),
   },
   {
-    path: '/a/:assignmentId',
+    path: '/:org/a/:assignmentId',
     name: 'assignment',
     component: () => import('../views/AssignmentView.vue'),
     props: true,

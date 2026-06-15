@@ -16,11 +16,7 @@
             <option value="">Select organization…</option>
             <option v-for="org in orgs" :key="org.login" :value="org.login">{{ org.login }}</option>
           </select>
-          <div v-if="user" class="user-badge flex items-center gap-sm">
-            <img :src="user.avatar_url" :alt="user.login" class="avatar" />
-            <span>{{ user.login }}</span>
-            <button class="btn" @click="handleLogout">Sign out</button>
-          </div>
+          <UserBadge :user="user" @logout="handleLogout" />
         </div>
       </div>
     </header>
@@ -119,9 +115,11 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth, initAuth } from '../lib/auth.js'
 import { getInstallations, getUserOrgs, getOrgMembership, getRepoContent } from '../lib/api.js'
+import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
   org: { type: String, required: false }
@@ -159,15 +157,7 @@ function stateClass(state) {
   return { published: 'badge-success', closed: 'badge-warning', draft: 'badge-neutral', archived: 'badge-neutral' }[state] || 'badge-neutral'
 }
 
-function formatDate(iso) {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleString('en-GB', {
-      timeZone: config.timezone, month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
-    })
-  } catch { return iso }
-}
+
 
 async function loadOrgs() {
   const token = getToken()
@@ -182,11 +172,19 @@ async function loadOrgs() {
       .filter((i) => i.account?.type === 'Organization')
       .map((i) => i.account)
 
+    const ownedOrgs = []
+    for (const org of installOrgs) {
+      const membership = await getOrgMembership(token, org.login)
+      if (membership.ok && membership.data.state === 'active' && membership.data.role === 'admin') {
+        ownedOrgs.push(org)
+      }
+    }
+
     // A GitHub App user-to-server token's installations already reflect what the user can access.
-    if (installOrgs.length > 0) {
-      orgs.value = installOrgs
+    if (ownedOrgs.length > 0) {
+      orgs.value = ownedOrgs
     } else {
-      console.warn("No installations found via API. Falling back to default config org.")
+      console.warn("No installations found via API where user is admin. Falling back to default config org.")
       orgs.value = [{ login: config.defaultOrg, avatar_url: '' }]
     }
 

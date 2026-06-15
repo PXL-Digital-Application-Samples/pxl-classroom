@@ -9,11 +9,7 @@
           </svg>
           <span>PXL Classroom</span>
         </div>
-        <div v-if="user" class="user-badge">
-          <img :src="user.avatar_url" :alt="user.login" class="avatar" />
-          <span>{{ user.login }}</span>
-          <button class="btn" @click="handleLogout" aria-label="Sign out">Sign out</button>
-        </div>
+        <UserBadge :user="user" @logout="handleLogout" />
       </div>
     </header>
 
@@ -185,11 +181,14 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { starRepo, isStarred, getRepo, getInvitations, acceptInvitation } from '../lib/api.js'
+import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
+  org: { type: String, required: true },
   assignmentId: { type: String, required: true },
 })
 
@@ -241,47 +240,24 @@ onUnmounted(() => {
   if (pollTimer) clearTimeout(pollTimer)
 })
 
-// Format date in assignment timezone
-function formatDate(iso) {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleString('en-GB', {
-      timeZone: assignment.value?.timezone || config.timezone,
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-      timeZoneName: 'short',
-    })
-  } catch {
-    return new Date(iso).toISOString()
-  }
-}
 
-// Load assignment from public metadata or URL params
+
+// Load assignment from public metadata
 async function loadAssignment() {
   loading.value = true
   error.value = null
   try {
-    // Try fetching from public assignments.json
-    if (config.assignmentsUrl) {
-      const res = await fetch(config.assignmentsUrl)
-      if (res.ok) {
-        const data = await res.json()
-        assignment.value = data.assignments?.find((a) => a.id === props.assignmentId) || null
+    const url = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json`
+    const res = await fetch(url)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.assignments && data.assignments[props.assignmentId]) {
+        assignment.value = { id: props.assignmentId, ...data.assignments[props.assignmentId] }
         loading.value = false
         return
       }
     }
-    // Fallback: construct minimal assignment data from the ID
-    // In production, this data comes from the public Pages JSON
-    assignment.value = {
-      id: props.assignmentId,
-      title: props.assignmentId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-      state: 'published',
-      acceptance_mode: 'self-service',
-      organization: config.defaultOrg,
-      broker_repo: `broker-${props.assignmentId}`,
-      timezone: config.timezone,
-    }
+    error.value = `Assignment "${props.assignmentId}" not found or not published in ${props.org}.`
   } catch (e) {
     error.value = e.message
   }
@@ -293,7 +269,7 @@ async function checkExistingState() {
   const token = getToken()
   if (!token || !assignment.value) return
 
-  const org = assignment.value.organization || config.defaultOrg
+  const org = props.org
   const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
   const expectedName = pattern.replace('{github_login}', user.value.login)
 
@@ -377,7 +353,7 @@ async function acceptAssignment() {
   acceptError.value = null
   try {
     const token = getToken()
-    const org = assignment.value.organization || config.defaultOrg
+    const org = props.org
     const brokerRepo = assignment.value.broker_repo || `broker-${props.assignmentId}`
 
     const result = await starRepo(token, org, brokerRepo)
@@ -403,7 +379,7 @@ function startPolling() {
     const token = getToken()
     if (!token) return
 
-    const org = assignment.value.organization || config.defaultOrg
+    const org = props.org
     const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
     const expectedName = pattern.replace('{github_login}', user.value.login)
 

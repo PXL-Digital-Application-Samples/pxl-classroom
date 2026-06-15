@@ -9,10 +9,7 @@
           <span class="separator">/</span>
           <h1>{{ assignmentId }}</h1>
         </div>
-        <div v-if="user" class="flex items-center gap-sm">
-          <img :src="user.avatar_url" :alt="user.login" class="avatar" />
-          <span>{{ user.login }}</span>
-        </div>
+        <UserBadge :user="user" @logout="handleLogout" />
       </div>
     </header>
 
@@ -156,9 +153,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
-import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepoContent } from '../lib/api.js'
+import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -207,6 +206,11 @@ onMounted(async () => {
   loading.value = false
 })
 
+function handleLogout() {
+  clearAuth()
+  window.location.href = import.meta.env.BASE_URL
+}
+
 function sortBy(key) {
   if (sortKey.value === key) sortAsc.value = !sortAsc.value
   else { sortKey.value = key; sortAsc.value = true }
@@ -231,10 +235,7 @@ function shortRepo(name) {
   return name.includes('/') ? name.split('/')[1] : name
 }
 
-function formatDate(iso) {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleString('en-GB', { timeZone: config.timezone, dateStyle: 'medium', timeStyle: 'short' })
-}
+
 
 function formatDuration(seconds) {
   if (seconds < 60) return `${Math.round(seconds)}s`

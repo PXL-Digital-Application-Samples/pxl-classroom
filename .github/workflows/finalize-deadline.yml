@@ -131,6 +131,7 @@ jobs:
 
       - name: 3. Preserve
         if: ${{ !inputs.dry_run }}
+        id: preserve_step
         uses: ./preserve
         with:
           app-id: ${{ secrets.PXL_APP_ID }}
@@ -139,13 +140,29 @@ jobs:
           assignment_id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
 
+      - name: Notify on Preservation Failure
+        if: ${{ !inputs.dry_run && (failure() || steps.preserve_step.outputs.outcome == 'fail:exception') }}
+        uses: ./notify
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.assignment.org }}
+          control-repo: pxl-classroom-control
+          event-type: preservation-failed
+          assignment-id: ${{ matrix.assignment.assignment_id }}
+          details: |
+            Preservation failed.
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: preserve-fail-${{ matrix.assignment.assignment_id }}
+
       - name: 4. Report
+        if: always()
         uses: ./report
         with:
           app-id: ${{ secrets.PXL_APP_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ matrix.assignment.org }}
-          assignment_id: ${{ matrix.assignment.assignment_id }}
+          assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
 
       - name: Commit + push

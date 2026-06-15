@@ -88,6 +88,7 @@ jobs:
           Assignment acceptance broker. Star this repo to accept the assignment.
 
           > This is an automated repository managed by PXL Classroom.
+          > Accept here: https://pxl-digital-application-samples.github.io/pxl-classroom/${ORG}/a/${ASSIGNMENT_ID}
           READMEEOF
 
           git add -A
@@ -102,6 +103,7 @@ jobs:
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| assignment | ${ASSIGNMENT_ID} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| broker | ${ORG}/${BROKER_REPO} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| URL | https://pxl-digital-application-samples.github.io/pxl-classroom/${ORG}/a/${ASSIGNMENT_ID} |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Update assignment state
         if: inputs.dry_run != true

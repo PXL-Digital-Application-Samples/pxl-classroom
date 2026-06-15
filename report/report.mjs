@@ -238,6 +238,31 @@ async function main() {
       preserved_sha: preservation?.preserved_sha ?? null,
       warnings,
     });
+
+    // Fire notifications for anomalies
+    if (process.env.ORG && process.env.GITHUB_TOKEN) {
+      const { notifyEvent } = await import("../notify/notify.mjs");
+      if (uncertaintySeconds && uncertaintySeconds > 3600) {
+        await notifyEvent({
+          org: process.env.ORG,
+          controlRepo: "pxl-classroom-control",
+          eventType: "deadline-gap",
+          assignmentId: assignmentId,
+          details: `Large uncertainty interval (${Math.round(uncertaintySeconds/3600)}h) for student \`${login}\`.`,
+          dedupKey: `gap-${assignmentId}-${login}`,
+        }).catch(e => console.error(`Failed to notify deadline gap for ${login}: ${e.message}`));
+      }
+      if (firstLateSha) {
+        await notifyEvent({
+          org: process.env.ORG,
+          controlRepo: "pxl-classroom-control",
+          eventType: "late-activity",
+          assignmentId: assignmentId,
+          details: `Late activity detected for student \`${login}\`. First late SHA: \`${firstLateSha}\`.`,
+          dedupKey: `late-${assignmentId}-${login}`,
+        }).catch(e => console.error(`Failed to notify late activity for ${login}: ${e.message}`));
+      }
+    }
   }
 
   // Build report

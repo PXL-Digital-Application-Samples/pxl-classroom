@@ -84,6 +84,9 @@ import { ref } from 'vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { commitFile, triggerWorkflow } from '../lib/api.js'
+import { parse } from 'yaml'
+import { validateAgainst } from '../lib/validate.js'
+import { toast } from '../lib/toast.js'
 
 const props = defineProps(['org'])
 
@@ -110,7 +113,10 @@ const publishing = ref(false)
 const extending = ref(false)
 
 async function createAssignment() {
-  if (!form.value.id || !form.value.title) return alert('Missing ID or Title')
+  if (!form.value.id || !form.value.title) {
+    toast.error('Missing ID or Title')
+    return
+  }
   creating.value = true
   const token = getToken()
   const yaml = `schema_version: 1
@@ -122,53 +128,75 @@ deadline_at: "${form.value.deadline}"
 max_acceptances: ${form.value.max}
 repository_name_pattern: "${form.value.id}-{github_login}"
 `
+  const doc = parse(yaml)
+  const { valid, errors } = await validateAgainst('assignment', doc)
+  if (!valid) {
+    toast.error('Validation failed: ' + errors.map(e => `${e.instancePath} ${e.message}`).join('; '))
+    creating.value = false
+    return
+  }
+
   const path = `assignments/${form.value.id}.yml`
   const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Create assignment ${form.value.id}`)
   
   if (res.ok) {
-    alert('Assignment YAML created successfully!')
+    toast.success('Assignment YAML created successfully!')
     form.value.id = ''
     form.value.title = ''
   } else {
-    alert(`Failed to create assignment: ${res.data?.message || 'Unknown error'}`)
+    toast.error(`Failed to create assignment: ${res.data?.message || 'Unknown error'}`)
   }
   creating.value = false
 }
 
 async function publishAssignment() {
-  if (!pubForm.value.assignment) return alert('Missing Assignment ID')
+  if (!pubForm.value.assignment) {
+    toast.error('Missing Assignment ID')
+    return
+  }
   publishing.value = true
   const token = getToken()
   const res = await triggerWorkflow(token, 'PXL-Digital-Application-Samples', 'pxl-classroom', 'publish-assignment.yml', { org: props.org, assignment_id: pubForm.value.assignment })
   if (res.ok || res.status === 204) {
-    alert('Publish workflow triggered! Check GitHub Actions in pxl-classroom repository.')
+    toast.success('Publish workflow triggered! Check GitHub Actions in pxl-classroom repository.')
     pubForm.value.assignment = ''
   } else {
-    alert(`Failed to trigger workflow: ${res.data?.message || 'Unknown error'}`)
+    toast.error(`Failed to trigger workflow: ${res.data?.message || 'Unknown error'}`)
   }
   publishing.value = false
 }
 
 async function grantExtension() {
-  if (!extForm.value.assignment || !extForm.value.login) return alert('Missing Assignment ID or Login')
+  if (!extForm.value.assignment || !extForm.value.login) {
+    toast.error('Missing Assignment ID or Login')
+    return
+  }
   extending.value = true
   const token = getToken()
-  const jsonStr = JSON.stringify({
+  const overrideDoc = {
     schema_version: 1,
     assignment_id: extForm.value.assignment,
     github_login: extForm.value.login,
     deadline_at: extForm.value.deadline,
     reason: "Extension granted via Admin UI"
-  }, null, 2) + '\\n'
+  }
   
+  const { valid, errors } = await validateAgainst('override', overrideDoc)
+  if (!valid) {
+    toast.error('Validation failed: ' + errors.map(e => `${e.instancePath} ${e.message}`).join('; '))
+    extending.value = false
+    return
+  }
+
+  const jsonStr = JSON.stringify(overrideDoc, null, 2) + '\n'
   const path = `overrides/${extForm.value.assignment}/${extForm.value.login}.json`
   const res = await commitFile(token, props.org, config.controlRepo, path, jsonStr, `Grant extension to ${extForm.value.login}`)
   
   if (res.ok) {
-    alert('Extension granted successfully!')
+    toast.success('Extension granted successfully!')
     extForm.value.login = ''
   } else {
-    alert(`Failed to grant extension: ${res.data?.message || 'Unknown error'}`)
+    toast.error(`Failed to grant extension: ${res.data?.message || 'Unknown error'}`)
   }
   extending.value = false
 }

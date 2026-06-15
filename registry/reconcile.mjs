@@ -128,6 +128,30 @@ async function main() {
         driftDetected = true;
         data.last_checked_at = new Date().toISOString();
         await writeFile(path, JSON.stringify(data, null, 2) + "\n");
+        
+        // Notify
+        if (cfg.token && cfg.org) {
+          const { notifyEvent } = await import("../notify/notify.mjs");
+          if (data.access_state === "deleted") {
+            await notifyEvent({
+              org: cfg.org,
+              controlRepo: "pxl-classroom-control",
+              eventType: "unexpected-deletion",
+              assignmentId: assignment,
+              details: `Repository \`${data.repo_name}\` was deleted or is inaccessible.`,
+              dedupKey: `del-${assignment}-${data.repo_name}`,
+            }).catch(e => console.error(`Failed to notify unexpected deletion: ${e.message}`));
+          } else if (data.access_state === "revoked") {
+            await notifyEvent({
+              org: cfg.org,
+              controlRepo: "pxl-classroom-control",
+              eventType: "missing-access",
+              assignmentId: assignment,
+              details: `Access revoked for student \`${data.github_login}\` on repository \`${data.repo_name}\`.`,
+              dedupKey: `revoked-${assignment}-${data.github_login}`,
+            }).catch(e => console.error(`Failed to notify missing access: ${e.message}`));
+          }
+        }
       }
     }
   }

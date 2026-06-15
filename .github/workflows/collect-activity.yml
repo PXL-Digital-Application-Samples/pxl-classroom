@@ -71,6 +71,22 @@ jobs:
           data-dir: control
         env:
           CRON_SCHEDULE: ${{ github.event.schedule }}
+
+      - name: Notify on failure
+        if: failure() || steps.collect_action.outputs.outcome == 'fail:exception' || steps.collect_action.outputs.outcome == 'fail:all-errors'
+        uses: ./notify
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.org }}
+          control-repo: pxl-classroom-control
+          event-type: collection-failed
+          assignment-id: ${{ inputs.assignment_id || 'all' }}
+          details: |
+            Activity collection failed.
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: collect-fail-${{ matrix.org }}-${{ inputs.assignment_id || 'all' }}
+
       - name: Commit + push to control repo
         working-directory: control
         # Only push if we actually collected something

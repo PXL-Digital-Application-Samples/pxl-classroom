@@ -36,6 +36,11 @@ jobs:
         run: npm ci
         working-directory: ./frontend
 
+      - name: Copy schemas
+        run: |
+          mkdir -p frontend/public/schemas
+          cp schemas/*.schema.json frontend/public/schemas/
+
       - name: Build
         run: npm run build
         working-directory: ./frontend

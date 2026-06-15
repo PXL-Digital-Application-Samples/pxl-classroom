@@ -131,6 +131,21 @@ jobs:
           template-repo: ${{ steps.assignment.outputs.template_repository }}
           target-repo: ${{ steps.assignment.outputs.target_repo }}
           student-login: ${{ matrix.student.github_login }}
+      - name: Notify on failure
+        if: steps.prov.outputs.outcome == 'failed' || steps.prov.outputs.outcome == 'fail:exception'
+        uses: ./notify
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.student.org }}
+          control-repo: pxl-classroom-control
+          event-type: provisioning-failed
+          assignment-id: ${{ matrix.student.assignment_id }}
+          details: |
+            Failed to provision repo for `${{ matrix.student.github_login }}`.
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: prov-fail-${{ matrix.student.assignment_id }}-${{ matrix.student.github_login }}
+
       - name: Write repository record into control checkout, push
         if: always()
         working-directory: control
