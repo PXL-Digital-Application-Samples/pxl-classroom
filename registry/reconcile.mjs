@@ -8,6 +8,7 @@
 import { readdir, readFile, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { gh } from "../lib/gh.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -20,36 +21,6 @@ const cfg = {
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value ?? ""}\n`);
-}
-
-async function gh(method, path, { retries = 3 } = {}) {
-  const url = `${cfg.apiBase}${path}`;
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${cfg.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "pxl-classroom-registry",
-      },
-    });
-    
-    const remaining = res.headers.get("x-ratelimit-remaining");
-    const retriable = res.status >= 500 || res.status === 429 || (res.status === 403 && remaining === "0");
-    if (retriable && attempt < retries) {
-      const retryAfter = Number(res.headers.get("retry-after")) || 0;
-      await new Promise((r) => setTimeout(r, retryAfter * 1000 || 2000));
-      continue;
-    }
-    
-    const text = await res.text();
-    let data = null;
-    if (text) {
-      try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    }
-    return { status: res.status, ok: res.ok, data };
-  }
 }
 
 async function readJsonSafe(path) {

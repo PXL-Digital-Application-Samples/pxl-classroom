@@ -15,6 +15,7 @@ import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { loadYaml } from "../lib/yaml.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -23,37 +24,6 @@ async function setOutput(name, value) {
 async function summary(md) {
   if (process.env.GITHUB_STEP_SUMMARY)
     await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
-}
-
-// Minimal YAML parser for flat assignment files (same as accept.mjs)
-function parseSimpleYaml(text) {
-  const result = {};
-  let currentObj = result;
-  let currentKey = null;
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const indent = line.search(/\S/);
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
-    if (!match) continue;
-    const [, key, rawVal] = match;
-    let value = rawVal.trim();
-    if (value.includes(" #")) value = value.split(" #")[0].trim();
-    if (value === "" || value === "|" || value === ">") {
-      if (indent === 0) { result[key] = {}; currentObj = result[key]; currentKey = key; }
-      else { currentObj[key] = value; }
-      continue;
-    }
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
-      value = value.slice(1, -1);
-    if (value === "true") value = true;
-    else if (value === "false") value = false;
-    else if (value === "null") value = null;
-    else if (/^\d+$/.test(value)) value = parseInt(value, 10);
-    if (indent > 0 && currentKey) { currentObj[key] = value; }
-    else { currentObj = result; currentKey = null; result[key] = value; }
-  }
-  return result;
 }
 
 async function main() {
@@ -79,8 +49,7 @@ async function main() {
   const assignments = [];
 
   for (const file of files) {
-    const text = await readFile(join(assignmentsDir, file), "utf-8");
-    const def = parseSimpleYaml(text);
+    const def = await loadYaml(join(assignmentsDir, file));
 
     // Only include published or closed assignments in public output
     if (def.state !== "published" && def.state !== "closed") continue;
@@ -96,6 +65,9 @@ async function main() {
       deadline_at: def.deadline_at,
       timezone: def.timezone || "Europe/Brussels",
       acceptance_mode: def.acceptance_mode || "self-service",
+      // Pattern is public — it's a template, not student data. SPA needs it
+      // to compute the expected repo URL after acceptance (P0-10).
+      repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,
       // The broker repo name is public (the broker is a public repo)
       broker_repo: def.state === "published" ? `broker-${def.id}` : null,
     });

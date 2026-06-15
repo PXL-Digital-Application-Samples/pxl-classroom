@@ -12,6 +12,7 @@ import { appendFile, writeFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
+import { gh } from "../lib/gh.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -64,34 +65,6 @@ function validate() {
   if (!cfg.login || !LOGIN.test(cfg.login)) return `STUDENT_LOGIN="${cfg.login}" is not a valid GitHub login`;
   if (!cfg.dataDir || !PATH.test(cfg.dataDir)) return `DATA_DIR="${cfg.dataDir}" is not a valid path`;
   return null;
-}
-
-// --- GitHub API helper with retry (4 retries, exponential backoff) -----------
-async function gh(method, path, body, { retries = 4 } = {}) {
-  const url = `${cfg.apiBase}${path}`;
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${cfg.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "pxl-classroom-preserve",
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const remaining = res.headers.get("x-ratelimit-remaining");
-    const retriable = res.status >= 500 || res.status === 429 || (res.status === 403 && remaining === "0");
-    if (retriable && attempt < retries) {
-      const retryAfter = Number(res.headers.get("retry-after")) || 0;
-      await new Promise((r) => setTimeout(r, retryAfter * 1000 || Math.min(30000, 2 ** attempt * 1000)));
-      continue;
-    }
-    const text = await res.text();
-    let data = null; if (text) { try { data = JSON.parse(text); } catch { data = { raw: text }; } }
-    return { status: res.status, ok: res.ok, data };
-  }
 }
 
 // --- Git helpers (execSync, authenticated via token) -------------------------

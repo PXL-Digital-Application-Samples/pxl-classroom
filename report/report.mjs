@@ -18,6 +18,7 @@ import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { loadYaml } from "../lib/yaml.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -26,37 +27,6 @@ async function setOutput(name, value) {
 async function summaryMd(md) {
   if (process.env.GITHUB_STEP_SUMMARY)
     await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
-}
-
-// Minimal YAML parser (same as accept.mjs / generate.mjs)
-function parseSimpleYaml(text) {
-  const result = {};
-  let currentObj = result;
-  let currentKey = null;
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const indent = line.search(/\S/);
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
-    if (!match) continue;
-    const [, key, rawVal] = match;
-    let value = rawVal.trim();
-    if (value.includes(" #")) value = value.split(" #")[0].trim();
-    if (value === "" || value === "|" || value === ">") {
-      if (indent === 0) { result[key] = {}; currentObj = result[key]; currentKey = key; }
-      else { currentObj[key] = value; }
-      continue;
-    }
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
-      value = value.slice(1, -1);
-    if (value === "true") value = true;
-    else if (value === "false") value = false;
-    else if (value === "null") value = null;
-    else if (/^\d+$/.test(value)) value = parseInt(value, 10);
-    if (indent > 0 && currentKey) { currentObj[key] = value; }
-    else { currentObj = result; currentKey = null; result[key] = value; }
-  }
-  return result;
 }
 
 async function readJsonSafe(path) {
@@ -96,20 +66,19 @@ async function main() {
     await setOutput("outcome", "fail:no-assignment");
     process.exit(1);
   }
-  const assignment = parseSimpleYaml(await readFile(assignmentPath, "utf-8"));
+  const assignment = await loadYaml(assignmentPath);
   const deadlineAt = assignment.deadline_at ? new Date(assignment.deadline_at) : null;
 
-  // Load roster
+  // Load roster (now that we have a real YAML parser, arrays parse correctly)
   const rosterPath = join(dataDir, "students", "roster.yml");
   let roster = [];
   if (existsSync(rosterPath)) {
-    // TODO: full YAML array parsing — for now, use a simpler approach
-    const rosterText = await readFile(rosterPath, "utf-8");
-    // Parse student entries (simplified — production should use a real YAML parser)
-    const rosterData = parseSimpleYaml(rosterText);
-    // roster.yml has students as an array — our minimal parser won't handle arrays,
-    // so we'll build the roster from acceptance records instead for v1
+    const rosterData = await loadYaml(rosterPath);
+    if (Array.isArray(rosterData?.students)) roster = rosterData.students;
   }
+  const rosterByLogin = new Map(
+    roster.filter((s) => s.github_login).map((s) => [s.github_login, s])
+  );
 
   // Load acceptances
   const acceptances = await readDirJsonFiles(
@@ -144,11 +113,14 @@ async function main() {
   );
   const overrideByLogin = new Map(overrides.map((o) => [o.github_login, o]));
 
-  // Build per-student report
+  // Build per-student report.
+  // Include roster students who haven't accepted yet so the dashboard shows
+  // the full population, not just the active acceptors.
   const allLogins = new Set([
     ...acceptanceByLogin.keys(),
     ...repoByLogin.keys(),
     ...observationsByLogin.keys(),
+    ...rosterByLogin.keys(),
   ]);
 
   const students = [];
@@ -162,7 +134,13 @@ async function main() {
     const observations = observationsByLogin.get(login) || [];
     const override = overrideByLogin.get(login);
 
-    // Determine submission status from observations
+    // Determine submission status from observations.
+    // Apply lecturer override on deadline if one exists for this student
+    // (P0-7). The effective deadline is what classifies on-time vs late.
+    const effectiveDeadline = override?.deadline_at
+      ? new Date(override.deadline_at)
+      : deadlineAt;
+
     let lastOnTimeSha = null;
     let lastOnTimeObservedAt = null;
     let firstLateSha = null;
@@ -179,23 +157,23 @@ async function main() {
       latestObservedSha = obs.sha;
       latestObservedAt = obs.observed_at;
 
-      if (deadlineAt && obsTime <= deadlineAt) {
+      if (effectiveDeadline && obsTime <= effectiveDeadline) {
         lastOnTimeSha = obs.sha;
         lastOnTimeObservedAt = obs.observed_at;
-      } else if (deadlineAt && obsTime > deadlineAt && !firstLateSha) {
+      } else if (effectiveDeadline && obsTime > effectiveDeadline && !firstLateSha) {
         firstLateSha = obs.sha;
         firstLateObservedAt = obs.observed_at;
       }
     }
 
-    // Calculate uncertainty
-    if (deadlineAt && lastOnTimeObservedAt) {
+    // Calculate uncertainty against the effective deadline
+    if (effectiveDeadline && lastOnTimeObservedAt) {
       const lastOnTimeTime = new Date(lastOnTimeObservedAt);
-      const gapMs = deadlineAt - lastOnTimeTime;
+      const gapMs = effectiveDeadline - lastOnTimeTime;
       uncertaintySeconds = Math.max(0, gapMs / 1000);
     }
 
-    // Determine status
+    // Determine status using the effective (post-override) deadline.
     let submissionStatus = "unknown";
     if (!acceptance) {
       submissionStatus = "no-submission";
@@ -208,8 +186,8 @@ async function main() {
         onTimeCount++;
       }
     } else if (latestObservedSha) {
-      submissionStatus = deadlineAt ? "late" : "unknown";
-      if (deadlineAt) lateCount++;
+      submissionStatus = effectiveDeadline ? "late" : "unknown";
+      if (effectiveDeadline) lateCount++;
     } else {
       submissionStatus = "no-submission";
       noSubCount++;
@@ -229,11 +207,16 @@ async function main() {
     if (acceptance && !repo) warnings.push("accepted-not-provisioned");
     if (firstLateSha) warnings.push("late-activity-detected");
 
+    const rosterEntry = rosterByLogin.get(login);
     students.push({
       github_login: login,
-      student_id: null, // filled from roster match
-      display_name: null, // filled from roster match
+      student_id: rosterEntry?.student_id ?? null,
+      display_name: rosterEntry?.display_name ?? null,
+      class_group: rosterEntry?.class_group ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
+      effective_deadline_at: effectiveDeadline?.toISOString() ?? null,
+      override_applied: !!override,
+      override_reason: override?.reason ?? null,
       repo_id: repo?.repo_id ?? null,
       repo_name: repo?.repo_name ?? null,
       repo_url: repo?.repo_url ?? null,
@@ -284,8 +267,12 @@ async function main() {
       "github_login",
       "student_id",
       "display_name",
+      "class_group",
       "acceptance_state",
       "submission_status",
+      "effective_deadline_at",
+      "override_applied",
+      "override_reason",
       "repo_name",
       "repo_url",
       "last_on_time_sha",

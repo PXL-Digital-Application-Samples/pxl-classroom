@@ -11,6 +11,7 @@
 // step summary. No npm dependencies (Node 18+ fetch).
 
 import { appendFile } from "node:fs/promises";
+import { gh } from "../lib/gh.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -57,33 +58,6 @@ function validate() {
   if (!LOGIN.test(cfg.studentLogin || "")) return `STUDENT_LOGIN="${cfg.studentLogin}" is not a valid GitHub login`;
   if (!PERMS.includes(cfg.permission)) return `STUDENT_PERMISSION="${cfg.permission}" must be one of ${PERMS.join(", ")}`;
   return null;
-}
-
-async function gh(method, path, body, { retries = 4 } = {}) {
-  const url = `${cfg.apiBase}${path}`;
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${cfg.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "pxl-classroom-provision",
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const remaining = res.headers.get("x-ratelimit-remaining");
-    const retriable = res.status >= 500 || res.status === 429 || (res.status === 403 && remaining === "0");
-    if (retriable && attempt < retries) {
-      const retryAfter = Number(res.headers.get("retry-after")) || 0;
-      await new Promise((r) => setTimeout(r, retryAfter * 1000 || Math.min(30000, 2 ** attempt * 1000)));
-      continue;
-    }
-    const text = await res.text();
-    let data = null; if (text) { try { data = JSON.parse(text); } catch { data = { raw: text }; } }
-    return { status: res.status, ok: res.ok, data };
-  }
 }
 
 async function main() {

@@ -1,0 +1,17 @@
+schema_version: 1
+students:
+  - student_id: "0123456"
+    display_name: Alice Example
+    class_group: 3A
+    github_login: alice-test
+    active: true
+  - student_id: "0654321"
+    display_name: Bob Example
+    class_group: 3A
+    github_login: null
+    active: true
+  - student_id: "0789012"
+    display_name: Charlie Example
+    class_group: 3B
+    github_login: charlie-test
+    active: false

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-15T12:00:00Z",
+  "assignments": [
+    {
+      "id": "leaky-example",
+      "title": "Contact me at jane.doe@pxl.be for issues",
+      "state": "published"
+    }
+  ],
+  "students": [
+    {
+      "student_id": "0123456",
+      "display_name": "Should Not Be Here",
+      "class_group": "3A"
+    }
+  ],
+  "secrets": {
+    "test_token": "ghp_AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII"
+  }
+}

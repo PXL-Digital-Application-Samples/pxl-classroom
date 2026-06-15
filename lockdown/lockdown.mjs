@@ -11,6 +11,8 @@
 
 import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { loadYaml } from "../lib/yaml.mjs";
+import { gh } from "../lib/gh.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -53,49 +55,17 @@ function validate() {
   return null;
 }
 
-// --- GitHub API helper with retry (4 retries, exponential backoff) -----------
-async function gh(method, path, body, { retries = 4 } = {}) {
-  const url = `${cfg.apiBase}${path}`;
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${cfg.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "pxl-classroom-lockdown",
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const remaining = res.headers.get("x-ratelimit-remaining");
-    const retriable = res.status >= 500 || res.status === 429 || (res.status === 403 && remaining === "0");
-    if (retriable && attempt < retries) {
-      const retryAfter = Number(res.headers.get("retry-after")) || 0;
-      await new Promise((r) => setTimeout(r, retryAfter * 1000 || Math.min(30000, 2 ** attempt * 1000)));
-      continue;
-    }
-    const text = await res.text();
-    let data = null; if (text) { try { data = JSON.parse(text); } catch { data = { raw: text }; } }
-    return { status: res.status, ok: res.ok, data };
-  }
-}
-
 // --- Read assignment definition ----------------------------------------------
 async function readAssignment() {
-  for (const ext of ["yml", "yaml", "json"]) {
+  for (const ext of ["yml", "yaml"]) {
     try {
-      const raw = await readFile(join(cfg.dataDir, "assignments", `${cfg.assignmentId}.${ext}`), "utf8");
-      if (ext === "json") return JSON.parse(raw);
-      const obj = {};
-      for (const line of raw.split(/\r?\n/)) {
-        const m = line.match(/^([a-z_]+)\s*:\s*(.+)$/);
-        if (m) obj[m[1]] = m[2].replace(/^["']|["']$/g, "");
-      }
-      return obj;
+      return await loadYaml(join(cfg.dataDir, "assignments", `${cfg.assignmentId}.${ext}`));
     } catch { /* try next extension */ }
   }
-  return null;
+  try {
+    const raw = await readFile(join(cfg.dataDir, "assignments", `${cfg.assignmentId}.json`), "utf8");
+    return JSON.parse(raw);
+  } catch { return null; }
 }
 
 // --- Read repository records -------------------------------------------------

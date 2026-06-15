@@ -10,10 +10,11 @@
 // Outputs via GITHUB_OUTPUT:  assignment_id, github_login, github_id, outcome,
 //                              target_repo
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { loadYaml } from "../lib/yaml.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -54,65 +55,6 @@ function validate(assignmentId, login, id) {
   return null;
 }
 
-// --- YAML-lite loader (assignments are tiny YAML) ----------------------------
-// A minimal parser for the subset of YAML we actually use (flat key: value
-// and nested objects). Avoids an npm dependency in a composite action.
-function parseSimpleYaml(text) {
-  const result = {};
-  let currentObj = result;
-  let currentKey = null;
-
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    const indent = line.search(/\S/);
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
-    if (!match) continue;
-
-    const [, key, rawVal] = match;
-    let value = rawVal.trim();
-
-    // Remove inline comments
-    if (value.includes(" #")) value = value.split(" #")[0].trim();
-
-    if (value === "" || value === "|" || value === ">") {
-      // Nested object or block scalar — for our use case, treat as nested obj
-      if (indent === 0) {
-        result[key] = {};
-        currentObj = result[key];
-        currentKey = key;
-      } else {
-        currentObj[key] = value;
-      }
-      continue;
-    }
-
-    // Unquote strings
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
-    // Type coercion
-    if (value === "true") value = true;
-    else if (value === "false") value = false;
-    else if (value === "null") value = null;
-    else if (/^\d+$/.test(value)) value = parseInt(value, 10);
-
-    if (indent > 0 && currentKey) {
-      currentObj[key] = value;
-    } else {
-      currentObj = result;
-      currentKey = null;
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
 async function main() {
   const assignmentId = env("ASSIGNMENT_ID");
   const login = env("GITHUB_LOGIN");
@@ -131,8 +73,7 @@ async function main() {
   if (!existsSync(assignmentPath))
     await fail("rejected:no-assignment", `assignment file not found: ${assignmentPath}`);
 
-  const assignmentText = await readFile(assignmentPath, "utf-8");
-  const assignment = parseSimpleYaml(assignmentText);
+  const assignment = await loadYaml(assignmentPath);
   log("assignment", { ok: true, note: `state=${assignment.state} title="${assignment.title}"` });
 
   // 3. Check assignment state
@@ -174,8 +115,8 @@ async function main() {
   if (maxAcceptances) {
     let currentCount = 0;
     if (existsSync(acceptDir)) {
-      const { readdirSync } = await import("node:fs");
-      currentCount = readdirSync(acceptDir).filter((f) => f.endsWith(".json")).length;
+      const files = await readdir(acceptDir);
+      currentCount = files.filter((f) => f.endsWith(".json")).length;
     }
     if (currentCount >= maxAcceptances)
       await fail(

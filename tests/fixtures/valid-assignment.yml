@@ -1,0 +1,19 @@
+schema_version: 1
+id: test-valid
+title: Test Valid Assignment
+description: Used by tests/yaml.test.mjs
+organization: PXLAutomation
+template:
+  owner: PXLAutomation
+  repository: template-automation-pe-1
+repository_name_pattern: test-valid-{github_login}
+opens_at: 2026-09-21T06:00:00Z
+deadline_at: 2026-10-05T21:59:59Z
+timezone: Europe/Brussels
+submission_ref: refs/heads/main
+student_permission: admin
+acceptance_mode: self-service
+late_policy: report
+state: published
+max_acceptances: 50
+lock_down_enabled: true

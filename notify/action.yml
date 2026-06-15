@@ -53,6 +53,11 @@ runs:
       with:
         node-version: "20"
 
+    - name: Install shared dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}/..
+      run: npm ci --omit=dev
+
     - name: Post notification
       id: notify
       shell: bash

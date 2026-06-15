@@ -10,6 +10,7 @@
 // Outputs via GITHUB_OUTPUT: outcome
 
 import { appendFile } from "node:fs/promises";
+import { gh } from "../lib/gh.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -30,27 +31,6 @@ const EMOJI_MAP = {
   "late-activity": "📝",
   "preservation-failed": "💾",
 };
-
-async function gh(method, path, body) {
-  const url = `https://api.github.com${path}`;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "pxl-classroom-notify",
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  let data = null;
-  if (text) {
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  }
-  return { status: res.status, ok: res.ok, data };
-}
 
 async function findOrCreateTrackingIssue() {
   // Search for existing tracking issue
