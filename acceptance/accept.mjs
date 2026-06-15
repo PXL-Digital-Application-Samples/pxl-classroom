@@ -106,6 +106,8 @@ async function main() {
     await setOutput("github_id", githubId);
     await setOutput("outcome", "already-accepted");
     await setOutput("target_repo", deriveRepoName(assignment.repository_name_pattern, login));
+    await setOutput("template_owner", assignment.template_repository.split('/')[0]);
+    await setOutput("template_repo", assignment.template_repository.split('/')[1]);
     await summary(`### Acceptance: \`already-accepted\`\n\n${login} already accepted ${assignmentId}.`);
     process.exit(0);
   }
@@ -150,6 +152,8 @@ async function main() {
   await setOutput("github_id", githubId);
   await setOutput("outcome", "accepted");
   await setOutput("target_repo", targetRepo);
+  await setOutput("template_owner", assignment.template_repository.split('/')[0]);
+  await setOutput("template_repo", assignment.template_repository.split('/')[1]);
 
   await summary(
     `### Acceptance: \`accepted\`\n\n` +

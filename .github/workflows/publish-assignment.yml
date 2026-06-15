@@ -122,3 +122,11 @@ jobs:
           git add "$FILE"
           git diff --cached --quiet || git commit -m "Publish assignment ${{ inputs.assignment_id }}"
           git push
+
+      - name: Enable daily activity workflow
+        if: inputs.dry_run != true
+        run: |
+          echo "Assignment published! Waking up the daily-activity workflow."
+          gh workflow enable daily-activity.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

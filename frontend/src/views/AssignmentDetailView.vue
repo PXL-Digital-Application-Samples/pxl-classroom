@@ -67,7 +67,7 @@
             </select>
           </div>
           <div class="flex gap-sm">
-            <button class="btn" @click="exportCSV">⬇ Download CSV</button>
+
             <button class="btn" @click="copyAcceptLink">📋 Copy accept link</button>
           </div>
         </div>

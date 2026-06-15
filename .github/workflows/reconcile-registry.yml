@@ -1,7 +1,10 @@
 name: Reconcile Registry
 on:
-  schedule:
-    - cron: '0 4 * * *'
+  push:
+    branches:
+      - participating-orgs
+    paths:
+      - 'participating-orgs.yml'
   workflow_dispatch:
     inputs:
       org: { type: string }

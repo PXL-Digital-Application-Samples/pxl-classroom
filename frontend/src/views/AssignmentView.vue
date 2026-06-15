@@ -168,8 +168,8 @@
             <div class="status-icon">⏱️</div>
             <h2>Taking longer than expected</h2>
             <p class="text-secondary">
-              Provisioning is still in progress, but we've stopped checking automatically.
-              You can check GitHub directly or click below to check again.
+              GitHub is currently experiencing high load, or you have hit a rate limit.
+              Please try again in 15 minutes.
             </p>
             <button class="btn btn-primary" @click="retry">Check again</button>
           </div>

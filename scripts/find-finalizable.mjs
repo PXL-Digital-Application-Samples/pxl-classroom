@@ -36,6 +36,26 @@ async function main() {
       }
     }
   }
+  
+  // Find all active assignments (deadline in the future, or no deadline, and published)
+  let activeCount = 0;
+  if (fs.existsSync(assignmentsDir)) {
+    const files = fs.readdirSync(assignmentsDir);
+    for (const file of files) {
+      if (file.endsWith('.yml') || file.endsWith('.yaml') || file.endsWith('.json')) {
+        try {
+          const assignment = await loadYaml(path.join(assignmentsDir, file));
+          if (assignment && assignment.state === 'published') {
+            if (!assignment.deadline_at || new Date(assignment.deadline_at).getTime() > Date.now()) {
+              activeCount++;
+            }
+          }
+        } catch(e) {}
+      }
+    }
+  }
+  
+  fs.writeFileSync(`active-${org}.json`, JSON.stringify({ active: activeCount }));
   console.log(JSON.stringify(finalizable));
 }
 main();
