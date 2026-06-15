@@ -1,0 +1,141 @@
+name: Process Provisioning Queue
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: process-queue
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.find.outputs.pending }}
+    steps:
+      - name: Checkout control repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      
+      - name: Find pending acceptances
+        id: find
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const pending = [];
+            const acceptDir = 'acceptances';
+            if (fs.existsSync(acceptDir)) {
+              for (const assignment of fs.readdirSync(acceptDir)) {
+                const assignmentDir = path.join(acceptDir, assignment);
+                if (fs.statSync(assignmentDir).isDirectory()) {
+                  for (const file of fs.readdirSync(assignmentDir)) {
+                    if (file.endsWith('.json')) {
+                      const data = JSON.parse(fs.readFileSync(path.join(assignmentDir, file), 'utf8'));
+                      if (data.status === 'accepted') {
+                        pending.push({
+                          assignment_id: data.assignment_id,
+                          github_login: data.github_login,
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            // Limit batch size to 40 per run (takes ~3 minutes with max-parallel=2)
+            const batch = pending.slice(0, 40);
+            console.log(`Found ${pending.length} pending acceptances. Processing ${batch.length} in this run.`);
+            core.setOutput('pending', JSON.stringify(batch));
+
+  provision-and-record:
+    needs: setup
+    if: needs.setup.outputs.pending != '[]'
+    strategy:
+      max-parallel: 2 # Prevents GitHub API rate limits
+      fail-fast: false
+      matrix:
+        student: ${{ fromJSON(needs.setup.outputs.pending) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout control repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Provision repository
+        id: prov
+        uses: PXL-Digital-Application-Samples/pxl-classroom/provisioning@main
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ github.repository_owner }}
+          template-owner: ${{ github.repository_owner }}
+          template-repo: template-${{ matrix.student.assignment_id }}
+          target-repo: ${{ matrix.student.assignment_id }}-${{ matrix.student.github_login }}
+          student-login: ${{ matrix.student.github_login }}
+
+      - name: Record repository and outcome
+        if: always()
+        shell: bash
+        run: |
+          ASSIGNMENT_ID="${{ matrix.student.assignment_id }}"
+          LOGIN="${{ matrix.student.github_login }}"
+          REPO_ID="${{ steps.prov.outputs.repo-id }}"
+          REPO_URL="${{ steps.prov.outputs.repo-url }}"
+          OUTCOME="${{ steps.prov.outputs.outcome }}"
+          ORG="${{ github.repository_owner }}"
+
+          # If provision was successful, record repo
+          if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+            mkdir -p "repositories/${ASSIGNMENT_ID}"
+            cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF
+            {
+              "schema_version": 1,
+              "assignment_id": "${ASSIGNMENT_ID}",
+              "github_login": "${LOGIN}",
+              "repo_id": ${REPO_ID:-null},
+              "repo_name": "${ORG}/${ASSIGNMENT_ID}-${LOGIN}",
+              "repo_url": "${REPO_URL}",
+              "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "provisioned_by_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "student_permission": "admin",
+              "access_state": "invited",
+              "last_checked_at": null
+            }
+            EOF
+            git add "repositories/"
+          fi
+
+          # Update acceptance status
+          ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
+          if [ -f "$ACCEPT_FILE" ]; then
+            if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='provisioned';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+            else
+              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='failed';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+            fi
+            git add "acceptances/"
+          fi
+
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git commit -m "Record repo for ${LOGIN} in ${ASSIGNMENT_ID} (${OUTCOME})" || exit 0
+          
+          # Exponential backoff for git push
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          git pull --rebase
+          until git push; do
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "Failed to push after $MAX_RETRIES attempts."
+              exit 1
+            fi
+            SLEEP_TIME=$(( (RANDOM % 5) + 2 ))
+            echo "Push failed. Retrying in $SLEEP_TIME seconds..."
+            sleep $SLEEP_TIME
+            git pull --rebase
+          done

@@ -238,7 +238,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollAbort) pollAbort.abort()
-  if (pollTimer) clearInterval(pollTimer)
+  if (pollTimer) clearTimeout(pollTimer)
 })
 
 // Format date in assignment timezone
@@ -396,7 +396,8 @@ async function acceptAssignment() {
 // Poll for repo provisioning
 function startPolling() {
   pollCount.value = 0
-  pollTimer = setInterval(async () => {
+  
+  const tick = async () => {
     pollCount.value++
     const token = getToken()
     if (!token) return
@@ -407,7 +408,6 @@ function startPolling() {
     // Check repo
     const repo = await getRepo(token, org, expectedName)
     if (repo.ok) {
-      clearInterval(pollTimer)
       repoUrl.value = repo.data.html_url
       repoFullName.value = repo.data.full_name
       acceptState.value = 'provisioned'
@@ -421,7 +421,6 @@ function startPolling() {
         (inv) => inv.repository?.name === expectedName
       )
       if (match) {
-        clearInterval(pollTimer)
         pendingInvitation.value = match
         repoUrl.value = match.repository.html_url
         repoFullName.value = match.repository.full_name
@@ -430,11 +429,18 @@ function startPolling() {
       }
     }
 
-    // Increase poll interval after many attempts
+    // Increase poll interval after many attempts (after ~1 minute, slow down to 10s)
     if (pollCount.value > 20) {
       pollInterval.value = 10000
     }
-  }, pollInterval.value)
+    
+    // Continue polling if not aborted
+    if (acceptState.value === 'pending') {
+      pollTimer = setTimeout(tick, pollInterval.value)
+    }
+  }
+  
+  pollTimer = setTimeout(tick, pollInterval.value)
 }
 
 // Accept invitation
