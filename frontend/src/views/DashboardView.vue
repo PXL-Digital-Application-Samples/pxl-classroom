@@ -64,8 +64,15 @@
       </div>
 
       <!-- Assignment grid -->
-      <div v-else class="assignment-grid fade-in">
-        <div
+      <div v-else class="fade-in">
+        <div class="flex items-center justify-between" style="margin-bottom: var(--space-md);">
+          <h2 style="margin: 0; font-size: 1.25rem;">Assignments</h2>
+          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
+            Admin Panel
+          </router-link>
+        </div>
+        <div class="assignment-grid">
+          <div
           v-for="a in assignments"
           :key="a.id"
           class="assignment-card card"
@@ -102,6 +109,7 @@
               <span class="stat-label">Warnings</span>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </main>

@@ -1,0 +1,194 @@
+<template>
+  <div class="container fade-in" style="padding-top: var(--space-xl)">
+    <div class="flex items-center gap-md" style="margin-bottom: var(--space-lg)">
+      <router-link :to="{ name: 'dashboard', params: { org } }" class="btn">← Back to Dashboard</router-link>
+      <h2>Admin Panel: {{ org }}</h2>
+    </div>
+
+    <div class="card" style="margin-bottom: var(--space-xl)">
+      <h3>Create New Assignment</h3>
+      <p class="text-secondary" style="margin-bottom: var(--space-md)">
+        Automatically generates and commits the YAML file directly to your control repository.
+      </p>
+      <div class="form-grid">
+        <div>
+          <label>Assignment ID (slug)</label>
+          <input type="text" v-model="form.id" placeholder="e.g. automation-pe-1" class="form-input" />
+        </div>
+        <div>
+          <label>Title</label>
+          <input type="text" v-model="form.title" placeholder="Automation Practice 1" class="form-input" />
+        </div>
+        <div>
+          <label>Max Acceptances</label>
+          <input type="number" v-model="form.max" placeholder="250" class="form-input" />
+        </div>
+        <div>
+          <label>Opens At (ISO)</label>
+          <input type="text" v-model="form.opens" placeholder="2026-06-01T08:00:00Z" class="form-input" />
+        </div>
+        <div>
+          <label>Deadline (ISO)</label>
+          <input type="text" v-model="form.deadline" placeholder="2026-06-15T23:59:00Z" class="form-input" />
+        </div>
+      </div>
+      <button class="btn btn-primary" @click="createAssignment" :disabled="creating" style="margin-top: var(--space-md)">
+        {{ creating ? 'Creating...' : 'Create Assignment YAML' }}
+      </button>
+    </div>
+
+    <div class="card" style="margin-bottom: var(--space-xl)">
+      <h3>Publish Assignments</h3>
+      <p class="text-secondary" style="margin-bottom: var(--space-md)">
+        Triggers the GitHub Actions workflow in your control repo to create the public Broker Repositories for all published assignments.
+      </p>
+      <button class="btn btn-primary" @click="publishAssignments" :disabled="publishing">
+        {{ publishing ? 'Triggering...' : 'Run Publish Workflow' }}
+      </button>
+    </div>
+    
+    <div class="card" style="margin-bottom: var(--space-xl)">
+      <h3>Grant Deadline Extension</h3>
+      <p class="text-secondary" style="margin-bottom: var(--space-md)">
+        Generates an override JSON file granting a specific student extra time.
+      </p>
+      <div class="form-grid">
+        <div>
+          <label>Assignment ID</label>
+          <input type="text" v-model="extForm.assignment" placeholder="e.g. automation-pe-1" class="form-input" />
+        </div>
+        <div>
+          <label>Student GitHub Login</label>
+          <input type="text" v-model="extForm.login" placeholder="e.g. octocat" class="form-input" />
+        </div>
+        <div>
+          <label>New Deadline (ISO)</label>
+          <input type="text" v-model="extForm.deadline" placeholder="2026-06-20T23:59:00Z" class="form-input" />
+        </div>
+      </div>
+      <button class="btn btn-primary" @click="grantExtension" :disabled="extending" style="margin-top: var(--space-md)">
+        {{ extending ? 'Granting...' : 'Grant Extension' }}
+      </button>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { config } from '../lib/config.js'
+import { getToken } from '../lib/auth.js'
+import { commitFile, triggerWorkflow } from '../lib/api.js'
+
+const props = defineProps(['org'])
+
+const form = ref({
+  id: '',
+  title: '',
+  max: 250,
+  opens: new Date().toISOString().slice(0, 19) + 'Z',
+  deadline: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 19) + 'Z',
+})
+
+const extForm = ref({
+  assignment: '',
+  login: '',
+  deadline: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 19) + 'Z',
+})
+
+const creating = ref(false)
+const publishing = ref(false)
+const extending = ref(false)
+
+async function createAssignment() {
+  if (!form.value.id || !form.value.title) return alert('Missing ID or Title')
+  creating.value = true
+  const token = getToken()
+  const yaml = `schema_version: 1
+title: "${form.value.title}"
+description: "Created via Admin UI"
+state: "published"
+opens_at: "${form.value.opens}"
+deadline_at: "${form.value.deadline}"
+max_acceptances: ${form.value.max}
+repository_name_pattern: "${form.value.id}-{github_login}"
+`
+  const path = `assignments/${form.value.id}.yml`
+  const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Create assignment ${form.value.id}`)
+  
+  if (res.ok) {
+    alert('Assignment YAML created successfully!')
+    form.value.id = ''
+    form.value.title = ''
+  } else {
+    alert(`Failed to create assignment: ${res.data?.message || 'Unknown error'}`)
+  }
+  creating.value = false
+}
+
+async function publishAssignments() {
+  publishing.value = true
+  const token = getToken()
+  const res = await triggerWorkflow(token, props.org, config.controlRepo, 'publish.yml')
+  if (res.ok || res.status === 204) {
+    alert('Publish workflow triggered! Check GitHub Actions in your control repository.')
+  } else {
+    alert(`Failed to trigger workflow: ${res.data?.message || 'Unknown error'}`)
+  }
+  publishing.value = false
+}
+
+async function grantExtension() {
+  if (!extForm.value.assignment || !extForm.value.login) return alert('Missing Assignment ID or Login')
+  extending.value = true
+  const token = getToken()
+  const jsonStr = JSON.stringify({
+    schema_version: 1,
+    assignment_id: extForm.value.assignment,
+    github_login: extForm.value.login,
+    deadline_at: extForm.value.deadline,
+    reason: "Extension granted via Admin UI"
+  }, null, 2) + '\\n'
+  
+  const path = `overrides/${extForm.value.assignment}/${extForm.value.login}.json`
+  const res = await commitFile(token, props.org, config.controlRepo, path, jsonStr, `Grant extension to ${extForm.value.login}`)
+  
+  if (res.ok) {
+    alert('Extension granted successfully!')
+    extForm.value.login = ''
+  } else {
+    alert(`Failed to grant extension: ${res.data?.message || 'Unknown error'}`)
+  }
+  extending.value = false
+}
+</script>
+
+<style scoped>
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+}
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: inherit;
+  margin-top: 4px;
+}
+.form-input:focus {
+  outline: 2px solid var(--accent-blue);
+  border-color: transparent;
+}
+label {
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+@media (max-width: 640px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+</style>

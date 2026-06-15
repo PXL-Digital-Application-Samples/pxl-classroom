@@ -128,3 +128,29 @@ export async function getUserOrgs(token) {
 export async function getOrgMembership(token, org) {
   return ghApi(token, 'GET', `/user/memberships/orgs/${org}`)
 }
+
+/**
+ * Create or update a file in a repository.
+ */
+export async function commitFile(token, owner, repo, path, contentStr, message) {
+  const getRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)
+  let sha = undefined
+  if (getRes.ok && getRes.data?.sha) {
+    sha = getRes.data.sha
+  }
+
+  // Base64 encode unicode properly
+  const base64Content = btoa(unescape(encodeURIComponent(contentStr)))
+
+  const body = { message, content: base64Content }
+  if (sha) body.sha = sha
+
+  return ghApi(token, 'PUT', `/repos/${owner}/${repo}/contents/${path}`, body)
+}
+
+/**
+ * Trigger a GitHub Action workflow via workflow_dispatch.
+ */
+export async function triggerWorkflow(token, owner, repo, workflowId, ref = 'main') {
+  return ghApi(token, 'POST', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, { ref })
+}

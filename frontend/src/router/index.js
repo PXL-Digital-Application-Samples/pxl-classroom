@@ -19,6 +19,12 @@ const routes = [
     props: true,
   },
   {
+    path: '/dashboard/:org/admin',
+    name: 'admin',
+    component: () => import('../views/AdminView.vue'),
+    props: true,
+  },
+  {
     path: '/dashboard/:org/:assignmentId',
     name: 'assignment-detail',
     component: () => import('../views/AssignmentDetailView.vue'),
