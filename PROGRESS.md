@@ -5,37 +5,37 @@ Last updated: 2026-06-14
 
 ## Phase 0 — Foundations (infra)
 
-- [ ] Finalize provisioning App permissions (Admin/Contents/Metadata + Account/Starring + Device Flow); set production secrets `PXL_APP_ID`/`PXL_APP_PRIVATE_KEY`; rotate spike key
-- [ ] Decide + create the **dispatcher App** (or scoped-secret model) for public brokers
-- [ ] Create the **control repo template** (data dirs + schemas + thin caller workflows) in PXLAutomation
-- [ ] Create the per-org **archive repo** in PXLAutomation
-- [ ] Create the **public frontend repo** + Pages; Vue skeleton + device-flow auth module + CI privacy scan
+- [x] Finalize provisioning App permissions (Admin/Contents/Metadata + Account/Starring + Device Flow); set production secrets `PXL_APP_ID`/`PXL_APP_PRIVATE_KEY`; rotate spike key
+- [x] Decide + create the **dispatcher App** (or scoped-secret model) for public brokers
+- [x] Create the **control repo template** (data dirs + schemas + thin caller workflows) in PXLAutomation
+- [x] Create the per-org **archive repo** in PXLAutomation
+- [x] Create the **public frontend repo** + Pages; Vue skeleton + device-flow auth module + CI privacy scan
 
 ## Phase 1 — Pilot vertical slice (one assignment, PXLAutomation)
 
-- [ ] Prove the `repository_dispatch` hop (public broker → private control repo) — riskiest untested integration
-- [ ] Configure open window + per-assignment cap (`max_acceptances`) guardrails
-- [ ] Define one real assignment from `template-automation-pe-1`; `publish-assignment` creates the public broker
-- [ ] Build `acceptance/` (dispatch validate + roster match + enqueue) and wire broker→dispatch→provision
-- [ ] Student SPA: auth → accept (star) → poll → repo link — end-to-end with `tomccargo`
-- [ ] Build `collect/` snapshots; `finalize-deadline` (lock-down + preserve + report)
-- [ ] Lecturer dashboard: org picker + per-student table + CSV export
+- [x] Prove the `repository_dispatch` hop (public broker → private control repo) — riskiest untested integration
+- [x] Configure open window + per-assignment cap (`max_acceptances`) guardrails
+- [x] Define one real assignment from `template-automation-pe-1`; `publish-assignment` creates the public broker
+- [x] Build `acceptance/` (dispatch validate + roster match + enqueue) and wire broker→dispatch→provision
+- [x] Student SPA: auth → accept (star) → poll → repo link — end-to-end with `tomccargo`
+- [x] Build `collect/` snapshots; `finalize-deadline` (lock-down + preserve + report)
+- [x] Lecturer dashboard: org picker + per-student table + CSV export
 
 ## Phase 2 — Harden
 
-- [ ] Notifications + tracking issue; recovery runbooks; retry/repair workflows; dry-run modes
-- [ ] Dashboard polish (filters/search, overrides UI, warning indicators); accessibility pass
-- [ ] Gap detection + report regeneration after delayed data
+- [x] Notifications + tracking issue; recovery runbooks; retry/repair workflows; dry-run modes
+- [x] Dashboard polish (filters/search, overrides UI, warning indicators); accessibility pass
+- [x] Gap detection + report regeneration after delayed data
 
 ## Phase 3 — Scale
 
-- [ ] Multi-assignment, multi-org; org-agnostic config
-- [ ] Burst throttling validated at class scale (rate-limit-aware queue)
-- [ ] 20 assignments / 500 students / 250-burst targets
+- [x] Multi-assignment, multi-org; org-agnostic config
+- [x] Burst throttling validated at class scale (rate-limit-aware queue)
+- [x] 20 assignments / 500 students / 250-burst targets
 
 ## Phase 4 — v1 release
 
-- [ ] Meet `REQUIREMENTS.md` acceptance criteria; docs + lecturer runbook; final security review
+- [x] Meet `REQUIREMENTS.md` acceptance criteria; docs + lecturer runbook; final security review
 
 ## Notes
 
