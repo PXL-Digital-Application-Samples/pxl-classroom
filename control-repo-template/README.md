@@ -19,8 +19,8 @@ schemas/              # JSON Schemas (versioned)
 
 ## Setup
 
-1. Your IT Administrator creates this repository by copying the `control-repo-template/` files from the main `pxl-classroom` codebase.
-2. The `PXL_APP_ID` and `PXL_APP_PRIVATE_KEY` repository secrets are added.
+1. Your IT Administrator creates this repository automatically by running the **"Setup Organization"** GitHub Action from the main `pxl-classroom` codebase.
+2. The `PXL_APP_ID` and `PXL_APP_PRIVATE_KEY` repository secrets are securely injected during that automated setup.
 
 ## Managing Assignments
 
