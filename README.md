@@ -18,20 +18,23 @@ This setup is split into two parts: **Central Infrastructure** (done once for th
 ### Part 1: Central Infrastructure (Done Once)
 
 1. **Deploy the Frontend Dashboard:**
-   - The dashboard only needs to be deployed **once** globally. 
-   - You can host the `frontend/` directory on any static host (like Vercel, Netlify, or GitHub Pages).
+   - Go to the **Actions** tab of your `pxl-classroom` repository and run the **Deploy frontend to Pages** workflow.
+   - Go to **Settings > Pages** and ensure it is set to deploy from GitHub Actions.
+   - *This will automatically build and host the dashboard.*
 
-2. **Create the GitHub App:**
-   - Go to your personal or organizational **Settings > Developer Settings > GitHub Apps > New GitHub App**.
-   - **Name:** PXL Classroom Provisioner (or similar)
-   - **Homepage URL:** The URL of your deployed Frontend Dashboard.
-   - **Callback URL:** Same as the Homepage URL.
-   - **Device Flow:** Ensure **"Enable Device Flow"** is checked (this allows students to login without passwords).
-   - **Permissions:**
-     - **Repository:** Administration (Read & write), Contents (Read & write), Metadata (Read-only), Secrets (Read & write)
-     - **User:** Starring (Read & write)
-   - Save the App, then generate a **Private Key** and note the **App ID**.
-   - Add the App ID (`PXL_APP_ID`) and Private Key (`PXL_APP_PRIVATE_KEY`) as **Repository Secrets** in your main `pxl-classroom` codebase repository.
+2. **Automated GitHub App Setup:**
+   - Open your newly deployed dashboard and navigate to the `/setup` route (e.g., `https://<org>.github.io/pxl-classroom/setup`).
+   - Click **Create GitHub App**. This will automatically generate the App with the correct Device Flow, Callback URLs, and Permissions pre-configured!
+   - Click **Create** at the bottom of the GitHub page.
+
+3. **Add Secrets:**
+   - After creation, GitHub will provide an **App ID**, a **Client ID**, and a **Private Key** (which downloads as a `.pem` file).
+   - Go to **Settings > Secrets and variables > Actions** in your `pxl-classroom` codebase repository.
+   - Add these three Repository Secrets:
+     - `PXL_APP_ID` (Value: your App ID)
+     - `PXL_APP_PRIVATE_KEY` (Value: contents of the `.pem` file)
+     - `VITE_GITHUB_CLIENT_ID` (Value: your Client ID)
+   - Re-run the **Deploy frontend to Pages** workflow so the dashboard picks up your new `Client ID`.
 
 ### Part 2: Organization Setup (Done per Org)
 

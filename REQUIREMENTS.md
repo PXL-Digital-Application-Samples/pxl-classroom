@@ -622,7 +622,7 @@ The archive shall not contain secrets, Actions logs, environment secrets, or run
 
 ## Dashboard
 
-The administrative dashboard is the single public GitHub Pages application serving all organizations. It shall not read private data from pre-generated public files; it shall fetch each organization's private control-repository data at runtime using the authenticated lecturer's own GitHub token, which is scoped to the organizations that lecturer owns. The dashboard shall let the lecturer choose an organization they own where the App is installed, and shall list classrooms per organization.
+The administrative dashboard is the single public GitHub Pages application serving all organizations. It is automatically deployed via GitHub Actions. It shall not read private data from pre-generated public files; it shall fetch each organization's private control-repository data at runtime using the authenticated lecturer's own GitHub token, which is scoped to the organizations that lecturer owns. The dashboard shall provide an automated **App Manifest** generation route (`/setup`) to instantly create the central GitHub App without manual configuration. It shall let the lecturer choose an organization they own where the App is installed, and shall list classrooms per organization.
 
 For a chosen organization and classroom, the administrative dashboard shall provide an assignment overview containing at least:
 
