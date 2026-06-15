@@ -1,30 +1,55 @@
 # PXL Classroom
 
-PXL Classroom is a fully serverless, highly-scalable GitHub Action-based classroom automation system designed specifically for higher-education environments using GitHub Teams for Education.
+A GitHub-native replacement for the parts of GitHub Classroom that PXL needs. Built entirely on GitHub Pages + GitHub Actions + a single GitHub App. No server, no database, no external dependency.
 
-Unlike GitHub Classroom, this system uses a centralized public workflow hub (`pxl-classroom`) driving private, per-organization **Control Repositories** as the data store, ensuring absolute privacy of student rosters and data while minimizing maintenance.
+Targets **GitHub Team for Education**. Never depends on GitHub Enterprise.
 
-## Architecture
+## What it does
+
+- **Assignment distribution.** Lecturers define an assignment from a private template repository in the Admin Panel; one acceptance URL is shared with students.
+- **Student acceptance.** A student opens the URL, authenticates with GitHub device flow, clicks Accept. A private repository is created from the template and the student is granted admin — synchronously, no queue.
+- **Submission reporting.** A single nightly workflow collects activity, finalizes deadlines (lock-down + preserve + report), and regenerates the dashboard.
+- **Zero idle minutes.** When no class is active, the nightly workflow disables itself. The system sits dormant and bills nothing until a new assignment is published.
+
+## Architecture at a glance
 
 ```mermaid
-graph TD
-    User[Student / Lecturer] -->|Accesses| Dashboard[Frontend Dashboard]
-    Dashboard -.->|Authenticates| App[GitHub App]
-    Dashboard -->|Triggers/Reads| Central[Central pxl-classroom]
-    Central -->|Runs Workflows| Central
-    Central <-->|Reads/Writes Data| ControlRepo[Per-Org Control Repos]
-    Central -->|Provisions via App| StudentRepos[Student Repositories]
+graph LR
+    Hub[pxl-classroom<br/>PUBLIC hub<br/>workflows + SPA + actions]
+    ControlA[org-A/pxl-classroom-control<br/>PRIVATE data only]
+    ControlB[org-B/pxl-classroom-control<br/>PRIVATE data only]
+    Broker[broker-&lt;assignment&gt;<br/>PUBLIC, one per assignment]
+    Pages[GitHub Pages SPA]
+
+    Student[Student] --> Pages
+    Pages -->|star| Broker
+    Broker -->|dispatch| Hub
+    Hub --> ControlA
+    Hub --> ControlB
+    Lecturer[Lecturer] --> Pages
+    Pages -.reads at runtime.-> ControlA
 ```
 
-1. **GitHub App:** A central GitHub App handles secure repository provisioning and lock-downs using short-lived installation tokens.
-2. **Frontend Dashboard:** A static Vue.js SPA hosted on GitHub Pages. Lecturers use it to monitor progress, while students use it to "Accept" assignments via the GitHub Device Flow. Data is fetched *at runtime* directly from the control repo—no backend database is required.
-3. **Central Hub (`pxl-classroom`):** Contains all the centralized workflows and scripts (`provisioning`, `collect`, `report`, etc.) that orchestrate the platform.
-4. **Control Repository:** A private repository per organization that stores assignments, roster definitions, and student JSON records. It contains no workflow files, operating purely as a data store.
+One central public hub holds all logic. Per-organization private control repositories hold data, no workflows. A single GitHub App is installed per participating org for short-lived tokens. The browser SPA reads each org's data at runtime with the viewer's own token.
 
-## IT Administrator Setup
+## Documentation
 
-See the [Lecturer Runbook](RUNBOOK.md) for full organization setup and budget policy requirements. No local cloning or terminal commands are required for lecturers.
+- **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — full technical specification: topology, trust model, data model, workflows, actions, flows, constraints.
+- **[`RUNBOOK.md`](RUNBOOK.md)** — operational procedures: initial setup, onboarding an org, creating assignments, monitoring, edge cases, recovery.
 
-## Lecturer Usage
+## Where things live
 
-See the [Lecturer Runbook](RUNBOOK.md) for day-to-day operations, creating assignments, and handling student edge-cases.
+| Layer | Path |
+|---|---|
+| Central workflows | `.github/workflows/` |
+| Composite actions | `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `pages/`, `notify/`, `registry/` |
+| Shared libraries | `lib/yaml.mjs`, `lib/gh.mjs` |
+| Scripts (extracted from workflow inline JS) | `scripts/` |
+| Frontend SPA | `frontend/` |
+| Data schemas | `schemas/` |
+| Control-repo scaffold | `control-repo-template/` |
+| Unit tests | `tests/` |
+
+## License & contact
+
+Internal PXL project. For day-to-day operation see the [Lecturer Runbook](RUNBOOK.md). For architectural rationale, see [ARCHITECTURE.md](ARCHITECTURE.md).

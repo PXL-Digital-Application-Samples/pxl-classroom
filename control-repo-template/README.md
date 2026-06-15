@@ -1,43 +1,37 @@
-# PXL Classroom — Control Repository Template
+# PXL Classroom — Control Repository
 
-This is the template for per-organization control repositories.
+This is a **data-only** repository for a single PXL Classroom organization. It contains assignment definitions, roster, acceptances, repository records, observations, reports, and lecturer overrides — all as machine-readable JSON/YAML, schema-versioned, recoverable from Git history.
 
-## Directory structure
+**There are no workflows here.** All automation runs from the central public `pxl-classroom` hub, which checks this repo out, runs scripts against the data tree, commits changes back, and pushes. Do not add `.github/workflows/` here.
+
+## Directory layout
 
 ```
-assignments/          # Assignment definitions (YAML)
-acceptances/          # Per-assignment acceptance records (JSON)
-repositories/         # Per-assignment repository records (JSON)
-observations/         # Per-assignment observation snapshots (JSON)
-reports/              # Generated deadline reports + dashboard (JSON/CSV)
-overrides/            # Lecturer overrides (JSON, append-only)
-errors/               # Error records (JSON)
-public/               # GENERATED public metadata for Pages (privacy-scanned)
-schemas/              # JSON Schemas (versioned)
-.github/workflows/    # Thin caller workflows
+assignments/<id>.yml                # source: assignment definition
+students/roster.yml                 # source: roster
+acceptances/<id>/<login>.json       # observation: who accepted, when
+repositories/<id>/<login>.json      # fact: provisioned repo id, name, url
+observations/<id>/<login>/*.json    # observations: snapshots over time
+lockdowns/<id>/lockdown-record.json # fact: lock-down outcome at deadline
+reports/<id>.json                   # calculated: per-assignment report
+reports/dashboard.json              # calculated: aggregate for the SPA
+overrides/<id>/<login>.json         # lecturer overrides (append-only)
+errors/<id>.json                    # error records
+public/                             # GENERATED public metadata for Pages
 ```
+
+JSON Schemas live in `schemas/` in the hub and are also served from the Pages site for SPA-side validation.
 
 ## Setup
 
-1. Your IT Administrator creates this repository automatically by running the **"Setup Organization"** GitHub Action from the main `pxl-classroom` codebase.
-2. The `PXL_APP_ID` and `PXL_APP_PRIVATE_KEY` repository secrets are securely injected during that automated setup.
+This repository is created automatically when a system administrator runs the **Setup Organization** workflow in the hub. Do not create it by hand.
 
-## Managing Assignments
+## Managing assignments
 
-**Do not edit files manually.** 
+Do not edit files manually. Use the **PXL Classroom Dashboard → Admin Panel** to:
 
-Go to your **PXL Classroom Dashboard** and click **Admin Panel**. From there, you can:
-- **Create Assignments:** Fills out `assignments/*.yml` automatically.
-- **Publish Assignments:** Automatically triggers the `.github/workflows/publish.yml` workflow.
-- **Grant Extensions:** Automatically generates the override JSON files.
+- Create assignment definitions (validated against `assignment.schema.json` before commit).
+- Publish assignments (creates the broker repo + enables the nightly workflow).
+- Grant deadline extensions (commits validated `override.schema.json` files).
 
-## Data model
-
-All stored data is:
-- Machine-readable (JSON/YAML)
-- Schema-versioned (`schema_version: 1`)
-- Reviewable in Git
-- Recoverable from Git history
-- Separated into source data and generated data
-
-See `schemas/` for full JSON Schema definitions.
+See `RUNBOOK.md` in the hub for operational detail.
