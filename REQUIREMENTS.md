@@ -180,7 +180,7 @@ In the remainder of this document, "the control repository" refers to the contro
 
 ## Control repository
 
-Each participating organization has one control repository. The control repository shall contain, directly or through generated branches:
+Each participating organization has one control repository. The control repository is provisioned entirely automatically via the **Setup Organization** GitHub Action; administrators do not manually create the repository or manually inject secrets. The control repository shall contain, directly or through generated branches:
 
 ```text
 assignments/
