@@ -13,18 +13,38 @@ Unlike GitHub Classroom, this system uses private, per-organization **Control Re
 
 ## IT Administrator Setup
 
-1. **Deploy Frontend:**
-   - Deploy the `frontend/` directory to GitHub Pages (or Vercel, Netlify).
-2. **Install the GitHub App:**
-   - Create a GitHub App with the following permissions:
-     - Repository: Administration (RW), Contents (RW), Metadata (R)
-     - User: Account/Starring (RW)
-   - Enable **Device Flow** in the App settings.
-   - Install the App in the target organization.
-3. **Create the Control Repository:**
-   - Create a private repository in the target organization (e.g., `pxl-classroom-control`).
-   - Copy the contents of `control-repo-template/` into it.
-   - Add the App ID (`PXL_APP_ID`) and Private Key (`PXL_APP_PRIVATE_KEY`) as Action Secrets.
+This setup is split into two parts: **Central Infrastructure** (done once for the entire university) and **Organization Setup** (done once per GitHub Organization). No local cloning or terminal commands are required.
+
+### Part 1: Central Infrastructure (Done Once)
+
+1. **Deploy the Frontend Dashboard:**
+   - The dashboard only needs to be deployed **once** globally. 
+   - You can host the `frontend/` directory on any static host (like Vercel, Netlify, or GitHub Pages).
+
+2. **Create the GitHub App:**
+   - Go to your personal or organizational **Settings > Developer Settings > GitHub Apps > New GitHub App**.
+   - **Name:** PXL Classroom Provisioner (or similar)
+   - **Homepage URL:** The URL of your deployed Frontend Dashboard.
+   - **Callback URL:** Same as the Homepage URL.
+   - **Device Flow:** Ensure **"Enable Device Flow"** is checked (this allows students to login without passwords).
+   - **Permissions:**
+     - **Repository:** Administration (Read & write), Contents (Read & write), Metadata (Read-only)
+     - **User:** Starring (Read & write)
+   - Save the App, then generate a **Private Key** and note the **App ID**.
+
+### Part 2: Organization Setup (Done per Org)
+
+1. **Install the GitHub App:**
+   - Go to the GitHub App's public page and click **Install**. Select the target organization (e.g., `PXLAutomation`).
+
+2. **Create the Control Repository:**
+   - In the target organization, create a new **Private** repository named `pxl-classroom-control`.
+   - **Do not fork or clone.** Simply go to the `control-repo-template/` directory in this codebase, download the files, and drag-and-drop them directly into your new `pxl-classroom-control` repository using the GitHub web UI (`Add file > Upload files`).
+   
+3. **Add Secrets:**
+   - In your new `pxl-classroom-control` repository, go to **Settings > Secrets and variables > Actions**.
+   - Add a New Repository Secret: `PXL_APP_ID` (Value: your App ID).
+   - Add a New Repository Secret: `PXL_APP_PRIVATE_KEY` (Value: the contents of the `.pem` file generated earlier).
 
 ## Lecturer Usage
 
