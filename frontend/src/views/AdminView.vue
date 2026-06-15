@@ -38,11 +38,17 @@
     </div>
 
     <div class="card" style="margin-bottom: var(--space-xl)">
-      <h3>Publish Assignments</h3>
+      <h3>Publish Assignment</h3>
       <p class="text-secondary" style="margin-bottom: var(--space-md)">
-        Triggers the GitHub Actions workflow in your control repo to create the public Broker Repositories for all published assignments.
+        Triggers the GitHub Actions workflow to create the public Broker Repository for an assignment.
       </p>
-      <button class="btn btn-primary" @click="publishAssignments" :disabled="publishing">
+      <div class="form-grid">
+        <div>
+          <label>Assignment ID</label>
+          <input type="text" v-model="pubForm.assignment" placeholder="e.g. automation-pe-1" class="form-input" />
+        </div>
+      </div>
+      <button class="btn btn-primary" @click="publishAssignment" :disabled="publishing" style="margin-top: var(--space-md)">
         {{ publishing ? 'Triggering...' : 'Run Publish Workflow' }}
       </button>
     </div>
@@ -89,6 +95,10 @@ const form = ref({
   deadline: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 19) + 'Z',
 })
 
+const pubForm = ref({
+  assignment: '',
+})
+
 const extForm = ref({
   assignment: '',
   login: '',
@@ -125,12 +135,14 @@ repository_name_pattern: "${form.value.id}-{github_login}"
   creating.value = false
 }
 
-async function publishAssignments() {
+async function publishAssignment() {
+  if (!pubForm.value.assignment) return alert('Missing Assignment ID')
   publishing.value = true
   const token = getToken()
-  const res = await triggerWorkflow(token, props.org, config.controlRepo, 'publish.yml')
+  const res = await triggerWorkflow(token, 'PXL-Digital-Application-Samples', 'pxl-classroom', 'publish-assignment.yml', { org: props.org, assignment_id: pubForm.value.assignment })
   if (res.ok || res.status === 204) {
-    alert('Publish workflow triggered! Check GitHub Actions in your control repository.')
+    alert('Publish workflow triggered! Check GitHub Actions in pxl-classroom repository.')
+    pubForm.value.assignment = ''
   } else {
     alert(`Failed to trigger workflow: ${res.data?.message || 'Unknown error'}`)
   }

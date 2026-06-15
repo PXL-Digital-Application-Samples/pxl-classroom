@@ -294,7 +294,8 @@ async function checkExistingState() {
   if (!token || !assignment.value) return
 
   const org = assignment.value.organization || config.defaultOrg
-  const expectedName = `${props.assignmentId}-${user.value.login}`
+  const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
+  const expectedName = pattern.replace('{github_login}', user.value.login)
 
   // Check if repo exists
   const repo = await getRepo(token, org, expectedName)
@@ -403,7 +404,8 @@ function startPolling() {
     if (!token) return
 
     const org = assignment.value.organization || config.defaultOrg
-    const expectedName = `${props.assignmentId}-${user.value.login}`
+    const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
+    const expectedName = pattern.replace('{github_login}', user.value.login)
 
     // Check repo
     const repo = await getRepo(token, org, expectedName)

@@ -151,6 +151,8 @@ export async function commitFile(token, owner, repo, path, contentStr, message) 
 /**
  * Trigger a GitHub Action workflow via workflow_dispatch.
  */
-export async function triggerWorkflow(token, owner, repo, workflowId, ref = 'main') {
-  return ghApi(token, 'POST', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, { ref })
+export async function triggerWorkflow(token, owner, repo, workflowId, inputs = null, ref = 'main') {
+  const body = { ref }
+  if (inputs) body.inputs = inputs
+  return ghApi(token, 'POST', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, body)
 }
