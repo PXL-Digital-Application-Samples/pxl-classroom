@@ -85,6 +85,9 @@
                   {{ copied ? '✓ Copied' : 'Copy' }}
                 </button>
               </div>
+              <p class="text-warning" style="margin-top: 1rem; font-size: 0.875rem; text-align: left; padding: 0.5rem; border: 1px solid var(--accent-yellow); border-radius: 4px;">
+                <strong>Security Notice:</strong> The authorization page should ask you to authorize <strong>PXL Classroom Provisioner</strong>. If any other App name appears, do NOT enter the code.
+              </p>
             </div>
             <div class="device-flow-status">
               <div class="spinner"></div>
@@ -158,6 +161,17 @@
             <a v-else href="https://github.com/notifications" target="_blank" class="btn btn-primary btn-lg">
               Check GitHub notifications
             </a>
+          </div>
+
+          <!-- Timeout state -->
+          <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
+            <div class="status-icon">⏱️</div>
+            <h2>Taking longer than expected</h2>
+            <p class="text-secondary">
+              Provisioning is still in progress, but we've stopped checking automatically.
+              You can check GitHub directly or click below to check again.
+            </p>
+            <button class="btn btn-primary" @click="retry">Check again</button>
           </div>
 
           <!-- Error state -->
@@ -410,6 +424,12 @@ function startPolling() {
     // Increase poll interval after many attempts (after ~1 minute, slow down to 10s)
     if (pollCount.value > 20) {
       pollInterval.value = 10000
+    }
+    
+    // Cap polling at 30 attempts
+    if (pollCount.value > 30) {
+      acceptState.value = 'timeout'
+      return
     }
     
     // Continue polling if not aborted

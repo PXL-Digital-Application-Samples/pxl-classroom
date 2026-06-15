@@ -17,7 +17,9 @@ Working conventions for this repo (`PXL-Digital-Application-Samples/pxl-classroo
 
 ## Project facts
 - Target platform: **GitHub Team for Education. Never GitHub Enterprise.**
-- **Architecture Note (Assignments):** We do not use manual GitOps/YAML for assignment creation anymore. The system is driven by an **Instructor Admin Panel UI** built into the Vue SPA frontend, which uses the GitHub REST API to automatically generate YAML/JSON and trigger workflows in the private control repo.
-- **Architecture Note (Organization Setup):** We do not use manual repo creation or dragging-and-dropping of template files. Provisioning new organizations is 100% automated via the **Setup Organization GitHub Action** in the main repository, which securely creates the control repo and injects the `PXL_APP_ID` / `PXL_APP_PRIVATE_KEY` secrets.
+- **Architecture Note (Hub-and-spoke):** All workflows are centralized in the main `pxl-classroom` hub repository. Control repositories are purely data stores and contain no workflows.
+- **Architecture Note (Assignments):** We do not use manual GitOps/YAML for assignment creation anymore. The system is driven by an **Instructor Admin Panel UI** built into the Vue SPA frontend, which uses the GitHub REST API to automatically generate YAML/JSON.
+- **Architecture Note (Organization Setup):** We do not use manual repo creation or dragging-and-dropping of template files. Provisioning new organizations is 100% automated via the **Setup Organization GitHub Action** in the main repository.
 - **Architecture Note (Central Infra):** The central GitHub App is created via an automated **App Manifest** form located at the dashboard's `/setup` route. The dashboard itself deploys automatically via the `deploy-frontend.yml` action.
+- **Scripting Note:** Do not use inline `node -e` scripts in GitHub Actions YAML. Extract all JavaScript logic to standalone files in `scripts/`.
 - This repo is the shared codebase / spike host. Spikes live in `spikes/`; plan in `SPIKES_PLAN.md`; requirements in `REQUIREMENTS.md`.

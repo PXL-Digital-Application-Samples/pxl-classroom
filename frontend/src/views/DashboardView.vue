@@ -37,6 +37,9 @@
         <div v-if="deviceFlow" class="device-flow-inline">
           <p>Go to <a :href="deviceFlow.verification_uri" target="_blank">{{ deviceFlow.verification_uri }}</a> and enter:</p>
           <code class="device-code-big">{{ deviceFlow.user_code }}</code>
+          <p class="text-warning" style="margin-top: 1rem; font-size: 0.875rem; text-align: left; padding: 0.5rem; border: 1px solid var(--accent-yellow); border-radius: 4px;">
+            <strong>Security Notice:</strong> The authorization page should ask you to authorize <strong>PXL Classroom Provisioner</strong>. If any other App name appears, do NOT enter the code.
+          </p>
           <div class="spinner" style="margin-top:12px"></div>
         </div>
       </div>

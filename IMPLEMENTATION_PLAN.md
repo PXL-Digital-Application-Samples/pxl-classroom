@@ -211,8 +211,15 @@ Single Vue app, built with Node tooling, deployed as static assets to a **public
 - [x] Burst throttling validated at class scale (rate-limit-aware queue); controlled concurrency.
 - [x] 20 assignments / 500 students / 250-burst targets.
 
-### Phase 4 — v1 release
+### Phase 4 — v1 release (Superseded)
 - [x] Meet `REQUIREMENTS.md` "Acceptance criteria for version 1"; docs + lecturer runbook; final security review.
+- *(Note: Workflows and secrets management superseded by Phase 5)*
+
+### Phase 5 — Centralization rewrite (Wave 1–7)
+- [x] Consolidate all workflows into a single central hub repository (`pxl-classroom`).
+- [x] Rewrite all backend scripts to remove inline GitHub actions logic and improve reliability.
+- [x] Modernize the Single Page Application (SPA) frontend.
+- [x] See `REVIEW.md` and `REVIEW_PLAN.md` for full details.
 
 ## 14. Risks & open items
 - **Burst near 500 writes/hr** — mitigated by throttled queue; multiple simultaneous classes need spreading.

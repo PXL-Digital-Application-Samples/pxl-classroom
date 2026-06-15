@@ -116,13 +116,15 @@ async function main() {
   let verified = false;
 
   try {
-    // Clone source (full, to ensure the SHA is reachable)
+    // Fetch only the specific SHA (shallow)
     const srcUrl = authedUrl(cfg.sourceRepo);
     const arcUrl = authedUrl(cfg.archiveRepo);
     const cloneDir = join(workDir, "src");
 
-    git(`clone --quiet "${srcUrl}" "${cloneDir}"`);
-    log("clone", { ok: true, note: `cloned ${cfg.org}/${cfg.sourceRepo}` });
+    await mkdir(cloneDir);
+    git(`init --bare`, { cwd: cloneDir });
+    git(`fetch --depth=1 "${srcUrl}" ${cfg.sourceSha}`, { cwd: cloneDir });
+    log("fetch", { ok: true, note: `fetched ${cfg.sourceSha} from ${cfg.org}/${cfg.sourceRepo}` });
 
     // Verify the requested SHA exists in the clone
     try {

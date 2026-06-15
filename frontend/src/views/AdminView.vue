@@ -32,9 +32,21 @@
           <input type="text" v-model="form.deadline" placeholder="2026-06-15T23:59:00Z" class="form-input" />
         </div>
       </div>
-      <button class="btn btn-primary" @click="createAssignment" :disabled="creating" style="margin-top: var(--space-md)">
-        {{ creating ? 'Creating...' : 'Create Assignment YAML' }}
-      </button>
+      <div v-if="!previewMode">
+        <button class="btn btn-primary" @click="previewYaml" style="margin-top: var(--space-md)">
+          Preview YAML
+        </button>
+      </div>
+      <div v-else class="yaml-preview" style="margin-top: var(--space-md)">
+        <h4 style="margin-bottom: var(--space-xs)">YAML Preview</h4>
+        <pre class="yaml-code"><code>{{ generatedYaml }}</code></pre>
+        <div class="flex gap-sm" style="margin-top: var(--space-md)">
+          <button class="btn btn-success" @click="createAssignment" :disabled="creating">
+            {{ creating ? 'Committing...' : 'Confirm & Commit' }}
+          </button>
+          <button class="btn" @click="previewMode = false" :disabled="creating">Cancel</button>
+        </div>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom: var(--space-xl)">
@@ -80,7 +92,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { commitFile, triggerWorkflow } from '../lib/api.js'
@@ -111,15 +123,9 @@ const extForm = ref({
 const creating = ref(false)
 const publishing = ref(false)
 const extending = ref(false)
+const previewMode = ref(false)
 
-async function createAssignment() {
-  if (!form.value.id || !form.value.title) {
-    toast.error('Missing ID or Title')
-    return
-  }
-  creating.value = true
-  const token = getToken()
-  const yaml = `schema_version: 1
+const generatedYaml = computed(() => `schema_version: 1
 title: "${form.value.title}"
 description: "Created via Admin UI"
 state: "published"
@@ -127,22 +133,33 @@ opens_at: "${form.value.opens}"
 deadline_at: "${form.value.deadline}"
 max_acceptances: ${form.value.max}
 repository_name_pattern: "${form.value.id}-{github_login}"
-`
-  const doc = parse(yaml)
+`)
+
+async function previewYaml() {
+  if (!form.value.id || !form.value.title) {
+    toast.error('Missing ID or Title')
+    return
+  }
+  const doc = parse(generatedYaml.value)
   const { valid, errors } = await validateAgainst('assignment', doc)
   if (!valid) {
     toast.error('Validation failed: ' + errors.map(e => `${e.instancePath} ${e.message}`).join('; '))
-    creating.value = false
     return
   }
+  previewMode.value = true
+}
 
+async function createAssignment() {
+  creating.value = true
+  const token = getToken()
   const path = `assignments/${form.value.id}.yml`
-  const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Create assignment ${form.value.id}`)
+  const res = await commitFile(token, props.org, config.controlRepo, path, generatedYaml.value, `Create assignment ${form.value.id}`)
   
   if (res.ok) {
     toast.success('Assignment YAML created successfully!')
     form.value.id = ''
     form.value.title = ''
+    previewMode.value = false
   } else {
     toast.error(`Failed to create assignment: ${res.data?.message || 'Unknown error'}`)
   }
@@ -227,6 +244,16 @@ label {
   font-weight: 500;
   font-size: 0.9rem;
   color: var(--text-secondary);
+}
+.yaml-code {
+  background: var(--bg-tertiary);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--accent-blue);
+  overflow-x: auto;
+  border: 1px solid var(--border-muted);
 }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: 1fr; }

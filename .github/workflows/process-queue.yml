@@ -25,12 +25,7 @@ jobs:
           else
             git fetch origin participating-orgs:participating-orgs || true
             if git show participating-orgs:participating-orgs.yml > participating-orgs.yml 2>/dev/null; then
-              ORGS=$(node -e "
-                const {parse} = require('yaml');
-                const fs=require('fs');
-                const o = parse(fs.readFileSync('participating-orgs.yml','utf8'));
-                process.stdout.write(JSON.stringify(o.orgs.map(x => x.login)||[]));
-              ")
+              ORGS=$(node scripts/get-participating-orgs.mjs)
               echo "orgs=$ORGS" >> "$GITHUB_OUTPUT"
             else
               echo "orgs=[]" >> "$GITHUB_OUTPUT"
@@ -110,17 +105,7 @@ jobs:
           path: control
       - id: assignment
         run: |
-          node -e "
-            const fs = require('fs');
-            const { parse } = require('yaml');
-            const a = parse(fs.readFileSync('control/assignments/${{ matrix.student.assignment_id }}.yml', 'utf8'));
-            const fsOut = process.env.GITHUB_OUTPUT;
-            fs.appendFileSync(fsOut, 'template_owner=' + a.template.owner + '\n');
-            fs.appendFileSync(fsOut, 'template_repository=' + a.template.repository + '\n');
-            const pat = a.repository_name_pattern || '${{ matrix.student.assignment_id }}-{login}';
-            const targetRepo = pat.replace('{login}', '${{ matrix.student.github_login }}');
-            fs.appendFileSync(fsOut, 'target_repo=' + targetRepo + '\n');
-          "
+          node scripts/parse-assignment-metadata.mjs "${{ matrix.student.assignment_id }}" "${{ matrix.student.github_login }}"
       - uses: ./provisioning
         id: prov
         with:
@@ -181,9 +166,9 @@ jobs:
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
           if [ -f "$ACCEPT_FILE" ]; then
             if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='provisioned';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+              node scripts/update-json-field.mjs "$ACCEPT_FILE" "status" "provisioned"
             else
-              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='failed';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+              node scripts/update-json-field.mjs "$ACCEPT_FILE" "status" "failed"
             fi
             git add "acceptances/"
           fi

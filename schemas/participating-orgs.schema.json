@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/participating-orgs.schema.json",
+  "title": "Participating Organizations",
+  "description": "Registry of organizations participating in PXL Classroom.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "orgs"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "orgs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "login",
+          "budget_owner"
+        ],
+        "properties": {
+          "login": {
+            "type": "string",
+            "description": "The GitHub login of the organization.",
+            "pattern": "^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$"
+          },
+          "budget_owner": {
+            "type": "string",
+            "description": "Email address of the budget owner responsible for Actions billing.",
+            "format": "email"
+          },
+          "spending_limit_eur": {
+            "type": "integer",
+            "description": "Monthly spending limit in EUR.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

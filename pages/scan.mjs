@@ -22,7 +22,7 @@ const RULES = [
   { name: "github-token", re: /\bgh[posu]_[A-Za-z0-9]{20,}\b/g },
   { name: "github-fine-grained-pat", re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
   { name: "private-key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
-  { name: "email-address", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
+  { name: "email-address", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, allow: /@users\.noreply\.github\.com$/ },
   { name: "institutional-id-field", re: /"student_id"\s*:/g },
   { name: "claim-token-field", re: /"claim_token"\s*:/g },
   { name: "roster-field", re: /"(display_name|class_group|institutional_id)"\s*:/g },
@@ -53,6 +53,7 @@ async function main() {
     const text = await readFile(file, "utf8").catch(() => "");
     for (const rule of RULES) {
       for (const m of text.matchAll(rule.re)) {
+        if (rule.allow && rule.allow.test(m[0])) continue;
         findings++;
         const snippet =
           m[0].length > 40 ? m[0].slice(0, 37) + "..." : m[0];

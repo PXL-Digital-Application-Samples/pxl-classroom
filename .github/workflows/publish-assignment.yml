@@ -114,7 +114,7 @@ jobs:
             sed -i "s/^state:.*/state: published/" "$FILE"
           else
             FILE="assignments/${{ inputs.assignment_id }}.json"
-            node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$FILE','utf-8'));d.state='published';fs.writeFileSync('$FILE',JSON.stringify(d,null,2)+'\n');"
+            node scripts/update-json-field.mjs "$FILE" "state" "published"
           fi
 
           git config user.name "pxl-classroom[bot]"

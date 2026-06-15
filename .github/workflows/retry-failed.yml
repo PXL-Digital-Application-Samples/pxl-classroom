@@ -42,7 +42,7 @@ jobs:
           shopt -s nullglob
           for f in acceptances/${PATTERN}/*.json; do
             [ -f "$f" ] || continue
-            STATUS=$(node -e "const d=JSON.parse(require('fs').readFileSync('$f','utf-8'));console.log(d.status)")
+            STATUS=$(node scripts/get-json-field.mjs "$f" "status")
             if [ "$STATUS" = "accepted" ] || [ "$STATUS" = "failed" ]; then
               FAILED+=("$f")
             fi
@@ -94,23 +94,13 @@ jobs:
             const fs = require('fs');
             fs.appendFileSync(process.env.GITHUB_OUTPUT, 'assignment_id=' + d.assignment_id + '\n');
             fs.appendFileSync(process.env.GITHUB_OUTPUT, 'github_login=' + d.github_login + '\n');
-          "
+          node scripts/parse-acceptance.mjs "${{ matrix.file }}"
 
       - name: Load assignment
         id: assignment
         shell: bash
         run: |
-          node -e "
-            const fs = require('fs');
-            const { parse } = require('yaml');
-            const a = parse(fs.readFileSync('control/assignments/${{ steps.parse.outputs.assignment_id }}.yml', 'utf8'));
-            const fsOut = process.env.GITHUB_OUTPUT;
-            fs.appendFileSync(fsOut, 'template_owner=' + a.template.owner + '\n');
-            fs.appendFileSync(fsOut, 'template_repository=' + a.template.repository + '\n');
-            const pat = a.repository_name_pattern || '${{ steps.parse.outputs.assignment_id }}-{login}';
-            const targetRepo = pat.replace('{login}', '${{ steps.parse.outputs.github_login }}');
-            fs.appendFileSync(fsOut, 'target_repo=' + targetRepo + '\n');
-          "
+          node scripts/parse-assignment-metadata.mjs "${{ steps.parse.outputs.assignment_id }}" "${{ steps.parse.outputs.github_login }}"
 
       - name: Reprovision
         uses: ./provisioning
@@ -159,9 +149,9 @@ jobs:
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
           if [ -f "$ACCEPT_FILE" ]; then
             if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='provisioned';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+              node scripts/update-json-field.mjs "$ACCEPT_FILE" "status" "provisioned"
             else
-              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='failed';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+              node scripts/update-json-field.mjs "$ACCEPT_FILE" "status" "failed"
             fi
             git add "acceptances/"
           fi

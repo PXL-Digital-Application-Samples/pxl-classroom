@@ -32,8 +32,25 @@ This guide covers day-to-day operations for lecturers managing assignments via t
    - The system automatically updates this issue with any anomalies, such as students deleting their repositories, making late pushes, or provisioning failures.
    - Use this as your daily checklist to handle edge cases.
 
+## Organization Setup & Budget Policy
+
+Before using PXL Classroom, each organization must be registered in the central system.
+
+1. **Register Organization:**
+   - The system administrator will add your organization to the `participating-orgs.yml` file on the `participating-orgs` branch of `pxl-classroom`.
+   - Your entry must include `login`, `budget_owner` (email address), and `spending_limit_eur`.
+
+2. **Set up GitHub Actions Spending Limit:**
+   - Go to your organization's **Settings > Billing and plans > Spending limit**.
+   - Set the Actions spending limit to match or slightly exceed your `spending_limit_eur` to prevent unexpected overages.
+   - Configure billing alerts so the `budget_owner` is notified if usage approaches the limit.
+
+3. **Install GitHub App:**
+   - Install the PXL Classroom Provisioner App in your organization.
+
 ## Edge Cases
 
 - **Student deleted their repository:** The system will flag this in the Notifications issue. To resolve it, go to the `repositories/` folder in the control repo, delete their JSON record, and ask the student to accept the assignment again.
 - **Granting an extension:** Go to your PXL Classroom Dashboard, click the **Admin Panel** button, and use the "Grant Deadline Extension" form. Enter the assignment ID, student login, and the new deadline. The UI will automatically commit the extension file.
 - **System Failure:** If provisioning fails due to GitHub outages, the system will log it. You can trigger the **Process Queue** workflow to retry pending acceptances.
+- **Finalizing Deadlines:** This is fully automated. The system automatically preserves student repositories, computes lateness, and closes out submissions shortly after the deadline passes.

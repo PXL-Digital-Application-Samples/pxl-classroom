@@ -167,16 +167,16 @@ Because access-controlled GitHub Pages is unavailable on the target plan, all Gi
 
 PXL Classroom shall support many organizations and many lecturers. A lecturer may create classrooms in any organization they own where the GitHub App is installed.
 
-The architecture separates four layers:
+The architecture separates layers:
 
 - Credentials: one GitHub App is installed per organization by that organization's owner. Each installation yields a scoped token usable only within that organization. There is no single credential spanning all organizations.
-- Code: a single shared codebase provides the trusted workflows, reused across organizations through reusable workflows or a published action. Organizations are not normally forked; forking is an opt-in only for an organization that requires hard isolation.
-- Data and execution: each organization stores its own classrooms, roster, observations, and reports in a control repository inside that organization, and runs its own workflows there. No organization's private data is stored where another organization's lecturers can read it.
+- Workflows and Execution: Workflows are centralized in the public `pxl-classroom` repository. They dispatch actions across participating organizations.
+- Data: Each organization stores its own classrooms, roster, observations, and reports in a control repository inside that organization. Each control repository is a data-only store and contains no workflow files. No organization's private data is stored where another organization's lecturers can read it.
 - Dashboard: a single public GitHub Pages application serves all organizations. After a lecturer authenticates, it lists the organizations they own where the App is installed, then lists classrooms per organization, fetching each organization's control-repository data at runtime with the lecturer's own token.
 
 Because GitHub repository permissions are all-or-nothing, per-organization control repositories are required: a shared control repository would expose every organization's private roster and reports to every lecturer who could read it.
 
-In the remainder of this document, "the control repository" refers to the control repository of the relevant organization.
+In the remainder of this document, "the control repository" refers to the data-only control repository of the relevant organization.
 
 ## Control repository
 
@@ -760,12 +760,14 @@ PXL Classroom shall follow least privilege.
 
 The trusted automation credential shall:
 
-- be stored only as an Actions secret or GitHub App private key secret in the control repository or organization;
+- be stored only as an Actions secret or GitHub App private key secret;
 - receive only the permissions required for provisioning, membership, metadata collection, and archival;
 - use short-lived installation tokens where possible;
 - never be exposed to pull requests or workflows controlled by students;
 - never be printed to logs;
 - be rotatable without modifying student repositories.
+
+Workflows run centrally from `pxl-classroom` (public); per-org control repositories hold data only and contain no workflow files.
 
 The GitHub App permission set required for provisioning is confirmed by Spike 1 to be: Repository **Administration** (read/write), **Contents** (read/write), and **Metadata** (read). This set is sufficient to create a repository from a private template and grant a student administrator access. All later spikes (collection, lock-down, preservation) ran within this set; no further permissions were required. Finalized minimum set: Administration RW, Contents RW, Metadata R.
 

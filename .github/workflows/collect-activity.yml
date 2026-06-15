@@ -22,12 +22,7 @@ jobs:
           else
             git fetch origin participating-orgs:participating-orgs || true
             if git show participating-orgs:participating-orgs.yml > participating-orgs.yml 2>/dev/null; then
-              ORGS=$(node -e "
-                const {parse} = require('yaml');
-                const fs=require('fs');
-                const o = parse(fs.readFileSync('participating-orgs.yml','utf8'));
-                process.stdout.write(JSON.stringify(o.orgs.map(x => x.login)||[]));
-              ")
+              ORGS=$(node scripts/get-participating-orgs.mjs)
               echo "orgs=$ORGS" >> "$GITHUB_OUTPUT"
             else
               echo "orgs=[]" >> "$GITHUB_OUTPUT"

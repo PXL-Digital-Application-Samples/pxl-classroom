@@ -3,6 +3,9 @@
 Tracks active work against `IMPLEMENTATION_PLAN.md`. Update this file as tasks complete.
 Last updated: 2026-06-15
 
+**v1 GA released 2026-06-15**
+- Architecture revised to centralize workflows (see `REVIEW.md` and `REVIEW_PLAN.md`).
+
 ## Phase 0 — Foundations (infra)
 
 - [x] Provide **Automated App Manifest** UI (`/setup`) to instantly generate the central GitHub App. Set production secrets `PXL_APP_ID`/`PXL_APP_PRIVATE_KEY` / `VITE_GITHUB_CLIENT_ID`; rotate spike key
