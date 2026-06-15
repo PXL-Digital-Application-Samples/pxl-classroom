@@ -6,6 +6,16 @@ Unlike GitHub Classroom, this system uses private, per-organization **Control Re
 
 ## Architecture
 
+```mermaid
+graph LR
+    User[Student / Lecturer] -->|Accesses| Dashboard[Frontend Dashboard]
+    Dashboard -->|Reads/Writes via API| ControlRepo[Control Repository]
+    Dashboard -.->|Authenticates| App[GitHub App]
+    ControlRepo -->|Triggers| Actions[Shared Codebase Actions]
+    App -->|Provisions & Manages| StudentRepos[Student Repositories]
+    Actions -->|Runs Tasks| StudentRepos
+```
+
 1. **GitHub App:** A central GitHub App handles secure repository provisioning and lock-downs using short-lived installation tokens.
 2. **Frontend Dashboard:** A static Vue.js SPA hosted on GitHub Pages. Lecturers use it to monitor progress, while students use it to "Accept" assignments via the GitHub Device Flow. Data is fetched *at runtime* directly from the control repo—no backend database is required.
 3. **Shared Codebase (This Repository):** Contains all the composite actions and scripts (`provisioning`, `collect`, `report`, etc.) that orchestrate the platform.
