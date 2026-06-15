@@ -66,8 +66,14 @@
               <option value="unknown">Unknown</option>
             </select>
           </div>
-          <div class="flex gap-sm">
-
+          <div class="flex gap-sm items-center">
+            <span v-if="apiCallsUsed > 0 && !refreshingLive" class="text-sm text-secondary">
+              Cost: {{ apiCallsUsed }} API calls
+            </span>
+            <button class="btn btn-primary" @click="refreshLiveStatus" :disabled="refreshingLive">
+              <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
+              <span v-else>↻ Live Status</span>
+            </button>
             <button class="btn" @click="copyAcceptLink">📋 Copy accept link</button>
           </div>
         </div>
@@ -156,8 +162,9 @@ import { ref, computed, onMounted } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getRepoContent } from '../lib/api.js'
+import { getRepoContent, ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
+import { toast } from '../lib/toast.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -171,6 +178,11 @@ const search = ref('')
 const statusFilter = ref('')
 const sortKey = ref('github_login')
 const sortAsc = ref(true)
+
+const refreshingLive = ref(false)
+const apiCallsUsed = ref(0)
+const totalStudentsToRefresh = ref(0)
+const refreshedStudentsCount = ref(0)
 
 const onTimeCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'on-time').length || 0)
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
@@ -264,6 +276,60 @@ function copyAcceptLink() {
   const base = window.location.origin + (import.meta.env.BASE_URL || '/')
   const link = `${base}a/${props.assignmentId}`
   navigator.clipboard.writeText(link)
+}
+
+async function refreshLiveStatus() {
+  const token = getToken()
+  if (!token || !report.value) return
+  
+  const studentsToRefresh = report.value.students.filter(s => s.repo_name)
+  if (studentsToRefresh.length === 0) {
+    toast.info("No provisioned repositories to check.")
+    return
+  }
+  
+  refreshingLive.value = true
+  apiCallsUsed.value = 0
+  totalStudentsToRefresh.value = studentsToRefresh.length
+  refreshedStudentsCount.value = 0
+  
+  for (const s of studentsToRefresh) {
+    try {
+      const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
+      apiCallsUsed.value++
+      
+      if (res.ok && res.data && res.data.length > 0) {
+        const commit = res.data[0]
+        const sha = commit.sha
+        const commitDateStr = commit.commit.committer.date
+        const commitDate = new Date(commitDateStr)
+        const deadline = s.effective_deadline_at ? new Date(s.effective_deadline_at) : null
+        
+        s.latest_observed_sha = sha
+        s.latest_observed_at = commitDateStr
+        
+        if (deadline) {
+          if (commitDate <= deadline) {
+            s.submission_status = 'on-time'
+            s.last_on_time_sha = sha
+          } else {
+            s.submission_status = 'late'
+            s.first_late_sha = sha
+          }
+        } else {
+          s.submission_status = 'unknown'
+        }
+      } else if (res.ok && res.data && res.data.length === 0) {
+        s.submission_status = 'no-submission'
+      }
+    } catch (e) {
+      console.error(`Failed to fetch live status for ${s.repo_name}:`, e)
+    }
+    refreshedStudentsCount.value++
+  }
+  
+  refreshingLive.value = false
+  toast.success(`Live status updated for ${totalStudentsToRefresh.value} students.`)
 }
 </script>
 
