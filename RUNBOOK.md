@@ -10,22 +10,11 @@ This guide covers day-to-day operations for lecturers managing assignments via t
    - Add any starter code, `.github/workflows` for autograding, and assignment instructions here.
 
 2. **Define the Assignment:**
-   - Go to your private control repository (e.g., `pxl-classroom-control`).
-   - In the `assignments/` directory, create a YAML file (e.g., `automation-pe-1.yml`):
-     ```yaml
-     schema_version: 1
-     title: "Automation Practice Enterprise 1"
-     description: "Build an automation pipeline."
-     state: "published"
-     opens_at: "2026-06-01T08:00:00Z"
-     deadline_at: "2026-06-15T23:59:00Z"
-     max_acceptances: 250
-     repository_name_pattern: "automation-pe-1-{github_login}"
-     ```
+   - Go to your PXL Classroom Dashboard and click the **Admin Panel** button.
+   - Fill out the "Create New Assignment" form (Title, ID, Deadlines, Max Acceptances) and click **Create Assignment YAML**. The UI will automatically generate and commit the file to your private control repository.
 
 3. **Publish:**
-   - Commit and push the file.
-   - Run the **Publish Assignment** workflow manually via GitHub Actions.
+   - In the Admin Panel, click the **Run Publish Workflow** button.
    - This creates a public **Broker Repository** that students will star to accept the assignment.
    - Share the assignment URL from the Dashboard with your students.
    - **Note on Scale:** During massive classes (e.g., 250+ students accepting simultaneously), the system queues provisioning to prevent GitHub rate-limiting. Students may see a "Setting up..." screen for 3-5 minutes. This is normal and intentional.
@@ -46,5 +35,5 @@ This guide covers day-to-day operations for lecturers managing assignments via t
 ## Edge Cases
 
 - **Student deleted their repository:** The system will flag this in the Notifications issue. To resolve it, go to the `repositories/` folder in the control repo, delete their JSON record, and ask the student to accept the assignment again.
-- **Granting an extension:** Go to the `overrides/` folder in the control repo. Create a JSON file for the student (e.g., `automation-pe-1/studentlogin.json`) and override their deadline.
+- **Granting an extension:** Go to your PXL Classroom Dashboard, click the **Admin Panel** button, and use the "Grant Deadline Extension" form. Enter the assignment ID, student login, and the new deadline. The UI will automatically commit the extension file.
 - **System Failure:** If provisioning fails due to GitHub outages, the system will log it. You can trigger the **Process Queue** workflow to retry pending acceptances.
