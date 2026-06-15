@@ -6,7 +6,6 @@ This is the template for per-organization control repositories.
 
 ```
 assignments/          # Assignment definitions (YAML)
-students/             # Student roster (YAML)
 acceptances/          # Per-assignment acceptance records (JSON)
 repositories/         # Per-assignment repository records (JSON)
 observations/         # Per-assignment observation snapshots (JSON)
@@ -20,16 +19,17 @@ schemas/              # JSON Schemas (versioned)
 
 ## Setup
 
-1. Create a new private repo in your org from this template
-2. Set repo secrets:
-   - `PXL_APP_ID` — GitHub App ID
-   - `PXL_APP_PRIVATE_KEY` — GitHub App private key (PEM)
-   - `DISPATCH_APP_ID` — Dispatcher App ID (or same as PXL_APP_ID)
-   - `DISPATCH_APP_PRIVATE_KEY` — Dispatcher App private key
-3. Copy workflows from `workflows/` to `.github/workflows/`
-4. Create a `students/roster.yml` with your student list
-5. Create an assignment in `assignments/<id>.yml`
-6. Run the "Publish assignment" workflow
+1. Your IT Administrator creates this repository by copying the `control-repo-template/` files from the main `pxl-classroom` codebase.
+2. The `PXL_APP_ID` and `PXL_APP_PRIVATE_KEY` repository secrets are added.
+
+## Managing Assignments
+
+**Do not edit files manually.** 
+
+Go to your **PXL Classroom Dashboard** and click **Admin Panel**. From there, you can:
+- **Create Assignments:** Fills out `assignments/*.yml` automatically.
+- **Publish Assignments:** Automatically triggers the `.github/workflows/publish.yml` workflow.
+- **Grant Extensions:** Automatically generates the override JSON files.
 
 ## Data model
 
