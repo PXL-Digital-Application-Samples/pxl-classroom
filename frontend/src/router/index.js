@@ -13,9 +13,10 @@ const routes = [
     props: true,
   },
   {
-    path: '/dashboard',
+    path: '/dashboard/:org?',
     name: 'dashboard',
     component: () => import('../views/DashboardView.vue'),
+    props: true,
   },
   {
     path: '/dashboard/:org/:assignmentId',

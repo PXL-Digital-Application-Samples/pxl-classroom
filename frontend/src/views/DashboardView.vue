@@ -110,13 +110,21 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth, initAuth } from '../lib/auth.js'
 import { getInstallations, getUserOrgs, getOrgMembership, getRepoContent } from '../lib/api.js'
 
+const props = defineProps({
+  org: { type: String, required: false }
+})
+
+const router = useRouter()
+const route = useRoute()
+
 const user = ref(getUser())
 const orgs = ref([])
-const selectedOrg = ref('')
+const selectedOrg = ref(props.org || '')
 const assignments = ref([])
 const loadingData = ref(false)
 const authLoading = ref(false)
@@ -131,7 +139,12 @@ onMounted(async () => {
 })
 
 watch(selectedOrg, async (org) => {
-  if (org) await loadDashboard(org)
+  if (org) {
+    if (route.params.org !== org) {
+      router.replace({ name: 'dashboard', params: { org } })
+    }
+    await loadDashboard(org)
+  }
 })
 
 function stateClass(state) {
@@ -169,8 +182,10 @@ async function loadOrgs() {
       orgs.value = [{ login: config.defaultOrg, avatar_url: '' }]
     }
 
-    // Auto-select if only one
-    if (orgs.value.length === 1) {
+    // Auto-select based on URL param or fallback
+    if (props.org && orgs.value.some(o => o.login === props.org)) {
+      selectedOrg.value = props.org
+    } else if (orgs.value.length === 1) {
       selectedOrg.value = orgs.value[0].login
     }
   } catch (e) {

@@ -28,6 +28,7 @@ This guide covers day-to-day operations for lecturers managing assignments via t
    - Run the **Publish Assignment** workflow manually via GitHub Actions.
    - This creates a public **Broker Repository** that students will star to accept the assignment.
    - Share the assignment URL from the Dashboard with your students.
+   - **Note on Scale:** During massive classes (e.g., 250+ students accepting simultaneously), the system queues provisioning to prevent GitHub rate-limiting. Students may see a "Setting up..." screen for 3-5 minutes. This is normal and intentional.
 
 ## Monitoring Progress
 
