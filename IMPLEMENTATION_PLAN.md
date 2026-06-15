@@ -207,7 +207,7 @@ Single Vue app, built with Node tooling, deployed as static assets to a **public
 - [x] Gap detection + report regeneration after delayed data.
 
 ### Phase 3 — Scale
-- [x] Multi-assignment, multi-org (install App + control/archive repos per org); org-agnostic config.
+- [x] Multi-assignment, multi-org (install App + run Setup Organization Action per org); org-agnostic config.
 - [x] Burst throttling validated at class scale (rate-limit-aware queue); controlled concurrency.
 - [x] 20 assignments / 500 students / 250-burst targets.
 
