@@ -1,0 +1,113 @@
+name: Setup Organization
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_org:
+        description: 'Target Organization (e.g., PXLAutomation)'
+        required: true
+
+jobs:
+  setup-control-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main codebase
+        uses: actions/checkout@v4
+
+      - name: Generate App Installation Token for Target Org
+        id: generate_token
+        uses: tibdex/github-app-token@v2
+        with:
+          app_id: ${{ secrets.PXL_APP_ID }}
+          private_key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          installation_retrieval_mode: organization
+          installation_retrieval_payload: ${{ github.event.inputs.target_org }}
+
+      - name: Create pxl-classroom-control repository
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.generate_token.outputs.token }}
+          script: |
+            const org = context.payload.inputs.target_org;
+            const repoName = 'pxl-classroom-control';
+            
+            console.log(`Checking if ${org}/${repoName} already exists...`);
+            try {
+              await github.rest.repos.get({ owner: org, repo: repoName });
+              console.log('Repository already exists. Proceeding to update files and secrets.');
+            } catch (error) {
+              if (error.status === 404) {
+                console.log(`Creating repository ${org}/${repoName}...`);
+                await github.rest.repos.createInOrg({
+                  org: org,
+                  name: repoName,
+                  private: true,
+                  auto_init: false,
+                  description: 'PXL Classroom Control Repository'
+                });
+                // Wait a few seconds for GitHub backend to initialize the repo
+                await new Promise(r => setTimeout(r, 5000));
+              } else {
+                throw error;
+              }
+            }
+
+      - name: Push template files to new repository
+        run: |
+          cd control-repo-template
+          git init
+          git config user.name "pxl-classroom-provisioner[bot]"
+          git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Initial commit from template"
+          git branch -M main
+          git remote add origin https://x-access-token:${{ steps.generate_token.outputs.token }}@github.com/${{ github.event.inputs.target_org }}/pxl-classroom-control.git
+          git push -u origin main --force
+          
+      - name: Inject Secrets into Control Repository
+        uses: actions/github-script@v7
+        env:
+          APP_ID: ${{ secrets.PXL_APP_ID }}
+          APP_PK: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+        with:
+          github-token: ${{ steps.generate_token.outputs.token }}
+          script: |
+            const org = context.payload.inputs.target_org;
+            const repoName = 'pxl-classroom-control';
+            
+            // Note: This requires the App to have the "Secrets: Read & Write" permission!
+            const sodium = require('libsodium-wrappers');
+            await sodium.ready;
+            
+            async function createSecret(secretName, secretValue) {
+              // 1. Get the public key for the repo
+              const { data: keyData } = await github.rest.actions.getRepoPublicKey({
+                owner: org,
+                repo: repoName,
+              });
+              
+              // 2. Encrypt the secret value
+              const binkey = sodium.from_base64(keyData.key, sodium.base64_variants.ORIGINAL);
+              const binsec = sodium.from_string(secretValue);
+              const encBytes = sodium.crypto_box_seal(binsec, binkey);
+              const encryptedValue = sodium.to_base64(encBytes, sodium.base64_variants.ORIGINAL);
+              
+              // 3. Upload the secret
+              await github.rest.actions.createOrUpdateRepoSecret({
+                owner: org,
+                repo: repoName,
+                secret_name: secretName,
+                encrypted_value: encryptedValue,
+                key_id: keyData.key_id,
+              });
+              console.log(`Injected secret: ${secretName}`);
+            }
+            
+            try {
+              await createSecret('PXL_APP_ID', process.env.APP_ID);
+              await createSecret('PXL_APP_PRIVATE_KEY', process.env.APP_PK);
+              console.log('Secrets injected successfully!');
+            } catch (err) {
+              console.error('Failed to inject secrets. Does the GitHub App have the "Secrets" (Read & write) permission?');
+              throw err;
+            }

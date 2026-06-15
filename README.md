@@ -28,23 +28,21 @@ This setup is split into two parts: **Central Infrastructure** (done once for th
    - **Callback URL:** Same as the Homepage URL.
    - **Device Flow:** Ensure **"Enable Device Flow"** is checked (this allows students to login without passwords).
    - **Permissions:**
-     - **Repository:** Administration (Read & write), Contents (Read & write), Metadata (Read-only)
+     - **Repository:** Administration (Read & write), Contents (Read & write), Metadata (Read-only), Secrets (Read & write)
      - **User:** Starring (Read & write)
    - Save the App, then generate a **Private Key** and note the **App ID**.
+   - Add the App ID (`PXL_APP_ID`) and Private Key (`PXL_APP_PRIVATE_KEY`) as **Repository Secrets** in your main `pxl-classroom` codebase repository.
 
 ### Part 2: Organization Setup (Done per Org)
 
 1. **Install the GitHub App:**
    - Go to the GitHub App's public page and click **Install**. Select the target organization (e.g., `PXLAutomation`).
 
-2. **Create the Control Repository:**
-   - In the target organization, create a new **Private** repository named `pxl-classroom-control`.
-   - **Do not fork or clone.** Simply go to the `control-repo-template/` directory in this codebase, download the files, and drag-and-drop them directly into your new `pxl-classroom-control` repository using the GitHub web UI (`Add file > Upload files`).
-   
-3. **Add Secrets:**
-   - In your new `pxl-classroom-control` repository, go to **Settings > Secrets and variables > Actions**.
-   - Add a New Repository Secret: `PXL_APP_ID` (Value: your App ID).
-   - Add a New Repository Secret: `PXL_APP_PRIVATE_KEY` (Value: the contents of the `.pem` file generated earlier).
+2. **Run the Automated Setup:**
+   - Go to the **Actions** tab of your main `pxl-classroom` codebase repository.
+   - Select the **Setup Organization** workflow.
+   - Click **Run workflow**, enter the target organization name, and click Run.
+   - *This fully automates creating the private control repository, copying all the template files, and securely injecting the required Action Secrets into the new organization.*
 
 ## Lecturer Usage
 
