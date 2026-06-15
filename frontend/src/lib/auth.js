@@ -12,10 +12,8 @@
 // Token storage: sessionStorage only (cleared on tab close).
 // Never localStorage. Never embedded in Pages output.
 
-// CORS proxy is required because GitHub's OAuth/Device endpoints do not support CORS
-const CORS_PROXY = 'https://corsproxy.io/?'
-const GITHUB_DEVICE_CODE_URL = CORS_PROXY + encodeURIComponent('https://github.com/login/device/code')
-const GITHUB_TOKEN_URL = CORS_PROXY + encodeURIComponent('https://github.com/login/oauth/access_token')
+const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
+const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 const GITHUB_API_BASE = 'https://api.github.com' // API supports CORS directly
 
 // State
