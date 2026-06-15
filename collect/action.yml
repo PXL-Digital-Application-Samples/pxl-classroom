@@ -14,8 +14,15 @@ inputs:
     description: Target organization (App must be installed here)
     required: true
   assignment-id:
-    description: Assignment slug (matches assignments/<id>.yml)
-    required: true
+    description: Assignment slug (matches assignments/<id>.yml). Empty to process all eligible.
+    required: false
+  collection-type:
+    description: Type of collection (e.g. scheduled, manual)
+    required: false
+    default: scheduled
+  cron-schedule:
+    description: The cron schedule that triggered this run, if any
+    required: false
   data-dir:
     description: Root data directory containing assignments/, repositories/, observations/
     required: true
@@ -60,4 +67,6 @@ runs:
         ORG: ${{ inputs.org }}
         ASSIGNMENT_ID: ${{ inputs.assignment-id }}
         DATA_DIR: ${{ inputs.data-dir }}
+        COLLECTION_TYPE: ${{ inputs.collection-type }}
+        CRON_SCHEDULE: ${{ inputs.cron-schedule || env.CRON_SCHEDULE }}
       run: node "$GITHUB_ACTION_PATH/collect.mjs"

@@ -1,0 +1,88 @@
+name: Regenerate dashboard
+on:
+  workflow_dispatch:
+    inputs:
+      org: { type: string }
+  schedule:
+    - cron: '15 * * * *'
+jobs:
+  find-orgs:
+    runs-on: ubuntu-latest
+    outputs:
+      orgs: ${{ steps.list.outputs.orgs }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: list
+        run: |
+          if [ -n "${{ inputs.org }}" ]; then
+            echo "orgs=[\"${{ inputs.org }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            git fetch origin participating-orgs:participating-orgs || true
+            if git show participating-orgs:participating-orgs.yml > participating-orgs.yml 2>/dev/null; then
+              ORGS=$(node -e "
+                const {parse} = require('yaml');
+                const fs=require('fs');
+                const o = parse(fs.readFileSync('participating-orgs.yml','utf8'));
+                process.stdout.write(JSON.stringify(o.orgs.map(x => x.login)||[]));
+              ")
+              echo "orgs=$ORGS" >> "$GITHUB_OUTPUT"
+            else
+              echo "orgs=[]" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  generate:
+    needs: find-orgs
+    if: needs.find-orgs.outputs.orgs != '[]'
+    strategy:
+      matrix:
+        org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
+      max-parallel: 4
+      fail-fast: false
+    concurrency:
+      group: dashboard-${{ matrix.org }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: npm ci --omit=dev
+      - name: Mint App token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.org }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ matrix.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Generate and scan
+        uses: ./pages
+        with:
+          data-dir: "control"
+          output-dir: "control/public"
+
+      - name: Commit public data
+        working-directory: control
+        shell: bash
+        run: |
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git add public/
+          if git diff --cached --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git commit -m "Regenerate dashboard data [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          git pull --rebase || true
+          until git push; do
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then exit 1; fi
+            sleep $(( (RANDOM % 5) + 2 ))
+            git pull --rebase
+          done

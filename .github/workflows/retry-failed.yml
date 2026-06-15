@@ -1,0 +1,181 @@
+name: Retry failed provisioning
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: "Organization"
+        required: true
+        type: string
+      assignment_id:
+        description: "Assignment ID (blank = all)"
+        required: false
+        type: string
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.find.outputs.files }}
+      count: ${{ steps.find.outputs.count }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Mint App token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Find failed acceptances
+        id: find
+        working-directory: control
+        shell: bash
+        run: |
+          FAILED=()
+          PATTERN="${{ inputs.assignment_id || '*' }}"
+          shopt -s nullglob
+          for f in acceptances/${PATTERN}/*.json; do
+            [ -f "$f" ] || continue
+            STATUS=$(node -e "const d=JSON.parse(require('fs').readFileSync('$f','utf-8'));console.log(d.status)")
+            if [ "$STATUS" = "accepted" ] || [ "$STATUS" = "failed" ]; then
+              FAILED+=("$f")
+            fi
+          done
+
+          echo "count=${#FAILED[@]}" >> "$GITHUB_OUTPUT"
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            echo "files=$(printf '%s\n' "${FAILED[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          else
+            echo "files=[]" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        if: steps.find.outputs.count == '0'
+        run: echo "No failed acceptances to retry." >> "$GITHUB_STEP_SUMMARY"
+
+  reprovision:
+    needs: retry
+    if: needs.retry.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        file: ${{ fromJSON(needs.retry.outputs.files || '[]') }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: npm ci --omit=dev
+      - name: Mint App token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Parse acceptance
+        id: parse
+        working-directory: control
+        shell: bash
+        run: |
+          node -e "
+            const d = JSON.parse(require('fs').readFileSync('${{ matrix.file }}', 'utf-8'));
+            const fs = require('fs');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'assignment_id=' + d.assignment_id + '\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'github_login=' + d.github_login + '\n');
+          "
+
+      - name: Load assignment
+        id: assignment
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const { parse } = require('yaml');
+            const a = parse(fs.readFileSync('control/assignments/${{ steps.parse.outputs.assignment_id }}.yml', 'utf8'));
+            const fsOut = process.env.GITHUB_OUTPUT;
+            fs.appendFileSync(fsOut, 'template_owner=' + a.template.owner + '\n');
+            fs.appendFileSync(fsOut, 'template_repository=' + a.template.repository + '\n');
+            const pat = a.repository_name_pattern || '${{ steps.parse.outputs.assignment_id }}-{login}';
+            const targetRepo = pat.replace('{login}', '${{ steps.parse.outputs.github_login }}');
+            fs.appendFileSync(fsOut, 'target_repo=' + targetRepo + '\n');
+          "
+
+      - name: Reprovision
+        uses: ./provisioning
+        id: prov
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ inputs.org }}
+          template-owner: ${{ steps.assignment.outputs.template_owner }}
+          template-repo: ${{ steps.assignment.outputs.template_repository }}
+          target-repo: ${{ steps.assignment.outputs.target_repo }}
+          student-login: ${{ steps.parse.outputs.github_login }}
+
+      - name: Update records
+        if: always()
+        working-directory: control
+        run: |
+          ASSIGNMENT_ID="${{ steps.parse.outputs.assignment_id }}"
+          LOGIN="${{ steps.parse.outputs.github_login }}"
+          REPO_ID="${{ steps.prov.outputs.repo-id }}"
+          REPO_URL="${{ steps.prov.outputs.repo-url }}"
+          OUTCOME="${{ steps.prov.outputs.outcome }}"
+          ORG="${{ inputs.org }}"
+          TARGET_REPO="${{ steps.assignment.outputs.target_repo }}"
+          
+          if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+            mkdir -p "repositories/${ASSIGNMENT_ID}"
+            cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF
+            {
+              "schema_version": 1,
+              "assignment_id": "${ASSIGNMENT_ID}",
+              "github_login": "${LOGIN}",
+              "repo_id": ${REPO_ID:-null},
+              "repo_name": "${ORG}/${TARGET_REPO}",
+              "repo_url": "${REPO_URL}",
+              "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "provisioned_by_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "student_permission": "admin",
+              "access_state": "invited",
+              "last_checked_at": null
+            }
+            EOF
+            git add "repositories/"
+          fi
+          
+          ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
+          if [ -f "$ACCEPT_FILE" ]; then
+            if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='provisioned';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+            else
+              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='failed';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+            fi
+            git add "acceptances/"
+          fi
+          
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git diff --cached --quiet || git commit -m "Record repo for ${LOGIN} in ${ASSIGNMENT_ID} (${OUTCOME})"
+          
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          git pull --rebase || true
+          until git push; do
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then exit 1; fi
+            sleep $(( (RANDOM % 5) + 2 ))
+            git pull --rebase
+          done

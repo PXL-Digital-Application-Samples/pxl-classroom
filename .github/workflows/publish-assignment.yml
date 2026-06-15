@@ -1,0 +1,122 @@
+name: Publish assignment
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: "Organization"
+        required: true
+        type: string
+      assignment_id:
+        description: "Assignment ID"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run"
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      
+      - name: Mint App token for Org
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+          
+      - name: Checkout control repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+      - run: npm ci --omit=dev
+
+      - name: Validate assignment
+        working-directory: control
+        run: |
+          if [ ! -f "assignments/${{ inputs.assignment_id }}.yml" ] && [ ! -f "assignments/${{ inputs.assignment_id }}.json" ]; then
+            echo "::error::Assignment file not found"
+            exit 1
+          fi
+
+      - name: Publish broker
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          ORG: ${{ inputs.org }}
+        run: |
+          BROKER_REPO="broker-${ASSIGNMENT_ID}"
+          if gh repo view "${ORG}/${BROKER_REPO}" --json name > /dev/null 2>&1; then
+            echo "Broker repo ${ORG}/${BROKER_REPO} already exists — skipping creation"
+          else
+            gh repo create "${ORG}/${BROKER_REPO}" \
+              --public \
+              --description "Assignment acceptance broker for ${ASSIGNMENT_ID}" \
+              --disable-wiki \
+              --disable-issues
+            echo "Created broker repo ${ORG}/${BROKER_REPO}"
+          fi
+
+          gh variable set ASSIGNMENT_ID --body "${ASSIGNMENT_ID}" --repo "${ORG}/${BROKER_REPO}"
+          gh variable set CONTROL_ORG --body "${ORG}" --repo "${ORG}/${BROKER_REPO}"
+
+          TMPDIR=$(mktemp -d)
+          cd "$TMPDIR"
+          git init
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${BROKER_REPO}.git"
+          mkdir -p .github/workflows
+          
+          # Copy from pxl-classroom workspace
+          cp "${GITHUB_WORKSPACE}/acceptance/broker-workflow.yml" .github/workflows/acceptance-trigger.yml
+
+          cat > README.md << READMEEOF
+          # ${ASSIGNMENT_ID}
+
+          Assignment acceptance broker. Star this repo to accept the assignment.
+
+          > This is an automated repository managed by PXL Classroom.
+          READMEEOF
+
+          git add -A
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git commit -m "Initialize broker for ${ASSIGNMENT_ID}"
+          git branch -M main
+          git push -u origin main --force
+
+          echo "### ✅ Published assignment" >> "$GITHUB_STEP_SUMMARY"
+          echo "| field | value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| assignment | ${ASSIGNMENT_ID} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| broker | ${ORG}/${BROKER_REPO} |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update assignment state
+        if: inputs.dry_run != true
+        working-directory: control
+        run: |
+          FILE="assignments/${{ inputs.assignment_id }}.yml"
+          if [ -f "$FILE" ]; then
+            sed -i "s/^state:.*/state: published/" "$FILE"
+          else
+            FILE="assignments/${{ inputs.assignment_id }}.json"
+            node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$FILE','utf-8'));d.state='published';fs.writeFileSync('$FILE',JSON.stringify(d,null,2)+'\n');"
+          fi
+
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git diff --cached --quiet || git commit -m "Publish assignment ${{ inputs.assignment_id }}"
+          git push

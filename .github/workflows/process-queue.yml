@@ -1,0 +1,193 @@
+name: Process Provisioning Queue
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      org:
+        description: Target org (omit = all participating)
+        required: false
+        type: string
+concurrency:
+  group: process-queue-${{ inputs.org || 'all' }}
+  cancel-in-progress: false
+jobs:
+  find-orgs:
+    runs-on: ubuntu-latest
+    outputs:
+      orgs: ${{ steps.list.outputs.orgs }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: list
+        run: |
+          if [ -n "${{ inputs.org }}" ]; then
+            echo "orgs=[\"${{ inputs.org }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            git fetch origin participating-orgs:participating-orgs || true
+            if git show participating-orgs:participating-orgs.yml > participating-orgs.yml 2>/dev/null; then
+              ORGS=$(node -e "
+                const {parse} = require('yaml');
+                const fs=require('fs');
+                const o = parse(fs.readFileSync('participating-orgs.yml','utf8'));
+                process.stdout.write(JSON.stringify(o.orgs.map(x => x.login)||[]));
+              ")
+              echo "orgs=$ORGS" >> "$GITHUB_OUTPUT"
+            else
+              echo "orgs=[]" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  setup:
+    needs: find-orgs
+    if: needs.find-orgs.outputs.orgs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
+      max-parallel: 4
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: token
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.org }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ matrix.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+      - id: find
+        run: |
+          node scripts/find-pending.mjs control ${{ matrix.org }} > pending-${{ matrix.org }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pending-${{ matrix.org }}
+          path: pending-${{ matrix.org }}.json
+
+  aggregate:
+    needs: setup
+    runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.agg.outputs.pending }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pending-*
+          merge-multiple: true
+      - id: agg
+        run: |
+          cat *.json | jq -s 'flatten | .[0:40]' -c > all-pending.json
+          echo "pending=$(cat all-pending.json)" >> "$GITHUB_OUTPUT"
+
+  provision:
+    needs: aggregate
+    if: needs.aggregate.outputs.pending != '[]' && needs.aggregate.outputs.pending != ''
+    strategy:
+      matrix:
+        student: ${{ fromJSON(needs.aggregate.outputs.pending) }}
+      max-parallel: 4
+      fail-fast: false
+    concurrency:
+      group: prov-${{ matrix.student.org }}-${{ matrix.student.assignment_id }}-${{ matrix.student.github_login }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: npm ci --omit=dev
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: token
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.student.org }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ matrix.student.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+      - id: assignment
+        run: |
+          node -e "
+            const fs = require('fs');
+            const { parse } = require('yaml');
+            const a = parse(fs.readFileSync('control/assignments/${{ matrix.student.assignment_id }}.yml', 'utf8'));
+            const fsOut = process.env.GITHUB_OUTPUT;
+            fs.appendFileSync(fsOut, 'template_owner=' + a.template.owner + '\n');
+            fs.appendFileSync(fsOut, 'template_repository=' + a.template.repository + '\n');
+            const pat = a.repository_name_pattern || '${{ matrix.student.assignment_id }}-{login}';
+            const targetRepo = pat.replace('{login}', '${{ matrix.student.github_login }}');
+            fs.appendFileSync(fsOut, 'target_repo=' + targetRepo + '\n');
+          "
+      - uses: ./provisioning
+        id: prov
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.student.org }}
+          template-owner: ${{ steps.assignment.outputs.template_owner }}
+          template-repo: ${{ steps.assignment.outputs.template_repository }}
+          target-repo: ${{ steps.assignment.outputs.target_repo }}
+          student-login: ${{ matrix.student.github_login }}
+      - name: Write repository record into control checkout, push
+        if: always()
+        working-directory: control
+        run: |
+          ASSIGNMENT_ID="${{ matrix.student.assignment_id }}"
+          LOGIN="${{ matrix.student.github_login }}"
+          REPO_ID="${{ steps.prov.outputs.repo-id }}"
+          REPO_URL="${{ steps.prov.outputs.repo-url }}"
+          OUTCOME="${{ steps.prov.outputs.outcome }}"
+          ORG="${{ matrix.student.org }}"
+          TARGET_REPO="${{ steps.assignment.outputs.target_repo }}"
+          
+          if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+            mkdir -p "repositories/${ASSIGNMENT_ID}"
+            cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF
+            {
+              "schema_version": 1,
+              "assignment_id": "${ASSIGNMENT_ID}",
+              "github_login": "${LOGIN}",
+              "repo_id": ${REPO_ID:-null},
+              "repo_name": "${ORG}/${TARGET_REPO}",
+              "repo_url": "${REPO_URL}",
+              "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "provisioned_by_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "student_permission": "admin",
+              "access_state": "invited",
+              "last_checked_at": null
+            }
+            EOF
+            git add "repositories/"
+          fi
+          
+          ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
+          if [ -f "$ACCEPT_FILE" ]; then
+            if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='provisioned';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+            else
+              node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$ACCEPT_FILE','utf-8'));d.status='failed';fs.writeFileSync('$ACCEPT_FILE',JSON.stringify(d,null,2)+'\n');"
+            fi
+            git add "acceptances/"
+          fi
+          
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git diff --cached --quiet || git commit -m "Record repo for ${LOGIN} in ${ASSIGNMENT_ID} (${OUTCOME})"
+          
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          git pull --rebase || true
+          until git push; do
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "Failed to push after $MAX_RETRIES attempts."
+              exit 1
+            fi
+            SLEEP_TIME=$(( (RANDOM % 5) + 2 ))
+            echo "Push failed. Retrying in $SLEEP_TIME seconds..."
+            sleep $SLEEP_TIME
+            git pull --rebase
+          done
