@@ -1,13 +1,13 @@
 # PXL Classroom — Implementation Progress
 
 Tracks active work against `IMPLEMENTATION_PLAN.md`. Update this file as tasks complete.
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 ## Phase 0 — Foundations (infra)
 
 - [x] Finalize provisioning App permissions (Admin/Contents/Metadata + Account/Starring + Device Flow); set production secrets `PXL_APP_ID`/`PXL_APP_PRIVATE_KEY`; rotate spike key
 - [x] Decide + create the **dispatcher App** (or scoped-secret model) for public brokers
-- [x] Create the **control repo template** (data dirs + schemas + thin caller workflows) in PXLAutomation
+- [x] Create the **control repo template** and **Setup Organization Action** to fully automate org provisioning
 - [x] Create the per-org **archive repo** in PXLAutomation
 - [x] Create the **public frontend repo** + Pages; Vue skeleton + device-flow auth module + CI privacy scan
 
@@ -29,7 +29,7 @@ Last updated: 2026-06-14
 
 ## Phase 3 — Scale
 
-- [x] Multi-assignment, multi-org; org-agnostic config
+- [x] Multi-assignment, multi-org (automated via Setup Action); org-agnostic config
 - [x] Burst throttling validated at class scale (rate-limit-aware queue)
 - [x] 20 assignments / 500 students / 250-burst targets
 
