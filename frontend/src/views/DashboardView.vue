@@ -66,9 +66,14 @@
       <div v-else class="fade-in">
         <div class="flex items-center justify-between" style="margin-bottom: var(--space-md);">
           <h2 style="margin: 0; font-size: 1.25rem;">Assignments</h2>
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
-            Admin Panel
-          </router-link>
+          <div class="flex items-center gap-sm">
+            <router-link :to="{ name: 'usage-org', params: { org: selectedOrg } }" class="btn" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
+              Usage
+            </router-link>
+            <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
+              Admin Panel
+            </router-link>
+          </div>
         </div>
         <div class="assignment-grid">
           <div

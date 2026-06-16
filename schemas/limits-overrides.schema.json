@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/limits-overrides.schema.json",
+  "title": "Per-Repository Limit Overrides",
+  "description": "Per-repo limit overrides stored at <org>/pxl-classroom-control/limits-overrides.json. Optional. Resolution order: per-repo (this file) > per-org > global limits.yml.",
+  "type": "object",
+  "required": ["schema_version", "repos"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "repos": {
+      "type": "object",
+      "description": "Map of repository name (without org prefix) to a map of SKU name -> override limit.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Map of SKU name to override limit in the SKU's unit.",
+        "additionalProperties": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

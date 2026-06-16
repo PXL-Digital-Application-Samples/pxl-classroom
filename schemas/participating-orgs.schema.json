@@ -2,12 +2,10 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://pxl-classroom.github.io/schemas/participating-orgs.schema.json",
   "title": "Participating Organizations",
-  "description": "Registry of organizations participating in PXL Classroom.",
+  "description": "Registry of organizations participating in PXL Classroom. Lives on the participating-orgs branch of the hub.",
   "type": "object",
-  "required": [
-    "schema_version",
-    "orgs"
-  ],
+  "required": ["schema_version", "orgs"],
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "type": "integer",
@@ -17,30 +15,34 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "login",
-          "budget_owner"
-        ],
+        "required": ["login", "budget_owner_login"],
+        "additionalProperties": false,
         "properties": {
           "login": {
             "type": "string",
-            "description": "The GitHub login of the organization.",
+            "description": "GitHub login of the participating organization.",
             "pattern": "^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$"
           },
-          "budget_owner": {
+          "budget_owner_login": {
             "type": "string",
-            "description": "Email address of the budget owner responsible for Actions billing.",
-            "format": "email"
+            "description": "GitHub login of the budget owner. Used for @-mention in weekly usage report issues.",
+            "pattern": "^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$"
           },
-          "spending_limit_eur": {
-            "type": "integer",
-            "description": "Monthly spending limit in EUR.",
-            "minimum": 0
+          "budget_owner_email": {
+            "type": "string",
+            "format": "email",
+            "description": "Optional informational email for the budget owner. Not used by the system for delivery; @-mention to budget_owner_login is the delivery channel."
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Per-org SKU overrides. Map of SKU name to override limit in the SKU's unit. Overrides global limits.yml.",
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0
+            }
           }
-        },
-        "additionalProperties": false
+        }
       }
     }
-  },
-  "additionalProperties": false
+  }
 }

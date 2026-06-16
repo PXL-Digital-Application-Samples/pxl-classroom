@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/limits.schema.json",
+  "title": "Usage Limits",
+  "description": "Global per-SKU weekly usage limits. Resolution order: per-repo override > per-org override > this file's default.",
+  "type": "object",
+  "required": ["schema_version", "weekly_limits"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "weekly_limits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sku", "unit", "limit"],
+        "additionalProperties": false,
+        "properties": {
+          "sku": {
+            "type": "string",
+            "minLength": 1,
+            "description": "GitHub Enhanced Billing SKU name (e.g. 'Actions Linux', 'Actions storage')."
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "description": "GitHub Enhanced Billing unitType (e.g. 'Minutes', 'GigabyteHours', 'Gigabytes', 'Hours')."
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Weekly limit in the SKU's unit. Any repo over this value (after override resolution) triggers a warning."
+          }
+        }
+      }
+    }
+  }
+}

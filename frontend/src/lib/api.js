@@ -43,6 +43,14 @@ export async function starRepo(token, owner, repo) {
 }
 
 /**
+ * Unstar a repository. Used by the retry path so that a subsequent star
+ * re-fires the broker's watch:started event.
+ */
+export async function unstarRepo(token, owner, repo) {
+  return ghApi(token, 'DELETE', `/user/starred/${owner}/${repo}`)
+}
+
+/**
  * Check if the user has starred a repo.
  */
 export async function isStarred(token, owner, repo) {

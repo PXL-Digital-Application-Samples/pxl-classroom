@@ -19,6 +19,7 @@ GitHub → `pxl-classroom` → Settings → Pages → Source: **GitHub Actions**
 1. In a browser, open the Pages site at `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`.
 2. Fill the App Manifest form. The form pre-fills the correct permissions:
    - Repository: Administration RW, Contents RW, Metadata R.
+   - Organization: **Plan: Read** (required for the weekly usage report — see §10).
    - Account: Starring RW.
    - Device Flow: enabled.
 3. Submit. GitHub redirects you through an App-creation handshake. At the end you have a new App named **PXL Classroom Provisioner** and you are shown its App ID and a generated private key (PEM).
@@ -129,11 +130,13 @@ Edit `participating-orgs.yml` on the `participating-orgs` branch — add or upda
 ```yaml
 orgs:
   - login: PXLAutomation
-    budget_owner: jane.doe@pxl.be
-    spending_limit_eur: 100
+    budget_owner_login: tomcoolpxl       # GitHub login, used for @-mention in weekly usage report
+    budget_owner_email: tom.cool@pxl.be  # optional, informational only
+    overrides:                           # optional per-org SKU overrides
+      "Actions Linux": 2000
 ```
 
-Schema: `schemas/participating-orgs.schema.json`.
+Schema: `schemas/participating-orgs.schema.json`. See §10 for what `overrides` means and how thresholds are resolved.
 
 ---
 
@@ -141,13 +144,16 @@ Schema: `schemas/participating-orgs.schema.json`.
 
 Each participating org must have:
 
-- A named human **budget owner** (email).
-- A configured **Actions spending limit** (≥ recommended floor in §2.3).
-- **Billing alerts** at 50% / 80% / 100% routed to the budget owner.
+- A named human **budget owner** (`budget_owner_login` in `participating-orgs.yml` — GitHub login).
+- A configured **Actions spending limit** in GitHub UI (≥ recommended floor in §2.3) — the hard stop.
+- **Billing alerts** at 50% / 80% / 100% routed to the budget owner — early warning.
 
-The budget owner's responsibility: decide whether to raise the limit when alerts fire, or to let CI pause. They are the on-call for Actions cost.
+Beyond GitHub's own limit/alerts (which are EUR-based), PXL Classroom runs its own **weekly per-SKU threshold check** that fires before the EUR cap is hit. See §10 for tuning the thresholds. The two systems are complementary:
 
-The hub side has no per-org cost. Everything billed lives in the participating org and is bounded by the limit there.
+- **GitHub's spending limit** stops Actions when EUR is exceeded. A blunt, after-the-fact cutoff.
+- **PXL Classroom's weekly check** warns the budget owner on Monday morning when *any* repo's actual usage (minutes, storage GiB·h, etc.) crosses a configured threshold. Catches outliers — e.g. a repo accumulating storage with zero CI activity — that the EUR view hides.
+
+The hub side itself has no per-org cost (public repo). Everything billed lives in the participating org and is bounded by the limit there.
 
 ---
 
@@ -282,6 +288,7 @@ All under Actions in `pxl-classroom`.
 | `regenerate-dashboard.yml` | Dashboard looks stale after a manual control-repo edit |
 | `reconcile-registry.yml` | Quick drift check (deleted repos, revoked access) without waiting for nightly |
 | `daily-activity.yml` | Force one nightly cycle (collect + finalize) |
+| `weekly-usage-report.yml` | Force a usage report off-cadence |
 | `setup-org.yml` | Add a new org (admin only) |
 
 Every workflow takes `org` as an input; many also take `assignment_id` for scoping.
@@ -338,7 +345,74 @@ Control repos are Git. Recovery is `git reset --hard <good-commit>` followed by 
 
 ---
 
-## 10. Verification checklist (after major changes)
+## 10. Weekly usage tracking — tuning thresholds
+
+The system warns when any repo crosses a per-SKU threshold. Three layers of configuration; first match wins:
+
+### 11.1 Where thresholds live
+
+| Layer | File | When to use |
+|---|---|---|
+| **Global** | `limits.yml` (hub root) | The default. Edit when a new SKU appears in the weekly reports, or when a default needs adjusting for the typical course. |
+| **Per-org** | `participating-orgs.yml` → `orgs[i].overrides` | An entire org has a different profile. Example: an Actions-heavy course org gets a higher `Actions Linux` budget across the board. |
+| **Per-repo** | `<org>/pxl-classroom-control/limits-overrides.json` | One specific repo is an outlier. Example: `pxl-sweeper-HanneloreRamakersPXL` accumulates artifacts as a feature; raise its `Actions storage` limit. |
+
+### 11.2 Example: silence one noisy repo's storage warning
+
+```json
+{
+  "schema_version": 1,
+  "repos": {
+    "pxl-sweeper-HanneloreRamakersPXL": { "Actions storage": 10 }
+  }
+}
+```
+
+Commit to `<org>/pxl-classroom-control/limits-overrides.json`. The next Sunday's report respects the override; the dashboard tile turns green.
+
+### 11.3 SKUs you'll see
+
+GitHub's Enhanced Billing API returns SKUs as data — the catalog isn't fixed. Common ones for PXL Classroom orgs:
+
+| SKU | Unit | Typical usage |
+|---|---|---|
+| `Actions Linux` | Minutes | Student CI |
+| `Actions Windows` | Minutes | Windows-specific courses |
+| `Actions macOS` | Minutes | Rare |
+| `Actions storage` | GigabyteHours | Artifact retention (build outputs, test reports) |
+| `Packages storage` | GigabyteHours | Container images pushed by student workflows |
+| `Packages data transfer` | Gigabytes | Pulls of org-hosted packages |
+| `Git LFS storage` | GigabyteHours | Large binary assets in repos |
+| `Git LFS bandwidth` | Gigabytes | LFS object downloads |
+| `Codespaces compute` | Hours | If your org enables Codespaces |
+| `Codespaces storage` | GigabyteHours | Codespace prebuilds |
+
+Add an entry to `limits.yml` for any SKU you want thresholded. SKUs without a configured threshold are recorded in the report but never flagged.
+
+### 11.4 Cadence
+
+- **Sunday 22:00 UTC** the weekly cron fires.
+- Report is written to the org's control repo even when nothing is over threshold (so the dashboard always has the latest data).
+- If anything is over: comment posted to the **"PXL Classroom — Weekly Usage Report"** issue with `@budget_owner_login`. GitHub emails the budget owner via their notification settings.
+- The workflow run exits non-zero on overrun → red X in the Actions tab.
+
+### 11.5 Manual rerun
+
+Need a fresh report mid-week:
+
+- Actions → **Weekly Usage Report** → Run workflow.
+- Optionally scope to one `org` input.
+
+### 11.6 If you change the App permission (Organization plan: read)
+
+The Enhanced Billing API requires this permission. If you added it after orgs were already onboarded:
+
+1. Each org owner: open the org's installed-apps page → PXL Classroom Provisioner → re-approve the elevated permission.
+2. No control-repo or workflow change needed.
+
+Verify with `gh api /app` — `permissions` should include `organization_plan: read`.
+
+## 11. Verification checklist (after major changes)
 
 Run periodically, especially after touching workflows or App settings.
 
@@ -350,6 +424,8 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] No `.github/workflows/` directory exists in any `<org>/pxl-classroom-control` repo.
 - [ ] `git grep corsproxy.io` in `frontend/src/` returns no matches.
 - [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).
-- [ ] Each participating org has `budget_owner` and `spending_limit_eur` set in `participating-orgs.yml`.
+- [ ] Each participating org has `budget_owner_login` set in `participating-orgs.yml`.
+- [ ] App permissions include `organization_plan: read` (required for the weekly usage report).
+- [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
 - [ ] Cold-load `https://<pages-host>/pxl-classroom/<org>/a/<sample-id>` lands on AssignmentView.
 - [ ] The Instructor Notifications issue exists and is open in each control repo.

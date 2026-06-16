@@ -7,6 +7,10 @@ on:
         description: 'Target Organization (e.g., PXLAutomation)'
         required: true
         type: string
+      budget_owner_login:
+        description: 'GitHub login of the budget owner (receives weekly usage warnings via @-mention)'
+        required: true
+        type: string
 
 jobs:
   setup-control-repo:
@@ -73,6 +77,17 @@ jobs:
           git remote add origin https://x-access-token:${{ steps.generate_token.outputs.token }}@github.com/${{ inputs.target_org }}/pxl-classroom-control.git
           
           git pull --rebase origin main || true
+
+          # Wave 2 architecture: control repos are data-only. If a legacy
+          # control repo had workflows pushed before the centralization, strip
+          # them now. (See PXLAutomation/pxl-classroom-control cleanup,
+          # 2026-06-17, for the reference incident.)
+          if [ -d .github/workflows ] || [ -d workflows ]; then
+            rm -rf .github/workflows workflows
+            git add -A
+            git diff --cached --quiet || git commit -m "Remove workflows (control repo is data-only per Wave 2)"
+          fi
+
           git push -u origin main
 
       - name: Register org in participating-orgs branch
@@ -85,7 +100,10 @@ jobs:
           fi
           
           if ! grep -q "login: ${{ inputs.target_org }}$" participating-orgs.yml; then
-            echo "  - login: ${{ inputs.target_org }}" >> participating-orgs.yml
+            cat >> participating-orgs.yml <<EOF
+  - login: ${{ inputs.target_org }}
+    budget_owner_login: ${{ inputs.budget_owner_login }}
+EOF
             git config user.name "pxl-classroom-provisioner[bot]"
             git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
             git add participating-orgs.yml

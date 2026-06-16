@@ -198,7 +198,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { starRepo, isStarred, getRepo, getInvitations, acceptInvitation } from '../lib/api.js'
+import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -362,6 +362,10 @@ function handleLogout() {
 }
 
 // Accept assignment (star the broker)
+// If the user is already starring the broker (e.g. from a previous attempt that
+// failed), PUT /user/starred returns 204 but does NOT fire watch:started. So we
+// first unstar, then re-star — guaranteeing a fresh watch:started event that
+// re-triggers the central acceptance-handler.
 async function acceptAssignment() {
   accepting.value = true
   acceptError.value = null
@@ -369,6 +373,11 @@ async function acceptAssignment() {
     const token = getToken()
     const org = props.org
     const brokerRepo = assignment.value.broker_repo || `broker-${props.assignmentId}`
+
+    if (await isStarred(token, org, brokerRepo)) {
+      await unstarRepo(token, org, brokerRepo)
+      await new Promise((r) => setTimeout(r, 500))
+    }
 
     const result = await starRepo(token, org, brokerRepo)
     if (result.status !== 204) {

@@ -271,6 +271,7 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 | `publish-assignment.yml` | `workflow_dispatch` | Create broker repo, set vars, push broker workflow, flip assignment `state` to `published`, **enable `daily-activity.yml`**. |
 | `regenerate-dashboard.yml` | `workflow_dispatch` (called by other workflows) | Multi-org: generate public Pages JSON + run privacy scanner + commit to each org's `public/`. |
 | `reconcile-registry.yml` | `push` to `participating-orgs.yml` on `participating-orgs` branch + `workflow_dispatch` | Detect drift: deleted student repos, visibility changes, revoked access. |
+| `weekly-usage-report.yml` | `cron 0 22 * * SUN` + `workflow_dispatch` | Sunday 22:00 UTC. Per-org matrix: fetch Enhanced Billing usage for the past 7 days, threshold per SKU, write report to control repo, @-mention budget owner if anything over, fail run on overrun. |
 | `setup-org.yml` | `workflow_dispatch` | Create `pxl-classroom-control` in target org; register org in `participating-orgs` branch. |
 | `deploy-frontend.yml` | `push` to `main` (paths: `frontend/**`) + `workflow_dispatch` | Build SPA + copy schemas → publish to GitHub Pages. |
 | `ci.yml` | `pull_request` + `push` | Run `node --test tests/`. |
@@ -513,9 +514,38 @@ GitHub repository permissions are all-or-nothing. A shared control repository wo
 
 `participating-orgs.yml` lives on its own branch with light protection. The Setup-Organization workflow commits there directly. Cron workflows fetch via `actions/checkout` with `ref: participating-orgs`. The branch is never merged into `main` — it's a deliberately decoupled metadata store.
 
-### 14.3 Budget
+### 14.3 Weekly usage tracking
 
-Each org sets its own Actions spending limit. The `budget_owner` field in `participating-orgs.yml` is the named human responsible. See RUNBOOK §3 for policy.
+The system tracks GitHub usage per repo per SKU and warns when anything crosses a configured threshold. No EUR involved — actuals only (minutes, GiB·h, GB, hours), because a repo with 4 GiB·h of stale artifacts and zero minutes is invisible in a cost view but still a real problem.
+
+**Sunday 22:00 UTC**, `weekly-usage-report.yml` fires. Per participating org (matrix):
+
+1. Mint App token with `Organization plan: read` permission.
+2. Fetch `organizations/{id}/settings/billing/usage` for the previous 7 days.
+3. Group by `(repositoryName, sku)`, sum quantity.
+4. Resolve threshold per (repo, SKU) via three-tier lookup.
+5. Write `reports/usage-<YYYY>-W<NN>.json` + `reports/usage-latest.json` to the control repo.
+6. If `over_count > 0`: @-mention `budget_owner_login` in a comment on the "PXL Classroom — Weekly Usage Report" issue (created on demand).
+7. Exit non-zero if anything over (red X in Actions tab).
+
+**Threshold resolution.** Per (repo, SKU), the limit is the first that matches:
+
+| Source | Location | Scope |
+|---|---|---|
+| Per-repo | `<org>/pxl-classroom-control/limits-overrides.json` | Specific repo + SKU |
+| Per-org | `participating-orgs.yml` → `orgs[i].overrides` | All repos in that org, for that SKU |
+| Global | `limits.yml` (hub root) | Default |
+
+If no threshold is configured for a SKU anywhere, that SKU's usage is recorded but never flagged.
+
+**Frontend.** Two views read the latest report from each control repo at runtime with the lecturer's own token:
+
+- `/dashboard/<org>/usage` — per-org table, sortable, over-threshold rows highlighted red.
+- `/usage` — cross-org view, iterates the lecturer's App installations, aggregates every repo/SKU pair, filterable by "over only".
+
+**Permission cost.** The Enhanced Billing endpoint requires the App to have `Organization plan: read`. After this permission is added to the App, each participating org owner sees a one-time re-approval prompt on next visit to the installation page. See `RUNBOOK.md` §11.
+
+**Budget owner.** `participating-orgs.yml` now requires `budget_owner_login` (GitHub login, used for @-mention). Optional `budget_owner_email` is informational only — GitHub emails are sent via the @-mention notification.
 
 ---
 

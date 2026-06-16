@@ -1,0 +1,43 @@
+# PXL Classroom — global weekly usage limits per SKU.
+#
+# Resolution order: per-repo override > per-org override > this file's default.
+# - per-repo: <org>/pxl-classroom-control/limits-overrides.json
+# - per-org:  participating-orgs.yml -> orgs[i].overrides
+# - global:   this file
+#
+# Schema: schemas/limits.schema.json
+# SKUs come from GitHub's Enhanced Billing API; the catalog is open-ended.
+# Add entries here as new SKUs appear in the weekly usage reports.
+
+schema_version: 1
+weekly_limits:
+  - sku: "Actions Linux"
+    unit: Minutes
+    limit: 800
+  - sku: "Actions Windows"
+    unit: Minutes
+    limit: 200
+  - sku: "Actions macOS"
+    unit: Minutes
+    limit: 100
+  - sku: "Actions storage"
+    unit: GigabyteHours
+    limit: 5
+  - sku: "Packages storage"
+    unit: GigabyteHours
+    limit: 2
+  - sku: "Packages data transfer"
+    unit: Gigabytes
+    limit: 5
+  - sku: "Git LFS storage"
+    unit: GigabyteHours
+    limit: 2
+  - sku: "Git LFS bandwidth"
+    unit: Gigabytes
+    limit: 2
+  - sku: "Codespaces compute"
+    unit: Hours
+    limit: 10
+  - sku: "Codespaces storage"
+    unit: GigabyteHours
+    limit: 5

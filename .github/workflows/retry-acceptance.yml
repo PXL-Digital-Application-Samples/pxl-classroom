@@ -1,67 +1,122 @@
-name: Accept assignment
+name: Retry Acceptance
+
+# Lecturer-triggerable rescue for half-done acceptances.
+# Wipes the per-student acceptance file in the control repo, then re-runs the
+# full acceptance + provisioning sequence under the same concurrency group as
+# the normal acceptance-handler.
+
 on:
-  repository_dispatch:
-    types: [acceptance]
+  workflow_dispatch:
+    inputs:
+      org:
+        description: Target organization
+        required: true
+        type: string
+      assignment_id:
+        description: Assignment ID (slug)
+        required: true
+        type: string
+      github_login:
+        description: Student GitHub login
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: accept-${{ github.event.client_payload.org }}-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.github_login }}
+  group: accept-${{ inputs.org }}-${{ inputs.assignment_id }}-${{ inputs.github_login }}
   cancel-in-progress: false
 
 jobs:
-  accept:
+  retry:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: npm ci --omit=dev
+
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
           app-id: ${{ secrets.PXL_APP_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
-          owner: ${{ github.event.client_payload.org }}
+          owner: ${{ inputs.org }}
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          repository: ${{ github.event.client_payload.org }}/pxl-classroom-control
+          repository: ${{ inputs.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
           path: control
-      - uses: ./acceptance
+
+      - name: Look up student GitHub numeric ID
+        id: lookup
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          ID=$(gh api users/${{ inputs.github_login }} --jq .id)
+          if [ -z "$ID" ]; then
+            echo "::error::Could not resolve GitHub ID for ${{ inputs.github_login }}"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wipe half-done acceptance state
+        working-directory: control
+        run: |
+          ACCEPT_FILE="acceptances/${{ inputs.assignment_id }}/${{ inputs.github_login }}.json"
+          if [ -f "$ACCEPT_FILE" ]; then
+            rm -f "$ACCEPT_FILE"
+            git config user.name "pxl-classroom[bot]"
+            git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Reset acceptance state for ${{ inputs.github_login }} on ${{ inputs.assignment_id }} (manual retry)"
+            git pull --rebase || true
+            git push
+          else
+            echo "No prior acceptance file at $ACCEPT_FILE — proceeding to fresh acceptance."
+          fi
+
+      - name: Run acceptance
         id: accept
+        uses: ./acceptance
         with:
           app-id: ${{ secrets.PXL_APP_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
-          org: ${{ github.event.client_payload.org }}
+          org: ${{ inputs.org }}
           control-repo: pxl-classroom-control
           data-dir: control
+          assignment-id: ${{ inputs.assignment_id }}
+          github-login: ${{ inputs.github_login }}
+          github-id: ${{ steps.lookup.outputs.id }}
+          workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning
         id: prov
         with:
           app-id: ${{ secrets.PXL_APP_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
-          org: ${{ github.event.client_payload.org }}
+          org: ${{ inputs.org }}
           template-owner: ${{ steps.accept.outputs.template_owner }}
           template-repo: ${{ steps.accept.outputs.template_repo }}
           target-repo: ${{ steps.accept.outputs.target_repo }}
           student-login: ${{ steps.accept.outputs.github_login }}
-          
+
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
         uses: ./notify
         with:
           app-id: ${{ secrets.PXL_APP_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
-          org: ${{ github.event.client_payload.org }}
+          org: ${{ inputs.org }}
           control-repo: pxl-classroom-control
           event-type: provisioning-failed
           assignment-id: ${{ steps.accept.outputs.assignment_id }}
           details: |
-            Failed to provision repo for `${{ steps.accept.outputs.github_login }}`.
+            Manual retry failed to provision repo for `${{ steps.accept.outputs.github_login }}`.
             [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           dedup-key: prov-fail-${{ steps.accept.outputs.assignment_id }}-${{ steps.accept.outputs.github_login }}
-          
+
       - name: Write repository record into control checkout, push
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
         working-directory: control
@@ -71,9 +126,9 @@ jobs:
           REPO_ID="${{ steps.prov.outputs.repo-id }}"
           REPO_URL="${{ steps.prov.outputs.repo-url }}"
           OUTCOME="${{ steps.prov.outputs.outcome }}"
-          ORG="${{ github.event.client_payload.org }}"
+          ORG="${{ inputs.org }}"
           TARGET_REPO="${{ steps.accept.outputs.target_repo }}"
-          
+
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             mkdir -p "repositories/${ASSIGNMENT_ID}"
             cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF
@@ -90,10 +145,10 @@ jobs:
               "access_state": "invited",
               "last_checked_at": null
             }
-            EOF
+          EOF
             git add "repositories/"
           fi
-          
+
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
           if [ -f "$ACCEPT_FILE" ]; then
             if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
@@ -103,11 +158,11 @@ jobs:
             fi
             git add "acceptances/"
           fi
-          
+
           git config user.name "pxl-classroom[bot]"
           git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git diff --cached --quiet || git commit -m "Provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
-          
+          git diff --cached --quiet || git commit -m "Retry-provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
+
           MAX_RETRIES=5
           RETRY_COUNT=0
           git pull --rebase || true
@@ -118,11 +173,10 @@ jobs:
               exit 1
             fi
             SLEEP_TIME=$(( (RANDOM % 5) + 2 ))
-            echo "Push failed. Retrying in $SLEEP_TIME seconds..."
             sleep $SLEEP_TIME
             git pull --rebase
           done
-          
+
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.0.1
@@ -131,5 +185,5 @@ jobs:
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner, repo: context.repo.repo,
               workflow_id: 'regenerate-dashboard.yml', ref: 'main',
-              inputs: { org: '${{ github.event.client_payload.org }}' },
+              inputs: { org: '${{ inputs.org }}' },
             });

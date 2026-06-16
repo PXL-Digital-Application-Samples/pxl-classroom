@@ -31,6 +31,17 @@ const routes = [
     props: true,
   },
   {
+    path: '/dashboard/:org/usage',
+    name: 'usage-org',
+    component: () => import('../views/UsageView.vue'),
+    props: true,
+  },
+  {
+    path: '/usage',
+    name: 'usage-overview',
+    component: () => import('../views/UsageOverviewView.vue'),
+  },
+  {
     path: '/setup',
     name: 'setup',
     component: () => import('../views/SetupView.vue'),

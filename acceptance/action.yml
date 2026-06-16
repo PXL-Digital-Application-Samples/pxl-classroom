@@ -21,6 +21,22 @@ inputs:
     description: Root of the control-repo data tree
     required: false
     default: "."
+  assignment-id:
+    description: Assignment ID. Defaults to repository_dispatch client_payload.
+    required: false
+    default: ${{ github.event.client_payload.assignment_id }}
+  github-login:
+    description: Student GitHub login. Defaults to repository_dispatch client_payload.
+    required: false
+    default: ${{ github.event.client_payload.github_login }}
+  github-id:
+    description: Student GitHub numeric ID. Defaults to repository_dispatch client_payload.
+    required: false
+    default: ${{ github.event.client_payload.github_id }}
+  workflow-run-url:
+    description: URL of the calling workflow run. Defaults to repository_dispatch client_payload.
+    required: false
+    default: ${{ github.event.client_payload.workflow_run_url }}
 
 outputs:
   assignment-id:
@@ -56,10 +72,10 @@ runs:
       id: accept
       shell: bash
       env:
-        ASSIGNMENT_ID: ${{ github.event.client_payload.assignment_id }}
-        GITHUB_LOGIN: ${{ github.event.client_payload.github_login }}
-        GITHUB_ID: ${{ github.event.client_payload.github_id }}
-        WORKFLOW_RUN_URL: ${{ github.event.client_payload.workflow_run_url }}
+        ASSIGNMENT_ID: ${{ inputs.assignment-id }}
+        GITHUB_LOGIN: ${{ inputs.github-login }}
+        GITHUB_ID: ${{ inputs.github-id }}
+        WORKFLOW_RUN_URL: ${{ inputs.workflow-run-url }}
         ORG: ${{ inputs.org }}
         CONTROL_REPO: ${{ inputs.control-repo }}
         DATA_DIR: ${{ inputs.data-dir }}

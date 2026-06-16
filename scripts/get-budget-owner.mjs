@@ -1,4 +1,11 @@
 import { readFileSync } from "node:fs";
+import { parse } from "yaml";
+
+const orgLogin = process.argv[2];
+if (!orgLogin) {
+  console.error("Usage: node get-budget-owner.mjs <org-login>");
+  process.exit(2);
+}
 
 function readText(path) {
   const buf = readFileSync(path);
@@ -8,17 +15,10 @@ function readText(path) {
   return buf.toString("utf8");
 }
 
-let text;
 try {
-  text = readText("participating-orgs.yml");
+  const o = parse(readText("participating-orgs.yml"));
+  const entry = (o.orgs || []).find(x => x.login === orgLogin);
+  process.stdout.write(entry?.budget_owner_login || "");
 } catch {
-  process.stdout.write("[]");
-  process.exit(0);
+  process.stdout.write("");
 }
-
-const logins = [];
-for (const line of text.split(/\r?\n/)) {
-  const m = line.match(/^\s*-\s*login:\s*"?([A-Za-z0-9][A-Za-z0-9-]*)"?\s*$/);
-  if (m) logins.push(m[1]);
-}
-process.stdout.write(JSON.stringify(logins));

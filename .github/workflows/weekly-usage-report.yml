@@ -1,0 +1,122 @@
+name: Weekly Usage Report
+
+on:
+  schedule:
+    - cron: '0 22 * * SUN'
+  workflow_dispatch:
+    inputs:
+      org:
+        description: Target org (omit = all participating)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  find-orgs:
+    runs-on: ubuntu-latest
+    outputs:
+      orgs: ${{ steps.list.outputs.orgs }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: list
+        run: |
+          if [ -n "${{ inputs.org }}" ]; then
+            echo "orgs=[\"${{ inputs.org }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            git fetch origin participating-orgs:participating-orgs || true
+            if git show participating-orgs:participating-orgs.yml > participating-orgs.yml 2>/dev/null; then
+              ORGS=$(node scripts/get-participating-orgs.mjs)
+              echo "orgs=$ORGS" >> "$GITHUB_OUTPUT"
+            else
+              echo "orgs=[]" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  usage:
+    needs: find-orgs
+    if: needs.find-orgs.outputs.orgs != '[]'
+    strategy:
+      matrix:
+        org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
+      max-parallel: 4
+      fail-fast: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: npm ci --omit=dev
+
+      - name: Fetch participating-orgs.yml
+        run: |
+          git fetch origin participating-orgs:participating-orgs
+          git show participating-orgs:participating-orgs.yml > participating-orgs.yml
+
+      - name: Mint App token for org
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.PXL_APP_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.org }}
+
+      - name: Checkout control repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ matrix.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Compute previous-week window
+        id: dates
+        run: |
+          WEEK_END=$(date -u +%Y-%m-%d)
+          WEEK_START=$(date -u -d "6 days ago" +%Y-%m-%d)
+          echo "start=$WEEK_START" >> "$GITHUB_OUTPUT"
+          echo "end=$WEEK_END" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch and evaluate usage
+        id: fetch
+        env:
+          ORG: ${{ matrix.org }}
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          CONTROL_DIR: control
+          LIMITS_PATH: limits.yml
+          PORGS_PATH: participating-orgs.yml
+          WEEK_START: ${{ steps.dates.outputs.start }}
+          WEEK_END: ${{ steps.dates.outputs.end }}
+        run: node scripts/usage-fetch.mjs
+
+      - name: Resolve budget owner
+        id: owner
+        run: echo "login=$(node scripts/get-budget-owner.mjs '${{ matrix.org }}')" >> "$GITHUB_OUTPUT"
+
+      - name: Notify budget owner (if over threshold)
+        if: steps.fetch.outputs.over_count != '0' && steps.owner.outputs.login != ''
+        env:
+          ORG: ${{ matrix.org }}
+          CONTROL_REPO: pxl-classroom-control
+          REPORT_PATH: control/reports/usage-latest.json
+          BUDGET_OWNER_LOGIN: ${{ steps.owner.outputs.login }}
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+        run: node scripts/usage-notify.mjs
+
+      - name: Commit + push report
+        working-directory: control
+        run: |
+          git config user.name "pxl-classroom[bot]"
+          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git add reports/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Weekly usage report ${{ steps.dates.outputs.start }} to ${{ steps.dates.outputs.end }}"
+          git pull --rebase || true
+          git push
+
+      - name: Fail run if over threshold
+        if: steps.fetch.outputs.over_count != '0'
+        run: |
+          echo "::error::${{ steps.fetch.outputs.over_count }} (repo, SKU) pair(s) over threshold in ${{ matrix.org }}."
+          exit 1

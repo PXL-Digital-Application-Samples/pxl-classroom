@@ -26,6 +26,18 @@ jobs:
             fi
           fi
 
+  disable-when-empty:
+    needs: find-orgs
+    if: needs.find-orgs.outputs.orgs == '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disable daily-activity (no participating orgs)
+        run: |
+          echo "No participating orgs registered. Disabling daily-activity.yml until next publish."
+          gh workflow disable daily-activity.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   collect:
     needs: find-orgs
     if: needs.find-orgs.outputs.orgs != '[]'
