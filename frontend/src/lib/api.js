@@ -164,3 +164,16 @@ export async function triggerWorkflow(token, owner, repo, workflowId, inputs = n
   if (inputs) body.inputs = inputs
   return ghApi(token, 'POST', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, body)
 }
+
+/**
+ * List repos in an org whose name starts with a given prefix.
+ * Used by Admin Panel to populate the template picker.
+ * Uses ?per_page=100 — sufficient for the expected number of template repos.
+ */
+export async function listOrgRepos(token, org, prefix = '') {
+  const res = await ghApi(token, 'GET', `/orgs/${org}/repos?per_page=100&sort=full_name`)
+  if (!res.ok || !Array.isArray(res.data)) return []
+  return prefix
+    ? res.data.filter((r) => r.name.startsWith(prefix))
+    : res.data
+}

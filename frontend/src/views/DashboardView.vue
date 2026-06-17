@@ -172,7 +172,13 @@ async function loadOrgs() {
   if (!token) return
 
   try {
-    // Get installations accessible to this user token
+    // Get installations accessible to this user token.
+    // For GitHub Apps, /user/installations already filters to installations the
+    // user can access — which for org installations means the user is an org
+    // admin (or the install grants user-level repo access). No further
+    // membership check is needed; /user/memberships/orgs/{org} requires the
+    // org-administration scope which our user-to-server tokens don't have,
+    // and the call would 403.
     const installs = await getInstallations(token)
     if (!installs.ok) return
 
@@ -180,19 +186,10 @@ async function loadOrgs() {
       .filter((i) => i.account?.type === 'Organization')
       .map((i) => i.account)
 
-    const ownedOrgs = []
-    for (const org of installOrgs) {
-      const membership = await getOrgMembership(token, org.login)
-      if (membership.ok && membership.data.state === 'active' && membership.data.role === 'admin') {
-        ownedOrgs.push(org)
-      }
-    }
-
-    // A GitHub App user-to-server token's installations already reflect what the user can access.
-    if (ownedOrgs.length > 0) {
-      orgs.value = ownedOrgs
+    if (installOrgs.length > 0) {
+      orgs.value = installOrgs
     } else {
-      console.warn("No installations found via API where user is admin. Falling back to default config org.")
+      console.warn('No App installations found for this user. Falling back to default config org.')
       orgs.value = [{ login: config.defaultOrg, avatar_url: '' }]
     }
 
