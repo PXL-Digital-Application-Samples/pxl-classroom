@@ -33,6 +33,7 @@ In `pxl-classroom` → Settings → Secrets and variables → Actions:
 | `PXL_APP_ID` | App ID from §1.2 |
 | `PXL_APP_PRIVATE_KEY` | full PEM body from §1.2, including BEGIN/END lines |
 | `VITE_GITHUB_CLIENT_ID` | App's Client ID (shown on the App settings page) |
+| `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. Set this if you want to point the SPA at a self-hosted or Cloudflare-Worker-hosted proxy instead. See ARCHITECTURE.md §10.2 for the threat model. |
 
 ### 1.4 Install the App on the hub's owning org, scoped narrowly
 

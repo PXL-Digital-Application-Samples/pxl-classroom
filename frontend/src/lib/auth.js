@@ -12,8 +12,18 @@
 // Token storage: sessionStorage only (cleared on tab close).
 // Never localStorage. Never embedded in Pages output.
 
-const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
-const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token'
+// github.com/login/* does NOT send CORS headers — direct browser fetch fails.
+// Route the two device-flow endpoints through a CORS proxy. api.github.com
+// does support CORS and is called directly.
+//
+// Default: corsproxy.io. Override via VITE_CORS_PROXY_URL at build time.
+// Threat model: the proxy operator sees device_code + access_token in transit.
+// Student tokens carry only Account/Starring scope (8h lifetime, instant
+// revoke at github.com/settings/applications). Lecturer tokens additionally
+// permit reading the org's control repo. See ARCHITECTURE.md §10.2.
+const CORS_PROXY = (import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url=').replace(/\?$/, '?url=')
+const GITHUB_DEVICE_CODE_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/device/code')}`
+const GITHUB_TOKEN_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/oauth/access_token')}`
 const GITHUB_API_BASE = 'https://api.github.com' // API supports CORS directly
 
 // State
