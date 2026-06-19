@@ -93,10 +93,10 @@
                 <th @click="sortBy('submission_status')" class="sortable">
                   Status {{ sortIcon('submission_status') }}
                 </th>
-                <th>Repo &amp; commits</th>
-                <th class="col-forensic">Uncertainty</th>
-                <th class="col-forensic">Lock-down</th>
-                <th class="col-forensic">Preserved</th>
+                <th>Repo</th>
+                <th @click="sortBy('latest_observed_at')" class="sortable">
+                  Last commit {{ sortIcon('latest_observed_at') }}
+                </th>
                 <th class="col-warnings">Warnings</th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
               </tr>
@@ -116,29 +116,19 @@
                   <template v-if="s.repo_url">
                     <a :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
                     <div class="commit-row">
-                      <a v-if="s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.last_on_time_sha}`" target="_blank" class="mono sha sha-on-time" title="On-time SHA">
-                        ✓ {{ s.last_on_time_sha.slice(0, 7) }}
+                      <a v-if="latestSha(s)" :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
+                        {{ latestSha(s).slice(0, 7) }}
                       </a>
-                      <a v-if="s.latest_observed_sha && s.latest_observed_sha !== s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.latest_observed_sha}`" target="_blank" class="mono sha sha-latest" title="Latest SHA">
-                        ↳ {{ s.latest_observed_sha.slice(0, 7) }}
-                      </a>
-                      <span v-if="!s.last_on_time_sha && !s.latest_observed_sha" class="text-muted">no commits</span>
+                      <span v-else class="text-muted">no commits</span>
                     </div>
                   </template>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td class="col-forensic">
-                  <span v-if="s.uncertainty_interval_seconds != null" :class="{ 'text-warning': s.uncertainty_interval_seconds > 3600 }">
-                    {{ formatDuration(s.uncertainty_interval_seconds) }}
+                <td>
+                  <span v-if="s.latest_observed_at" :title="formatDate(s.latest_observed_at)">
+                    {{ formatRelative(s.latest_observed_at) }}
                   </span>
                   <span v-else class="text-muted">—</span>
-                </td>
-                <td class="col-forensic">
-                  <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td class="col-forensic">
-                  <span :class="['badge', preserveBadge(s.preservation_status)]">{{ s.preservation_status || '—' }}</span>
                 </td>
                 <td class="col-warnings">
                   <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
@@ -151,7 +141,7 @@
                 </td>
               </tr>
               <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
-                <td colspan="9" class="empty-row">
+                <td colspan="7" class="empty-row">
                   No students match the current filters.
                   <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
                 </td>
@@ -179,8 +169,8 @@
             <div v-if="s.repo_url" class="student-card-repo">
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
               <div class="commit-row">
-                <a v-if="s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.last_on_time_sha}`" target="_blank" class="mono sha sha-on-time">✓ {{ s.last_on_time_sha.slice(0, 7) }}</a>
-                <a v-if="s.latest_observed_sha && s.latest_observed_sha !== s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.latest_observed_sha}`" target="_blank" class="mono sha sha-latest">↳ {{ s.latest_observed_sha.slice(0, 7) }}</a>
+                <a v-if="latestSha(s)" :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">{{ latestSha(s).slice(0, 7) }}</a>
+                <span v-if="s.latest_observed_at" class="text-muted" :title="formatDate(s.latest_observed_at)">· {{ formatRelative(s.latest_observed_at) }}</span>
               </div>
             </div>
             <div v-if="s.warnings?.length" class="student-card-warnings">
@@ -322,21 +312,29 @@ function statusBadge(status) {
 function acceptBadge(state) {
   return { provisioned: 'badge-success', accepted: 'badge-info', failed: 'badge-error', 'not-accepted': 'badge-neutral' }[state] || 'badge-neutral'
 }
-function preserveBadge(status) {
-  return { preserved: 'badge-success', failed: 'badge-error', pending: 'badge-warning', 'not-required': 'badge-neutral' }[status] || 'badge-neutral'
-}
 
 function shortRepo(name) {
   if (!name) return ''
   return name.includes('/') ? name.split('/')[1] : name
 }
 
+function latestSha(s) {
+  return s.latest_observed_sha || s.last_on_time_sha || null
+}
 
-
-function formatDuration(seconds) {
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
-  return `${(seconds / 3600).toFixed(1)}h`
+function formatRelative(iso) {
+  if (!iso) return ''
+  const diffMs = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(diffMs)) return ''
+  const abs = Math.abs(diffMs)
+  const future = diffMs < 0
+  const min = 60_000, hr = 3_600_000, day = 86_400_000
+  let s
+  if (abs < hr) s = `${Math.max(1, Math.round(abs / min))}m`
+  else if (abs < day) s = `${Math.round(abs / hr)}h`
+  else if (abs < 30 * day) s = `${Math.round(abs / day)}d`
+  else s = new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return future ? `in ${s}` : `${s} ago`
 }
 
 async function exportCSV() {
@@ -646,9 +644,6 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
   font-size: 0.78rem;
   color: var(--text-muted);
 }
-.sha-on-time { color: var(--accent-green); }
-.sha-latest { color: var(--accent-yellow); }
-
 .col-actions { width: 1%; text-align: right; }
 .row-action {
   background: none;
@@ -757,9 +752,6 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 .modal-section .field textarea { resize: vertical; min-height: 56px; font-family: var(--font-sans); }
 .modal-section p { margin: 0 0 var(--space-sm); font-size: 0.85rem; }
 
-@media (max-width: 1400px) {
-  .col-forensic { display: none; }
-}
 @media (max-width: 768px) {
   .summary-row { grid-template-columns: repeat(2, 1fr); }
   .actions-bar { flex-direction: column; align-items: stretch; }
