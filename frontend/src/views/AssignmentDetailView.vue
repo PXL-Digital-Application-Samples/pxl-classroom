@@ -54,7 +54,7 @@
             <input
               v-model="search"
               type="search"
-              placeholder="Search by login or status…"
+              placeholder="Search by login or repo…"
               class="search-input"
               aria-label="Search students"
             />
@@ -95,10 +95,10 @@
                 <th>Repo</th>
                 <th>On-time SHA</th>
                 <th>Latest SHA</th>
-                <th>Uncertainty</th>
-                <th>Lock-down</th>
-                <th>Preserved</th>
-                <th>Warnings</th>
+                <th class="col-forensic">Uncertainty</th>
+                <th class="col-forensic">Lock-down</th>
+                <th class="col-forensic">Preserved</th>
+                <th class="col-warnings">Warnings</th>
               </tr>
             </thead>
             <tbody>
@@ -128,24 +128,30 @@
                   </a>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td>
+                <td class="col-forensic">
                   <span v-if="s.uncertainty_interval_seconds != null" :class="{ 'text-warning': s.uncertainty_interval_seconds > 3600 }">
                     {{ formatDuration(s.uncertainty_interval_seconds) }}
                   </span>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td>
+                <td class="col-forensic">
                   <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td>
+                <td class="col-forensic">
                   <span :class="['badge', preserveBadge(s.preservation_status)]">{{ s.preservation_status || '—' }}</span>
                 </td>
-                <td>
+                <td class="col-warnings">
                   <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
                     <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
                   </div>
                   <span v-else class="text-muted">—</span>
+                </td>
+              </tr>
+              <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
+                <td colspan="10" class="empty-row">
+                  No students match the current filters.
+                  <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
                 </td>
               </tr>
             </tbody>
@@ -192,7 +198,7 @@ const filteredStudents = computed(() => {
   let list = report.value?.students || []
   if (search.value) {
     const q = search.value.toLowerCase()
-    list = list.filter((s) => s.github_login.toLowerCase().includes(q) || s.submission_status.includes(q))
+    list = list.filter((s) => s.github_login.toLowerCase().includes(q) || (s.repo_name && s.repo_name.toLowerCase().includes(q)))
   }
   if (statusFilter.value) {
     list = list.filter((s) => s.submission_status === statusFilter.value)
@@ -275,7 +281,15 @@ function exportCSV() {
 function copyAcceptLink() {
   const base = window.location.origin + (import.meta.env.BASE_URL || '/')
   const link = `${base}a/${props.assignmentId}`
-  navigator.clipboard.writeText(link)
+  navigator.clipboard.writeText(link).then(
+    () => toast.success('Accept link copied'),
+    () => toast.error('Could not copy link'),
+  )
+}
+
+function clearFilters() {
+  search.value = ''
+  statusFilter.value = ''
 }
 
 async function refreshLiveStatus() {
@@ -409,6 +423,7 @@ th, td {
   border-bottom: 1px solid var(--border-muted);
   white-space: nowrap;
 }
+th.col-warnings, td.col-warnings { white-space: normal; min-width: 160px; }
 th {
   background: var(--bg-tertiary);
   font-weight: 600;
@@ -416,15 +431,30 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
-  position: sticky;
-  top: 0;
 }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--accent-blue); }
 
 tr:hover td { background: rgba(88, 166, 255, 0.04); }
-tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
-tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
+tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
+tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
+
+.empty-row {
+  text-align: center;
+  padding: var(--space-lg);
+  color: var(--text-secondary);
+  white-space: normal;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  cursor: pointer;
+  padding: 0;
+  margin-left: var(--space-sm);
+  font: inherit;
+}
+.link-btn:hover { text-decoration: underline; }
 
 .sha { font-size: 0.8rem; }
 .text-muted { color: var(--text-muted); }
@@ -436,6 +466,9 @@ tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
   font-size: 0.8rem;
 }
 
+@media (max-width: 1200px) {
+  .col-forensic { display: none; }
+}
 @media (max-width: 768px) {
   .summary-row { grid-template-columns: repeat(2, 1fr); }
   .actions-bar { flex-direction: column; }
