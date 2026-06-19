@@ -673,7 +673,6 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 
 /* Mobile card list (hidden by default; shown under breakpoint) */
 .mobile-only { display: none; }
-.card-list { display: flex; flex-direction: column; gap: var(--space-sm); }
 .student-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
@@ -758,7 +757,7 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 .modal-section .field textarea { resize: vertical; min-height: 56px; font-family: var(--font-sans); }
 .modal-section p { margin: 0 0 var(--space-sm); font-size: 0.85rem; }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .col-forensic { display: none; }
 }
 @media (max-width: 768px) {
@@ -768,6 +767,7 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
   .search-input { flex: 1; min-width: 0; }
   .desktop-only { display: none; }
   .mobile-only { display: block; }
+  .card-list { display: flex; flex-direction: column; gap: var(--space-sm); }
   .modal { padding: var(--space-md); }
 }
 </style>
