@@ -51,3 +51,5 @@ One central public hub holds all logic. Per-organization private control reposit
 | Data schemas | `schemas/` |
 | Control-repo scaffold | `control-repo-template/` |
 | Unit tests | `tests/` |
+
+Live service: https://pxl-digital-application-samples.github.io/pxl-classroom/
