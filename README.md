@@ -1,8 +1,10 @@
 # PXL Classroom
 
-A GitHub-native replacement for the parts of GitHub Classroom that PXL needs. Built entirely on GitHub Pages + GitHub Actions + a single GitHub App. No server, no database, no external dependency.
+![PXL Classroom logo](assets/images/pxl_classroom_logo.png)
 
-Targets **GitHub Team for Education**. Never depends on GitHub Enterprise.
+A GitHub-native replacement of GitHub Classroom. Built entirely on GitHub Pages + GitHub Actions + a single GitHub App. No server, no database, no external dependency.
+
+Targets specifically **GitHub Team for Education**. Never depends on GitHub Enterprise.
 
 ## What it does
 
@@ -49,7 +51,3 @@ One central public hub holds all logic. Per-organization private control reposit
 | Data schemas | `schemas/` |
 | Control-repo scaffold | `control-repo-template/` |
 | Unit tests | `tests/` |
-
-## License & contact
-
-Internal PXL project. For day-to-day operation see the [Lecturer Runbook](RUNBOOK.md). For architectural rationale, see [ARCHITECTURE.md](ARCHITECTURE.md).
