@@ -63,7 +63,7 @@ jobs:
           dedup-key: prov-fail-${{ steps.accept.outputs.assignment_id }}-${{ steps.accept.outputs.github_login }}
           
       - name: Write repository record into control checkout, push
-        if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
+        if: (success() || failure()) && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && steps.prov.outputs.outcome != ''
         working-directory: control
         run: |
           ASSIGNMENT_ID="${{ steps.accept.outputs.assignment_id }}"
@@ -73,7 +73,7 @@ jobs:
           OUTCOME="${{ steps.prov.outputs.outcome }}"
           ORG="${{ github.event.client_payload.org }}"
           TARGET_REPO="${{ steps.accept.outputs.target_repo }}"
-          
+
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             mkdir -p "repositories/${ASSIGNMENT_ID}"
             cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF

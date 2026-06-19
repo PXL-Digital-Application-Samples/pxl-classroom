@@ -91,6 +91,7 @@ import UserBadge from '../components/UserBadge.vue'
 import { isAuthenticated, getUser, getToken, clearAuth, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { getRepoContent, getInstallations } from '../lib/api.js'
 import { config } from '../lib/config.js'
+import { toast } from '../lib/toast.js'
 
 const user = ref(getUser())
 const authLoading = ref(false)
@@ -137,15 +138,30 @@ async function loadAll() {
       .map(i => i.account.login)
     orgsTotal.value = orgs.length
     orgsLoaded.value = 0
-    for (const org of orgs) {
+
+    const results = await Promise.all(orgs.map(async (org) => {
       try {
         const content = await getRepoContent(token, org, config.controlRepo, 'reports/usage-latest.json')
-        if (content) {
-          const report = JSON.parse(content)
-          for (const item of report.items) rows.value.push({ org, ...item })
-        }
-      } catch { /* org may not have control repo */ }
-      orgsLoaded.value++
+        return { org, content, error: null }
+      } catch (e) {
+        return { org, content: null, error: e }
+      } finally {
+        orgsLoaded.value++
+      }
+    }))
+
+    const authErrors = results.filter(r => r.error?.status === 401)
+    if (authErrors.length > 0 && authErrors.length === results.length) {
+      toast.error('Your session has expired. Sign in again.')
+      clearAuth()
+      user.value = null
+      return
+    }
+
+    for (const r of results) {
+      if (!r.content) continue
+      const report = JSON.parse(r.content)
+      for (const item of report.items) rows.value.push({ org: r.org, ...item })
     }
   } finally {
     loading.value = false

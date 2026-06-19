@@ -97,16 +97,21 @@ export async function getInstallationRepos(token, installationId) {
 
 /**
  * Read a file from a repo (for fetching control repo data at runtime).
+ * Throws on 401 (caller can prompt re-auth); returns null for 404 and other
+ * non-success statuses (caller treats as "no file").
  */
 export async function getRepoContent(token, owner, repo, path) {
   const res = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)
+  if (res.status === 401) {
+    const e = new Error('Unauthorized')
+    e.status = 401
+    throw e
+  }
   if (!res.ok) return null
 
-  // GitHub returns base64-encoded content
   if (res.data?.content) {
     try {
-      const decoded = atob(res.data.content.replace(/\n/g, ''))
-      return decoded
+      return atob(res.data.content.replace(/\n/g, ''))
     } catch {
       return null
     }
@@ -166,14 +171,35 @@ export async function triggerWorkflow(token, owner, repo, workflowId, inputs = n
 }
 
 /**
- * List repos in an org whose name starts with a given prefix.
- * Used by Admin Panel to populate the template picker.
- * Uses ?per_page=100 — sufficient for the expected number of template repos.
+ * List repos in an org. With a prefix, uses the Search API (single bounded
+ * query — works regardless of org size). Without one, paginates the org repos
+ * endpoint via Link rel="next".
  */
 export async function listOrgRepos(token, org, prefix = '') {
-  const res = await ghApi(token, 'GET', `/orgs/${org}/repos?per_page=100&sort=full_name`)
-  if (!res.ok || !Array.isArray(res.data)) return []
-  return prefix
-    ? res.data.filter((r) => r.name.startsWith(prefix))
-    : res.data
+  if (prefix) {
+    const q = encodeURIComponent(`org:${org} ${prefix} in:name`)
+    const res = await ghApi(token, 'GET', `/search/repositories?q=${q}&per_page=100`)
+    if (!res.ok) return []
+    return (res.data?.items || []).filter((r) => r.name.startsWith(prefix))
+  }
+
+  const out = []
+  let url = `/orgs/${org}/repos?per_page=100&sort=full_name`
+  while (url) {
+    const res = await fetch(`${API_BASE}${url}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    })
+    if (!res.ok) break
+    const data = await res.json()
+    if (Array.isArray(data)) out.push(...data)
+    const link = res.headers.get('link') || ''
+    const next = link.split(',').find((p) => /rel="next"/.test(p))
+    const m = next && next.match(/<([^>]+)>/)
+    url = m ? m[1].replace(API_BASE, '') : null
+  }
+  return out
 }

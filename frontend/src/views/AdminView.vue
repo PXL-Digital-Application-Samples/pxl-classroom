@@ -79,7 +79,7 @@
               <select v-else v-model="form.template" :disabled="templates.length === 0">
                 <option value="">— pick a template —</option>
                 <option v-for="t in templates" :key="t.full_name" :value="t.full_name">
-                  {{ t.full_name }}{{ t.is_template ? '' : ' ⚠ not a template repo' }}
+                  {{ t.full_name }}{{ t.is_template ? '' : ' ⚠ not a template repo' }}{{ t._foreign ? ' (cross-org)' : '' }}
                 </option>
               </select>
               <small v-if="!loadingTemplates && templates.length === 0">
@@ -253,7 +253,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { commitFile, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent } from '../lib/api.js'
-import { parse as parseYaml } from 'yaml'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
 import { formatDate } from '../lib/format.js'
@@ -295,6 +295,8 @@ function emptyForm() {
     repository_name_pattern: '',
     opens_at_local: toLocalInputValue(now),
     deadline_at_local: toLocalInputValue(in14d),
+    _opens_at_original: '',
+    _deadline_at_original: '',
     timezone: 'Europe/Brussels',
     submission_ref: 'refs/heads/main',
     student_permission: 'admin',
@@ -304,6 +306,14 @@ function emptyForm() {
     max_acceptances: 250,
     lock_down_enabled: true,
   }
+}
+
+// If the user-visible HH:MM still matches what we derived from the original
+// UTC value, preserve the original (with seconds/ms) rather than zeroing them.
+function preserveOrLocal(localStr, originalUtc) {
+  if (!originalUtc) return localToUtc(localStr)
+  if (utcToLocalInput(originalUtc) === localStr) return originalUtc
+  return localToUtc(localStr)
 }
 
 function toSlug(title) {
@@ -424,6 +434,8 @@ function editAssignment(a) {
     repository_name_pattern: a.repository_name_pattern || '',
     opens_at_local: utcToLocalInput(a.opens_at),
     deadline_at_local: utcToLocalInput(a.deadline_at),
+    _opens_at_original: a.opens_at || '',
+    _deadline_at_original: a.deadline_at || '',
     timezone: a.timezone || 'Europe/Brussels',
     submission_ref: a.submission_ref || 'refs/heads/main',
     student_permission: a.student_permission || 'admin',
@@ -435,6 +447,16 @@ function editAssignment(a) {
   }
   extForm.value = { login: '', deadline_local: form.value.deadline_at_local, reason: '' }
   retryForm.value = { login: '' }
+  // Pin the editing template into the dropdown even if it lives in a different
+  // org than the assignment org. Drop any synthetic entry from a previous edit.
+  templates.value = templates.value.filter(t => !t._foreign)
+  if (form.value.template && !templates.value.some(t => t.full_name === form.value.template)) {
+    const [tplOwner] = form.value.template.split('/')
+    templates.value = [
+      { full_name: form.value.template, is_template: true, _foreign: tplOwner !== props.org },
+      ...templates.value,
+    ]
+  }
 }
 
 function cancelEdit() {
@@ -453,8 +475,8 @@ function buildDoc(state = null) {
     organization: form.value.organization,
     template: { owner: tplOwner || '', repository: tplRepo || '' },
     repository_name_pattern: form.value.repository_name_pattern,
-    opens_at: localToUtc(form.value.opens_at_local),
-    deadline_at: localToUtc(form.value.deadline_at_local),
+    opens_at: preserveOrLocal(form.value.opens_at_local, form.value._opens_at_original),
+    deadline_at: preserveOrLocal(form.value.deadline_at_local, form.value._deadline_at_original),
     timezone: form.value.timezone || 'Europe/Brussels',
     submission_ref: form.value.submission_ref || 'refs/heads/main',
     student_permission: form.value.student_permission,
@@ -466,32 +488,7 @@ function buildDoc(state = null) {
   }
 }
 
-const generatedYaml = computed(() => {
-  const d = buildDoc()
-  // Hand-formatted YAML (not using yaml.stringify so the output stays human-friendly)
-  const lines = [
-    `schema_version: ${d.schema_version}`,
-    `id: ${d.id || '<missing>'}`,
-    `title: ${JSON.stringify(d.title || '')}`,
-  ]
-  if (d.description) lines.push(`description: ${JSON.stringify(d.description)}`)
-  lines.push(`organization: ${d.organization}`)
-  lines.push('template:')
-  lines.push(`  owner: ${d.template.owner || '<missing>'}`)
-  lines.push(`  repository: ${d.template.repository || '<missing>'}`)
-  lines.push(`repository_name_pattern: ${JSON.stringify(d.repository_name_pattern || '')}`)
-  lines.push(`opens_at: ${d.opens_at}`)
-  lines.push(`deadline_at: ${d.deadline_at}`)
-  lines.push(`timezone: ${d.timezone}`)
-  lines.push(`submission_ref: ${d.submission_ref}`)
-  lines.push(`student_permission: ${d.student_permission}`)
-  lines.push(`acceptance_mode: ${d.acceptance_mode}`)
-  lines.push(`late_policy: ${d.late_policy}`)
-  lines.push(`state: ${d.state}`)
-  if (d.max_acceptances) lines.push(`max_acceptances: ${d.max_acceptances}`)
-  lines.push(`lock_down_enabled: ${d.lock_down_enabled}`)
-  return lines.join('\n') + '\n'
-})
+const generatedYaml = computed(() => stringifyYaml(buildDoc()))
 
 const validationErrors = ref([])
 
@@ -529,7 +526,7 @@ async function saveAssignment(stateOverride = null) {
   try {
     const token = getToken()
     const path = `assignments/${form.value.id}.yml`
-    const yaml = generatedYaml.value.replace(/^state: .*/m, `state: ${stateOverride || form.value.state}`)
+    const yaml = stringifyYaml(buildDoc(stateOverride))
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, isNew.value ? `Create assignment ${form.value.id}` : `Update assignment ${form.value.id}`)
     if (res.ok) {
       toast.success(`Saved ${form.value.id}`)
@@ -556,6 +553,13 @@ async function saveAndPublish() {
   if (form.value.state === 'published') await publishExisting()
 }
 
+function explainHubDispatchFailure(res, fallback) {
+  if (res.status === 403 || res.status === 404) {
+    return `Your account doesn't have access to PXL-Digital-Application-Samples/pxl-classroom. Ask a hub admin to add you as a collaborator (or have them run this workflow on your behalf).`
+  }
+  return `${fallback}: ${res.data?.message || 'unknown error'}`
+}
+
 async function publishExisting() {
   publishing.value = true
   try {
@@ -567,7 +571,7 @@ async function publishExisting() {
     if (res.ok || res.status === 204) {
       toast.success('Publish workflow triggered — check Actions tab in pxl-classroom.')
     } else {
-      toast.error(`Publish failed: ${res.data?.message || 'unknown error'}`)
+      toast.error(explainHubDispatchFailure(res, 'Publish failed'))
     }
   } finally {
     publishing.value = false
@@ -579,7 +583,7 @@ async function setState(newState) {
   try {
     const token = getToken()
     const path = `assignments/${form.value.id}.yml`
-    const yaml = generatedYaml.value.replace(/^state: .*/m, `state: ${newState}`)
+    const yaml = stringifyYaml(buildDoc(newState))
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Set ${form.value.id} state to ${newState}`)
     if (res.ok) {
       form.value.state = newState
@@ -650,7 +654,7 @@ async function retryAcceptance() {
       toast.success(`Retry triggered for ${retryForm.value.login}`)
       retryForm.value = { login: '' }
     } else {
-      toast.error(`Retry failed: ${res.data?.message || 'unknown error'}`)
+      toast.error(explainHubDispatchFailure(res, 'Retry failed'))
     }
   } finally {
     retrying.value = false

@@ -1,19 +1,16 @@
-import { readFileSync } from "node:fs";
-
-function readText(path) {
-  const buf = readFileSync(path);
-  if (buf[0] === 0xff && buf[1] === 0xfe) return buf.toString("utf16le").replace(/^﻿/, "");
-  if (buf[0] === 0xfe && buf[1] === 0xff) return buf.swap16().toString("utf16le").replace(/^﻿/, "");
-  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) return buf.subarray(3).toString("utf8");
-  return buf.toString("utf8");
-}
+import { readUtf8OrFail } from "./lib/encoding.mjs";
 
 let text;
 try {
-  text = readText("participating-orgs.yml");
-} catch {
-  process.stdout.write("[]");
-  process.exit(0);
+  text = readUtf8OrFail("participating-orgs.yml");
+} catch (err) {
+  // Missing file is OK (bootstrap state); encoding errors are not.
+  if (err.code === "ENOENT") {
+    process.stdout.write("[]");
+    process.exit(0);
+  }
+  console.error(err.message);
+  process.exit(1);
 }
 
 const logins = [];

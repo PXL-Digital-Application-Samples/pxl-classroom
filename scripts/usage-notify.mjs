@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { gh, ghAll } from "./lib/gh.mjs";
 
 const {
   ORG,
@@ -26,36 +27,29 @@ if (overs.length === 0) {
   process.exit(0);
 }
 
-async function gh(method, path, body) {
-  const res = await fetch(`https://api.github.com${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status} ${path}: ${text}`);
-  }
-  return res.json();
-}
-
-const q = encodeURIComponent(`repo:${ORG}/${CONTROL_REPO} is:issue is:open in:title "${ISSUE_TITLE}"`);
-const search = await gh("GET", `/search/issues?q=${q}`);
+// List open issues directly instead of using Search (Search has lower rate
+// limits and is eventually consistent, causing duplicate issues on close-spaced
+// reruns and silent skips during rate-limit spikes).
+const openIssues = await ghAll(
+  `/repos/${ORG}/${CONTROL_REPO}/issues?state=open&per_page=100`,
+  GITHUB_TOKEN,
+);
+const existing = openIssues.find(i => i.title === ISSUE_TITLE && !i.pull_request);
 
 let issueNumber;
-if (search.total_count > 0) {
-  issueNumber = search.items[0].number;
+if (existing) {
+  issueNumber = existing.number;
 } else {
-  const created = await gh("POST", `/repos/${ORG}/${CONTROL_REPO}/issues`, {
-    title: ISSUE_TITLE,
-    body: `Weekly usage report for \`${ORG}\`. The system appends a comment whenever a repo exceeds its configured limit.\n\nConfigure thresholds: \`limits.yml\` (global) · \`participating-orgs.yml\` (per-org) · \`limits-overrides.json\` (per-repo).`,
-  });
-  issueNumber = created.number;
+  const created = await gh(
+    "POST",
+    `/repos/${ORG}/${CONTROL_REPO}/issues`,
+    {
+      title: ISSUE_TITLE,
+      body: `Weekly usage report for \`${ORG}\`. The system appends a comment whenever a repo exceeds its configured limit.\n\nConfigure thresholds: \`limits.yml\` (global) · \`participating-orgs.yml\` (per-org) · \`limits-overrides.json\` (per-repo).`,
+    },
+    GITHUB_TOKEN,
+  );
+  issueNumber = created.data.number;
 }
 
 const lines = [
@@ -68,5 +62,10 @@ for (const r of overs) {
   lines.push(`| \`${r.repo}\` | ${r.sku} | **${r.used}** | ${r.limit} | ${r.unit} | ${r.limit_source} |`);
 }
 
-await gh("POST", `/repos/${ORG}/${CONTROL_REPO}/issues/${issueNumber}/comments`, { body: lines.join("\n") });
+await gh(
+  "POST",
+  `/repos/${ORG}/${CONTROL_REPO}/issues/${issueNumber}/comments`,
+  { body: lines.join("\n") },
+  GITHUB_TOKEN,
+);
 console.log(`Posted overrun comment to issue #${issueNumber}.`);

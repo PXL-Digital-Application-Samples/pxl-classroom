@@ -124,7 +124,14 @@ Bursty courses (Terraform, container builds) need higher limits; size the budget
 
 **What 100% means:** GitHub stops Actions on private repos in that org. Student-owned CI runs queue and never start. The hub side is unaffected (hub Actions are free — public repo). What you do at 100%: confirm with budget owner; raise if appropriate; otherwise communicate to students that CI is paused until the next monthly reset (integrity layer — lock-down, preservation, reports — continues to run).
 
-### 2.4 Register the budget owner
+### 2.4 Grant lecturers access to the hub repo
+
+Lecturers trigger **Publish** and **Retry acceptance** from the Admin Panel; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a "no hub access" toast.
+
+- Add each org's lecturers as **Read** collaborators (or members of an admin team) on the hub repo.
+- Without this access, the lecturer can still create/edit assignments (writes go to their own control repo), but cannot publish or retry from the SPA — a hub admin must run those workflows on their behalf.
+
+### 2.5 Register the budget owner
 
 Edit `participating-orgs.yml` on the `participating-orgs` branch — add or update the entry:
 
@@ -343,6 +350,23 @@ If branch protection is configured (§1.5), this can't merge without admin revie
 ### 9.5 Control-repo data corrupted
 
 Control repos are Git. Recovery is `git reset --hard <good-commit>` followed by `git push --force-with-lease`. Be careful: any acceptances or observations recorded after the good commit are lost. Prefer `git revert` for individual bad commits.
+
+### 9.6 `participating-orgs.yml` encoded as UTF-16 (or has a BOM)
+
+Symptom: `get-participating-orgs.mjs` and `get-budget-owner.mjs` fail with `... is UTF-16 LE. Re-encode as UTF-8 (LF, no BOM) ...`. Cause: an editor (often on Windows) saved the file in UTF-16. Subsequent appends from a Linux runner produce a mixed-encoding file.
+
+Recover:
+
+```
+git fetch origin participating-orgs:participating-orgs
+git checkout participating-orgs
+iconv -f UTF-16LE -t UTF-8 participating-orgs.yml | sed -e '1s/^\xef\xbb\xbf//' -e 's/\r$//' > new && mv new participating-orgs.yml
+git add participating-orgs.yml
+git commit -m "Re-encode participating-orgs.yml as UTF-8"
+git push origin participating-orgs
+```
+
+Verify: `file participating-orgs.yml` reports `ASCII text` or `UTF-8 Unicode text`, no `BOM`. `setup-org.yml` now normalises automatically going forward — this recovery is only needed once.
 
 ---
 

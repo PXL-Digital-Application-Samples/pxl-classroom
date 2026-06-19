@@ -91,22 +91,47 @@ jobs:
           git push -u origin main
 
       - name: Register org in participating-orgs branch
+        env:
+          TARGET_ORG: ${{ inputs.target_org }}
+          BUDGET_OWNER_LOGIN: ${{ inputs.budget_owner_login }}
         run: |
+          for v in "$TARGET_ORG" "$BUDGET_OWNER_LOGIN"; do
+            if ! printf '%s' "$v" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9-]{0,38}$'; then
+              echo "::error::'$v' is not a valid GitHub login."
+              exit 1
+            fi
+          done
+
           git fetch origin participating-orgs:participating-orgs || true
           git checkout participating-orgs || git checkout --orphan participating-orgs
-          
-          if [ ! -f participating-orgs.yml ]; then
-            echo "orgs:" > participating-orgs.yml
+
+          # Normalise any pre-existing UTF-16 / BOM file to plain UTF-8 LF.
+          if [ -f participating-orgs.yml ]; then
+            head -c 3 participating-orgs.yml | od -An -tx1 | tr -d ' \n' > .porgs-magic
+            MAGIC=$(cat .porgs-magic); rm -f .porgs-magic
+            case "$MAGIC" in
+              fffe*) iconv -f UTF-16LE -t UTF-8 participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml ;;
+              feff*) iconv -f UTF-16BE -t UTF-8 participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml ;;
+              efbbbf) tail -c +4 participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml ;;
+            esac
+            # Strip CRs that may remain from a Windows source.
+            tr -d '\r' < participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml
           fi
-          
-          if ! grep -q "login: ${{ inputs.target_org }}$" participating-orgs.yml; then
-            echo "  - login: ${{ inputs.target_org }}" >> participating-orgs.yml
-            echo "    budget_owner_login: ${{ inputs.budget_owner_login }}" >> participating-orgs.yml
+
+          if [ ! -f participating-orgs.yml ]; then
+            printf 'schema_version: 1\norgs:\n' > participating-orgs.yml
+          elif ! grep -q '^schema_version:' participating-orgs.yml; then
+            { printf 'schema_version: 1\n'; cat participating-orgs.yml; } > participating-orgs.yml.new
+            mv participating-orgs.yml.new participating-orgs.yml
+          fi
+
+          if ! grep -Eq "^[[:space:]]*-[[:space:]]+login:[[:space:]]+${TARGET_ORG}[[:space:]]*$" participating-orgs.yml; then
+            printf '  - login: %s\n    budget_owner_login: %s\n' "$TARGET_ORG" "$BUDGET_OWNER_LOGIN" >> participating-orgs.yml
             git config user.name "pxl-classroom-provisioner[bot]"
             git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
             git add participating-orgs.yml
-            git commit -m "Register ${{ inputs.target_org }} in participating-orgs"
+            git commit -m "Register ${TARGET_ORG} in participating-orgs"
             git push origin participating-orgs
           else
-            echo "${{ inputs.target_org }} is already registered."
+            echo "${TARGET_ORG} is already registered."
           fi
