@@ -74,12 +74,13 @@
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
               <span v-else>↻ Live Status</span>
             </button>
+            <button class="btn" @click="exportCSV">⬇ Export CSV</button>
             <button class="btn" @click="copyAcceptLink">📋 Copy accept link</button>
           </div>
         </div>
 
-        <!-- Student table -->
-        <div class="table-wrapper">
+        <!-- Student table (desktop) -->
+        <div class="table-wrapper desktop-only">
           <table>
             <thead>
               <tr>
@@ -92,13 +93,12 @@
                 <th @click="sortBy('submission_status')" class="sortable">
                   Status {{ sortIcon('submission_status') }}
                 </th>
-                <th>Repo</th>
-                <th>On-time SHA</th>
-                <th>Latest SHA</th>
+                <th>Repo &amp; commits</th>
                 <th class="col-forensic">Uncertainty</th>
                 <th class="col-forensic">Lock-down</th>
                 <th class="col-forensic">Preserved</th>
                 <th class="col-warnings">Warnings</th>
+                <th class="col-actions"><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -112,20 +112,19 @@
                 <td>
                   <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
                 </td>
-                <td>
-                  <a v-if="s.repo_url" :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td>
-                  <a v-if="s.last_on_time_sha && s.repo_url" :href="`${s.repo_url}/commit/${s.last_on_time_sha}`" target="_blank" class="mono sha">
-                    {{ s.last_on_time_sha?.slice(0, 7) }}
-                  </a>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td>
-                  <a v-if="s.latest_observed_sha && s.repo_url" :href="`${s.repo_url}/commit/${s.latest_observed_sha}`" target="_blank" class="mono sha">
-                    {{ s.latest_observed_sha?.slice(0, 7) }}
-                  </a>
+                <td class="col-repo">
+                  <template v-if="s.repo_url">
+                    <a :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
+                    <div class="commit-row">
+                      <a v-if="s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.last_on_time_sha}`" target="_blank" class="mono sha sha-on-time" title="On-time SHA">
+                        ✓ {{ s.last_on_time_sha.slice(0, 7) }}
+                      </a>
+                      <a v-if="s.latest_observed_sha && s.latest_observed_sha !== s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.latest_observed_sha}`" target="_blank" class="mono sha sha-latest" title="Latest SHA">
+                        ↳ {{ s.latest_observed_sha.slice(0, 7) }}
+                      </a>
+                      <span v-if="!s.last_on_time_sha && !s.latest_observed_sha" class="text-muted">no commits</span>
+                    </div>
+                  </template>
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td class="col-forensic">
@@ -147,9 +146,12 @@
                   </div>
                   <span v-else class="text-muted">—</span>
                 </td>
+                <td class="col-actions">
+                  <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">⋯</button>
+                </td>
               </tr>
               <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
-                <td colspan="10" class="empty-row">
+                <td colspan="9" class="empty-row">
                   No students match the current filters.
                   <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
                 </td>
@@ -157,7 +159,73 @@
             </tbody>
           </table>
         </div>
-        <p class="table-footer text-muted">{{ filteredStudents.length }} of {{ report.students.length }} students shown. Generated {{ formatDate(report.generated_at) }}.</p>
+
+        <!-- Student cards (mobile) -->
+        <div class="card-list mobile-only">
+          <div v-if="report.students.length > 0 && filteredStudents.length === 0" class="empty-row">
+            No students match the current filters.
+            <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
+          </div>
+          <article v-for="s in filteredStudents" :key="s.github_login" class="student-card">
+            <header class="student-card-head">
+              <a :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login">{{ s.github_login }}</a>
+              <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">⋯</button>
+            </header>
+            <div class="student-card-badges">
+              <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ s.acceptance_state }}</span>
+              <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
+              <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
+            </div>
+            <div v-if="s.repo_url" class="student-card-repo">
+              <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
+              <div class="commit-row">
+                <a v-if="s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.last_on_time_sha}`" target="_blank" class="mono sha sha-on-time">✓ {{ s.last_on_time_sha.slice(0, 7) }}</a>
+                <a v-if="s.latest_observed_sha && s.latest_observed_sha !== s.last_on_time_sha" :href="`${s.repo_url}/commit/${s.latest_observed_sha}`" target="_blank" class="mono sha sha-latest">↳ {{ s.latest_observed_sha.slice(0, 7) }}</a>
+              </div>
+            </div>
+            <div v-if="s.warnings?.length" class="student-card-warnings">
+              <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
+            </div>
+          </article>
+        </div>
+
+        <p class="table-footer text-muted">
+          {{ filteredStudents.length }} of {{ report.students.length }} students shown ·
+          Generated {{ formatDate(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ formatDate(liveRefreshedAt) }}</span>.
+        </p>
+      </div>
+
+      <!-- Per-row action modal -->
+      <div v-if="actionStudent" class="modal-overlay" @click.self="closeActions">
+        <div class="modal" role="dialog" aria-modal="true" :aria-label="`Actions for ${actionStudent.github_login}`">
+          <header class="modal-head">
+            <h3>Actions — <code>{{ actionStudent.github_login }}</code></h3>
+            <button class="modal-close" type="button" @click="closeActions" :disabled="actionExtending || actionRetrying" aria-label="Close">×</button>
+          </header>
+
+          <section class="modal-section">
+            <h4>Grant deadline extension</h4>
+            <div class="field">
+              <label>New deadline (just for this student)</label>
+              <input type="datetime-local" v-model="actionExt.deadline_local" />
+            </div>
+            <div class="field">
+              <label>Reason (recorded in the override)</label>
+              <textarea v-model="actionExt.reason" rows="2" placeholder="Medical certificate / approved by program coordinator / etc."></textarea>
+            </div>
+            <button class="btn btn-primary" type="button" @click="grantExtensionFor(actionStudent)" :disabled="actionExtending || !actionExt.deadline_local || !actionExt.reason.trim()">
+              {{ actionExtending ? 'Granting…' : 'Grant extension' }}
+            </button>
+          </section>
+
+          <section class="modal-section">
+            <h4>Retry acceptance</h4>
+            <p class="text-secondary">Wipes the half-done state and re-runs the full pipeline. Use when a student's acceptance got stuck (e.g. rate-limit during a burst).</p>
+            <button class="btn" type="button" @click="retryAcceptanceFor(actionStudent)" :disabled="actionRetrying">
+              {{ actionRetrying ? 'Triggering…' : 'Retry acceptance' }}
+            </button>
+          </section>
+        </div>
       </div>
     </main>
   </div>
@@ -167,10 +235,13 @@
 import { ref, computed, onMounted } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
-import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getRepoContent, ghApi } from '../lib/api.js'
+import { getToken, getUser, clearAuth } from '../lib/auth.js'
+import { getRepoContent, ghApi, commitFile, triggerWorkflow } from '../lib/api.js'
+import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
+
+const REFRESH_CONCURRENCY = 6
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -189,6 +260,13 @@ const refreshingLive = ref(false)
 const apiCallsUsed = ref(0)
 const totalStudentsToRefresh = ref(0)
 const refreshedStudentsCount = ref(0)
+const liveRefreshedAt = ref(null)
+
+// Per-row action modal (Grant extension / Retry acceptance)
+const actionStudent = ref(null)
+const actionExt = ref({ deadline_local: '', reason: '' })
+const actionExtending = ref(false)
+const actionRetrying = ref(false)
 
 const onTimeCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'on-time').length || 0)
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
@@ -261,21 +339,21 @@ function formatDuration(seconds) {
   return `${(seconds / 3600).toFixed(1)}h`
 }
 
-function exportCSV() {
+async function exportCSV() {
   const token = getToken()
   if (!token) return
-  // Fetch CSV from control repo
-  getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.csv`)
-    .then((csv) => {
-      if (!csv) return
-      const blob = new Blob([csv], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${props.assignmentId}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
-    })
+  const csv = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.csv`)
+  if (!csv) {
+    toast.error('No CSV found in the control repo for this assignment.')
+    return
+  }
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${props.assignmentId}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 function copyAcceptLink() {
@@ -292,58 +370,157 @@ function clearFilters() {
   statusFilter.value = ''
 }
 
+async function refreshOne(token, s) {
+  try {
+    const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
+    apiCallsUsed.value++
+
+    if (res.ok && res.data && res.data.length > 0) {
+      const commit = res.data[0]
+      const sha = commit.sha
+      const commitDateStr = commit.commit.committer.date
+      const commitDate = new Date(commitDateStr)
+      const deadline = s.effective_deadline_at ? new Date(s.effective_deadline_at) : null
+
+      s.latest_observed_sha = sha
+      s.latest_observed_at = commitDateStr
+
+      if (deadline) {
+        if (commitDate <= deadline) {
+          s.submission_status = 'on-time'
+          s.last_on_time_sha = sha
+        } else {
+          s.submission_status = 'late'
+          s.first_late_sha = sha
+        }
+      } else {
+        s.submission_status = 'unknown'
+      }
+    } else if (res.ok && res.data && res.data.length === 0) {
+      s.submission_status = 'no-submission'
+    }
+  } catch (e) {
+    console.error(`Failed to fetch live status for ${s.repo_name}:`, e)
+  }
+  refreshedStudentsCount.value++
+}
+
 async function refreshLiveStatus() {
   const token = getToken()
   if (!token || !report.value) return
-  
-  const studentsToRefresh = report.value.students.filter(s => s.repo_name)
-  if (studentsToRefresh.length === 0) {
-    toast.info("No provisioned repositories to check.")
+
+  const queue = report.value.students.filter(s => s.repo_name)
+  if (queue.length === 0) {
+    toast.info('No provisioned repositories to check.')
     return
   }
-  
+
   refreshingLive.value = true
   apiCallsUsed.value = 0
-  totalStudentsToRefresh.value = studentsToRefresh.length
+  totalStudentsToRefresh.value = queue.length
   refreshedStudentsCount.value = 0
-  
-  for (const s of studentsToRefresh) {
-    try {
-      const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
-      apiCallsUsed.value++
-      
-      if (res.ok && res.data && res.data.length > 0) {
-        const commit = res.data[0]
-        const sha = commit.sha
-        const commitDateStr = commit.commit.committer.date
-        const commitDate = new Date(commitDateStr)
-        const deadline = s.effective_deadline_at ? new Date(s.effective_deadline_at) : null
-        
-        s.latest_observed_sha = sha
-        s.latest_observed_at = commitDateStr
-        
-        if (deadline) {
-          if (commitDate <= deadline) {
-            s.submission_status = 'on-time'
-            s.last_on_time_sha = sha
-          } else {
-            s.submission_status = 'late'
-            s.first_late_sha = sha
-          }
-        } else {
-          s.submission_status = 'unknown'
-        }
-      } else if (res.ok && res.data && res.data.length === 0) {
-        s.submission_status = 'no-submission'
-      }
-    } catch (e) {
-      console.error(`Failed to fetch live status for ${s.repo_name}:`, e)
+
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < queue.length) {
+      const s = queue[cursor++]
+      await refreshOne(token, s)
     }
-    refreshedStudentsCount.value++
   }
-  
+  const workers = Array.from({ length: Math.min(REFRESH_CONCURRENCY, queue.length) }, worker)
+  await Promise.all(workers)
+
   refreshingLive.value = false
+  liveRefreshedAt.value = new Date().toISOString()
   toast.success(`Live status updated for ${totalStudentsToRefresh.value} students.`)
+}
+
+// --- per-row actions ----------------------------------------------------------
+
+function openActions(student) {
+  actionStudent.value = student
+  const fallbackDeadline = student.effective_deadline_at || ''
+  actionExt.value = {
+    deadline_local: fallbackDeadline ? toLocalInputValue(new Date(fallbackDeadline)) : '',
+    reason: '',
+  }
+}
+
+function closeActions() {
+  if (actionExtending.value || actionRetrying.value) return
+  actionStudent.value = null
+}
+
+function toLocalInputValue(date) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function localToUtc(localStr) {
+  if (!localStr) return ''
+  return new Date(localStr).toISOString()
+}
+
+async function grantExtensionFor(student) {
+  if (!actionExt.value.deadline_local || !actionExt.value.reason.trim()) {
+    toast.error('Deadline and reason are required.')
+    return
+  }
+  actionExtending.value = true
+  try {
+    const token = getToken()
+    const overrideDoc = {
+      schema_version: 1,
+      assignment_id: props.assignmentId,
+      github_login: student.github_login,
+      overrides: [
+        {
+          type: 'deadline_extension',
+          value: localToUtc(actionExt.value.deadline_local),
+          reason: actionExt.value.reason.trim(),
+          overridden_by: 'admin-panel',
+          overridden_at: new Date().toISOString(),
+        },
+      ],
+    }
+    const { valid, errors } = await validateAgainst('override', overrideDoc)
+    if (!valid) {
+      toast.error('Override failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
+      return
+    }
+    const path = `overrides/${props.assignmentId}/${student.github_login}.json`
+    const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${student.github_login} on ${props.assignmentId}`)
+    if (res.ok) {
+      toast.success(`Extension granted to ${student.github_login}`)
+      actionStudent.value = null
+    } else {
+      toast.error(`Extension failed: ${res.data?.message || 'unknown error'}`)
+    }
+  } finally {
+    actionExtending.value = false
+  }
+}
+
+async function retryAcceptanceFor(student) {
+  actionRetrying.value = true
+  try {
+    const token = getToken()
+    const res = await triggerWorkflow(token, 'PXL-Digital-Application-Samples', 'pxl-classroom', 'retry-acceptance.yml', {
+      org: props.org,
+      assignment_id: props.assignmentId,
+      github_login: student.github_login,
+    })
+    if (res.ok || res.status === 204) {
+      toast.success(`Retry triggered for ${student.github_login}`)
+      actionStudent.value = null
+    } else if (res.status === 403 || res.status === 404) {
+      toast.error(`No access to PXL-Digital-Application-Samples/pxl-classroom. Ask a hub admin to add you.`)
+    } else {
+      toast.error(`Retry failed: ${res.data?.message || 'unknown error'}`)
+    }
+  } finally {
+    actionRetrying.value = false
+  }
 }
 </script>
 
@@ -461,16 +638,136 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 .text-secondary { color: var(--text-secondary); }
 .text-warning { color: var(--accent-yellow); }
 
+.col-repo .repo-link { display: inline-block; }
+.commit-row {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.sha-on-time { color: var(--accent-green); }
+.sha-latest { color: var(--accent-yellow); }
+
+.col-actions { width: 1%; text-align: right; }
+.row-action {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 2px 8px;
+  line-height: 1;
+}
+.row-action:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
 .table-footer {
   margin-top: var(--space-md);
   font-size: 0.8rem;
 }
+
+/* Mobile card list (hidden by default; shown under breakpoint) */
+.mobile-only { display: none; }
+.card-list { display: flex; flex-direction: column; gap: var(--space-sm); }
+.student-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.student-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.student-card-login { font-weight: 600; }
+.student-card-badges { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.student-card-repo { font-size: 0.85rem; }
+.student-card-warnings { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-xl) var(--space-md);
+  z-index: 100;
+  overflow-y: auto;
+}
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 520px;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.modal-head h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.modal-head code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0 var(--space-xs);
+}
+.modal-close:hover { color: var(--text-primary); }
+.modal-section {
+  padding: var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+.modal-section h4 { margin: 0 0 var(--space-sm); font-size: 0.9rem; font-weight: 600; }
+.modal-section .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-sm); }
+.modal-section .field label { font-size: 0.85rem; color: var(--text-secondary); }
+.modal-section .field input,
+.modal-section .field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.modal-section .field textarea { resize: vertical; min-height: 56px; font-family: var(--font-sans); }
+.modal-section p { margin: 0 0 var(--space-sm); font-size: 0.85rem; }
 
 @media (max-width: 1200px) {
   .col-forensic { display: none; }
 }
 @media (max-width: 768px) {
   .summary-row { grid-template-columns: repeat(2, 1fr); }
-  .actions-bar { flex-direction: column; }
+  .actions-bar { flex-direction: column; align-items: stretch; }
+  .actions-bar > div { width: 100%; }
+  .search-input { flex: 1; min-width: 0; }
+  .desktop-only { display: none; }
+  .mobile-only { display: block; }
+  .modal { padding: var(--space-md); }
 }
 </style>
