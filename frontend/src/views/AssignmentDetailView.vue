@@ -127,12 +127,12 @@
                 </td>
                 <td class="col-last-commit">
                   <template v-if="s.repo_url && latestSha(s)">
+                    <div v-if="s.latest_observed_at" class="commit-time-top" :title="formatDate(s.latest_observed_at)">
+                      {{ formatRelative(s.latest_observed_at) }}
+                    </div>
                     <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
                       {{ latestSha(s).slice(0, 7) }}
                     </a>
-                    <div v-if="s.latest_observed_at" class="commit-time" :title="formatDate(s.latest_observed_at)">
-                      {{ formatRelative(s.latest_observed_at) }}
-                    </div>
                   </template>
                   <span v-else-if="s.repo_url" class="text-muted">no commits</span>
                   <span v-else class="text-muted">—</span>
@@ -176,9 +176,9 @@
             <div v-if="s.repo_url" class="student-card-repo">
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
               <div v-if="latestSha(s)" class="commit-row">
-                Last commit:
-                <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">{{ latestSha(s).slice(0, 7) }}</a>
-                <span v-if="s.latest_observed_at" class="text-muted" :title="formatDate(s.latest_observed_at)">· {{ formatRelative(s.latest_observed_at) }}</span>
+                Last commit
+                <span v-if="s.latest_observed_at" :title="formatDate(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at) }}</span>
+                <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
               </div>
             </div>
             <div v-if="s.warnings?.length" class="student-card-warnings">
@@ -234,7 +234,7 @@ import { ref, computed, onMounted } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth } from '../lib/auth.js'
-import { getRepoContent, ghApi, commitFile, triggerWorkflow } from '../lib/api.js'
+import { getRepoContent, ghApi, commitFile, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -618,10 +618,8 @@ async function retryAcceptanceFor(student) {
     if (res.ok || res.status === 204) {
       toast.success(`Retry triggered for ${student.github_login}`)
       actionStudent.value = null
-    } else if (res.status === 403 || res.status === 404) {
-      toast.error(`No access to PXL-Digital-Application-Samples/pxl-classroom. Ask a hub admin to add you.`)
     } else {
-      toast.error(`Retry failed: ${res.data?.message || 'unknown error'}`)
+      toast.error(explainDispatchFailure(res, 'Retry failed'))
     }
   } finally {
     actionRetrying.value = false
@@ -752,10 +750,10 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 .col-repo .repo-link { display: inline-block; }
 .col-last-commit { white-space: nowrap; }
 .col-last-commit .sha { display: inline-block; }
-.commit-time {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin-top: 2px;
+.commit-time-top {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  margin-bottom: 2px;
 }
 .commit-row {
   display: flex;

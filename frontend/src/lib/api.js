@@ -171,6 +171,27 @@ export async function triggerWorkflow(token, owner, repo, workflowId, inputs = n
 }
 
 /**
+ * Format a workflow_dispatch failure for the toast. Prefers GitHub's own
+ * message because 403/404 almost never means "user has no access" — for a
+ * hub collaborator it usually means the App's user-to-server token lacks
+ * actions:write, or the workflow file isn't on the dispatched ref. The
+ * old canned "ask a hub admin to add you as a collaborator" hid this.
+ */
+export function explainDispatchFailure(res, fallback) {
+  const msg = res.data?.message
+  if (msg === 'Resource not accessible by integration') {
+    return `${fallback}: the GitHub App's user-to-server token doesn't have actions:write. A hub admin needs to add that permission to the App and have each participating org re-approve it.`
+  }
+  if (res.status === 404) {
+    return `${fallback}: workflow not found. Check that the workflow file exists on the default branch of the hub repo, and that you can see the repo.`
+  }
+  if (res.status === 403) {
+    return `${fallback} (403): ${msg || 'forbidden'}. Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access.`
+  }
+  return `${fallback}: ${msg || `HTTP ${res.status}`}`
+}
+
+/**
  * List repos in an org. With a prefix, uses the Search API (single bounded
  * query — works regardless of org size). Without one, paginates the org repos
  * endpoint via Link rel="next".

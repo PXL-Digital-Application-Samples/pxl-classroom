@@ -256,7 +256,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
-import { commitFile, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent } from '../lib/api.js'
+import { commitFile, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
@@ -557,13 +557,6 @@ async function saveAndPublish() {
   if (form.value.state === 'published') await publishExisting()
 }
 
-function explainHubDispatchFailure(res, fallback) {
-  if (res.status === 403 || res.status === 404) {
-    return `Your account doesn't have access to PXL-Digital-Application-Samples/pxl-classroom. Ask a hub admin to add you as a collaborator (or have them run this workflow on your behalf).`
-  }
-  return `${fallback}: ${res.data?.message || 'unknown error'}`
-}
-
 async function publishExisting() {
   publishing.value = true
   try {
@@ -575,7 +568,7 @@ async function publishExisting() {
     if (res.ok || res.status === 204) {
       toast.success('Publish workflow triggered — check Actions tab in pxl-classroom.')
     } else {
-      toast.error(explainHubDispatchFailure(res, 'Publish failed'))
+      toast.error(explainDispatchFailure(res, 'Publish failed'))
     }
   } finally {
     publishing.value = false
@@ -658,7 +651,7 @@ async function retryAcceptance() {
       toast.success(`Retry triggered for ${retryForm.value.login}`)
       retryForm.value = { login: '' }
     } else {
-      toast.error(explainHubDispatchFailure(res, 'Retry failed'))
+      toast.error(explainDispatchFailure(res, 'Retry failed'))
     }
   } finally {
     retrying.value = false

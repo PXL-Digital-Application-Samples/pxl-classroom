@@ -116,7 +116,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import { isAuthenticated, getUser, getToken, clearAuth, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { getRepoContent, triggerWorkflow } from '../lib/api.js'
+import { getRepoContent, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -179,10 +179,8 @@ async function generateNow() {
       toast.success('Workflow triggered — watching for the report…')
       runWatching.value = true
       startRunPoll()
-    } else if (res.status === 403 || res.status === 404) {
-      toast.error(`Your account doesn't have access to PXL-Digital-Application-Samples/pxl-classroom. Ask a hub admin to add you as a collaborator (or have them trigger the workflow).`)
     } else {
-      toast.error(`Trigger failed: ${res.data?.message || 'unknown error'}`)
+      toast.error(explainDispatchFailure(res, 'Trigger failed'))
     }
   } finally {
     triggering.value = false
