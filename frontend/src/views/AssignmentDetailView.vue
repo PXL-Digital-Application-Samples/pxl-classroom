@@ -78,7 +78,7 @@
               <span v-else>↻ Live Status</span>
             </button>
             <button class="btn" @click="exportCSV">⬇ Export CSV</button>
-            <button class="btn" @click="copyAcceptLink">📋 Copy accept link</button>
+            <button class="btn" @click="copyAcceptLink">⧉ Copy accept link</button>
           </div>
         </div>
 
