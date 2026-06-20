@@ -230,6 +230,7 @@ import { getRepoContent, ghApi, commitFile, triggerWorkflow } from '../lib/api.j
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
+import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 
 const REFRESH_CONCURRENCY = 6
 
@@ -447,22 +448,54 @@ async function refreshLiveStatus() {
     console.error('Failed to fetch rate limit:', e)
   }
 
-  // Persist the refreshed report back to the control repo so reloads
-  // (and other lecturers) see the up-to-date snapshot.
+  // Persist the refreshed report + dashboard aggregate back to the control
+  // repo so reloads (and the Dashboard view) see the up-to-date snapshot.
   try {
-    const path = `reports/${props.assignmentId}.json`
-    const body = JSON.stringify(report.value, null, 2) + '\n'
-    const res = await commitFile(token, props.org, config.controlRepo, path, body, `Live refresh: ${props.assignmentId}`)
-    if (res.ok) {
-      toast.success(`Live status updated for ${totalStudentsToRefresh.value} students (saved).`)
-    } else {
-      toast.error(`Refreshed locally but save failed: ${res.data?.message || 'unknown error'}`)
+    const reportPath = `reports/${props.assignmentId}.json`
+    const reportBody = JSON.stringify(report.value, null, 2) + '\n'
+    const reportRes = await commitFile(token, props.org, config.controlRepo, reportPath, reportBody, `Live refresh: ${props.assignmentId}`)
+    if (!reportRes.ok) {
+      toast.error(`Refreshed locally but save failed: ${reportRes.data?.message || 'unknown error'}`)
+      return
     }
+    await syncDashboardAggregate(token)
+    toast.success(`Live status updated for ${totalStudentsToRefresh.value} students (saved).`)
   } catch (e) {
     console.error('Failed to persist report:', e)
     toast.error('Refreshed locally but save failed.')
   } finally {
     refreshingLive.value = false
+  }
+}
+
+// Mirror report.mjs's dashboard aggregate, but only for the assignment we
+// just refreshed. Skips silently if dashboard.json doesn't exist or doesn't
+// already have an entry for this assignment — we don't conjure entries.
+async function syncDashboardAggregate(token) {
+  try {
+    const path = 'reports/dashboard.json'
+    const existing = await getRepoContent(token, props.org, config.controlRepo, path)
+    if (!existing) return
+    const dashboard = JSON.parse(existing)
+    if (!dashboard.assignments?.[props.assignmentId]) return
+
+    const existingEntry = dashboard.assignments[props.assignmentId]
+    const pseudoAssignment = {
+      title: existingEntry.title,
+      state: existingEntry.state,
+      opens_at: existingEntry.opens_at,
+      deadline_at: existingEntry.deadline_at,
+    }
+    dashboard.assignments[props.assignmentId] = buildDashboardEntry(pseudoAssignment, report.value.students || [])
+    dashboard.generated_at = new Date().toISOString()
+
+    const body = JSON.stringify(dashboard, null, 2) + '\n'
+    const res = await commitFile(token, props.org, config.controlRepo, path, body, `Live refresh dashboard: ${props.assignmentId}`)
+    if (!res.ok) {
+      console.error('Dashboard sync failed:', res.data?.message)
+    }
+  } catch (e) {
+    console.error('Failed to sync dashboard aggregate:', e)
   }
 }
 

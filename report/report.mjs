@@ -19,6 +19,7 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
+import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -340,20 +341,7 @@ async function main() {
   if (existsSync(dashboardPath)) {
     dashboard = await readJsonSafe(dashboardPath) || dashboard;
   }
-  dashboard.assignments[assignmentId] = {
-    title: assignment.title,
-    state: assignment.state,
-    opens_at: assignment.opens_at,
-    deadline_at: assignment.deadline_at,
-    total_students: students.length,
-    accepted: students.filter((s) => s.acceptance_state !== "not-accepted").length,
-    provisioned: students.filter((s) => s.repo_id).length,
-    on_time: onTimeCount,
-    late: lateCount,
-    no_submission: noSubCount,
-    with_warnings: students.filter((s) => s.warnings.length > 0).length,
-    generated_at: new Date().toISOString(),
-  };
+  dashboard.assignments[assignmentId] = buildDashboardEntry(assignment, students);
   dashboard.generated_at = new Date().toISOString();
   await writeFile(dashboardPath, JSON.stringify(dashboard, null, 2) + "\n");
 
