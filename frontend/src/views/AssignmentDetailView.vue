@@ -73,9 +73,6 @@
             </select>
           </div>
           <div class="flex gap-sm items-center">
-            <span v-if="rateLimit.remaining != null && !refreshingLive" class="text-sm text-secondary" :title="`Your GitHub REST quota — resets hourly`">
-              API: {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}
-            </span>
             <button class="btn btn-primary" @click="refreshLiveStatus" :disabled="refreshingLive">
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
               <span v-else>↻ Live Status</span>
@@ -186,7 +183,7 @@
 
         <p class="table-footer text-muted">
           {{ filteredStudents.length }} of {{ report.students.length }} students shown ·
-          Generated {{ formatDate(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ formatDate(liveRefreshedAt) }}</span>.
+          Generated {{ formatDate(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ formatDate(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota — resets hourly`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
         </p>
       </div>
 
