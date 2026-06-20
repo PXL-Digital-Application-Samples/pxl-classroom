@@ -30,7 +30,23 @@ export async function ghApi(token, method, path, body = null) {
     }
   }
 
-  return { status: res.status, ok: res.ok, data }
+  return { status: res.status, ok: res.ok, data, headers: res.headers }
+}
+
+/**
+ * Read the total page count from a GitHub Link header. Used together with
+ * per_page=1 to derive a total without a second API call.
+ *
+ * GitHub omits the Link header when the response fits on one page, so this
+ * falls back to the item count from the body for 0/1-item cases.
+ */
+export function totalFromLinkHeader(headers, fallbackArray) {
+  const link = headers?.get?.('link')
+  if (link) {
+    const m = link.match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/)
+    if (m) return parseInt(m[1], 10)
+  }
+  return Array.isArray(fallbackArray) ? fallbackArray.length : 0
 }
 
 // --- Student-facing API calls -----------------------------------------------

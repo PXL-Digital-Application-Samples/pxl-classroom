@@ -106,6 +106,9 @@
                 <th @click="sortBy('latest_observed_at')" class="sortable">
                   Last commit {{ sortIcon('latest_observed_at') }}
                 </th>
+                <th @click="sortBy('commit_count')" class="sortable num">
+                  Commits {{ sortIcon('commit_count') }}
+                </th>
                 <th class="col-warnings">Warnings</th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
               </tr>
@@ -137,6 +140,10 @@
                   <span v-else-if="s.repo_url" class="text-muted">no commits</span>
                   <span v-else class="text-muted">—</span>
                 </td>
+                <td class="num">
+                  <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
+                  <span v-else class="text-muted">—</span>
+                </td>
                 <td class="col-warnings">
                   <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
                     <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
@@ -148,7 +155,7 @@
                 </td>
               </tr>
               <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
-                <td colspan="7" class="empty-row">
+                <td colspan="8" class="empty-row">
                   No students match the current filters.
                   <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
                 </td>
@@ -179,6 +186,7 @@
                 Last commit
                 <span v-if="s.latest_observed_at" :title="formatDate(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at) }}</span>
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
+                <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
             </div>
             <div v-if="s.warnings?.length" class="student-card-warnings">
@@ -234,7 +242,7 @@ import { ref, computed, onMounted } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth } from '../lib/auth.js'
-import { getRepoContent, ghApi, commitFile, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
+import { getRepoContent, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -301,9 +309,15 @@ const filteredStudents = computed(() => {
     list = list.filter((s) => s.submission_status === statusFilter.value)
   }
   list = [...list].sort((a, b) => {
-    const av = a[sortKey.value] ?? ''
-    const bv = b[sortKey.value] ?? ''
-    const cmp = String(av).localeCompare(String(bv))
+    const av = a[sortKey.value]
+    const bv = b[sortKey.value]
+    // Nulls last regardless of direction
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    const cmp = typeof av === 'number' && typeof bv === 'number'
+      ? av - bv
+      : String(av).localeCompare(String(bv))
     return sortAsc.value ? cmp : -cmp
   })
   return list
@@ -409,6 +423,8 @@ function clearFilters() {
 async function refreshOne(token, s) {
   try {
     const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
+
+    if (res.ok) s.commit_count = totalFromLinkHeader(res.headers, res.data)
 
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
@@ -755,6 +771,7 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
   color: var(--text-primary);
   margin-bottom: 2px;
 }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .commit-row {
   display: flex;
   gap: var(--space-sm);

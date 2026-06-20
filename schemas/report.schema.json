@@ -112,6 +112,11 @@
             "format": "date-time",
             "description": "Timestamp of the most recent observation."
           },
+          "commit_count": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Total commit count on the submission ref. Populated by the Admin UI's Live Status refresh (parsed from the GitHub Link header on /commits?per_page=1)."
+          },
           "uncertainty_interval_seconds": {
             "type": ["number", "null"],
             "minimum": 0,
