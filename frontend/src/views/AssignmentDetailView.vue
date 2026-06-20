@@ -119,21 +119,19 @@
                   <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
                 </td>
                 <td class="col-repo">
-                  <template v-if="s.repo_url">
-                    <a :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
-                    <div class="commit-row">
-                      <a v-if="latestSha(s)" :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
-                        {{ latestSha(s).slice(0, 7) }}
-                      </a>
-                      <span v-else class="text-muted">no commits</span>
-                    </div>
-                  </template>
+                  <a v-if="s.repo_url" :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td>
-                  <span v-if="s.latest_observed_at" :title="formatDate(s.latest_observed_at)">
-                    {{ formatRelative(s.latest_observed_at) }}
-                  </span>
+                <td class="col-last-commit">
+                  <template v-if="s.repo_url && latestSha(s)">
+                    <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
+                      {{ latestSha(s).slice(0, 7) }}
+                    </a>
+                    <div v-if="s.latest_observed_at" class="commit-time" :title="formatDate(s.latest_observed_at)">
+                      {{ formatRelative(s.latest_observed_at) }}
+                    </div>
+                  </template>
+                  <span v-else-if="s.repo_url" class="text-muted">no commits</span>
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td class="col-warnings">
@@ -174,8 +172,9 @@
             </div>
             <div v-if="s.repo_url" class="student-card-repo">
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
-              <div class="commit-row">
-                <a v-if="latestSha(s)" :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">{{ latestSha(s).slice(0, 7) }}</a>
+              <div v-if="latestSha(s)" class="commit-row">
+                Last commit:
+                <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">{{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.latest_observed_at" class="text-muted" :title="formatDate(s.latest_observed_at)">· {{ formatRelative(s.latest_observed_at) }}</span>
               </div>
             </div>
@@ -748,6 +747,13 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 .text-warning { color: var(--accent-yellow); }
 
 .col-repo .repo-link { display: inline-block; }
+.col-last-commit { white-space: nowrap; }
+.col-last-commit .sha { display: inline-block; }
+.commit-time {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .commit-row {
   display: flex;
   gap: var(--space-sm);
