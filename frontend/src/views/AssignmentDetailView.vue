@@ -67,8 +67,8 @@
             </select>
           </div>
           <div class="flex gap-sm items-center">
-            <span v-if="apiCallsUsed > 0 && !refreshingLive" class="text-sm text-secondary">
-              Cost: {{ apiCallsUsed }} API calls
+            <span v-if="rateLimit.remaining != null && !refreshingLive" class="text-sm text-secondary" :title="`Your GitHub REST quota — resets hourly`">
+              API: {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}
             </span>
             <button class="btn btn-primary" @click="refreshLiveStatus" :disabled="refreshingLive">
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
@@ -247,10 +247,10 @@ const sortKey = ref('github_login')
 const sortAsc = ref(true)
 
 const refreshingLive = ref(false)
-const apiCallsUsed = ref(0)
 const totalStudentsToRefresh = ref(0)
 const refreshedStudentsCount = ref(0)
 const liveRefreshedAt = ref(null)
+const rateLimit = ref({ remaining: null, limit: null })
 
 // Per-row action modal (Grant extension / Retry acceptance)
 const actionStudent = ref(null)
@@ -285,7 +285,10 @@ onMounted(async () => {
   if (!token) { loading.value = false; return }
   try {
     const content = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`)
-    if (content) report.value = JSON.parse(content)
+    if (content) {
+      report.value = JSON.parse(content)
+      if (report.value.live_refreshed_at) liveRefreshedAt.value = report.value.live_refreshed_at
+    }
   } catch (e) {
     console.error('Failed to load report:', e)
   }
@@ -371,7 +374,6 @@ function clearFilters() {
 async function refreshOne(token, s) {
   try {
     const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
-    apiCallsUsed.value++
 
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
@@ -414,7 +416,6 @@ async function refreshLiveStatus() {
   }
 
   refreshingLive.value = true
-  apiCallsUsed.value = 0
   totalStudentsToRefresh.value = queue.length
   refreshedStudentsCount.value = 0
 
@@ -428,9 +429,41 @@ async function refreshLiveStatus() {
   const workers = Array.from({ length: Math.min(REFRESH_CONCURRENCY, queue.length) }, worker)
   await Promise.all(workers)
 
-  refreshingLive.value = false
-  liveRefreshedAt.value = new Date().toISOString()
-  toast.success(`Live status updated for ${totalStudentsToRefresh.value} students.`)
+  const refreshedAt = new Date().toISOString()
+  liveRefreshedAt.value = refreshedAt
+  report.value.live_refreshed_at = refreshedAt
+  report.value.live_refreshed_by = user.value?.login || null
+
+  // Fetch rate-limit headroom (one extra call, doesn't count against core)
+  try {
+    const rl = await ghApi(token, 'GET', '/rate_limit')
+    if (rl.ok && rl.data?.resources?.core) {
+      rateLimit.value = {
+        remaining: rl.data.resources.core.remaining,
+        limit: rl.data.resources.core.limit,
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch rate limit:', e)
+  }
+
+  // Persist the refreshed report back to the control repo so reloads
+  // (and other lecturers) see the up-to-date snapshot.
+  try {
+    const path = `reports/${props.assignmentId}.json`
+    const body = JSON.stringify(report.value, null, 2) + '\n'
+    const res = await commitFile(token, props.org, config.controlRepo, path, body, `Live refresh: ${props.assignmentId}`)
+    if (res.ok) {
+      toast.success(`Live status updated for ${totalStudentsToRefresh.value} students (saved).`)
+    } else {
+      toast.error(`Refreshed locally but save failed: ${res.data?.message || 'unknown error'}`)
+    }
+  } catch (e) {
+    console.error('Failed to persist report:', e)
+    toast.error('Refreshed locally but save failed.')
+  } finally {
+    refreshingLive.value = false
+  }
 }
 
 // --- per-row actions ----------------------------------------------------------
