@@ -1,14 +1,18 @@
 <template>
   <div class="admin-page container fade-in">
     <header class="admin-header">
-      <router-link :to="{ name: 'dashboard', params: { org } }" class="btn">← Dashboard</router-link>
+      <router-link :to="{ name: 'dashboard', params: { org } }" class="btn">
+        <span aria-hidden="true">←</span><span>Dashboard</span>
+      </router-link>
       <h2>Admin Panel — {{ org }}</h2>
     </header>
 
     <div class="admin-layout">
       <!-- LEFT: assignment list -->
       <aside class="list-pane">
-        <button class="btn btn-primary new-btn" @click="newAssignment">+ New assignment</button>
+        <button class="btn btn-primary new-btn" @click="newAssignment">
+          <span aria-hidden="true">+</span><span>New assignment</span>
+        </button>
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
         <div v-else-if="assignments.length === 0" class="list-empty">

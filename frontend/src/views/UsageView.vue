@@ -49,7 +49,9 @@
         </p>
 
         <div v-if="!triggering && !runWatching">
-          <button class="btn btn-primary btn-lg" @click="generateNow">⚡ Generate report now</button>
+          <button class="btn btn-primary btn-lg" @click="generateNow">
+            <span aria-hidden="true">⚡</span><span>Generate report now</span>
+          </button>
           <p class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-sm);">
             Triggers <code>weekly-usage-report.yml</code> in the hub. Takes roughly 1–2 minutes.
           </p>

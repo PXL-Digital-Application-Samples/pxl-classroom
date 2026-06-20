@@ -49,7 +49,9 @@
         </p>
 
         <div v-if="!triggering && !runWatching">
-          <button class="btn btn-primary btn-lg" @click="generateNow">⚡ Generate report for all orgs</button>
+          <button class="btn btn-primary btn-lg" @click="generateNow">
+            <span aria-hidden="true">⚡</span><span>Generate report for all orgs</span>
+          </button>
           <p class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-sm);">
             Triggers <code>weekly-usage-report.yml</code> in the hub with no org input, fanning out to every participating org. Takes a few minutes.
           </p>

@@ -75,10 +75,16 @@
           <div class="flex gap-sm items-center">
             <button class="btn btn-primary" @click="refreshLiveStatus" :disabled="refreshingLive">
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
-              <span v-else>↻ Live Status</span>
+              <template v-else>
+                <span aria-hidden="true">↻</span><span>Live Status</span>
+              </template>
             </button>
-            <button class="btn" @click="exportCSV">⬇ Export CSV</button>
-            <button class="btn" @click="copyAcceptLink">⧉ Copy accept link</button>
+            <button class="btn" @click="exportCSV">
+              <span aria-hidden="true">⬇</span><span>Export CSV</span>
+            </button>
+            <button class="btn" @click="copyAcceptLink">
+              <span aria-hidden="true">⧉</span><span>Copy accept link</span>
+            </button>
           </div>
         </div>
 
