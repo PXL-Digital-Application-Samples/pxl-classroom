@@ -152,6 +152,9 @@ onMounted(async () => {
   }
 })
 
+// immediate so navigating back to /dashboard/<org> from the breadcrumb
+// triggers loadDashboard even when selectedOrg is already set from the URL
+// param at init (re-assigning the same value doesn't fire a normal watcher).
 watch(selectedOrg, async (org) => {
   if (org) {
     if (route.params.org !== org) {
@@ -159,7 +162,7 @@ watch(selectedOrg, async (org) => {
     }
     await loadDashboard(org)
   }
-})
+}, { immediate: true })
 
 function stateClass(state) {
   return { published: 'badge-success', closed: 'badge-warning', draft: 'badge-neutral', archived: 'badge-neutral' }[state] || 'badge-neutral'
