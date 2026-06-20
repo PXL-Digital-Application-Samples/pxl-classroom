@@ -40,9 +40,35 @@
         <p class="text-secondary">Loading usage report…</p>
       </div>
 
-      <div v-else-if="!report" class="center-card fade-in">
-        <h2>No usage report available</h2>
-        <p class="text-secondary">No weekly usage report has been generated for {{ org }} yet. The report runs every Sunday at 22:00 UTC.</p>
+      <div v-else-if="!report" class="center-card fade-in empty-state">
+        <h2>No usage report yet</h2>
+        <p class="text-secondary">
+          The Weekly Usage Report scans every repo in <code>{{ org }}</code> against your configured thresholds
+          (Actions minutes, Codespaces, Packages, etc.) and flags anything over. It runs automatically
+          every <strong>Sunday at 22:00 UTC</strong> — but you can also kick off a one-off run right now.
+        </p>
+
+        <div v-if="!triggering && !runWatching">
+          <button class="btn btn-primary btn-lg" @click="generateNow">⚡ Generate report now</button>
+          <p class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-sm);">
+            Triggers <code>weekly-usage-report.yml</code> in the hub. Takes roughly 1–2 minutes.
+          </p>
+        </div>
+
+        <div v-else-if="triggering" class="inline-spinner">
+          <div class="spinner"></div>
+          <span>Triggering workflow…</span>
+        </div>
+
+        <div v-else class="run-watching">
+          <div class="inline-spinner">
+            <div class="spinner"></div>
+            <span>Workflow started. Watching for the report to land… (checked {{ pollCount }}×)</span>
+          </div>
+          <p class="text-secondary" style="font-size: 0.85rem;">
+            Follow the run in the <a :href="`https://github.com/PXL-Digital-Application-Samples/pxl-classroom/actions/workflows/weekly-usage-report.yml`" target="_blank">Actions tab</a>.
+          </p>
+        </div>
       </div>
 
       <div v-else class="fade-in">
@@ -85,12 +111,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import { isAuthenticated, getUser, getToken, clearAuth, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { getRepoContent } from '../lib/api.js'
+import { getRepoContent, triggerWorkflow } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { formatDate } from '../lib/format.js'
+import { toast } from '../lib/toast.js'
 
 const props = defineProps({ org: String })
 
@@ -102,7 +129,11 @@ const report = ref(null)
 const filter = ref('')
 const sortKey = ref('used')
 const sortDir = ref('desc')
+const triggering = ref(false)
+const runWatching = ref(false)
+const pollCount = ref(0)
 let pollAbort = null
+let runPollInterval = null
 
 const filtered = computed(() => {
   if (!report.value) return []
@@ -136,6 +167,52 @@ async function loadReport() {
   }
 }
 
+async function generateNow() {
+  const token = getToken()
+  if (!token || !props.org) return
+  triggering.value = true
+  try {
+    const res = await triggerWorkflow(token, 'PXL-Digital-Application-Samples', 'pxl-classroom', 'weekly-usage-report.yml', { org: props.org })
+    if (res.ok || res.status === 204) {
+      toast.success('Workflow triggered — watching for the report…')
+      runWatching.value = true
+      startRunPoll()
+    } else if (res.status === 403 || res.status === 404) {
+      toast.error(`Your account doesn't have access to PXL-Digital-Application-Samples/pxl-classroom. Ask a hub admin to add you as a collaborator (or have them trigger the workflow).`)
+    } else {
+      toast.error(`Trigger failed: ${res.data?.message || 'unknown error'}`)
+    }
+  } finally {
+    triggering.value = false
+  }
+}
+
+function startRunPoll() {
+  stopRunPoll()
+  pollCount.value = 0
+  const maxPolls = 20 // 20 × 30s = 10 minutes
+  runPollInterval = setInterval(async () => {
+    pollCount.value++
+    await loadReport()
+    if (report.value) {
+      toast.success('Usage report ready.')
+      runWatching.value = false
+      stopRunPoll()
+    } else if (pollCount.value >= maxPolls) {
+      toast.info('Still no report after 10 minutes. Check the Actions tab for failures.')
+      runWatching.value = false
+      stopRunPoll()
+    }
+  }, 30_000)
+}
+
+function stopRunPoll() {
+  if (runPollInterval) {
+    clearInterval(runPollInterval)
+    runPollInterval = null
+  }
+}
+
 async function startLogin() {
   if (!config.clientId) return
   authLoading.value = true
@@ -159,6 +236,7 @@ function handleLogout() {
   clearAuth()
   user.value = null
   report.value = null
+  stopRunPoll()
 }
 
 onMounted(async () => {
@@ -169,7 +247,13 @@ onMounted(async () => {
 })
 
 watch(() => props.org, async () => {
+  stopRunPoll()
+  runWatching.value = false
   if (isAuthenticated()) await loadReport()
+})
+
+onBeforeUnmount(() => {
+  stopRunPoll()
 })
 </script>
 
@@ -187,4 +271,10 @@ watch(() => props.org, async () => {
 .text-danger { color: var(--accent-red); }
 .text-success { color: var(--accent-green); }
 .device-code-big { font-size: 1.5rem; letter-spacing: 0.2em; display: block; padding: var(--space-md); background: var(--bg-secondary); border-radius: 8px; margin: var(--space-md) 0; }
+.empty-state { gap: var(--space-md); max-width: 560px; }
+.empty-state p { line-height: 1.5; }
+.empty-state code { background: var(--bg-secondary); padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }
+.inline-spinner { display: inline-flex; align-items: center; gap: var(--space-sm); color: var(--text-secondary); }
+.inline-spinner .spinner { width: 18px; height: 18px; border-width: 2px; }
+.run-watching { display: flex; flex-direction: column; gap: var(--space-sm); align-items: center; }
 </style>
