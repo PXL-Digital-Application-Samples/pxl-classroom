@@ -16,6 +16,7 @@
     }
   ],
   "secrets": {
-    "test_token": "ghp_AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII"
+    "test_token": "ghp_AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII",
+    "test_install_token_new_format": "ghs_AAAA_BBBB_CCCC_DDDD_EEEE_FFFF_GGGG_HHHH_IIII_JJJJ"
   }
 }

@@ -19,7 +19,11 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const RULES = [
-  { name: "github-token", re: /\bgh[posu]_[A-Za-z0-9]{20,}\b/g },
+  // Character class matches the format used by classic tokens AND the new
+  // stateless installation token format that may include `_` in the body
+  // (GitHub Changelog, 2025-Q4 rollout). No upper length bound — new ghs_
+  // tokens can be ~520 chars and still match.
+  { name: "github-token", re: /\bgh[posu]_[A-Za-z0-9_]{20,}\b/g },
   { name: "github-fine-grained-pat", re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
   { name: "private-key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
   { name: "email-address", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, allow: /@users\.noreply\.github\.com$/ },
