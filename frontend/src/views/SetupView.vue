@@ -14,6 +14,7 @@ const manifest = computed(() => {
     redirect_url: hostUrl.value,
     public: true,
     default_permissions: {
+      actions: "write",
       administration: "write",
       contents: "write",
       metadata: "read",

@@ -426,7 +426,18 @@ A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pag
 
 ### 10.2 Authentication
 
-GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token has Account/Starring write (so students can star the broker) and Metadata read. There is **no client secret in the browser** — device flow is a public-client flow.
+GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. There is **no client secret in the browser** — device flow is a public-client flow.
+
+The App declares the following installation permissions (see `frontend/src/views/SetupView.vue` for the canonical manifest):
+
+| Permission | Why |
+|---|---|
+| `actions: write` | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage). |
+| `administration: write` | Create student repos, demote at lock-down. |
+| `contents: write` | Read/write assignment YAMLs, overrides, reports in the control repo. |
+| `metadata: read` | Baseline. |
+| `organization_plan: read` | Enhanced Billing endpoint used by the weekly usage report. |
+| `secrets: write` | Set per-broker / per-control-repo Actions secrets during provisioning. |
 
 **A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly — every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
 
@@ -434,7 +445,11 @@ GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-
 |---|---|---|
 | `VITE_CORS_PROXY_URL` | `https://corsproxy.io/?url=` | Set a hub repo secret of the same name; `deploy-frontend.yml` picks it up at build time |
 
-**Threat model accepted for v1.** The proxy operator sees the `device_code` and `access_token` in transit (not subsequent API calls — those go directly to `api.github.com`, which is CORS-friendly). The token scope is narrow: Account/Starring write + Metadata read. Student tokens are essentially useless for harm (worst case: an attacker mass-stars repos on a student's behalf for ≤ 8 hours). Lecturer tokens additionally grant read on org repos the lecturer admins — including roster data — so a leaked lecturer token is more sensitive (GDPR-relevant). Token lifetime is 8 hours; users can revoke at any time at `https://github.com/settings/applications`.
+**Threat model accepted for v1.** The proxy operator sees the `device_code` and `access_token` in transit at sign-in (not subsequent API calls — those go directly to `api.github.com`, which is CORS-friendly). A compromised proxy operator can therefore *replay* lecturer tokens harvested during the breach window; they cannot intercept any subsequent traffic.
+
+What a leaked lecturer token grants: the intersection of the table above with the user's GitHub permissions on installed orgs. In practice for an org owner that is contents/admin/secrets/actions write on every repo the App is installed on. The `actions: write` delta on top of the existing write permissions is small in marginal terms — workflows are public, inputs are validated, and the dispatch attack surface is bounded by what those workflows are designed to do. Token lifetime is 8 hours; lecturers can revoke at any time at `https://github.com/settings/applications`.
+
+Student tokens, which only have Account/Starring write granted at OAuth time, remain essentially harmless (worst case: mass-star on the student's behalf for ≤ 8 hours).
 
 For PXL's classroom threat model, this is acceptable. If the deployment ever handles higher-value data (e.g. graded assignments worth credit transferable to another institution), swap the proxy to a self-hosted one or a Cloudflare Worker — both are drop-in replacements via `VITE_CORS_PROXY_URL`.
 

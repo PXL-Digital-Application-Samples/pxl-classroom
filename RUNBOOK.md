@@ -428,14 +428,20 @@ Need a fresh report mid-week:
 - Actions → **Weekly Usage Report** → Run workflow.
 - Optionally scope to one `org` input.
 
-### 11.6 If you change the App permission (Organization plan: read)
+### 11.6 If you change App permissions (re-approval flow)
 
-The Enhanced Billing API requires this permission. If you added it after orgs were already onboarded:
+Whenever the App's permission set widens — for example, adding `organization_plan: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA — every already-installed org needs to opt back in.
 
-1. Each org owner: open the org's installed-apps page → PXL Classroom Provisioner → re-approve the elevated permission.
-2. No control-repo or workflow change needed.
+1. Update the manifest in `frontend/src/views/SetupView.vue` (or directly in the App's GitHub settings if it already exists).
+2. Each org owner: open the org's installed-apps page (`github.com/organizations/<org>/settings/installations`) → PXL Classroom Provisioner → click **Review request** and approve the new permissions.
+3. Lecturers who were already authenticated keep their previous (narrower) token until it expires (8 h max). Next sign-in mints a token with the new scope.
+4. No control-repo or workflow change needed.
 
-Verify with `gh api /app` — `permissions` should include `organization_plan: read`.
+Verify with `gh api /app` — `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` → PXL Classroom Provisioner.
+
+**Recent re-approval triggers in this project:**
+- `organization_plan: read` — Enhanced Billing endpoint, used by the weekly usage report.
+- `actions: write` — `workflow_dispatch` from the Admin UI / Usage view. Without it the SPA's "Generate now", "Publish", and "Retry acceptance" buttons return 403 (`Resource not accessible by integration`).
 
 ## 11. Verification checklist (after major changes)
 
@@ -451,6 +457,7 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).
 - [ ] Each participating org has `budget_owner_login` set in `participating-orgs.yml`.
 - [ ] App permissions include `organization_plan: read` (required for the weekly usage report).
+- [ ] App permissions include `actions: write` (required for `workflow_dispatch` from the Admin UI / Usage view).
 - [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
 - [ ] Cold-load `https://<pages-host>/pxl-classroom/<org>/a/<sample-id>` lands on AssignmentView.
 - [ ] The Instructor Notifications issue exists and is open in each control repo.
