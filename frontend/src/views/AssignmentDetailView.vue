@@ -3,9 +3,9 @@
     <header class="detail-header">
       <div class="container flex items-center justify-between">
         <div class="flex items-center gap-md">
-          <router-link :to="{ name: 'dashboard' }" class="back-link">← Dashboard</router-link>
+          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">← Dashboard</router-link>
           <span class="separator">/</span>
-          <span class="org-name">{{ org }}</span>
+          <router-link :to="{ name: 'dashboard', params: { org } }" class="org-name">{{ org }}</router-link>
           <span class="separator">/</span>
           <h1>{{ assignmentId }}</h1>
         </div>
@@ -30,6 +30,12 @@
       <div v-else class="report-content fade-in">
         <!-- Summary cards -->
         <div class="summary-row">
+          <div class="summary-card card deadline-card">
+            <span class="summary-value deadline-value" :class="{ 'stat-red': deadlinePassed }">
+              {{ deadlineRelative || '—' }}
+            </span>
+            <span class="summary-label">Deadline{{ deadlineAbs ? ` · ${deadlineAbs}` : '' }}</span>
+          </div>
           <div class="summary-card card">
             <span class="summary-value">{{ report.students.length }}</span>
             <span class="summary-label">Students</span>
@@ -231,6 +237,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
+import { parse as parseYaml } from 'yaml'
 
 const REFRESH_CONCURRENCY = 6
 
@@ -242,6 +249,7 @@ const props = defineProps({
 const user = ref(getUser())
 const loading = ref(true)
 const report = ref(null)
+const assignment = ref(null)
 const search = ref('')
 const statusFilter = ref('')
 const sortKey = ref('github_login')
@@ -262,6 +270,24 @@ const actionRetrying = ref(false)
 const onTimeCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'on-time').length || 0)
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
 const noSubCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'no-submission').length || 0)
+
+// Deadline source of truth: the current assignment YAML (so a Live Status
+// refresh after a deadline change reclassifies correctly), with the report's
+// per-student effective_deadline_at as a fallback.
+const currentDeadline = computed(() => {
+  return assignment.value?.deadline_at || report.value?.students?.[0]?.effective_deadline_at || null
+})
+const deadlinePassed = computed(() => {
+  if (!currentDeadline.value) return false
+  return new Date(currentDeadline.value).getTime() < Date.now()
+})
+const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value) : '')
+const deadlineAbs = computed(() => {
+  if (!currentDeadline.value) return ''
+  return new Date(currentDeadline.value).toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  })
+})
 
 const filteredStudents = computed(() => {
   let list = report.value?.students || []
@@ -285,10 +311,16 @@ onMounted(async () => {
   const token = getToken()
   if (!token) { loading.value = false; return }
   try {
-    const content = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`)
-    if (content) {
-      report.value = JSON.parse(content)
+    const [reportContent, assignmentContent] = await Promise.all([
+      getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`),
+      getRepoContent(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`),
+    ])
+    if (reportContent) {
+      report.value = JSON.parse(reportContent)
       if (report.value.live_refreshed_at) liveRefreshedAt.value = report.value.live_refreshed_at
+    }
+    if (assignmentContent) {
+      assignment.value = parseYaml(assignmentContent)
     }
   } catch (e) {
     console.error('Failed to load report:', e)
@@ -381,7 +413,14 @@ async function refreshOne(token, s) {
       const sha = commit.sha
       const commitDateStr = commit.commit.committer.date
       const commitDate = new Date(commitDateStr)
-      const deadline = s.effective_deadline_at ? new Date(s.effective_deadline_at) : null
+
+      // Source of truth for the deadline: per-student override (already on
+      // the record), else the current assignment YAML's deadline_at. Fixes
+      // the case where the report.json was written before the deadline was
+      // set, leaving effective_deadline_at null on each student.
+      const effectiveSource = s.effective_deadline_at || assignment.value?.deadline_at
+      const deadline = effectiveSource ? new Date(effectiveSource) : null
+      if (effectiveSource && !s.effective_deadline_at) s.effective_deadline_at = effectiveSource
 
       s.latest_observed_sha = sha
       s.latest_observed_at = commitDateStr
@@ -598,7 +637,8 @@ async function retryAcceptanceFor(student) {
 }
 .back-link { font-size: 0.875rem; }
 .separator { color: var(--text-muted); }
-.org-name { color: var(--text-secondary); font-size: 0.875rem; }
+.org-name { color: var(--text-secondary); font-size: 0.875rem; text-decoration: none; }
+.org-name:hover { color: var(--accent-blue); text-decoration: underline; }
 h1 { font-size: 1.125rem; font-weight: 600; }
 .avatar { width: 24px; height: 24px; border-radius: 50%; }
 
@@ -616,7 +656,7 @@ main { padding: var(--space-xl) var(--space-lg); }
 
 .summary-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: var(--space-md);
   margin-bottom: var(--space-lg);
 }
@@ -628,6 +668,11 @@ main { padding: var(--space-xl) var(--space-lg); }
   display: block;
   font-size: 2rem;
   font-weight: 700;
+}
+.deadline-value {
+  font-size: 1.4rem;
+  line-height: 1.2;
+  padding: 6px 0;
 }
 .summary-label {
   font-size: 0.75rem;
