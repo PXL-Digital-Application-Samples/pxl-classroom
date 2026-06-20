@@ -31,5 +31,5 @@ jobs:
       target_repo: ${{ inputs.target_repo }}
       student_login: ${{ inputs.student_login }}
     secrets:
-      app_id: ${{ secrets.SPIKE_APP_ID }}
+      app_client_id: ${{ secrets.SPIKE_APP_ID }}
       app_private_key: ${{ secrets.SPIKE_APP_PRIVATE_KEY }}

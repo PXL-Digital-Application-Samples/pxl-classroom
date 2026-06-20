@@ -32,7 +32,7 @@ jobs:
       # student_permission: admin   # optional
       # repo_private: true          # optional
     secrets:
-      app_id: ${{ secrets.PXL_APP_ID }}
+      app_client_id: ${{ secrets.PXL_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
 ```
 
@@ -41,8 +41,8 @@ See `.github/workflows/provision-caller-example.yml` for a manual (`workflow_dis
 ## Requirements
 
 - The GitHub App is **installed in the target org**, with permissions **Administration RW, Contents RW, Metadata R** (the confirmed provisioning set).
-- Secrets `app_id` / `app_private_key` provided by the caller.
+- Secrets `app_client_id` / `app_private_key` provided by the caller.
 
 ## Versioning
 
-The reusable workflow pins the composite action to a tag (`@v1`). Cut a new tag when the action changes; callers pin the workflow to a tag/SHA too. Third-party actions inside the composite action are SHA-pinned (checkout v6.0.3, create-github-app-token v3.2.0, setup-node v6.4.0).
+The reusable workflow pins the composite action to a tag (`@v1`). Cut a new tag when the action changes; callers pin the workflow to a tag/SHA too. Third-party actions inside the composite action are SHA-pinned (checkout v7.0.0, create-github-app-token v3.2.0, setup-node v6.4.0).

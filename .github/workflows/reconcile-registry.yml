@@ -15,7 +15,7 @@ jobs:
     outputs:
       orgs: ${{ steps.list.outputs.orgs }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - id: list
         run: |
           if [ -n "${{ inputs.org }}" ]; then
@@ -43,22 +43,22 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: npm ci --omit=dev
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
-          app-id: ${{ secrets.PXL_APP_ID }}
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.org }}
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ matrix.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
           path: control
       - uses: ./registry
         with:
-          app-id: ${{ secrets.PXL_APP_ID }}
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ matrix.org }}
           assignment-id: ${{ inputs.assignment_id || '' }}

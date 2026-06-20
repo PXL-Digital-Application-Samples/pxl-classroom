@@ -33,7 +33,7 @@ on:
         type: boolean
         default: true
     secrets:
-      app_id:
+      app_client_id:
         required: true
       app_private_key:
         required: true
@@ -68,7 +68,7 @@ jobs:
         id: prov
         uses: ./provisioning
         with:
-          app-id: ${{ secrets.app_id }}
+          client-id: ${{ secrets.app_client_id }}
           app-private-key: ${{ secrets.app_private_key }}
           org: ${{ inputs.org }}
           template-owner: ${{ inputs.template_owner }}

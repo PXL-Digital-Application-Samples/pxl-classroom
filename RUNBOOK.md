@@ -22,7 +22,7 @@ GitHub → `pxl-classroom` → Settings → Pages → Source: **GitHub Actions**
    - Organization: **Plan: Read** (required for the weekly usage report — see §10).
    - Account: Starring RW.
    - Device Flow: enabled.
-3. Submit. GitHub redirects you through an App-creation handshake. At the end you have a new App named **PXL Classroom Provisioner** and you are shown its App ID and a generated private key (PEM).
+3. Submit. GitHub redirects you through an App-creation handshake. At the end you have a new App named **PXL Classroom Provisioner** and you are shown its **Client ID** (string starting with `Iv…`, on the App settings page under "About") and a generated private key (PEM).
 
 ### 1.3 Set hub secrets
 
@@ -30,10 +30,10 @@ In `pxl-classroom` → Settings → Secrets and variables → Actions:
 
 | Secret | Value |
 |---|---|
-| `PXL_APP_ID` | App ID from §1.2 |
+| `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token` — the older `app-id` input is deprecated. |
 | `PXL_APP_PRIVATE_KEY` | full PEM body from §1.2, including BEGIN/END lines |
-| `VITE_GITHUB_CLIENT_ID` | App's Client ID (shown on the App settings page) |
-| `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. Set this if you want to point the SPA at a self-hosted or Cloudflare-Worker-hosted proxy instead. See ARCHITECTURE.md §10.2 for the threat model. |
+| `VITE_GITHUB_CLIENT_ID` | Same Client ID as `PXL_APP_CLIENT_ID`; used at SPA build time to wire the device flow. |
+| `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. |
 
 ### 1.4 Install the App on the hub's owning org, scoped narrowly
 
@@ -320,7 +320,7 @@ Every workflow takes `org` as an input; many also take `assignment_id` for scopi
 
 1. App settings → Private keys → **Revoke** the leaked key.
 2. Generate a new key, download the PEM.
-3. Update `PXL_APP_ID` (unchanged) and `PXL_APP_PRIVATE_KEY` (new PEM) in the hub's repo secrets.
+3. Update `PXL_APP_CLIENT_ID` (unchanged) and `PXL_APP_PRIVATE_KEY` (new PEM) in the hub's repo secrets.
 4. No per-org change needed — installations re-mint from the new key automatically.
 5. Investigate the leak vector before re-enabling workflows.
 

@@ -14,15 +14,15 @@ jobs:
   accept:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: npm ci --omit=dev
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
-          app-id: ${{ secrets.PXL_APP_ID }}
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ github.event.client_payload.org }}
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ github.event.client_payload.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
@@ -30,7 +30,7 @@ jobs:
       - uses: ./acceptance
         id: accept
         with:
-          app-id: ${{ secrets.PXL_APP_ID }}
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ github.event.client_payload.org }}
           control-repo: pxl-classroom-control
@@ -39,7 +39,7 @@ jobs:
         uses: ./provisioning
         id: prov
         with:
-          app-id: ${{ secrets.PXL_APP_ID }}
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ github.event.client_payload.org }}
           template-owner: ${{ steps.accept.outputs.template_owner }}
@@ -51,7 +51,7 @@ jobs:
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
         uses: ./notify
         with:
-          app-id: ${{ secrets.PXL_APP_ID }}
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ github.event.client_payload.org }}
           control-repo: pxl-classroom-control
