@@ -428,16 +428,17 @@ A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pag
 
 GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. There is **no client secret in the browser** — device flow is a public-client flow.
 
-The App declares the following installation permissions (see `frontend/src/views/SetupView.vue` for the canonical manifest):
+The App needs the following permissions. Five are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
 
-| Permission | Why |
-|---|---|
-| `actions: write` | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage). |
-| `administration: write` | Create student repos, demote at lock-down. |
-| `contents: write` | Read/write assignment YAMLs, overrides, reports in the control repo. |
-| `metadata: read` | Baseline. |
-| `organization_plan: read` | Enhanced Billing endpoint used by the weekly usage report. |
-| `secrets: write` | Set per-broker / per-control-repo Actions secrets during provisioning. |
+| Permission | In manifest? | Why |
+|---|---|---|
+| `actions: write` | ✔ | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage). |
+| `administration: write` | ✔ | Create student repos, demote at lock-down. |
+| `contents: write` | ✔ | Read/write assignment YAMLs, overrides, reports in the control repo. |
+| `metadata: read` | ✔ | Baseline. |
+| `secrets: write` | ✔ | Set per-broker / per-control-repo Actions secrets during provisioning. |
+| `organization_plan: read` | ✗ manual | Enhanced Billing endpoint used by the weekly usage report. |
+| `starring: write` (account) | ✗ manual | Students star the broker to trigger acceptance. User-level permission. |
 
 **A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly — every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
 

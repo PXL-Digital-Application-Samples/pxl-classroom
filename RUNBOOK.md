@@ -17,11 +17,13 @@ GitHub → `pxl-classroom` → Settings → Pages → Source: **GitHub Actions**
 ### 1.2 Create the central GitHub App
 
 1. In a browser, open the Pages site at `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`.
-2. Fill the App Manifest form. The form pre-fills the correct permissions:
-   - Repository: Administration RW, Contents RW, Metadata R.
-   - Organization: **Plan: Read** (required for the weekly usage report — see §10).
-   - Account: Starring RW.
+2. Fill the App Manifest form. The form pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
+   - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Metadata R**, **Secrets RW**.
    - Device Flow: enabled.
+
+   Two additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
+   - Organization: **Plan: Read** — required for the weekly usage report (Enhanced Billing endpoint, see §10).
+   - Account: **Starring RW** — required so students can star the broker to trigger acceptance.
 3. Submit. GitHub redirects you through an App-creation handshake. At the end you have a new App named **PXL Classroom Provisioner** and you are shown its **Client ID** (string starting with `Iv…`, on the App settings page under "About") and a generated private key (PEM).
 
 ### 1.3 Set hub secrets
@@ -447,7 +449,7 @@ Verify with `gh api /app` — `permissions` should reflect the new set. Lecturer
 
 Run periodically, especially after touching workflows or App settings.
 
-- [ ] `gh api /app` shows the minimum permission set: `administration: write, contents: write, metadata: read`. No `secrets` permission.
+- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `metadata: read`, `secrets: write`) **plus** the two manually-added perms (`organization_plan: read`, `starring: write`).
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
