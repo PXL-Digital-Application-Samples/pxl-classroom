@@ -10,8 +10,9 @@
   ],
   "students": [
     {
-      "student_id": "0123456",
-      "display_name": "Should Not Be Here",
+      "student_number": "0123456",
+      "full_name": "Should Not Be Here",
+      "email": "should.not@stud.pxl.be",
       "class_group": "3A"
     }
   ],

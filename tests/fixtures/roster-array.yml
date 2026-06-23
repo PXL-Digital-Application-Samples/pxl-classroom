@@ -1,17 +1,19 @@
-schema_version: 1
+schema_version: 2
 students:
-  - student_id: "0123456"
-    display_name: Alice Example
+  - student_number: "0123456"
+    full_name: Alice Example
+    email: alice@stud.pxl.be
     class_group: 3A
     github_login: alice-test
     active: true
-  - student_id: "0654321"
-    display_name: Bob Example
+  - student_number: "0654321"
+    full_name: Bob Example
     class_group: 3A
     github_login: null
     active: true
-  - student_id: "0789012"
-    display_name: Charlie Example
+  - student_number: "0789012"
+    full_name: Charlie Example
+    email: charlie@stud.pxl.be
     class_group: 3B
     github_login: charlie-test
     active: false

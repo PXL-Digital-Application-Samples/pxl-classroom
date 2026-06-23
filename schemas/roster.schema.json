@@ -9,26 +9,31 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1,
-      "description": "Schema version for forward compatibility."
+      "const": 2,
+      "description": "Schema version. v2 renames student_id→student_number and display_name→full_name, and adds email."
     },
     "students": {
       "type": "array",
       "description": "List of enrolled students.",
       "items": {
         "type": "object",
-        "required": ["student_id", "display_name"],
+        "required": ["student_number", "full_name"],
         "additionalProperties": false,
         "properties": {
-          "student_id": {
+          "student_number": {
             "type": "string",
             "minLength": 1,
-            "description": "Institutional student identifier (e.g. r-number)."
+            "description": "Institutional student number (e.g. PXL SIS ID). Stable across registrations."
           },
-          "display_name": {
+          "full_name": {
             "type": "string",
             "minLength": 1,
-            "description": "Human-readable name for display purposes."
+            "description": "Student's full name as registered."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Institutional email; optional but recommended for notifications."
           },
           "class_group": {
             "type": "string",

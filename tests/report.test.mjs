@@ -41,11 +41,11 @@ function runReport({
     mkdirSync(join(dir, "students"), { recursive: true });
     writeFileSync(
       join(dir, "students", "roster.yml"),
-      `schema_version: 1\nstudents:\n` +
+      `schema_version: 2\nstudents:\n` +
         roster
           .map(
             (s) =>
-              `  - student_id: "${s.student_id}"\n    display_name: ${s.display_name}\n    github_login: ${s.github_login}\n    active: true\n`
+              `  - student_number: "${s.student_number}"\n    full_name: ${s.full_name}\n    github_login: ${s.github_login}\n    active: true\n`
           )
           .join("")
     );
@@ -177,11 +177,11 @@ test("roster student who didn't accept appears as no-submission", () => {
   const report = runReport({
     assignmentYaml: BASE_YAML,
     roster: [
-      { student_id: "01", display_name: "Dave", github_login: "dave-test" },
+      { student_number: "01", full_name: "Dave", github_login: "dave-test" },
     ],
   });
   const dave = report.students.find((s) => s.github_login === "dave-test");
   assert.equal(dave.acceptance_state, "not-accepted");
   assert.equal(dave.submission_status, "no-submission");
-  assert.equal(dave.display_name, "Dave");
+  assert.equal(dave.full_name, "Dave");
 });

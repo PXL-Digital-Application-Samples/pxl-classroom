@@ -1,12 +1,14 @@
-# PXL Classroom — student roster.
+# PXL Classroom — student roster (schema v2).
 #
 # Full schema: schemas/roster.schema.json
 # github_login and github_id are filled during acceptance (v1 uses open acceptance).
+# Use the CLI to bulk-import from CSV: `pxl-classroom roster import --org <org> roster.csv`.
 
-schema_version: 1
+schema_version: 2
 students:
-  - student_id: "0123456"
-    display_name: Student Name
+  - student_number: "0123456"
+    full_name: Student Name
+    email: student.name@stud.pxl.be
     class_group: 3A
     github_login: null
     active: true

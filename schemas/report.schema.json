@@ -56,13 +56,13 @@
             "minLength": 1,
             "description": "GitHub username of the student."
           },
-          "student_id": {
+          "student_number": {
             "type": ["string", "null"],
-            "description": "Institutional student ID, if linked via roster."
+            "description": "Institutional student number, if linked via roster."
           },
-          "display_name": {
+          "full_name": {
             "type": ["string", "null"],
-            "description": "Display name from the roster."
+            "description": "Full name from the roster."
           },
           "acceptance_state": {
             "type": "string",

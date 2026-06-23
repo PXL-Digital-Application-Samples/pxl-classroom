@@ -27,9 +27,12 @@ const RULES = [
   { name: "github-fine-grained-pat", re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
   { name: "private-key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
   { name: "email-address", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, allow: /@users\.noreply\.github\.com$/ },
-  { name: "institutional-id-field", re: /"student_id"\s*:/g },
+  // Match both legacy (v1) and current (v2) roster field names. The scanner is a
+  // publish gate — keeping both keeps it defensive against any leftover legacy
+  // data in archived control repos.
+  { name: "institutional-id-field", re: /"(student_id|student_number)"\s*:/g },
   { name: "claim-token-field", re: /"claim_token"\s*:/g },
-  { name: "roster-field", re: /"(display_name|class_group|institutional_id)"\s*:/g },
+  { name: "roster-field", re: /"(display_name|full_name|class_group|institutional_id)"\s*:/g },
   { name: "github-app-key", re: /\bv[0-9]+\.[0-9a-f]{40}\b/g },
   { name: "jwt-token", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./g },
 ];

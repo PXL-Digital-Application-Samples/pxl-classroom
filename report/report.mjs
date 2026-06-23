@@ -211,8 +211,8 @@ async function main() {
     const rosterEntry = rosterByLogin.get(login);
     students.push({
       github_login: login,
-      student_id: rosterEntry?.student_id ?? null,
-      display_name: rosterEntry?.display_name ?? null,
+      student_number: rosterEntry?.student_number ?? null,
+      full_name: rosterEntry?.full_name ?? null,
       class_group: rosterEntry?.class_group ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
       effective_deadline_at: effectiveDeadline?.toISOString() ?? null,
@@ -291,8 +291,8 @@ async function main() {
   if (outputFormat === "csv" || outputFormat === "both") {
     const csvHeaders = [
       "github_login",
-      "student_id",
-      "display_name",
+      "student_number",
+      "full_name",
       "class_group",
       "acceptance_state",
       "submission_status",
