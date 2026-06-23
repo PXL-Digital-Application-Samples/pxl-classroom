@@ -1,0 +1,26 @@
+{
+  "name": "@pxl-classroom/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Command-line companion for PXL Classroom — lecturer-side roster, assignment, and audit operations.",
+  "type": "module",
+  "bin": {
+    "pxl-classroom": "bin/pxl-classroom.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "start": "node bin/pxl-classroom.mjs"
+  },
+  "dependencies": {
+    "@octokit/auth-oauth-device": "^7.1.1",
+    "@octokit/rest": "^21.0.2",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^12.1.0",
+    "papaparse": "^5.4.1",
+    "yaml": "^2.9.0"
+  }
+}

@@ -463,3 +463,42 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
 - [ ] Cold-load `https://<pages-host>/pxl-classroom/<org>/a/<sample-id>` lands on AssignmentView.
 - [ ] The Instructor Notifications issue exists and is open in each control repo.
+
+## 12. CLI installation (companion tooling)
+
+The `pxl-classroom` CLI in `cli/` is an optional power-user surface for lecturer-side actions that scale poorly through the SPA (CSV roster import; later: audits and bulk grading). Same App, same device-flow auth, same schemas as the Admin Panel.
+
+### 12.1 Install (from a clone of the hub)
+
+```bash
+git clone https://github.com/PXL-Digital-Application-Samples/pxl-classroom.git
+cd pxl-classroom
+npm install                       # installs the CLI workspace as well
+npm link --workspace=cli          # exposes `pxl-classroom` on PATH
+pxl-classroom --help
+```
+
+A `gh extension install` distribution will follow once Phase A stabilises. On Windows, the npm-link form is the supported path until then.
+
+### 12.2 First-run authentication
+
+```bash
+pxl-classroom auth login --client-id <Iv23li…>     # CLIENT_ID from /setup page or PXL_APP_CLIENT_ID secret
+# → prints a verification URL + 8-char user code
+# → opens the App's authorization page in the browser
+# → token cached at ~/.config/pxl-classroom/token (0600)
+
+pxl-classroom auth status     # who am I, when did I auth, where is the token?
+pxl-classroom auth logout     # wipe the cached token (config is preserved)
+```
+
+Set `PXL_APP_CLIENT_ID` in the shell to skip the `--client-id` flag.
+
+### 12.3 Configuration locations
+
+| OS | Token + config |
+|---|---|
+| POSIX | `$XDG_CONFIG_HOME/pxl-classroom/{token, config.json}` (falls back to `~/.config/pxl-classroom/…`) |
+| Windows | `%APPDATA%\pxl-classroom\{token, config.json}` |
+
+Both files are JSON, chmod 0600 on POSIX. Token TTL matches the device-flow OAuth user token (8 h); re-run `auth login` after expiry.

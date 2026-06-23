@@ -1,0 +1,34 @@
+name: cli-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cli/**"
+      - "lib/gittree.mjs"
+      - "schemas/**"
+      - ".github/workflows/cli-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: Smoke-test CLI help output
+        run: node cli/bin/pxl-classroom.mjs --help
+      - name: Run CLI tests (when present)
+        working-directory: cli
+        run: |
+          if compgen -G "tests/*.test.mjs" > /dev/null; then
+            npm test
+          else
+            echo "no CLI tests yet — skipping"
+          fi

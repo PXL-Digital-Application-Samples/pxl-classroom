@@ -469,6 +469,12 @@ The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated P
 
 `frontend/src/lib/validate.js` runs ajv against the schemas in `frontend/public/schemas/` before any Admin Panel commit. The lecturer can never accidentally commit a malformed assignment or override.
 
+### 10.5 CLI companion
+
+The `cli/` workspace ships a `pxl-classroom` command — an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, audits, future grading runs). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
+
+The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (accepts an Octokit-style request fn or a plain `{ fetch, token }`), so the CLI, workflow scripts, and the SPA can share it without dependency lock-in.
+
 ---
 
 ## 11. Deadlines, evidence, lock-down, preservation

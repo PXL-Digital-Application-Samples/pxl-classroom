@@ -4,8 +4,11 @@
   "private": true,
   "description": "Shared dependencies for PXL Classroom composite actions and scripts",
   "type": "module",
+  "workspaces": [
+    "cli"
+  ],
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "yaml": "^2.4.0",
