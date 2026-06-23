@@ -502,3 +502,35 @@ Set `PXL_APP_CLIENT_ID` in the shell to skip the `--client-id` flag.
 | Windows | `%APPDATA%\pxl-classroom\{token, config.json}` |
 
 Both files are JSON, chmod 0600 on POSIX. Token TTL matches the device-flow OAuth user token (8 h); re-run `auth login` after expiry.
+
+### 12.4 Importing a roster
+
+The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Admin Panel → **Roster** tab or the CLI imports it from CSV.
+
+**CSV format** (header row required):
+
+| Column | Required | Notes |
+|---|---|---|
+| `student_number` | ✔ | Institutional SIS ID; treated as a string (preserves leading zeroes). |
+| `full_name`      | ✔ | Display name. |
+| `email`          | – | Validated against the `email` format. |
+| `class_group`    | – | E.g. `3A`. |
+| `github_login`   | – | If known up front; otherwise filled at acceptance. |
+| `github_id`      | – | Integer; pinned to survive renames. Usually filled at acceptance. |
+| `active`         | – | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
+
+Unknown columns are rejected. Duplicate `student_number` values are rejected.
+
+**CLI flow:**
+
+```bash
+pxl-classroom roster import --org <org> roster.csv --dry-run    # preview diff
+pxl-classroom roster import --org <org> roster.csv              # commit
+pxl-classroom roster list   --org <org>                          # tabular view
+```
+
+The `--org` value sticks (config remembers it) so subsequent invocations can omit the flag.
+
+**SPA flow:** open `/dashboard/<org>/admin#roster`, drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses — no drift between surfaces.
+
+Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` — both safe for one-shot writes.

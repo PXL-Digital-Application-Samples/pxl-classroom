@@ -2,146 +2,24 @@
 
 Implementation plan for the 8 enhancements derived from the classroom50 review. Each feature has a CLI design, a UI equivalent where the lecturer workflow benefits from one, and concrete file/schema touchpoints.
 
-This is a planning artifact, not a runtime spec. When a feature ships, fold its design into `ARCHITECTURE.md` / `RUNBOOK.md` and trim the entry here.
+This is a planning artifact, not a runtime spec. When a feature ships, fold its design into `ARCHITECTURE.md` / `RUNBOOK.md` and trim the entry here. **This file shrinks monotonically.**
 
 ---
 
-## Implementation order
+## Status
 
-```
-Phase A — Carrier
-  1. gittree.mjs refactor      (internal, unblocks reliability for later features)
-  2. CLI skeleton + auth        (gh extension shell, device flow, App-installation token)
-  3. CSV roster import          (CLI + UI — first user-visible win)
+| Phase | # | Feature | State |
+|---|---|---|---|
+| A | 1 | `lib/gittree.mjs` commit primitive | **shipped** — see ARCHITECTURE §10.5 |
+| A | 2 | `pxl-classroom` CLI + device-flow auth | **shipped** — see RUNBOOK §12 |
+| A | 3 | CSV roster import (CLI + UI) | **shipped** — see RUNBOOK §12.4 |
+| B | 4 | Submit-tag convention | planned (below) |
+| B | 5 | `audit` command | planned (below) |
+| C | 6 | Feedback-PR pattern | planned (below) |
+| C | 7 | Bulk submission download | planned (below) |
+| C | 8 | Lecturer-side autograder | planned (below) |
 
-Phase B — Evidence
-  4. Submit-tag convention      (student protocol + lecturer surfacing)
-  5. Audit command              (read-only sanity checks, builds CLI muscle)
-
-Phase C — Pedagogy
-  6. Feedback-PR pattern        (per-assignment opt-in)
-  7. Bulk submission download   (archive-backed)
-  8. Lecturer-side autograder   (local, zero billed minutes)
-```
-
-Phase A is the foundation: nothing in Phase B/C is worth doing without a reliable commit primitive (#1) and a CLI carrier (#2). Roster import (#3) ships in both CLI and UI so the lecturer pain point closes immediately.
-
----
-
-## 1. `lib/gittree.mjs` — consolidated commit primitive
-
-**Why first.** Burst-acceptance reliability, dashboard regen concurrency, every future Contents-API write benefits. Internal refactor; no public surface change.
-
-**Design.** One module exporting two named retry policies:
-
-```js
-// lib/gittree.mjs
-export async function commitWithRebase(octokit, {
-  owner, repo, branch, message, changes, // [{path, content|null}]
-  baseTree,                                // reuse unchanged paths
-  maxAttempts = 5, baseBackoffMs = 200,
-}) { /* optimistic update + rebase on non-FF */ }
-
-export async function commitWithFreshRepoRetry(octokit, {
-  owner, repo, branch, message, changes,
-  maxAttempts = 8, baseBackoffMs = 500,
-}) { /* tolerates 404/409 propagation lag for newly created repos */ }
-```
-
-**Patterns to lift from classroom50's `gittree.go`:**
-
-| Pattern | Where it helps us |
-|---|---|
-| `null` SHA on tree entry = delete | Atomic multi-file delete in one tree create (e.g. clearing stale `observations/` pages) |
-| `base_tree` reuse for unchanged paths | Avoid re-uploading blobs in dashboard regen |
-| Non-fast-forward detection by message text | Disambiguate 422 (permission/malformed-ref vs. non-FF) |
-| `classify404` callback | Split "missing scope" 404 from "repo not yet propagated" 404 |
-| Signal-aware root context | `AbortController` wired to `SIGINT` so Ctrl-C unwinds in-flight HTTP |
-
-**Touchpoints.**
-- New: `lib/gittree.mjs`, `tests/gittree.test.mjs`
-- Refactor: every script in `scripts/` that currently does ad-hoc PUT loops
-- Refactor: `pages/generate.mjs`, `report/` action, `acceptance/` action
-
-**Effort.** M (2–3 days including test coverage).
-
-**UI equivalent.** None — internal.
-
----
-
-## 2. CLI skeleton — `gh pxl-classroom` extension
-
-**Why.** Course setup is bursty and scripted; the SPA scales linearly with clicks, a CLI scales constantly. Lecturers in CS already have `gh`. Carrier for every later command.
-
-**Tech choice.** Node 24 + `commander` + Octokit (same stack as the rest of the repo). Distributed as a `gh` extension: `gh extension install PXL-Digital-Application-Samples/gh-pxl-classroom`. Single binary not needed — Node is the project's lingua franca.
-
-**Repo layout (added to hub root).**
-
-```
-cli/
-  bin/pxl-classroom.mjs        # entrypoint
-  src/
-    commands/
-      assignment.mjs           # add, list, show, publish
-      roster.mjs               # import, list
-      extension.mjs            # grant, list, revoke
-      audit.mjs                # (see #5)
-      download.mjs             # (see #7)
-      grade.mjs                # (see #8)
-      refresh.mjs              # live-status equivalent
-    lib/
-      auth.mjs                 # device flow against the Provisioner App
-      config.mjs               # ~/.config/pxl-classroom/{token, last-org}
-      validate.mjs             # ajv against schemas/ (shared with frontend)
-  package.json
-  README.md
-```
-
-**Auth model.** Device flow against the same App as the SPA, token cached at `~/.config/pxl-classroom/token` with 0600 perms. `--org &lt;login&gt;` flag remembers last value. Token expiry surfaces with `pxl-classroom auth status`.
-
-**Schema reuse.** `cli/src/lib/validate.mjs` imports from `schemas/` so CLI and SPA validate identically — no drift.
-
-**Touchpoints.**
-- New: `cli/` tree, `gh-extension.json` manifest, `.github/workflows/cli-ci.yml`
-- New: `cli/README.md`
-- Docs: `RUNBOOK.md` §"CLI installation"
-
-**Effort.** M (3–4 days for skeleton + auth + one trivial command).
-
-**UI equivalent.** N/A (the CLI *is* the alternative UX).
-
----
-
-## 3. CSV roster import
-
-**Why.** Biggest lecturer pain point per `RUNBOOK.md`. Hand-edited YAML is error-prone at 80+ students.
-
-### CLI
-
-```bash
-pxl-classroom roster import --org PXLAutomation roster.csv
-pxl-classroom roster import --org PXLAutomation --dry-run roster.csv  # preview diff
-pxl-classroom roster list --org PXLAutomation
-```
-
-CSV columns (header row required): `student_number, full_name, email, github_login?`. `github_login` is optional and filled later via overrides.
-
-Behavior: validate every row against `roster.schema.json`, diff against current `students/roster.yml`, present add/update/remove counts, commit via `commitWithRebase`.
-
-### UI (`AdminView.vue` — new "Roster" tab)
-
-- Drag-and-drop or file-picker for `.csv`
-- "Paste CSV" textarea alternative
-- Live diff preview (added / updated / removed) before commit
-- Per-row validation errors highlighted with the schema error message
-- Single "Commit roster" button — same lecturer token, same Contents API path as CLI
-
-**Touchpoints.**
-- New: `cli/src/commands/roster.mjs`
-- New: `frontend/src/components/RosterImport.vue`, `frontend/src/lib/csv.mjs`
-- Use: existing `schemas/roster.schema.json`
-
-**Effort.** S (CLI 1 day, UI 1–2 days).
+Phase A is the foundation: nothing in Phase B/C is worth doing without a reliable commit primitive and a CLI carrier. Both are now in place.
 
 ---
 
@@ -388,9 +266,6 @@ Idempotent and resumable. The grader never touches student repos directly — on
 
 | # | Feature | UI surface | Why / why not |
 |---|---|---|---|
-| 1 | `gittree.mjs` | None | Internal refactor |
-| 2 | CLI skeleton | None | The CLI *is* the alternative UX |
-| 3 | CSV roster import | **Yes** — `AdminView` Roster tab with diff preview | High-frequency lecturer task; SPA is the natural home |
 | 4 | Submit-tag convention | **Yes** — column + drawer in `AssignmentDetailView`; banner in student `AssignmentView` | Evidence needs surfacing or it's invisible |
 | 5 | Audit | **Yes** — System health panel in `DashboardView` | Lecturers should not need a terminal to see drift |
 | 6 | Feedback PR | **Yes** — assignment editor toggle + per-student column | Configured in editor, surfaced in detail |

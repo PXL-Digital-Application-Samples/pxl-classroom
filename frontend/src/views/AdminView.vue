@@ -7,7 +7,26 @@
       <h2>Admin Panel — {{ org }}</h2>
     </header>
 
-    <div class="admin-layout">
+    <nav class="admin-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'assignments'"
+        :class="['tab', { active: activeTab === 'assignments' }]"
+        @click="setTab('assignments')"
+      >Assignments</button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'roster'"
+        :class="['tab', { active: activeTab === 'roster' }]"
+        @click="setTab('roster')"
+      >Roster</button>
+    </nav>
+
+    <RosterTab v-if="activeTab === 'roster'" :org="org" />
+
+    <div v-show="activeTab === 'assignments'" class="admin-layout">
       <!-- LEFT: assignment list -->
       <aside class="list-pane">
         <button class="btn btn-primary new-btn" @click="newAssignment">
@@ -261,8 +280,28 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
 import { formatDate } from '../lib/format.js'
+import RosterTab from '../components/RosterTab.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
+
+// ---------------------------------------------------------------- tabs
+
+const VALID_TABS = new Set(['assignments', 'roster'])
+function tabFromHash() {
+  const h = (typeof window !== 'undefined' && window.location.hash || '').replace(/^#/, '')
+  return VALID_TABS.has(h) ? h : 'assignments'
+}
+const activeTab = ref(tabFromHash())
+function setTab(name) {
+  if (!VALID_TABS.has(name)) return
+  activeTab.value = name
+  if (typeof window !== 'undefined') {
+    history.replaceState(null, '', `#${name}`)
+  }
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('hashchange', () => { activeTab.value = tabFromHash() })
+}
 
 // ---------------------------------------------------------------- state
 
@@ -682,7 +721,32 @@ watch(
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-default);
   margin-bottom: var(--space-lg);
+}
+.admin-tabs .tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  padding: var(--space-sm) var(--space-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  border-radius: 6px 6px 0 0;
+  margin-bottom: -1px;
+}
+.admin-tabs .tab:hover { background: var(--bg-elevated, var(--bg-tertiary)); color: var(--text-primary); }
+.admin-tabs .tab.active {
+  background: var(--bg-secondary);
+  border-color: var(--border-default);
+  border-bottom-color: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .admin-layout {
