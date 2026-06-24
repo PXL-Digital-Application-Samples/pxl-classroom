@@ -22,7 +22,7 @@
 
       <!-- Error state -->
       <div v-else-if="error" class="center-card fade-in">
-        <div class="error-icon">⚠️</div>
+        <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
         <h2>Something went wrong</h2>
         <p class="text-secondary">{{ error }}</p>
         <button class="btn btn-primary" @click="retry">Try again</button>
@@ -30,7 +30,7 @@
 
       <!-- Assignment not found -->
       <div v-else-if="!assignment" class="center-card fade-in">
-        <div class="error-icon">📋</div>
+        <Icon name="clipboard" :size="48" class="status-icon" />
         <h2>Assignment not found</h2>
         <p class="text-secondary">The assignment "{{ assignmentId }}" does not exist or is not published.</p>
       </div>
@@ -81,8 +81,10 @@
               <p class="device-code-label">and enter this code:</p>
               <div class="device-code" role="status" aria-live="polite">
                 <code>{{ deviceFlow.user_code }}</code>
-                <button class="btn" @click="copyCode" :aria-label="copied ? 'Copied' : 'Copy code'">
-                  {{ copied ? '✓ Copied' : 'Copy' }}
+                <button class="btn btn-with-icon" @click="copyCode" :aria-label="copied ? 'Copied' : 'Copy code'">
+                  <Icon v-if="copied" name="check" :size="14" />
+                  <Icon v-else name="copy" :size="14" />
+                  <span>{{ copied ? 'Copied' : 'Copy' }}</span>
                 </button>
               </div>
               <p class="text-warning" style="margin-top: 1rem; font-size: 0.875rem; text-align: left; padding: 0.5rem; border: 1px solid var(--accent-yellow); border-radius: 4px;">
@@ -106,18 +108,21 @@
               You're signed in as <strong>{{ user.login }}</strong>.
               Click below to accept this assignment and get your repository.
             </p>
-            <button class="btn btn-success btn-lg" @click="acceptAssignment" :disabled="accepting">
+            <button class="btn btn-success btn-lg btn-with-icon" @click="acceptAssignment" :disabled="accepting">
               <template v-if="accepting">
                 <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
-                Accepting…
+                <span>Accepting…</span>
               </template>
-              <template v-else>✓ Accept assignment</template>
+              <template v-else>
+                <Icon name="check" :size="18" />
+                <span>Accept assignment</span>
+              </template>
             </button>
           </div>
 
           <!-- Accepted, waiting for provisioning -->
           <div v-else-if="acceptState === 'pending'" class="pending-state">
-            <div class="status-icon pulse">⏳</div>
+            <Icon name="clock" :size="48" class="status-icon status-icon-pulse" />
             <h2>Setting up your repository…</h2>
             <p class="text-secondary">
               Your assignment has been accepted. GitHub Actions is provisioning your private repository.
@@ -131,7 +136,7 @@
 
           <!-- Repository ready -->
           <div v-else-if="acceptState === 'provisioned'" class="provisioned-state fade-in">
-            <div class="status-icon">🎉</div>
+            <Icon name="check-circle" :size="48" class="status-icon status-icon-success" />
             <h2>Your repository is ready!</h2>
             <div class="repo-link-card">
               <a :href="repoUrl" target="_blank" rel="noopener" class="repo-link">
@@ -141,16 +146,35 @@
                 </svg>
                 {{ repoFullName }}
               </a>
-              <button class="btn" @click="copyRepoUrl" :aria-label="repoCopied ? 'Copied' : 'Copy URL'">
-                {{ repoCopied ? '✓ Copied' : 'Copy URL' }}
+              <button class="btn btn-with-icon" @click="copyRepoUrl" :aria-label="repoCopied ? 'Copied' : 'Copy URL'">
+                <Icon v-if="repoCopied" name="check" :size="14" />
+                <Icon v-else name="copy" :size="14" />
+                <span>{{ repoCopied ? 'Copied' : 'Copy URL' }}</span>
               </button>
             </div>
             <p class="text-secondary">You have administrator access. Clone it and start working!</p>
+
+            <!-- Tagged-submission indicator (EXTRA_FEATURES_PLAN §4) -->
+            <div v-if="latestSubmitTag" class="submit-tag-banner" role="status">
+              <svg class="submit-tag-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                <circle cx="7" cy="7" r="1"/>
+              </svg>
+              <div>
+                <strong>Submission tagged</strong>
+                <span class="text-muted"> at {{ formatDate(latestSubmitTag.declared_at) }}</span>
+                <div class="text-muted submit-tag-name"><code>{{ latestSubmitTag.tag }}</code></div>
+              </div>
+            </div>
+            <div v-else class="submit-tag-hint">
+              <p class="text-muted">No <code>submit/</code> tag yet. Tag a submission to bind an explicit, sortable timestamp to your commit:</p>
+              <code class="submit-tag-cmd">git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) &amp;&amp; git push origin --tags</code>
+            </div>
           </div>
 
           <!-- Invitation pending -->
           <div v-else-if="acceptState === 'invited'" class="invited-state fade-in">
-            <div class="status-icon">📬</div>
+            <Icon name="inbox" :size="48" class="status-icon" />
             <h2>Repository invitation pending</h2>
             <p class="text-secondary">
               Your repository has been created, but you need to accept the collaboration invitation first.
@@ -165,7 +189,7 @@
 
           <!-- Timeout state -->
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
-            <div class="status-icon">⏱️</div>
+            <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
             <h2>Taking longer than expected</h2>
             <p class="text-secondary">
               GitHub is currently experiencing high load, or you have hit a rate limit.
@@ -176,7 +200,7 @@
 
           <!-- Error state -->
           <div v-else-if="acceptState === 'error'">
-            <div class="status-icon">❌</div>
+            <Icon name="x-circle" :size="48" class="status-icon status-icon-error" />
             <h2>Something went wrong</h2>
             <p class="text-secondary">{{ acceptError }}</p>
             <button class="btn btn-primary" @click="retry">Try again</button>
@@ -187,7 +211,10 @@
 
     <footer class="assignment-footer">
       <div class="container">
-        <router-link to="/dashboard" class="footer-link">Lecturer dashboard →</router-link>
+        <router-link to="/dashboard" class="footer-link">
+          <span>Lecturer dashboard</span>
+          <Icon name="arrow-right" :size="14" />
+        </router-link>
       </div>
     </footer>
   </div>
@@ -196,9 +223,10 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
+import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation } from '../lib/api.js'
+import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -219,6 +247,10 @@ const repoFullName = ref(null)
 const pendingInvitation = ref(null)
 const copied = ref(false)
 const repoCopied = ref(false)
+
+// Latest submit/ tag observed on the student's repo. Parsed from the GitHub
+// matching-refs response. null when no tag exists.
+const latestSubmitTag = ref(null)
 
 // Device flow
 const deviceFlow = ref(null)
@@ -278,6 +310,33 @@ async function loadAssignment() {
   loading.value = false
 }
 
+const SUBMIT_TAG_PATTERN = /^refs\/tags\/(submit\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)-[0-9a-f]{7,40})$/
+
+// Look up the latest refs/tags/submit/* tag on the student's repo. Lexicographic
+// sort on the ISO-Z timestamp = chronological. Silent on failure — the banner
+// just renders the "no tag yet" hint.
+async function refreshSubmitTag(org, repoName) {
+  const token = getToken()
+  if (!token) return
+  try {
+    const res = await ghApi(token, 'GET', `/repos/${org}/${repoName}/git/matching-refs/tags/submit/?per_page=100`)
+    if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) {
+      latestSubmitTag.value = null
+      return
+    }
+    const candidates = res.data
+      .map((entry) => {
+        const m = SUBMIT_TAG_PATTERN.exec(entry.ref || '')
+        return m ? { tag: m[1], declared_at: m[2] } : null
+      })
+      .filter(Boolean)
+    candidates.sort((a, b) => (a.tag < b.tag ? 1 : a.tag > b.tag ? -1 : 0))
+    latestSubmitTag.value = candidates[0] || null
+  } catch (e) {
+    console.error('Failed to fetch submit tag:', e)
+  }
+}
+
 // Check if the user already has a repo for this assignment
 async function checkExistingState() {
   const token = getToken()
@@ -293,6 +352,7 @@ async function checkExistingState() {
     repoUrl.value = repo.data.html_url
     repoFullName.value = repo.data.full_name
     acceptState.value = 'provisioned'
+    await refreshSubmitTag(org, expectedName)
     return
   }
 
@@ -412,6 +472,7 @@ function startPolling() {
       repoUrl.value = repo.data.html_url
       repoFullName.value = repo.data.full_name
       acceptState.value = 'provisioned'
+      await refreshSubmitTag(org, expectedName)
       return
     }
 
@@ -543,9 +604,24 @@ main {
   gap: var(--space-md);
 }
 
-.error-icon, .status-icon {
-  font-size: 3rem;
+.status-icon {
+  color: var(--text-secondary);
   margin-bottom: var(--space-sm);
+}
+.status-icon-success { color: var(--accent-green); }
+.status-icon-warn { color: var(--accent-yellow); }
+.status-icon-error { color: var(--accent-red); }
+.status-icon-pulse {
+  animation: pulse-icon 1.6s ease-in-out infinite;
+}
+@keyframes pulse-icon {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.btn-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 .assignment-content {
@@ -687,6 +763,46 @@ main {
   border: 1px solid var(--border-default);
 }
 
+.submit-tag-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  background: var(--bg-tertiary);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent-green);
+  text-align: left;
+  width: 100%;
+}
+.submit-tag-icon {
+  color: var(--accent-green);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.submit-tag-name code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+.submit-tag-hint {
+  text-align: left;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.submit-tag-hint p { margin: 0; }
+.submit-tag-cmd {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  background: var(--bg-tertiary);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .repo-link {
   display: flex;
   align-items: center;
@@ -707,6 +823,9 @@ main {
 .footer-link {
   font-size: 0.875rem;
   color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 .footer-link:hover {
   color: var(--text-secondary);

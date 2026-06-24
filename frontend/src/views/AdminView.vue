@@ -1,8 +1,9 @@
 <template>
   <div class="admin-page container fade-in">
     <header class="admin-header">
-      <router-link :to="{ name: 'dashboard', params: { org } }" class="btn">
-        <span aria-hidden="true">←</span><span>Dashboard</span>
+      <router-link :to="{ name: 'dashboard', params: { org } }" class="btn btn-with-icon">
+        <Icon name="arrow-left" :size="14" />
+        <span>Dashboard</span>
       </router-link>
       <h2>Admin Panel — {{ org }}</h2>
     </header>
@@ -29,8 +30,9 @@
     <div v-show="activeTab === 'assignments'" class="admin-layout">
       <!-- LEFT: assignment list -->
       <aside class="list-pane">
-        <button class="btn btn-primary new-btn" @click="newAssignment">
-          <span aria-hidden="true">+</span><span>New assignment</span>
+        <button class="btn btn-primary new-btn btn-with-icon" @click="newAssignment">
+          <Icon name="plus" :size="14" />
+          <span>New assignment</span>
         </button>
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
@@ -102,7 +104,7 @@
               <select v-else v-model="form.template" :disabled="templates.length === 0">
                 <option value="">— pick a template —</option>
                 <option v-for="t in templates" :key="t.full_name" :value="t.full_name">
-                  {{ t.full_name }}{{ t.is_template ? '' : ' ⚠ not a template repo' }}{{ t._foreign ? ' (cross-org)' : '' }}
+                  {{ t.full_name }}{{ t.is_template ? '' : ' — not a template repo' }}{{ t._foreign ? ' (cross-org)' : '' }}
                 </option>
               </select>
               <small v-if="!loadingTemplates && templates.length === 0">
@@ -222,8 +224,13 @@
           <div v-if="!isNew" class="lifecycle">
             <h4>Lifecycle</h4>
             <div class="lifecycle-actions">
-              <button class="btn" type="button" @click="publishExisting" :disabled="form.state === 'published' || publishing">
-                {{ publishing ? 'Publishing…' : (form.state === 'published' ? '✓ Already published' : 'Publish (create broker, enable nightly)') }}
+              <button class="btn btn-with-icon" type="button" @click="publishExisting" :disabled="form.state === 'published' || publishing">
+                <template v-if="publishing">Publishing…</template>
+                <template v-else-if="form.state === 'published'">
+                  <Icon name="check" :size="14" />
+                  <span>Already published</span>
+                </template>
+                <template v-else>Publish (create broker, enable nightly)</template>
               </button>
               <button class="btn" type="button" @click="setState('closed')" :disabled="form.state === 'closed' || saving">
                 Close (stop accepting)
@@ -281,6 +288,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
+import Icon from '../components/Icon.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
 
@@ -723,6 +731,7 @@ watch(
   gap: var(--space-md);
   margin-bottom: var(--space-md);
 }
+.btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
 
 .admin-tabs {
   display: flex;
