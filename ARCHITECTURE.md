@@ -522,11 +522,15 @@ The lecturer (org owner) leaves inline review comments on the PR. Comments persi
 
 Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI command" button on `AssignmentDetailView` — the browser can't clone Git, so the actual bulk op stays on the CLI.
 
-### 11.6 Lecturer-side autograder
+### 11.6 Autograding (Lecturer-side & Student-side)
 
-Assignment YAML may carry an `autograde` block (`enabled` + `tests[]`, mirroring classroom50's `run` / `io` / `python` taxonomy). Tests execute on the **lecturer's** machine via `pxl-classroom grade --runner docker|host` against archive SHAs — never on the platform — keeping Wave 8 minimal-minutes intact. Results land in `grading/<assignment-id>/<login>.json` plus `summary.json` (validated against `schemas/grading-result.schema.json`). The Docker runner sandboxes each test with `--network=none`, read-only bind mount, `--memory=512m`, and per-test wall-clock timeouts; the host runner is host-direct and intended for trusted-code use only.
+Assignment YAML may carry an `autograde` block (`enabled`, `execution_environment`, `visibility`, and `tests[]`, mirroring classroom50's `run` / `io` / `python` taxonomy). The system supports two execution paths:
 
-`AssignmentDetailView` shows a read-only Autograder panel rendering the latest summary plus a "Copy CLI command" affordance — there is no "Run autograder" button anywhere in the SPA, on purpose.
+**1. Lecturer-side (CLI-only):** When `execution_environment` is `lecturer_local`, tests execute on the **lecturer's** machine via `pxl-classroom grade --runner docker|host` against archive SHAs — never on the platform — keeping Wave 8 minimal-minutes intact. Results land in `grading/<assignment-id>/<login>.json` plus `summary.json` (validated against `schemas/grading-result.schema.json`). The Docker runner sandboxes each test with `--network=none`, read-only bind mount, `--memory=512m`, and per-test wall-clock timeouts; the host runner is host-direct and intended for trusted-code use only.
+
+**2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the provisioning workflow injects a `.github/workflows/autograding.yml` file directly into the student repository. The workflow runs the tests automatically on the GitHub platform on every student push. If `visibility` is `private`, the workflow invokes a reusable workflow stored in the control repository to hide the test configurations from the student. Grades are synced via the SPA using the "Sync Grades from GitHub" button, which queries the GitHub Checks API and writes the aggregated results to `summary.json` in the control repository.
+
+In both modes, `AssignmentDetailView` shows a read-only Autograder panel rendering the latest summary.
 
 ---
 

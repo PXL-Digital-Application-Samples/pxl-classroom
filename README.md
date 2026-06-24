@@ -11,7 +11,7 @@ Targets specifically **GitHub Team for Education**. Never depends on GitHub Ente
 - **Assignment distribution.** Lecturers define an assignment from a private template repository in the Admin Panel; one acceptance URL is shared with students.
 - **Student acceptance.** A student opens the URL, authenticates with GitHub device flow, clicks Accept. A private repository is created from the template and the student is granted admin — synchronously, no queue.
 - **Submission reporting.** A single nightly workflow collects activity, finalizes deadlines (lock-down + preserve + report), and regenerates the dashboard. Optional `submit/<timestamp>-<sha>` tags let students mark a specific commit for grading.
-- **Lecturer power tools.** A companion `pxl-classroom` CLI (same App, same device flow, same schemas as the SPA) handles CSV roster import, install health audits, feedback-PR orchestration, bulk submission download from the archive, and lecturer-side autograding against archive SHAs.
+- **Lecturer power tools.** A companion `pxl-classroom` CLI (same App, same device flow, same schemas as the SPA) handles CSV roster import, install health audits, feedback-PR orchestration, bulk submission download from the archive, and lecturer-side autograding against archive SHAs. Alternatively, student-side autograding executes automatically via GitHub Actions in the student repositories.
 - **Zero idle minutes.** When no class is active, the nightly workflow disables itself. The system sits dormant and bills nothing until a new assignment is published.
 
 ## Architecture at a glance

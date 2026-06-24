@@ -609,13 +609,15 @@ pxl-classroom download --org PXLAutomation \
 - Writes `./submissions/_manifest.json` with `{login, archive_sha, archive_branch, archive_branch_url, downloaded_at}` rows for plagiarism tools / local CI.
 - The SPA's **Download manifest** button on `AssignmentDetailView` exports the manifest alone (no clone), and **Copy CLI command** pre-fills the `download` invocation for paste.
 
-### 12.9 Lecturer-side autograder
+### 12.9 Autograding
 
 Configure tests on the assignment YAML (the Admin Panel surfaces a banner when an `autograde` block is present):
 
 ```yaml
 autograde:
   enabled: true
+  execution_environment: lecturer_local  # or 'github_actions'
+  visibility: private                    # or 'public' (if github_actions)
   tests:
     - id: compile
       type: run
@@ -636,7 +638,9 @@ autograde:
       points: 5
 ```
 
-Run the grader **on your machine** — never on the platform:
+#### Option A: Lecturer-side (CLI-only)
+
+When `execution_environment` is `lecturer_local`, run the grader **on your machine** — never on the platform:
 
 ```bash
 pxl-classroom grade --org PXLAutomation \
@@ -649,4 +653,16 @@ pxl-classroom grade --assignment linux-processes-2026 --login alice --dry-run   
 
 Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512 MB memory, per-test wall-clock timeouts), or `--runner host` for trusted code (POSIX only — uses `/bin/sh`).
 
-Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the **Autograder** panel on `AssignmentDetailView`. The panel is read-only — there is no "Run" button on the SPA, on purpose.
+Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the **Autograder** panel on `AssignmentDetailView`.
+
+#### Option B: Student-side (GitHub Actions)
+
+When `execution_environment` is `github_actions`, the system automatically injects a `.github/workflows/autograding.yml` file into each student's repository during acceptance provisioning. The tests run automatically on GitHub Actions whenever the student pushes code.
+
+- **Visibility `private`**: The injected workflow calls a reusable workflow stored in the control repository (`pxl-classroom-control`), hiding the actual tests and commands from the student's view.
+- **Visibility `public`**: The tests are executed openly in the student's repository, allowing them to see exactly what commands are run.
+
+To pull the grades back into the control repository:
+1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment.
+2. Click the **Sync Grades from GitHub** button in the Autograder panel.
+3. The SPA will fetch the CI statuses directly from the GitHub Checks API for all preserved students and write a bulk `summary.json` to the control repository.
