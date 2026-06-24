@@ -39,21 +39,33 @@ inputs:
     default: ${{ github.event.client_payload.workflow_run_url }}
 
 outputs:
-  assignment-id:
+  assignment_id:
     description: Validated assignment ID
     value: ${{ steps.accept.outputs.assignment_id }}
-  github-login:
+  github_login:
     description: Validated student GitHub login
     value: ${{ steps.accept.outputs.github_login }}
-  github-id:
+  github_id:
     description: Immutable GitHub user ID
     value: ${{ steps.accept.outputs.github_id }}
   outcome:
     description: accepted | already-accepted | rejected:* | fail:*
     value: ${{ steps.accept.outputs.outcome }}
-  target-repo:
+  target_repo:
     description: Deterministic target repository name
     value: ${{ steps.accept.outputs.target_repo }}
+  template_owner:
+    description: Template repository owner (from the assignment definition)
+    value: ${{ steps.accept.outputs.template_owner }}
+  template_repo:
+    description: Template repository name (from the assignment definition)
+    value: ${{ steps.accept.outputs.template_repo }}
+  feedback_pr:
+    description: Whether to set up a frozen baseline branch for a Feedback PR
+    value: ${{ steps.accept.outputs.feedback_pr }}
+  feedback_pr_baseline_branch:
+    description: Baseline branch name for the Feedback PR
+    value: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
 
 runs:
   using: composite

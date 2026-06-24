@@ -79,8 +79,8 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ matrix.org }}
-          assignment_id: ''
-          collection_type: scheduled
+          assignment-id: ''
+          collection-type: scheduled
           data-dir: control
 
       - name: Commit + push to control repo
@@ -192,9 +192,9 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ matrix.assignment.org }}
-          assignment_id: ${{ matrix.assignment.assignment_id }}
+          assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
-          collection_type: deadline
+          collection-type: deadline
 
       - name: 2. Lockdown
         uses: ./lockdown
@@ -202,7 +202,7 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ matrix.assignment.org }}
-          assignment_id: ${{ matrix.assignment.assignment_id }}
+          assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
 
       - name: 3. Preserve
@@ -212,7 +212,7 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ matrix.assignment.org }}
-          assignment_id: ${{ matrix.assignment.assignment_id }}
+          assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
 
       - name: 4. Report

@@ -16,8 +16,8 @@ inputs:
     description: "json | csv | both"
     required: false
     default: "both"
-  app-id:
-    description: GitHub App ID (for anomaly notifications)
+  client-id:
+    description: GitHub App Client ID (for anomaly notifications)
     required: false
   app-private-key:
     description: GitHub App Private Key
@@ -53,11 +53,11 @@ runs:
       run: npm ci --omit=dev
 
     - name: Mint App token
-      if: inputs.app-id != ''
+      if: inputs.client-id != ''
       id: token
       uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
       with:
-        app-id: ${{ inputs.app-id }}
+        client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
 
