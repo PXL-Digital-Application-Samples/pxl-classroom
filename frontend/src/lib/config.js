@@ -21,4 +21,8 @@ export const config = {
 
   // Default timezone
   timezone: 'Europe/Brussels',
+
+  // Hub repository coordinates
+  hubOwner: import.meta.env.VITE_HUB_OWNER || 'PXL-Digital-Application-Samples',
+  hubRepo: import.meta.env.VITE_HUB_REPO || 'pxl-classroom',
 }

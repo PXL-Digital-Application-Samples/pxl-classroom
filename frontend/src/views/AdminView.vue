@@ -642,7 +642,7 @@ async function publishExisting() {
   publishing.value = true
   try {
     const token = getToken()
-    const res = await triggerWorkflow(token, 'PXL-Digital-Application-Samples', 'pxl-classroom', 'publish-assignment.yml', {
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'publish-assignment.yml', {
       org: props.org,
       assignment_id: form.value.id,
     })
@@ -723,7 +723,7 @@ async function retryAcceptance() {
   retrying.value = true
   try {
     const token = getToken()
-    const res = await triggerWorkflow(token, 'PXL-Digital-Application-Samples', 'pxl-classroom', 'retry-acceptance.yml', {
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
       org: props.org,
       assignment_id: form.value.id,
       github_login: retryForm.value.login,

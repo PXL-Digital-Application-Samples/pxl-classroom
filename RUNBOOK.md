@@ -35,7 +35,7 @@ In `pxl-classroom` → Settings → Secrets and variables → Actions:
 | `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token` — the older `app-id` input is deprecated. |
 | `PXL_APP_PRIVATE_KEY` | full PEM body from §1.2, including BEGIN/END lines |
 | `VITE_GITHUB_CLIENT_ID` | Same Client ID as `PXL_APP_CLIENT_ID`; used at SPA build time to wire the device flow. |
-| `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. |
+| `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. MUST end in `?url=` or `?` (`?` is auto-rewritten to `?url=`); anything else throws at SPA init. |
 
 ### 1.4 Install the App on the hub's owning org, scoped narrowly
 

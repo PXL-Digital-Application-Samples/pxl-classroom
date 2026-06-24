@@ -127,7 +127,8 @@ export async function getRepoContent(token, owner, repo, path) {
 
   if (res.data?.content) {
     try {
-      return atob(res.data.content.replace(/\n/g, ''))
+      const bin = atob(res.data.content.replace(/\n/g, ''))
+      return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)))
     } catch {
       return null
     }

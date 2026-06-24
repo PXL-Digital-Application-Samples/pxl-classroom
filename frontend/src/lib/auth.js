@@ -21,7 +21,9 @@
 // Student tokens carry only Account/Starring scope (8h lifetime, instant
 // revoke at github.com/settings/applications). Lecturer tokens additionally
 // permit reading the org's control repo. See ARCHITECTURE.md §10.2.
-const CORS_PROXY = (import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url=').replace(/\?$/, '?url=')
+let CORS_PROXY = import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url='
+if (CORS_PROXY.endsWith('?')) CORS_PROXY += 'url='
+else if (!CORS_PROXY.endsWith('?url=')) throw new Error('VITE_CORS_PROXY_URL must end with ? or ?url=')
 const GITHUB_DEVICE_CODE_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/device/code')}`
 const GITHUB_TOKEN_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/oauth/access_token')}`
 const GITHUB_API_BASE = 'https://api.github.com' // API supports CORS directly

@@ -52,6 +52,7 @@ import { ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 import { runAudit } from '../../../lib/audit.mjs'
 import Icon from './Icon.vue'
+import { config } from '../lib/config.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -84,8 +85,8 @@ async function run() {
     result.value = await runAudit({
       request,
       org: props.org,
-      hubOwner: 'PXL-Digital-Application-Samples',
-      hubRepo: 'pxl-classroom',
+      hubOwner: config.hubOwner,
+      hubRepo: config.hubRepo,
     })
     lastRunAt.value = Date.now()
   } catch (e) {

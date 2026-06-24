@@ -69,7 +69,7 @@
             <span>Workflow started. Watching for reports to land… (checked {{ pollCount }}×)</span>
           </div>
           <p class="text-secondary" style="font-size: 0.85rem;">
-            Follow the run in the <a href="https://github.com/PXL-Digital-Application-Samples/pxl-classroom/actions/workflows/weekly-usage-report.yml" target="_blank">Actions tab</a>.
+            Follow the run in the <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/weekly-usage-report.yml`" target="_blank">Actions tab</a>.
           </p>
         </div>
       </div>
@@ -246,7 +246,7 @@ async function generateNow() {
   triggering.value = true
   try {
     // No 'org' input → workflow fans out to every participating org
-    const res = await triggerWorkflow(token, 'PXL-Digital-Application-Samples', 'pxl-classroom', 'weekly-usage-report.yml', {})
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'weekly-usage-report.yml', {})
     if (res.ok || res.status === 204) {
       toast.success('Workflow triggered — watching for reports…')
       runWatching.value = true
