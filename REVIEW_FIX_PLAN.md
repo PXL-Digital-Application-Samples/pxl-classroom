@@ -2,6 +2,29 @@
 
 Companion to `CODE_REVIEW.md`. Closes every finding (2 BLOCKER, 6 HIGH, 7 MED, 18 LOW, 14 test gaps, 7 DRY clusters) plus the dep/CI wiring follow-ups. Both `CODE_REVIEW.md` and this plan are deleted in the final phase per `CLAUDE.md`'s "no top-level planning/progress docs" rule.
 
+## Progress
+
+Updated as commits land. Resume from the first `[ ]` row.
+
+| Phase | Status | Commits | Notes |
+|---|---|---|---|
+| **1. Workflow YAML** | done | `59ff2e6` §1.1 · `88834f8` §1.7 · `3c29aab` §1.3 · `8e646c3` §1.4 + §1.6 · `115c956` DRY #4 | §1.5 no-op (kept as-is per reviewer). §1.8 `bash -n` lint deferred to Phase 8 as planned. §1.7 grew to also fix surfaced action input/output drift (`app-id`→`client-id` on lockdown/report/registry/notify; acceptance action outputs were dash-named while every consumer reads underscore — renamed outputs + added the four missing ones). schemas/repository-record.schema.json gained `last_checked_at: null` to match the data the heredoc was already writing. |
+| **2. lib/** | [ ] | — | §2.1, §2.4 + DRY #1 + §6.5, §2.3, §2.2. §2.5/§2.6 no-op. |
+| **3. Composite actions** | [ ] | — | §3.1 (RUNBOOK note), §3.3. §3.2 no-op. §3.4 absorbed by Phase 1. |
+| **4. CLI** | [ ] | — | §4.1, §4.2 (with `@octokit/rest` v22 + plugin-retry@8 fallback path), §4.3 + §4.6 cast, §4.4 + DRY #5, §4.5 + DRY #6. DRY #8 skipped. |
+| **5. Frontend** | [ ] | — | §5.1 + DRY #7, §5.2, §5.4, §5.5, §5.6, §5.7 (+ RUNBOOK note), §5.8, §5.10. §5.3 absorbed by §5.1. §5.9/§5.11 no-op. |
+| **6. Schemas & scripts** | [ ] | — | §6.1, §6.2 rm, §6.3 rm, §6.9, §6.4, §6.6. §6.5 absorbed by §2.4. §6.7/§6.8/§6.10 no-op. |
+| **7. Dependencies** | [ ] | — | §8.1, §8.2. §8.3 covered in Phase 8. |
+| **8. CI wiring** | [ ] | — | Merge CLI tests into `ci.yml` + delete `cli-ci.yml`; add `bash -n` lint job; verify no open PRs then drop `pull_request:` trigger; integrate `actionlint`; per-workflow `permissions:` audit (§10.5). |
+| **9. Tests** | [ ] | — | P0 #1–#5 first, then P1 #6–#10, then P2/P3 #11–#15. |
+| **10. Final cleanup** | [ ] | — | `git rm CODE_REVIEW.md REVIEW_FIX_PLAN.md`; final `npm test`. |
+
+### Deferred / known-broken (out of Phase 1 scope; track for later)
+
+- `daily-activity.yml` `./preserve` invocation in the finalize matrix passes none of preserve's required `source-repo` / `source-sha` / `archive-repo` / `login` inputs — the action runs but errors immediately. Not §1.7's class; revisit when preserve is actually wired into the lockdown→preserve handoff.
+- Several actions still pin `node-version: "20"` (lockdown, report, registry, notify) while others use `"24"`. Auto-memory `feedback_node_24_latest` says bump to latest; address as part of Phase 7 or a dedicated cleanup commit.
+
+
 ## Operating contract
 
 - **Phasing:** by area, in the order of `CODE_REVIEW.md` §1–§8. Severity is preserved *within* each phase (BLOCKER → HIGH → MED → LOW), but a phase ships as a coherent unit rather than crossing area boundaries.
