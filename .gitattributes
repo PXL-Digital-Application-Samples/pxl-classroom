@@ -1,0 +1,17 @@
+# Normalize all text files to LF in the repository and on checkout.
+# Overrides the contributor's core.autocrlf=true setting so Windows users
+# don't see "LF will be replaced by CRLF" warnings on every git add.
+* text=auto eol=lf
+
+# Explicit binaries — never touch line endings.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.woff  binary
+*.woff2 binary
