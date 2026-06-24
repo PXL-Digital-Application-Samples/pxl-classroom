@@ -159,23 +159,6 @@ async function main() {
       continue;
     }
 
-    // Smart schedule logic
-    if (!cfg.assignmentId && cfg.cronSchedule) {
-      const now = Date.now();
-      const opensAt = assignment.opens_at ? new Date(assignment.opens_at).getTime() : 0;
-      const deadlineAt = assignment.deadline_at ? new Date(assignment.deadline_at).getTime() : Number.MAX_SAFE_INTEGER;
-      const graceMs = (assignment.grace_period_hours || 0) * 3600 * 1000;
-      const state = assignment.state || 'draft';
-
-      if (cfg.cronSchedule.includes('*/15')) {
-        const isNearDeadline = Math.abs(now - deadlineAt) <= 2 * 3600 * 1000;
-        if (!isNearDeadline || state !== 'published') continue;
-      } else if (cfg.cronSchedule.includes('*/6') || cfg.cronSchedule.includes('0 */6')) {
-        if (state !== 'published' && state !== 'closed') continue;
-        const isOpenWindow = now >= opensAt && now <= (deadlineAt + graceMs);
-        if (!isOpenWindow) continue;
-      }
-    }
 
     const submissionRef = assignment.submission_ref || "refs/heads/main";
     log("assignment", { ok: true, note: `Processing ${assignmentId} (submission_ref=${submissionRef})` });
