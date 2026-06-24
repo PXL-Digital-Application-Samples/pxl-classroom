@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { gh, ghAllItems } from "./lib/gh.mjs";
+import { gh, ghAllItems } from "../lib/gh.mjs";
 import { readUtf8OrFail } from "./lib/encoding.mjs";
 
 const {
@@ -49,7 +49,9 @@ function resolveLimit(repo, sku) {
   return null;
 }
 
-const orgInfoRes = await gh("GET", `/orgs/${ORG}`, null, GITHUB_TOKEN);
+const ghOpts = { token: GITHUB_TOKEN, throwOnError: true };
+
+const orgInfoRes = await gh("GET", `/orgs/${ORG}`, null, ghOpts);
 const orgId = orgInfoRes.data.id;
 
 const monthsToFetch = new Set();
@@ -63,7 +65,7 @@ for (const ym of monthsToFetch) {
   const items = await ghAllItems(
     `/organizations/${orgId}/settings/billing/usage?year=${year}&month=${month}`,
     "usageItems",
-    GITHUB_TOKEN,
+    ghOpts,
   );
   for (const item of items) {
     const day = (item.date || "").slice(0, 10);

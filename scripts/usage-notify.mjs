@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { gh, ghAll } from "./lib/gh.mjs";
+import { gh, ghAll } from "../lib/gh.mjs";
 
 const {
   ORG,
@@ -18,6 +18,7 @@ for (const [k, v] of Object.entries(required)) {
 }
 
 const ISSUE_TITLE = "PXL Classroom — Weekly Usage Report";
+const ghOpts = { token: GITHUB_TOKEN, throwOnError: true };
 
 const report = JSON.parse(readFileSync(REPORT_PATH, "utf8"));
 const overs = report.items.filter(i => i.over);
@@ -32,7 +33,7 @@ if (overs.length === 0) {
 // reruns and silent skips during rate-limit spikes).
 const openIssues = await ghAll(
   `/repos/${ORG}/${CONTROL_REPO}/issues?state=open&per_page=100`,
-  GITHUB_TOKEN,
+  ghOpts,
 );
 const existing = openIssues.find(i => i.title === ISSUE_TITLE && !i.pull_request);
 
@@ -47,7 +48,7 @@ if (existing) {
       title: ISSUE_TITLE,
       body: `Weekly usage report for \`${ORG}\`. The system appends a comment whenever a repo exceeds its configured limit.\n\nConfigure thresholds: \`limits.yml\` (global) · \`participating-orgs.yml\` (per-org) · \`limits-overrides.json\` (per-repo).`,
     },
-    GITHUB_TOKEN,
+    ghOpts,
   );
   issueNumber = created.data.number;
 }
@@ -66,6 +67,6 @@ await gh(
   "POST",
   `/repos/${ORG}/${CONTROL_REPO}/issues/${issueNumber}/comments`,
   { body: lines.join("\n") },
-  GITHUB_TOKEN,
+  ghOpts,
 );
 console.log(`Posted overrun comment to issue #${issueNumber}.`);
