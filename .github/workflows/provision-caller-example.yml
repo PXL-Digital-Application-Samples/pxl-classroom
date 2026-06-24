@@ -7,6 +7,10 @@ name: Provision (caller example)
 on:
   workflow_dispatch:
     inputs:
+
+permissions:
+  contents: read
+
       org:
         required: true
         default: PXLAutomation

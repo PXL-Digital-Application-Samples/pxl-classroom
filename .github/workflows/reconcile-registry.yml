@@ -9,6 +9,9 @@ on:
     inputs:
       org: { type: string }
       assignment_id: { type: string }
+
+permissions:
+  contents: read
 jobs:
   find-orgs:
     uses: ./.github/workflows/_find-orgs.reusable.yml

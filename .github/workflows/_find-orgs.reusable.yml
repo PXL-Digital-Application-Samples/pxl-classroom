@@ -10,6 +10,7 @@ name: _find-orgs (reusable)
 # and weekly-usage-report.yml. Keeps the find-orgs logic in one place.
 
 on:
+
   workflow_call:
     inputs:
       org:

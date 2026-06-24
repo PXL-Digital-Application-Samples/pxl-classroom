@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       org: { type: string }
+
+permissions:
+  contents: read
 jobs:
   find-orgs:
     uses: ./.github/workflows/_find-orgs.reusable.yml
