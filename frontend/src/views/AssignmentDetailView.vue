@@ -87,6 +87,14 @@
               <Icon name="download" :size="14" />
               <span>Export CSV</span>
             </button>
+            <button class="btn btn-with-icon" @click="downloadManifest" :disabled="!preservedCount" :title="preservedCount ? `${preservedCount} preserved submission(s)` : 'No preserved submissions in the report'">
+              <Icon name="download" :size="14" />
+              <span>Download manifest</span>
+            </button>
+            <button class="btn btn-with-icon" @click="copyDownloadCmd">
+              <Icon name="copy" :size="14" />
+              <span>Copy CLI command</span>
+            </button>
             <button class="btn btn-with-icon" @click="copyAcceptLink">
               <Icon name="copy" :size="14" />
               <span>Copy accept link</span>
@@ -118,6 +126,7 @@
                 <th @click="sortBy('commit_count')" class="sortable num">
                   <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
+                <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
                 <th class="col-warnings">Warnings</th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
               </tr>
@@ -174,6 +183,12 @@
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
                   <span v-else class="text-muted">—</span>
                 </td>
+                <td v-if="feedbackPrEnabled" class="col-feedback-pr">
+                  <template v-if="s.feedback_pr_number">
+                    <a :href="s.feedback_pr_url" target="_blank" class="mono">#{{ s.feedback_pr_number }}</a>
+                  </template>
+                  <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">— pending</span>
+                </td>
                 <td class="col-warnings">
                   <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
                     <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
@@ -187,7 +202,7 @@
                 </td>
               </tr>
               <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
-                <td colspan="9" class="empty-row">
+                <td :colspan="feedbackPrEnabled ? 10 : 9" class="empty-row">
                   No students match the current filters.
                   <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
                 </td>
@@ -237,6 +252,49 @@
           {{ filteredStudents.length }} of {{ report.students.length }} students shown ·
           Generated {{ formatDate(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ formatDate(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota — resets hourly`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
         </p>
+
+        <!-- Autograde results (read-only) -->
+        <section v-if="autogradeEnabled" class="autograde-section">
+          <header class="autograde-head">
+            <h3>Autograder</h3>
+            <span class="text-muted text-xs">
+              {{ autogradeSummary
+                ? `Last run ${formatDate(autogradeSummary.generated_at)} by @${autogradeSummary.graded_by} via ${autogradeSummary.runner}`
+                : 'No results yet. Execution stays off-platform.' }}
+            </span>
+          </header>
+          <div class="autograde-banner">
+            Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
+            Total points: <strong>{{ autogradeTotalPoints }}</strong>.
+            <button class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
+          </div>
+          <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Login</th>
+                  <th class="num">Earned</th>
+                  <th class="num">Total</th>
+                  <th>Last graded</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in autogradeSummary.students" :key="row.login">
+                  <td><a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a></td>
+                  <td class="num">{{ row.earned_points }}</td>
+                  <td class="num">{{ row.total_points }}</td>
+                  <td>{{ formatDate(row.graded_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="autogradeSummary?.failed?.length" class="autograde-failed">
+            <strong>{{ autogradeSummary.failed.length }} grading failure(s):</strong>
+            <ul>
+              <li v-for="f in autogradeSummary.failed" :key="f.login"><code>{{ f.login }}</code>: {{ f.reason }}</li>
+            </ul>
+          </div>
+        </section>
       </div>
 
       <!-- Per-row action modal -->
@@ -289,7 +347,7 @@ const SortIcon = (props) => props.dir
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth } from '../lib/auth.js'
-import { getRepoContent, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader } from '../lib/api.js'
+import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -312,6 +370,7 @@ const statusFilter = ref('')
 const sortKey = ref('github_login')
 const sortAsc = ref(true)
 
+const autogradeSummary = ref(null)
 const refreshingLive = ref(false)
 const totalStudentsToRefresh = ref(0)
 const refreshedStudentsCount = ref(0)
@@ -327,6 +386,10 @@ const actionRetrying = ref(false)
 const onTimeCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'on-time').length || 0)
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
 const noSubCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'no-submission').length || 0)
+const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
+const autogradeEnabled = computed(() => assignment.value?.autograde?.enabled === true)
+const preservedCount = computed(() => (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' && s.preserved_sha).length)
+const autogradeTotalPoints = computed(() => (assignment.value?.autograde?.tests || []).reduce((sum, t) => sum + (t.points || 0), 0))
 
 // Deadline source of truth: the current assignment YAML (so a Live Status
 // refresh after a deadline change reclassifies correctly), with the report's
@@ -385,11 +448,49 @@ onMounted(async () => {
     if (assignmentContent) {
       assignment.value = parseYaml(assignmentContent)
     }
+    if (report.value && assignment.value?.feedback_pr === true) {
+      await mergeRepoRecordsIntoReport(token)
+    }
+    if (assignment.value?.autograde?.enabled === true) {
+      const sum = await getRepoContent(token, props.org, config.controlRepo, `grading/${props.assignmentId}/summary.json`)
+      if (sum) {
+        try { autogradeSummary.value = JSON.parse(sum) } catch { /* malformed */ }
+      }
+    }
   } catch (e) {
     console.error('Failed to load report:', e)
   }
   loading.value = false
 })
+
+// Walks repositories/<assignment-id>/*.json and stitches feedback_pr_number
+// + feedback_pr_url onto each matching report student row. Best-effort: a
+// missing record (drift) just leaves the row's PR fields null.
+async function mergeRepoRecordsIntoReport(token) {
+  try {
+    const files = await listRepoDir(token, props.org, config.controlRepo, `repositories/${props.assignmentId}`)
+    const jsonFiles = (files || []).filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+    const records = await Promise.all(
+      jsonFiles.map(async (f) => {
+        const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+        if (!text) return null
+        try { return JSON.parse(text) } catch { return null }
+      }),
+    )
+    const byLogin = new Map()
+    for (const r of records) {
+      if (r?.github_login) byLogin.set(r.github_login, r)
+    }
+    for (const s of report.value.students || []) {
+      const r = byLogin.get(s.github_login)
+      if (!r) continue
+      s.feedback_pr_number = r.feedback_pr_number ?? null
+      s.feedback_pr_url = r.feedback_pr_url ?? null
+    }
+  } catch (e) {
+    console.error('Failed to merge repository records:', e)
+  }
+}
 
 function handleLogout() {
   clearAuth()
@@ -469,6 +570,56 @@ function copyAcceptLink() {
   navigator.clipboard.writeText(link).then(
     () => toast.success('Accept link copied'),
     () => toast.error('Could not copy link'),
+  )
+}
+
+// Manifest of preserved submissions — login + archive SHA + clickable
+// archive branch URL. Power users do the actual bulk clone via the CLI; the
+// browser can't (and the manifest is enough to drive plagiarism tooling).
+function downloadManifest() {
+  if (!report.value) return
+  const eligible = (report.value.students || []).filter(
+    (s) => s.preservation_status === 'preserved' && s.preserved_sha,
+  )
+  if (eligible.length === 0) {
+    toast.info('No preserved submissions to export.')
+    return
+  }
+  const rows = eligible.map((s) => ({
+    login: s.github_login,
+    archive_sha: s.preserved_sha,
+    archive_branch: `preserved/${props.assignmentId}/${s.github_login}`,
+    archive_branch_url: `https://github.com/${props.org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${props.assignmentId}/${s.github_login}`)}`,
+  }))
+  const manifest = {
+    schema_version: 1,
+    org: props.org,
+    assignment_id: props.assignmentId,
+    generated_at: new Date().toISOString(),
+    students: rows,
+  }
+  const blob = new Blob([JSON.stringify(manifest, null, 2) + '\n'], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${props.assignmentId}-manifest.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function copyDownloadCmd() {
+  const cmd = `pxl-classroom download --org ${props.org} --assignment ${props.assignmentId} --dir ./${props.assignmentId} --concurrency 4`
+  navigator.clipboard.writeText(cmd).then(
+    () => toast.success('CLI command copied'),
+    () => toast.error('Could not copy command'),
+  )
+}
+
+function copyGradeCmd() {
+  const cmd = `pxl-classroom grade --org ${props.org} --assignment ${props.assignmentId} --runner docker --concurrency 2`
+  navigator.clipboard.writeText(cmd).then(
+    () => toast.success('CLI command copied'),
+    () => toast.error('Could not copy command'),
   )
 }
 
@@ -832,6 +983,34 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 .col-submit-tag .tag-link { font-size: 0.8rem; }
 .col-submit-tag .tag-time { font-size: 0.75rem; margin-top: 2px; }
 .col-submit-tag .untagged { font-size: 0.85rem; }
+.col-feedback-pr { font-size: 0.85rem; }
+
+.autograde-section {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-default);
+}
+.autograde-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md); margin-bottom: var(--space-sm); }
+.autograde-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.text-xs { font-size: 0.75rem; }
+.autograde-banner {
+  background: rgba(88,166,255,0.08);
+  border-left: 3px solid var(--accent-blue);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  margin-bottom: var(--space-md);
+}
+.autograde-banner code { font-size: 0.85rem; }
+.autograde-failed {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(248,81,73,0.08);
+  border-left: 3px solid var(--accent-red);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+.autograde-failed ul { margin: var(--space-xs) 0 0 var(--space-md); padding: 0; }
 .badge-with-icon { display: inline-flex; align-items: center; gap: 4px; }
 .commit-time-top {
   font-size: 0.85rem;

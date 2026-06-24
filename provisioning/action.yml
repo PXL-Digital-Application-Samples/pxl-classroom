@@ -33,6 +33,14 @@ inputs:
     description: Create the repository private
     required: false
     default: "true"
+  feedback-pr:
+    description: "If 'true', create a frozen baseline branch and protect it for later Feedback PR use."
+    required: false
+    default: "false"
+  feedback-pr-baseline-branch:
+    description: Baseline branch name (used as the PR base).
+    required: false
+    default: "pxl-baseline"
 
 outputs:
   repo-id:
@@ -47,6 +55,9 @@ outputs:
   outcome:
     description: created | reused | dry-run:ok | fail:*
     value: ${{ steps.run.outputs.outcome }}
+  baseline-sha:
+    description: SHA the baseline branch was pinned to (empty if feedback-pr not enabled).
+    value: ${{ steps.run.outputs.baseline_sha }}
 
 runs:
   using: composite
@@ -81,4 +92,6 @@ runs:
         STUDENT_LOGIN: ${{ inputs.student-login }}
         STUDENT_PERMISSION: ${{ inputs.student-permission }}
         PRIVATE: ${{ inputs.repo-private }}
+        FEEDBACK_PR: ${{ inputs.feedback-pr }}
+        FEEDBACK_PR_BASELINE_BRANCH: ${{ inputs.feedback-pr-baseline-branch }}
       run: node "$GITHUB_ACTION_PATH/provision.mjs"

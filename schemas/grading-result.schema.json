@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/grading-result.schema.json",
+  "title": "Grading Result",
+  "description": "Per-student autograder result, written to grading/<assignment-id>/<login>.json in the control repo by `pxl-classroom grade`.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "github_login",
+    "archive_sha",
+    "graded_at",
+    "graded_by",
+    "runner",
+    "tests"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "github_login": {
+      "type": "string",
+      "minLength": 1
+    },
+    "archive_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "SHA from the archive branch the grade was computed against."
+    },
+    "archive_branch": {
+      "type": "string",
+      "description": "Branch name in <org>/pxl-classroom-archive that contained archive_sha."
+    },
+    "graded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "graded_by": {
+      "type": "string",
+      "description": "GitHub login of the lecturer who ran the grader."
+    },
+    "runner": {
+      "type": "string",
+      "enum": ["docker", "host"],
+      "description": "How the tests were executed."
+    },
+    "total_points": {
+      "type": "number",
+      "minimum": 0
+    },
+    "earned_points": {
+      "type": "number",
+      "minimum": 0
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "passed", "points", "earned"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "points": { "type": "number", "minimum": 0 },
+          "earned": { "type": "number", "minimum": 0 },
+          "duration_ms": { "type": "integer", "minimum": 0 },
+          "exit_code": { "type": ["integer", "null"] },
+          "timed_out": { "type": "boolean", "default": false },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -46,6 +46,8 @@ jobs:
           template-repo: ${{ steps.accept.outputs.template_repo }}
           target-repo: ${{ steps.accept.outputs.target_repo }}
           student-login: ${{ steps.accept.outputs.github_login }}
+          feedback-pr: ${{ steps.accept.outputs.feedback_pr }}
+          feedback-pr-baseline-branch: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
           
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
@@ -71,11 +73,14 @@ jobs:
           REPO_ID="${{ steps.prov.outputs.repo-id }}"
           REPO_URL="${{ steps.prov.outputs.repo-url }}"
           OUTCOME="${{ steps.prov.outputs.outcome }}"
+          BASELINE_SHA="${{ steps.prov.outputs.baseline-sha }}"
           ORG="${{ github.event.client_payload.org }}"
           TARGET_REPO="${{ steps.accept.outputs.target_repo }}"
 
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             mkdir -p "repositories/${ASSIGNMENT_ID}"
+            BASELINE_JSON="null"
+            if [ -n "$BASELINE_SHA" ]; then BASELINE_JSON="\"$BASELINE_SHA\""; fi
             cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF
             {
               "schema_version": 1,
@@ -88,7 +93,10 @@ jobs:
               "provisioned_by_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
               "student_permission": "admin",
               "access_state": "invited",
-              "last_checked_at": null
+              "last_checked_at": null,
+              "feedback_pr_number": null,
+              "feedback_pr_url": null,
+              "feedback_pr_baseline_sha": ${BASELINE_JSON}
             }
             EOF
             git add "repositories/"

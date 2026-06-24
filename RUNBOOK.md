@@ -562,3 +562,78 @@ git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && g
 The system never requires the tag — untagged submissions still land via the snapshot path. The timestamp inside the tag name is `declared_at` (observed-not-authoritative); the `observed_at` written by `collect/` is the time the hub saw the tag and is what classification uses.
 
 The lecturer dashboard's **Submit tag** column on `AssignmentDetailView` shows the latest tag per student, and the student `AssignmentView` shows a "Submission tagged at …" banner once `collect/` has seen the tag.
+
+### 12.7 Feedback PRs
+
+Enable `feedback_pr: true` on the assignment (the Admin Panel's **Guardrails** section has a checkbox; manual YAML also works). Provisioning then creates and protects a `pxl-baseline` branch on each new student repo.
+
+Open the actual draft PRs lazily — at provisioning time, `main` and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
+
+```bash
+pxl-classroom feedback open --assignment linux-processes-2026                  # opens for all students with commits ahead of pxl-baseline
+pxl-classroom feedback open --assignment linux-processes-2026 --login alice    # one student
+pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        # preview without committing
+
+pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
+```
+
+The CLI is idempotent — re-runs skip students whose record already has `feedback_pr_number`. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "— pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't run `feedback open`).
+
+Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Comments persist as the student keeps pushing — the PR head tracks `main`. The student cannot delete `pxl-baseline` (App-level protection outranks repo admin).
+
+### 12.8 Bulk submission download
+
+`pxl-classroom download` clones each preserved submission out of `<org>/pxl-classroom-archive` (the archive-backed evidence layer, immune to post-deadline rewrites of the student repo).
+
+```bash
+pxl-classroom download --org PXLAutomation \
+                       --assignment linux-processes-2026 \
+                       --dir ./submissions \
+                       --concurrency 4
+```
+
+- Resumable: a re-run skips students whose checkout already matches the archive SHA.
+- Writes `./submissions/_manifest.json` with `{login, archive_sha, archive_branch, archive_branch_url, downloaded_at}` rows for plagiarism tools / local CI.
+- The SPA's **Download manifest** button on `AssignmentDetailView` exports the manifest alone (no clone), and **Copy CLI command** pre-fills the `download` invocation for paste.
+
+### 12.9 Lecturer-side autograder
+
+Configure tests on the assignment YAML (the Admin Panel surfaces a banner when an `autograde` block is present):
+
+```yaml
+autograde:
+  enabled: true
+  tests:
+    - id: compile
+      type: run
+      command: "make"
+      timeout_s: 30
+      points: 10
+    - id: tests-pass
+      type: run
+      command: "make test"
+      timeout_s: 120
+      points: 40
+    - id: io-1
+      type: io
+      command: "./a.out"
+      stdin: "3 4\n"
+      expected_stdout: "7"
+      timeout_s: 5
+      points: 5
+```
+
+Run the grader **on your machine** — never on the platform:
+
+```bash
+pxl-classroom grade --org PXLAutomation \
+                    --assignment linux-processes-2026 \
+                    --runner docker \
+                    --concurrency 2
+
+pxl-classroom grade --assignment linux-processes-2026 --login alice --dry-run    # one student, no commit
+```
+
+Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512 MB memory, per-test wall-clock timeouts), or `--runner host` for trusted code (POSIX only — uses `/bin/sh`).
+
+Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the **Autograder** panel on `AssignmentDetailView`. The panel is read-only — there is no "Run" button on the SPA, on purpose.

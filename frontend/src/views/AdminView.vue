@@ -150,6 +150,23 @@
                 Lock down student repos at the deadline (demote admin → pull)
               </label>
             </div>
+            <div class="field checkbox">
+              <label>
+                <input type="checkbox" v-model="form.feedback_pr" />
+                Open a draft Feedback PR for each student (pxl-baseline protected branch)
+              </label>
+              <small>
+                Provisioning creates a frozen <code>{{ form.feedback_pr_baseline_branch || 'pxl-baseline' }}</code> branch and protects it.
+                PRs are opened lazily via <code>pxl-classroom feedback open --assignment {{ form.id || 'ID' }}</code> once students push commits.
+              </small>
+            </div>
+            <div v-if="form.autograde_enabled" class="field autograde-banner">
+              <small>
+                Autograder configured ({{ (form.autograde_tests || []).length }} test(s)).
+                Execution stays off-platform — run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> from your machine.
+                Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
+              </small>
+            </div>
           </fieldset>
 
           <!-- ADVANCED -->
@@ -356,6 +373,10 @@ function emptyForm() {
     state: 'draft',
     max_acceptances: 250,
     lock_down_enabled: true,
+    feedback_pr: false,
+    feedback_pr_baseline_branch: 'pxl-baseline',
+    autograde_enabled: false,
+    autograde_tests: [],
   }
 }
 
@@ -495,6 +516,10 @@ function editAssignment(a) {
     state: a.state || 'draft',
     max_acceptances: a.max_acceptances ?? 250,
     lock_down_enabled: a.lock_down_enabled ?? true,
+    feedback_pr: a.feedback_pr === true,
+    feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
+    autograde_enabled: a.autograde?.enabled === true,
+    autograde_tests: a.autograde?.tests || [],
   }
   extForm.value = { login: '', deadline_local: form.value.deadline_at_local, reason: '' }
   retryForm.value = { login: '' }
@@ -536,6 +561,15 @@ function buildDoc(state = null) {
     state: state || form.value.state,
     ...(form.value.max_acceptances ? { max_acceptances: Number(form.value.max_acceptances) } : {}),
     lock_down_enabled: !!form.value.lock_down_enabled,
+    ...(form.value.feedback_pr
+      ? {
+          feedback_pr: true,
+          feedback_pr_baseline_branch: form.value.feedback_pr_baseline_branch || 'pxl-baseline',
+        }
+      : {}),
+    ...(form.value.autograde_enabled && form.value.autograde_tests?.length
+      ? { autograde: { enabled: true, tests: form.value.autograde_tests } }
+      : {}),
   }
 }
 
@@ -913,4 +947,12 @@ details .field { padding: 0 var(--space-sm); }
 .lifecycle h4 { margin: 0 0 var(--space-md) 0; }
 .lifecycle-actions { display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md); }
 .lifecycle-section { margin-bottom: var(--space-sm); }
+.autograde-banner small {
+  display: block;
+  background: rgba(88,166,255,0.08);
+  border-left: 3px solid var(--accent-blue);
+  padding: var(--space-sm) var(--space-md);
+  color: var(--text-secondary);
+}
+.text-warning { color: var(--accent-yellow); }
 </style>

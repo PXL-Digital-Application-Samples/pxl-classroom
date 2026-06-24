@@ -507,6 +507,27 @@ Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). 
 
 Without preservation, a SHA recorded in `observations/` could become unreachable if the student rewrites history. With preservation, the reachable object survives.
 
+### 11.4 Feedback PR (optional)
+
+When `feedback_pr: true` on the assignment, provisioning additionally:
+
+1. Creates a frozen branch `pxl-baseline` (configurable via `feedback_pr_baseline_branch`) at the just-generated default-branch HEAD.
+2. Applies branch protection that forbids force-push and delete. The App's org-admin role outranks the student's repo admin so the student cannot remove the baseline (same primacy as lock-down).
+
+The Feedback PR itself (head `main` → base `pxl-baseline`, draft) cannot be opened at provisioning time — both refs point at the same SHA and GitHub refuses with 422 "No commits between …". The PR is therefore opened lazily by `pxl-classroom feedback open` once students have pushed at least one commit. The CLI is idempotent and records `feedback_pr_number` / `feedback_pr_url` on the repository record.
+
+The lecturer (org owner) leaves inline review comments on the PR. Comments persist as the student continues to push; the PR head tracks `main`.
+
+### 11.5 Bulk submission download
+
+Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI command" button on `AssignmentDetailView` — the browser can't clone Git, so the actual bulk op stays on the CLI.
+
+### 11.6 Lecturer-side autograder
+
+Assignment YAML may carry an `autograde` block (`enabled` + `tests[]`, mirroring classroom50's `run` / `io` / `python` taxonomy). Tests execute on the **lecturer's** machine via `pxl-classroom grade --runner docker|host` against archive SHAs — never on the platform — keeping Wave 8 minimal-minutes intact. Results land in `grading/<assignment-id>/<login>.json` plus `summary.json` (validated against `schemas/grading-result.schema.json`). The Docker runner sandboxes each test with `--network=none`, read-only bind mount, `--memory=512m`, and per-test wall-clock timeouts; the host runner is host-direct and intended for trusted-code use only.
+
+`AssignmentDetailView` shows a read-only Autograder panel rendering the latest summary plus a "Copy CLI command" affordance — there is no "Run autograder" button anywhere in the SPA, on purpose.
+
 ---
 
 ## 12. Notifications & audit

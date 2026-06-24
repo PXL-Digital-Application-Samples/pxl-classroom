@@ -108,6 +108,8 @@ async function main() {
     await setOutput("target_repo", deriveRepoName(assignment.repository_name_pattern, login));
     await setOutput("template_owner", assignment.template_repository.split('/')[0]);
     await setOutput("template_repo", assignment.template_repository.split('/')[1]);
+    await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
+    await setOutput("feedback_pr_baseline_branch", assignment.feedback_pr_baseline_branch || "pxl-baseline");
     await summary(`### Acceptance: \`already-accepted\`\n\n${login} already accepted ${assignmentId}.`);
     process.exit(0);
   }
@@ -154,6 +156,8 @@ async function main() {
   await setOutput("target_repo", targetRepo);
   await setOutput("template_owner", assignment.template_repository.split('/')[0]);
   await setOutput("template_repo", assignment.template_repository.split('/')[1]);
+  await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
+  await setOutput("feedback_pr_baseline_branch", assignment.feedback_pr_baseline_branch || "pxl-baseline");
 
   await summary(
     `### Acceptance: \`accepted\`\n\n` +

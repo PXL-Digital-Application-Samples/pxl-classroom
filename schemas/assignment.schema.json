@@ -120,6 +120,79 @@
       "type": "boolean",
       "default": true,
       "description": "Whether to lock down student repos after the deadline."
+    },
+    "feedback_pr": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, provisioning creates a frozen baseline branch and protects it. Lecturers open a draft PR via the CLI/UI to leave inline review comments on student work."
+    },
+    "feedback_pr_baseline_branch": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._/-]+$",
+      "default": "pxl-baseline",
+      "description": "Name of the frozen baseline branch used as the PR base. Rarely changed."
+    },
+    "autograde": {
+      "type": "object",
+      "description": "Optional autograder configuration. Tests are executed on the lecturer's machine (Docker or host) by `pxl-classroom grade`. No platform-side execution.",
+      "required": ["enabled", "tests"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether autograding is configured for this assignment."
+        },
+        "tests": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "type", "points"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                "description": "URL-safe test identifier."
+              },
+              "type": {
+                "type": "string",
+                "enum": ["run", "io", "python"],
+                "description": "Test taxonomy. `run` executes a shell command; `io` runs a command with stdin and compares stdout; `python` runs a Python script."
+              },
+              "command": {
+                "type": "string",
+                "description": "Shell command for type=run, or executable+args for type=io."
+              },
+              "script": {
+                "type": "string",
+                "description": "Python source for type=python."
+              },
+              "stdin": {
+                "type": "string",
+                "description": "Stdin payload for type=io."
+              },
+              "expected_stdout": {
+                "type": "string",
+                "description": "Expected stdout for type=io. Compared after trim+normalize-newlines."
+              },
+              "timeout_s": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600,
+                "default": 30,
+                "description": "Per-test wall-clock limit in seconds."
+              },
+              "points": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Points awarded on pass."
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

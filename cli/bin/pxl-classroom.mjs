@@ -7,6 +7,9 @@ import { Command } from "commander";
 import { registerAuthCommand } from "../src/commands/auth.mjs";
 import { registerRosterCommand } from "../src/commands/roster.mjs";
 import { registerAuditCommand } from "../src/commands/audit.mjs";
+import { registerFeedbackCommand } from "../src/commands/feedback.mjs";
+import { registerDownloadCommand } from "../src/commands/download.mjs";
+import { registerGradeCommand } from "../src/commands/grade.mjs";
 
 const program = new Command();
 
@@ -26,6 +29,9 @@ const context = { signal: ac.signal };
 registerAuthCommand(program, context);
 registerRosterCommand(program, context);
 registerAuditCommand(program, context);
+registerFeedbackCommand(program, context);
+registerDownloadCommand(program, context);
+registerGradeCommand(program, context);
 
 program.parseAsync(process.argv).catch((err) => {
   if (err?.code === "ABORT") {
