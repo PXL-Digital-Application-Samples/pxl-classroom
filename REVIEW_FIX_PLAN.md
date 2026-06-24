@@ -13,7 +13,7 @@ Updated as commits land. Resume from the first `[ ]` row.
 | **3. Composite actions** | done | `b1f1812` §3.1 · `9d0af83` §3.3 | §3.1 (RUNBOOK note), §3.3. §3.2 no-op. §3.4 absorbed by Phase 1. |
 | **4. CLI** | done | — | §4.1, §4.2 (with `@octokit/rest` v22 + plugin-retry@8 fallback path), §4.3 + §4.6 cast, §4.4 + DRY #5, §4.5 + DRY #6. DRY #8 skipped. |
 | **5. Frontend** | [ ] | — | §5.1 + DRY #7, §5.2, §5.4, §5.5, §5.6, §5.7 (+ RUNBOOK note), §5.8, §5.10. §5.3 absorbed by §5.1. §5.9/§5.11 no-op. |
-| **6. Schemas & scripts** | [ ] | — | §6.1, §6.2 rm, §6.3 rm, §6.9, §6.4, §6.6. §6.5 absorbed by §2.4. §6.7/§6.8/§6.10 no-op. |
+| **6. Schemas & scripts** | done | — | §6.1, §6.2 rm, §6.3 rm, §6.9, §6.4, §6.6. §6.5 absorbed by §2.4. §6.7/§6.8/§6.10 no-op. |
 | **7. Dependencies** | [ ] | — | §8.1, §8.2. §8.3 covered in Phase 8. |
 | **8. CI wiring** | [ ] | — | Merge CLI tests into `ci.yml` + delete `cli-ci.yml`; add `bash -n` lint job; verify no open PRs then drop `pull_request:` trigger; integrate `actionlint`; per-workflow `permissions:` audit (§10.5). |
 | **9. Tests** | [ ] | — | P0 #1–#5 first, then P1 #6–#10, then P2/P3 #11–#15. |

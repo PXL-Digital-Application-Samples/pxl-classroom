@@ -114,7 +114,7 @@ jobs:
             sed -i "s/^state:.*/state: published/" "control/$FILE"
           else
             FILE="assignments/${{ inputs.assignment_id }}.json"
-            node scripts/update-json-field.mjs "control/$FILE" "state" "published"
+            node scripts/update-json-field.mjs --schema assignment "control/$FILE" "state" "published"
           fi
 
           git -C control config user.name "pxl-classroom[bot]"

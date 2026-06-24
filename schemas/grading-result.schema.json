@@ -12,7 +12,9 @@
     "graded_at",
     "graded_by",
     "runner",
-    "tests"
+    "tests",
+    "total_points",
+    "earned_points"
   ],
   "additionalProperties": false,
   "properties": {

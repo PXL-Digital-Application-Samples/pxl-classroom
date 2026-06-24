@@ -142,9 +142,9 @@ jobs:
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
           if [ -f "control/$ACCEPT_FILE" ]; then
             if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-              node scripts/update-json-field.mjs "control/$ACCEPT_FILE" "status" "provisioned"
+              node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "provisioned"
             else
-              node scripts/update-json-field.mjs "control/$ACCEPT_FILE" "status" "failed"
+              node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "failed"
             fi
             git -C control add "acceptances/"
           fi

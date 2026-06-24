@@ -1,3 +1,4 @@
+import { parse } from "yaml";
 import { readUtf8OrFail } from "./lib/encoding.mjs";
 
 let text;
@@ -13,9 +14,5 @@ try {
   process.exit(1);
 }
 
-const logins = [];
-for (const line of text.split(/\r?\n/)) {
-  const m = line.match(/^\s*-\s*login:\s*"?([A-Za-z0-9][A-Za-z0-9-]*)"?\s*$/);
-  if (m) logins.push(m[1]);
-}
-process.stdout.write(JSON.stringify(logins));
+const o = parse(text);
+process.stdout.write(JSON.stringify((o?.orgs || []).map(x => x.login)));
