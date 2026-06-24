@@ -4,13 +4,12 @@
 
 name: Provision (caller example)
 
-on:
-  workflow_dispatch:
-    inputs:
-
 permissions:
   contents: read
 
+on:
+  workflow_dispatch:
+    inputs:
       org:
         required: true
         default: PXLAutomation
