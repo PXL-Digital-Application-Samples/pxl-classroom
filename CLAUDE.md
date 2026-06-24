@@ -26,3 +26,4 @@ Working conventions for this repo (`PXL-Digital-Application-Samples/pxl-classroo
 - **VITE_CORS_PROXY_URL**: If overridden, must explicitly end with `?url=` or `?` (which is auto-rewritten) for the device-flow proxy.
 - **Scripting Note:** do not use inline `node -e` scripts in workflow YAML. Extract to `scripts/`.
 - **One source of truth per cross-surface concern.** `lib/audit.mjs` exports `EXPECTED_APP_PERMISSIONS` consumed by both CLI and `SetupView.vue`; `lib/gittree.mjs` is HTTP-stack-agnostic and shared by CLI, scripts, and SPA. Don't fork these.
+- **Git Push Rule:** Always use `$env:GITHUB_TOKEN=""; git push origin main` when pushing to this repository to avoid authentication failures caused by dummy tokens in the environment.
