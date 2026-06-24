@@ -286,6 +286,15 @@ For a forced nightly run:
 
 Likely the SPA 404 shim isn't routing. Verify `frontend/public/404.html` exists in the deployed Pages output, and that `index.html` has the redirect decoder. Rerun `deploy-frontend.yml`.
 
+### 6.6 Migrating legacy assignments
+
+Assignments created before the `template.{owner,repository}` schema rename may still have the top-level `template_owner` and `template_repo` fields. The synchronous acceptance flow will fail with a `fail:exception` if a student accepts an unmigrated assignment.
+
+To migrate these assignments, use `yq` in your control repository:
+```bash
+yq -i 'if has("template_owner") then .template.owner = .template_owner | .template.repository = .template_repo | del(.template_owner, .template_repo) else . end' assignments/*.yml
+```
+
 ---
 
 ## 7. Manual workflow triggers (lecturer-runnable)
