@@ -290,7 +290,7 @@ All in the hub's repository root. Each is a self-contained composite that mints 
 | `provisioning/` | template owner/repo, target repo, student login | `repo-id`, `repo-url`, `outcome` = `created` / `reused` / `fail:*` |
 | `collect/` | assignment id, `data-dir` | `collected_count`, `error_count`, `outcome` = `collected` / `partial` / `fail:*` |
 | `lockdown/` | assignment id, `data-dir` | `locked_count`, `uncertainty_seconds`, `outcome` |
-| `preserve/` | source repo, source sha, archive repo, login | `preserved_sha`, `verified`, `outcome` = `preserved` / `fail:*` |
+| `preserve/` | `data-dir`, `assignment-id` | `preserved_count`, `error_count`, `outcome` = `preserved` / `partial` / `fail:*` |
 | `report/` | assignment id, `data-dir`, `output-format` (json/csv/both) | `student-count`, `on-time-count`, `late-count`, `outcome` |
 | `pages/` | `data-dir`, `output-dir` | `generated-count`, `scan-result` (clean/blocked), `outcome` (published/blocked) |
 | `registry/` | org, optional `assignment-id`, `data-dir` | `drift-detected` |
