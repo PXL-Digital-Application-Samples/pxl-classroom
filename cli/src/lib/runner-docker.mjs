@@ -69,14 +69,14 @@ export async function runDocker({ test, workdir }) {
   if (test.type === "run") {
     const res = await dockerRun({
       image, mounts, timeoutMs,
-      args: ["/bin/sh", "-c", `timeout ${test.timeout_s ?? 30}s sh -c ${shQuote(test.command)}`],
+      args: ["/bin/sh", "-c", `timeout ${Number(test.timeout_s ?? 30)}s sh -c ${shQuote(test.command)}`],
     });
     return { ...res, passed: res.exit_code === 0 && !res.timed_out };
   }
   if (test.type === "io") {
     const res = await dockerRun({
       image, mounts, timeoutMs, stdin: test.stdin ?? "",
-      args: ["/bin/sh", "-c", `timeout ${test.timeout_s ?? 30}s sh -c ${shQuote(test.command)}`],
+      args: ["/bin/sh", "-c", `timeout ${Number(test.timeout_s ?? 30)}s sh -c ${shQuote(test.command)}`],
     });
     const matched = normalize(res.stdout) === normalize(test.expected_stdout ?? "");
     return { ...res, passed: res.exit_code === 0 && !res.timed_out && matched };

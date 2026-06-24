@@ -17,20 +17,13 @@ import { spawn } from "node:child_process";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { loadConfig, saveConfig } from "../lib/config.mjs";
 import { requireToken } from "../lib/auth.mjs";
+import { resolveOrg } from "../lib/org.mjs";
+import { getReport } from "../lib/control-repo.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const ARCHIVE_REPO = "pxl-classroom-archive";
 
-function resolveOrg(flag) {
-  const org = flag || loadConfig().last_org;
-  if (!org) {
-    throw new Error(
-      "no --org and no last-used org in config. Pass `--org <login>` (the value is remembered).",
-    );
-  }
-  if (flag) saveConfig({ last_org: flag });
-  return org;
-}
+
 
 // Run a git subprocess with stdio captured. Throws on non-zero exit. Token
 // is never put on the command line — only in the URL, which itself is only
@@ -49,13 +42,7 @@ function runGit(args, opts = {}) {
   });
 }
 
-async function fetchReport(octokit, { org, assignmentId }) {
-  const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-    owner: org, repo: CONTROL_REPO, path: `reports/${assignmentId}.json`,
-  });
-  const text = Buffer.from(res.data.content, "base64").toString("utf8");
-  return JSON.parse(text);
-}
+
 
 function authedArchiveUrl(org, token) {
   return `https://x-access-token:${token}@github.com/${org}/${ARCHIVE_REPO}.git`;
@@ -118,7 +105,7 @@ export function registerDownloadCommand(program) {
       const octokit = makeOctokit();
       const token = requireToken().access_token;
 
-      const report = await fetchReport(octokit, { org, assignmentId: opts.assignment });
+      const report = await getReport(octokit, { org, assignmentId: opts.assignment });
       const eligible = (report.students || []).filter(
         (s) => s.preservation_status === "preserved" && s.preserved_sha && s.github_login,
       );

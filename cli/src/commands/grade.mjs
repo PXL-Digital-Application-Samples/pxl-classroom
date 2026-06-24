@@ -23,16 +23,13 @@ import { loadConfig, saveConfig } from "../lib/config.mjs";
 import { requireToken } from "../lib/auth.mjs";
 import { runDocker } from "../lib/runner-docker.mjs";
 import { runHost } from "../lib/runner-host.mjs";
+import { resolveOrg } from "../lib/org.mjs";
+import { getAssignment, getReport } from "../lib/control-repo.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const ARCHIVE_REPO = "pxl-classroom-archive";
 
-function resolveOrg(flag) {
-  const org = flag || loadConfig().last_org;
-  if (!org) throw new Error("no --org and no last-used org in config.");
-  if (flag) saveConfig({ last_org: flag });
-  return org;
-}
+
 
 function runGit(args, cwd) {
   return new Promise((resolveFn, reject) => {
@@ -47,19 +44,7 @@ function runGit(args, cwd) {
   });
 }
 
-async function fetchAssignment(octokit, { org, assignmentId }) {
-  const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-    owner: org, repo: CONTROL_REPO, path: `assignments/${assignmentId}.yml`,
-  });
-  return yamlParse(Buffer.from(res.data.content, "base64").toString("utf8"));
-}
 
-async function fetchReport(octokit, { org, assignmentId }) {
-  const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-    owner: org, repo: CONTROL_REPO, path: `reports/${assignmentId}.json`,
-  });
-  return JSON.parse(Buffer.from(res.data.content, "base64").toString("utf8"));
-}
 
 async function checkoutArchive({ org, assignmentId, login, sha, token }) {
   const workdir = await mkdtemp(join(tmpdir(), `pxl-grade-${login}-`));
@@ -146,7 +131,7 @@ export function registerGradeCommand(program) {
         throw new Error(`--runner must be 'docker' or 'host', got '${opts.runner}'`);
       }
 
-      const assignment = await fetchAssignment(octokit, { org, assignmentId: opts.assignment });
+      const assignment = await getAssignment(octokit, { org, assignmentId: opts.assignment });
       if (assignment.autograde?.enabled !== true) {
         throw new Error(`Assignment ${opts.assignment} does not have autograde.enabled in its YAML.`);
       }
@@ -155,7 +140,7 @@ export function registerGradeCommand(program) {
       // Pin assignment.id since some assignment YAMLs omit it (filename is the SOT)
       assignment.id = assignment.id || opts.assignment;
 
-      const report = await fetchReport(octokit, { org, assignmentId: opts.assignment });
+      const report = await getReport(octokit, { org, assignmentId: opts.assignment });
       const eligible = (report.students || []).filter(
         (s) => s.preservation_status === "preserved" && s.preserved_sha && s.github_login,
       );

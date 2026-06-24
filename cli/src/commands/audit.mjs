@@ -13,20 +13,12 @@ import { Command } from "commander";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { loadConfig, saveConfig } from "../lib/config.mjs";
 import { runAudit } from "../../../lib/audit.mjs";
+import { resolveOrg } from "../lib/org.mjs";
 
 const HUB_OWNER_DEFAULT = "PXL-Digital-Application-Samples";
 const HUB_REPO_DEFAULT = "pxl-classroom";
 
-function resolveOrg(flag) {
-  const org = flag || loadConfig().last_org;
-  if (!org) {
-    throw new Error(
-      "no --org and no last-used org in config. Pass `--org <login>` (the value is remembered).",
-    );
-  }
-  if (flag) saveConfig({ last_org: flag });
-  return org;
-}
+
 
 // Adapt Octokit's request() to the shape lib/audit.mjs expects:
 // { status, ok, data } with `ok` true on 2xx and false otherwise.

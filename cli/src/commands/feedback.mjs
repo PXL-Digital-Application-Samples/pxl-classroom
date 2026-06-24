@@ -16,45 +16,13 @@ import { parse as yamlParse } from "yaml";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { loadConfig, saveConfig } from "../lib/config.mjs";
+import { resolveOrg } from "../lib/org.mjs";
+import { getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const DEFAULT_BASELINE = "pxl-baseline";
 
-function resolveOrg(flag) {
-  const org = flag || loadConfig().last_org;
-  if (!org) {
-    throw new Error(
-      "no --org and no last-used org in config. Pass `--org <login>` (the value is remembered).",
-    );
-  }
-  if (flag) saveConfig({ last_org: flag });
-  return org;
-}
 
-async function fetchAssignment(octokit, { org, assignmentId }) {
-  const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-    owner: org, repo: CONTROL_REPO, path: `assignments/${assignmentId}.yml`,
-  });
-  const text = Buffer.from(res.data.content, "base64").toString("utf8");
-  return yamlParse(text);
-}
-
-async function listRepoRecords(octokit, { org, assignmentId }) {
-  const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-    owner: org, repo: CONTROL_REPO, path: `repositories/${assignmentId}`,
-  });
-  const files = Array.isArray(res.data) ? res.data : [];
-  const records = [];
-  for (const f of files) {
-    if (f.type !== "file" || !f.name.endsWith(".json")) continue;
-    const r = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: f.path,
-    });
-    const text = Buffer.from(r.data.content, "base64").toString("utf8");
-    records.push({ path: f.path, sha: r.data.sha, doc: JSON.parse(text) });
-  }
-  return records;
-}
 
 function repoOnly(fullName) {
   return fullName.includes("/") ? fullName.split("/")[1] : fullName;
@@ -117,7 +85,7 @@ export function registerFeedbackCommand(program) {
       const org = resolveOrg(opts.org);
       const octokit = makeOctokit();
 
-      const assignment = await fetchAssignment(octokit, { org, assignmentId: opts.assignment });
+      const assignment = await getAssignment(octokit, { org, assignmentId: opts.assignment });
       if (assignment.feedback_pr !== true) {
         process.stdout.write(`Assignment ${opts.assignment} does not have feedback_pr enabled in its YAML.\n`);
         process.exit(1);

@@ -21,20 +21,13 @@ import { makeOctokit } from "../lib/octokit.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { saveConfig, loadConfig } from "../lib/config.mjs";
+import { stableStringify } from "../lib/stable.mjs";
+import { resolveOrg } from "../lib/org.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const ROSTER_PATH = "students/roster.yml";
 
-function resolveOrg(flag) {
-  const org = flag || loadConfig().last_org;
-  if (!org) {
-    throw new Error(
-      "no --org and no last-used org in config. Pass `--org <login>` (the value is remembered).",
-    );
-  }
-  if (flag) saveConfig({ last_org: flag });
-  return org;
-}
+
 
 // Coerce a single CSV cell into the JSON value expected by the schema.
 // Empty cells are dropped (undefined) so optional fields stay absent.
@@ -144,7 +137,7 @@ function diffRosters(current, next) {
     const prev = currentMap.get(num);
     if (!prev) {
       added.push(entry);
-    } else if (JSON.stringify(prev) !== JSON.stringify(entry)) {
+    } else if (stableStringify(prev) !== stableStringify(entry)) {
       updated.push({ before: prev, after: entry });
     }
   }
