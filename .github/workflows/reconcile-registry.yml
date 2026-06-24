@@ -11,24 +11,9 @@ on:
       assignment_id: { type: string }
 jobs:
   find-orgs:
-    runs-on: ubuntu-latest
-    outputs:
-      orgs: ${{ steps.list.outputs.orgs }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - id: list
-        run: |
-          if [ -n "${{ inputs.org }}" ]; then
-            echo "orgs=[\"${{ inputs.org }}\"]" >> "$GITHUB_OUTPUT"
-          else
-            git fetch origin participating-orgs:participating-orgs || true
-            if git show participating-orgs:participating-orgs.yml > participating-orgs.yml 2>/dev/null; then
-              ORGS=$(node scripts/get-participating-orgs.mjs)
-              echo "orgs=$ORGS" >> "$GITHUB_OUTPUT"
-            else
-              echo "orgs=[]" >> "$GITHUB_OUTPUT"
-            fi
-          fi
+    uses: ./.github/workflows/_find-orgs.reusable.yml
+    with:
+      org: ${{ inputs.org }}
 
   reconcile:
     needs: find-orgs

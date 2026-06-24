@@ -1,0 +1,49 @@
+name: _find-orgs (reusable)
+
+# Resolves the list of orgs a workflow should fan out over.
+# If `org` is supplied, returns just that one (validated).
+# Otherwise returns every login in the participating-orgs branch's
+# participating-orgs.yml, or [] if the branch/file does not exist.
+#
+# Called via `uses: ./.github/workflows/_find-orgs.reusable.yml` from
+# daily-activity.yml, regenerate-dashboard.yml, reconcile-registry.yml,
+# and weekly-usage-report.yml. Keeps the find-orgs logic in one place.
+
+on:
+  workflow_call:
+    inputs:
+      org:
+        description: Optional single-org override. Leave empty to use participating-orgs.yml.
+        required: false
+        type: string
+    outputs:
+      orgs:
+        description: JSON array of org logins.
+        value: ${{ jobs.list.outputs.orgs }}
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      orgs: ${{ steps.list.outputs.orgs }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: list
+        env:
+          ORG_INPUT: ${{ inputs.org }}
+        run: |
+          if [ -n "$ORG_INPUT" ]; then
+            if ! printf '%s' "$ORG_INPUT" | grep -Eq '^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$'; then
+              echo "::error::inputs.org is not a valid GitHub login."
+              exit 1
+            fi
+            printf 'orgs=%s\n' "$(jq -cn --arg o "$ORG_INPUT" '[$o]')" >> "$GITHUB_OUTPUT"
+          else
+            git fetch origin participating-orgs:participating-orgs || true
+            if git show participating-orgs:participating-orgs.yml > participating-orgs.yml 2>/dev/null; then
+              ORGS=$(node scripts/get-participating-orgs.mjs)
+              echo "orgs=$ORGS" >> "$GITHUB_OUTPUT"
+            else
+              echo "orgs=[]" >> "$GITHUB_OUTPUT"
+            fi
+          fi
