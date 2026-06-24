@@ -1,6 +1,6 @@
 <template>
   <div v-if="user" class="user-badge flex items-center gap-sm">
-    <img :src="user.avatar_url" :alt="user.login" class="avatar" />
+    <img :src="user.avatar_url" :alt="user.login" class="avatar" referrerpolicy="no-referrer" />
     <span>{{ user.login }}</span>
     <button class="btn" @click="emit('logout')" aria-label="Sign out">Sign out</button>
   </div>

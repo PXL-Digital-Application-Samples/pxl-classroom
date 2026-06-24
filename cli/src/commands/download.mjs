@@ -19,6 +19,7 @@ import { loadConfig, saveConfig } from "../lib/config.mjs";
 import { requireToken } from "../lib/auth.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { getReport } from "../lib/control-repo.mjs";
+import { withConcurrency } from "../lib/worker-pool.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const ARCHIVE_REPO = "pxl-classroom-archive";
@@ -77,18 +78,6 @@ async function fetchOne({ org, assignmentId, login, expectedSha, token, dir }) {
   return { login, sha, branch, status: "downloaded" };
 }
 
-async function withConcurrency(items, n, fn) {
-  const results = new Array(items.length);
-  let cursor = 0;
-  async function worker() {
-    while (cursor < items.length) {
-      const i = cursor++;
-      try { results[i] = await fn(items[i], i); }
-      catch (err) { results[i] = { error: err, item: items[i] }; }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
-  return results;
 }
 
 export function registerDownloadCommand(program) {

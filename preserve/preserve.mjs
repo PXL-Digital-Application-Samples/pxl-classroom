@@ -2,13 +2,13 @@
 // PXL Classroom — submission preservation.
 //
 // Based on spikes/05-preservation/preserve.sh, rewritten in Node.js.
-// Preserves a candidate SHA from a student repo into an instructor-controlled
+// Preserves a candidate SHA from each student's repo into an instructor-controlled
 // archive repo, verifies the hash, and records the result.
 //
 // Uses child_process.execSync for git operations (authenticated via the App
 // installation token). No npm dependencies (Node 18+ fetch).
 
-import { appendFile, writeFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, readFile, writeFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -19,11 +19,8 @@ const cfg = {
   token: env("GITHUB_TOKEN"),
   org: env("ORG"),
   assignmentId: env("ASSIGNMENT_ID"),
-  sourceRepo: env("SOURCE_REPO"),
-  sourceSha: env("SOURCE_SHA"),
-  archiveRepo: env("ARCHIVE_REPO"),
-  login: env("STUDENT_LOGIN"),
   dataDir: env("DATA_DIR"),
+  archiveRepo: "pxl-classroom-archive",
   apiBase: env("GITHUB_API_URL", "https://api.github.com"),
   serverUrl: env("GITHUB_SERVER_URL", "https://github.com"),
   runUrl: `${env("GITHUB_SERVER_URL", "https://github.com")}/${env("GITHUB_REPOSITORY", "_")}` +
@@ -43,7 +40,6 @@ const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[$
 async function fail(category, note) {
   log(category, { ok: false, note });
   await setOutput("outcome", category);
-  await setOutput("verified", "false");
   await summary(`### Preserve FAILED: \`${category}\`\n\n${note ?? ""}`);
   process.exit(1);
 }
@@ -51,18 +47,12 @@ async function fail(category, note) {
 // --- Strict input validation -------------------------------------------------
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
-const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-const SHA = /^[0-9a-f]{40}$/;
 const PATH = /^[A-Za-z0-9._/\\:-]+$/;
 
 function validate() {
   if (!cfg.token) return "GITHUB_TOKEN is required (App installation token)";
   if (!cfg.org || !NAME.test(cfg.org)) return `ORG="${cfg.org}" is not a valid GitHub name`;
   if (!cfg.assignmentId || !SLUG.test(cfg.assignmentId)) return `ASSIGNMENT_ID="${cfg.assignmentId}" is not a valid slug`;
-  if (!cfg.sourceRepo || !NAME.test(cfg.sourceRepo)) return `SOURCE_REPO="${cfg.sourceRepo}" is not a valid repo name`;
-  if (!cfg.sourceSha || !SHA.test(cfg.sourceSha)) return `SOURCE_SHA="${cfg.sourceSha}" is not a valid 40-char hex SHA`;
-  if (!cfg.archiveRepo || !NAME.test(cfg.archiveRepo)) return `ARCHIVE_REPO="${cfg.archiveRepo}" is not a valid repo name`;
-  if (!cfg.login || !LOGIN.test(cfg.login)) return `STUDENT_LOGIN="${cfg.login}" is not a valid GitHub login`;
   if (!cfg.dataDir || !PATH.test(cfg.dataDir)) return `DATA_DIR="${cfg.dataDir}" is not a valid path`;
   return null;
 }
@@ -88,12 +78,7 @@ async function main() {
   if (!ping.ok) await fail("fail:auth", `token rejected (HTTP ${ping.status})`);
   log("auth", { ok: true, note: "installation token accepted" });
 
-  // 2. Verify source repo exists
-  const srcCheck = await gh("GET", `/repos/${cfg.org}/${cfg.sourceRepo}`);
-  if (!srcCheck.ok) await fail("fail:source-repo", `source repo HTTP ${srcCheck.status}`);
-  log("source-repo", { ok: true, note: `id=${srcCheck.data.id}` });
-
-  // 3. Ensure archive repo exists (create if missing)
+  // 2. Ensure archive repo exists (create if missing)
   const arcCheck = await gh("GET", `/repos/${cfg.org}/${cfg.archiveRepo}`);
   if (arcCheck.status === 404) {
     const create = await gh("POST", `/orgs/${cfg.org}/repos`, {
@@ -110,77 +95,109 @@ async function main() {
     log("archive-repo", { ok: true, note: `exists id=${arcCheck.data.id}` });
   }
 
-  // 4. Clone source repo and push to archive
-  const workDir = await mkdtemp(join(tmpdir(), "pxl-preserve-"));
-  const presRef = `refs/heads/preserved/${cfg.assignmentId}/${cfg.login}`;
-  let verified = false;
-
+  // 3. Read lockdown record
+  let lockdownRecord;
   try {
-    // Fetch only the specific SHA (shallow)
-    const srcUrl = authedUrl(cfg.sourceRepo);
-    const arcUrl = authedUrl(cfg.archiveRepo);
-    const cloneDir = join(workDir, "src");
-
-    await mkdir(cloneDir);
-    git(`init --bare`, { cwd: cloneDir });
-    git(`fetch --depth=1 "${srcUrl}" ${cfg.sourceSha}`, { cwd: cloneDir });
-    log("fetch", { ok: true, note: `fetched ${cfg.sourceSha} from ${cfg.org}/${cfg.sourceRepo}` });
-
-    // Verify the requested SHA exists in the clone
-    try {
-      git(`cat-file -e ${cfg.sourceSha}`, { cwd: cloneDir });
-    } catch {
-      await fail("fail:sha-missing", `SHA ${cfg.sourceSha} not found in ${cfg.org}/${cfg.sourceRepo}`);
-    }
-
-    // Push the SHA to the archive repo
-    git(`push --quiet --force "${arcUrl}" ${cfg.sourceSha}:${presRef}`, { cwd: cloneDir });
-    log("push", { ok: true, note: `${cfg.sourceSha.slice(0, 12)} → ${presRef}` });
-
-    // 5. Verify via ls-remote
-    const lsOut = git(`ls-remote "${arcUrl}" ${presRef}`, { cwd: cloneDir });
-    const remoteSha = lsOut.split(/\s/)[0] || "";
-    verified = remoteSha === cfg.sourceSha;
-    log("verify", { ok: verified, note: verified ? `match ${remoteSha.slice(0, 12)}` : `mismatch remote=${remoteSha} expected=${cfg.sourceSha}` });
-  } finally {
-    // Clean up work directory
-    try { await rm(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    const raw = await readFile(join(cfg.dataDir, "lockdowns", cfg.assignmentId, "lockdown-record.json"), "utf8");
+    lockdownRecord = JSON.parse(raw);
+  } catch (err) {
+    await fail("fail:no-lockdowns", `Could not read lockdown-record.json: ${err.message}`);
   }
 
-  // 6. Record preservation status
-  const preservation = {
-    schema_version: 1,
-    assignment_id: cfg.assignmentId,
-    github_login: cfg.login,
-    source_repo: `${cfg.org}/${cfg.sourceRepo}`,
-    source_repo_id: srcCheck.data.id,
-    source_sha: cfg.sourceSha,
-    archive_repo: `${cfg.org}/${cfg.archiveRepo}`,
-    preserved_ref: presRef,
-    verified,
-    preserved_at: new Date().toISOString(),
-    observer_run: cfg.runUrl,
-  };
-  const presDir = join(cfg.dataDir, "observations", cfg.assignmentId, cfg.login);
-  await mkdir(presDir, { recursive: true });
-  await writeFile(join(presDir, "preservation.json"), JSON.stringify(preservation, null, 2) + "\n");
+  const results = lockdownRecord.results || [];
+  if (results.length === 0) {
+    log("preserve", { ok: true, note: "no students to preserve" });
+    await setOutput("outcome", "preserved");
+    process.exit(0);
+  }
 
-  // 7. Outputs & summary
-  const outcome = verified ? "preserved" : "fail:verify";
-  await setOutput("preserved_sha", cfg.sourceSha);
-  await setOutput("verified", String(verified));
+  let preservedCount = 0;
+  let errorCount = 0;
+  const rows = [];
+
+  for (const rec of results) {
+    const login = rec.github_login;
+    const repoNameFull = rec.repo_name;
+    const sourceRepo = repoNameFull.split("/")[1];
+    const sourceSha = rec.snapshot_sha;
+
+    if (!sourceSha) {
+      log(`preserve ${login}`, { ok: false, note: "no snapshot_sha" });
+      errorCount++;
+      rows.push(`| ${login} | — | skipped (no SHA) |`);
+      continue;
+    }
+
+    const workDir = await mkdtemp(join(tmpdir(), `pxl-preserve-${login}-`));
+    const presRef = `refs/heads/preserved/${cfg.assignmentId}/${login}`;
+    let verified = false;
+
+    try {
+      const srcUrl = authedUrl(sourceRepo);
+      const arcUrl = authedUrl(cfg.archiveRepo);
+      const cloneDir = join(workDir, "src");
+
+      await mkdir(cloneDir);
+      git(`init --bare`, { cwd: cloneDir });
+      git(`fetch --depth=1 "${srcUrl}" ${sourceSha}`, { cwd: cloneDir });
+      
+      try {
+        git(`cat-file -e ${sourceSha}`, { cwd: cloneDir });
+      } catch {
+        throw new Error(`SHA ${sourceSha} not found in ${cfg.org}/${sourceRepo}`);
+      }
+
+      git(`push --quiet --force "${arcUrl}" ${sourceSha}:${presRef}`, { cwd: cloneDir });
+      
+      const lsOut = git(`ls-remote "${arcUrl}" ${presRef}`, { cwd: cloneDir });
+      const remoteSha = lsOut.split(/\s/)[0] || "";
+      verified = remoteSha === sourceSha;
+      
+      if (!verified) throw new Error("remote SHA mismatch after push");
+
+      // Record preservation status
+      const preservation = {
+        schema_version: 1,
+        assignment_id: cfg.assignmentId,
+        github_login: login,
+        source_repo: `${cfg.org}/${sourceRepo}`,
+        source_repo_id: rec.repo_id,
+        source_sha: sourceSha,
+        archive_repo: `${cfg.org}/${cfg.archiveRepo}`,
+        preserved_ref: presRef,
+        verified,
+        preserved_at: new Date().toISOString(),
+        observer_run: cfg.runUrl,
+      };
+      const presDir = join(cfg.dataDir, "observations", cfg.assignmentId, login);
+      await mkdir(presDir, { recursive: true });
+      await writeFile(join(presDir, "preservation.json"), JSON.stringify(preservation, null, 2) + "\n");
+
+      preservedCount++;
+      log(`preserve ${login}`, { ok: true, note: `preserved ${sourceSha.slice(0, 12)}` });
+      rows.push(`| ${login} | \`${sourceSha.slice(0, 12)}\` | ✓ preserved |`);
+    } catch (e) {
+      log(`preserve ${login}`, { ok: false, note: e.message });
+      errorCount++;
+      rows.push(`| ${login} | \`${sourceSha.slice(0, 12)}\` | fail: ${e.message} |`);
+    } finally {
+      try { await rm(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }
+
+  // 4. Outputs & summary
+  const outcome = errorCount === 0 ? "preserved" : preservedCount > 0 ? "partial" : "fail:all-errors";
   await setOutput("outcome", outcome);
+  await setOutput("preserved_count", preservedCount);
+  await setOutput("error_count", errorCount);
   await summary(
     `### Preserve: \`${outcome}\`\n\n` +
-    `| field | value |\n|---|---|\n` +
-    `| source | ${cfg.org}/${cfg.sourceRepo} |\n` +
-    `| SHA | \`${cfg.sourceSha}\` |\n` +
-    `| archive | ${cfg.org}/${cfg.archiveRepo} |\n` +
-    `| ref | \`${presRef}\` |\n` +
-    `| verified | ${verified} |\n`
+    `| student | SHA | status |\n|---|---|---|\n` +
+    rows.join("\n") + "\n\n" +
+    `**${preservedCount}** preserved, **${errorCount}** errors.\n`
   );
-  log("done", { ok: verified, note: outcome });
-  process.exit(verified ? 0 : 1);
+  log("done", { ok: errorCount === 0, note: `${outcome} (${preservedCount} preserved, ${errorCount} err)` });
+  process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 
 main().catch(async (e) => { await fail("fail:exception", e.message); });

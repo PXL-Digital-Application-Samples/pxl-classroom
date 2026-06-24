@@ -25,6 +25,7 @@ import { runDocker } from "../lib/runner-docker.mjs";
 import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { getAssignment, getReport } from "../lib/control-repo.mjs";
+import { withConcurrency } from "../lib/worker-pool.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const ARCHIVE_REPO = "pxl-classroom-archive";
@@ -160,60 +161,55 @@ export function registerGradeCommand(program) {
 
       // Sequential dispatch with a worker pool over students (per-test
       // parallelism would race on the same workdir).
-      let cursor = 0;
       const summary = { graded: [], failed: [] };
-      const worker = async () => {
-        while (cursor < queue.length) {
-          const s = queue[cursor++];
-          let archive;
-          try {
-            archive = await checkoutArchive({
-              org, assignmentId: opts.assignment, login: s.github_login,
-              sha: s.preserved_sha, token,
-            });
-          } catch (err) {
-            process.stderr.write(`  ! ${s.github_login}: archive fetch failed — ${err.message}\n`);
-            summary.failed.push({ login: s.github_login, reason: `archive: ${err.message}` });
-            continue;
-          }
-          try {
-            const result = await gradeOne({
-              assignment, runner: opts.runner,
-              login: s.github_login, sha: archive.sha, archive, gradedBy,
-            });
-            const v = validateAgainst("grading-result", result);
-            if (!v.valid) {
-              throw new Error("grading result failed schema: " + JSON.stringify(v.errors));
-            }
-            process.stdout.write(
-              `  + ${s.github_login}: ${result.earned_points}/${result.total_points} ` +
-              `(${result.tests.filter((t) => t.passed).length}/${result.tests.length} tests)\n`,
-            );
-            if (!opts.dryRun) {
-              await commitWithRebase(octokit, {
-                owner: org, repo: CONTROL_REPO, branch: "main",
-                message: `Grade ${s.github_login} on ${opts.assignment} (${result.earned_points}/${result.total_points})`,
-                changes: [{
-                  path: `grading/${opts.assignment}/${s.github_login}.json`,
-                  content: JSON.stringify(result, null, 2) + "\n",
-                }],
-              });
-            }
-            summary.graded.push({
-              login: s.github_login,
-              earned_points: result.earned_points,
-              total_points: result.total_points,
-              graded_at: result.graded_at,
-            });
-          } catch (err) {
-            process.stderr.write(`  ! ${s.github_login}: ${err.message}\n`);
-            summary.failed.push({ login: s.github_login, reason: err.message });
-          } finally {
-            try { await rm(archive.workdir, { recursive: true, force: true }); } catch { /* best effort */ }
-          }
+      await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
+        let archive;
+        try {
+          archive = await checkoutArchive({
+            org, assignmentId: opts.assignment, login: s.github_login,
+            sha: s.preserved_sha, token,
+          });
+        } catch (err) {
+          process.stderr.write(`  ! ${s.github_login}: archive fetch failed — ${err.message}\n`);
+          summary.failed.push({ login: s.github_login, reason: `archive: ${err.message}` });
+          return;
         }
-      };
-      await Promise.all(Array.from({ length: Math.min(opts.concurrency, queue.length) }, worker));
+        try {
+          const result = await gradeOne({
+            assignment, runner: opts.runner,
+            login: s.github_login, sha: archive.sha, archive, gradedBy,
+          });
+          const v = validateAgainst("grading-result", result);
+          if (!v.valid) {
+            throw new Error("grading result failed schema: " + JSON.stringify(v.errors));
+          }
+          process.stdout.write(
+            `  + ${s.github_login}: ${result.earned_points}/${result.total_points} ` +
+            `(${result.tests.filter((t) => t.passed).length}/${result.tests.length} tests)\n`,
+          );
+          if (!opts.dryRun) {
+            await commitWithRebase(octokit, {
+              owner: org, repo: CONTROL_REPO, branch: "main",
+              message: `Grade ${s.github_login} on ${opts.assignment} (${result.earned_points}/${result.total_points})`,
+              changes: [{
+                path: `grading/${opts.assignment}/${s.github_login}.json`,
+                content: JSON.stringify(result, null, 2) + "\n",
+              }],
+            });
+          }
+          summary.graded.push({
+            login: s.github_login,
+            earned_points: result.earned_points,
+            total_points: result.total_points,
+            graded_at: result.graded_at,
+          });
+        } catch (err) {
+          process.stderr.write(`  ! ${s.github_login}: ${err.message}\n`);
+          summary.failed.push({ login: s.github_login, reason: err.message });
+        } finally {
+          try { await rm(archive.workdir, { recursive: true, force: true }); } catch { /* best effort */ }
+        }
+      });
 
       if (!opts.dryRun) {
         const summaryDoc = {

@@ -1,6 +1,6 @@
 name: PXL Classroom Preserve
 description: >-
-  Preserve a candidate SHA from a student repo by pushing it to an
+  Preserve a candidate SHA for all students in an assignment by pushing it to an
   instructor-controlled archive repo, then verify the hash via ls-remote.
 
 inputs:
@@ -16,31 +16,19 @@ inputs:
   assignment-id:
     description: Assignment slug
     required: true
-  source-repo:
-    description: Source repository name (without org prefix)
-    required: true
-  source-sha:
-    description: Full 40-char hex SHA to preserve
-    required: true
-  archive-repo:
-    description: Archive repository name (without org prefix)
-    required: true
-  login:
-    description: Student GitHub login
-    required: true
   data-dir:
-    description: Root data directory containing observations/
+    description: Root data directory containing observations/ and lockdowns/
     required: true
 
 outputs:
-  preserved_sha:
-    description: The SHA that was preserved
-    value: ${{ steps.run.outputs.preserved_sha }}
-  verified:
-    description: "true if the preserved SHA was verified via ls-remote"
-    value: ${{ steps.run.outputs.verified }}
+  preserved_count:
+    description: Number of students preserved
+    value: ${{ steps.run.outputs.preserved_count }}
+  error_count:
+    description: Number of errors during preservation
+    value: ${{ steps.run.outputs.error_count }}
   outcome:
-    description: preserved | fail:*
+    description: preserved | partial | fail:*
     value: ${{ steps.run.outputs.outcome }}
 
 runs:
@@ -64,16 +52,12 @@ runs:
       working-directory: ${{ github.action_path }}/..
       run: npm ci --omit=dev
 
-    - name: Preserve submission
+    - name: Preserve submissions
       id: run
       shell: bash
       env:
         GITHUB_TOKEN: ${{ steps.token.outputs.token }}
         ORG: ${{ inputs.org }}
         ASSIGNMENT_ID: ${{ inputs.assignment-id }}
-        SOURCE_REPO: ${{ inputs.source-repo }}
-        SOURCE_SHA: ${{ inputs.source-sha }}
-        ARCHIVE_REPO: ${{ inputs.archive-repo }}
-        STUDENT_LOGIN: ${{ inputs.login }}
         DATA_DIR: ${{ inputs.data-dir }}
       run: node "$GITHUB_ACTION_PATH/preserve.mjs"
