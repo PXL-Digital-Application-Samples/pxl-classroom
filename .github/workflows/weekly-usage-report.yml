@@ -110,21 +110,20 @@ jobs:
         run: node scripts/usage-notify.mjs
 
       - name: Commit + push report
-        working-directory: control
         env:
           WEEK_START: ${{ steps.dates.outputs.start }}
           WEEK_END: ${{ steps.dates.outputs.end }}
         run: |
-          git config user.name "pxl-classroom[bot]"
-          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git add reports/
-          if git diff --cached --quiet; then
+          set -e
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control add reports/
+          if git -C control diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
-          git commit -m "Weekly usage report ${WEEK_START} to ${WEEK_END}"
-          git pull --rebase || true
-          git push
+          git -C control commit -m "Weekly usage report ${WEEK_START} to ${WEEK_END}"
+          scripts/git-push-with-retry.sh control
 
       - name: Fail run if over threshold
         if: steps.fetch.outputs.over_count != '0'

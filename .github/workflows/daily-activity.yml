@@ -84,16 +84,15 @@ jobs:
           data-dir: control
 
       - name: Commit + push to control repo
-        working-directory: control
         if: always()
         run: |
-          git config user.name "pxl-classroom[bot]"
-          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git add observations/
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Collect activity"
-          git pull --rebase || true
-          git push || true
+          set -e
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control add observations/
+          if git -C control diff --cached --quiet; then exit 0; fi
+          git -C control commit -m "Collect activity"
+          scripts/git-push-with-retry.sh control
 
   find-finalizable:
     needs: collect
@@ -226,15 +225,14 @@ jobs:
           data-dir: control
 
       - name: Commit + push
-        working-directory: control
         run: |
-          git config user.name "pxl-classroom[bot]"
-          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git add observations/ lockdowns/ reports/ || true
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Finalize deadline for ${{ matrix.assignment.assignment_id }}"
-          git pull --rebase || true
-          git push || true
+          set -e
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control add observations/ lockdowns/ reports/ || true
+          if git -C control diff --cached --quiet; then exit 0; fi
+          git -C control commit -m "Finalize deadline for ${{ matrix.assignment.assignment_id }}"
+          scripts/git-push-with-retry.sh control
 
   check-idle:
     needs: [aggregate-finalizable, finalize]

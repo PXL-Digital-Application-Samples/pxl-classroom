@@ -64,22 +64,14 @@ jobs:
           assignment-id: ${{ inputs.assignment_id || '' }}
           data-dir: control
       - name: Commit + push to control repo
-        working-directory: control
         run: |
-          git config user.name "pxl-classroom[bot]"
-          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git add repositories/
-          if git diff --cached --quiet; then
+          set -e
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control add repositories/
+          if git -C control diff --cached --quiet; then
             echo "No changes."
             exit 0
           fi
-          git commit -m "Reconcile registry"
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          git pull --rebase || true
-          until git push; do
-            RETRY_COUNT=$((RETRY_COUNT+1))
-            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then exit 1; fi
-            sleep $(( (RANDOM % 5) + 2 ))
-            git pull --rebase
-          done
+          git -C control commit -m "Reconcile registry"
+          scripts/git-push-with-retry.sh control
