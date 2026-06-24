@@ -96,7 +96,7 @@ jobs:
           BUDGET_OWNER_LOGIN: ${{ inputs.budget_owner_login }}
         run: |
           for v in "$TARGET_ORG" "$BUDGET_OWNER_LOGIN"; do
-            if ! printf '%s' "$v" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9-]{0,38}$'; then
+            if ! printf '%s' "$v" | grep -Eq '^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$'; then
               echo "::error::'$v' is not a valid GitHub login."
               exit 1
             fi
