@@ -9,7 +9,7 @@ Updated as commits land. Resume from the first `[ ]` row.
 | Phase | Status | Commits | Notes |
 |---|---|---|---|
 | **1. Workflow YAML** | done | `59ff2e6` §1.1 · `88834f8` §1.7 · `3c29aab` §1.3 · `8e646c3` §1.4 + §1.6 · `115c956` DRY #4 | §1.5 no-op (kept as-is per reviewer). §1.8 `bash -n` lint deferred to Phase 8 as planned. §1.7 grew to also fix surfaced action input/output drift (`app-id`→`client-id` on lockdown/report/registry/notify; acceptance action outputs were dash-named while every consumer reads underscore — renamed outputs + added the four missing ones). schemas/repository-record.schema.json gained `last_checked_at: null` to match the data the heredoc was already writing. |
-| **2. lib/** | [ ] | — | §2.1, §2.4 + DRY #1 + §6.5, §2.3, §2.2. §2.5/§2.6 no-op. |
+| **2. lib/** | done | `6667771` §2.1 · `efd299f` §2.4 + DRY #1 + §6.5 · `5048e18` §2.3 · `4a22a38` §2.2 | §2.5/§2.6 no-op. lib/gh.mjs now canonical; scripts/lib/gh.mjs deleted. Return shape adds `headers` (used by ghAll's Link parsing); `remaining`/`ok`/`status`/`data` preserved for existing callers. 4th-arg-as-token compat kept. |
 | **3. Composite actions** | [ ] | — | §3.1 (RUNBOOK note), §3.3. §3.2 no-op. §3.4 absorbed by Phase 1. |
 | **4. CLI** | [ ] | — | §4.1, §4.2 (with `@octokit/rest` v22 + plugin-retry@8 fallback path), §4.3 + §4.6 cast, §4.4 + DRY #5, §4.5 + DRY #6. DRY #8 skipped. |
 | **5. Frontend** | [ ] | — | §5.1 + DRY #7, §5.2, §5.4, §5.5, §5.6, §5.7 (+ RUNBOOK note), §5.8, §5.10. §5.3 absorbed by §5.1. §5.9/§5.11 no-op. |
