@@ -15,7 +15,7 @@ Updated as commits land. Resume from the first `[ ]` row.
 | **5. Frontend** | [ ] | — | §5.1 + DRY #7, §5.2, §5.4, §5.5, §5.6, §5.7 (+ RUNBOOK note), §5.8, §5.10. §5.3 absorbed by §5.1. §5.9/§5.11 no-op. |
 | **6. Schemas & scripts** | done | — | §6.1, §6.2 rm, §6.3 rm, §6.9, §6.4, §6.6. §6.5 absorbed by §2.4. §6.7/§6.8/§6.10 no-op. |
 | **7. Dependencies** | done | `b15c225` §8.1 + §8.2 | §8.1, §8.2. §8.3 covered in Phase 8. |
-| **8. CI wiring** | [ ] | — | Merge CLI tests into `ci.yml` + delete `cli-ci.yml`; add `bash -n` lint job; verify no open PRs then drop `pull_request:` trigger; integrate `actionlint`; per-workflow `permissions:` audit (§10.5). |
+| **8. CI wiring** | done | `264fce9` | Merge CLI tests into `ci.yml` + delete `cli-ci.yml`; add `bash -n` lint job; verify no open PRs then drop `pull_request:` trigger; integrate `actionlint`; per-workflow `permissions:` audit (§10.5). |
 | **9. Tests** | [ ] | — | P0 #1–#5 first, then P1 #6–#10, then P2/P3 #11–#15. |
 | **10. Final cleanup** | [ ] | — | `git rm CODE_REVIEW.md REVIEW_FIX_PLAN.md`; final `npm test`. |
 
