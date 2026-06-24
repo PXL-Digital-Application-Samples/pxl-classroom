@@ -9,7 +9,7 @@
 // malicious test cannot mutate the lecturer's filesystem. --network=none is
 // enforced so tests cannot exfiltrate or fetch dependencies during grading.
 
-import { spawn } from "node:child_process";
+import cp from "node:child_process";
 import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -31,7 +31,7 @@ function dockerRun({ image, args, mounts, stdin = "", timeoutMs }) {
       baseArgs.push("-v", m);
     }
     const fullArgs = [...baseArgs, image, ...args];
-    const child = spawn("docker", fullArgs, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = cp.spawn("docker", fullArgs, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "", stderr = "";
     const start = Date.now();
     const t = setTimeout(() => {
