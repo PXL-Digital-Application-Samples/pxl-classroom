@@ -80,6 +80,10 @@ gh api /app
 gh api /app/installations
 ```
 
+### 1.8 SPA directory structure
+
+Do not move `frontend/` to a subdirectory without updating `frontend/vite.config.js` `server.fs.allow` — `lib/dashboard-aggregate.mjs` is imported from outside the SPA root.
+
 System is now ready to onboard the first organization.
 
 ---
