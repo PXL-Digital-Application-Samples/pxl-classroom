@@ -119,63 +119,40 @@ jobs:
 
       - name: Write repository record into control checkout, push
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
-        working-directory: control
+        env:
+          ASSIGNMENT_ID: ${{ steps.accept.outputs.assignment_id }}
+          LOGIN: ${{ steps.accept.outputs.github_login }}
+          OUTCOME: ${{ steps.prov.outputs.outcome }}
         run: |
-          ASSIGNMENT_ID="${{ steps.accept.outputs.assignment_id }}"
-          LOGIN="${{ steps.accept.outputs.github_login }}"
-          REPO_ID="${{ steps.prov.outputs.repo-id }}"
-          REPO_URL="${{ steps.prov.outputs.repo-url }}"
-          OUTCOME="${{ steps.prov.outputs.outcome }}"
-          ORG="${{ inputs.org }}"
-          TARGET_REPO="${{ steps.accept.outputs.target_repo }}"
-
+          set -e
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-            mkdir -p "repositories/${ASSIGNMENT_ID}"
-            cat > "repositories/${ASSIGNMENT_ID}/${LOGIN}.json" << EOF
-            {
-              "schema_version": 1,
-              "assignment_id": "${ASSIGNMENT_ID}",
-              "github_login": "${LOGIN}",
-              "repo_id": ${REPO_ID:-null},
-              "repo_name": "${ORG}/${TARGET_REPO}",
-              "repo_url": "${REPO_URL}",
-              "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-              "provisioned_by_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "student_permission": "admin",
-              "access_state": "invited",
-              "last_checked_at": null
-            }
-          EOF
-            git add "repositories/"
+            node scripts/write-repository-record.mjs \
+              --assignment-id "$ASSIGNMENT_ID" \
+              --login "$LOGIN" \
+              --org "${{ inputs.org }}" \
+              --target-repo "${{ steps.accept.outputs.target_repo }}" \
+              --repo-id "${{ steps.prov.outputs.repo-id }}" \
+              --repo-url "${{ steps.prov.outputs.repo-url }}" \
+              --baseline-sha "${{ steps.prov.outputs.baseline-sha }}" \
+              --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --data-dir control
+            git -C control add "repositories/"
           fi
 
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
-          if [ -f "$ACCEPT_FILE" ]; then
+          if [ -f "control/$ACCEPT_FILE" ]; then
             if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-              node ../scripts/update-json-field.mjs "$ACCEPT_FILE" "status" "provisioned"
+              node scripts/update-json-field.mjs "control/$ACCEPT_FILE" "status" "provisioned"
             else
-              node ../scripts/update-json-field.mjs "$ACCEPT_FILE" "status" "failed"
+              node scripts/update-json-field.mjs "control/$ACCEPT_FILE" "status" "failed"
             fi
-            git add "acceptances/"
+            git -C control add "acceptances/"
           fi
 
-          git config user.name "pxl-classroom[bot]"
-          git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git diff --cached --quiet || git commit -m "Retry-provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
-
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          git pull --rebase || true
-          until git push; do
-            RETRY_COUNT=$((RETRY_COUNT+1))
-            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-              echo "Failed to push after $MAX_RETRIES attempts."
-              exit 1
-            fi
-            SLEEP_TIME=$(( (RANDOM % 5) + 2 ))
-            sleep $SLEEP_TIME
-            git pull --rebase
-          done
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control diff --cached --quiet || git -C control commit -m "Retry-provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
+          scripts/git-push-with-retry.sh control
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
