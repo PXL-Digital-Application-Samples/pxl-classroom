@@ -64,6 +64,8 @@
 
       <!-- Assignment grid -->
       <div v-else class="fade-in">
+        <SystemHealth :org="selectedOrg" />
+
         <div class="flex items-center justify-between" style="margin-bottom: var(--space-md);">
           <h2 style="margin: 0; font-size: 1.25rem;">Assignments</h2>
           <div class="flex items-center gap-sm">
@@ -124,6 +126,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import UserBadge from '../components/UserBadge.vue'
+import SystemHealth from '../components/SystemHealth.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth, initAuth } from '../lib/auth.js'
 import { getInstallations, getUserOrgs, getOrgMembership, getRepoContent } from '../lib/api.js'

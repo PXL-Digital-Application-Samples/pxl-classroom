@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { EXPECTED_APP_PERMISSIONS } from '../../../lib/audit.mjs'
 
 // The URL where the frontend is hosted (used for homepage and callback)
 const hostUrl = computed(() => window.location.origin + import.meta.env.BASE_URL)
@@ -13,13 +14,7 @@ const manifest = computed(() => {
     },
     redirect_url: hostUrl.value,
     public: true,
-    default_permissions: {
-      actions: "write",
-      administration: "write",
-      contents: "write",
-      metadata: "read",
-      secrets: "write"
-    },
+    default_permissions: { ...EXPECTED_APP_PERMISSIONS },
     default_events: [],
     request_oauth_on_install: true,
     setup_url: hostUrl.value,

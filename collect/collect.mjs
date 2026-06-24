@@ -65,6 +65,45 @@ async function readAssignment(assignmentId) {
   } catch { return null; }
 }
 
+// --- Submit-tag discovery ----------------------------------------------------
+// Lists refs/tags/submit/* on a repo, parses the declared timestamp out of the
+// tag name, and returns the lexicographically latest tag (== latest declared
+// time, since the format is ISO-8601-Z). Returns null when no submit/ tags are
+// present or the latest one is malformed. We intentionally do NOT trust the
+// student-supplied timestamp for classification — the tag itself is the
+// observation (lecturer-side declared_at is observed-not-authoritative).
+const SUBMIT_TAG_RE = /^refs\/tags\/(submit\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)-[0-9a-f]{7,40})$/;
+
+async function findLatestSubmitTag(org, repoName) {
+  // List up to 100 matching refs (GitHub's max per page). A student spamming
+  // more than 100 submit tags is degenerate; we take the latest by name sort
+  // among whatever we got.
+  const res = await gh("GET", `/repos/${org}/${repoName}/git/matching-refs/tags/submit/?per_page=100`);
+  if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) return null;
+
+  const candidates = [];
+  for (const entry of res.data) {
+    const m = SUBMIT_TAG_RE.exec(entry.ref || "");
+    if (!m) continue;
+    candidates.push({ ref: entry.ref, tag: m[1], declared_at: m[2], objectSha: entry.object?.sha, objectType: entry.object?.type });
+  }
+  if (candidates.length === 0) return null;
+  // Tag name format is lexicographically sortable on declared_at, then sha.
+  candidates.sort((a, b) => (a.tag < b.tag ? 1 : a.tag > b.tag ? -1 : 0));
+  const latest = candidates[0];
+
+  // Resolve the tagged SHA. If the tag is annotated, object.sha points at the
+  // tag object, not the commit — we need to follow it through /git/tags.
+  let taggedSha = latest.objectSha;
+  if (latest.objectType === "tag" && latest.objectSha) {
+    const tagObj = await gh("GET", `/repos/${org}/${repoName}/git/tags/${latest.objectSha}`);
+    if (tagObj.ok && tagObj.data?.object?.sha) taggedSha = tagObj.data.object.sha;
+  }
+  if (!taggedSha || !/^[0-9a-f]{40}$/.test(taggedSha)) return null;
+
+  return { tag: latest.tag, declared_at: latest.declared_at, tagged_sha: taggedSha };
+}
+
 // --- Read repository records -------------------------------------------------
 async function readRepoRecords(assignmentId) {
   const dir = join(cfg.dataDir, "repositories", assignmentId);
@@ -176,6 +215,7 @@ async function main() {
         const now = new Date().toISOString();
         const observation = {
           schema_version: 1,
+          type: "snapshot",
           assignment_id: assignmentId,
           github_login: login,
           repo_id: repoRes.data.id,
@@ -194,7 +234,34 @@ async function main() {
 
         log(`snapshot ${login}`, { ok: true, note: `${branch}@${commitRes.data.sha.slice(0, 12)}` });
         totalCollected++;
-        allRows.push(`| ${login} | \`${commitRes.data.sha.slice(0, 12)}\` | ✓ |`);
+
+        // Also look for submit/ tags. Failures here are non-fatal — the
+        // default-branch snapshot is the floor.
+        let tagNote = "";
+        try {
+          const submit = await findLatestSubmitTag(cfg.org, repoName);
+          if (submit) {
+            const tagObservation = {
+              schema_version: 1,
+              type: "tagged-submission",
+              assignment_id: assignmentId,
+              github_login: login,
+              repo_id: repoRes.data.id,
+              observed_at: now,
+              tag: submit.tag,
+              declared_at: submit.declared_at,
+              tagged_sha: submit.tagged_sha,
+              observer_run: cfg.runUrl,
+            };
+            const tagPath = join(obsDir, `${safeTs}-tag.json`);
+            await writeFile(tagPath, JSON.stringify(tagObservation, null, 2) + "\n");
+            tagNote = ` · tag ${submit.tag}`;
+            log(`tag ${login}`, { ok: true, note: `${submit.tag} → ${submit.tagged_sha.slice(0, 12)}` });
+          }
+        } catch (e) {
+          log(`tag ${login}`, { ok: false, note: e.message });
+        }
+        allRows.push(`| ${login} | \`${commitRes.data.sha.slice(0, 12)}\`${tagNote} | ✓ |`);
       } catch (e) {
         log(`snapshot ${login}`, { ok: false, note: e.message });
         totalErrors++;

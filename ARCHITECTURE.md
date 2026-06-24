@@ -161,7 +161,7 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `roster.schema.json` | Roster entries |
 | `acceptance.schema.json` | Per-student acceptance record |
 | `repository-record.schema.json` | Provisioned repo facts |
-| `observation.schema.json` | A single snapshot of the submission ref |
+| `observation.schema.json` | A single submission observation — `snapshot` of the submission ref or a `tagged-submission` produced from `refs/tags/submit/*` |
 | `report.schema.json` | Computed per-assignment report |
 | `override.schema.json` | Lecturer overrides (8 types, see schema) |
 | `error-record.schema.json` | Workflow/script error records |
@@ -489,6 +489,12 @@ PXL Classroom does not use Git author/committer dates as authoritative submissio
 
 The deadline report classifies a submission by comparing observation times to `effective_deadline_at` (deadline + any override). The uncertainty interval between the deadline instant and the nightly observation is reported — never assumed away.
 
+### 11.1a Optional evidence — submit/ tags
+
+`collect/` additionally lists `refs/tags/submit/*` on each student repo. When a matching tag is found, a `tagged-submission` observation is written (separate file alongside the snapshot, same observations directory). The observed time (server-side, when `collect/` ran) is authoritative; the timestamp embedded in the tag name is recorded as `declared_at` (observed-not-authoritative — students set the value).
+
+When a tagged-submission exists, the deadline report prefers its SHA over the default-branch tip; otherwise it falls back to the snapshot — there is no breaking change for untagged submissions. Tag format: `submit/<ISO-8601-Z>-<short-sha>` (lex-sortable). The student helper one-liner lives in the control-repo template README.
+
 ### 11.2 Lock-down
 
 At nightly finalize, the App demotes the student admin → `pull` and captures a final snapshot. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 — 22s deadline→execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
@@ -520,6 +526,8 @@ A single instructor-only tracking issue per participating org, opened in the con
 Dedup-keys are stable per `(org, assignment, login, condition)` so repeated nights don't re-spam.
 
 Every state-changing workflow run records: run URL, initiating actor, op type, assignment ID, affected student, start/complete time, outcome, GitHub IDs, error category. Source changes happen through Git commits. Generated records identify the source revision.
+
+**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical set re-exported from the engine (`EXPECTED_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.json`, and — given an `--assignment` — samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
 
 ---
 

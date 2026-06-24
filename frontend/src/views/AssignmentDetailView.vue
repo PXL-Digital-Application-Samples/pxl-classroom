@@ -3,7 +3,10 @@
     <header class="detail-header">
       <div class="container flex items-center justify-between">
         <div class="flex items-center gap-md">
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">← Dashboard</router-link>
+          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
+            <Icon name="arrow-left" :size="14" />
+            <span>Dashboard</span>
+          </router-link>
           <span class="separator">/</span>
           <router-link :to="{ name: 'dashboard', params: { org } }" class="org-name">{{ org }}</router-link>
           <span class="separator">/</span>
@@ -73,17 +76,20 @@
             </select>
           </div>
           <div class="flex gap-sm items-center">
-            <button class="btn btn-primary" @click="refreshLiveStatus" :disabled="refreshingLive">
+            <button class="btn btn-primary btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive">
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
               <template v-else>
-                <span aria-hidden="true">↻</span><span>Live Status</span>
+                <Icon name="refresh-cw" :size="14" />
+                <span>Live Status</span>
               </template>
             </button>
-            <button class="btn" @click="exportCSV">
-              <span aria-hidden="true">⬇</span><span>Export CSV</span>
+            <button class="btn btn-with-icon" @click="exportCSV">
+              <Icon name="download" :size="14" />
+              <span>Export CSV</span>
             </button>
-            <button class="btn" @click="copyAcceptLink">
-              <span aria-hidden="true">⧉</span><span>Copy accept link</span>
+            <button class="btn btn-with-icon" @click="copyAcceptLink">
+              <Icon name="copy" :size="14" />
+              <span>Copy accept link</span>
             </button>
           </div>
         </div>
@@ -94,20 +100,23 @@
             <thead>
               <tr>
                 <th @click="sortBy('github_login')" class="sortable">
-                  Login {{ sortIcon('github_login') }}
+                  <span class="th-label">Login<SortIcon :dir="sortDir('github_login')" /></span>
                 </th>
                 <th @click="sortBy('acceptance_state')" class="sortable">
-                  Acceptance {{ sortIcon('acceptance_state') }}
+                  <span class="th-label">Acceptance<SortIcon :dir="sortDir('acceptance_state')" /></span>
                 </th>
                 <th @click="sortBy('submission_status')" class="sortable">
-                  Status {{ sortIcon('submission_status') }}
+                  <span class="th-label">Status<SortIcon :dir="sortDir('submission_status')" /></span>
                 </th>
                 <th>Repo</th>
                 <th @click="sortBy('latest_observed_at')" class="sortable">
-                  Last commit {{ sortIcon('latest_observed_at') }}
+                  <span class="th-label">Last commit<SortIcon :dir="sortDir('latest_observed_at')" /></span>
+                </th>
+                <th @click="sortBy('tagged_submission_observed_at')" class="sortable">
+                  <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
                 </th>
                 <th @click="sortBy('commit_count')" class="sortable num">
-                  Commits {{ sortIcon('commit_count') }}
+                  <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
                 <th class="col-warnings">Warnings</th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
@@ -140,6 +149,27 @@
                   <span v-else-if="s.repo_url" class="text-muted">no commits</span>
                   <span v-else class="text-muted">—</span>
                 </td>
+                <td class="col-submit-tag">
+                  <template v-if="s.tagged_submission_tag">
+                    <span class="tag-row">
+                      <Icon name="tag" :size="13" class="tag-icon" />
+                      <a v-if="s.repo_url && s.tagged_submission_sha"
+                         :href="`${s.repo_url}/tree/${encodeURIComponent(s.tagged_submission_tag)}`"
+                         target="_blank"
+                         class="mono tag-link"
+                         :title="`Tag observed ${formatDate(s.tagged_submission_observed_at)} · declared ${formatDate(s.tagged_submission_declared_at)}`">
+                        {{ shortTag(s.tagged_submission_tag) }}
+                      </a>
+                      <span v-else class="mono tag-link" :title="formatDate(s.tagged_submission_observed_at)">
+                        {{ shortTag(s.tagged_submission_tag) }}
+                      </span>
+                    </span>
+                    <div class="tag-time text-muted" :title="formatDate(s.tagged_submission_observed_at)">
+                      {{ formatRelative(s.tagged_submission_observed_at) }}
+                    </div>
+                  </template>
+                  <span v-else class="text-muted untagged" title="No submit/ tag found">—</span>
+                </td>
                 <td class="num">
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
                   <span v-else class="text-muted">—</span>
@@ -151,11 +181,13 @@
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td class="col-actions">
-                  <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">⋯</button>
+                  <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
+                    <Icon name="more-horizontal" :size="18" />
+                  </button>
                 </td>
               </tr>
               <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
-                <td colspan="8" class="empty-row">
+                <td colspan="9" class="empty-row">
                   No students match the current filters.
                   <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
                 </td>
@@ -173,12 +205,18 @@
           <article v-for="s in filteredStudents" :key="s.github_login" class="student-card">
             <header class="student-card-head">
               <a :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login">{{ s.github_login }}</a>
-              <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">⋯</button>
+              <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
+                <Icon name="more-horizontal" :size="18" />
+              </button>
             </header>
             <div class="student-card-badges">
               <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ s.acceptance_state }}</span>
               <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
               <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
+              <span v-if="s.tagged_submission_tag" class="badge badge-info badge-with-icon" :title="`Tagged ${formatDate(s.tagged_submission_observed_at)}`">
+                <Icon name="tag" :size="11" />
+                tagged
+              </span>
             </div>
             <div v-if="s.repo_url" class="student-card-repo">
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
@@ -239,7 +277,16 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { h } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
+import Icon from '../components/Icon.vue'
+
+// Tiny render helper — keeps the table markup readable. `dir` is "asc" |
+// "desc" | null; null renders nothing so non-active columns stay quiet.
+const SortIcon = (props) => props.dir
+  ? h(Icon, { name: props.dir === 'asc' ? 'arrow-up' : 'arrow-down', size: 11, class: 'sort-glyph' })
+  : null
+SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth } from '../lib/auth.js'
 import { getRepoContent, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader } from '../lib/api.js'
@@ -353,9 +400,11 @@ function sortBy(key) {
   if (sortKey.value === key) sortAsc.value = !sortAsc.value
   else { sortKey.value = key; sortAsc.value = true }
 }
-function sortIcon(key) {
-  if (sortKey.value !== key) return ''
-  return sortAsc.value ? '↑' : '↓'
+// Returns 'asc' | 'desc' | null — consumed by the <SortIcon> render helper
+// so the active column shows a directional arrow, the rest show nothing.
+function sortDir(key) {
+  if (sortKey.value !== key) return null
+  return sortAsc.value ? 'asc' : 'desc'
 }
 
 function statusBadge(status) {
@@ -368,6 +417,14 @@ function acceptBadge(state) {
 function shortRepo(name) {
   if (!name) return ''
   return name.includes('/') ? name.split('/')[1] : name
+}
+
+// `submit/2026-10-05T20:34:11Z-a1b2c3d` → `a1b2c3d` (short SHA suffix) so the
+// column stays narrow. Full tag name is on hover via title.
+function shortTag(tag) {
+  if (!tag) return ''
+  const dash = tag.lastIndexOf('-')
+  return dash >= 0 ? tag.slice(dash + 1) : tag
 }
 
 function latestSha(s) {
@@ -651,7 +708,8 @@ async function retryAcceptanceFor(student) {
   border-bottom: 1px solid var(--border-default);
   padding: var(--space-md) 0;
 }
-.back-link { font-size: 0.875rem; }
+.back-link { font-size: 0.875rem; display: inline-flex; align-items: center; gap: 4px; }
+.btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .separator { color: var(--text-muted); }
 .org-name { color: var(--text-secondary); font-size: 0.875rem; text-decoration: none; }
 .org-name:hover { color: var(--accent-blue); text-decoration: underline; }
@@ -736,6 +794,8 @@ th {
 }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--accent-blue); }
+.th-label { display: inline-flex; align-items: center; gap: 4px; }
+.sort-glyph { color: var(--accent-blue); }
 
 tr:hover td { background: rgba(88, 166, 255, 0.04); }
 tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
@@ -766,6 +826,13 @@ tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
 .col-repo .repo-link { display: inline-block; }
 .col-last-commit { white-space: nowrap; }
 .col-last-commit .sha { display: inline-block; }
+.col-submit-tag { white-space: nowrap; min-width: 150px; }
+.col-submit-tag .tag-row { display: inline-flex; align-items: center; gap: 4px; }
+.col-submit-tag .tag-icon { color: var(--accent-green); flex-shrink: 0; }
+.col-submit-tag .tag-link { font-size: 0.8rem; }
+.col-submit-tag .tag-time { font-size: 0.75rem; margin-top: 2px; }
+.col-submit-tag .untagged { font-size: 0.85rem; }
+.badge-with-icon { display: inline-flex; align-items: center; gap: 4px; }
 .commit-time-top {
   font-size: 0.85rem;
   color: var(--text-primary);

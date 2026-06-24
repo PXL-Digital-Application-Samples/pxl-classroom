@@ -35,3 +35,15 @@ Do not edit files manually. Use the **PXL Classroom Dashboard → Admin Panel** 
 - Grant deadline extensions (commits validated `override.schema.json` files).
 
 See `RUNBOOK.md` in the hub for operational detail.
+
+## Optional: tagged submissions
+
+Students may tag a submission to bind a sortable, server-side timestamp to a specific commit. The hub's `collect/` action lists these tags as a separate evidence layer and the report prefers them over the default-branch tip when both are present.
+
+Tag format — copy/paste this into course materials or a Make target:
+
+```bash
+git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
+```
+
+The system does not mandate tagging — observations on the default-branch tip remain authoritative when no tag exists. The declared timestamp inside the tag name is *observed*, not authoritative: classification on/late uses the time `collect/` saw the tag, not the student-supplied string.

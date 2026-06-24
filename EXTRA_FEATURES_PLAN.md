@@ -13,97 +13,13 @@ This is a planning artifact, not a runtime spec. When a feature ships, fold its 
 | A | 1 | `lib/gittree.mjs` commit primitive | **shipped** — see ARCHITECTURE §10.5 |
 | A | 2 | `pxl-classroom` CLI + device-flow auth | **shipped** — see RUNBOOK §12 |
 | A | 3 | CSV roster import (CLI + UI) | **shipped** — see RUNBOOK §12.4 |
-| B | 4 | Submit-tag convention | planned (below) |
-| B | 5 | `audit` command | planned (below) |
+| B | 4 | Submit-tag convention | **shipped** — see ARCHITECTURE §11.1a, RUNBOOK §12.6 |
+| B | 5 | `audit` command | **shipped** — see ARCHITECTURE §12, RUNBOOK §12.5 |
 | C | 6 | Feedback-PR pattern | planned (below) |
 | C | 7 | Bulk submission download | planned (below) |
 | C | 8 | Lecturer-side autograder | planned (below) |
 
-Phase A is the foundation: nothing in Phase B/C is worth doing without a reliable commit primitive and a CLI carrier. Both are now in place.
-
----
-
-## 4. Submit-tag convention
-
-**Why.** Stronger evidence layer without altering the trust model. Tags carry an explicit, sortable, client-config-independent submission timestamp.
-
-**Tag format.** `submit/&lt;ISO-8601-Z&gt;-&lt;short-sha&gt;` — e.g. `submit/2026-10-05T20:34:11Z-a1b2c3d`. Lexicographically sortable. The ISO-Z portion is the *server's* time at the moment the lecturer-supplied helper runs, not the client's git config.
-
-### Student protocol
-
-- Lecturer course materials show: `git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && git push origin --tags`
-- We do **not** mandate it — observations on the default branch tip remain authoritative.
-- Optional `pxl-classroom-helper` one-liner committed into templates for convenience.
-
-### Lecturer surfacing
-
-`collect/` action enhancement: in addition to the default-branch snapshot, list tags matching `^submit/` on each student repo, parse the timestamp, record the *latest* as a separate observation type:
-
-```json
-{
-  "type": "tagged-submission",
-  "observed_at": "2026-10-05T22:00:00Z",
-  "tag": "submit/2026-10-05T20:34:11Z-a1b2c3d",
-  "declared_at": "2026-10-05T20:34:11Z",
-  "tagged_sha": "a1b2c3d..."
-}
-```
-
-Report classifies a tagged-submission as the **declared** submission; falls back to default-branch tip if absent. `declared_at` is observed (we saw the tag), not authoritative (student set the time string).
-
-### UI
-
-- `AssignmentDetailView`: new column "Submit tag" showing the latest tag + relative time. Icon for tagged vs untagged.
-- Per-student panel: full tag history (sorted desc) with copy-SHA buttons.
-- Public student `AssignmentView`: "✅ Submission tagged at &lt;time&gt;" indicator after the helper runs.
-
-**Touchpoints.**
-- `collect/collect.mjs` — extend to list `refs/tags/submit/*`
-- `schemas/observation.schema.json` — add `type: "tagged-submission"` variant
-- `report/report.mjs` — prefer tagged over default-branch when present
-- `frontend/src/views/AssignmentDetailView.vue` — new column + drawer
-- Template README boilerplate (`control-repo-template/` and assignment templates)
-
-**Effort.** S–M. Schema change + collector extension is the bulk.
-
----
-
-## 5. `pxl-classroom audit`
-
-**Why.** Catches drift between the App's actual permissions and what the manifest declares; verifies lock-down outcomes match what reports claim.
-
-### CLI
-
-```bash
-pxl-classroom audit --org PXLAutomation
-pxl-classroom audit --org PXLAutomation --assignment linux-processes-2026
-pxl-classroom audit --org PXLAutomation --json   # machine output for CI
-```
-
-Checks performed (read-only):
-
-| Check | How |
-|---|---|
-| App installed on org | `GET /orgs/{org}/installation` |
-| App permissions match manifest | Compare with `frontend/src/views/SetupView.vue` manifest constant |
-| Control repo exists, private, scaffold intact | `GET /repos/{org}/pxl-classroom-control/contents/...` |
-| Org in `participating-orgs` branch | Fetch + parse |
-| Per-assignment: lockdown record matches repo permission | `GET /repos/{org}/{repo}/collaborators/{login}/permission` |
-| Per-assignment: archive branch exists for every reported submission | `GET /repos/{org}/pxl-classroom-archive/branches/preserved/{id}/{login}` |
-| Actions spending limit set | (best-effort, may require org owner) |
-
-Exit codes: `0` clean, `1` warnings, `2` failures. JSON mode for `audit` integration into nightly runs.
-
-### UI (`DashboardView.vue` — new "System health" panel)
-
-A small card per org showing the same checks as colored chips. Click → opens drawer with the audit JSON. Click "Re-run" → dispatches a new audit (lecturer token, no workflow needed). Cached for 5 minutes.
-
-**Touchpoints.**
-- New: `cli/src/commands/audit.mjs`, `lib/audit.mjs` (shared with SPA)
-- New: `frontend/src/components/SystemHealth.vue`
-- Schema: none (read-only)
-
-**Effort.** S–M.
+Phases A and B are now the foundation: a reliable commit primitive, a CLI carrier, a stronger evidence layer (submit tags), and a shared read-only audit engine. Phase C builds on these.
 
 ---
 

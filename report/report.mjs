@@ -150,9 +150,21 @@ async function main() {
     let latestObservedAt = null;
     let uncertaintySeconds = null;
 
+    // Tagged-submission observations are tracked separately so the UI can
+    // surface them and so a tag — when present and on-time — wins over the
+    // default-branch tip. See EXTRA_FEATURES_PLAN.md §4.
+    let latestTagObservation = null;
+
     for (const obs of observations) {
       // Skip preservation records
       if (obs.collection_type === "preservation") continue;
+
+      if (obs.type === "tagged-submission") {
+        if (!latestTagObservation || new Date(obs.observed_at) > new Date(latestTagObservation.observed_at)) {
+          latestTagObservation = obs;
+        }
+        continue;
+      }
 
       const obsTime = new Date(obs.observed_at);
       latestObservedSha = obs.sha;
@@ -165,6 +177,28 @@ async function main() {
         firstLateSha = obs.sha;
         firstLateObservedAt = obs.observed_at;
       }
+    }
+
+    // If a submit/ tag was seen, prefer it as the authoritative submission.
+    // observed_at is server-side (set by collect/), declared_at is the
+    // student-supplied ISO timestamp baked into the tag name — we trust the
+    // former for classification.
+    if (latestTagObservation) {
+      const tagObservedAt = new Date(latestTagObservation.observed_at);
+      const onTime = effectiveDeadline ? tagObservedAt <= effectiveDeadline : true;
+      if (onTime) {
+        lastOnTimeSha = latestTagObservation.tagged_sha;
+        lastOnTimeObservedAt = latestTagObservation.observed_at;
+        // A late snapshot observed after the tag does not invalidate an
+        // on-time tagged submission.
+        firstLateSha = null;
+        firstLateObservedAt = null;
+      } else if (!firstLateSha) {
+        firstLateSha = latestTagObservation.tagged_sha;
+        firstLateObservedAt = latestTagObservation.observed_at;
+      }
+      latestObservedSha = latestTagObservation.tagged_sha;
+      latestObservedAt = latestTagObservation.observed_at;
     }
 
     // Calculate uncertainty against the effective deadline
@@ -229,6 +263,10 @@ async function main() {
       latest_observed_sha: latestObservedSha,
       latest_observed_at: latestObservedAt,
       uncertainty_interval_seconds: uncertaintySeconds,
+      tagged_submission_tag: latestTagObservation?.tag ?? null,
+      tagged_submission_sha: latestTagObservation?.tagged_sha ?? null,
+      tagged_submission_observed_at: latestTagObservation?.observed_at ?? null,
+      tagged_submission_declared_at: latestTagObservation?.declared_at ?? null,
       lock_down_at: lockdownObs?.observed_at ?? null,
       lock_down_outcome: lockdownObs ? "locked" : null,
       preservation_status: preservation?.verified
@@ -308,6 +346,10 @@ async function main() {
       "latest_observed_sha",
       "latest_observed_at",
       "uncertainty_interval_seconds",
+      "tagged_submission_tag",
+      "tagged_submission_sha",
+      "tagged_submission_observed_at",
+      "tagged_submission_declared_at",
       "lock_down_at",
       "preservation_status",
       "preserved_sha",

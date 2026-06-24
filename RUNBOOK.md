@@ -534,3 +534,31 @@ The `--org` value sticks (config remembers it) so subsequent invocations can omi
 **SPA flow:** open `/dashboard/<org>/admin#roster`, drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses — no drift between surfaces.
 
 Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` — both safe for one-shot writes.
+
+### 12.5 Auditing an org's install
+
+`pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA shows the same checks in the **System health** panel at the top of the dashboard.
+
+```bash
+pxl-classroom audit --org PXLAutomation
+pxl-classroom audit --org PXLAutomation --assignment linux-processes-2026
+pxl-classroom audit --org PXLAutomation --json    # machine output for CI
+```
+
+Exit codes: `0` clean, `1` warnings, `2` failures. The check engine lives in `lib/audit.mjs` and is shared with the SPA — both surfaces use the same code path, only the HTTP carrier differs (Octokit in the CLI, browser fetch in the SPA).
+
+If `app-permissions match manifest` reports drift, re-approve the App in the org → Settings → GitHub Apps → PXL Classroom Provisioner → Configure. The expected permissions are the canonical `EXPECTED_APP_PERMISSIONS` in `lib/audit.mjs`, which `SetupView.vue` also imports — there is only one source of truth.
+
+### 12.6 Tagged submissions
+
+`collect/` lists `refs/tags/submit/*` on each student repo in addition to the default-branch snapshot. When a matching tag is found, a `tagged-submission` observation is written alongside the snapshot, and `report.mjs` prefers the tagged SHA for classification.
+
+Tag format students copy from the template README:
+
+```bash
+git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
+```
+
+The system never requires the tag — untagged submissions still land via the snapshot path. The timestamp inside the tag name is `declared_at` (observed-not-authoritative); the `observed_at` written by `collect/` is the time the hub saw the tag and is what classification uses.
+
+The lecturer dashboard's **Submit tag** column on `AssignmentDetailView` shows the latest tag per student, and the student `AssignmentView` shows a "Submission tagged at …" banner once `collect/` has seen the tag.
