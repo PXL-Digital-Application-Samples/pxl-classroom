@@ -10,8 +10,9 @@
 // Emits GitHub Actions outputs (repo_id, repo_url, repo_name, outcome) and a
 // step summary. No npm dependencies (Node 18+ fetch).
 
-import { appendFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { gh } from "../lib/gh.mjs";
+import { parse } from "yaml";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -20,6 +21,7 @@ const cfg = {
   templateOwner: env("TEMPLATE_OWNER"),
   templateRepo: env("TEMPLATE_REPO"),
   targetRepo: env("TARGET_REPO"),
+  assignmentId: env("ASSIGNMENT_ID"),
   studentLogin: env("STUDENT_LOGIN"),
   permission: env("STUDENT_PERMISSION", "admin"),
   isPrivate: env("PRIVATE", "true") !== "false",
@@ -108,6 +110,47 @@ async function setupFeedbackBaseline(repo) {
   return sha;
 }
 
+async function injectAutogradingWorkflow(assignment) {
+  const isPublic = assignment.autograde.visibility === "public";
+  let content = "";
+  if (!isPublic) {
+    content = `name: Autograding
+on:
+  push:
+    branches:
+      - main
+jobs:
+  grade:
+    uses: ${cfg.org}/pxl-classroom-control/.github/workflows/grade.yml@main
+`;
+  } else {
+    content = `name: Autograding
+on:
+  push:
+    branches:
+      - main
+jobs:
+  grade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: npm install
+      - run: npm test
+`;
+  }
+  
+  const b64 = Buffer.from(content).toString("base64");
+  const res = await gh("PUT", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/autograding.yml`, {
+    message: "Add autograding workflow",
+    content: b64
+  });
+  if (!res.ok) {
+    log("inject-autograding", { ok: false, note: `failed to inject workflow HTTP ${res.status}` });
+  } else {
+    log("inject-autograding", { ok: true, note: "injected .github/workflows/autograding.yml" });
+  }
+}
+
 async function main() {
   const bad = validate();
   if (bad) await fail("fail:validation", bad);
@@ -144,6 +187,19 @@ async function main() {
     const add = await gh("PUT", `/repos/${cfg.org}/${cfg.targetRepo}/collaborators/${cfg.studentLogin}`, { permission: cfg.permission });
     if (!(add.status === 201 || add.status === 204)) await fail("fail:grant", `grant HTTP ${add.status} ${add.data?.message ?? ""}`);
     log("grant", { ok: true, note: add.status === 201 ? `invitation created (${cfg.permission})` : `already a collaborator (${cfg.permission})` });
+  }
+
+  // 5.5 Inject Autograding workflow if github_actions
+  if (!cfg.dryRun && repo && cfg.assignmentId) {
+    try {
+      const yamlStr = await readFile(`control/assignments/${cfg.assignmentId}.yml`, "utf-8");
+      const assignment = parse(yamlStr);
+      if (assignment?.autograde?.enabled && assignment.autograde.execution_environment === "github_actions") {
+        await injectAutogradingWorkflow(assignment);
+      }
+    } catch (e) {
+      log("inject-autograding", { ok: false, note: `failed to read assignment config: ${e.message}` });
+    }
   }
 
   // 6. Optional Feedback-PR scaffold: baseline branch + protection. PR open

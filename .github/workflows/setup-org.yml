@@ -58,6 +58,17 @@ jobs:
               }
             }
 
+            console.log('Setting Actions access to allow reusable workflows from other org repos...');
+            try {
+              await github.request('PUT /repos/{owner}/{repo}/actions/permissions/access', {
+                owner: org,
+                repo: repoName,
+                access_level: 'organization'
+              });
+            } catch (error) {
+              console.log('Failed to set Actions access level:', error.message);
+            }
+
       - name: Initialize control repo structure
         run: |
           TMPDIR=$(mktemp -d)

@@ -134,7 +134,7 @@
     },
     "autograde": {
       "type": "object",
-      "description": "Optional autograder configuration. Tests are executed on the lecturer's machine (Docker or host) by `pxl-classroom grade`. No platform-side execution.",
+      "description": "Optional autograder configuration. Tests can be executed on the lecturer's machine or on GitHub Actions.",
       "required": ["enabled", "tests"],
       "additionalProperties": false,
       "properties": {
@@ -142,6 +142,18 @@
           "type": "boolean",
           "default": false,
           "description": "Whether autograding is configured for this assignment."
+        },
+        "execution_environment": {
+          "type": "string",
+          "enum": ["lecturer_local", "github_actions"],
+          "default": "lecturer_local",
+          "description": "Where the tests are executed."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "private"],
+          "default": "private",
+          "description": "If 'private' and execution_environment is github_actions, uses a reusable workflow to hide tests in the control repo."
         },
         "tests": {
           "type": "array",

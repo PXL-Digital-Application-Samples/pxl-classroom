@@ -55,6 +55,8 @@ test("SPA-serialized YAML with autograde passes validateAgainst('assignment', ..
     lock_down_enabled: true,
     autograde: {
       enabled: true,
+      execution_environment: "github_actions",
+      visibility: "private",
       tests: [
         {
           id: "test1",

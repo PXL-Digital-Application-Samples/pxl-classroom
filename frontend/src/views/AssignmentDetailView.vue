@@ -126,6 +126,7 @@
                 <th @click="sortBy('commit_count')" class="sortable num">
                   <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
+                <th v-if="isGitHubActionsAutograde" class="col-ci">CI Status</th>
                 <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
                 <th class="col-warnings">Warnings</th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
@@ -181,6 +182,12 @@
                 </td>
                 <td class="num">
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td v-if="isGitHubActionsAutograde" class="col-ci">
+                  <span v-if="s.ci_status" :class="['badge', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']">
+                    {{ s.ci_status }}
+                  </span>
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td v-if="feedbackPrEnabled" class="col-feedback-pr">
@@ -266,7 +273,10 @@
           <div class="autograde-banner">
             Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
             Total points: <strong>{{ autogradeTotalPoints }}</strong>.
-            <button class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
+            <button v-if="!isGitHubActionsAutograde" class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
+            <button v-else class="btn btn-primary" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
+              {{ syncingGrades ? 'Syncing...' : 'Sync Grades from GitHub' }}
+            </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
             <table>
@@ -352,6 +362,8 @@ import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
+import { commitWithRebase } from '../../../lib/gittree.mjs'
+import { gh } from '../../../lib/gh.mjs'
 import { parse as parseYaml } from 'yaml'
 
 const REFRESH_CONCURRENCY = 6
@@ -388,8 +400,10 @@ const lateCount = computed(() => report.value?.students.filter((s) => s.submissi
 const noSubCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'no-submission').length || 0)
 const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
 const autogradeEnabled = computed(() => assignment.value?.autograde?.enabled === true)
+const isGitHubActionsAutograde = computed(() => autogradeEnabled.value && assignment.value?.autograde?.execution_environment === 'github_actions')
 const preservedCount = computed(() => (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' && s.preserved_sha).length)
 const autogradeTotalPoints = computed(() => (assignment.value?.autograde?.tests || []).reduce((sum, t) => sum + (t.points || 0), 0))
+const syncingGrades = ref(false)
 
 // Deadline source of truth: the current assignment YAML (so a Live Status
 // refresh after a deadline change reclassifies correctly), with the report's
@@ -662,6 +676,15 @@ async function refreshOne(token, s) {
       } else {
         s.submission_status = 'unknown'
       }
+      
+      // Fetch CI status if github actions
+      if (isGitHubActionsAutograde.value) {
+        const checkRes = await ghApi(token, 'GET', `/repos/${props.org}/${s.repo_name}/commits/${sha}/check-runs`)
+        if (checkRes.ok && checkRes.data?.check_runs) {
+          const run = checkRes.data.check_runs.find(r => r.name.toLowerCase().includes('grade') || r.name.toLowerCase().includes('autograde')) || checkRes.data.check_runs[0]
+          if (run) s.ci_status = run.conclusion || run.status
+        }
+      }
     } else if (res.ok && res.data && res.data.length === 0) {
       s.submission_status = 'no-submission'
     }
@@ -730,6 +753,75 @@ async function refreshLiveStatus() {
     toast.error('Refreshed locally but save failed.')
   } finally {
     refreshingLive.value = false
+  }
+}
+
+async function syncGradesFromGitHub() {
+  const token = getToken()
+  if (!token || !report.value || !assignment.value) return
+  
+  syncingGrades.value = true
+  const queue = report.value.students.filter(s => s.repo_name && s.preserved_sha)
+  const summary = { graded: [], failed: [] }
+  const changes = []
+  
+  // We need to inject token into the global scope or mock octokit for commitWithRebase
+  // BUT commitWithRebase expects an octokit instance. The frontend doesn't use octokit!
+  // It uses fetch natively. We can't use commitWithRebase directly.
+  // Instead, let's just make direct API calls to commit the summary.json, and skip individual json files to avoid spamming commits or needing complex git tree manual creation.
+  
+  try {
+    for (const s of queue) {
+      try {
+        const checksReq = await ghApi(token, 'GET', `/repos/${props.org}/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
+        const checkRuns = checksReq.data?.check_runs || [];
+        const total = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
+        let earned = 0;
+        let passed = false;
+        if (checkRuns.length > 0) {
+          const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
+          if (run.conclusion === "success") {
+            earned = total;
+            passed = true;
+          }
+        }
+        
+        summary.graded.push({
+          login: s.github_login,
+          earned_points: earned,
+          total_points: total,
+          graded_at: new Date().toISOString()
+        })
+      } catch (err) {
+        summary.failed.push({ login: s.github_login, reason: err.message })
+      }
+    }
+    
+    const summaryDoc = {
+      schema_version: 1,
+      assignment_id: props.assignmentId,
+      generated_at: new Date().toISOString(),
+      graded_by: user.value?.login,
+      runner: "github_actions",
+      students: summary.graded,
+      failed: summary.failed,
+    }
+    
+    const path = `grading/${props.assignmentId}/summary.json`
+    const body = JSON.stringify(summaryDoc, null, 2) + '\\n'
+    const res = await commitFile(token, props.org, config.controlRepo, path, body, `Sync grades for ${props.assignmentId}`)
+    
+    if (res.ok) {
+      autogradeSummary.value = summaryDoc
+      toast.success(`Grades synced successfully (${summary.graded.length} graded)`)
+    } else {
+      toast.error(`Save failed: ${res.data?.message}`)
+    }
+  } catch (e) {
+    console.error('Failed to sync grades', e)
+    toast.error('Failed to sync grades')
+  } finally {
+    syncingGrades.value = false
   }
 }
 

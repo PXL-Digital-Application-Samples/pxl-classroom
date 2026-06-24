@@ -42,6 +42,7 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ github.event.client_payload.org }}
+          assignment-id: ${{ steps.accept.outputs.assignment_id }}
           template-owner: ${{ steps.accept.outputs.template_owner }}
           template-repo: ${{ steps.accept.outputs.template_repo }}
           target-repo: ${{ steps.accept.outputs.target_repo }}

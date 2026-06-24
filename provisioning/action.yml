@@ -13,6 +13,9 @@ inputs:
   org:
     description: Target organization (App must be installed here)
     required: true
+  assignment-id:
+    description: Assignment ID
+    required: true
   template-owner:
     description: Template repository owner
     required: true
@@ -86,6 +89,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ steps.token.outputs.token }}
         ORG: ${{ inputs.org }}
+        ASSIGNMENT_ID: ${{ inputs.assignment-id }}
         TEMPLATE_OWNER: ${{ inputs.template-owner }}
         TEMPLATE_REPO: ${{ inputs.template-repo }}
         TARGET_REPO: ${{ inputs.target-repo }}

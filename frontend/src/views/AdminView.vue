@@ -161,10 +161,27 @@
               </small>
             </div>
             <div v-if="form.autograde_enabled" class="field autograde-banner">
-              <small>
+              <label>Execution Environment</label>
+              <select v-model="form.autograde_execution_environment">
+                <option value="lecturer_local">Lecturer Local (CLI)</option>
+                <option value="github_actions">GitHub Actions (Student Repo)</option>
+              </select>
+              <div v-if="form.autograde_execution_environment === 'github_actions'" style="margin-top: 8px;">
+                <label>Test Visibility</label>
+                <select v-model="form.autograde_visibility">
+                  <option value="private">Private (Hidden via reusable workflow)</option>
+                  <option value="public">Public (Visible in student repo)</option>
+                </select>
+              </div>
+              <small style="display:block; margin-top: 8px;">
                 Autograder configured ({{ (form.autograde_tests || []).length }} test(s)).
-                Execution stays off-platform — run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> from your machine.
-                Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
+                <template v-if="form.autograde_execution_environment === 'lecturer_local'">
+                  Execution stays off-platform — run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> from your machine.
+                  Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
+                </template>
+                <template v-else>
+                  Executed automatically via GitHub Actions in the student repositories.
+                </template>
               </small>
             </div>
           </fieldset>
@@ -376,6 +393,8 @@ function emptyForm() {
     feedback_pr: false,
     feedback_pr_baseline_branch: 'pxl-baseline',
     autograde_enabled: false,
+    autograde_execution_environment: 'lecturer_local',
+    autograde_visibility: 'private',
     autograde_tests: [],
   }
 }
@@ -519,6 +538,8 @@ function editAssignment(a) {
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
     autograde_enabled: a.autograde?.enabled === true,
+    autograde_execution_environment: a.autograde?.execution_environment || 'lecturer_local',
+    autograde_visibility: a.autograde?.visibility || 'private',
     autograde_tests: a.autograde?.tests || [],
   }
   extForm.value = { login: '', deadline_local: form.value.deadline_at_local, reason: '' }
@@ -568,7 +589,7 @@ function buildDoc(state = null) {
         }
       : {}),
     ...(form.value.autograde_enabled && form.value.autograde_tests?.length
-      ? { autograde: { enabled: true, tests: form.value.autograde_tests } }
+      ? { autograde: { enabled: true, execution_environment: form.value.autograde_execution_environment, visibility: form.value.autograde_visibility, tests: form.value.autograde_tests } }
       : {}),
   }
 }
