@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  actions: write # dispatches regenerate-dashboard.yml
 
 concurrency:
   group: accept-${{ github.event.client_payload.org }}-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.github_login }}

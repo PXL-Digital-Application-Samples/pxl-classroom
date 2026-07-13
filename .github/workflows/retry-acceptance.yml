@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  actions: write # dispatches regenerate-dashboard.yml
 
 concurrency:
   group: accept-${{ inputs.org }}-${{ inputs.assignment_id }}-${{ inputs.github_login }}
