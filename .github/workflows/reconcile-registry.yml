@@ -1,10 +1,8 @@
 name: Reconcile Registry
+# Dispatch-only: a push trigger on the participating-orgs branch can never
+# fire because push-triggered workflows must exist on the pushed ref, and
+# that orphan data branch carries no workflow files.
 on:
-  push:
-    branches:
-      - participating-orgs
-    paths:
-      - 'participating-orgs.yml'
   workflow_dispatch:
     inputs:
       org: { type: string }

@@ -49,25 +49,23 @@ Verify: `gh api /app/installations` (with App-level JWT) should show this instal
 
 ### 1.5 Branch protection on `main`
 
-`pxl-classroom` is public. The workflows file is the highest-value target. Configure:
+`pxl-classroom` is public. The workflows are the highest-value target. The repo is maintained by direct pushes to `main` (no pull requests), so PR-review and required-status-check rules are deliberately **not** used — a required status check rejects any direct push, because the pushed commit cannot have a passing check yet. CI still runs on every push and fails loudly.
 
-- Settings → Branches → Add rule for `main`:
-  - Require pull requests, ≥2 approvals.
-  - Require status checks: `ci.yml` must pass.
-  - Require signed commits.
-  - Restrict who can push (admin team only).
-  - Block force-pushes and deletions.
-- Settings → Code security:
-  - Enable secret scanning.
-  - Enable push protection.
+Configure (both branch rules can be applied via the API, see below):
 
-CODEOWNERS for `/.github/workflows/`, `/acceptance/`, `/provisioning/`, `/collect/`, `/lockdown/`, `/preserve/`, `/report/`, `/pages/`, `/notify/`, `/registry/`, `/lib/`, `/scripts/` — all → the admin team. This forces an extra review for any change to the trusted execution surface.
+- Branch rule for `main`: block force-pushes and deletions, **including for administrators**. No PR requirement, no required checks, no signed-commits requirement.
+- Settings → Code security: enable secret scanning **and** push protection.
 
-### 1.6 Light protection on `participating-orgs` branch
+```
+printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}' | \
+  gh api -X PUT repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection --input -
+```
 
-This branch is the registry of participating orgs. The Setup-Organization workflow needs to commit to it from automation. Configure:
+If the maintainer team ever grows beyond one person, revisit: require PRs with review, and add CODEOWNERS for the trusted execution surface (`/.github/workflows/`, the composite actions, `/lib/`, `/scripts/`).
 
-- Add branch rule for `participating-orgs`: require pull requests with 1 approval, **no signed-commits requirement**, no status-check requirement.
+### 1.6 Protection on `participating-orgs` branch
+
+This branch is the registry of participating orgs. The Setup-Organization workflow commits to it directly from automation, so it must accept plain pushes. Apply the same rule as `main` (force-push and deletion blocking only — same API call with `participating-orgs` in place of `main`).
 
 ### 1.7 Verify
 
@@ -115,12 +113,14 @@ The workflow:
 
 ### 2.3 Configure the org's Actions budget
 
-**This step is mandatory.** Each org pays for its own Actions usage (provisioning, collection, finalize). Without a spending limit, an attacker who triggers many acceptances could rack up cost.
+**Default: leave the spending limit at €0.** All hub workflows (provisioning, collection, finalize, dashboards) run on the public hub repo and are free. The only Actions billed to a participating org are workflows inside its private student repos — student-side autograding and any CI students add themselves — and those first draw from the plan's included minutes (GitHub Team: 3,000 min/month). With a €0 limit nothing can ever bill, and an acceptance-spam attacker cannot rack up cost.
 
-1. Org → Settings → Billing and plans → Spending limit → **set Actions spending limit** (recommended floor: see table below).
-2. Configure billing alerts at 50%, 80%, 100%. Recipient: the org's named budget owner.
+1. Org → Settings → Billing and plans → Spending limit → verify the Actions limit is **€0** (the GitHub default).
+2. Configure billing alerts at 50%, 80%, 100% of included usage. Recipient: the org's named budget owner.
 
-| Class size | Recommended floor | Headroom |
+Raise the limit per the table below **only when** the autograding workload actually exhausts the included minutes:
+
+| Class size | Suggested limit when raising | Headroom |
 |---|---|---|
 | ≤ 50 students | €60 / month | ~10,000 min ≈ 200 min/student |
 | 51–150 students | €120 / month | ~20,000 min ≈ 130 min/student |
