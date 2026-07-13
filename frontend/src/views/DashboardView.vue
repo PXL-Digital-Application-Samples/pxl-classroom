@@ -3,8 +3,8 @@
     <header class="dashboard-header">
       <div class="container flex items-center justify-between">
         <div class="logo flex items-center gap-sm">
-          <router-link to="/" class="logo-link">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <router-link to="/" class="logo-link" aria-label="PXL Classroom home">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
               <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
             </svg>
@@ -34,14 +34,7 @@
           <template v-else>Sign in with GitHub</template>
         </button>
 
-        <div v-if="deviceFlow" class="device-flow-inline">
-          <p>Go to <a :href="deviceFlow.verification_uri" target="_blank">{{ deviceFlow.verification_uri }}</a> and enter:</p>
-          <code class="device-code-big">{{ deviceFlow.user_code }}</code>
-          <p class="text-warning" style="margin-top: 1rem; font-size: 0.875rem; text-align: left; padding: 0.5rem; border: 1px solid var(--accent-yellow); border-radius: 4px;">
-            <strong>Security Notice:</strong> The authorization page should ask you to authorize <strong>PXL Classroom Provisioner</strong>. If any other App name appears, do NOT enter the code.
-          </p>
-          <div class="spinner" style="margin-top:12px"></div>
-        </div>
+        <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
       </div>
 
       <!-- Loading -->
@@ -56,10 +49,28 @@
         <p class="text-secondary">Choose an organization from the dropdown above.</p>
       </div>
 
-      <!-- No assignments -->
+      <!-- No assignments — say WHY, each cause has a different remedy -->
       <div v-else-if="assignments.length === 0" class="center-card fade-in">
-        <h2>No assignments found</h2>
-        <p class="text-secondary">No assignments in {{ selectedOrg }}'s control repository, or the control repo doesn't exist yet.</p>
+        <template v-if="dashState === 'no-control-repo'">
+          <h2>{{ selectedOrg }} isn't onboarded yet</h2>
+          <p class="text-secondary">
+            There is no <code>{{ selectedOrg }}/pxl-classroom-control</code> repository (or you can't see it).
+            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow — see RUNBOOK §2.
+          </p>
+        </template>
+        <template v-else-if="dashState === 'no-dashboard'">
+          <h2>No dashboard data yet</h2>
+          <p class="text-secondary">
+            The control repo exists, but <code>reports/dashboard.json</code> hasn't been generated yet.
+            It appears when an assignment is published (and refreshes nightly).
+          </p>
+          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+        </template>
+        <template v-else>
+          <h2>No assignments yet</h2>
+          <p class="text-secondary">Create your first assignment in the Admin Panel.</p>
+          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+        </template>
       </div>
 
       <!-- Assignment grid -->
@@ -86,6 +97,7 @@
           role="button"
           tabindex="0"
           @keyup.enter="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
+          @keydown.space.prevent="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
         >
           <div class="card-header flex items-center justify-between">
             <span :class="['badge', stateClass(a.state)]">{{ a.state }}</span>
@@ -127,9 +139,10 @@ import { ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import UserBadge from '../components/UserBadge.vue'
 import SystemHealth from '../components/SystemHealth.vue'
+import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth, initAuth } from '../lib/auth.js'
-import { getInstallations, getUserOrgs, getOrgMembership, getRepoContent } from '../lib/api.js'
+import { getInstallations, getUserOrgs, getOrgMembership, getRepoContent, getRepo } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -147,6 +160,9 @@ const loadingData = ref(false)
 const authLoading = ref(false)
 const deviceFlow = ref(null)
 let pollAbort = null
+
+// Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
+const dashState = ref('')
 
 onMounted(async () => {
   if (isAuthenticated()) {
@@ -213,21 +229,33 @@ async function loadOrgs() {
 async function loadDashboard(org) {
   loadingData.value = true
   assignments.value = []
+  dashState.value = ''
 
   const token = getToken()
   if (!token) { loadingData.value = false; return }
 
   try {
-    const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
-    if (content) {
-      const data = JSON.parse(content)
-      assignments.value = Object.entries(data.assignments || {}).map(([id, a]) => ({ id, ...a }))
+    // Distinguish "org not onboarded" from "no dashboard yet" from "empty" —
+    // each empty state points the lecturer at a different remedy.
+    const repoRes = await getRepo(token, org, config.controlRepo)
+    if (!repoRes.ok) {
+      dashState.value = 'no-control-repo'
+      return
     }
+    const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
+    if (!content) {
+      dashState.value = 'no-dashboard'
+      return
+    }
+    const data = JSON.parse(content)
+    assignments.value = Object.entries(data.assignments || {}).map(([id, a]) => ({ id, ...a }))
+    if (assignments.value.length === 0) dashState.value = 'empty'
   } catch (e) {
     console.error('Failed to load dashboard:', e)
+    dashState.value = 'no-dashboard'
+  } finally {
+    loadingData.value = false
   }
-
-  loadingData.value = false
 }
 
 async function startLogin() {
@@ -245,6 +273,12 @@ async function startLogin() {
     if (e.message !== 'Cancelled') console.error(e)
     deviceFlow.value = null
   }
+  authLoading.value = false
+}
+
+function cancelLogin() {
+  if (pollAbort) pollAbort.abort()
+  deviceFlow.value = null
   authLoading.value = false
 }
 

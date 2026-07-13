@@ -27,6 +27,9 @@
       <div v-if="loading" class="center-card">
         <div class="spinner"></div>
       </div>
+      <div v-else-if="loadError" class="center-card text-secondary">
+        Couldn't load the assignment list — check your connection and refresh.
+      </div>
       <div v-else-if="!indexData || indexData.orgs.length === 0" class="center-card text-secondary">
         No open assignments right now.
       </div>
@@ -60,6 +63,7 @@ import { formatDate } from '../lib/format.js'
 
 const indexData = ref(null)
 const loading = ref(true)
+const loadError = ref(false)
 
 onMounted(async () => {
   try {
@@ -84,6 +88,7 @@ onMounted(async () => {
     }
   } catch (e) {
     console.error("Failed to load public index", e)
+    loadError.value = true
   }
   loading.value = false
 })
@@ -105,6 +110,9 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   min-height: 50vh;
+  /* Clip the 400px decorative glow — it otherwise causes horizontal
+     scrolling on narrow viewports. */
+  overflow: hidden;
 }
 
 .hero-glow {

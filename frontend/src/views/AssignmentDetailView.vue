@@ -25,8 +25,15 @@
 
       <!-- No report -->
       <div v-else-if="!report" class="center-card fade-in">
-        <h2>No report found</h2>
-        <p class="text-secondary">Run the "Export report" workflow in the control repo to generate a report for this assignment.</p>
+        <h2>No report yet</h2>
+        <p class="text-secondary">
+          Reports for <code>{{ assignmentId }}</code> are written to the control repo by the nightly
+          <code>daily-activity.yml</code> run in the hub — the first one lands the night after publishing.
+        </p>
+        <p class="text-secondary">
+          Need it sooner? Trigger <strong>Daily activity</strong> manually from the hub's
+          <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/daily-activity.yml`" target="_blank" rel="noopener">Actions tab</a>.
+        </p>
       </div>
 
       <!-- Report loaded -->
@@ -107,23 +114,23 @@
           <table>
             <thead>
               <tr>
-                <th @click="sortBy('github_login')" class="sortable">
+                <th @click="sortBy('github_login')" @keydown.enter="sortBy('github_login')" @keydown.space.prevent="sortBy('github_login')" tabindex="0" class="sortable" :aria-sort="ariaSort('github_login')">
                   <span class="th-label">Login<SortIcon :dir="sortDir('github_login')" /></span>
                 </th>
-                <th @click="sortBy('acceptance_state')" class="sortable">
+                <th @click="sortBy('acceptance_state')" @keydown.enter="sortBy('acceptance_state')" @keydown.space.prevent="sortBy('acceptance_state')" tabindex="0" class="sortable" :aria-sort="ariaSort('acceptance_state')">
                   <span class="th-label">Acceptance<SortIcon :dir="sortDir('acceptance_state')" /></span>
                 </th>
-                <th @click="sortBy('submission_status')" class="sortable">
+                <th @click="sortBy('submission_status')" @keydown.enter="sortBy('submission_status')" @keydown.space.prevent="sortBy('submission_status')" tabindex="0" class="sortable" :aria-sort="ariaSort('submission_status')">
                   <span class="th-label">Status<SortIcon :dir="sortDir('submission_status')" /></span>
                 </th>
                 <th>Repo</th>
-                <th @click="sortBy('latest_observed_at')" class="sortable">
+                <th @click="sortBy('latest_observed_at')" @keydown.enter="sortBy('latest_observed_at')" @keydown.space.prevent="sortBy('latest_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('latest_observed_at')">
                   <span class="th-label">Last commit<SortIcon :dir="sortDir('latest_observed_at')" /></span>
                 </th>
-                <th @click="sortBy('tagged_submission_observed_at')" class="sortable">
+                <th @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
                   <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
                 </th>
-                <th @click="sortBy('commit_count')" class="sortable num">
+                <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')">
                   <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
                 <th v-if="isGitHubActionsAutograde" class="col-ci">CI Status</th>
@@ -142,6 +149,9 @@
                 </td>
                 <td>
                   <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
+                  <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted — reason: ${extensionFor(s.github_login).reason}`">
+                    ext → {{ formatDate(extensionFor(s.github_login).value) }}
+                  </div>
                 </td>
                 <td class="col-repo">
                   <a v-if="s.repo_url" :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
@@ -209,7 +219,7 @@
                 </td>
               </tr>
               <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
-                <td :colspan="feedbackPrEnabled ? 10 : 9" class="empty-row">
+                <td :colspan="tableColumnCount" class="empty-row">
                   No students match the current filters.
                   <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
                 </td>
@@ -238,6 +248,9 @@
               <span v-if="s.tagged_submission_tag" class="badge badge-info badge-with-icon" :title="`Tagged ${formatDate(s.tagged_submission_observed_at)}`">
                 <Icon name="tag" :size="11" />
                 tagged
+              </span>
+              <span v-if="extensionFor(s.github_login)" class="badge badge-info" :title="`Extended to ${formatDate(extensionFor(s.github_login).value)} — ${extensionFor(s.github_login).reason}`">
+                extended
               </span>
             </div>
             <div v-if="s.repo_url" class="student-card-repo">
@@ -273,9 +286,13 @@
           <div class="autograde-banner">
             Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
             Total points: <strong>{{ autogradeTotalPoints }}</strong>.
+            <template v-if="isGitHubActionsAutograde">
+              Sync reads each student's CI conclusion at the preserved SHA — it is a
+              <strong>pass/fail signal</strong>, not per-test grading.
+            </template>
             <button v-if="!isGitHubActionsAutograde" class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
             <button v-else class="btn btn-primary" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
-              {{ syncingGrades ? 'Syncing...' : 'Sync Grades from GitHub' }}
+              {{ syncingGrades ? 'Syncing...' : 'Sync CI results from GitHub' }}
             </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
@@ -283,16 +300,26 @@
               <thead>
                 <tr>
                   <th>Login</th>
-                  <th class="num">Earned</th>
-                  <th class="num">Total</th>
+                  <th v-if="summaryIsCiBased">CI result</th>
+                  <template v-else>
+                    <th class="num">Earned</th>
+                    <th class="num">Total</th>
+                  </template>
                   <th>Last graded</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in autogradeSummary.students" :key="row.login">
                   <td><a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a></td>
-                  <td class="num">{{ row.earned_points }}</td>
-                  <td class="num">{{ row.total_points }}</td>
+                  <td v-if="summaryIsCiBased">
+                    <span :class="['badge', row.earned_points >= row.total_points && row.total_points > 0 ? 'badge-success' : 'badge-error']">
+                      {{ row.earned_points >= row.total_points && row.total_points > 0 ? 'passed' : 'failed' }}
+                    </span>
+                  </td>
+                  <template v-else>
+                    <td class="num">{{ row.earned_points }}</td>
+                    <td class="num">{{ row.total_points }}</td>
+                  </template>
                   <td>{{ formatDate(row.graded_at) }}</td>
                 </tr>
               </tbody>
@@ -317,6 +344,10 @@
 
           <section class="modal-section">
             <h4>Grant deadline extension</h4>
+            <p v-if="extensionFor(actionStudent.github_login)" class="text-secondary">
+              Currently extended to <strong>{{ formatDate(extensionFor(actionStudent.github_login).value) }}</strong>
+              ("{{ extensionFor(actionStudent.github_login).reason }}"). Granting again replaces this extension.
+            </p>
             <div class="field">
               <label>New deadline (just for this student)</label>
               <input type="datetime-local" v-model="actionExt.deadline_local" />
@@ -344,7 +375,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { h } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import Icon from '../components/Icon.vue'
@@ -405,6 +436,25 @@ const preservedCount = computed(() => (report.value?.students || []).filter((s) 
 const autogradeTotalPoints = computed(() => (assignment.value?.autograde?.tests || []).reduce((sum, t) => sum + (t.points || 0), 0))
 const syncingGrades = ref(false)
 
+// CI-derived summaries carry a single pass/fail conclusion, not per-test
+// points — display them as such instead of implying granular grading.
+const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'github_actions')
+
+// login → override doc from overrides/<assignment>/<login>.json, so granted
+// extensions are visible (and inspectable before granting again).
+const overridesByLogin = ref(new Map())
+
+// Base columns: login, acceptance, status, repo, last commit, submit tag,
+// commits, warnings, actions — plus the two conditional columns.
+const tableColumnCount = computed(() =>
+  9 + (isGitHubActionsAutograde.value ? 1 : 0) + (feedbackPrEnabled.value ? 1 : 0))
+
+function extensionFor(login) {
+  const doc = overridesByLogin.value.get(login)
+  const ext = (doc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
+  return ext || null
+}
+
 // Deadline source of truth: the current assignment YAML (so a Live Status
 // refresh after a deadline change reclassifies correctly), with the report's
 // per-student effective_deadline_at as a fallback.
@@ -447,7 +497,12 @@ const filteredStudents = computed(() => {
   return list
 })
 
+function onKeydown(e) {
+  if (e.key === 'Escape' && actionStudent.value) closeActions()
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   const token = getToken()
   if (!token) { loading.value = false; return }
   try {
@@ -471,11 +526,36 @@ onMounted(async () => {
         try { autogradeSummary.value = JSON.parse(sum) } catch { /* malformed */ }
       }
     }
+    await loadOverrides(token)
   } catch (e) {
     console.error('Failed to load report:', e)
   }
   loading.value = false
 })
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+// Best-effort: surface granted deadline extensions in the table + modal.
+async function loadOverrides(token) {
+  try {
+    const files = await listRepoDir(token, props.org, config.controlRepo, `overrides/${props.assignmentId}`)
+    const jsonFiles = (files || []).filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+    const map = new Map()
+    await Promise.all(jsonFiles.map(async (f) => {
+      const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+      if (!text) return
+      try {
+        const doc = JSON.parse(text)
+        if (doc?.github_login) map.set(doc.github_login, doc)
+      } catch { /* malformed */ }
+    }))
+    overridesByLogin.value = map
+  } catch (e) {
+    console.error('Failed to load overrides:', e)
+  }
+}
 
 // Walks repositories/<assignment-id>/*.json and stitches feedback_pr_number
 // + feedback_pr_url onto each matching report student row. Best-effort: a
@@ -520,6 +600,11 @@ function sortBy(key) {
 function sortDir(key) {
   if (sortKey.value !== key) return null
   return sortAsc.value ? 'asc' : 'desc'
+}
+
+function ariaSort(key) {
+  if (sortKey.value !== key) return 'none'
+  return sortAsc.value ? 'ascending' : 'descending'
 }
 
 function statusBadge(status) {
@@ -580,9 +665,10 @@ async function exportCSV() {
 
 function copyAcceptLink() {
   const base = window.location.origin + (import.meta.env.BASE_URL || '/')
-  const link = `${base}a/${props.assignmentId}`
+  // Route shape is /:org/a/:assignmentId — the org segment is required.
+  const link = `${base}${props.org}/a/${props.assignmentId}`
   navigator.clipboard.writeText(link).then(
-    () => toast.success('Accept link copied'),
+    () => toast.success(`Accept link copied: ${link}`),
     () => toast.error('Could not copy link'),
   )
 }
@@ -677,9 +763,9 @@ async function refreshOne(token, s) {
         s.submission_status = 'unknown'
       }
       
-      // Fetch CI status if github actions
+      // Fetch CI status if github actions. s.repo_name is already org/repo.
       if (isGitHubActionsAutograde.value) {
-        const checkRes = await ghApi(token, 'GET', `/repos/${props.org}/${s.repo_name}/commits/${sha}/check-runs`)
+        const checkRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
         if (checkRes.ok && checkRes.data?.check_runs) {
           const run = checkRes.data.check_runs.find(r => r.name.toLowerCase().includes('grade') || r.name.toLowerCase().includes('autograde')) || checkRes.data.check_runs[0]
           if (run) s.ci_status = run.conclusion || run.status
@@ -763,17 +849,12 @@ async function syncGradesFromGitHub() {
   syncingGrades.value = true
   const queue = report.value.students.filter(s => s.repo_name && s.preserved_sha)
   const summary = { graded: [], failed: [] }
-  const changes = []
-  
-  // We need to inject token into the global scope or mock octokit for commitWithRebase
-  // BUT commitWithRebase expects an octokit instance. The frontend doesn't use octokit!
-  // It uses fetch natively. We can't use commitWithRebase directly.
-  // Instead, let's just make direct API calls to commit the summary.json, and skip individual json files to avoid spamming commits or needing complex git tree manual creation.
-  
+
   try {
     for (const s of queue) {
       try {
-        const checksReq = await ghApi(token, 'GET', `/repos/${props.org}/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
+        // s.repo_name is already the full org/repo name.
+        const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
         const checkRuns = checksReq.data?.check_runs || [];
         const total = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
         let earned = 0;
@@ -808,7 +889,7 @@ async function syncGradesFromGitHub() {
     }
     
     const path = `grading/${props.assignmentId}/summary.json`
-    const body = JSON.stringify(summaryDoc, null, 2) + '\\n'
+    const body = JSON.stringify(summaryDoc, null, 2) + '\n'
     const res = await commitFile(token, props.org, config.controlRepo, path, body, `Sync grades for ${props.assignmentId}`)
     
     if (res.ok) {
@@ -887,6 +968,16 @@ async function grantExtensionFor(student) {
     toast.error('Deadline and reason are required.')
     return
   }
+  // An extension must move the deadline forward. Guard against granting a
+  // date at-or-before the student's current effective deadline (which would
+  // silently shorten their time).
+  const currentEffective = extensionFor(student.github_login)?.value
+    || student.effective_deadline_at
+    || assignment.value?.deadline_at
+  if (currentEffective && new Date(localToUtc(actionExt.value.deadline_local)) <= new Date(currentEffective)) {
+    toast.error(`New deadline must be after the current effective deadline (${formatDate(currentEffective)}).`)
+    return
+  }
   actionExtending.value = true
   try {
     const token = getToken()
@@ -913,6 +1004,10 @@ async function grantExtensionFor(student) {
     const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${student.github_login} on ${props.assignmentId}`)
     if (res.ok) {
       toast.success(`Extension granted to ${student.github_login}`)
+      // Reflect immediately in the table + any re-opened modal.
+      overridesByLogin.value.set(student.github_login, overrideDoc)
+      overridesByLogin.value = new Map(overridesByLogin.value)
+      student.effective_deadline_at = overrideDoc.overrides[0].value
       actionStudent.value = null
     } else {
       toast.error(`Extension failed: ${res.data?.message || 'unknown error'}`)
@@ -1137,6 +1232,13 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table-footer {
   margin-top: var(--space-md);
   font-size: 0.8rem;
+}
+
+.ext-note {
+  font-size: 0.72rem;
+  color: var(--accent-blue);
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 /* Mobile card list (hidden by default; shown under breakpoint) */

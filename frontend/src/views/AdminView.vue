@@ -160,6 +160,13 @@
                 PRs are opened lazily via <code>pxl-classroom feedback open --assignment {{ form.id || 'ID' }}</code> once students push commits.
               </small>
             </div>
+            <div class="field checkbox">
+              <label>
+                <input type="checkbox" v-model="form.autograde_enabled" />
+                Enable autograding
+              </label>
+              <small>Define tests below; run them lecturer-side via the CLI, or student-side via GitHub Actions.</small>
+            </div>
             <div v-if="form.autograde_enabled" class="field autograde-banner">
               <label>Execution Environment</label>
               <select v-model="form.autograde_execution_environment">
@@ -173,14 +180,43 @@
                   <option value="public">Public (Visible in student repo)</option>
                 </select>
               </div>
+
+              <div class="tests-editor">
+                <label>Tests ({{ (form.autograde_tests || []).length }})</label>
+                <div v-for="(t, i) in form.autograde_tests" :key="i" class="test-row">
+                  <div class="test-row-head">
+                    <input v-model="t.id" placeholder="test-id (lowercase, dashes)" class="test-id" aria-label="Test ID" />
+                    <select v-model="t.type" aria-label="Test type">
+                      <option value="run">run — shell command, exit 0 passes</option>
+                      <option value="io">io — stdin in, compare stdout</option>
+                      <option value="python">python — run a script</option>
+                    </select>
+                    <input v-model.number="t.points" type="number" min="0" placeholder="pts" class="test-points" aria-label="Points" />
+                    <button class="btn test-remove" type="button" @click="removeTest(i)" :aria-label="`Remove test ${t.id || i + 1}`">
+                      <Icon name="x" :size="13" />
+                    </button>
+                  </div>
+                  <textarea v-if="t.type !== 'python'" v-model="t.command" rows="1" :placeholder="t.type === 'io' ? 'executable + args, e.g. ./greet' : 'shell command, e.g. make test'" aria-label="Command"></textarea>
+                  <textarea v-else v-model="t.script" rows="3" placeholder="Python source" aria-label="Python script"></textarea>
+                  <template v-if="t.type === 'io'">
+                    <textarea v-model="t.stdin" rows="1" placeholder="stdin payload" aria-label="Stdin"></textarea>
+                    <textarea v-model="t.expected_stdout" rows="1" placeholder="expected stdout (trimmed, newline-normalized)" aria-label="Expected stdout"></textarea>
+                  </template>
+                </div>
+                <button class="btn btn-with-icon" type="button" @click="addTest">
+                  <Icon name="plus" :size="13" />
+                  <span>Add test</span>
+                </button>
+              </div>
+
               <small style="display:block; margin-top: 8px;">
-                Autograder configured ({{ (form.autograde_tests || []).length }} test(s)).
                 <template v-if="form.autograde_execution_environment === 'lecturer_local'">
                   Execution stays off-platform — run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> from your machine.
                   Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
                 </template>
                 <template v-else>
-                  Executed automatically via GitHub Actions in the student repositories.
+                  Executed automatically via GitHub Actions in the student repositories. Results sync back as a
+                  <strong>pass/fail</strong> CI signal per student.
                 </template>
               </small>
             </div>
@@ -240,7 +276,10 @@
           <!-- SAVE ACTIONS -->
           <div class="actions">
             <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
+            <!-- "Save as draft" only while the assignment IS a draft — on a
+                 published assignment it would silently unpublish. -->
             <button
+              v-if="isNew || form.state === 'draft'"
               class="btn"
               type="button"
               @click="saveAssignment('draft')"
@@ -272,6 +311,29 @@
               <button class="btn" type="button" @click="setState('archived')" :disabled="form.state === 'archived' || saving">
                 Archive
               </button>
+              <button v-if="form.state === 'published'" class="btn btn-with-icon" type="button" @click="copyAcceptLink">
+                <Icon name="copy" :size="14" />
+                <span>Copy accept link</span>
+              </button>
+              <button v-if="form.state === 'draft'" class="btn btn-danger" type="button" @click="deleteDraft" :disabled="deleting">
+                {{ deleting ? 'Deleting…' : 'Delete draft' }}
+              </button>
+            </div>
+
+            <div v-if="publishWatch === 'watching'" class="publish-watch">
+              <div class="spinner sm"></div>
+              <span class="text-secondary">Publish triggered — waiting for the broker repo to appear… (checked {{ publishPollCount }}×)</span>
+            </div>
+            <div v-else-if="publishWatch === 'ready'" class="publish-watch publish-ready">
+              <Icon name="check-circle" :size="15" />
+              <span>Broker is live — the accept link works now.</span>
+              <button class="link-btn" type="button" @click="copyAcceptLink">Copy accept link</button>
+            </div>
+            <div v-else-if="publishWatch === 'timeout'" class="publish-watch">
+              <span class="text-warning">
+                Broker not visible after 2 minutes — check the
+                <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">publish workflow run</a>.
+              </span>
             </div>
 
             <details class="lifecycle-section">
@@ -313,10 +375,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
-import { commitFile, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure } from '../lib/api.js'
+import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
@@ -357,8 +419,26 @@ const saving = ref(false)
 const publishing = ref(false)
 const extending = ref(false)
 const retrying = ref(false)
+const deleting = ref(false)
+
+// '' | 'watching' | 'ready' | 'timeout' — post-publish broker watch
+const publishWatch = ref('')
+const publishPollCount = ref(0)
+let publishPollTimer = null
 
 const form = ref(emptyForm())
+
+// Snapshot of the form as of the last load/save. Anything different means
+// unsaved edits — guard list navigation and Cancel against silent loss.
+const savedSnapshot = ref('')
+function snapshotForm() {
+  savedSnapshot.value = JSON.stringify(form.value)
+}
+function confirmDiscard() {
+  if (!editing.value) return true
+  if (JSON.stringify(form.value) === savedSnapshot.value) return true
+  return window.confirm('Discard unsaved changes to this assignment?')
+}
 
 const extForm = ref({ login: '', deadline_local: '', reason: '' })
 const retryForm = ref({ login: '' })
@@ -505,14 +585,18 @@ async function loadTemplates() {
 // ---------------------------------------------------------------- edit flow
 
 function newAssignment() {
+  if (!confirmDiscard()) return
   editing.value = { __new: true, id: '' }
   manualSlug.value = false
   form.value = emptyForm()
   // Auto-select sole template if we already have it loaded
   if (templates.value.length === 1) form.value.template = templates.value[0].full_name
+  publishWatch.value = ''
+  snapshotForm()
 }
 
 function editAssignment(a) {
+  if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
   editing.value = { id: a.id }
   manualSlug.value = true // existing assignments — never auto-rewrite the slug
   form.value = {
@@ -554,10 +638,40 @@ function editAssignment(a) {
       ...templates.value,
     ]
   }
+  publishWatch.value = ''
+  snapshotForm()
 }
 
 function cancelEdit() {
+  if (!confirmDiscard()) return
   editing.value = null
+}
+
+// ---------------------------------------------------------------- autograde tests
+
+function addTest() {
+  if (!Array.isArray(form.value.autograde_tests)) form.value.autograde_tests = []
+  form.value.autograde_tests.push({ id: '', type: 'run', command: '', points: 1 })
+}
+
+function removeTest(i) {
+  form.value.autograde_tests.splice(i, 1)
+}
+
+// Strip empty optional fields so the committed YAML stays schema-clean
+// (additionalProperties: false; only the fields the test type uses).
+function cleanTests() {
+  return (form.value.autograde_tests || []).map((t) => ({
+    id: t.id || '',
+    type: t.type || 'run',
+    points: Number(t.points) || 0,
+    ...(t.type === 'python'
+      ? { ...(t.script ? { script: t.script } : {}) }
+      : { ...(t.command ? { command: t.command } : {}) }),
+    ...(t.type === 'io' && t.stdin ? { stdin: t.stdin } : {}),
+    ...(t.type === 'io' && t.expected_stdout ? { expected_stdout: t.expected_stdout } : {}),
+    ...(t.timeout_s ? { timeout_s: Number(t.timeout_s) } : {}),
+  }))
 }
 
 // ---------------------------------------------------------------- YAML generation + validation
@@ -588,8 +702,10 @@ function buildDoc(state = null) {
           feedback_pr_baseline_branch: form.value.feedback_pr_baseline_branch || 'pxl-baseline',
         }
       : {}),
-    ...(form.value.autograde_enabled && form.value.autograde_tests?.length
-      ? { autograde: { enabled: true, execution_environment: form.value.autograde_execution_environment, visibility: form.value.autograde_visibility, tests: form.value.autograde_tests } }
+    // Included whenever enabled — an empty tests list then fails schema
+    // validation visibly instead of being silently dropped from the YAML.
+    ...(form.value.autograde_enabled
+      ? { autograde: { enabled: true, execution_environment: form.value.autograde_execution_environment, visibility: form.value.autograde_visibility, tests: cleanTests() } }
       : {}),
   }
 }
@@ -637,6 +753,7 @@ async function saveAssignment(stateOverride = null) {
     if (res.ok) {
       toast.success(`Saved ${form.value.id}`)
       form.value.state = stateOverride || form.value.state
+      snapshotForm()
       await loadAssignments()
       // Stay on the edited assignment
       const stillExists = assignments.value.find((a) => a.id === form.value.id)
@@ -668,7 +785,8 @@ async function publishExisting() {
       assignment_id: form.value.id,
     })
     if (res.ok || res.status === 204) {
-      toast.success('Publish workflow triggered — check Actions tab in pxl-classroom.')
+      toast.success('Publish workflow triggered — watching for the broker to appear…')
+      startPublishWatch()
     } else {
       toast.error(explainDispatchFailure(res, 'Publish failed'))
     }
@@ -677,7 +795,75 @@ async function publishExisting() {
   }
 }
 
+// Poll for the broker repo the publish workflow creates, so "published"
+// isn't fire-and-forget: the lecturer sees when the accept link goes live.
+function startPublishWatch() {
+  stopPublishWatch()
+  publishWatch.value = 'watching'
+  publishPollCount.value = 0
+  const brokerRepo = `broker-${form.value.id}`
+  const tick = async () => {
+    publishPollCount.value++
+    const token = getToken()
+    if (token) {
+      const res = await getRepo(token, props.org, brokerRepo)
+      if (res.ok) {
+        publishWatch.value = 'ready'
+        toast.success('Published — the accept link is live.')
+        return
+      }
+    }
+    if (publishPollCount.value >= 24) { // 24 × 5s = 2 minutes
+      publishWatch.value = 'timeout'
+      return
+    }
+    publishPollTimer = setTimeout(tick, 5000)
+  }
+  publishPollTimer = setTimeout(tick, 5000)
+}
+
+function stopPublishWatch() {
+  if (publishPollTimer) {
+    clearTimeout(publishPollTimer)
+    publishPollTimer = null
+  }
+}
+
+function copyAcceptLink() {
+  const base = window.location.origin + (import.meta.env.BASE_URL || '/')
+  const link = `${base}${props.org}/a/${form.value.id}`
+  navigator.clipboard.writeText(link).then(
+    () => toast.success(`Accept link copied: ${link}`),
+    () => toast.error('Could not copy link'),
+  )
+}
+
+async function deleteDraft() {
+  if (form.value.state !== 'draft') return
+  if (!window.confirm(`Delete draft "${form.value.id}"? This removes assignments/${form.value.id}.yml from the control repo.`)) return
+  deleting.value = true
+  try {
+    const token = getToken()
+    const res = await deleteFile(token, props.org, config.controlRepo, `assignments/${form.value.id}.yml`, `Delete draft assignment ${form.value.id}`)
+    if (res.ok) {
+      toast.success(`Deleted draft ${form.value.id}`)
+      editing.value = null
+      await loadAssignments()
+    } else {
+      toast.error(`Delete failed: ${res.data?.message || 'unknown error'}`)
+    }
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function setState(newState) {
+  const warnings = {
+    draft: `Unpublish "${form.value.id}" back to draft? Students can no longer open the accept link.`,
+    closed: `Close "${form.value.id}"? Students can no longer accept it (existing repos are unaffected).`,
+    archived: `Archive "${form.value.id}"? It leaves the student-facing list and day-to-day tracking.`,
+  }
+  if (warnings[newState] && !window.confirm(warnings[newState])) return
   saving.value = true
   try {
     const token = getToken()
@@ -686,6 +872,7 @@ async function setState(newState) {
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Set ${form.value.id} state to ${newState}`)
     if (res.ok) {
       form.value.state = newState
+      snapshotForm()
       toast.success(`${form.value.id} → ${newState}`)
       await loadAssignments()
     } else {
@@ -701,6 +888,12 @@ async function setState(newState) {
 async function grantExtension() {
   if (!extForm.value.login || !extForm.value.reason) {
     toast.error('Login and reason are required')
+    return
+  }
+  // An extension must move the deadline forward, not shorten it.
+  const assignmentDeadline = localToUtc(form.value.deadline_at_local)
+  if (assignmentDeadline && new Date(localToUtc(extForm.value.deadline_local)) <= new Date(assignmentDeadline)) {
+    toast.error('The extension must be later than the assignment deadline.')
     return
   }
   extending.value = true
@@ -764,6 +957,10 @@ async function retryAcceptance() {
 
 onMounted(async () => {
   await Promise.all([loadAssignments(), loadTemplates()])
+})
+
+onUnmounted(() => {
+  stopPublishWatch()
 })
 
 watch(
@@ -976,4 +1173,43 @@ details .field { padding: 0 var(--space-sm); }
   color: var(--text-secondary);
 }
 .text-warning { color: var(--accent-yellow); }
+.text-secondary { color: var(--text-secondary); }
+
+.tests-editor { display: flex; flex-direction: column; gap: var(--space-sm); margin-top: var(--space-sm); }
+.test-row {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-primary);
+}
+.test-row-head { display: flex; gap: 6px; align-items: center; }
+.test-row-head .test-id { flex: 1; min-width: 0; }
+.test-row-head select { flex: 2; min-width: 0; }
+.test-row-head .test-points { width: 72px; flex-shrink: 0; }
+.test-remove { padding: 4px 8px; flex-shrink: 0; }
+.test-row textarea { font-family: var(--font-mono); font-size: 0.85rem; min-height: 34px; }
+
+.btn-danger { border-color: var(--accent-red); color: var(--accent-red); }
+.btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
+
+.publish-watch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  font-size: 0.9rem;
+}
+.publish-ready { color: var(--accent-green); }
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}
 </style>

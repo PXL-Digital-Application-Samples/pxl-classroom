@@ -3,8 +3,8 @@
     <header class="dashboard-header">
       <div class="container flex items-center justify-between">
         <div class="logo flex items-center gap-sm">
-          <router-link to="/" class="logo-link">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <router-link to="/" class="logo-link" aria-label="PXL Classroom home">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
               <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
             </svg>
@@ -29,10 +29,7 @@
           </template>
           <template v-else>Sign in with GitHub</template>
         </button>
-        <div v-if="deviceFlow" class="device-flow-inline">
-          <p>Go to <a :href="deviceFlow.verification_uri" target="_blank">{{ deviceFlow.verification_uri }}</a> and enter:</p>
-          <code class="device-code-big">{{ deviceFlow.user_code }}</code>
-        </div>
+        <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
       </div>
 
       <div v-else-if="loading" class="center-card fade-in">
@@ -117,6 +114,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import Icon from '../components/Icon.vue'
+import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 
 const SortIcon = (props) => h(Icon, {
   name: props.dir === 'asc' ? 'arrow-up' : props.dir === 'desc' ? 'arrow-down' : 'chevrons-up-down',
@@ -243,6 +241,12 @@ async function startLogin() {
   } finally {
     authLoading.value = false
   }
+}
+
+function cancelLogin() {
+  if (pollAbort) pollAbort.abort()
+  deviceFlow.value = null
+  authLoading.value = false
 }
 
 function handleLogout() {

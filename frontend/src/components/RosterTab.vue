@@ -14,7 +14,10 @@
         <div class="field">
           <label>Upload CSV</label>
           <input type="file" accept=".csv,text/csv" @change="onFileChange" />
-          <small>Required columns: <code>student_number</code>, <code>full_name</code>. Optional: <code>email</code>, <code>class_group</code>, <code>github_login</code>, <code>github_id</code>, <code>active</code>.</small>
+          <small>
+            Required columns: <code>student_number</code>, <code>full_name</code>. Optional: <code>email</code>, <code>class_group</code>, <code>github_login</code>, <code>github_id</code>, <code>active</code>.
+            <button class="link-btn" type="button" @click="downloadSampleCsv">Download sample CSV</button>
+          </small>
         </div>
 
         <div class="field">
@@ -45,6 +48,13 @@
         <div v-if="!parsedRoster && !existingRoster" class="empty-state">
           <h4>Drop a CSV to start</h4>
           <p>If no roster exists yet, the file will be created.</p>
+        </div>
+        <div v-else-if="!parsedRoster && existingRoster" class="existing-summary">
+          <p class="text-secondary">
+            Committed roster: <strong>{{ existingRoster.students?.length || 0 }}</strong> student(s).
+            Import a CSV on the left to update it.
+          </p>
+          <button class="btn" type="button" @click="exportRosterCsv">Export committed roster (CSV)</button>
         </div>
         <div v-else>
           <h4>Diff vs. committed roster</h4>
@@ -79,7 +89,8 @@
             </ul>
           </details>
 
-          <details v-if="diff.removed.length">
+          <!-- Removed is the destructive part of the diff — always expanded. -->
+          <details v-if="diff.removed.length" open>
             <summary>Removed ({{ diff.removed.length }})</summary>
             <ul>
               <li v-for="s in diff.removed" :key="s.student_number">
@@ -191,6 +202,42 @@ function onCsvInput() {
   parseAndValidate()
 }
 
+const CSV_COLUMNS = ['student_number', 'full_name', 'email', 'class_group', 'github_login', 'github_id', 'active']
+
+function csvEscape(v) {
+  const s = String(v ?? '')
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function downloadBlob(text, filename, type) {
+  const blob = new Blob([text], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadSampleCsv() {
+  const sample = [
+    CSV_COLUMNS.join(','),
+    '0123456,Alice Example,alice@stud.pxl.be,3A,alice-gh,,true',
+    '0123457,Bob Example,bob@stud.pxl.be,3B,,,true',
+  ].join('\n') + '\n'
+  downloadBlob(sample, 'roster-sample.csv', 'text/csv')
+}
+
+function exportRosterCsv() {
+  const students = existingRoster.value?.students || []
+  if (students.length === 0) return
+  const lines = [CSV_COLUMNS.join(',')]
+  for (const s of students) {
+    lines.push(CSV_COLUMNS.map((c) => csvEscape(s[c])).join(','))
+  }
+  downloadBlob(lines.join('\n') + '\n', `roster-${props.org}.csv`, 'text/csv')
+}
+
 async function onFileChange(ev) {
   const file = ev.target.files?.[0]
   if (!file) return
@@ -261,6 +308,21 @@ onMounted(loadExisting)
 
 .empty-state { text-align: center; padding: var(--space-2xl) 0; color: var(--text-secondary); }
 .empty-state h4 { margin: 0 0 var(--space-xs) 0; }
+
+.existing-summary { text-align: center; padding: var(--space-xl) 0; display: flex; flex-direction: column; gap: var(--space-md); align-items: center; }
+.existing-summary p { margin: 0; }
+.text-secondary { color: var(--text-secondary); }
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
 
 .diff-info {
   padding: var(--space-sm) var(--space-md);

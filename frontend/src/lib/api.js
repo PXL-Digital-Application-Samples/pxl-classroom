@@ -3,7 +3,24 @@
 // Thin wrapper around fetch() for GitHub API calls. Uses the authenticated
 // user's own token — never a privileged credential.
 
+import { clearAuth } from './auth.js'
+import { toast } from './toast.js'
+
 const API_BASE = 'https://api.github.com'
+
+// A 401 from api.github.com with a token attached means the token is dead
+// (the device-flow tokens live 8h). Handle it once, centrally: clear the
+// stale auth, tell the user plainly, and reload into the signed-out state of
+// the current route — instead of every view rendering a misleading empty
+// state while errors pile up in the console.
+let sessionExpiredNotified = false
+function handleSessionExpiry() {
+  if (sessionExpiredNotified) return
+  sessionExpiredNotified = true
+  clearAuth()
+  toast.error('Your session expired — sign in again.')
+  setTimeout(() => window.location.reload(), 1800)
+}
 
 /**
  * Make an authenticated GitHub API call.
@@ -19,6 +36,8 @@ export async function ghApi(token, method, path, body = null) {
     },
     body: body ? JSON.stringify(body) : undefined,
   })
+
+  if (res.status === 401 && token) handleSessionExpiry()
 
   const text = await res.text()
   let data = null
@@ -176,6 +195,19 @@ export async function commitFile(token, owner, repo, path, contentStr, message) 
   if (sha) body.sha = sha
 
   return ghApi(token, 'PUT', `/repos/${owner}/${repo}/contents/${path}`, body)
+}
+
+/**
+ * Delete a file from a repository. Returns { ok: false } when the file
+ * doesn't exist (nothing to delete).
+ */
+export async function deleteFile(token, owner, repo, path, message) {
+  const getRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)
+  if (!getRes.ok || !getRes.data?.sha) return { ok: false, status: getRes.status, data: getRes.data }
+  return ghApi(token, 'DELETE', `/repos/${owner}/${repo}/contents/${path}`, {
+    message,
+    sha: getRes.data.sha,
+  })
 }
 
 /**

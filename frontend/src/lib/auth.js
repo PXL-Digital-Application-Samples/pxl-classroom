@@ -75,6 +75,14 @@ export function getUser() {
 }
 
 /**
+ * When the current token expires (Date), or null when not authenticated.
+ * Surfaced in the UserBadge so the 8-hour cliff is visible before it hits.
+ */
+export function getTokenExpiry() {
+  return _tokenExpiresAt
+}
+
+/**
  * Check if the user is authenticated.
  */
 export function isAuthenticated() {

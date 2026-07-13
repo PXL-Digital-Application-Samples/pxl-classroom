@@ -32,7 +32,15 @@
       <div v-else-if="!assignment" class="center-card fade-in">
         <Icon name="clipboard" :size="48" class="status-icon" />
         <h2>Assignment not found</h2>
-        <p class="text-secondary">The assignment "{{ assignmentId }}" does not exist or is not published.</p>
+        <p class="text-secondary">
+          There is no published assignment "{{ assignmentId }}" in <strong>{{ org }}</strong>.
+          The link may be mistyped, or the assignment isn't open yet.
+        </p>
+        <p class="text-secondary">
+          Ask your lecturer to verify the accept link. If it was published in the last few minutes,
+          wait a moment and refresh.
+        </p>
+        <router-link to="/" class="btn">See open assignments</router-link>
       </div>
 
       <!-- Assignment loaded -->
@@ -288,7 +296,9 @@ onUnmounted(() => {
 
 
 
-// Load assignment from public metadata
+// Load assignment from public metadata. A missing assignment (or missing org
+// data file) is NOT an error — it renders the dedicated "not found" state
+// with guidance. Only transport failures land in the retryable error state.
 async function loadAssignment() {
   loading.value = true
   error.value = null
@@ -296,16 +306,16 @@ async function loadAssignment() {
     const url = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json`
     const res = await fetch(url)
     if (res.ok) {
-      const data = await res.json()
-      if (data.assignments && data.assignments[props.assignmentId]) {
+      // A non-JSON body (e.g. an HTML fallback for a missing data file)
+      // means the org has no published data — that's "not found", not an error.
+      let data = null
+      try { data = await res.json() } catch { /* treat as not found */ }
+      if (data?.assignments && data.assignments[props.assignmentId]) {
         assignment.value = { id: props.assignmentId, ...data.assignments[props.assignmentId] }
-        loading.value = false
-        return
       }
     }
-    error.value = `Assignment "${props.assignmentId}" not found or not published in ${props.org}.`
   } catch (e) {
-    error.value = e.message
+    error.value = `Couldn't load the assignment data (${e.message}). Check your connection and try again.`
   }
   loading.value = false
 }

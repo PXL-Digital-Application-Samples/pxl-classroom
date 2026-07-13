@@ -1,5 +1,5 @@
 <template>
-  <div class="toast-container">
+  <div class="toast-container" role="status" aria-live="polite">
     <TransitionGroup name="toast">
       <div v-for="t in toasts" :key="t.id" :class="['toast', `toast-${t.type}`]">
         {{ t.message }}
