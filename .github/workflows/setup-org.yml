@@ -145,6 +145,10 @@ jobs:
             mv participating-orgs.yml.new participating-orgs.yml
           fi
 
+          # A flow-style empty list ('orgs: []') cannot take appended block
+          # entries — normalize it to block form first.
+          sed -i 's/^orgs:[[:space:]]*\[\][[:space:]]*$/orgs:/' participating-orgs.yml
+
           if ! grep -Eq "^[[:space:]]*-[[:space:]]+login:[[:space:]]+${TARGET_ORG}[[:space:]]*$" participating-orgs.yml; then
             printf '  - login: %s\n    budget_owner_login: %s\n' "$TARGET_ORG" "$BUDGET_OWNER_LOGIN" >> participating-orgs.yml
             git config user.name "pxl-classroom-provisioner[bot]"
