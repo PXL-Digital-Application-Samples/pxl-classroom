@@ -97,6 +97,7 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           org: ${{ inputs.org }}
+          assignment-id: ${{ inputs.assignment_id }}
           template-owner: ${{ steps.accept.outputs.template_owner }}
           template-repo: ${{ steps.accept.outputs.template_repo }}
           target-repo: ${{ steps.accept.outputs.target_repo }}
@@ -156,7 +157,7 @@ jobs:
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             await github.rest.actions.createWorkflowDispatch({

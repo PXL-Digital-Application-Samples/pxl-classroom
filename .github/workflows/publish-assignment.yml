@@ -102,12 +102,14 @@ jobs:
           git branch -M main
           git push -u origin main --force
 
-          echo "### ✅ Published assignment" >> "$GITHUB_STEP_SUMMARY"
-          echo "| field | value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| assignment | ${ASSIGNMENT_ID} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| broker | ${ORG}/${BROKER_REPO} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| URL | https://pxl-digital-application-samples.github.io/pxl-classroom/${ORG}/a/${ASSIGNMENT_ID} |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### ✅ Published assignment"
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| assignment | ${ASSIGNMENT_ID} |"
+            echo "| broker | ${ORG}/${BROKER_REPO} |"
+            echo "| URL | https://pxl-digital-application-samples.github.io/pxl-classroom/${ORG}/a/${ASSIGNMENT_ID} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Update assignment state
         if: inputs.dry_run != true

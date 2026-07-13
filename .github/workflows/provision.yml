@@ -12,6 +12,13 @@ on:
       org:
         required: true
         type: string
+      assignment_id:
+        # Optional: without it the provisioner skips assignment-scoped extras
+        # (student-side autograding injection reads control/assignments/<id>.yml,
+        # which requires a control checkout the caller must provide).
+        required: false
+        type: string
+        default: ''
       template_owner:
         required: true
         type: string
@@ -71,6 +78,7 @@ jobs:
           client-id: ${{ secrets.app_client_id }}
           app-private-key: ${{ secrets.app_private_key }}
           org: ${{ inputs.org }}
+          assignment-id: ${{ inputs.assignment_id }}
           template-owner: ${{ inputs.template_owner }}
           template-repo: ${{ inputs.template_repo }}
           target-repo: ${{ inputs.target_repo }}

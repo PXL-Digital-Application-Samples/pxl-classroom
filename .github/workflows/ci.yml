@@ -18,7 +18,7 @@ jobs:
           node-version: "24"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run unit tests
         run: node --test tests/*.test.mjs cli/tests/*.test.mjs
@@ -33,12 +33,12 @@ jobs:
           node-version: "24"
           
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Download actionlint
         run: |
           bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.1
-          echo "${PWD}" >> $GITHUB_PATH
+          echo "${PWD}" >> "$GITHUB_PATH"
 
       - name: Run actionlint
         run: actionlint
