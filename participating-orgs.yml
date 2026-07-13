@@ -2,3 +2,5 @@ schema_version: 1
 orgs: []
   - login: PXL-Systems-Expert
     budget_owner_login: tomcoolpxl
+  - login: PXL-Automation-II
+    budget_owner_login: tomcoolpxl
