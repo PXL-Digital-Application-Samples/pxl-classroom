@@ -15,6 +15,12 @@ on:
 permissions:
   contents: write
 
+# Serialize runs: concurrent onboardings race on the participating-orgs
+# branch push (non-fast-forward rejection for the loser).
+concurrency:
+  group: setup-org-registry
+  cancel-in-progress: false
+
 jobs:
   setup-control-repo:
     runs-on: ubuntu-latest
