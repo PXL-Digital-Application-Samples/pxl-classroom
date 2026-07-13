@@ -1,6 +1,8 @@
 schema_version: 1
-orgs: []
+orgs:
   - login: PXL-Systems-Expert
     budget_owner_login: tomcoolpxl
+    budget_owner_email: tom.cool@pxl.be
   - login: PXL-Automation-II
     budget_owner_login: tomcoolpxl
+    budget_owner_email: tom.cool@pxl.be
