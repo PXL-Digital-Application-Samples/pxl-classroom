@@ -113,7 +113,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 ### 4.3 Bounded blast radius
 
 - **Public broker compromise.** A broker workflow can only mint a token for the `pxl-classroom`-scoped App installation. That token can dispatch into the hub but cannot touch any per-org repository.
-- **Hub compromise.** The hub is public. Branch protection on `main` (PRs + reviews + signed commits + CI required), CODEOWNERS on `.github/workflows/` and composite actions, secret scanning, and push protection are what make this safe. A bypass of those controls is the actual concern; see RUNBOOK §10.
+- **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern; see RUNBOOK §9.
 - **Per-org control-repo compromise.** Restricted to that single org's data.
 - **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.
 
@@ -420,7 +420,9 @@ Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hu
 | `/dashboard/:org?` | `DashboardView` | Lecturer — org picker (from `/user/installations`), then assignment list |
 | `/dashboard/:org/admin` | `AdminView` | Lecturer — Admin Panel: create assignment, publish, grant extension |
 | `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer — per-assignment detail + per-student table |
-| `/setup` | `SetupView` | Admin — one-shot App Manifest form |
+| `/dashboard/:org/usage` | `UsageView` | Lecturer — per-org weekly usage report |
+| `/usage` | `UsageOverviewView` | Lecturer — cross-org usage aggregate |
+| `/setup` | `SetupView` | Admin — App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
 
 A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pages.
 
@@ -471,7 +473,7 @@ The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated P
 
 ### 10.5 CLI companion
 
-The `cli/` workspace ships a `pxl-classroom` command — an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, audits, future grading runs). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
+The `cli/` workspace ships a `pxl-classroom` command — an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, install audits, feedback-PR orchestration, bulk submission download, autograding runs). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
 
 The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (accepts an Octokit-style request fn or a plain `{ fetch, token }`), so the CLI, workflow scripts, and the SPA can share it without dependency lock-in.
 
@@ -611,7 +613,7 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 - `/dashboard/<org>/usage` — per-org table, sortable, over-threshold rows highlighted red.
 - `/usage` — cross-org view, iterates the lecturer's App installations, aggregates every repo/SKU pair, filterable by "over only".
 
-**Permission cost.** The Enhanced Billing endpoint requires the App to have `Organization plan: read`. After this permission is added to the App, each participating org owner sees a one-time re-approval prompt on next visit to the installation page. See `RUNBOOK.md` §11.
+**Permission cost.** The Enhanced Billing endpoint requires the App to have `Organization plan: read`. After this permission is added to the App, each participating org owner sees a one-time re-approval prompt on next visit to the installation page. See `RUNBOOK.md` §10.6.
 
 **Budget owner.** `participating-orgs.yml` now requires `budget_owner_login` (GitHub login, used for @-mention). Optional `budget_owner_email` is informational only — GitHub emails are sent via the @-mention notification.
 

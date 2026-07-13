@@ -17,14 +17,13 @@ GitHub → `pxl-classroom` → Settings → Pages → Source: **GitHub Actions**
 ### 1.2 Create the central GitHub App
 
 1. In a browser, open the Pages site at `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`.
-2. Fill the App Manifest form. The form pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
+2. Enter the owning **organization** (recommended — leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
    - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Metadata R**, **Secrets RW**.
    - Device Flow: enabled.
-
-   Two additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
+3. Confirm on GitHub's page. GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** — store them per §1.3 immediately. (If the exchange fails — the code is single-use and expires after one hour — the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
+4. Two additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
    - Organization: **Plan: Read** — required for the weekly usage report (Enhanced Billing endpoint, see §10).
    - Account: **Starring RW** — required so students can star the broker to trigger acceptance.
-3. Submit. GitHub redirects you through an App-creation handshake. At the end you have a new App named **PXL Classroom Provisioner** and you are shown its **Client ID** (string starting with `Iv…`, on the App settings page under "About") and a generated private key (PEM).
 
 ### 1.3 Set hub secrets
 
@@ -389,7 +388,7 @@ Verify: `file participating-orgs.yml` reports `ASCII text` or `UTF-8 Unicode tex
 
 The system warns when any repo crosses a per-SKU threshold. Three layers of configuration; first match wins:
 
-### 11.1 Where thresholds live
+### 10.1 Where thresholds live
 
 | Layer | File | When to use |
 |---|---|---|
@@ -397,7 +396,7 @@ The system warns when any repo crosses a per-SKU threshold. Three layers of conf
 | **Per-org** | `participating-orgs.yml` → `orgs[i].overrides` | An entire org has a different profile. Example: an Actions-heavy course org gets a higher `Actions Linux` budget across the board. |
 | **Per-repo** | `<org>/pxl-classroom-control/limits-overrides.json` | One specific repo is an outlier. Example: `pxl-sweeper-HanneloreRamakersPXL` accumulates artifacts as a feature; raise its `Actions storage` limit. |
 
-### 11.2 Example: silence one noisy repo's storage warning
+### 10.2 Example: silence one noisy repo's storage warning
 
 ```json
 {
@@ -410,7 +409,7 @@ The system warns when any repo crosses a per-SKU threshold. Three layers of conf
 
 Commit to `<org>/pxl-classroom-control/limits-overrides.json`. The next Sunday's report respects the override; the dashboard tile turns green.
 
-### 11.3 SKUs you'll see
+### 10.3 SKUs you'll see
 
 GitHub's Enhanced Billing API returns SKUs as data — the catalog isn't fixed. Common ones for PXL Classroom orgs:
 
@@ -429,21 +428,21 @@ GitHub's Enhanced Billing API returns SKUs as data — the catalog isn't fixed. 
 
 Add an entry to `limits.yml` for any SKU you want thresholded. SKUs without a configured threshold are recorded in the report but never flagged.
 
-### 11.4 Cadence
+### 10.4 Cadence
 
 - **Sunday 22:00 UTC** the weekly cron fires.
 - Report is written to the org's control repo even when nothing is over threshold (so the dashboard always has the latest data).
 - If anything is over: comment posted to the **"PXL Classroom — Weekly Usage Report"** issue with `@budget_owner_login`. GitHub emails the budget owner via their notification settings.
 - The workflow run exits non-zero on overrun → red X in the Actions tab.
 
-### 11.5 Manual rerun
+### 10.5 Manual rerun
 
 Need a fresh report mid-week:
 
 - Actions → **Weekly Usage Report** → Run workflow.
 - Optionally scope to one `org` input.
 
-### 11.6 If you change App permissions (re-approval flow)
+### 10.6 If you change App permissions (re-approval flow)
 
 Whenever the App's permission set widens — for example, adding `organization_plan: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA — every already-installed org needs to opt back in.
 
@@ -466,7 +465,7 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
-- [ ] `gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection` shows ≥2 approvals + signed commits + `ci.yml` required.
+- [ ] `gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection` matches §1.5: force-pushes and deletions blocked (incl. admins), no PR/status-check requirements.
 - [ ] No `.github/workflows/` directory exists in any `<org>/pxl-classroom-control` repo.
 - [ ] `git grep corsproxy.io` in `frontend/src/` returns no matches.
 - [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).
@@ -479,7 +478,7 @@ Run periodically, especially after touching workflows or App settings.
 
 ## 12. CLI installation (companion tooling)
 
-The `pxl-classroom` CLI in `cli/` is an optional power-user surface for lecturer-side actions that scale poorly through the SPA (CSV roster import; later: audits and bulk grading). Same App, same device-flow auth, same schemas as the Admin Panel.
+The `pxl-classroom` CLI in `cli/` is an optional power-user surface for lecturer-side actions that scale poorly through the SPA: CSV roster import, install audits, feedback-PR orchestration, bulk submission download, and autograding. Same App, same device-flow auth, same schemas as the Admin Panel.
 
 ### 12.1 Install (from a clone of the hub)
 
@@ -496,7 +495,7 @@ A `gh extension install` distribution will follow once Phase A stabilises. On Wi
 ### 12.2 First-run authentication
 
 ```bash
-pxl-classroom auth login --client-id <Iv23li…>     # CLIENT_ID from /setup page or PXL_APP_CLIENT_ID secret
+pxl-classroom auth login --client-id <Iv23li…>     # Client ID from the App settings page ("About"), the /setup completion screen, or the PXL_APP_CLIENT_ID secret
 # → prints a verification URL + 8-char user code
 # → opens the App's authorization page in the browser
 # → token cached at ~/.config/pxl-classroom/token (0600)
