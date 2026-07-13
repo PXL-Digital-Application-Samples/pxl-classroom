@@ -160,6 +160,12 @@ export function registerGradeCommand(program) {
         `Grading ${queue.length} student(s) on ${tests.length} test(s) ` +
         `via ${runnerName} runner (concurrency=${opts.concurrency}).\n`,
       );
+      if (isGitHubActions) {
+        process.stdout.write(
+          `Note: github_actions grading maps each student's single CI conclusion at the ` +
+          `preserved SHA onto all tests — it is pass/fail, not per-test scoring.\n`,
+        );
+      }
 
       // Sequential dispatch with a worker pool over students (per-test
       // parallelism would race on the same workdir).
@@ -168,7 +174,8 @@ export function registerGradeCommand(program) {
         let result;
         if (isGitHubActions) {
           try {
-            const checksReq = await octokit.request(`GET /repos/${org}/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
+            // s.repo_name is already the full org/repo name.
+            const checksReq = await octokit.request(`GET /repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
             const checkRuns = checksReq.data.check_runs || [];
             const total = tests.reduce((acc, t) => acc + (t.points || 0), 0);
             let earned = 0;

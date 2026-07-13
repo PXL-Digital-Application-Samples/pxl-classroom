@@ -78,8 +78,6 @@ async function fetchOne({ org, assignmentId, login, expectedSha, token, dir }) {
   return { login, sha, branch, status: "downloaded" };
 }
 
-}
-
 export function registerDownloadCommand(program) {
   program
     .command("download")
