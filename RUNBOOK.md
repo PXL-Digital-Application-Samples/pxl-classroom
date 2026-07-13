@@ -115,8 +115,8 @@ The workflow:
 
 **Default: leave the spending limit at €0.** All hub workflows (provisioning, collection, finalize, dashboards) run on the public hub repo and are free. The only Actions billed to a participating org are workflows inside its private student repos — student-side autograding and any CI students add themselves — and those first draw from the plan's included minutes (GitHub Team: 3,000 min/month). With a €0 limit nothing can ever bill, and an acceptance-spam attacker cannot rack up cost.
 
-1. Org → Settings → Billing and plans → Spending limit → verify the Actions limit is **€0** (the GitHub default).
-2. Configure billing alerts at 50%, 80%, 100% of included usage. Recipient: the org's named budget owner.
+1. Org → Settings → **Billing & Licensing** → **Budgets and alerts** → **New budget**: Product-level budget → **Actions** → scope: entire organization → amount **€0** → toggle **"Stop usage when budget limit is reached"** ON → check "Receive budget threshold alerts" with the budget owner as recipient → Create.
+2. Note: GitHub's alert emails fire at fixed 75/90/100% *of the budget amount*, so on a €0 budget they provide no early warning — they become useful only if the budget is later raised. Early warning on included-minutes consumption comes from the system's own weekly usage report, which checks each org against `limits.yml` and @-mentions the `budget_owner_login` in the Instructor Notifications issue.
 
 Raise the limit per the table below **only when** the autograding workload actually exhausts the included minutes:
 
