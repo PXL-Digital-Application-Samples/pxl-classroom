@@ -58,4 +58,38 @@ const router = createRouter({
   routes,
 })
 
+// Per-route document titles so tabs, history, and bookmarks are tellable
+// apart. Falls back to the bare app name on the home page.
+const APP_NAME = 'PXL Classroom'
+router.afterEach((to) => {
+  let page = ''
+  switch (to.name) {
+    case 'assignment':
+      page = `${to.params.assignmentId} — Accept assignment`
+      break
+    case 'dashboard':
+      page = to.params.org ? `Dashboard — ${to.params.org}` : 'Dashboard'
+      break
+    case 'admin':
+      page = `Admin Panel — ${to.params.org}`
+      break
+    case 'assignment-detail':
+      page = `${to.params.assignmentId} — ${to.params.org}`
+      break
+    case 'usage-org':
+      page = `Usage — ${to.params.org}`
+      break
+    case 'usage-overview':
+      page = 'Usage — all organizations'
+      break
+    case 'setup':
+      page = 'App setup'
+      break
+    case 'not-found':
+      page = 'Page not found'
+      break
+  }
+  document.title = page ? `${page} · ${APP_NAME}` : APP_NAME
+})
+
 export default router

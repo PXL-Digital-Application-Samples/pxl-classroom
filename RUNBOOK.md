@@ -183,23 +183,23 @@ Done by a lecturer.
 1. Open the dashboard: `https://<pages-host>/pxl-classroom/dashboard/<org>`.
 2. Sign in with device flow.
 3. Click **Admin Panel**.
-4. Fill **Create New Assignment**:
+4. Click **New assignment** and fill the form:
 
 | Field | Note |
 |---|---|
-| `id` | URL-safe slug, e.g. `linux-processes-2026` |
-| `title` | shown to students |
-| Template | pick from auto-discovered `template-*` repos in your org |
-| `repository_name_pattern` | must contain `{github_login}`, e.g. `linux-processes-{github_login}` |
-| `opens_at` / `deadline_at` | local time, automatically converted to UTC for storage |
-| `max_acceptances` | guardrail — cap on accepted students (default: a sensible buffer over class size) |
-| `lock_down_enabled` | default true |
+| Title | shown to students |
+| Slug (URL identifier) | URL-safe, auto-derived from the title, e.g. `linux-processes-2026` |
+| Template repository | pick from auto-discovered `template-*` repos in your org |
+| Repository name pattern | must contain `{github_login}`, e.g. `linux-processes-{github_login}` |
+| Opens at / Deadline | local time, automatically converted to UTC for storage |
+| Max acceptances | guardrail — cap on accepted students (default 250; leave empty for no cap) |
+| Lock down student repos at the deadline | default on |
 
-5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token.
+5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
 ### 4.3 Publish
 
-In Admin Panel → click **Publish Assignment**.
+In the editor → click **Save & publish** (on an existing draft, the Lifecycle section's **Publish (create broker, enable nightly)** does the same). The panel watches for the broker repo and confirms when the accept link is live.
 
 This dispatches `publish-assignment.yml`, which:
 
@@ -280,6 +280,7 @@ Expected: `daily-activity.yml` disables itself when no assignments are active. A
 For a forced nightly run:
 
 1. Actions → `daily-activity.yml` → enable, then Run workflow.
+2. Or from the SPA: an assignment's detail page offers **Run daily activity now** while no report exists yet (dispatches the same workflow scoped to the org and watches for the report to land).
 
 (The publish workflow also enables it, so publishing any assignment also wakes it up.)
 
@@ -437,8 +438,8 @@ Add an entry to `limits.yml` for any SKU you want thresholded. SKUs without a co
 
 Need a fresh report mid-week:
 
-- Actions → **Weekly Usage Report** → Run workflow.
-- Optionally scope to one `org` input.
+- From the SPA: the Usage pages (`/dashboard/<org>/usage` and `/usage`) have a **Generate report now** button while empty and a **Regenerate now** button once a report exists.
+- Or Actions → **Weekly Usage Report** → Run workflow (optionally scope to one `org` input).
 
 ### 10.6 If you change App permissions (re-approval flow)
 
@@ -494,8 +495,10 @@ A `gh extension install` distribution will follow once Phase A stabilises. On Wi
 
 ```bash
 pxl-classroom auth login --client-id <Iv23li…>     # Client ID from the App settings page ("About"), the /setup completion screen, or the PXL_APP_CLIENT_ID secret
-# → prints a verification URL + 8-char user code
-# → opens the App's authorization page in the browser
+# → prints a verification URL + 8-char user code (+ a security notice:
+#   authorize only "PXL Classroom Provisioner")
+# → attempts to open the verification page in your default browser
+#   (best-effort; on headless shells use the printed URL)
 # → token cached at ~/.config/pxl-classroom/token (0600)
 
 pxl-classroom auth status     # who am I, when did I auth, where is the token?
@@ -582,7 +585,7 @@ Open the actual draft PRs lazily — at provisioning time, `main` and `pxl-basel
 ```bash
 pxl-classroom feedback open --assignment linux-processes-2026                  # opens for all students with commits ahead of pxl-baseline
 pxl-classroom feedback open --assignment linux-processes-2026 --login alice    # one student
-pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        # preview without committing
+pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        # preview only — creates no PRs, commits nothing
 
 pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
 ```

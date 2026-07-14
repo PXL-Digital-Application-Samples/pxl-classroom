@@ -57,12 +57,12 @@
           <div class="assignment-dates">
             <div class="date-item">
               <span class="date-label">Opens</span>
-              <time :datetime="assignment.opens_at">{{ formatDate(assignment.opens_at) }}</time>
+              <time :datetime="assignment.opens_at">{{ formatDate(assignment.opens_at, assignment.timezone) }}</time>
             </div>
             <div class="date-item">
               <span class="date-label">Deadline</span>
               <time :datetime="assignment.deadline_at" :class="{ 'text-warning': isPastDeadline }">
-                {{ formatDate(assignment.deadline_at) }}
+                {{ formatDate(assignment.deadline_at, assignment.timezone) }}
               </time>
             </div>
           </div>
@@ -72,6 +72,10 @@
         <div v-if="!user" class="auth-card card">
           <h2>Sign in with GitHub</h2>
           <p class="text-secondary">Authenticate with your GitHub account to accept this assignment.</p>
+
+          <p v-if="authError" class="auth-error" role="alert">
+            {{ authError }} — try signing in again.
+          </p>
 
           <div v-if="!deviceFlow" class="auth-actions">
             <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
@@ -170,7 +174,7 @@
               </svg>
               <div>
                 <strong>Submission tagged</strong>
-                <span class="text-muted"> at {{ formatDate(latestSubmitTag.declared_at) }}</span>
+                <span class="text-muted"> at {{ formatDate(latestSubmitTag.declared_at, assignment.timezone) }}</span>
                 <div class="text-muted submit-tag-name"><code>{{ latestSubmitTag.tag }}</code></div>
               </div>
             </div>
@@ -203,7 +207,9 @@
               GitHub is currently experiencing high load, or you have hit a rate limit.
               Please try again in 15 minutes.
             </p>
-            <button class="btn btn-primary" @click="retry">Check again</button>
+            <button class="btn btn-primary" @click="checkAgain" :disabled="checkingAgain">
+              {{ checkingAgain ? 'Checking…' : 'Check again' }}
+            </button>
           </div>
 
           <!-- Error state -->
@@ -236,6 +242,7 @@ import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
+import { toast } from '../lib/toast.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -263,6 +270,7 @@ const latestSubmitTag = ref(null)
 // Device flow
 const deviceFlow = ref(null)
 const authLoading = ref(false)
+const authError = ref(null)
 let pollAbort = null
 
 // Polling
@@ -394,10 +402,12 @@ async function checkExistingState() {
   acceptState.value = 'ready'
 }
 
-// Auth
+// Auth. Sign-in failures stay inside the auth card — the assignment loaded
+// fine, so the page-level error state (which replaces it) is wrong here.
 async function startLogin() {
+  authError.value = null
   if (!config.clientId) {
-    error.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
+    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
     return
   }
   authLoading.value = true
@@ -411,7 +421,7 @@ async function startLogin() {
     await checkExistingState()
   } catch (e) {
     if (e.message !== 'Cancelled') {
-      error.value = e.message
+      authError.value = e.message
     }
     deviceFlow.value = null
   }
@@ -429,6 +439,7 @@ function handleLogout() {
   user.value = null
   acceptState.value = 'ready'
   deviceFlow.value = null
+  authError.value = null
 }
 
 // Accept assignment (star the broker)
@@ -525,9 +536,33 @@ function startPolling() {
 async function handleAcceptInvitation() {
   if (!pendingInvitation.value) return
   const token = getToken()
+  const repoName = pendingInvitation.value.repository?.name
   const result = await acceptInvitation(token, pendingInvitation.value.id)
   if (result.ok) {
     acceptState.value = 'provisioned'
+    if (repoName) await refreshSubmitTag(props.org, repoName)
+  } else {
+    toast.error(
+      `Could not accept the invitation (HTTP ${result.status}). ` +
+      `Open github.com/notifications and accept it there.`,
+    )
+  }
+}
+
+// Timeout state: check whether the repo actually arrived while we waited —
+// only fall back to the Accept button when nothing exists yet, so students
+// don't needlessly re-fire the acceptance pipeline.
+const checkingAgain = ref(false)
+async function checkAgain() {
+  checkingAgain.value = true
+  acceptError.value = null
+  try {
+    // Reset the poll budget in case checkExistingState() lands back in
+    // 'pending' and restarts polling.
+    pollInterval.value = 3000
+    await checkExistingState()
+  } finally {
+    checkingAgain.value = false
   }
 }
 
@@ -696,6 +731,14 @@ main {
 
 .auth-actions {
   padding-top: var(--space-md);
+}
+
+.auth-error {
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
 }
 
 .device-flow-panel {

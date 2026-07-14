@@ -49,7 +49,7 @@
           </ul>
         </li>
         <li>Re-run the <code>deploy-frontend.yml</code> workflow so the SPA rebuilds with the client ID.</li>
-        <li>Install the App per RUNBOOK §1.4 (hub org, <em>only</em> the hub repo) and §2.1 (each participating org, all repositories).</li>
+        <li>Install the App per <a :href="`${runbookUrl}#14-install-the-app-on-the-hubs-owning-org-scoped-narrowly`" target="_blank" rel="noopener">RUNBOOK §1.4</a> (hub org, <em>only</em> the hub repo) and <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">§2.1</a> (each participating org, all repositories).</li>
       </ol>
     </div>
 
@@ -94,7 +94,7 @@
           <li>You are redirected back here; this page exchanges the one-time code and shows the App ID, Client ID, and private key.</li>
           <li>You store the three hub secrets (<code>PXL_APP_CLIENT_ID</code>, <code>PXL_APP_PRIVATE_KEY</code>, <code>VITE_GITHUB_CLIENT_ID</code>), add the two manual permissions (Organization <strong>Plan: Read</strong>, Account <strong>Starring: Read and write</strong>), and re-run <code>deploy-frontend.yml</code>.</li>
         </ol>
-        <p class="text-secondary">Full procedure: RUNBOOK §1.2–§1.4.</p>
+        <p class="text-secondary">Full procedure: <a :href="`${runbookUrl}#12-create-the-central-github-app`" target="_blank" rel="noopener">RUNBOOK §1.2–§1.4</a>.</p>
       </details>
     </div>
   </div>
@@ -115,6 +115,7 @@ const credentials = ref(null)
 const conversionError = ref('')
 
 const hubFullName = `${config.hubOwner}/${config.hubRepo}`
+const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
 
 // The URL where the frontend is hosted (used for homepage and redirect)
 const hostUrl = computed(() => window.location.origin + import.meta.env.BASE_URL)

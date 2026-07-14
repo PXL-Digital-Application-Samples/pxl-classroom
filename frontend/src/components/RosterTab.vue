@@ -10,7 +10,12 @@
 
     <div class="roster-grid">
       <!-- INPUT -->
-      <div class="input-pane">
+      <div
+        :class="['input-pane', { dragging }]"
+        @dragover.prevent="dragging = true"
+        @dragleave="dragging = false"
+        @drop.prevent="onDrop"
+      >
         <div class="field">
           <label>Upload CSV</label>
           <input type="file" accept=".csv,text/csv" @change="onFileChange" />
@@ -246,8 +251,23 @@ async function onFileChange(ev) {
   await parseAndValidate()
 }
 
+// The pane's copy says "drop a CSV" — honor it.
+const dragging = ref(false)
+async function onDrop(ev) {
+  dragging.value = false
+  const file = ev.dataTransfer?.files?.[0]
+  if (!file) return
+  csvText.value = await file.text()
+  await parseAndValidate()
+}
+
 async function commitRoster() {
   if (!canCommit.value) return
+  // Removals are the destructive part — one extra look before they land.
+  if (diff.value.removed.length > 0 && !window.confirm(
+    `This commit removes ${diff.value.removed.length} student(s) from the roster ` +
+    `(listed under "Removed"). Continue?`,
+  )) return
   committing.value = true
   try {
     const token = getToken()
@@ -288,6 +308,10 @@ onMounted(loadExisting)
   border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: var(--space-md);
+}
+.input-pane.dragging {
+  border-color: var(--accent-blue);
+  box-shadow: var(--shadow-glow);
 }
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-md); }

@@ -5,8 +5,25 @@
 // logout  — wipe the cached token
 
 import { Command } from "commander";
+import { spawn } from "node:child_process";
+import { platform } from "node:os";
 import { login, status } from "../lib/auth.mjs";
 import { clearToken, resolveClientId, tokenPath, configPath } from "../lib/config.mjs";
+
+// Best-effort: pop the verification page in the default browser, like
+// `gh auth login` does. The printed URL remains the fallback (headless
+// shells, SSH sessions).
+function openInBrowser(url) {
+  const [cmd, args] =
+    platform() === "win32" ? ["cmd", ["/c", "start", "", url]]
+    : platform() === "darwin" ? ["open", [url]]
+    : ["xdg-open", [url]];
+  try {
+    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    child.on("error", () => {});
+    child.unref();
+  } catch { /* headless — the printed URL is enough */ }
+}
 
 export function registerAuthCommand(program) {
   const auth = new Command("auth").description("Authentication against the PXL Classroom GitHub App.");
@@ -21,8 +38,11 @@ export function registerAuthCommand(program) {
         clientId,
         onPrompt: (v) => {
           process.stdout.write(
-            `\nOpen ${v.verification_uri}\nEnter code: ${v.user_code}\nExpires in: ${v.expires_in}s\n\n`,
+            `\nOpen ${v.verification_uri}\nEnter code: ${v.user_code}\nExpires in: ${v.expires_in}s\n\n` +
+            `Security notice: the page must ask you to authorize "PXL Classroom Provisioner".\n` +
+            `If any other App name appears, do NOT enter the code.\n\n`,
           );
+          openInBrowser(v.verification_uri);
         },
       });
       process.stdout.write(`Signed in as ${record.user_login}.\nToken cached at: ${tokenPath()}\n`);

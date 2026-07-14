@@ -80,7 +80,7 @@ export function registerFeedbackCommand(program) {
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .requiredOption("--assignment <id>", "Assignment ID")
     .option("--login <login>", "Open for one student only")
-    .option("--dry-run", "Show what would be opened without committing changes", false)
+    .option("--dry-run", "Preview which PRs would be opened — no PRs are created, no records committed", false)
     .action(async (opts) => {
       const org = resolveOrg(opts.org);
       const octokit = makeOctokit();
@@ -115,6 +115,14 @@ export function registerFeedbackCommand(program) {
         const recHasPr = Number.isInteger(rec.doc.feedback_pr_number);
         if (recHasPr) { existing++; continue; }
 
+        // Dry-run must have zero side effects: no PR creation, no record
+        // updates — just report what a real run would attempt.
+        if (opts.dryRun) {
+          opened++;
+          process.stdout.write(`  + ${login}: would open draft PR on ${org}/${repo} (main → ${baseline})\n`);
+          continue;
+        }
+
         let outcome;
         try {
           outcome = await openDraftPr(octokit, { org, repo, head: "main", base: baseline, title, body });
@@ -131,7 +139,6 @@ export function registerFeedbackCommand(program) {
         opened++;
         process.stdout.write(`  + ${login}: PR #${outcome.number} ${outcome.url}\n`);
 
-        if (opts.dryRun) continue;
         const updated = { ...rec.doc, feedback_pr_number: outcome.number, feedback_pr_url: outcome.url };
         await commitWithRebase(octokit, {
           owner: org, repo: CONTROL_REPO, branch: "main",
@@ -140,10 +147,17 @@ export function registerFeedbackCommand(program) {
         });
       }
 
-      process.stdout.write(
-        `\n${opened} opened, ${existing} already on record, ${pending} pending (no commits yet), ${failed} failed.\n`,
-      );
-      if (opts.dryRun) process.stdout.write(`(--dry-run; no records updated.)\n`);
+      if (opts.dryRun) {
+        process.stdout.write(
+          `\n${opened} would be opened, ${existing} already on record.\n` +
+          `(--dry-run; no PRs were created, no records updated. Students with no commits ` +
+          `ahead of ${baseline} would be skipped by a real run.)\n`,
+        );
+      } else {
+        process.stdout.write(
+          `\n${opened} opened, ${existing} already on record, ${pending} pending (no commits yet), ${failed} failed.\n`,
+        );
+      }
     });
 
   feedback

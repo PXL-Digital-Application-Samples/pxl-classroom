@@ -43,6 +43,17 @@
         <p class="text-secondary">Loading dashboard data…</p>
       </div>
 
+      <!-- No installation visible to this account -->
+      <div v-else-if="orgsLoaded && orgs.length === 0" class="center-card fade-in">
+        <h2>No PXL Classroom installation visible</h2>
+        <p class="text-secondary">
+          Your account (<strong>{{ user.login }}</strong>) can't see the PXL Classroom App installed on any
+          organization. Ask a hub admin to install the App on your org — see
+          <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">RUNBOOK §2.1</a> —
+          or sign in with the account that administers it.
+        </p>
+      </div>
+
       <!-- No org selected -->
       <div v-else-if="!selectedOrg" class="center-card fade-in">
         <h2>Select an organization</h2>
@@ -55,7 +66,8 @@
           <h2>{{ selectedOrg }} isn't onboarded yet</h2>
           <p class="text-secondary">
             There is no <code>{{ selectedOrg }}/pxl-classroom-control</code> repository (or you can't see it).
-            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow — see RUNBOOK §2.
+            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow — see
+            <a :href="`${runbookUrl}#2-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener">RUNBOOK §2</a>.
           </p>
         </template>
         <template v-else-if="dashState === 'no-dashboard'">
@@ -164,6 +176,12 @@ let pollAbort = null
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
 const dashState = ref('')
 
+// True once /user/installations has answered — gates the "no installation
+// visible" empty state so it can't flash during the initial load.
+const orgsLoaded = ref(false)
+
+const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
+
 onMounted(async () => {
   if (isAuthenticated()) {
     user.value = getUser()
@@ -208,12 +226,9 @@ async function loadOrgs() {
       .filter((i) => i.account?.type === 'Organization')
       .map((i) => i.account)
 
-    if (installOrgs.length > 0) {
-      orgs.value = installOrgs
-    } else {
-      console.warn('No App installations found for this user. Falling back to default config org.')
-      orgs.value = [{ login: config.defaultOrg, avatar_url: '' }]
-    }
+    // No visible installation ⇒ say so honestly (dedicated empty state)
+    // instead of silently pretending the default org is the user's.
+    orgs.value = installOrgs
 
     // Auto-select based on URL param or fallback
     if (props.org && orgs.value.some(o => o.login === props.org)) {
@@ -223,6 +238,8 @@ async function loadOrgs() {
     }
   } catch (e) {
     console.error('Failed to load orgs:', e)
+  } finally {
+    orgsLoaded.value = true
   }
 }
 
@@ -286,6 +303,7 @@ function handleLogout() {
   clearAuth()
   user.value = null
   orgs.value = []
+  orgsLoaded.value = false
   selectedOrg.value = ''
   assignments.value = []
 }

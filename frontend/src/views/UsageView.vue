@@ -73,12 +73,26 @@
 
       <div v-else class="fade-in">
         <div class="report-meta">
-          <p><strong>Week:</strong> {{ report.week_start }} → {{ report.week_end }}</p>
-          <p><strong>Generated:</strong> {{ formatDate(report.generated_at) }}</p>
-          <p v-if="report.over_count > 0" class="text-danger">
-            <strong>{{ report.over_count }}</strong> repo/SKU pair(s) over threshold.
-          </p>
-          <p v-else class="text-success">All repos within configured limits.</p>
+          <div class="report-meta-row">
+            <div>
+              <p><strong>Week:</strong> {{ report.week_start }} → {{ report.week_end }}</p>
+              <p><strong>Generated:</strong> {{ formatDate(report.generated_at) }}</p>
+              <p v-if="report.over_count > 0" class="text-danger">
+                <strong>{{ report.over_count }}</strong> repo/SKU pair(s) over threshold.
+              </p>
+              <p v-else class="text-success">All repos within configured limits.</p>
+            </div>
+            <div class="regen">
+              <button v-if="!runWatching" class="btn btn-with-icon" @click="generateNow" :disabled="triggering">
+                <Icon name="refresh-cw" :size="14" />
+                <span>{{ triggering ? 'Triggering…' : 'Regenerate now' }}</span>
+              </button>
+              <div v-else class="inline-spinner">
+                <div class="spinner"></div>
+                <span>Waiting for the new report… ({{ pollCount }}×)</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <input v-model="filter" type="search" placeholder="Filter by repo or SKU…" class="filter-input" />
@@ -86,9 +100,9 @@
         <table class="usage-table">
           <thead>
             <tr>
-              <th @click="sortBy('repo')"><span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span></th>
-              <th @click="sortBy('sku')"><span class="th-label">SKU<SortIcon :dir="sortDirFor('sku')" /></span></th>
-              <th @click="sortBy('used')" class="num"><span class="th-label">Used<SortIcon :dir="sortDirFor('used')" /></span></th>
+              <th @click="sortBy('repo')" @keydown.enter="sortBy('repo')" @keydown.space.prevent="sortBy('repo')" tabindex="0" :aria-sort="ariaSortFor('repo')"><span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span></th>
+              <th @click="sortBy('sku')" @keydown.enter="sortBy('sku')" @keydown.space.prevent="sortBy('sku')" tabindex="0" :aria-sort="ariaSortFor('sku')"><span class="th-label">SKU<SortIcon :dir="sortDirFor('sku')" /></span></th>
+              <th @click="sortBy('used')" @keydown.enter="sortBy('used')" @keydown.space.prevent="sortBy('used')" tabindex="0" :aria-sort="ariaSortFor('used')" class="num"><span class="th-label">Used<SortIcon :dir="sortDirFor('used')" /></span></th>
               <th class="num">Limit</th>
               <th>Unit</th>
               <th>Source</th>
@@ -166,6 +180,11 @@ function sortDirFor(key) {
   return sortKey.value === key ? sortDir.value : null
 }
 
+function ariaSortFor(key) {
+  if (sortKey.value !== key) return 'none'
+  return sortDir.value === 'asc' ? 'ascending' : 'descending'
+}
+
 async function loadReport() {
   const token = getToken()
   if (!token || !props.org) return
@@ -201,16 +220,19 @@ async function generateNow() {
 function startRunPoll() {
   stopRunPoll()
   pollCount.value = 0
+  // Success = a report whose generated_at differs from what we started with,
+  // so "Regenerate" on an existing report doesn't declare victory instantly.
+  const baseline = report.value?.generated_at || null
   const maxPolls = 20 // 20 × 30s = 10 minutes
   runPollInterval = setInterval(async () => {
     pollCount.value++
     await loadReport()
-    if (report.value) {
+    if (report.value && report.value.generated_at !== baseline) {
       toast.success('Usage report ready.')
       runWatching.value = false
       stopRunPoll()
     } else if (pollCount.value >= maxPolls) {
-      toast.info('Still no report after 10 minutes. Check the Actions tab for failures.')
+      toast.info('Still no new report after 10 minutes. Check the Actions tab for failures.')
       runWatching.value = false
       stopRunPoll()
     }
@@ -277,6 +299,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .report-meta { padding: var(--space-md); background: var(--bg-secondary); border-radius: 8px; margin-bottom: var(--space-md); border: 1px solid var(--border-default); }
 .report-meta p { margin: 0.25rem 0; }
+.report-meta-row { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-md); flex-wrap: wrap; }
 .filter-input { display: block; width: 100%; max-width: 400px; margin-bottom: var(--space-md); padding: var(--space-sm); }
 .usage-table { width: 100%; border-collapse: collapse; }
 .usage-table th, .usage-table td { padding: var(--space-sm); text-align: left; border-bottom: 1px solid var(--border-default); }

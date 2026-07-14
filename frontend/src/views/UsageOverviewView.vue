@@ -73,9 +73,23 @@
 
       <div v-else class="fade-in">
         <div class="report-meta">
-          <p><strong>Orgs scanned:</strong> {{ orgsLoaded }} / {{ orgsTotal }}</p>
-          <p v-if="overCount > 0" class="text-danger"><strong>{{ overCount }}</strong> repo/SKU pair(s) over threshold across all orgs.</p>
-          <p v-else class="text-success">All scanned orgs within configured limits.</p>
+          <div class="report-meta-row">
+            <div>
+              <p><strong>Orgs scanned:</strong> {{ orgsLoaded }} / {{ orgsTotal }}</p>
+              <p v-if="overCount > 0" class="text-danger"><strong>{{ overCount }}</strong> repo/SKU pair(s) over threshold across all orgs.</p>
+              <p v-else class="text-success">All scanned orgs within configured limits.</p>
+            </div>
+            <div class="regen">
+              <button v-if="!runWatching" class="btn btn-with-icon" @click="generateNow" :disabled="triggering">
+                <Icon name="refresh-cw" :size="14" />
+                <span>{{ triggering ? 'Triggering…' : 'Regenerate now' }}</span>
+              </button>
+              <div v-else class="inline-spinner">
+                <div class="spinner"></div>
+                <span>Waiting for new reports… ({{ pollCount }}×)</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="filter-row">
@@ -86,10 +100,10 @@
         <table class="usage-table">
           <thead>
             <tr>
-              <th @click="sortBy('org')"><span class="th-label">Org<SortIcon :dir="sortDirFor('org')" /></span></th>
-              <th @click="sortBy('repo')"><span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span></th>
-              <th @click="sortBy('sku')"><span class="th-label">SKU<SortIcon :dir="sortDirFor('sku')" /></span></th>
-              <th @click="sortBy('used')" class="num"><span class="th-label">Used<SortIcon :dir="sortDirFor('used')" /></span></th>
+              <th @click="sortBy('org')" @keydown.enter="sortBy('org')" @keydown.space.prevent="sortBy('org')" tabindex="0" :aria-sort="ariaSortFor('org')"><span class="th-label">Org<SortIcon :dir="sortDirFor('org')" /></span></th>
+              <th @click="sortBy('repo')" @keydown.enter="sortBy('repo')" @keydown.space.prevent="sortBy('repo')" tabindex="0" :aria-sort="ariaSortFor('repo')"><span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span></th>
+              <th @click="sortBy('sku')" @keydown.enter="sortBy('sku')" @keydown.space.prevent="sortBy('sku')" tabindex="0" :aria-sort="ariaSortFor('sku')"><span class="th-label">SKU<SortIcon :dir="sortDirFor('sku')" /></span></th>
+              <th @click="sortBy('used')" @keydown.enter="sortBy('used')" @keydown.space.prevent="sortBy('used')" tabindex="0" :aria-sort="ariaSortFor('used')" class="num"><span class="th-label">Used<SortIcon :dir="sortDirFor('used')" /></span></th>
               <th class="num">Limit</th>
               <th>Unit</th>
               <th>Source</th>
@@ -140,6 +154,9 @@ const sortKey = ref('used')
 const sortDir = ref('desc')
 const orgsTotal = ref(0)
 const orgsLoaded = ref(0)
+// Newest generated_at across all loaded org reports — the "did a fresh
+// report land yet" signal for the regenerate watcher.
+const newestGeneratedAt = ref(null)
 const triggering = ref(false)
 const runWatching = ref(false)
 const pollCount = ref(0)
@@ -168,6 +185,11 @@ function sortBy(key) {
 
 function sortDirFor(key) {
   return sortKey.value === key ? sortDir.value : null
+}
+
+function ariaSortFor(key) {
+  if (sortKey.value !== key) return 'none'
+  return sortDir.value === 'asc' ? 'ascending' : 'descending'
 }
 
 async function loadAll() {
@@ -202,11 +224,14 @@ async function loadAll() {
       return
     }
 
+    let newest = null
     for (const r of results) {
       if (!r.content) continue
       const report = JSON.parse(r.content)
+      if (report.generated_at && (!newest || report.generated_at > newest)) newest = report.generated_at
       for (const item of report.items) rows.value.push({ org: r.org, ...item })
     }
+    newestGeneratedAt.value = newest
   } finally {
     loading.value = false
   }
@@ -266,16 +291,19 @@ async function generateNow() {
 function startRunPoll() {
   stopRunPoll()
   pollCount.value = 0
+  // Success = a report newer than what we started with, so "Regenerate"
+  // on existing reports doesn't declare victory on the stale data.
+  const baseline = newestGeneratedAt.value
   const maxPolls = 20 // 20 × 30s = 10 minutes
   runPollInterval = setInterval(async () => {
     pollCount.value++
     await loadAll()
-    if (rows.value.length > 0) {
+    if (rows.value.length > 0 && newestGeneratedAt.value !== baseline) {
       toast.success('Usage reports ready.')
       runWatching.value = false
       stopRunPoll()
     } else if (pollCount.value >= maxPolls) {
-      toast.info('Still no reports after 10 minutes. Check the Actions tab for failures.')
+      toast.info('Still no new reports after 10 minutes. Check the Actions tab for failures.')
       runWatching.value = false
       stopRunPoll()
     }
@@ -304,6 +332,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .report-meta { padding: var(--space-md); background: var(--bg-secondary); border-radius: 8px; margin-bottom: var(--space-md); border: 1px solid var(--border-default); }
 .report-meta p { margin: 0.25rem 0; }
+.report-meta-row { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-md); flex-wrap: wrap; }
 .filter-row { display: flex; gap: var(--space-md); align-items: center; margin-bottom: var(--space-md); }
 .filter-input { flex: 1; max-width: 400px; padding: var(--space-sm); }
 .usage-table { width: 100%; border-collapse: collapse; }

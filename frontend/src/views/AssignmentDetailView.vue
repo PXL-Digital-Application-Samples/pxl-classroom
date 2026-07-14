@@ -30,9 +30,22 @@
           Reports for <code>{{ assignmentId }}</code> are written to the control repo by the nightly
           <code>daily-activity.yml</code> run in the hub — the first one lands the night after publishing.
         </p>
-        <p class="text-secondary">
-          Need it sooner? Trigger <strong>Daily activity</strong> manually from the hub's
-          <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/daily-activity.yml`" target="_blank" rel="noopener">Actions tab</a>.
+        <div v-if="dailyWatch === ''">
+          <button class="btn btn-primary btn-with-icon" @click="runDailyActivity" :disabled="dailyTriggering">
+            <Icon name="zap" :size="14" />
+            <span>{{ dailyTriggering ? 'Triggering…' : 'Run daily activity now' }}</span>
+          </button>
+          <p class="text-muted" style="font-size: 0.85rem; margin-top: var(--space-sm);">
+            Dispatches <code>daily-activity.yml</code> in the hub for {{ org }}. Takes a couple of minutes.
+          </p>
+        </div>
+        <div v-else-if="dailyWatch === 'watching'" class="daily-watch">
+          <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+          <span class="text-secondary">Workflow started — watching for the report to land… (checked {{ dailyPollCount }}×)</span>
+        </div>
+        <p v-else-if="dailyWatch === 'timeout'" class="text-warning">
+          No report after 5 minutes — check the
+          <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/daily-activity.yml`" target="_blank" rel="noopener">workflow run</a> for failures.
         </p>
       </div>
 
@@ -150,7 +163,7 @@
                 <td>
                   <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted — reason: ${extensionFor(s.github_login).reason}`">
-                    ext → {{ formatDate(extensionFor(s.github_login).value) }}
+                    ext → {{ fmt(extensionFor(s.github_login).value) }}
                   </div>
                 </td>
                 <td class="col-repo">
@@ -159,7 +172,7 @@
                 </td>
                 <td class="col-last-commit">
                   <template v-if="s.repo_url && latestSha(s)">
-                    <div v-if="s.latest_observed_at" class="commit-time-top" :title="formatDate(s.latest_observed_at)">
+                    <div v-if="s.latest_observed_at" class="commit-time-top" :title="fmt(s.latest_observed_at)">
                       {{ formatRelative(s.latest_observed_at) }}
                     </div>
                     <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
@@ -177,14 +190,14 @@
                          :href="`${s.repo_url}/tree/${encodeURIComponent(s.tagged_submission_tag)}`"
                          target="_blank"
                          class="mono tag-link"
-                         :title="`Tag observed ${formatDate(s.tagged_submission_observed_at)} · declared ${formatDate(s.tagged_submission_declared_at)}`">
+                         :title="`Tag observed ${fmt(s.tagged_submission_observed_at)} · declared ${fmt(s.tagged_submission_declared_at)}`">
                         {{ shortTag(s.tagged_submission_tag) }}
                       </a>
-                      <span v-else class="mono tag-link" :title="formatDate(s.tagged_submission_observed_at)">
+                      <span v-else class="mono tag-link" :title="fmt(s.tagged_submission_observed_at)">
                         {{ shortTag(s.tagged_submission_tag) }}
                       </span>
                     </span>
-                    <div class="tag-time text-muted" :title="formatDate(s.tagged_submission_observed_at)">
+                    <div class="tag-time text-muted" :title="fmt(s.tagged_submission_observed_at)">
                       {{ formatRelative(s.tagged_submission_observed_at) }}
                     </div>
                   </template>
@@ -245,11 +258,11 @@
               <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ s.acceptance_state }}</span>
               <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
               <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
-              <span v-if="s.tagged_submission_tag" class="badge badge-info badge-with-icon" :title="`Tagged ${formatDate(s.tagged_submission_observed_at)}`">
+              <span v-if="s.tagged_submission_tag" class="badge badge-info badge-with-icon" :title="`Tagged ${fmt(s.tagged_submission_observed_at)}`">
                 <Icon name="tag" :size="11" />
                 tagged
               </span>
-              <span v-if="extensionFor(s.github_login)" class="badge badge-info" :title="`Extended to ${formatDate(extensionFor(s.github_login).value)} — ${extensionFor(s.github_login).reason}`">
+              <span v-if="extensionFor(s.github_login)" class="badge badge-info" :title="`Extended to ${fmt(extensionFor(s.github_login).value)} — ${extensionFor(s.github_login).reason}`">
                 extended
               </span>
             </div>
@@ -257,7 +270,7 @@
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
               <div v-if="latestSha(s)" class="commit-row">
                 Last commit
-                <span v-if="s.latest_observed_at" :title="formatDate(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at) }}</span>
+                <span v-if="s.latest_observed_at" :title="fmt(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at) }}</span>
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
@@ -270,7 +283,7 @@
 
         <p class="table-footer text-muted">
           {{ filteredStudents.length }} of {{ report.students.length }} students shown ·
-          Generated {{ formatDate(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ formatDate(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota — resets hourly`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
+          Generated {{ fmt(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ fmt(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota — resets hourly`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
         </p>
 
         <!-- Autograde results (read-only) -->
@@ -279,7 +292,7 @@
             <h3>Autograder</h3>
             <span class="text-muted text-xs">
               {{ autogradeSummary
-                ? `Last run ${formatDate(autogradeSummary.generated_at)} by @${autogradeSummary.graded_by} via ${autogradeSummary.runner}`
+                ? `Last run ${fmt(autogradeSummary.generated_at)} by @${autogradeSummary.graded_by} via ${autogradeSummary.runner}`
                 : 'No results yet. Execution stays off-platform.' }}
             </span>
           </header>
@@ -320,7 +333,7 @@
                     <td class="num">{{ row.earned_points }}</td>
                     <td class="num">{{ row.total_points }}</td>
                   </template>
-                  <td>{{ formatDate(row.graded_at) }}</td>
+                  <td>{{ fmt(row.graded_at) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -336,7 +349,7 @@
 
       <!-- Per-row action modal -->
       <div v-if="actionStudent" class="modal-overlay" @click.self="closeActions">
-        <div class="modal" role="dialog" aria-modal="true" :aria-label="`Actions for ${actionStudent.github_login}`">
+        <div class="modal" ref="modalEl" role="dialog" aria-modal="true" :aria-label="`Actions for ${actionStudent.github_login}`" @keydown="trapTab">
           <header class="modal-head">
             <h3>Actions — <code>{{ actionStudent.github_login }}</code></h3>
             <button class="modal-close" type="button" @click="closeActions" :disabled="actionExtending || actionRetrying" aria-label="Close">×</button>
@@ -345,7 +358,7 @@
           <section class="modal-section">
             <h4>Grant deadline extension</h4>
             <p v-if="extensionFor(actionStudent.github_login)" class="text-secondary">
-              Currently extended to <strong>{{ formatDate(extensionFor(actionStudent.github_login).value) }}</strong>
+              Currently extended to <strong>{{ fmt(extensionFor(actionStudent.github_login).value) }}</strong>
               ("{{ extensionFor(actionStudent.github_login).reason }}"). Granting again replaces this extension.
             </p>
             <div class="field">
@@ -375,7 +388,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { h } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import Icon from '../components/Icon.vue'
@@ -408,6 +421,11 @@ const user = ref(getUser())
 const loading = ref(true)
 const report = ref(null)
 const assignment = ref(null)
+
+// All dates in this view render in the assignment's display timezone
+// (assignment.timezone, set in the Admin Panel), falling back to the
+// configured default inside formatDate.
+const fmt = (iso) => formatDate(iso, assignment.value?.timezone)
 const search = ref('')
 const statusFilter = ref('')
 const sortKey = ref('github_login')
@@ -425,6 +443,66 @@ const actionStudent = ref(null)
 const actionExt = ref({ deadline_local: '', reason: '' })
 const actionExtending = ref(false)
 const actionRetrying = ref(false)
+const modalEl = ref(null)
+let modalReturnFocus = null
+
+// "Run daily activity now" — dispatch + watch for the first report to land.
+const dailyTriggering = ref(false)
+const dailyWatch = ref('') // '' | 'watching' | 'timeout'
+const dailyPollCount = ref(0)
+let dailyPollTimer = null
+
+async function runDailyActivity() {
+  const token = getToken()
+  if (!token) return
+  dailyTriggering.value = true
+  try {
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', { org: props.org })
+    if (res.ok || res.status === 204) {
+      toast.success('Daily activity triggered — watching for the report…')
+      startDailyWatch()
+    } else {
+      toast.error(explainDispatchFailure(res, 'Trigger failed'))
+    }
+  } finally {
+    dailyTriggering.value = false
+  }
+}
+
+function startDailyWatch() {
+  stopDailyWatch()
+  dailyWatch.value = 'watching'
+  dailyPollCount.value = 0
+  const tick = async () => {
+    dailyPollCount.value++
+    const token = getToken()
+    if (token) {
+      const content = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`)
+      if (content) {
+        try {
+          report.value = JSON.parse(content)
+          if (report.value.live_refreshed_at) liveRefreshedAt.value = report.value.live_refreshed_at
+          dailyWatch.value = ''
+          toast.success('Report ready.')
+          return
+        } catch { /* half-written file — keep polling */ }
+      }
+    }
+    if (dailyPollCount.value >= 30) { // 30 × 10s = 5 minutes
+      dailyWatch.value = 'timeout'
+      return
+    }
+    dailyPollTimer = setTimeout(tick, 10000)
+  }
+  dailyPollTimer = setTimeout(tick, 10000)
+}
+
+function stopDailyWatch() {
+  if (dailyPollTimer) {
+    clearTimeout(dailyPollTimer)
+    dailyPollTimer = null
+  }
+}
 
 const onTimeCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'on-time').length || 0)
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
@@ -469,6 +547,7 @@ const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(c
 const deadlineAbs = computed(() => {
   if (!currentDeadline.value) return ''
   return new Date(currentDeadline.value).toLocaleString('en-GB', {
+    timeZone: assignment.value?.timezone || config.timezone,
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   })
 })
@@ -535,6 +614,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  stopDailyWatch()
 })
 
 // Best-effort: surface granted deadline extensions in the table + modal.
@@ -646,15 +726,39 @@ function formatRelative(iso) {
   return future ? `in ${s}` : `${s} ago`
 }
 
-async function exportCSV() {
-  const token = getToken()
-  if (!token) return
-  const csv = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.csv`)
-  if (!csv) {
-    toast.error('No CSV found in the control repo for this assignment.')
+// Same column set as report.mjs's nightly CSV, but generated from the report
+// currently on screen — so an export taken after a Live Status refresh can
+// never contradict the table the lecturer just looked at.
+const CSV_HEADERS = [
+  'github_login', 'student_number', 'full_name', 'class_group',
+  'acceptance_state', 'submission_status', 'effective_deadline_at',
+  'override_applied', 'override_reason', 'repo_name', 'repo_url',
+  'last_on_time_sha', 'last_on_time_observed_at', 'first_late_sha',
+  'first_late_observed_at', 'latest_observed_sha', 'latest_observed_at',
+  'uncertainty_interval_seconds', 'tagged_submission_tag',
+  'tagged_submission_sha', 'tagged_submission_observed_at',
+  'tagged_submission_declared_at', 'lock_down_at', 'preservation_status',
+  'preserved_sha', 'warnings',
+]
+
+function csvCell(v) {
+  if (v === null || v === undefined) return ''
+  if (Array.isArray(v)) return `"${v.join('; ')}"`
+  const str = String(v)
+  return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str
+}
+
+function exportCSV() {
+  const students = report.value?.students || []
+  if (students.length === 0) {
+    toast.info('No students in the report to export.')
     return
   }
-  const blob = new Blob([csv], { type: 'text/csv' })
+  const rows = [CSV_HEADERS.join(',')]
+  for (const s of students) {
+    rows.push(CSV_HEADERS.map((h) => csvCell(s[h])).join(','))
+  }
+  const blob = new Blob([rows.join('\n') + '\n'], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -728,11 +832,15 @@ function clearFilters() {
   statusFilter.value = ''
 }
 
+// Returns true when the row was refreshed, false on any API failure — the
+// caller counts failures so a partial refresh is never presented (or saved)
+// as a complete one.
 async function refreshOne(token, s) {
   try {
     const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
+    if (!res.ok) return false
 
-    if (res.ok) s.commit_count = totalFromLinkHeader(res.headers, res.data)
+    s.commit_count = totalFromLinkHeader(res.headers, res.data)
 
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
@@ -756,13 +864,18 @@ async function refreshOne(token, s) {
           s.submission_status = 'on-time'
           s.last_on_time_sha = sha
         } else {
-          s.submission_status = 'late'
-          s.first_late_sha = sha
+          // Post-deadline commit. Nightly semantics: an on-time submission on
+          // record keeps the student on-time — late *activity* is not a late
+          // *submission*. Only classify 'late' when nothing on-time exists.
+          s.first_late_sha = s.first_late_sha || sha
+          if (!s.last_on_time_sha) {
+            s.submission_status = 'late'
+          }
         }
       } else {
         s.submission_status = 'unknown'
       }
-      
+
       // Fetch CI status if github actions. s.repo_name is already org/repo.
       if (isGitHubActionsAutograde.value) {
         const checkRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
@@ -774,10 +887,13 @@ async function refreshOne(token, s) {
     } else if (res.ok && res.data && res.data.length === 0) {
       s.submission_status = 'no-submission'
     }
+    return true
   } catch (e) {
     console.error(`Failed to fetch live status for ${s.repo_name}:`, e)
+    return false
+  } finally {
+    refreshedStudentsCount.value++
   }
-  refreshedStudentsCount.value++
 }
 
 async function refreshLiveStatus() {
@@ -795,19 +911,16 @@ async function refreshLiveStatus() {
   refreshedStudentsCount.value = 0
 
   let cursor = 0
+  let failedCount = 0
   const worker = async () => {
     while (cursor < queue.length) {
       const s = queue[cursor++]
-      await refreshOne(token, s)
+      const ok = await refreshOne(token, s)
+      if (!ok) failedCount++
     }
   }
   const workers = Array.from({ length: Math.min(REFRESH_CONCURRENCY, queue.length) }, worker)
   await Promise.all(workers)
-
-  const refreshedAt = new Date().toISOString()
-  liveRefreshedAt.value = refreshedAt
-  report.value.live_refreshed_at = refreshedAt
-  report.value.live_refreshed_by = user.value?.login || null
 
   // Fetch rate-limit headroom (one extra call, doesn't count against core)
   try {
@@ -821,6 +934,22 @@ async function refreshLiveStatus() {
   } catch (e) {
     console.error('Failed to fetch rate limit:', e)
   }
+
+  // A partial refresh must never be presented — or persisted — as a complete
+  // one. Surface the failure count and leave the control repo untouched.
+  if (failedCount > 0) {
+    toast.error(
+      `Refreshed ${queue.length - failedCount} of ${queue.length} students — ${failedCount} failed` +
+      `${rateLimit.value.remaining === 0 ? ' (API rate limit exhausted)' : ''}. Nothing was saved; try again later.`,
+    )
+    refreshingLive.value = false
+    return
+  }
+
+  const refreshedAt = new Date().toISOString()
+  liveRefreshedAt.value = refreshedAt
+  report.value.live_refreshed_at = refreshedAt
+  report.value.live_refreshed_by = user.value?.login || null
 
   // Persist the refreshed report + dashboard aggregate back to the control
   // repo so reloads (and the Dashboard view) see the up-to-date snapshot.
@@ -946,11 +1075,36 @@ function openActions(student) {
     deadline_local: fallbackDeadline ? toLocalInputValue(new Date(fallbackDeadline)) : '',
     reason: '',
   }
+  // Move focus into the dialog; restore it to the trigger on close.
+  modalReturnFocus = document.activeElement
+  nextTick(() => {
+    modalEl.value?.querySelector('input, textarea, select, button:not([disabled])')?.focus()
+  })
 }
 
 function closeActions() {
   if (actionExtending.value || actionRetrying.value) return
   actionStudent.value = null
+  modalReturnFocus?.focus?.()
+  modalReturnFocus = null
+}
+
+// Keep Tab cycling inside the dialog while it is open.
+function trapTab(e) {
+  if (e.key !== 'Tab' || !modalEl.value) return
+  const focusables = [...modalEl.value.querySelectorAll(
+    'input, textarea, select, button:not([disabled]), a[href]',
+  )].filter((el) => el.offsetParent !== null)
+  if (focusables.length === 0) return
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
 }
 
 function toLocalInputValue(date) {
@@ -975,7 +1129,7 @@ async function grantExtensionFor(student) {
     || student.effective_deadline_at
     || assignment.value?.deadline_at
   if (currentEffective && new Date(localToUtc(actionExt.value.deadline_local)) <= new Date(currentEffective)) {
-    toast.error(`New deadline must be after the current effective deadline (${formatDate(currentEffective)}).`)
+    toast.error(`New deadline must be after the current effective deadline (${fmt(currentEffective)}).`)
     return
   }
   actionExtending.value = true
@@ -1064,6 +1218,13 @@ main { padding: var(--space-xl) var(--space-lg); }
   flex-direction: column;
   align-items: center;
   gap: var(--space-md);
+}
+
+.daily-watch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  justify-content: center;
 }
 
 .summary-row {

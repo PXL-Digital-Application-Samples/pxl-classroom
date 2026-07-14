@@ -57,10 +57,21 @@ export async function status() {
   }
 }
 
+// Device-flow user tokens live ~8 hours. Check the cached token's age up
+// front so an expired session fails with a clear next step instead of a raw
+// "Bad credentials" from GitHub halfway through a command.
+const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
+
 export function requireToken() {
   const tok = loadToken();
   if (!tok) {
     throw new Error("not authenticated. Run `pxl-classroom auth login` first.");
+  }
+  const obtained = Date.parse(tok.obtained_at);
+  if (Number.isFinite(obtained) && Date.now() - obtained > TOKEN_TTL_MS) {
+    throw new Error(
+      "session expired — device-flow tokens live ~8h. Run `pxl-classroom auth login` again.",
+    );
   }
   return tok;
 }

@@ -13,15 +13,19 @@
         type="button"
         role="tab"
         :aria-selected="activeTab === 'assignments'"
+        :tabindex="activeTab === 'assignments' ? 0 : -1"
         :class="['tab', { active: activeTab === 'assignments' }]"
         @click="setTab('assignments')"
+        @keydown="onTabKeydown"
       >Assignments</button>
       <button
         type="button"
         role="tab"
         :aria-selected="activeTab === 'roster'"
+        :tabindex="activeTab === 'roster' ? 0 : -1"
         :class="['tab', { active: activeTab === 'roster' }]"
         @click="setTab('roster')"
+        @keydown="onTabKeydown"
       >Roster</button>
     </nav>
 
@@ -44,9 +48,11 @@
             v-for="a in assignments"
             :key="a.id"
             :class="{ active: editing && editing.id === a.id }"
+            role="button"
             tabindex="0"
             @click="editAssignment(a)"
             @keyup.enter="editAssignment(a)"
+            @keydown.space.prevent="editAssignment(a)"
           >
             <div class="title">{{ a.title || a.id }}</div>
             <div class="slug">{{ a.id }}</div>
@@ -142,7 +148,8 @@
             <div class="field">
               <label>Max acceptances</label>
               <input type="number" v-model.number="form.max_acceptances" min="1" />
-              <small>Hard cap on accepted students. Acceptances beyond this are rejected.</small>
+              <small v-if="form.max_acceptances">Hard cap on accepted students. Acceptances beyond this are rejected.</small>
+              <small v-else class="text-warning">Empty = <strong>no cap</strong> — any number of students can accept. Set a number to keep the guardrail.</small>
             </div>
             <div class="field checkbox">
               <label>
@@ -375,7 +382,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure } from '../lib/api.js'
@@ -405,6 +413,14 @@ function setTab(name) {
 }
 if (typeof window !== 'undefined') {
   window.addEventListener('hashchange', () => { activeTab.value = tabFromHash() })
+}
+
+// Roving-tabindex arrow navigation for the two tabs (WAI-ARIA tabs pattern).
+function onTabKeydown(e) {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  e.preventDefault()
+  setTab(activeTab.value === 'assignments' ? 'roster' : 'assignments')
+  nextTick(() => document.querySelector('.admin-tabs .tab.active')?.focus())
 }
 
 // ---------------------------------------------------------------- state
@@ -438,6 +454,20 @@ function confirmDiscard() {
   if (!editing.value) return true
   if (JSON.stringify(form.value) === savedSnapshot.value) return true
   return window.confirm('Discard unsaved changes to this assignment?')
+}
+function hasUnsavedEdits() {
+  return !!editing.value && JSON.stringify(form.value) !== savedSnapshot.value
+}
+
+// In-page navigation is guarded via confirmDiscard(); guard the two exits
+// that used to lose edits silently — leaving the route (e.g. the Dashboard
+// back button) and closing/refreshing the tab.
+onBeforeRouteLeave(() => confirmDiscard())
+function onBeforeUnload(e) {
+  if (hasUnsavedEdits()) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
 }
 
 const extForm = ref({ login: '', deadline_local: '', reason: '' })
@@ -890,16 +920,34 @@ async function grantExtension() {
     toast.error('Login and reason are required')
     return
   }
-  // An extension must move the deadline forward, not shorten it.
-  const assignmentDeadline = localToUtc(form.value.deadline_at_local)
-  if (assignmentDeadline && new Date(localToUtc(extForm.value.deadline_local)) <= new Date(assignmentDeadline)) {
-    toast.error('The extension must be later than the assignment deadline.')
+  if (!extForm.value.deadline_local) {
+    toast.error('Pick a new deadline for the extension.')
     return
   }
   extending.value = true
   try {
     const token = getToken()
     const newDeadlineUtc = localToUtc(extForm.value.deadline_local)
+
+    // An extension must move the deadline forward, not shorten it. The floor
+    // is the student's *current effective* deadline: an already-granted
+    // extension (if later) wins over the assignment deadline — same rule as
+    // the per-row modal in the report view.
+    let currentEffective = localToUtc(form.value.deadline_at_local)
+    try {
+      const existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${extForm.value.login}.json`)
+      if (existingText) {
+        const existingDoc = JSON.parse(existingText)
+        const prevExt = (existingDoc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
+        if (prevExt?.value && (!currentEffective || new Date(prevExt.value) > new Date(currentEffective))) {
+          currentEffective = prevExt.value
+        }
+      }
+    } catch { /* unreadable override — fall back to the assignment deadline */ }
+    if (currentEffective && new Date(newDeadlineUtc) <= new Date(currentEffective)) {
+      toast.error(`The extension must be later than ${extForm.value.login}'s current effective deadline (${formatDate(currentEffective)}).`)
+      return
+    }
     const overrideDoc = {
       schema_version: 1,
       assignment_id: form.value.id,
@@ -956,10 +1004,12 @@ async function retryAcceptance() {
 // ---------------------------------------------------------------- lifecycle
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', onBeforeUnload)
   await Promise.all([loadAssignments(), loadTemplates()])
 })
 
 onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
   stopPublishWatch()
 })
 

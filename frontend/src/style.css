@@ -2,7 +2,8 @@
  * Dark theme with GitHub-inspired palette.
  * Premium, modern aesthetics. */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* Inter is loaded non-blocking from index.html; the system-ui fallback in
+   --font-sans keeps first paint instant if the font is slow or unreachable. */
 
 *,
 *::before,
@@ -87,6 +88,19 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: 2px;
+}
+
+/* Respect the OS motion preference: collapse the infinite animations
+   (spinners, progress bars, pulses) and hover transitions to near-zero. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 a {
