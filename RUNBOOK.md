@@ -60,8 +60,6 @@ printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_requ
   gh api -X PUT repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection --input -
 ```
 
-If the maintainer team ever grows beyond one person, revisit: require PRs with review, and add CODEOWNERS for the trusted execution surface (`/.github/workflows/`, the composite actions, `/lib/`, `/scripts/`).
-
 ### 1.6 Protection on `participating-orgs` branch
 
 This branch is the registry of participating orgs. The Setup-Organization workflow commits to it directly from automation, so it must accept plain pushes. Apply the same rule as `main` (force-push and deletion blocking only — same API call with `participating-orgs` in place of `main`).
