@@ -191,15 +191,19 @@ Done by a lecturer.
 | Slug (URL identifier) | URL-safe, auto-derived from the title, e.g. `linux-processes-2026` |
 | Template repository | pick from auto-discovered `template-*` repos in your org |
 | Repository name pattern | must contain `{github_login}`, e.g. `linux-processes-{github_login}` |
-| Opens at / Deadline | local time, automatically converted to UTC for storage |
-| Max acceptances | guardrail — cap on accepted students (default 250; leave empty for no cap) |
+| Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
+| Max acceptances | guardrail — cap on accepted students (default 250; leave empty for no cap; 0 is rejected) |
 | Lock down student repos at the deadline | default on |
+| Open a draft Feedback PR for each student | optional — creates a protected `pxl-baseline` branch at provisioning (see §12.7) |
+| Enable autograding | optional — test editor + execution environment picker (see §12.9) |
 
 5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
 ### 4.3 Publish
 
 In the editor → click **Save & publish** (on an existing draft, the Lifecycle section's **Publish (create broker, enable nightly)** does the same). The panel watches for the broker repo and confirms when the accept link is live.
+
+If the workflow dispatch fails (typically 403 — you're not a hub collaborator, see §2.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again.
 
 This dispatches `publish-assignment.yml`, which:
 
@@ -538,9 +542,12 @@ Unknown columns are rejected. Duplicate `student_number` values are rejected.
 
 ```bash
 pxl-classroom roster import --org <org> roster.csv --dry-run    # preview diff
-pxl-classroom roster import --org <org> roster.csv              # commit
+pxl-classroom roster import --org <org> roster.csv              # commit (asks to confirm removals)
+pxl-classroom roster import --org <org> roster.csv --force      # commit incl. removals without prompting (CI)
 pxl-classroom roster list   --org <org>                          # tabular view
 ```
+
+An import whose diff **removes** students prompts for confirmation on a TTY (same guard as the Admin Panel); non-interactive runs must pass `--force` to allow removals.
 
 The `--org` value sticks (config remembers it) so subsequent invocations can omit the flag.
 
@@ -664,5 +671,5 @@ When `execution_environment` is `github_actions`, the system automatically injec
 
 To pull the grades back into the control repository:
 1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment.
-2. Click the **Sync Grades from GitHub** button in the Autograder panel.
-3. The SPA will fetch the CI statuses directly from the GitHub Checks API for all preserved students and write a bulk `summary.json` to the control repository.
+2. Click the **Sync CI results from GitHub** button in the Autograder panel.
+3. The SPA will fetch the CI statuses directly from the GitHub Checks API for all preserved students and write a bulk `summary.json` to the control repository. Preserved SHAs only exist after the deadline-night finalize — before that the button explains the precondition and commits nothing.

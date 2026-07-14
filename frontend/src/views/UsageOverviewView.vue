@@ -21,6 +21,7 @@
     <main class="container">
       <div v-if="!user" class="center-card fade-in">
         <h2>Sign in</h2>
+        <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
         <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
           <template v-if="authLoading">
             <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
@@ -145,6 +146,7 @@ import { toast } from '../lib/toast.js'
 
 const user = ref(getUser())
 const authLoading = ref(false)
+const authError = ref(null)
 const deviceFlow = ref(null)
 const loading = ref(false)
 const rows = ref([])
@@ -238,7 +240,11 @@ async function loadAll() {
 }
 
 async function startLogin() {
-  if (!config.clientId) return
+  authError.value = null
+  if (!config.clientId) {
+    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
+    return
+  }
   authLoading.value = true
   try {
     const flow = await startDeviceFlow(config.clientId)
@@ -249,7 +255,8 @@ async function startLogin() {
     deviceFlow.value = null
     await loadAll()
   } catch (e) {
-    if (e.message !== 'Cancelled') console.error(e)
+    // Sign-in failures render inside the auth card — never silently.
+    if (e.message !== 'Cancelled') authError.value = e.message
     deviceFlow.value = null
   } finally {
     authLoading.value = false
@@ -355,4 +362,11 @@ onBeforeUnmount(() => {
 .inline-spinner { display: inline-flex; align-items: center; gap: var(--space-sm); color: var(--text-secondary); }
 .inline-spinner .spinner { width: 18px; height: 18px; border-width: 2px; }
 .run-watching { display: flex; flex-direction: column; gap: var(--space-sm); align-items: center; }
+.auth-error {
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
+}
 </style>

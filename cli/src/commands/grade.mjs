@@ -123,7 +123,7 @@ export function registerGradeCommand(program) {
     .option("--runner <runner>", "docker | host (default docker)", "docker")
     .option("--concurrency <n>", "Parallel students", (v) => Number(v), 2)
     .option("--dry-run", "Do not commit results back to the control repo", false)
-    .action(async (opts) => {
+    .action(async (opts, command) => {
       const org = resolveOrg(opts.org);
       const octokit = makeOctokit();
       const token = requireToken().access_token;
@@ -156,6 +156,12 @@ export function registerGradeCommand(program) {
       const gradedBy = await authedLogin(octokit);
       const isGitHubActions = assignment.autograde?.execution_environment === "github_actions";
       const runnerName = isGitHubActions ? "github_actions" : opts.runner;
+      if (isGitHubActions && command.getOptionValueSource("runner") === "cli") {
+        process.stderr.write(
+          `warning: --runner ${opts.runner} is ignored — this assignment's execution_environment ` +
+          `is github_actions, so grades come from the Checks API, not a local runner.\n`,
+        );
+      }
       process.stdout.write(
         `Grading ${queue.length} student(s) on ${tests.length} test(s) ` +
         `via ${runnerName} runner (concurrency=${opts.concurrency}).\n`,

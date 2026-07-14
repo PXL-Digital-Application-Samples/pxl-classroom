@@ -157,6 +157,8 @@ export function registerFeedbackCommand(program) {
         process.stdout.write(
           `\n${opened} opened, ${existing} already on record, ${pending} pending (no commits yet), ${failed} failed.\n`,
         );
+        // Non-zero on partial failure, same contract as `grade` and `download`.
+        if (failed > 0) process.exit(1);
       }
     });
 

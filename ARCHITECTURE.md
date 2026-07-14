@@ -332,7 +332,7 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 Idempotency: a re-star (unstar then restar) re-fires `watch:started`; the acceptance script detects an existing acceptance and returns `already-accepted`; provisioning detects an existing repo and returns `reused`. The student gets the same repo URL.
 
 Failure modes:
-- Rate limit / GitHub outage → workflow fails → SPA polls 30× over ~5 min → "GitHub is currently experiencing high load. Please try again in 15 minutes."
+- Rate limit / GitHub outage → workflow fails → SPA polls 30× over ~3 min (20 × 3 s, then 10 × 10 s) → "GitHub is currently experiencing high load. Please try again in 15 minutes."
 - Outside the open window or above `max_acceptances` → acceptance script returns `rejected:*` → SPA surfaces the reason.
 
 ### 9.2 Nightly cycle
@@ -410,6 +410,8 @@ Admin sets Actions spending limit + budget alerts on <org>
 ## 10. Frontend
 
 Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory only (never localStorage) and dies on tab close.
+
+The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `prefers-color-scheme: light` variant. Every authenticated view — including deep links to the Admin Panel and per-assignment detail — renders a sign-in card when no session exists, never a data-shaped empty state; device-flow failures render inline in that card.
 
 ### 10.1 Routes
 
@@ -530,7 +532,7 @@ Assignment YAML may carry an `autograde` block (`enabled`, `execution_environmen
 
 **1. Lecturer-side (CLI-only):** When `execution_environment` is `lecturer_local`, tests execute on the **lecturer's** machine via `pxl-classroom grade --runner docker|host` against archive SHAs — never on the platform — keeping Wave 8 minimal-minutes intact. Results land in `grading/<assignment-id>/<login>.json` plus `summary.json` (validated against `schemas/grading-result.schema.json`). The Docker runner sandboxes each test with `--network=none`, read-only bind mount, `--memory=512m`, and per-test wall-clock timeouts; the host runner is host-direct and intended for trusted-code use only.
 
-**2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the provisioning workflow injects a `.github/workflows/autograding.yml` file directly into the student repository. The workflow runs the tests automatically on the GitHub platform on every student push. If `visibility` is `private`, the workflow invokes a reusable workflow stored in the control repository to hide the test configurations from the student. Grades are synced via the SPA using the "Sync Grades from GitHub" button, which queries the GitHub Checks API and writes the aggregated results to `summary.json` in the control repository.
+**2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the provisioning workflow injects a `.github/workflows/autograding.yml` file directly into the student repository. The workflow runs the tests automatically on the GitHub platform on every student push. If `visibility` is `private`, the workflow invokes a reusable workflow stored in the control repository to hide the test configurations from the student. Grades are synced via the SPA using the "Sync CI results from GitHub" button, which queries the GitHub Checks API at each student's **preserved** SHA and writes the aggregated results to `summary.json` in the control repository (before the deadline finalize there are no preserved SHAs; the button explains this and commits nothing).
 
 In both modes, `AssignmentDetailView` shows a read-only Autograder panel rendering the latest summary.
 

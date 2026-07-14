@@ -215,7 +215,9 @@ function csvEscape(v) {
 }
 
 function downloadBlob(text, filename, type) {
-  const blob = new Blob([text], { type })
+  // UTF-8 BOM on CSVs so Excel decodes accented names correctly.
+  const payload = type.startsWith('text/csv') ? '﻿' + text : text
+  const blob = new Blob([payload], { type })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -288,6 +290,12 @@ async function commitRoster() {
 watch(() => props.org, () => loadExisting())
 
 onMounted(loadExisting)
+
+// A parsed import with an uncommitted diff is unsaved work — the parent
+// includes it in the route-leave / beforeunload guards.
+defineExpose({
+  isDirty: () => canCommit.value,
+})
 </script>
 
 <style scoped>

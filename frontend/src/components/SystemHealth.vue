@@ -11,7 +11,11 @@
       </button>
     </header>
 
-    <div v-if="!result && !running" class="health-empty text-muted">
+    <div v-if="runError" class="health-error" role="alert">
+      Audit failed: {{ runError }} — check your connection and re-run.
+    </div>
+
+    <div v-if="!result && !running && !runError" class="health-empty text-muted">
       Click <strong>Run audit</strong> to verify App permissions, the control repo scaffold, and per-assignment lockdown/archive state.
     </div>
 
@@ -60,23 +64,19 @@ const props = defineProps({
 
 const running = ref(false)
 const result = ref(null)
-const lastRunAt = ref(0)
-
-// Cache window: 5 minutes per the plan, so re-renders / org-flips don't burn
-// API budget. The user can still force a re-run via the button.
-const CACHE_MS = 5 * 60 * 1000
+const runError = ref('')
 
 watch(() => props.org, () => {
   result.value = null
-  lastRunAt.value = 0
+  runError.value = ''
 }, { immediate: false })
 
 async function run() {
   const token = getToken()
   if (!token) return
   if (running.value) return
-  // Refresh button overrides the cache; auto-run only honors it.
   running.value = true
+  runError.value = ''
   try {
     const request = async (method, path) => {
       const r = await ghApi(token, method, path)
@@ -88,9 +88,11 @@ async function run() {
       hubOwner: config.hubOwner,
       hubRepo: config.hubRepo,
     })
-    lastRunAt.value = Date.now()
   } catch (e) {
+    // Surface the failure in the panel — a silently reverting button reads
+    // as "nothing happened".
     console.error('Audit failed:', e)
+    runError.value = e.message || 'unexpected error'
   } finally {
     running.value = false
   }
@@ -152,6 +154,14 @@ function relativeTime(iso) {
   gap: var(--space-sm);
   padding: var(--space-md) 0;
   font-size: 0.85rem;
+}
+.health-error {
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.85rem;
+  margin-bottom: var(--space-sm);
 }
 .health-overall {
   display: flex;

@@ -8,6 +8,27 @@
       <h2>Admin Panel — {{ org }}</h2>
     </header>
 
+    <!-- Not authenticated — never render the editor with data-shaped empty
+         states signed out ("No assignments yet" on a full course reads as
+         data loss after the 8h token expiry). -->
+    <div v-if="!user" class="center-card fade-in">
+      <h2>Sign in to open the Admin Panel</h2>
+      <p class="text-secondary">
+        Sign in with a GitHub account that owns <strong>{{ org }}</strong>.
+        Sessions last 8 hours — if you were signed in earlier, it has expired.
+      </p>
+      <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
+      <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
+        <template v-if="authLoading">
+          <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+          Waiting…
+        </template>
+        <template v-else>Sign in with GitHub</template>
+      </button>
+      <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
+    </div>
+
+    <template v-else>
     <nav class="admin-tabs" role="tablist">
       <button
         type="button"
@@ -29,7 +50,9 @@
       >Roster</button>
     </nav>
 
-    <RosterTab v-if="activeTab === 'roster'" :org="org" />
+    <!-- v-show (not v-if): unmounting would silently discard an un-committed
+         CSV import preview when the lecturer flips tabs. -->
+    <RosterTab v-show="activeTab === 'roster'" ref="rosterTab" :org="org" />
 
     <div v-show="activeTab === 'assignments'" class="admin-layout">
       <!-- LEFT: assignment list -->
@@ -58,7 +81,7 @@
             <div class="slug">{{ a.id }}</div>
             <div class="meta">
               <span class="badge" :class="`badge-${a.state}`">{{ a.state }}</span>
-              <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at) }}</span>
+              <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
             </div>
           </li>
         </ul>
@@ -139,6 +162,9 @@
               <label>Deadline <span class="req">*</span></label>
               <input type="datetime-local" v-model="form.deadline_at_local" />
               <small>{{ utcHint(form.deadline_at_local) }}</small>
+              <small v-if="deadlineInPast" class="text-warning">
+                This deadline is in the past — the next nightly run will finalize (lock down + report) immediately.
+              </small>
             </div>
           </fieldset>
 
@@ -378,6 +404,7 @@
         </form>
       </main>
     </div>
+    </template>
   </div>
 </template>
 
@@ -385,16 +412,55 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { config } from '../lib/config.js'
-import { getToken } from '../lib/auth.js'
+import { getToken, getUser, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
+import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
+
+// ---------------------------------------------------------------- auth
+
+// Device-flow sign-in for deep links opened without a session. Failures
+// render inside the auth card (authError), never a misleading empty state.
+const user = ref(getUser())
+const authLoading = ref(false)
+const authError = ref(null)
+const deviceFlow = ref(null)
+let pollAbort = null
+
+async function startLogin() {
+  authError.value = null
+  if (!config.clientId) {
+    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
+    return
+  }
+  authLoading.value = true
+  try {
+    const flow = await startDeviceFlow(config.clientId)
+    deviceFlow.value = flow
+    pollAbort = new AbortController()
+    const result = await pollDeviceFlow(config.clientId, flow.device_code, flow.interval, pollAbort.signal)
+    user.value = result.user
+    deviceFlow.value = null
+    await Promise.all([loadAssignments(), loadTemplates()])
+  } catch (e) {
+    if (e.message !== 'Cancelled') authError.value = e.message
+    deviceFlow.value = null
+  }
+  authLoading.value = false
+}
+
+function cancelLogin() {
+  if (pollAbort) pollAbort.abort()
+  deviceFlow.value = null
+  authLoading.value = false
+}
 
 // ---------------------------------------------------------------- tabs
 
@@ -411,9 +477,9 @@ function setTab(name) {
     history.replaceState(null, '', `#${name}`)
   }
 }
-if (typeof window !== 'undefined') {
-  window.addEventListener('hashchange', () => { activeTab.value = tabFromHash() })
-}
+// Registered in onMounted / removed in onUnmounted — a setup-scope listener
+// would leak (and mutate unmounted state) across route visits.
+function onHashChange() { activeTab.value = tabFromHash() }
 
 // Roving-tabindex arrow navigation for the two tabs (WAI-ARIA tabs pattern).
 function onTabKeydown(e) {
@@ -459,12 +525,23 @@ function hasUnsavedEdits() {
   return !!editing.value && JSON.stringify(form.value) !== savedSnapshot.value
 }
 
+// The roster editor keeps its own pending-import state; include it in the
+// exit guards so flipping away doesn't silently discard a parsed CSV.
+const rosterTab = ref(null)
+function rosterDirty() {
+  return rosterTab.value?.isDirty?.() === true
+}
+function confirmRosterDiscard() {
+  if (!rosterDirty()) return true
+  return window.confirm('Discard the un-committed roster import?')
+}
+
 // In-page navigation is guarded via confirmDiscard(); guard the two exits
 // that used to lose edits silently — leaving the route (e.g. the Dashboard
 // back button) and closing/refreshing the tab.
-onBeforeRouteLeave(() => confirmDiscard())
+onBeforeRouteLeave(() => confirmDiscard() && confirmRosterDiscard())
 function onBeforeUnload(e) {
-  if (hasUnsavedEdits()) {
+  if (hasUnsavedEdits() || rosterDirty()) {
     e.preventDefault()
     e.returnValue = ''
   }
@@ -747,13 +824,26 @@ const validationErrors = ref([])
 async function validate(state = null) {
   const doc = buildDoc(state)
   const { valid, errors } = await validateAgainst('assignment', doc)
-  if (valid) {
-    validationErrors.value = []
-    return true
+  const problems = valid ? [] : errors.map((e) => `${e.instancePath || '(root)'} ${e.message}`)
+
+  // Cross-field rules JSON Schema can't express.
+  if (doc.opens_at && doc.deadline_at && new Date(doc.deadline_at) <= new Date(doc.opens_at)) {
+    problems.push('Deadline must be after the open date.')
   }
-  validationErrors.value = errors.map((e) => `${e.instancePath || '(root)'} ${e.message}`)
-  return false
+  if (form.value.max_acceptances === 0) {
+    problems.push('Max acceptances must be at least 1 — leave the field empty for no cap.')
+  }
+
+  validationErrors.value = problems
+  return problems.length === 0
 }
+
+// Soft warning (non-blocking): a deadline in the past finalizes on the very
+// next nightly run — usually a typo, occasionally intentional (migrations).
+const deadlineInPast = computed(() => {
+  if (!form.value.deadline_at_local) return false
+  try { return new Date(form.value.deadline_at_local) < new Date() } catch { return false }
+})
 
 const canSave = computed(() => {
   return (
@@ -803,9 +893,36 @@ async function saveAndPublish() {
     return
   }
   await saveAssignment('published')
-  if (form.value.state === 'published') await publishExisting()
+  if (form.value.state === 'published') {
+    const dispatched = await publishExisting()
+    // The dispatch failed (typically 403: no hub access / missing
+    // actions:write). Don't leave the YAML claiming "published" while no
+    // broker exists — students would see a published assignment with a dead
+    // accept flow. Revert to draft and say so.
+    if (!dispatched) await revertToDraftAfterFailedPublish()
+  }
 }
 
+async function revertToDraftAfterFailedPublish() {
+  try {
+    const token = getToken()
+    const path = `assignments/${form.value.id}.yml`
+    const yaml = stringifyYaml(buildDoc('draft'))
+    const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Revert ${form.value.id} to draft (publish dispatch failed)`)
+    if (res.ok) {
+      form.value.state = 'draft'
+      snapshotForm()
+      await loadAssignments()
+      toast.error(`Publish dispatch failed — ${form.value.id} was reverted to draft. Fix hub access and publish again.`)
+    } else {
+      toast.error(`Publish dispatch failed AND the revert to draft failed: ${res.data?.message || 'unknown error'}. The YAML still says "published" but no broker exists — set the state back to draft manually.`)
+    }
+  } catch (e) {
+    console.error('Failed to revert state after failed publish:', e)
+  }
+}
+
+// Returns true when the workflow_dispatch was accepted by GitHub.
 async function publishExisting() {
   publishing.value = true
   try {
@@ -817,9 +934,10 @@ async function publishExisting() {
     if (res.ok || res.status === 204) {
       toast.success('Publish workflow triggered — watching for the broker to appear…')
       startPublishWatch()
-    } else {
-      toast.error(explainDispatchFailure(res, 'Publish failed'))
+      return true
     }
+    toast.error(explainDispatchFailure(res, 'Publish failed'))
+    return false
   } finally {
     publishing.value = false
   }
@@ -945,7 +1063,7 @@ async function grantExtension() {
       }
     } catch { /* unreadable override — fall back to the assignment deadline */ }
     if (currentEffective && new Date(newDeadlineUtc) <= new Date(currentEffective)) {
-      toast.error(`The extension must be later than ${extForm.value.login}'s current effective deadline (${formatDate(currentEffective)}).`)
+      toast.error(`The extension must be later than ${extForm.value.login}'s current effective deadline (${formatDate(currentEffective, form.value.timezone)}).`)
       return
     }
     const overrideDoc = {
@@ -1005,11 +1123,15 @@ async function retryAcceptance() {
 
 onMounted(async () => {
   window.addEventListener('beforeunload', onBeforeUnload)
+  window.addEventListener('hashchange', onHashChange)
+  if (!isAuthenticated()) { loadingList.value = false; return }
+  user.value = getUser()
   await Promise.all([loadAssignments(), loadTemplates()])
 })
 
 onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
+  window.removeEventListener('hashchange', onHashChange)
   stopPublishWatch()
 })
 
@@ -1032,6 +1154,23 @@ watch(
   align-items: center;
   gap: var(--space-md);
   margin-bottom: var(--space-md);
+}
+
+.center-card {
+  max-width: 480px;
+  margin: var(--space-2xl) auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+}
+.auth-error {
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
 }
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
 

@@ -2,7 +2,7 @@
   <div class="detail-page">
     <header class="detail-header">
       <div class="container flex items-center justify-between">
-        <div class="flex items-center gap-md">
+        <div class="breadcrumb flex items-center gap-md">
           <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
             <Icon name="arrow-left" :size="14" />
             <span>Dashboard</span>
@@ -10,15 +10,34 @@
           <span class="separator">/</span>
           <router-link :to="{ name: 'dashboard', params: { org } }" class="org-name">{{ org }}</router-link>
           <span class="separator">/</span>
-          <h1>{{ assignmentId }}</h1>
+          <h1 :title="assignmentId">{{ assignmentId }}</h1>
         </div>
         <UserBadge :user="user" @logout="handleLogout" />
       </div>
     </header>
 
     <main class="container">
+      <!-- Not authenticated — never show data-shaped empty states signed out -->
+      <div v-if="!user" class="center-card fade-in">
+        <h2>Sign in to view this assignment</h2>
+        <p class="text-secondary">
+          Sign in with a GitHub account that owns <strong>{{ org }}</strong> to load the
+          report for <code>{{ assignmentId }}</code>. Sessions last 8 hours — if you were
+          signed in earlier, it has expired.
+        </p>
+        <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
+        <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
+          <template v-if="authLoading">
+            <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+            Waiting…
+          </template>
+          <template v-else>Sign in with GitHub</template>
+        </button>
+        <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
+      </div>
+
       <!-- Loading -->
-      <div v-if="loading" class="center-card fade-in">
+      <div v-else-if="loading" class="center-card fade-in">
         <div class="spinner-lg spinner"></div>
         <p class="text-secondary">Loading report…</p>
       </div>
@@ -266,6 +285,13 @@
                 extended
               </span>
             </div>
+            <!-- Touch devices can't reach title tooltips — repeat the detail as text. -->
+            <div v-if="s.tagged_submission_tag" class="student-card-detail text-muted">
+              Tag observed {{ fmt(s.tagged_submission_observed_at) }}
+            </div>
+            <div v-if="extensionFor(s.github_login)" class="student-card-detail text-muted">
+              Extended to {{ fmt(extensionFor(s.github_login).value) }} — {{ extensionFor(s.github_login).reason }}
+            </div>
             <div v-if="s.repo_url" class="student-card-repo">
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
               <div v-if="latestSha(s)" class="commit-row">
@@ -400,14 +426,13 @@ const SortIcon = (props) => props.dir
   : null
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
-import { getToken, getUser, clearAuth } from '../lib/auth.js'
+import { getToken, getUser, clearAuth, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
-import { commitWithRebase } from '../../../lib/gittree.mjs'
-import { gh } from '../../../lib/gh.mjs'
+import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { parse as parseYaml } from 'yaml'
 
 const REFRESH_CONCURRENCY = 6
@@ -548,7 +573,7 @@ const deadlineAbs = computed(() => {
   if (!currentDeadline.value) return ''
   return new Date(currentDeadline.value).toLocaleString('en-GB', {
     timeZone: assignment.value?.timezone || config.timezone,
-    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 })
 
@@ -582,6 +607,48 @@ function onKeydown(e) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  if (!isAuthenticated()) { loading.value = false; return }
+  user.value = getUser()
+  await loadAll()
+})
+
+// Device-flow sign-in for deep links opened without a session. Failures
+// render inside the auth card (authError), never a misleading empty state.
+const authLoading = ref(false)
+const authError = ref(null)
+const deviceFlow = ref(null)
+let pollAbort = null
+
+async function startLogin() {
+  authError.value = null
+  if (!config.clientId) {
+    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
+    return
+  }
+  authLoading.value = true
+  try {
+    const flow = await startDeviceFlow(config.clientId)
+    deviceFlow.value = flow
+    pollAbort = new AbortController()
+    const result = await pollDeviceFlow(config.clientId, flow.device_code, flow.interval, pollAbort.signal)
+    user.value = result.user
+    deviceFlow.value = null
+    loading.value = true
+    await loadAll()
+  } catch (e) {
+    if (e.message !== 'Cancelled') authError.value = e.message
+    deviceFlow.value = null
+  }
+  authLoading.value = false
+}
+
+function cancelLogin() {
+  if (pollAbort) pollAbort.abort()
+  deviceFlow.value = null
+  authLoading.value = false
+}
+
+async function loadAll() {
   const token = getToken()
   if (!token) { loading.value = false; return }
   try {
@@ -610,7 +677,7 @@ onMounted(async () => {
     console.error('Failed to load report:', e)
   }
   loading.value = false
-})
+}
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -745,7 +812,7 @@ function csvCell(v) {
   if (v === null || v === undefined) return ''
   if (Array.isArray(v)) return `"${v.join('; ')}"`
   const str = String(v)
-  return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str
+  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
 }
 
 function exportCSV() {
@@ -758,7 +825,8 @@ function exportCSV() {
   for (const s of students) {
     rows.push(CSV_HEADERS.map((h) => csvCell(s[h])).join(','))
   }
-  const blob = new Blob([rows.join('\n') + '\n'], { type: 'text/csv' })
+  // UTF-8 BOM so Excel decodes accented names correctly.
+  const blob = new Blob(['﻿' + rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -975,8 +1043,19 @@ async function syncGradesFromGitHub() {
   const token = getToken()
   if (!token || !report.value || !assignment.value) return
   
-  syncingGrades.value = true
+  // CI results are read at each student's *preserved* SHA, which only exists
+  // after the deadline-night finalize. Never commit an empty summary (it
+  // would overwrite a previous one) — explain the precondition instead.
   const queue = report.value.students.filter(s => s.repo_name && s.preserved_sha)
+  if (queue.length === 0) {
+    toast.info(
+      'CI results sync against preserved submissions, which are created by the deadline finalize. ' +
+      'No students are preserved yet — nothing was synced.',
+    )
+    return
+  }
+
+  syncingGrades.value = true
   const summary = { graded: [], failed: [] }
 
   try {
@@ -1052,6 +1131,7 @@ async function syncDashboardAggregate(token) {
       state: existingEntry.state,
       opens_at: existingEntry.opens_at,
       deadline_at: existingEntry.deadline_at,
+      timezone: existingEntry.timezone ?? assignment.value?.timezone,
     }
     dashboard.assignments[props.assignmentId] = buildDashboardEntry(pseudoAssignment, report.value.students || [])
     dashboard.generated_at = new Date().toISOString()
@@ -1200,7 +1280,11 @@ async function retryAcceptanceFor(student) {
   border-bottom: 1px solid var(--border-default);
   padding: var(--space-md) 0;
 }
-.back-link { font-size: 0.875rem; display: inline-flex; align-items: center; gap: 4px; }
+.back-link { font-size: 0.875rem; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* The breadcrumb must shrink inside the header flex row — otherwise a long
+   assignment id forces horizontal page scroll on mobile. */
+.breadcrumb { min-width: 0; flex: 1; }
+.breadcrumb h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .separator { color: var(--text-muted); }
 .org-name { color: var(--text-secondary); font-size: 0.875rem; text-decoration: none; }
@@ -1225,6 +1309,14 @@ main { padding: var(--space-xl) var(--space-lg); }
   align-items: center;
   gap: var(--space-sm);
   justify-content: center;
+}
+
+.auth-error {
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
 }
 
 .summary-row {
@@ -1421,6 +1513,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .student-card-login { font-weight: 600; }
 .student-card-badges { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.student-card-detail { font-size: 0.8rem; }
 .student-card-repo { font-size: 0.85rem; }
 .student-card-warnings { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 

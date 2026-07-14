@@ -26,6 +26,7 @@
       <div v-if="!user" class="center-card fade-in">
         <h2>Sign in to access the dashboard</h2>
         <p class="text-secondary">Sign in with a GitHub account that owns an organization with PXL Classroom installed.</p>
+        <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
         <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
           <template v-if="authLoading">
             <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
@@ -116,7 +117,7 @@
             <span class="text-muted text-sm">{{ a.id }}</span>
           </div>
           <h3>{{ a.title }}</h3>
-          <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at) }}</p>
+          <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
           <div class="stats-row">
             <div class="stat">
               <span class="stat-value">{{ a.accepted ?? '—' }}</span>
@@ -153,8 +154,8 @@ import UserBadge from '../components/UserBadge.vue'
 import SystemHealth from '../components/SystemHealth.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
-import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth, initAuth } from '../lib/auth.js'
-import { getInstallations, getUserOrgs, getOrgMembership, getRepoContent, getRepo } from '../lib/api.js'
+import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
+import { getInstallations, getRepoContent, getRepo } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -170,6 +171,7 @@ const selectedOrg = ref(props.org || '')
 const assignments = ref([])
 const loadingData = ref(false)
 const authLoading = ref(false)
+const authError = ref(null)
 const deviceFlow = ref(null)
 let pollAbort = null
 
@@ -276,7 +278,11 @@ async function loadDashboard(org) {
 }
 
 async function startLogin() {
-  if (!config.clientId) return
+  authError.value = null
+  if (!config.clientId) {
+    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
+    return
+  }
   authLoading.value = true
   try {
     const flow = await startDeviceFlow(config.clientId)
@@ -287,7 +293,8 @@ async function startLogin() {
     deviceFlow.value = null
     await loadOrgs()
   } catch (e) {
-    if (e.message !== 'Cancelled') console.error(e)
+    // Sign-in failures render inside the auth card — never silently.
+    if (e.message !== 'Cancelled') authError.value = e.message
     deviceFlow.value = null
   }
   authLoading.value = false
@@ -357,6 +364,14 @@ main {
   flex-direction: column;
   align-items: center;
   gap: var(--space-md);
+}
+
+.auth-error {
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
 }
 
 .device-flow-inline {

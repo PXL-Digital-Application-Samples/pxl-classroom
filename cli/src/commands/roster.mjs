@@ -15,6 +15,7 @@
 
 import { Command } from "commander";
 import { readFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import Papa from "papaparse";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { makeOctokit } from "../lib/octokit.mjs";
@@ -175,6 +176,7 @@ export function registerRosterCommand(program) {
     .description("Import a CSV roster into the org's control repo.")
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .option("--dry-run", "Validate and show diff without committing", false)
+    .option("--force", "Skip the confirmation prompt when the import removes students", false)
     .action(async (csvFile, opts) => {
       const org = resolveOrg(opts.org);
       const csvText = readFileSync(csvFile, "utf8");
@@ -199,6 +201,27 @@ export function registerRosterCommand(program) {
       if (diff.added.length + diff.updated.length + diff.removed.length === 0) {
         process.stdout.write(`\nRoster unchanged — nothing to commit.\n`);
         return;
+      }
+
+      // Removals are the destructive part of the diff (an accidental partial
+      // CSV wipes everyone not in it) — same confirmation the Admin Panel asks.
+      if (diff.removed.length > 0 && !opts.force) {
+        if (!process.stdin.isTTY) {
+          process.stderr.write(
+            `\nThis import removes ${diff.removed.length} student(s) (listed above) and no TTY is ` +
+            `available to confirm. Re-run with --force to allow removals, or --dry-run to preview.\n`,
+          );
+          process.exit(1);
+        }
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const answer = (await rl.question(
+          `\nThis import removes ${diff.removed.length} student(s) from the roster. Continue? [y/N] `,
+        )).trim().toLowerCase();
+        rl.close();
+        if (answer !== "y" && answer !== "yes") {
+          process.stdout.write(`Aborted — nothing committed.\n`);
+          return;
+        }
       }
 
       const yamlText = yamlStringify(rosterDoc);

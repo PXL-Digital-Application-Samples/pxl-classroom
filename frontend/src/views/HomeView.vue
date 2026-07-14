@@ -69,22 +69,28 @@ onMounted(async () => {
   try {
     const res = await fetch(`${import.meta.env.BASE_URL}data/index.json`)
     if (res.ok) {
-      const data = await res.json()
-      // For each org, fetch its assignments.json to get the list of open assignments
-      for (const org of data.orgs) {
-        const orgRes = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`)
-        if (orgRes.ok) {
-          const orgData = await orgRes.json()
-          org.assignments = Object.entries(orgData.assignments || {})
-            .map(([id, a]) => ({ id, ...a }))
-            .filter(a => a.state === 'published')
-        } else {
+      // A non-JSON body (e.g. an HTML fallback for a missing data file) means
+      // no data has been published yet — that's "no open assignments", not a
+      // connection error. Only a failed fetch reaches the catch below.
+      let data = null
+      try { data = await res.json() } catch { /* treat as no data */ }
+      if (data?.orgs) {
+        // For each org, fetch its assignments.json to get the list of open assignments
+        for (const org of data.orgs) {
           org.assignments = []
+          const orgRes = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`)
+          if (orgRes.ok) {
+            let orgData = null
+            try { orgData = await orgRes.json() } catch { /* treat as no data */ }
+            org.assignments = Object.entries(orgData?.assignments || {})
+              .map(([id, a]) => ({ id, ...a }))
+              .filter(a => a.state === 'published')
+          }
         }
+        // Filter out orgs with no assignments
+        data.orgs = data.orgs.filter(o => o.assignments.length > 0)
+        indexData.value = data
       }
-      // Filter out orgs with no assignments
-      data.orgs = data.orgs.filter(o => o.assignments.length > 0)
-      indexData.value = data
     }
   } catch (e) {
     console.error("Failed to load public index", e)
