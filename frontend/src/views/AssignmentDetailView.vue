@@ -1340,13 +1340,17 @@ function startRetryWatch(login, repoName) {
     if (token) {
       const res = await getRepo(token, props.org, repoName)
       if (res.ok) {
-        toast.success(`Retry succeeded: repository <a href="https://github.com/${props.org}/${repoName}" target="_blank" style="color: inherit; text-decoration: underline;">${repoName}</a> is live.`)
+        toast.success(`Retry succeeded: repository is live.`, {
+          link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
+        })
         await loadAll()
         return
       }
     }
     if (pollCount >= 24) { // 24 * 5s = 2 mins
-      toast.error(`Retry for ${login} timed out. Check the <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">workflow run</a>.`)
+      toast.error(`Retry for ${login} timed out.`, {
+        link: { text: 'Check the workflow run.', href: workflowUrl }
+      })
       return
     }
     retryPollTimer = setTimeout(tick, 5000)
@@ -1366,7 +1370,9 @@ async function retryAcceptanceFor(student) {
     })
     if (res.ok || res.status === 204) {
       const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
-      toast.success(`Retry triggered for ${login}. Watching for repository to appear… <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">View workflow run</a>`)
+      toast.success(`Retry triggered for ${login}. Watching for repository to appear…`, {
+        link: { text: 'View workflow run', href: workflowUrl }
+      })
       
       const pattern = assignment.value?.repository_name_pattern || `${props.assignmentId}-{github_login}`
       const repoName = pattern.replace('{github_login}', login)

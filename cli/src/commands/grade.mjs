@@ -191,18 +191,21 @@ export function registerGradeCommand(program) {
             // s.repo_name is already the full org/repo name.
             const checksReq = await octokit.request(`GET /repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
             const checkRuns = checksReq.data.check_runs || [];
+            if (checkRuns.length === 0) {
+              process.stderr.write(`  ! ${s.github_login}: no CI run at preserved SHA\n`);
+              summary.failed.push({ login: s.github_login, reason: "no CI run at preserved SHA" });
+              return;
+            }
             const total = tests.reduce((acc, t) => acc + (t.points || 0), 0);
             let earned = 0;
             let passed = false;
             let summaryOutput = "";
-            if (checkRuns.length > 0) {
-              const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
-              if (run.conclusion === "success") {
-                earned = total;
-                passed = true;
-              }
-              summaryOutput = run.output?.summary || "";
+            const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
+            if (run.conclusion === "success") {
+              earned = total;
+              passed = true;
             }
+            summaryOutput = run.output?.summary || "";
             
             result = {
               schema_version: 1,

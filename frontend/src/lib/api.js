@@ -19,6 +19,9 @@ function handleSessionExpiry() {
   sessionExpiredNotified = true
   clearAuth()
   toast.error('Your session expired. Sign in again.')
+  if (window.pxlHasUnsavedState && window.pxlHasUnsavedState()) {
+    return
+  }
   setTimeout(() => window.location.reload(), 1800)
 }
 

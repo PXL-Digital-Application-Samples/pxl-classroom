@@ -47,7 +47,8 @@
               class="assignment-card card"
             >
               <h4>{{ a.title || a.id }}</h4>
-              <p class="deadline-text" v-if="a.deadline_at">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
+              <p class="deadline-text" v-if="a.opens_at && new Date(a.opens_at) > new Date()">Opens: {{ formatDate(a.opens_at, a.timezone) }}</p>
+              <p class="deadline-text" v-else-if="a.deadline_at">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
             </router-link>
           </div>
           <div v-else class="text-secondary" style="margin-bottom: var(--space-md)">

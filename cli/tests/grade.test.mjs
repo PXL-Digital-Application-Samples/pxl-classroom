@@ -140,3 +140,90 @@ autograde:
     Object.defineProperty(process, 'platform', originalPlatform);
   }
 });
+
+test("grade command: github_actions with 0 check-runs", async () => {
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  
+  const tmp = mkdtempSync(join(tmpdir(), "pxl-grade-ghactions-test-"));
+  const homeDir = join(tmp, "home");
+  mkdirSync(homeDir);
+  
+  mkdirSync(join(homeDir, "pxl-classroom"), { recursive: true });
+  writeFileSync(join(homeDir, "pxl-classroom", "token"), JSON.stringify({ access_token: "fake" }));
+
+  const assignmentYaml = `
+id: a1
+autograde:
+  enabled: true
+  execution_environment: github_actions
+  tests:
+    - id: test1
+      points: 10
+      timeout_s: 5
+      command: "node test.js"
+`;
+
+  const reportJson = {
+    students: [
+      { github_login: "student_no_ci", preservation_status: "preserved", preserved_sha: "noci_sha", repo_name: "TestOrg/a1-student_no_ci" }
+    ]
+  };
+
+  const originalFetch = globalThis.fetch;
+  
+  globalThis.fetch = async (url, options) => {
+    const u = url.toString();
+    if (u === "https://api.github.com/user") {
+      return new Response(JSON.stringify({ login: "teacher1" }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (u === "https://api.github.com/repos/TestOrg/pxl-classroom-control/contents/assignments%2Fa1.yml") {
+      return new Response(JSON.stringify({ content: Buffer.from(assignmentYaml).toString("base64") }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (u === "https://api.github.com/repos/TestOrg/pxl-classroom-control/contents/reports%2Fa1.json") {
+      return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(reportJson)).toString("base64") }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (u === "https://api.github.com/repos/TestOrg/a1-student_no_ci/commits/noci_sha/check-runs") {
+      return new Response(JSON.stringify({ check_runs: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    console.error("UNHANDLED FETCH in new test", u);
+    return new Response("Not Found", { status: 404 });
+  };
+
+  try {
+    process.env.HOME = homeDir;
+    process.env.USERPROFILE = homeDir;
+    process.env.APPDATA = homeDir;
+    process.env.XDG_CONFIG_HOME = homeDir;
+
+    const program = new Command();
+    program.exitOverride();
+    registerGradeCommand(program);
+
+    let stdout = "";
+    let stderr = "";
+    const originalStdoutWrite = process.stdout.write;
+    const originalStderrWrite = process.stderr.write;
+    process.stdout.write = (chunk) => { stdout += chunk; return true; };
+    process.stderr.write = (chunk) => { stderr += chunk; return true; };
+
+    const originalExit = process.exit;
+    let exitCode = 0;
+    try {
+      process.exit = (code) => { throw new Error(`process.exit(${code})`); };
+      await program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "a1", "--dry-run"]);
+    } catch (e) {
+      exitCode = 1;
+    } finally {
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
+      process.exit = originalExit;
+    }
+
+    assert.ok(stderr.includes("student_no_ci: no CI run at preserved SHA"));
+    assert.equal(exitCode, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(process, 'platform', originalPlatform);
+  }
+});

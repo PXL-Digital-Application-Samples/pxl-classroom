@@ -666,6 +666,11 @@ const fieldErrors = computed(() => {
   // 3. Template check
   if (!form.value.template) {
     errors.template = 'Template repository is required.'
+  } else {
+    const parts = form.value.template.split('/')
+    if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) {
+      errors.template = `Use the full name, e.g. ${props.org}/linux-template`
+    }
   }
 
   // 4. Repository Name Pattern check
@@ -745,30 +750,40 @@ watch(() => form.value.template, (newVal) => {
   }
 })
 
-watch(() => extForm.value.login, async (newVal) => {
+let extLookupTimeout = null
+let currentLookupRequestId = 0
+
+watch(() => extForm.value.login, (newVal) => {
+  if (extLookupTimeout) clearTimeout(extLookupTimeout)
   const login = newVal ? newVal.trim() : ''
   if (!login || !form.value?.id) {
     currentExtText.value = null
     return
   }
-  const token = getToken()
-  if (!token) return
-  try {
-    const existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${login}.json`)
-    if (existingText) {
-      const doc = JSON.parse(existingText)
-      const prevExt = (doc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
-      if (prevExt) {
-        currentExtText.value = `Currently extended to ${formatDate(prevExt.value, form.value.timezone)} ("${prevExt.reason}"). Granting again adds a new extension to their override history.`
+  extLookupTimeout = setTimeout(async () => {
+    const requestId = ++currentLookupRequestId
+    const token = getToken()
+    if (!token) return
+    try {
+      const existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${login}.json`)
+      if (requestId !== currentLookupRequestId) return
+      if (existingText) {
+        const doc = JSON.parse(existingText)
+        const prevExt = (doc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
+        if (prevExt) {
+          currentExtText.value = `Currently extended to ${formatDate(prevExt.value, form.value.timezone)} ("${prevExt.reason}"). Granting again adds a new extension to their override history.`
+        } else {
+          currentExtText.value = null
+        }
       } else {
         currentExtText.value = null
       }
-    } else {
-      currentExtText.value = null
+    } catch {
+      if (requestId === currentLookupRequestId) {
+        currentExtText.value = null
+      }
     }
-  } catch {
-    currentExtText.value = null
-  }
+  }, 400)
 })
 
 // ---------------------------------------------------------------- defaults / helpers
@@ -1375,18 +1390,25 @@ async function validateStudentLogin(login, assignmentId) {
     const rosterText = await getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml')
     if (rosterText) {
       const rosterDoc = parseYaml(rosterText)
-      const inRoster = (rosterDoc?.students || []).some(
+      const match = (rosterDoc?.students || []).find(
         (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
       )
-      if (inRoster) return { valid: true }
+      if (match) return { valid: true, canonicalLogin: match.github_login }
     }
   } catch { /* ignored */ }
 
-  // 2. Try checking the repository record
-  const recordPath = `repositories/${assignmentId}/${login}.json`
+  // 2. Try checking the repository record case-insensitively by listing the directory
   try {
-    const recordText = await getRepoContent(token, props.org, config.controlRepo, recordPath)
-    if (recordText) return { valid: true }
+    const files = await listRepoDir(token, props.org, config.controlRepo, `repositories/${assignmentId}`)
+    if (files && Array.isArray(files)) {
+      const match = files.find(f => {
+        const name = f.name.toLowerCase()
+        return name.endsWith('.json') && name.slice(0, -5) === lowerLogin
+      })
+      if (match) {
+        return { valid: true, canonicalLogin: match.name.slice(0, -5) }
+      }
+    }
   } catch { /* ignored */ }
 
   // 3. Try checking reports/<id>.json
@@ -1394,10 +1416,10 @@ async function validateStudentLogin(login, assignmentId) {
     const reportText = await getRepoContent(token, props.org, config.controlRepo, `reports/${assignmentId}.json`)
     if (reportText) {
       const reportDoc = JSON.parse(reportText)
-      const inReport = (reportDoc?.students || []).some(
+      const match = (reportDoc?.students || []).find(
         (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
       )
-      if (inReport) return { valid: true }
+      if (match) return { valid: true, canonicalLogin: match.github_login }
     }
   } catch { /* ignored */ }
 
@@ -1405,7 +1427,8 @@ async function validateStudentLogin(login, assignmentId) {
   try {
     const userRes = await ghApi(token, 'GET', `/users/${login}`)
     if (userRes.ok) {
-      return { valid: false, reason: 'not_on_roster' }
+      const canonical = userRes.data?.login || login
+      return { valid: false, reason: 'not_on_roster', canonicalLogin: canonical }
     } else if (userRes.status === 404) {
       return { valid: false, reason: 'not_exists' }
     }
@@ -1438,6 +1461,7 @@ async function grantExtension() {
       return
     }
 
+    const canonicalLogin = checkResult.canonicalLogin || extForm.value.login
     const newDeadlineUtc = localToUtc(extForm.value.deadline_local)
 
     // An extension must move the deadline forward, not shorten it. The floor
@@ -1448,7 +1472,7 @@ async function grantExtension() {
     let overridesList = []
     let existingText = null
     try {
-      existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${extForm.value.login}.json`)
+      existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${canonicalLogin}.json`)
       if (existingText) {
         const existingDoc = JSON.parse(existingText)
         overridesList = existingDoc?.overrides || []
@@ -1459,7 +1483,7 @@ async function grantExtension() {
       }
     } catch { /* unreadable override — fall back to the assignment deadline */ }
     if (currentEffective && new Date(newDeadlineUtc) <= new Date(currentEffective)) {
-      toast.error(`The extension must be later than ${extForm.value.login}'s current effective deadline (${formatDate(currentEffective, form.value.timezone)}).`)
+      toast.error(`The extension must be later than ${canonicalLogin}'s current effective deadline (${formatDate(currentEffective, form.value.timezone)}).`)
       return
     }
 
@@ -1475,7 +1499,7 @@ async function grantExtension() {
     const overrideDoc = {
       schema_version: 1,
       assignment_id: form.value.id,
-      github_login: extForm.value.login,
+      github_login: canonicalLogin,
       overrides: overridesList,
     }
     const { valid, errors } = await validateAgainst('override', overrideDoc)
@@ -1483,10 +1507,10 @@ async function grantExtension() {
       toast.error('Override failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
       return
     }
-    const path = `overrides/${form.value.id}/${extForm.value.login}.json`
-    const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${extForm.value.login} on ${form.value.id}`)
+    const path = `overrides/${form.value.id}/${canonicalLogin}.json`
+    const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${canonicalLogin} on ${form.value.id}`)
     if (res.ok) {
-      toast.success(`Extension granted to ${extForm.value.login}`)
+      toast.success(`Extension granted to ${canonicalLogin}`)
       const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
       const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
       extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
@@ -1516,20 +1540,22 @@ async function retryAcceptance() {
       return
     }
 
+    const canonicalLogin = checkResult.canonicalLogin || login
+
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
       org: props.org,
       assignment_id: form.value.id,
-      github_login: login,
+      github_login: canonicalLogin,
     })
     if (res.ok || res.status === 204) {
       const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
-      toast.success(`Retry triggered for ${login}. Watching for repository to appear…`, {
+      toast.success(`Retry triggered for ${canonicalLogin}. Watching for repository to appear…`, {
         link: { text: 'View workflow run', href: workflowUrl }
       })
       
       const pattern = form.value.repository_name_pattern || `${form.value.id}-{github_login}`
-      const repoName = pattern.replace('{github_login}', login)
-      startRetryWatch(login, repoName)
+      const repoName = pattern.replace('{github_login}', canonicalLogin)
+      startRetryWatch(canonicalLogin, repoName)
       
       retryForm.value = { login: '' }
     } else {
@@ -1543,6 +1569,9 @@ async function retryAcceptance() {
 // ---------------------------------------------------------------- lifecycle
 
 onMounted(async () => {
+  window.pxlHasUnsavedState = () => {
+    return hasUnsavedEdits() || rosterDirty()
+  }
   window.addEventListener('beforeunload', onBeforeUnload)
   window.addEventListener('hashchange', onHashChange)
   document.addEventListener('click', handleClickOutside)
@@ -1552,6 +1581,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.pxlHasUnsavedState = null
   window.removeEventListener('beforeunload', onBeforeUnload)
   window.removeEventListener('hashchange', onHashChange)
   document.removeEventListener('click', handleClickOutside)
@@ -1559,6 +1589,10 @@ onUnmounted(() => {
   if (retryPollTimer) {
     clearTimeout(retryPollTimer)
     retryPollTimer = null
+  }
+  if (extLookupTimeout) {
+    clearTimeout(extLookupTimeout)
+    extLookupTimeout = null
   }
 })
 

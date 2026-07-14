@@ -41,6 +41,15 @@
         <p class="text-secondary">Loading usage across {{ orgsTotal }} orgs…</p>
       </div>
 
+      <!-- Orgs load error -->
+      <div v-else-if="orgsLoadError" class="center-card fade-in">
+        <h2>Couldn't load your organizations</h2>
+        <p class="text-secondary" role="alert" style="margin-bottom: var(--space-md);">
+          {{ orgsLoadError }}
+        </p>
+        <button class="btn btn-primary" @click="loadAll">Retry</button>
+      </div>
+
       <div v-else-if="rows.length === 0" class="center-card fade-in empty-state">
         <h2>No usage reports yet</h2>
         <p class="text-secondary">
@@ -158,6 +167,7 @@ const authLoading = ref(false)
 const authError = ref(null)
 const deviceFlow = ref(null)
 const loading = ref(false)
+const orgsLoadError = ref(null)
 const rows = ref([])
 const filter = ref('')
 const overOnly = ref(false)
@@ -212,9 +222,14 @@ async function loadAll() {
   const token = getToken()
   if (!token) return
   loading.value = true
+  orgsLoadError.value = null
   rows.value = []
   try {
     const insRes = await getInstallations(token)
+    if (!insRes.ok) {
+      orgsLoadError.value = `Failed to load installations (HTTP ${insRes.status})`
+      return
+    }
     const orgs = (insRes.data?.installations || [])
       .filter(i => i.account?.type === 'Organization')
       .map(i => i.account.login)
@@ -259,6 +274,8 @@ async function loadAll() {
     }
     skippedOrgs.value = failedOrgs
     newestGeneratedAt.value = newest
+  } catch (e) {
+    orgsLoadError.value = `Failed to load installations: ${e.message || 'unknown error'}`
   } finally {
     loading.value = false
   }

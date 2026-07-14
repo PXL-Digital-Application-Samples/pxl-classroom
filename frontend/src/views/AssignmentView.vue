@@ -90,28 +90,7 @@
           </div>
 
           <!-- Device flow in progress -->
-          <div v-else class="device-flow-panel">
-            <div class="device-code-display">
-              <p>Go to <a :href="deviceFlow.verification_uri" target="_blank" rel="noopener">{{ deviceFlow.verification_uri }}</a></p>
-              <p class="device-code-label">and enter this code:</p>
-              <div class="device-code" role="status" aria-live="polite">
-                <code>{{ deviceFlow.user_code }}</code>
-                <button class="btn btn-with-icon" @click="copyCode" :aria-label="copied ? 'Copied' : 'Copy code'">
-                  <Icon v-if="copied" name="check" :size="14" />
-                  <Icon v-else name="copy" :size="14" />
-                  <span>{{ copied ? 'Copied' : 'Copy' }}</span>
-                </button>
-              </div>
-              <p class="text-warning" style="margin-top: 1rem; font-size: 0.875rem; text-align: left; padding: 0.5rem; border: 1px solid var(--accent-yellow); border-radius: 4px;">
-                <strong>Security Notice:</strong> The authorization page should ask you to authorize <strong>PXL Classroom Provisioner</strong>. If any other App name appears, do NOT enter the code.
-              </p>
-            </div>
-            <div class="device-flow-status">
-              <div class="spinner"></div>
-              <span class="text-secondary">Waiting for authorization…</span>
-            </div>
-            <button class="btn" @click="cancelLogin">Cancel</button>
-          </div>
+          <DeviceFlowCard v-else :flow="deviceFlow" @cancel="cancelLogin" />
         </div>
 
         <!-- Authenticated - acceptance flow -->
@@ -254,6 +233,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
+import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
@@ -277,7 +257,6 @@ const acceptError = ref(null)
 const repoUrl = ref(null)
 const repoFullName = ref(null)
 const pendingInvitation = ref(null)
-const copied = ref(false)
 const repoCopied = ref(false)
 
 // Latest submit/ tag observed on the student's repo. Parsed from the GitHub
@@ -584,19 +563,6 @@ async function checkAgain() {
 }
 
 // Copy helpers
-function copyCode() {
-  if (deviceFlow.value?.user_code) {
-    navigator.clipboard.writeText(deviceFlow.value.user_code).then(
-      () => {
-        copied.value = true
-        setTimeout(() => { copied.value = false }, 2000)
-      },
-      () => {
-        toast.error('Could not copy code')
-      }
-    )
-  }
-}
 
 function copyRepoUrl() {
   if (repoUrl.value) {

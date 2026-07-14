@@ -57,3 +57,26 @@ test("generate.mjs outputs assignments as an object keyed by ID", () => {
   assert.equal(a.title, "Test Valid Assignment"); // from valid-assignment.yml title
   assert.equal(a.state, "published"); // from valid-assignment.yml state
 });
+
+test("generate.mjs outputs assignments as an empty object if no assignments directory exists", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-gen-test-empty-"));
+  const outDir = join(dir, "public");
+
+  const res = spawnSync("node", [generator], {
+    env: {
+      ...process.env,
+      DATA_DIR: dir,
+      OUTPUT_DIR: outDir,
+    },
+    encoding: "utf8",
+  });
+
+  assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+
+  const outputContent = readFileSync(join(outDir, "assignments.json"), "utf8");
+  const output = JSON.parse(outputContent);
+
+  assert.equal(output.schema_version, 1);
+  assert.ok(output.assignments && typeof output.assignments === "object" && !Array.isArray(output.assignments), "assignments output must be a non-array object");
+  assert.equal(Object.keys(output.assignments).length, 0);
+});

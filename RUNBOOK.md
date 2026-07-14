@@ -129,7 +129,7 @@ Bursty courses (Terraform, container builds) need higher limits; size the budget
 
 ### 2.4 Grant lecturers access to the hub repo
 
-Lecturers trigger **Publish** and **Retry acceptance** from the Admin Panel; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a "no hub access" toast.
+Lecturers trigger **Publish** and **Retry acceptance** from the Admin Panel; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a detailed error toast (e.g. `Trigger failed (403): ... Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access`).
 
 - Add each org's lecturers as **Read** collaborators (or members of an admin team) on the hub repo.
 - Without this access, the lecturer can still create/edit assignments (writes go to their own control repo), but cannot publish or retry from the SPA — a hub admin must run those workflows on their behalf.

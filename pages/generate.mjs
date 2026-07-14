@@ -38,7 +38,7 @@ async function main() {
     const output = {
       schema_version: 1,
       generated_at: new Date().toISOString(),
-      assignments: [],
+      assignments: {},
     };
     await writeFile(join(outputDir, "assignments.json"), JSON.stringify(output, null, 2) + "\n");
     await setOutput("generated_count", "0");
@@ -84,12 +84,13 @@ async function main() {
     JSON.stringify(output, null, 2) + "\n"
   );
 
-  await setOutput("generated_count", String(assignments.length));
+  const count = Object.keys(assignments).length;
+  await setOutput("generated_count", String(count));
   await summary(
     `### Pages generation\n\n` +
-      `Generated \`assignments.json\` with ${assignments.length} assignment(s).\n`
+      `Generated \`assignments.json\` with ${count} assignment(s).\n`
   );
-  console.log(`[ok] Generated ${assignments.length} assignment(s) to ${outputDir}/assignments.json`);
+  console.log(`[ok] Generated ${count} assignment(s) to ${outputDir}/assignments.json`);
 }
 
 main().catch((e) => {
