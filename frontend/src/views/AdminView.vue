@@ -5,19 +5,19 @@
         <Icon name="arrow-left" :size="14" />
         <span>Dashboard</span>
       </router-link>
-      <h2>Admin Panel — {{ org }}</h2>
+      <h2>Admin Panel - {{ org }}</h2>
     </header>
 
-    <!-- Not authenticated — never render the editor with data-shaped empty
+    <!-- Not authenticated - never render the editor with data-shaped empty
          states signed out ("No assignments yet" on a full course reads as
          data loss after the 8h token expiry). -->
     <div v-if="!user" class="center-card fade-in">
       <h2>Sign in to open the Admin Panel</h2>
       <p class="text-secondary">
         Sign in with a GitHub account that owns <strong>{{ org }}</strong>.
-        Sessions last 8 hours — if you were signed in earlier, it has expired.
+        Sessions last 8 hours. If you were signed in earlier, it has expired.
       </p>
-      <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
+      <p v-if="authError" class="auth-error" role="alert">{{ authError }}. Try signing in again.</p>
       <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
         <template v-if="authLoading">
           <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
@@ -118,18 +118,20 @@
             <legend>Basics</legend>
             <div class="field">
               <label>Title <span class="req">*</span></label>
-              <input v-model="form.title" @input="autoSyncSlug" placeholder="e.g. Linux Processes 2026" />
+              <input v-model="form.title" @input="autoSyncSlug(); touchedFields.title = true" placeholder="e.g. Linux Processes 2026" />
+              <div v-if="touchedFields.title && fieldErrors.title" class="field-error-msg">{{ fieldErrors.title }}</div>
             </div>
             <div class="field">
               <label>Slug (URL identifier) <span class="req">*</span></label>
               <input
                 v-model="form.id"
                 :disabled="!isNew"
-                @input="manualSlug = true"
+                @input="manualSlug = true; touchedFields.id = true"
                 placeholder="linux-processes-2026"
               />
+              <div v-if="touchedFields.id && fieldErrors.id" class="field-error-msg">{{ fieldErrors.id }}</div>
               <small v-if="isNew">Auto-derived from title. Edit to override.</small>
-              <small v-else>Locked — changing the slug would orphan the YAML file.</small>
+              <small v-else>Locked. Changing the slug would orphan the YAML file.</small>
             </div>
             <div class="field">
               <label>Description</label>
@@ -143,22 +145,59 @@
             <div class="field">
               <label>Template repository <span class="req">*</span></label>
               <div v-if="loadingTemplates" class="loading-inline"><div class="spinner sm"></div> Loading templates from {{ org }}…</div>
-              <select v-else v-model="form.template" :disabled="templates.length === 0">
-                <option value="">— pick a template —</option>
-                <option v-for="t in templates" :key="t.full_name" :value="t.full_name">
-                  {{ t.full_name }}{{ t.is_template ? '' : ' — not a template repo' }}{{ t._foreign ? ' (cross-org)' : '' }}
-                </option>
-              </select>
+              <div v-else class="combobox-wrapper" ref="comboboxContainerEl">
+                <div class="combobox-input-wrapper">
+                  <input
+                    type="text"
+                    v-model="templateSearchText"
+                    placeholder="Type or select a template repository"
+                    @focus="showTemplateDropdown = true"
+                    @input="onTemplateInput"
+                    @keydown.down.prevent="navigateDropdown(1)"
+                    @keydown.up.prevent="navigateDropdown(-1)"
+                    @keydown.enter.prevent="selectActiveDropdownItem"
+                    @keydown.esc="showTemplateDropdown = false"
+                  />
+                  <div v-if="showTemplateDropdown" class="combobox-dropdown">
+                    <div
+                      v-for="(t, idx) in filteredTemplates"
+                      :key="t.full_name"
+                      :class="['combobox-item', { active: idx === activeDropdownIdx }]"
+                      @click="selectTemplate(t)"
+                    >
+                      <span>
+                        {{ t.full_name }}
+                        <span v-if="!t.is_template" class="text-secondary"> (not a template repo)</span>
+                        <span v-if="t._foreign" class="text-muted"> (cross-org)</span>
+                      </span>
+                    </div>
+                    <div v-if="filteredTemplates.length === 0" class="combobox-item no-matches">
+                      No template repositories match "{{ templateSearchText }}"
+                    </div>
+                  </div>
+                </div>
+                <button
+                  class="btn btn-refresh"
+                  type="button"
+                  @click="loadTemplates"
+                  :disabled="loadingTemplates"
+                  title="Refresh templates from GitHub"
+                >
+                  <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': loadingTemplates }" />
+                </button>
+              </div>
+              <div v-if="touchedFields.template && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
               <small v-if="!loadingTemplates && templates.length === 0">
-                No <code>template-*</code> repos found in <code>{{ org }}</code>. Create one and mark it as a template in repo Settings.
+                No template repositories found in <code>{{ org }}</code>. Create one and mark it as a template in repo Settings.
               </small>
               <small v-else-if="!loadingTemplates">
-                Found {{ templates.length }} repo<span v-if="templates.length !== 1">s</span> matching <code>template-*</code>.
+                Found {{ templates.length }} template repositories.
               </small>
             </div>
             <div class="field">
               <label>Repository name pattern <span class="req">*</span></label>
-              <input v-model="form.repository_name_pattern" placeholder="linux-processes-{github_login}" />
+              <input v-model="form.repository_name_pattern" @input="manualRepositoryNamePattern = true; touchedFields.repository_name_pattern = true" placeholder="linux-processes-{github_login}" />
+              <div v-if="touchedFields.repository_name_pattern && fieldErrors.repository_name_pattern" class="field-error-msg">{{ fieldErrors.repository_name_pattern }}</div>
               <small>Must contain <code>{github_login}</code>. The student's repo will be named per this pattern.</small>
             </div>
           </fieldset>
@@ -168,15 +207,17 @@
             <legend>Schedule</legend>
             <div class="field">
               <label>Opens at <span class="req">*</span></label>
-              <input type="datetime-local" v-model="form.opens_at_local" />
+              <input type="datetime-local" v-model="form.opens_at_local" @change="touchedFields.opens_at = true" />
+              <div v-if="touchedFields.opens_at && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
               <small>{{ utcHint(form.opens_at_local) }}</small>
             </div>
             <div class="field">
               <label>Deadline <span class="req">*</span></label>
-              <input type="datetime-local" v-model="form.deadline_at_local" />
+              <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
+              <div v-if="touchedFields.deadline_at && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
               <small>{{ utcHint(form.deadline_at_local) }}</small>
               <small v-if="deadlineInPast" class="text-warning">
-                This deadline is in the past — the next nightly run will finalize (lock down + report) immediately.
+                This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
               </small>
             </div>
           </fieldset>
@@ -186,9 +227,10 @@
             <legend>Guardrails</legend>
             <div class="field">
               <label>Max acceptances</label>
-              <input type="number" v-model.number="form.max_acceptances" min="1" />
+              <input type="number" v-model.number="form.max_acceptances" min="1" @input="touchedFields.max_acceptances = true" />
+              <div v-if="touchedFields.max_acceptances && fieldErrors.max_acceptances" class="field-error-msg">{{ fieldErrors.max_acceptances }}</div>
               <small v-if="form.max_acceptances">Hard cap on accepted students. Acceptances beyond this are rejected.</small>
-              <small v-else class="text-warning">Empty = <strong>no cap</strong> — any number of students can accept. Set a number to keep the guardrail.</small>
+              <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
             <div class="field checkbox">
               <label>
@@ -233,9 +275,9 @@
                   <div class="test-row-head">
                     <input v-model="t.id" placeholder="test-id (lowercase, dashes)" class="test-id" aria-label="Test ID" />
                     <select v-model="t.type" aria-label="Test type">
-                      <option value="run">run — shell command, exit 0 passes</option>
-                      <option value="io">io — stdin in, compare stdout</option>
-                      <option value="python">python — run a script</option>
+                      <option value="run">run: shell command, exit 0 passes</option>
+                      <option value="io">io: stdin in, compare stdout</option>
+                      <option value="python">python: run a script</option>
                     </select>
                     <input v-model.number="t.points" type="number" min="0" placeholder="pts" class="test-points" aria-label="Points" />
                     <button class="btn test-remove" type="button" @click="removeTest(i)" :aria-label="`Remove test ${t.id || i + 1}`">
@@ -257,7 +299,7 @@
 
               <small style="display:block; margin-top: 8px;">
                 <template v-if="form.autograde_execution_environment === 'lecturer_local'">
-                  Execution stays off-platform — run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> from your machine.
+                  Execution stays off-platform; run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> from your machine.
                   Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
                 </template>
                 <template v-else>
@@ -274,14 +316,14 @@
             <div class="field">
               <label>Late policy</label>
               <select v-model="form.late_policy">
-                <option value="report">report — observe and report late activity</option>
-                <option value="block">block — refuse late pushes</option>
+                <option value="report">report: observe and report late activity</option>
+                <option value="block">block: refuse late pushes</option>
               </select>
             </div>
             <div class="field">
               <label>Student permission</label>
               <select v-model="form.student_permission">
-                <option value="admin">admin (recommended — required for Actions/runners exercises)</option>
+                <option value="admin">admin (recommended: required for Actions/runners exercises)</option>
                 <option value="maintain">maintain</option>
                 <option value="push">push</option>
                 <option value="triage">triage</option>
@@ -368,16 +410,16 @@
 
             <div v-if="publishWatch === 'watching'" class="publish-watch">
               <div class="spinner sm"></div>
-              <span class="text-secondary">Publish triggered — waiting for the broker repo to appear… (checked {{ publishPollCount }}×)</span>
+              <span class="text-secondary">Publish triggered. Waiting for the broker repo to appear… (checked {{ publishPollCount }}×)</span>
             </div>
             <div v-else-if="publishWatch === 'ready'" class="publish-watch publish-ready">
               <Icon name="check-circle" :size="15" />
-              <span>Broker is live — the accept link works now.</span>
+              <span>Broker is live. The accept link works now.</span>
               <button class="link-btn" type="button" @click="copyAcceptLink">Copy accept link</button>
             </div>
             <div v-else-if="publishWatch === 'timeout'" class="publish-watch">
               <span class="text-warning">
-                Broker not visible after 2 minutes — check the
+                Broker not visible after 2 minutes. Check the
                 <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">publish workflow run</a>.
               </span>
             </div>
@@ -426,7 +468,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi } from '../lib/api.js'
+import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
@@ -567,6 +609,130 @@ const retryForm = ref({ login: '' })
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
+const manualRepositoryNamePattern = ref(false)
+const templateSearchText = ref('')
+const showTemplateDropdown = ref(false)
+const comboboxContainerEl = ref(null)
+const activeDropdownIdx = ref(-1)
+
+const touchedFields = ref({
+  id: false,
+  title: false,
+  template: false,
+  repository_name_pattern: false,
+  opens_at: false,
+  deadline_at: false,
+  max_acceptances: false,
+})
+
+const filteredTemplates = computed(() => {
+  const q = templateSearchText.value.toLowerCase().trim()
+  if (!q) return templates.value
+  return templates.value.filter(t => t.full_name.toLowerCase().includes(q))
+})
+
+const fieldErrors = computed(() => {
+  const errors = {}
+
+  // 1. Slug/ID check
+  if (!form.value.id) {
+    errors.id = 'Slug is required.'
+  } else {
+    const slugRegex = /^[a-z0-9][a-z0-9-]{0,99}$/
+    if (!slugRegex.test(form.value.id)) {
+      errors.id = 'Slug must be lowercase, start with a letter/number, and contain only lowercase letters, numbers, and hyphens (max 100 characters).'
+    } else if (isNew.value && assignments.value.some(a => a.id === form.value.id)) {
+      errors.id = 'Slug already exists. Choose a unique slug.'
+    }
+  }
+
+  // 2. Title check
+  if (!form.value.title) {
+    errors.title = 'Title is required.'
+  }
+
+  // 3. Template check
+  if (!form.value.template) {
+    errors.template = 'Template repository is required.'
+  }
+
+  // 4. Repository Name Pattern check
+  if (!form.value.repository_name_pattern) {
+    errors.repository_name_pattern = 'Repository name pattern is required.'
+  } else if (!form.value.repository_name_pattern.includes('{github_login}')) {
+    errors.repository_name_pattern = 'Pattern must contain "{github_login}".'
+  }
+
+  // 5. Schedule check
+  if (!form.value.opens_at_local) {
+    errors.opens_at = 'Open date is required.'
+  }
+  if (!form.value.deadline_at_local) {
+    errors.deadline_at = 'Deadline is required.'
+  } else if (form.value.opens_at_local && new Date(form.value.deadline_at_local) <= new Date(form.value.opens_at_local)) {
+    errors.deadline_at = 'Deadline must be after the open date.'
+  }
+
+  // 6. Max acceptances check
+  if (form.value.max_acceptances !== '' && form.value.max_acceptances !== null && form.value.max_acceptances !== undefined) {
+    const val = Number(form.value.max_acceptances)
+    if (Number.isNaN(val) || !Number.isInteger(val) || val < 1) {
+      errors.max_acceptances = 'Max acceptances must be a positive integer (or empty for no cap).'
+    }
+  }
+
+  return errors
+})
+
+// Combobox functions
+function selectTemplate(t) {
+  form.value.template = t.full_name
+  templateSearchText.value = t.full_name
+  showTemplateDropdown.value = false
+  touchedFields.value.template = true
+  activeDropdownIdx.value = -1
+}
+
+function onTemplateInput() {
+  showTemplateDropdown.value = true
+  activeDropdownIdx.value = -1
+  // Keep form.template in sync if they type exactly an item, or update form.template with text
+  const match = templates.value.find(t => t.full_name.toLowerCase() === templateSearchText.value.toLowerCase().trim())
+  form.value.template = match ? match.full_name : templateSearchText.value.trim()
+  touchedFields.value.template = true
+}
+
+function navigateDropdown(direction) {
+  if (!showTemplateDropdown.value) {
+    showTemplateDropdown.value = true
+    return
+  }
+  const len = filteredTemplates.value.length
+  if (len === 0) return
+  activeDropdownIdx.value = (activeDropdownIdx.value + direction + len) % len
+}
+
+function selectActiveDropdownItem() {
+  if (!showTemplateDropdown.value) return
+  if (activeDropdownIdx.value >= 0 && activeDropdownIdx.value < filteredTemplates.value.length) {
+    selectTemplate(filteredTemplates.value[activeDropdownIdx.value])
+  } else if (filteredTemplates.value.length > 0) {
+    selectTemplate(filteredTemplates.value[0])
+  }
+}
+
+function handleClickOutside(ev) {
+  if (comboboxContainerEl.value && !comboboxContainerEl.value.contains(ev.target)) {
+    showTemplateDropdown.value = false
+  }
+}
+
+watch(() => form.value.template, (newVal) => {
+  if (newVal !== templateSearchText.value) {
+    templateSearchText.value = newVal || ''
+  }
+})
+
 // ---------------------------------------------------------------- defaults / helpers
 
 function emptyForm() {
@@ -590,7 +756,7 @@ function emptyForm() {
     acceptance_mode: 'self-service',
     late_policy: 'report',
     state: 'draft',
-    max_acceptances: 250,
+    max_acceptances: 150,
     lock_down_enabled: true,
     feedback_pr: false,
     feedback_pr_baseline_branch: 'pxl-baseline',
@@ -649,8 +815,8 @@ function utcHint(localStr) {
 function autoSyncSlug() {
   if (isNew.value && !manualSlug.value) {
     form.value.id = toSlug(form.value.title)
-    // Also keep repository_name_pattern in sync with slug if it follows our default convention
-    if (form.value.repository_name_pattern === '' || form.value.repository_name_pattern.endsWith('-{github_login}')) {
+    // Also keep repository_name_pattern in sync with slug if it has not been manually edited
+    if (!manualRepositoryNamePattern.value) {
       form.value.repository_name_pattern = `${form.value.id}-{github_login}`
     }
   }
@@ -715,11 +881,12 @@ async function loadTemplates() {
   loadingTemplates.value = true
   const token = getToken()
   try {
-    const repos = await listOrgRepos(token, props.org, 'template-')
+    const repos = await listOrgTemplates(token, props.org)
     templates.value = repos
     // Apply the "auto-select the only template" default
     if (isNew.value && repos.length === 1 && !form.value.template) {
       form.value.template = repos[0].full_name
+      templateSearchText.value = repos[0].full_name
     }
   } catch (e) {
     console.error('Failed to load templates', e)
@@ -734,9 +901,23 @@ function newAssignment() {
   stopPublishWatch()
   editing.value = { __new: true, id: '' }
   manualSlug.value = false
+  manualRepositoryNamePattern.value = false
+  templateSearchText.value = ''
+  touchedFields.value = {
+    id: false,
+    title: false,
+    template: false,
+    repository_name_pattern: false,
+    opens_at: false,
+    deadline_at: false,
+    max_acceptances: false,
+  }
   form.value = emptyForm()
   // Auto-select sole template if we already have it loaded
-  if (templates.value.length === 1) form.value.template = templates.value[0].full_name
+  if (templates.value.length === 1) {
+    form.value.template = templates.value[0].full_name
+    templateSearchText.value = templates.value[0].full_name
+  }
   publishWatch.value = ''
   
   const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
@@ -752,6 +933,7 @@ function editAssignment(a) {
   stopPublishWatch()
   editing.value = { id: a.id }
   manualSlug.value = true // existing assignments — never auto-rewrite the slug
+  manualRepositoryNamePattern.value = true
   form.value = {
     schema_version: a.schema_version || 1,
     id: a.id,
@@ -770,7 +952,7 @@ function editAssignment(a) {
     acceptance_mode: a.acceptance_mode || 'self-service',
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
-    max_acceptances: a.max_acceptances ?? 250,
+    max_acceptances: a.max_acceptances ?? 150,
     lock_down_enabled: a.lock_down_enabled ?? true,
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
@@ -778,6 +960,16 @@ function editAssignment(a) {
     autograde_execution_environment: a.autograde?.execution_environment || 'lecturer_local',
     autograde_visibility: a.autograde?.visibility || 'private',
     autograde_tests: a.autograde?.tests || [],
+  }
+  templateSearchText.value = form.value.template || ''
+  touchedFields.value = {
+    id: false,
+    title: false,
+    template: false,
+    repository_name_pattern: false,
+    opens_at: false,
+    deadline_at: false,
+    max_acceptances: false,
   }
   const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
   const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
@@ -879,7 +1071,7 @@ async function validate(state = null) {
     problems.push('Deadline must be after the open date.')
   }
   if (form.value.max_acceptances === 0) {
-    problems.push('Max acceptances must be at least 1 — leave the field empty for no cap.')
+    problems.push('Max acceptances must be at least 1 (leave the field empty for no cap).')
   }
 
   validationErrors.value = problems
@@ -899,23 +1091,31 @@ const canSave = computed(() => {
     !!form.value.title &&
     !!form.value.template &&
     !!form.value.repository_name_pattern &&
-    form.value.repository_name_pattern.includes('{github_login}') &&
     !!form.value.opens_at_local &&
-    !!form.value.deadline_at_local
+    !!form.value.deadline_at_local &&
+    Object.keys(fieldErrors.value).length === 0
   )
 })
 
 // ---------------------------------------------------------------- save / publish
 
 async function saveAssignment(stateOverride = null) {
+  // Touch all fields to show error styling
+  for (const k of Object.keys(touchedFields.value)) {
+    touchedFields.value[k] = true
+  }
+  if (Object.keys(fieldErrors.value).length > 0) {
+    toast.error('Validation failed. Please fix the errors in the form.')
+    return
+  }
   if (!(await validate(stateOverride))) {
-    toast.error('Validation failed — fix the issues listed below the form.')
+    toast.error('Validation failed. Please fix the issues listed below the form.')
     return
   }
   if (isNew.value) {
     const slug = form.value.id
     if (assignments.value.some((a) => a.id === slug)) {
-      toast.error(`${slug} already exists — pick another slug or edit the existing assignment.`)
+      toast.error(`${slug} already exists; pick another slug or edit the existing assignment.`)
       return
     }
     try {
@@ -923,7 +1123,7 @@ async function saveAssignment(stateOverride = null) {
       const path = `assignments/${slug}.yml`
       const exists = await getRepoContent(token, props.org, config.controlRepo, path)
       if (exists !== null) {
-        toast.error(`${slug} already exists — pick another slug or edit the existing assignment.`)
+        toast.error(`${slug} already exists; pick another slug or edit the existing assignment.`)
         return
       }
     } catch { /* ignore and let commitFile handle any errors */ }
@@ -977,9 +1177,9 @@ async function revertToDraftAfterFailedPublish() {
       form.value.state = 'draft'
       snapshotForm()
       await loadAssignments()
-      toast.error(`Publish dispatch failed — ${form.value.id} was reverted to draft. Fix hub access and publish again.`)
+      toast.error(`Publish dispatch failed. ${form.value.id} was reverted to draft. Fix hub access and publish again.`)
     } else {
-      toast.error(`Publish dispatch failed AND the revert to draft failed: ${res.data?.message || 'unknown error'}. The YAML still says "published" but no broker exists — set the state back to draft manually.`)
+      toast.error(`Publish dispatch failed AND the revert to draft failed: ${res.data?.message || 'unknown error'}. The YAML still says "published" but no broker exists. Set the state back to draft manually.`)
     }
   } catch (e) {
     console.error('Failed to revert state after failed publish:', e)
@@ -996,7 +1196,7 @@ async function publishExisting() {
       assignment_id: form.value.id,
     })
     if (res.ok || res.status === 204) {
-      toast.success('Publish workflow triggered — watching for the broker to appear…')
+      toast.success('Publish workflow triggered. Watching for the broker to appear…')
       startPublishWatch()
       return true
     }
@@ -1021,7 +1221,7 @@ function startPublishWatch() {
       const res = await getRepo(token, props.org, brokerRepo)
       if (res.ok) {
         publishWatch.value = 'ready'
-        toast.success('Published — the accept link is live.')
+        toast.success('Published. The accept link is live.')
         return
       }
     }
@@ -1566,5 +1766,84 @@ details .field { padding: 0 var(--space-sm); }
   padding: 0;
   font: inherit;
   text-decoration: underline;
+}
+
+/* COMBOBOX */
+.combobox-wrapper {
+  position: relative;
+  display: flex;
+  gap: var(--space-sm);
+  align-items: stretch;
+}
+.combobox-input-wrapper {
+  position: relative;
+  flex: 1;
+}
+.combobox-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-top: 4px;
+}
+.combobox-item {
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.95rem;
+}
+.combobox-item:hover, .combobox-item.active {
+  background: var(--bg-elevated, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+.combobox-item.no-matches {
+  color: var(--text-secondary);
+  font-style: italic;
+  cursor: default;
+  background: transparent;
+}
+.btn-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: border-color var(--transition-normal), color var(--transition-normal);
+}
+.btn-refresh:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+.btn-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* DYNAMIC VALIDATION ERROR ALERTS */
+.field-error-msg {
+  color: var(--accent-red);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin-animation {
+  animation: spin 1s linear infinite;
 }
 </style>

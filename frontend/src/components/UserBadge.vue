@@ -39,7 +39,7 @@ const expiryLabel = computed(() => {
 
 const expiryTitle = computed(() => {
   const exp = getTokenExpiry()
-  return exp ? `Signed-in session ends ${exp.toLocaleTimeString()} — you'll need to sign in again after that.` : ''
+  return exp ? `Signed-in session ends ${exp.toLocaleTimeString()}. You'll need to sign in again after that.` : ''
 })
 </script>
 

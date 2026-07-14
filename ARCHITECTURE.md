@@ -188,7 +188,7 @@ student_permission: admin             # pull|triage|push|maintain|admin
 acceptance_mode: self-service         # self-service|pre-provisioned
 late_policy: report                   # report|block
 state: published                      # draft|published|closed|archived
-max_acceptances: 250
+max_acceptances: 150
 lock_down_enabled: true
 ```
 
@@ -308,7 +308,8 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 
 ```
 1. Student opens https://<pages-host>/pxl-classroom/<org>/a/<assignment-id>
-2. SPA shows title, opens_at, deadline, current state
+2. SPA shows title, opens_at, deadline, current state.
+   - *Acceptance Gating:* The SPA gates the acceptance flow: if the assignment state is not 'published' (e.g., if it is 'closed' or 'draft') or if the current time is before `opens_at`, it displays a status warning message instead of the Accept button. If the student has already accepted and has a provisioned repository, they can still access their repository.
 3. Student clicks "Accept" → device-flow auth (only if first time this session)
 4. SPA POSTs PUT /user/starred/<org>/broker-<assignment-id>          [Account/Starring]
 5. Broker's watch:started workflow fires

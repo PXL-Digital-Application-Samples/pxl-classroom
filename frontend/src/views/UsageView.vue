@@ -24,9 +24,9 @@
         <h2>Sign in to view usage</h2>
         <p class="text-secondary" style="margin-bottom: var(--space-md);">
           Sign in with a GitHub account that owns <strong>{{ org }}</strong> to load the usage report.
-          Sessions last 8 hours — if you were signed in earlier, it has expired.
+          Sessions last 8 hours. If you were signed in earlier, it has expired.
         </p>
-        <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
+        <p v-if="authError" class="auth-error" role="alert">{{ authError }}. Try signing in again.</p>
         <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
           <template v-if="authLoading">
             <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>

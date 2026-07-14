@@ -1,7 +1,7 @@
 import { config } from './config.js'
 
 export function formatDate(iso, timezone = null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   try {
     return new Date(iso).toLocaleString('en-GB', {
       timeZone: timezone || config.timezone,

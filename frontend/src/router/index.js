@@ -65,22 +65,22 @@ router.afterEach((to) => {
   let page = ''
   switch (to.name) {
     case 'assignment':
-      page = `${to.params.assignmentId} — Accept assignment`
+      page = `${to.params.assignmentId} - Accept assignment`
       break
     case 'dashboard':
-      page = to.params.org ? `Dashboard — ${to.params.org}` : 'Dashboard'
+      page = to.params.org ? `Dashboard - ${to.params.org}` : 'Dashboard'
       break
     case 'admin':
-      page = `Admin Panel — ${to.params.org}`
+      page = `Admin Panel - ${to.params.org}`
       break
     case 'assignment-detail':
-      page = `${to.params.assignmentId} — ${to.params.org}`
+      page = `${to.params.assignmentId} - ${to.params.org}`
       break
     case 'usage-org':
-      page = `Usage — ${to.params.org}`
+      page = `Usage - ${to.params.org}`
       break
     case 'usage-overview':
-      page = 'Usage — all organizations'
+      page = 'Usage - all organizations'
       break
     case 'setup':
       page = 'App setup'

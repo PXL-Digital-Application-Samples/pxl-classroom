@@ -18,7 +18,7 @@ function handleSessionExpiry() {
   if (sessionExpiredNotified) return
   sessionExpiredNotified = true
   clearAuth()
-  toast.error('Your session expired — sign in again.')
+  toast.error('Your session expired. Sign in again.')
   setTimeout(() => window.location.reload(), 1800)
 }
 
@@ -279,4 +279,23 @@ export async function listOrgRepos(token, org, prefix = '') {
     url = m ? m[1].replace(API_BASE, '') : null
   }
   return out
+}
+
+/**
+ * List all template repositories in an org using search with rest fallback.
+ */
+export async function listOrgTemplates(token, org) {
+  try {
+    const q = encodeURIComponent(`org:${org} is:template`)
+    const res = await ghApi(token, 'GET', `/search/repositories?q=${q}&per_page=100`)
+    if (res.ok) {
+      return res.data?.items || []
+    }
+  } catch (e) {
+    console.error('Search templates failed, falling back to listOrgRepos', e)
+  }
+
+  // Fallback: list all org repos and filter client-side
+  const repos = await listOrgRepos(token, org)
+  return repos.filter((r) => r.is_template)
 }

@@ -12,7 +12,7 @@
     </header>
 
     <div v-if="runError" class="health-error" role="alert">
-      Audit failed: {{ runError }} — check your connection and re-run.
+      Audit failed: {{ runError }}. Check your connection and re-run.
     </div>
 
     <div v-if="!result && !running && !runError" class="health-empty text-muted">

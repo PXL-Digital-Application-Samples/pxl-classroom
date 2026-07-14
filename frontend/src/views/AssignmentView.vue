@@ -74,7 +74,7 @@
           <p class="text-secondary">Authenticate with your GitHub account to accept this assignment.</p>
 
           <p v-if="authError" class="auth-error" role="alert">
-            {{ authError }} — try signing in again.
+            {{ authError }}. Try signing in again.
           </p>
 
           <div v-if="!deviceFlow" class="auth-actions">
@@ -111,14 +111,14 @@
           </div>
         </div>
 
-        <!-- Authenticated — acceptance flow -->
+        <!-- Authenticated - acceptance flow -->
         <div v-else class="acceptance-card card">
           <!-- Not yet accepted -->
           <div v-if="acceptState === 'ready'">
             <div v-if="assignment && assignment.state === 'closed'" class="text-center">
               <h2>Assignment closed</h2>
               <p class="text-secondary">
-                This assignment is closed — you can no longer accept it.
+                This assignment is closed. You can no longer accept it.
               </p>
             </div>
             <div v-else-if="assignment && new Date() < new Date(assignment.opens_at)" class="text-center">

@@ -1,7 +1,7 @@
 <template>
   <section class="roster-tab">
     <div class="roster-header">
-      <h3>Roster — {{ org }}</h3>
+      <h3>Roster - {{ org }}</h3>
       <p class="text-secondary">
         Import or update <code>students/roster.yml</code> in <code>{{ org }}/{{ controlRepo }}</code>.
         Drop a CSV (header row required) or paste below. The diff is previewed before commit.
@@ -64,7 +64,7 @@
         <div v-else>
           <h4>Diff vs. committed roster</h4>
           <div v-if="!existingRoster" class="diff-info">
-            No existing <code>students/roster.yml</code> in <code>{{ org }}/{{ controlRepo }}</code> — this will create one.
+            No existing <code>students/roster.yml</code> in <code>{{ org }}/{{ controlRepo }}</code>. This will create one.
           </div>
 
           <div class="diff-summary">
@@ -174,7 +174,7 @@ async function loadExisting() {
     existingRoster.value = text ? parseYaml(text) : null
   } catch (e) {
     if (e?.status === 401) {
-      toast.error('Session expired — sign in again.')
+      toast.error('Session expired. Sign in again.')
       return
     }
     console.error('Failed to load roster', e)

@@ -17,15 +17,15 @@
     </header>
 
     <main class="container">
-      <!-- Not authenticated — never show data-shaped empty states signed out -->
+      <!-- Not authenticated - never show data-shaped empty states signed out -->
       <div v-if="!user" class="center-card fade-in">
         <h2>Sign in to view this assignment</h2>
         <p class="text-secondary">
           Sign in with a GitHub account that owns <strong>{{ org }}</strong> to load the
-          report for <code>{{ assignmentId }}</code>. Sessions last 8 hours — if you were
+          report for <code>{{ assignmentId }}</code>. Sessions last 8 hours. If you were
           signed in earlier, it has expired.
         </p>
-        <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
+        <p v-if="authError" class="auth-error" role="alert">{{ authError }}. Try signing in again.</p>
         <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
           <template v-if="authLoading">
             <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
@@ -47,7 +47,7 @@
         <h2>No report yet</h2>
         <p class="text-secondary">
           Reports for <code>{{ assignmentId }}</code> are written to the control repo by the nightly
-          <code>daily-activity.yml</code> run in the hub — the first one lands the night after publishing.
+          <code>daily-activity.yml</code> run in the hub; the first one lands the night after publishing.
         </p>
         <div v-if="dailyWatch === ''">
           <button class="btn btn-primary btn-with-icon" @click="runDailyActivity" :disabled="dailyTriggering">
@@ -60,10 +60,10 @@
         </div>
         <div v-else-if="dailyWatch === 'watching'" class="daily-watch">
           <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
-          <span class="text-secondary">Workflow started — watching for the report to land… (checked {{ dailyPollCount }}×)</span>
+          <span class="text-secondary">Workflow started. Watching for the report to land… (checked {{ dailyPollCount }}×)</span>
         </div>
         <p v-else-if="dailyWatch === 'timeout'" class="text-warning">
-          No report after 5 minutes — check the
+          No report after 5 minutes. Check the
           <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/daily-activity.yml`" target="_blank" rel="noopener">workflow run</a> for failures.
         </p>
       </div>
@@ -74,7 +74,7 @@
         <div class="summary-row">
           <div class="summary-card card deadline-card">
             <span class="summary-value deadline-value" :class="{ 'stat-red': deadlinePassed }">
-              {{ deadlineRelative || '—' }}
+              {{ deadlineRelative || '-' }}
             </span>
             <span class="summary-label">Deadline{{ deadlineAbs ? ` · ${deadlineAbs}` : '' }}</span>
           </div>
@@ -181,13 +181,13 @@
                 </td>
                 <td>
                   <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
-                  <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted — reason: ${extensionFor(s.github_login).reason}`">
+                  <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
                     ext → {{ fmt(extensionFor(s.github_login).value) }}
                   </div>
                 </td>
                 <td class="col-repo">
                   <a v-if="s.repo_url" :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
-                  <span v-else class="text-muted">—</span>
+                  <span v-else class="text-muted">-</span>
                 </td>
                 <td class="col-last-commit">
                   <template v-if="s.repo_url && latestSha(s)">
@@ -199,7 +199,7 @@
                     </a>
                   </template>
                   <span v-else-if="s.repo_url" class="text-muted">no commits</span>
-                  <span v-else class="text-muted">—</span>
+                  <span v-else class="text-muted">-</span>
                 </td>
                 <td class="col-submit-tag">
                   <template v-if="s.tagged_submission_tag">
@@ -220,29 +220,29 @@
                       {{ formatRelative(s.tagged_submission_observed_at, assignment?.timezone) }}
                     </div>
                   </template>
-                  <span v-else class="text-muted untagged" title="No submit/ tag found">—</span>
+                  <span v-else class="text-muted untagged" title="No submit/ tag found">-</span>
                 </td>
                 <td class="num">
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
-                  <span v-else class="text-muted">—</span>
+                  <span v-else class="text-muted">-</span>
                 </td>
                 <td v-if="isGitHubActionsAutograde" class="col-ci">
                   <span v-if="s.ci_status" :class="['badge', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']">
                     {{ s.ci_status }}
                   </span>
-                  <span v-else class="text-muted">—</span>
+                  <span v-else class="text-muted">-</span>
                 </td>
                 <td v-if="feedbackPrEnabled" class="col-feedback-pr">
                   <template v-if="s.feedback_pr_number">
                     <a :href="s.feedback_pr_url" target="_blank" class="mono">#{{ s.feedback_pr_number }}</a>
                   </template>
-                  <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">— pending</span>
+                  <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">- pending</span>
                 </td>
                 <td class="col-warnings">
                   <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
                     <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
                   </div>
-                  <span v-else class="text-muted">—</span>
+                  <span v-else class="text-muted">-</span>
                 </td>
                 <td class="col-actions">
                   <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
@@ -281,7 +281,7 @@
                 <Icon name="tag" :size="11" />
                 tagged
               </span>
-              <span v-if="extensionFor(s.github_login)" class="badge badge-info" :title="`Extended to ${fmt(extensionFor(s.github_login).value)} — ${extensionFor(s.github_login).reason}`">
+              <span v-if="extensionFor(s.github_login)" class="badge badge-info" :title="`Extended to ${fmt(extensionFor(s.github_login).value)} (${extensionFor(s.github_login).reason})`">
                 extended
               </span>
             </div>
@@ -290,7 +290,7 @@
               Tag observed {{ fmt(s.tagged_submission_observed_at) }}
             </div>
             <div v-if="extensionFor(s.github_login)" class="student-card-detail text-muted">
-              Extended to {{ fmt(extensionFor(s.github_login).value) }} — {{ extensionFor(s.github_login).reason }}
+              Extended to {{ fmt(extensionFor(s.github_login).value) }} ({{ extensionFor(s.github_login).reason }})
             </div>
             <div v-if="s.repo_url" class="student-card-repo">
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
@@ -309,7 +309,7 @@
 
         <p class="table-footer text-muted">
           {{ filteredStudents.length }} of {{ report.students.length }} students shown ·
-          Generated {{ fmt(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ fmt(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota — resets hourly`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
+          Generated {{ fmt(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ fmt(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota (resets hourly)`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
         </p>
 
         <!-- Autograde results (read-only) -->
@@ -377,7 +377,7 @@
       <div v-if="actionStudent" class="modal-overlay" @click.self="closeActions">
         <div class="modal" ref="modalEl" role="dialog" aria-modal="true" :aria-label="`Actions for ${actionStudent.github_login}`" @keydown="trapTab">
           <header class="modal-head">
-            <h3>Actions — <code>{{ actionStudent.github_login }}</code></h3>
+            <h3>Actions: <code>{{ actionStudent.github_login }}</code></h3>
             <button class="modal-close" type="button" @click="closeActions" :disabled="actionExtending || actionRetrying" aria-label="Close">×</button>
           </header>
 
@@ -484,7 +484,7 @@ async function runDailyActivity() {
   try {
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', { org: props.org })
     if (res.ok || res.status === 204) {
-      toast.success('Daily activity triggered — watching for the report…')
+      toast.success('Daily activity triggered. Watching for the report…')
       startDailyWatch()
     } else {
       toast.error(explainDispatchFailure(res, 'Trigger failed'))
@@ -1025,7 +1025,7 @@ async function refreshLiveStatus() {
   // one. Surface the failure count and leave the control repo untouched.
   if (failedCount > 0) {
     toast.error(
-      `Refreshed ${queue.length - failedCount} of ${queue.length} students — ${failedCount} failed` +
+      `Refreshed ${queue.length - failedCount} of ${queue.length} students; ${failedCount} failed` +
       `${rateLimit.value.remaining === 0 ? ' (API rate limit exhausted)' : ''}. Nothing was saved; try again later.`,
     )
     refreshingLive.value = false
@@ -1071,7 +1071,7 @@ async function syncGradesFromGitHub() {
   if (queue.length === 0) {
     toast.info(
       'CI results sync against preserved submissions, which are created by the deadline finalize. ' +
-      'No students are preserved yet — nothing was synced.',
+      'No students are preserved yet. Nothing was synced.',
     )
     return
   }
