@@ -53,6 +53,13 @@
         <button class="btn btn-primary" @click="loadOrgs">Retry</button>
       </div>
 
+      <!-- Dashboard Load Error -->
+      <div v-else-if="selectedOrg && dashError" class="center-card fade-in">
+        <h2 class="text-danger">Failed to load dashboard</h2>
+        <p class="text-secondary" style="margin-bottom: var(--space-md);">{{ dashError }}</p>
+        <button class="btn btn-primary" @click="loadDashboard">Retry</button>
+      </div>
+
       <!-- No installation visible to this account -->
       <div v-else-if="orgsLoaded && orgs.length === 0" class="center-card fade-in">
         <h2>No PXL Classroom installation visible</h2>
@@ -186,6 +193,7 @@ let pollAbort = null
 
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
 const dashState = ref('')
+const dashError = ref(null)
 
 // True once /user/installations has answered — gates the "no installation
 // visible" empty state so it can't flash during the initial load.
@@ -269,13 +277,19 @@ async function loadDashboard(org) {
   const token = getToken()
   if (!token) { loadingData.value = false; return }
 
+  dashError.value = null
   try {
     // Distinguish "org not onboarded" from "no dashboard yet" from "empty" —
     // each empty state points the lecturer at a different remedy.
     const repoRes = await getRepo(token, org, config.controlRepo)
     if (!repoRes.ok) {
-      dashState.value = 'no-control-repo'
-      return
+      if (repoRes.status === 404) {
+        dashState.value = 'no-control-repo'
+        return
+      }
+      const e = new Error(repoRes.data?.message || `Failed to read repository (HTTP ${repoRes.status})`)
+      e.status = repoRes.status
+      throw e
     }
     const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
     if (!content) {
@@ -287,7 +301,11 @@ async function loadDashboard(org) {
     if (assignments.value.length === 0) dashState.value = 'empty'
   } catch (e) {
     console.error('Failed to load dashboard:', e)
-    dashState.value = 'no-dashboard'
+    if (e instanceof SyntaxError) {
+      dashError.value = `Dashboard data is corrupted (JSON parse error). Run RUNBOOK §9.5 recovery.`
+    } else {
+      dashError.value = `Failed to load dashboard: ${e.message || String(e)}`
+    }
   } finally {
     loadingData.value = false
   }

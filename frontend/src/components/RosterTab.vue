@@ -210,8 +210,11 @@ function onCsvInput() {
 const CSV_COLUMNS = ['student_number', 'full_name', 'email', 'class_group', 'github_login', 'github_id', 'active']
 
 function csvEscape(v) {
-  const s = String(v ?? '')
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  let str = Array.isArray(v) ? v.join('; ') : String(v ?? '')
+  if (/^[=\+\-@]/.test(str)) {
+    str = `'${str}`
+  }
+  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
 }
 
 function downloadBlob(text, filename, type) {

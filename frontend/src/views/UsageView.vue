@@ -42,6 +42,13 @@
         <p class="text-secondary">Loading usage report…</p>
       </div>
 
+      <!-- Load Error -->
+      <div v-else-if="loadError" class="center-card fade-in">
+        <h2 class="text-danger">Failed to load report</h2>
+        <p class="text-secondary" style="margin-bottom: var(--space-md);">{{ loadError }}</p>
+        <button class="btn btn-primary" type="button" @click="loadReport">Retry</button>
+      </div>
+
       <div v-else-if="!report" class="center-card fade-in empty-state">
         <h2>No usage report yet</h2>
         <p class="text-secondary">
@@ -157,6 +164,7 @@ const authError = ref(null)
 const deviceFlow = ref(null)
 const loading = ref(false)
 const report = ref(null)
+const loadError = ref(null)
 const filter = ref('')
 const sortKey = ref('used')
 const sortDir = ref('desc')
@@ -197,11 +205,13 @@ async function loadReport() {
   const token = getToken()
   if (!token || !props.org) return
   loading.value = true
+  loadError.value = null
   try {
     const content = await getRepoContent(token, props.org, config.controlRepo, 'reports/usage-latest.json')
     if (content) report.value = JSON.parse(content)
   } catch (e) {
     console.error('Failed to load usage report:', e)
+    loadError.value = e.message || String(e)
   } finally {
     loading.value = false
   }

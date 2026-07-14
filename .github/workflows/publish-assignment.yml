@@ -136,3 +136,10 @@ jobs:
           gh workflow enable daily-activity.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger dashboard regeneration
+        if: inputs.dry_run != true
+        run: |
+          gh workflow run regenerate-dashboard.yml --field org="${{ inputs.org }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

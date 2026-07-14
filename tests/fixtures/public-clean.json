@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "generated_at": "2026-06-15T12:00:00Z",
-  "assignments": [
-    {
+  "assignments": {
+    "automation-pe-1": {
       "id": "automation-pe-1",
       "title": "Automation Practice 1",
       "description": "First Terraform exercise",
@@ -15,5 +15,5 @@
       "repository_name_pattern": "automation-pe-1-{github_login}",
       "broker_repo": "broker-automation-pe-1"
     }
-  ]
+  }
 }

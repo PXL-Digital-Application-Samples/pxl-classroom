@@ -157,13 +157,21 @@
                     @keydown.up.prevent="navigateDropdown(-1)"
                     @keydown.enter.prevent="selectActiveDropdownItem"
                     @keydown.esc="showTemplateDropdown = false"
+                    role="combobox"
+                    :aria-expanded="showTemplateDropdown"
+                    aria-autocomplete="list"
+                    aria-controls="template-dropdown"
+                    :aria-activedescendant="activeDropdownIdx >= 0 && activeDropdownIdx < filteredTemplates.length ? 'template-option-' + activeDropdownIdx : undefined"
                   />
-                  <div v-if="showTemplateDropdown" class="combobox-dropdown">
+                  <div v-if="showTemplateDropdown" id="template-dropdown" class="combobox-dropdown" role="listbox">
                     <div
                       v-for="(t, idx) in filteredTemplates"
                       :key="t.full_name"
                       :class="['combobox-item', { active: idx === activeDropdownIdx }]"
                       @click="selectTemplate(t)"
+                      role="option"
+                      :id="'template-option-' + idx"
+                      :aria-selected="idx === activeDropdownIdx"
                     >
                       <span>
                         {{ t.full_name }}
@@ -171,7 +179,7 @@
                         <span v-if="t._foreign" class="text-muted"> (cross-org)</span>
                       </span>
                     </div>
-                    <div v-if="filteredTemplates.length === 0" class="combobox-item no-matches">
+                    <div v-if="filteredTemplates.length === 0" class="combobox-item no-matches" role="option" aria-disabled="true">
                       No template repositories match "{{ templateSearchText }}"
                     </div>
                   </div>
@@ -429,6 +437,9 @@
               <div class="field">
                 <label>Student GitHub login</label>
                 <input v-model="extForm.login" placeholder="octocat" />
+                <p v-if="currentExtText" class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-xs, 4px);">
+                  {{ currentExtText }}
+                </p>
               </div>
               <div class="field">
                 <label>New deadline (just for this student)</label>
@@ -439,7 +450,7 @@
                 <label>Reason (recorded in the override)</label>
                 <textarea v-model="extForm.reason" rows="2" placeholder="Medical certificate / approved by program coordinator / etc."></textarea>
               </div>
-              <button class="btn btn-primary" type="button" @click="grantExtension" :disabled="extending || !extForm.login || !extForm.reason">
+              <button class="btn btn-primary" type="button" @click="grantExtension" :disabled="extending || !extForm.login || !extForm.deadline_local || !extForm.reason.trim()">
                 {{ extending ? 'Granting…' : 'Grant extension' }}
               </button>
             </details>
@@ -605,6 +616,7 @@ function onBeforeUnload(e) {
 }
 
 const extForm = ref({ login: '', deadline_local: '', reason: '' })
+const currentExtText = ref(null)
 const retryForm = ref({ login: '' })
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
@@ -730,6 +742,32 @@ function handleClickOutside(ev) {
 watch(() => form.value.template, (newVal) => {
   if (newVal !== templateSearchText.value) {
     templateSearchText.value = newVal || ''
+  }
+})
+
+watch(() => extForm.value.login, async (newVal) => {
+  const login = newVal ? newVal.trim() : ''
+  if (!login || !form.value?.id) {
+    currentExtText.value = null
+    return
+  }
+  const token = getToken()
+  if (!token) return
+  try {
+    const existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${login}.json`)
+    if (existingText) {
+      const doc = JSON.parse(existingText)
+      const prevExt = (doc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
+      if (prevExt) {
+        currentExtText.value = `Currently extended to ${formatDate(prevExt.value, form.value.timezone)} ("${prevExt.reason}"). Granting again adds a new extension to their override history.`
+      } else {
+        currentExtText.value = null
+      }
+    } else {
+      currentExtText.value = null
+    }
+  } catch {
+    currentExtText.value = null
   }
 })
 
@@ -1311,12 +1349,16 @@ function startRetryWatch(login, repoName) {
     if (token) {
       const res = await getRepo(token, props.org, repoName)
       if (res.ok) {
-        toast.success(`Retry succeeded: repository <a href="https://github.com/${props.org}/${repoName}" target="_blank" style="color: inherit; text-decoration: underline;">${repoName}</a> is live.`)
+        toast.success(`Retry succeeded: repository is live.`, {
+          link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
+        })
         return
       }
     }
     if (pollCount >= 24) { // 24 * 5s = 2 mins
-      toast.error(`Retry for ${login} timed out. Check the <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">workflow run</a>.`)
+      toast.error(`Retry for ${login} timed out.`, {
+        link: { text: 'Check the workflow run.', href: workflowUrl }
+      })
       return
     }
     retryPollTimer = setTimeout(tick, 5000)
@@ -1336,7 +1378,7 @@ async function validateStudentLogin(login, assignmentId) {
       const inRoster = (rosterDoc?.students || []).some(
         (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
       )
-      if (inRoster) return true
+      if (inRoster) return { valid: true }
     }
   } catch { /* ignored */ }
 
@@ -1344,7 +1386,7 @@ async function validateStudentLogin(login, assignmentId) {
   const recordPath = `repositories/${assignmentId}/${login}.json`
   try {
     const recordText = await getRepoContent(token, props.org, config.controlRepo, recordPath)
-    if (recordText) return true
+    if (recordText) return { valid: true }
   } catch { /* ignored */ }
 
   // 3. Try checking reports/<id>.json
@@ -1355,7 +1397,7 @@ async function validateStudentLogin(login, assignmentId) {
       const inReport = (reportDoc?.students || []).some(
         (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
       )
-      if (inReport) return true
+      if (inReport) return { valid: true }
     }
   } catch { /* ignored */ }
 
@@ -1363,11 +1405,13 @@ async function validateStudentLogin(login, assignmentId) {
   try {
     const userRes = await ghApi(token, 'GET', `/users/${login}`)
     if (userRes.ok) {
-      return false
+      return { valid: false, reason: 'not_on_roster' }
+    } else if (userRes.status === 404) {
+      return { valid: false, reason: 'not_exists' }
     }
   } catch { /* ignored */ }
 
-  return false
+  return { valid: false, reason: 'not_on_roster' }
 }
 
 async function grantExtension() {
@@ -1384,9 +1428,13 @@ async function grantExtension() {
     const token = getToken()
 
     // R4-04: Validate login
-    const isValid = await validateStudentLogin(extForm.value.login, form.value.id)
-    if (!isValid) {
-      toast.error(`no accepted student ${extForm.value.login} on this assignment`)
+    const checkResult = await validateStudentLogin(extForm.value.login, form.value.id)
+    if (!checkResult.valid) {
+      if (checkResult.reason === 'not_exists') {
+        toast.error(`${extForm.value.login} isn't a GitHub login — check the spelling.`)
+      } else {
+        toast.error(`${extForm.value.login} exists but isn't on this assignment's roster/records.`)
+      }
       return
     }
 
@@ -1397,11 +1445,14 @@ async function grantExtension() {
     // extension (if later) wins over the assignment deadline — same rule as
     // the per-row modal in the report view.
     let currentEffective = localToUtc(form.value.deadline_at_local)
+    let overridesList = []
+    let existingText = null
     try {
-      const existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${extForm.value.login}.json`)
+      existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${extForm.value.login}.json`)
       if (existingText) {
         const existingDoc = JSON.parse(existingText)
-        const prevExt = (existingDoc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
+        overridesList = existingDoc?.overrides || []
+        const prevExt = overridesList.filter((o) => o.type === 'deadline_extension').pop()
         if (prevExt?.value && (!currentEffective || new Date(prevExt.value) > new Date(currentEffective))) {
           currentEffective = prevExt.value
         }
@@ -1411,19 +1462,21 @@ async function grantExtension() {
       toast.error(`The extension must be later than ${extForm.value.login}'s current effective deadline (${formatDate(currentEffective, form.value.timezone)}).`)
       return
     }
+
+    // Append to existing overrides
+    overridesList.push({
+      type: 'deadline_extension',
+      value: newDeadlineUtc,
+      reason: extForm.value.reason,
+      overridden_by: 'admin-panel',
+      overridden_at: new Date().toISOString(),
+    })
+
     const overrideDoc = {
       schema_version: 1,
       assignment_id: form.value.id,
       github_login: extForm.value.login,
-      overrides: [
-        {
-          type: 'deadline_extension',
-          value: newDeadlineUtc,
-          reason: extForm.value.reason,
-          overridden_by: 'admin-panel',
-          overridden_at: new Date().toISOString(),
-        },
-      ],
+      overrides: overridesList,
     }
     const { valid, errors } = await validateAgainst('override', overrideDoc)
     if (!valid) {
@@ -1453,9 +1506,13 @@ async function retryAcceptance() {
     const token = getToken()
 
     // R4-04: Validate login
-    const isValid = await validateStudentLogin(login, form.value.id)
-    if (!isValid) {
-      toast.error(`no accepted student ${login} on this assignment`)
+    const checkResult = await validateStudentLogin(login, form.value.id)
+    if (!checkResult.valid) {
+      if (checkResult.reason === 'not_exists') {
+        toast.error(`${login} isn't a GitHub login — check the spelling.`)
+      } else {
+        toast.error(`${login} exists but isn't on this assignment's roster/records.`)
+      }
       return
     }
 
@@ -1466,7 +1523,9 @@ async function retryAcceptance() {
     })
     if (res.ok || res.status === 204) {
       const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
-      toast.success(`Retry triggered for ${login}. Watching for repository to appear… <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">View workflow run</a>`)
+      toast.success(`Retry triggered for ${login}. Watching for repository to appear…`, {
+        link: { text: 'View workflow run', href: workflowUrl }
+      })
       
       const pattern = form.value.repository_name_pattern || `${form.value.id}-{github_login}`
       const repoName = pattern.replace('{github_login}', login)
@@ -1486,6 +1545,7 @@ async function retryAcceptance() {
 onMounted(async () => {
   window.addEventListener('beforeunload', onBeforeUnload)
   window.addEventListener('hashchange', onHashChange)
+  document.addEventListener('click', handleClickOutside)
   if (!isAuthenticated()) { loadingList.value = false; return }
   user.value = getUser()
   await Promise.all([loadAssignments(), loadTemplates()])
@@ -1494,6 +1554,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
   window.removeEventListener('hashchange', onHashChange)
+  document.removeEventListener('click', handleClickOutside)
   stopPublishWatch()
   if (retryPollTimer) {
     clearTimeout(retryPollTimer)

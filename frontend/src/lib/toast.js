@@ -10,14 +10,14 @@ let idCounter = 0
 const DURATION_MS = { success: 5000, info: 7000, error: 15000 }
 
 export const toast = {
-  success(message) {
-    addToast(message, 'success')
+  success(message, options) {
+    addToast(message, 'success', options)
   },
-  error(message) {
-    addToast(message, 'error')
+  error(message, options) {
+    addToast(message, 'error', options)
   },
-  info(message) {
-    addToast(message, 'info')
+  info(message, options) {
+    addToast(message, 'info', options)
   }
 }
 
@@ -42,9 +42,9 @@ export function resumeToast(id) {
   }
 }
 
-function addToast(message, type) {
+function addToast(message, type, options = {}) {
   const id = idCounter++
-  const entry = { id, message, type, timer: null }
+  const entry = { id, message, type, link: options.link || null, timer: null }
   entry.timer = setTimeout(() => dismissToast(id), DURATION_MS[type] ?? 5000)
   toasts.value.push(entry)
 }

@@ -113,6 +113,14 @@ async function authedLogin(octokit) {
   }
 }
 
+function parseConcurrency(val) {
+  const parsed = parseInt(val, 10);
+  if (isNaN(parsed) || parsed <= 0 || String(parsed) !== String(val)) {
+    throw new Error("Concurrency must be a positive integer.");
+  }
+  return parsed;
+}
+
 export function registerGradeCommand(program) {
   program
     .command("grade")
@@ -121,7 +129,7 @@ export function registerGradeCommand(program) {
     .requiredOption("--assignment <id>", "Assignment ID")
     .option("--login <login>", "Grade one student only")
     .option("--runner <runner>", "docker | host (default docker)", "docker")
-    .option("--concurrency <n>", "Parallel students", (v) => Number(v), 2)
+    .option("--concurrency <n>", "Parallel students", parseConcurrency, 2)
     .option("--dry-run", "Do not commit results back to the control repo", false)
     .action(async (opts, command) => {
       const org = resolveOrg(opts.org);

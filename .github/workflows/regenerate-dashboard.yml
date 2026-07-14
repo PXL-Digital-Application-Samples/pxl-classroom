@@ -59,3 +59,17 @@ jobs:
           fi
           git -C control commit -m "Regenerate dashboard data [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
           scripts/git-push-with-retry.sh control
+
+  deploy-pages:
+    needs: [find-orgs, generate]
+    if: always() && needs.find-orgs.outputs.orgs != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Trigger frontend and data deployment
+        run: |
+          gh workflow run deploy-frontend.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

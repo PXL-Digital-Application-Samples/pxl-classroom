@@ -142,7 +142,12 @@ export async function getRepoContent(token, owner, repo, path) {
     e.status = 401
     throw e
   }
-  if (!res.ok) return null
+  if (res.status === 404) return null
+  if (!res.ok) {
+    const e = new Error(res.data?.message || `Failed to read file (HTTP ${res.status})`)
+    e.status = res.status
+    throw e
+  }
 
   if (res.data?.content) {
     try {

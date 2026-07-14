@@ -35,7 +35,7 @@ async function openDraftPr(octokit, { org, repo, head, base, title, body }) {
     const res = await octokit.request("POST /repos/{owner}/{repo}/pulls", {
       owner: org, repo, title, head, base, body, draft: true,
     });
-    return { number: res.data.number, url: res.data.html_url };
+    return { number: res.data.number, url: res.data.html_url, created: true };
   } catch (err) {
     const message = err.response?.data?.message || err.message || "";
     const errors = err.response?.data?.errors || [];
@@ -47,7 +47,7 @@ async function openDraftPr(octokit, { org, repo, head, base, title, body }) {
           owner: org, repo, head: `${org}:${head}`, base, state: "open", per_page: 1,
         });
         const pr = list.data[0];
-        return pr ? { number: pr.number, url: pr.html_url } : null;
+        return pr ? { number: pr.number, url: pr.html_url, created: false } : null;
       }
       return null;
     }
@@ -108,7 +108,7 @@ export function registerFeedbackCommand(program) {
         return;
       }
 
-      let opened = 0, existing = 0, pending = 0, failed = 0;
+      let opened = 0, adopted = 0, existing = 0, pending = 0, failed = 0;
       for (const rec of targets) {
         const { github_login: login, repo_name } = rec.doc;
         const repo = repoOnly(repo_name);
@@ -136,8 +136,13 @@ export function registerFeedbackCommand(program) {
           process.stdout.write(`  · ${login}: skipped (no commits between main and ${baseline} yet)\n`);
           continue;
         }
-        opened++;
-        process.stdout.write(`  + ${login}: PR #${outcome.number} ${outcome.url}\n`);
+        if (outcome.created) {
+          opened++;
+          process.stdout.write(`  + ${login}: PR #${outcome.number} ${outcome.url}\n`);
+        } else {
+          adopted++;
+          process.stdout.write(`  · ${login}: adopted pre-existing PR #${outcome.number} ${outcome.url}\n`);
+        }
 
         const updated = { ...rec.doc, feedback_pr_number: outcome.number, feedback_pr_url: outcome.url };
         await commitWithRebase(octokit, {
@@ -155,7 +160,7 @@ export function registerFeedbackCommand(program) {
         );
       } else {
         process.stdout.write(
-          `\n${opened} opened, ${existing} already on record, ${pending} pending (no commits yet), ${failed} failed.\n`,
+          `\n${opened} opened, ${adopted} adopted pre-existing, ${existing} already on record, ${pending} pending (no commits yet), ${failed} failed.\n`,
         );
         // Non-zero on partial failure, same contract as `grade` and `download`.
         if (failed > 0) process.exit(1);

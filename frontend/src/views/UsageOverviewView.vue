@@ -83,6 +83,9 @@
               <p><strong>Orgs scanned:</strong> {{ orgsLoaded }} / {{ orgsTotal }}</p>
               <p v-if="overCount > 0" class="text-danger"><strong>{{ overCount }}</strong> repo/SKU pair(s) over threshold across all orgs.</p>
               <p v-else class="text-success">All scanned orgs within configured limits.</p>
+              <p v-if="skippedOrgsMessage" class="text-warning" style="font-size: 0.9rem; margin-top: var(--space-xs, 4px); font-weight: 500;">
+                ⚠️ {{ skippedOrgsMessage }}
+              </p>
             </div>
             <div class="regen">
               <button v-if="!runWatching" class="btn btn-with-icon" @click="generateNow" :disabled="triggering">
@@ -162,6 +165,11 @@ const sortKey = ref('used')
 const sortDir = ref('desc')
 const orgsTotal = ref(0)
 const orgsLoaded = ref(0)
+const skippedOrgs = ref([])
+const skippedOrgsMessage = computed(() => {
+  if (skippedOrgs.value.length === 0) return null
+  return `${orgsTotal.value - skippedOrgs.value.length} of ${orgsTotal.value} orgs loaded; the following reports could not be read: ${skippedOrgs.value.join(', ')}`
+})
 // Newest generated_at across all loaded org reports — the "did a fresh
 // report land yet" signal for the regenerate watcher.
 const newestGeneratedAt = ref(null)
@@ -233,12 +241,23 @@ async function loadAll() {
     }
 
     let newest = null
+    skippedOrgs.value = []
+    const failedOrgs = []
     for (const r of results) {
+      if (r.error) {
+        failedOrgs.push(`${r.org} (HTTP ${r.error.status || 'unknown'})`)
+        continue
+      }
       if (!r.content) continue
-      const report = JSON.parse(r.content)
-      if (report.generated_at && (!newest || report.generated_at > newest)) newest = report.generated_at
-      for (const item of report.items) rows.value.push({ org: r.org, ...item })
+      try {
+        const report = JSON.parse(r.content)
+        if (report.generated_at && (!newest || report.generated_at > newest)) newest = report.generated_at
+        for (const item of report.items) rows.value.push({ org: r.org, ...item })
+      } catch (e) {
+        failedOrgs.push(`${r.org} (unreadable/corrupt)`)
+      }
     }
+    skippedOrgs.value = failedOrgs
     newestGeneratedAt.value = newest
   } finally {
     loading.value = false

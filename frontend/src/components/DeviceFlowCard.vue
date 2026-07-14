@@ -24,6 +24,7 @@
 <script setup>
 import { ref } from 'vue'
 import Icon from './Icon.vue'
+import { toast } from '../lib/toast.js'
 
 const props = defineProps({
   // { verification_uri, user_code, … } from startDeviceFlow()
@@ -34,9 +35,15 @@ const emit = defineEmits(['cancel'])
 const copied = ref(false)
 function copyCode() {
   if (!props.flow?.user_code) return
-  navigator.clipboard.writeText(props.flow.user_code)
-  copied.value = true
-  setTimeout(() => { copied.value = false }, 2000)
+  navigator.clipboard.writeText(props.flow.user_code).then(
+    () => {
+      copied.value = true
+      setTimeout(() => { copied.value = false }, 2000)
+    },
+    () => {
+      toast.error('Could not copy code')
+    }
+  )
 }
 </script>
 

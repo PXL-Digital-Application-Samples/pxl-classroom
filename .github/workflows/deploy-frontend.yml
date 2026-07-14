@@ -51,6 +51,17 @@ jobs:
           mkdir -p frontend/public/schemas
           cp schemas/*.schema.json frontend/public/schemas/
 
+      - name: Fetch participating orgs definition
+        run: |
+          git fetch origin participating-orgs:participating-orgs || true
+          git show participating-orgs:participating-orgs.yml > participating-orgs.yml || true
+
+      - name: Fetch public pages data from org control repos
+        run: node scripts/fetch-pages-data.mjs
+        env:
+          PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
+          PXL_APP_PRIVATE_KEY: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+
       - name: Build
         run: npm run build
         working-directory: ./frontend

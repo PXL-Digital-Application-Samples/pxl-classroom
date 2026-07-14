@@ -361,11 +361,11 @@ async function main() {
       const row = csvHeaders.map((h) => {
         const v = s[h];
         if (v === null || v === undefined) return "";
-        if (Array.isArray(v)) return `"${v.join("; ")}"`;
-        const str = String(v);
-        return str.includes(",") || str.includes('"')
-          ? `"${str.replace(/"/g, '""')}"`
-          : str;
+        let str = Array.isArray(v) ? v.join("; ") : String(v);
+        if (/^[=\+\-@]/.test(str)) {
+          str = `'${str}`;
+        }
+        return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
       });
       csvRows.push(row.join(","));
     }

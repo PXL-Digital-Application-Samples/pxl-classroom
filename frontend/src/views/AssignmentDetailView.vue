@@ -42,6 +42,13 @@
         <p class="text-secondary">Loading report…</p>
       </div>
 
+      <!-- Load Error -->
+      <div v-else-if="loadError" class="center-card fade-in">
+        <h2 class="text-danger">Failed to load report</h2>
+        <p class="text-secondary">{{ loadError }}</p>
+        <button class="btn btn-primary" type="button" @click="loadAll">Retry</button>
+      </div>
+
       <!-- No report -->
       <div v-else-if="!report" class="center-card fade-in">
         <h2>No report yet</h2>
@@ -126,7 +133,7 @@
               <Icon name="download" :size="14" />
               <span>Export CSV</span>
             </button>
-            <button class="btn btn-with-icon" @click="downloadManifest" :disabled="!preservedCount" :title="preservedCount ? `${preservedCount} preserved submission(s)` : 'No preserved submissions in the report'">
+            <button class="btn btn-with-icon" @click="downloadManifest" :title="preservedCount ? `${preservedCount} preserved submission(s)` : 'No preserved submissions in the report'">
               <Icon name="download" :size="14" />
               <span>Download manifest</span>
             </button>
@@ -300,6 +307,20 @@
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
+              <div v-if="isGitHubActionsAutograde" class="commit-row" style="margin-top: var(--space-xs, 4px); align-items: center;">
+                <span>CI Status:</span>
+                <span v-if="s.ci_status" :class="['badge', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']" style="font-size: 0.7rem; padding: 1px 6px;">
+                  {{ s.ci_status }}
+                </span>
+                <span v-else class="text-muted">-</span>
+              </div>
+              <div v-if="feedbackPrEnabled" class="commit-row" style="margin-top: var(--space-xs, 4px);">
+                <span>Feedback PR:</span>
+                <template v-if="s.feedback_pr_number">
+                  <a :href="s.feedback_pr_url" target="_blank" class="mono">#{{ s.feedback_pr_number }}</a>
+                </template>
+                <span v-else class="text-muted">- pending</span>
+              </div>
             </div>
             <div v-if="s.warnings?.length" class="student-card-warnings">
               <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
@@ -385,7 +406,7 @@
             <h4>Grant deadline extension</h4>
             <p v-if="extensionFor(actionStudent.github_login)" class="text-secondary">
               Currently extended to <strong>{{ fmt(extensionFor(actionStudent.github_login).value) }}</strong>
-              ("{{ extensionFor(actionStudent.github_login).reason }}"). Granting again replaces this extension.
+              ("{{ extensionFor(actionStudent.github_login).reason }}"). Granting again adds a new extension to their override history.
             </p>
             <div class="field">
               <label>New deadline (just for this student)</label>
@@ -446,6 +467,7 @@ const user = ref(getUser())
 const loading = ref(true)
 const report = ref(null)
 const assignment = ref(null)
+const loadError = ref(null)
 
 // All dates in this view render in the assignment's display timezone
 // (assignment.timezone, set in the Admin Panel), falling back to the
@@ -572,11 +594,7 @@ const deadlinePassed = computed(() => {
 })
 const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value, assignment.value?.timezone) : '')
 const deadlineAbs = computed(() => {
-  if (!currentDeadline.value) return ''
-  return new Date(currentDeadline.value).toLocaleString('en-GB', {
-    timeZone: assignment.value?.timezone || config.timezone,
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  return currentDeadline.value ? fmt(currentDeadline.value) : ''
 })
 
 const filteredStudents = computed(() => {
@@ -653,6 +671,7 @@ function cancelLogin() {
 async function loadAll() {
   const token = getToken()
   if (!token) { loading.value = false; return }
+  loadError.value = null
   try {
     const [reportContent, assignmentContent] = await Promise.all([
       getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`),
@@ -677,6 +696,7 @@ async function loadAll() {
     await loadOverrides(token)
   } catch (e) {
     console.error('Failed to load report:', e)
+    loadError.value = e.message || String(e)
   }
   loading.value = false
 }
@@ -825,8 +845,10 @@ const CSV_HEADERS = [
 
 function csvCell(v) {
   if (v === null || v === undefined) return ''
-  if (Array.isArray(v)) return `"${v.join('; ')}"`
-  const str = String(v)
+  let str = Array.isArray(v) ? v.join('; ') : String(v)
+  if (/^[=\+\-@]/.test(str)) {
+    str = `'${str}`
+  }
   return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
 }
 
@@ -869,7 +891,7 @@ function downloadManifest() {
     (s) => s.preservation_status === 'preserved' && s.preserved_sha,
   )
   if (eligible.length === 0) {
-    toast.info('No preserved submissions to export.')
+    toast.info('No preserved submissions in the report yet.')
     return
   }
   const rows = eligible.map((s) => ({
@@ -1081,11 +1103,16 @@ async function syncGradesFromGitHub() {
   syncingGrades.value = true
   const summary = { graded: [], failed: [] }
 
+  let apiFailedCount = 0
+
   try {
     for (const s of queue) {
       try {
         // s.repo_name is already the full org/repo name.
         const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
+        if (!checksReq.ok) {
+          throw new Error(`checks API fetch failed — HTTP ${checksReq.status}`)
+        }
         const checkRuns = checksReq.data?.check_runs || [];
         const total = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
         let earned = 0;
@@ -1112,10 +1139,17 @@ async function syncGradesFromGitHub() {
           graded_at: new Date().toISOString()
         })
       } catch (err) {
-        summary.failed.push({ login: s.github_login, reason: err.message })
+        apiFailedCount++
+        console.error(`Sync failed for ${s.github_login}:`, err)
       } finally {
         syncedGradesCount.value++
       }
+    }
+
+    if (apiFailedCount > 0) {
+      toast.error(`CI results sync failed for ${apiFailedCount} student(s) due to API errors. Nothing was saved; try again later.`)
+      syncingGrades.value = false
+      return
     }
     
     const summaryDoc = {
@@ -1247,19 +1281,30 @@ async function grantExtensionFor(student) {
   actionExtending.value = true
   try {
     const token = getToken()
+    let overridesList = []
+    try {
+      const existing = await getRepoContent(token, props.org, config.controlRepo, `overrides/${props.assignmentId}/${student.github_login}.json`)
+      if (existing) {
+        const doc = JSON.parse(existing)
+        overridesList = doc.overrides || []
+      }
+    } catch { /* ignore and use empty */ }
+
+    const newExtValue = localToUtc(actionExt.value.deadline_local)
+
+    overridesList.push({
+      type: 'deadline_extension',
+      value: newExtValue,
+      reason: actionExt.value.reason.trim(),
+      overridden_by: 'admin-panel',
+      overridden_at: new Date().toISOString(),
+    })
+
     const overrideDoc = {
       schema_version: 1,
       assignment_id: props.assignmentId,
       github_login: student.github_login,
-      overrides: [
-        {
-          type: 'deadline_extension',
-          value: localToUtc(actionExt.value.deadline_local),
-          reason: actionExt.value.reason.trim(),
-          overridden_by: 'admin-panel',
-          overridden_at: new Date().toISOString(),
-        },
-      ],
+      overrides: overridesList,
     }
     const { valid, errors } = await validateAgainst('override', overrideDoc)
     if (!valid) {
@@ -1273,7 +1318,7 @@ async function grantExtensionFor(student) {
       // Reflect immediately in the table + any re-opened modal.
       overridesByLogin.value.set(student.github_login, overrideDoc)
       overridesByLogin.value = new Map(overridesByLogin.value)
-      student.effective_deadline_at = overrideDoc.overrides[0].value
+      student.effective_deadline_at = newExtValue
       actionStudent.value = null
     } else {
       toast.error(`Extension failed: ${res.data?.message || 'unknown error'}`)

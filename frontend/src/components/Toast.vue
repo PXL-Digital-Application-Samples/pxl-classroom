@@ -9,7 +9,18 @@
         @mouseenter="pauseToast(t.id)"
         @mouseleave="resumeToast(t.id)"
       >
-        <span class="toast-message" v-html="t.message"></span>
+        <span class="toast-message">
+          {{ t.message }}
+          <a
+            v-if="t.link"
+            :href="t.link.href"
+            target="_blank"
+            rel="noopener"
+            style="color: inherit; text-decoration: underline; margin-left: var(--space-xs, 4px);"
+          >
+            {{ t.link.text }}
+          </a>
+        </span>
         <button class="toast-close" type="button" @click="dismissToast(t.id)" aria-label="Dismiss notification">×</button>
       </div>
     </TransitionGroup>

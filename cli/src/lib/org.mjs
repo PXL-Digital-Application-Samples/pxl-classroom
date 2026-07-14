@@ -12,7 +12,7 @@ export function resolveOrg(flag) {
   if (flag) {
     saveConfig({ last_org: flag });
   } else {
-    process.stdout.write(`org: ${org} (last used — pass --org to override)\n`);
+    process.stderr.write(`org: ${org} (last used — pass --org to override)\n`);
   }
   return org;
 }

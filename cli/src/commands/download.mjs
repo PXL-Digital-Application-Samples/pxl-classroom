@@ -72,10 +72,24 @@ async function fetchOne({ org, assignmentId, login, expectedSha, token, dir }) {
   // a rotated token always wins (and never gets stored long-term in config).
   try { await runGit(["remote", "remove", "origin"], { cwd: target }); } catch { /* ok */ }
   await runGit(["remote", "add", "origin", url], { cwd: target });
-  await runGit(["fetch", "--depth=1", "origin", branch], { cwd: target });
-  await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], { cwd: target });
-  const sha = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
-  return { login, sha, branch, status: "downloaded" };
+  try {
+    await runGit(["fetch", "--depth=1", "origin", branch], { cwd: target });
+    await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], { cwd: target });
+    const sha = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
+    return { login, sha, branch, status: "downloaded" };
+  } finally {
+    try {
+      await runGit(["remote", "set-url", "origin", `https://github.com/${org}/${ARCHIVE_REPO}.git`], { cwd: target });
+    } catch { /* ignore clean url errors */ }
+  }
+}
+
+function parseConcurrency(val) {
+  const parsed = parseInt(val, 10);
+  if (isNaN(parsed) || parsed <= 0 || String(parsed) !== String(val)) {
+    throw new Error("Concurrency must be a positive integer.");
+  }
+  return parsed;
 }
 
 export function registerDownloadCommand(program) {
@@ -85,7 +99,7 @@ export function registerDownloadCommand(program) {
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .requiredOption("--assignment <id>", "Assignment ID")
     .option("--dir <path>", "Output directory", "./submissions")
-    .option("--concurrency <n>", "Parallel git operations", (v) => Number(v), 4)
+    .option("--concurrency <n>", "Parallel git operations", parseConcurrency, 4)
     .option("--login <login>", "Download for a single student only")
     .action(async (opts) => {
       const org = resolveOrg(opts.org);
@@ -134,23 +148,49 @@ export function registerDownloadCommand(program) {
           okCount++;
           process.stdout.write(`  + ${login}: ${r.sha.slice(0, 12)}\n`);
         }
-        rows.push({
-          login, archive_sha: r.sha, archive_branch: r.branch,
-          archive_branch_url: `https://github.com/${org}/${ARCHIVE_REPO}/tree/${encodeURIComponent(r.branch)}`,
+      }
+
+      const manifestPath = join(dir, "_manifest.json");
+      let studentsList = results
+        .filter((r) => r && !r.error)
+        .map((r) => ({
+          login: r.login,
+          sha: r.sha,
+          branch: r.branch,
           downloaded_at: new Date().toISOString(),
-        });
+        }));
+
+      try {
+        if (existsSync(manifestPath)) {
+          const content = await readFile(manifestPath, "utf8");
+          const existing = JSON.parse(content);
+          if (existing && Array.isArray(existing.students)) {
+            const list = [...existing.students];
+            for (const r of studentsList) {
+              const idx = list.findIndex((s) => s.login === r.login);
+              if (idx !== -1) {
+                list[idx] = r;
+              } else {
+                list.push(r);
+              }
+            }
+            studentsList = list;
+          }
+        }
+      } catch (err) {
+        process.stderr.write(`[warning] Failed to read existing manifest: ${err.message}. Overwriting.\n`);
       }
 
       const manifest = {
         schema_version: 1,
         org, assignment_id: opts.assignment,
         generated_at: new Date().toISOString(),
-        students: rows,
+        students: studentsList,
       };
-      await writeFile(join(dir, "_manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
       process.stdout.write(
         `\n${okCount} downloaded, ${cachedCount} cached, ${failedCount} failed. ` +
-        `Manifest at ${join(dir, "_manifest.json")}\n`,
+        `Manifest at ${manifestPath}\n`,
       );
       if (failedCount) process.exit(1);
     });

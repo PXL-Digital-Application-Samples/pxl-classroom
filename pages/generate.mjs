@@ -46,7 +46,7 @@ async function main() {
   }
 
   const files = (await readdir(assignmentsDir)).filter((f) => f.endsWith(".yml"));
-  const assignments = [];
+  const assignments = {};
 
   for (const file of files) {
     const def = await loadYaml(join(assignmentsDir, file));
@@ -55,7 +55,7 @@ async function main() {
     if (def.state !== "published" && def.state !== "closed") continue;
 
     // Extract ONLY public metadata — no roster, no repo URLs, no tokens
-    assignments.push({
+    assignments[def.id] = {
       id: def.id,
       title: def.title,
       description: def.description || null,
@@ -70,7 +70,7 @@ async function main() {
       repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,
       // The broker repo name is public (the broker is a public repo)
       broker_repo: def.state === "published" ? `broker-${def.id}` : null,
-    });
+    };
   }
 
   const output = {

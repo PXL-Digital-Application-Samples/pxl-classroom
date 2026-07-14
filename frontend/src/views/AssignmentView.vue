@@ -40,7 +40,10 @@
           Ask your lecturer to verify the accept link. If it was published in the last few minutes,
           wait a moment and refresh.
         </p>
-        <router-link to="/" class="btn">See open assignments</router-link>
+        <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-md); justify-content: center;">
+          <button class="btn btn-primary" @click="retry">Check again</button>
+          <router-link to="/" class="btn btn-secondary">See open assignments</router-link>
+        </div>
       </div>
 
       <!-- Assignment loaded -->
@@ -515,7 +518,7 @@ function startPolling() {
     const invites = await getInvitations(token)
     if (invites.ok && Array.isArray(invites.data)) {
       const match = invites.data.find(
-        (inv) => inv.repository?.name === expectedName
+        (inv) => inv.repository?.name === expectedName && inv.repository?.owner?.login === org
       )
       if (match) {
         pendingInvitation.value = match
@@ -583,17 +586,29 @@ async function checkAgain() {
 // Copy helpers
 function copyCode() {
   if (deviceFlow.value?.user_code) {
-    navigator.clipboard.writeText(deviceFlow.value.user_code)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
+    navigator.clipboard.writeText(deviceFlow.value.user_code).then(
+      () => {
+        copied.value = true
+        setTimeout(() => { copied.value = false }, 2000)
+      },
+      () => {
+        toast.error('Could not copy code')
+      }
+    )
   }
 }
 
 function copyRepoUrl() {
   if (repoUrl.value) {
-    navigator.clipboard.writeText(repoUrl.value)
-    repoCopied.value = true
-    setTimeout(() => { repoCopied.value = false }, 2000)
+    navigator.clipboard.writeText(repoUrl.value).then(
+      () => {
+        repoCopied.value = true
+        setTimeout(() => { repoCopied.value = false }, 2000)
+      },
+      () => {
+        toast.error('Could not copy repository URL')
+      }
+    )
   }
 }
 
