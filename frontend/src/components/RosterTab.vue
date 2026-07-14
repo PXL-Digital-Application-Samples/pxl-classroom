@@ -250,6 +250,7 @@ async function onFileChange(ev) {
   if (!file) return
   const text = await file.text()
   csvText.value = text
+  ev.target.value = ''
   await parseAndValidate()
 }
 

@@ -63,6 +63,19 @@
         </button>
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
+        <div v-else-if="assignmentsError === 'no-control-repo'" class="list-empty error-state-box" style="padding: var(--space-md); border: 1px dashed var(--accent-red); border-radius: var(--radius-md); text-align: center;">
+          <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} isn't onboarded yet</h4>
+          <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
+            There is no <code>{{ org }}/pxl-classroom-control</code> repository (or you can't see it).
+            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow.
+          </p>
+          <a :href="`${runbookUrl}#2-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener" class="btn btn-sm">Read RUNBOOK §2</a>
+        </div>
+        <div v-else-if="assignmentsError" class="list-empty error-state-box" style="padding: var(--space-md); border: 1px dashed var(--accent-red); border-radius: var(--radius-md); text-align: center;">
+          <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load assignments</h4>
+          <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0;">{{ assignmentsError }}</p>
+          <button class="btn btn-sm" @click="loadAssignments">Retry</button>
+        </div>
         <div v-else-if="assignments.length === 0" class="list-empty">
           No assignments yet. Create one to begin.
         </div>
@@ -74,7 +87,7 @@
             role="button"
             tabindex="0"
             @click="editAssignment(a)"
-            @keyup.enter="editAssignment(a)"
+            @keydown.enter="editAssignment(a)"
             @keydown.space.prevent="editAssignment(a)"
           >
             <div class="title">{{ a.title || a.id }}</div>
@@ -413,7 +426,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure } from '../lib/api.js'
+import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
@@ -493,6 +506,8 @@ function onTabKeydown(e) {
 
 const assignments = ref([])
 const loadingList = ref(true)
+const assignmentsError = ref(null)
+const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
 const templates = ref([])
 const loadingTemplates = ref(false)
 const editing = ref(null) // current assignment being edited (null = none)
@@ -645,9 +660,31 @@ function autoSyncSlug() {
 
 async function loadAssignments() {
   loadingList.value = true
+  assignmentsError.value = null
   const token = getToken()
   try {
-    const files = await listRepoDir(token, props.org, config.controlRepo, 'assignments')
+    const repoRes = await getRepo(token, props.org, config.controlRepo)
+    if (!repoRes.ok) {
+      if (repoRes.status === 404) {
+        assignmentsError.value = 'no-control-repo'
+      } else {
+        assignmentsError.value = `Failed to load control repository (HTTP ${repoRes.status})`
+      }
+      loadingList.value = false
+      return
+    }
+
+    let files = []
+    try {
+      files = await listRepoDir(token, props.org, config.controlRepo, 'assignments')
+    } catch (e) {
+      if (e.status === 404) {
+        files = []
+      } else {
+        throw e
+      }
+    }
+
     const ymls = files.filter((f) => f.type === 'file' && f.name.endsWith('.yml'))
     const docs = await Promise.all(
       ymls.map(async (f) => {
@@ -668,6 +705,7 @@ async function loadAssignments() {
     })
   } catch (e) {
     console.error('Failed to load assignments', e)
+    assignmentsError.value = e.message || 'Unknown error'
     toast.error('Failed to load assignments')
   }
   loadingList.value = false
@@ -693,17 +731,25 @@ async function loadTemplates() {
 
 function newAssignment() {
   if (!confirmDiscard()) return
+  stopPublishWatch()
   editing.value = { __new: true, id: '' }
   manualSlug.value = false
   form.value = emptyForm()
   // Auto-select sole template if we already have it loaded
   if (templates.value.length === 1) form.value.template = templates.value[0].full_name
   publishWatch.value = ''
+  
+  const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
+  const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
+  extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
+  retryForm.value = { login: '' }
+  
   snapshotForm()
 }
 
 function editAssignment(a) {
   if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
+  stopPublishWatch()
   editing.value = { id: a.id }
   manualSlug.value = true // existing assignments — never auto-rewrite the slug
   form.value = {
@@ -733,7 +779,9 @@ function editAssignment(a) {
     autograde_visibility: a.autograde?.visibility || 'private',
     autograde_tests: a.autograde?.tests || [],
   }
-  extForm.value = { login: '', deadline_local: form.value.deadline_at_local, reason: '' }
+  const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
+  const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
+  extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
   retryForm.value = { login: '' }
   // Pin the editing template into the dropdown even if it lives in a different
   // org than the assignment org. Drop any synthetic entry from a previous edit.
@@ -863,6 +911,22 @@ async function saveAssignment(stateOverride = null) {
   if (!(await validate(stateOverride))) {
     toast.error('Validation failed — fix the issues listed below the form.')
     return
+  }
+  if (isNew.value) {
+    const slug = form.value.id
+    if (assignments.value.some((a) => a.id === slug)) {
+      toast.error(`${slug} already exists — pick another slug or edit the existing assignment.`)
+      return
+    }
+    try {
+      const token = getToken()
+      const path = `assignments/${slug}.yml`
+      const exists = await getRepoContent(token, props.org, config.controlRepo, path)
+      if (exists !== null) {
+        toast.error(`${slug} already exists — pick another slug or edit the existing assignment.`)
+        return
+      }
+    } catch { /* ignore and let commitFile handle any errors */ }
   }
   saving.value = true
   try {
@@ -1033,6 +1097,79 @@ async function setState(newState) {
 
 // ---------------------------------------------------------------- extension + retry
 
+// ---------------------------------------------------------------- extension + retry
+
+let retryPollTimer = null
+
+function startRetryWatch(login, repoName) {
+  if (retryPollTimer) clearTimeout(retryPollTimer)
+  let pollCount = 0
+  const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
+  const tick = async () => {
+    pollCount++
+    const token = getToken()
+    if (token) {
+      const res = await getRepo(token, props.org, repoName)
+      if (res.ok) {
+        toast.success(`Retry succeeded: repository <a href="https://github.com/${props.org}/${repoName}" target="_blank" style="color: inherit; text-decoration: underline;">${repoName}</a> is live.`)
+        return
+      }
+    }
+    if (pollCount >= 24) { // 24 * 5s = 2 mins
+      toast.error(`Retry for ${login} timed out. Check the <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">workflow run</a>.`)
+      return
+    }
+    retryPollTimer = setTimeout(tick, 5000)
+  }
+  retryPollTimer = setTimeout(tick, 5000)
+}
+
+async function validateStudentLogin(login, assignmentId) {
+  const token = getToken()
+  const lowerLogin = login.toLowerCase()
+
+  // 1. Try checking the roster first
+  try {
+    const rosterText = await getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml')
+    if (rosterText) {
+      const rosterDoc = parseYaml(rosterText)
+      const inRoster = (rosterDoc?.students || []).some(
+        (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
+      )
+      if (inRoster) return true
+    }
+  } catch { /* ignored */ }
+
+  // 2. Try checking the repository record
+  const recordPath = `repositories/${assignmentId}/${login}.json`
+  try {
+    const recordText = await getRepoContent(token, props.org, config.controlRepo, recordPath)
+    if (recordText) return true
+  } catch { /* ignored */ }
+
+  // 3. Try checking reports/<id>.json
+  try {
+    const reportText = await getRepoContent(token, props.org, config.controlRepo, `reports/${assignmentId}.json`)
+    if (reportText) {
+      const reportDoc = JSON.parse(reportText)
+      const inReport = (reportDoc?.students || []).some(
+        (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
+      )
+      if (inReport) return true
+    }
+  } catch { /* ignored */ }
+
+  // 4. Try checking if user exists on GitHub via API
+  try {
+    const userRes = await ghApi(token, 'GET', `/users/${login}`)
+    if (userRes.ok) {
+      return false
+    }
+  } catch { /* ignored */ }
+
+  return false
+}
+
 async function grantExtension() {
   if (!extForm.value.login || !extForm.value.reason) {
     toast.error('Login and reason are required')
@@ -1045,6 +1182,14 @@ async function grantExtension() {
   extending.value = true
   try {
     const token = getToken()
+
+    // R4-04: Validate login
+    const isValid = await validateStudentLogin(extForm.value.login, form.value.id)
+    if (!isValid) {
+      toast.error(`no accepted student ${extForm.value.login} on this assignment`)
+      return
+    }
+
     const newDeadlineUtc = localToUtc(extForm.value.deadline_local)
 
     // An extension must move the deadline forward, not shorten it. The floor
@@ -1089,7 +1234,9 @@ async function grantExtension() {
     const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${extForm.value.login} on ${form.value.id}`)
     if (res.ok) {
       toast.success(`Extension granted to ${extForm.value.login}`)
-      extForm.value = { login: '', deadline_local: form.value.deadline_at_local, reason: '' }
+      const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
+      const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
+      extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
     } else {
       toast.error(`Extension failed: ${res.data?.message || 'unknown error'}`)
     }
@@ -1101,15 +1248,30 @@ async function grantExtension() {
 async function retryAcceptance() {
   if (!retryForm.value.login) return
   retrying.value = true
+  const login = retryForm.value.login
   try {
     const token = getToken()
+
+    // R4-04: Validate login
+    const isValid = await validateStudentLogin(login, form.value.id)
+    if (!isValid) {
+      toast.error(`no accepted student ${login} on this assignment`)
+      return
+    }
+
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
       org: props.org,
       assignment_id: form.value.id,
-      github_login: retryForm.value.login,
+      github_login: login,
     })
     if (res.ok || res.status === 204) {
-      toast.success(`Retry triggered for ${retryForm.value.login}`)
+      const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
+      toast.success(`Retry triggered for ${login}. Watching for repository to appear… <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">View workflow run</a>`)
+      
+      const pattern = form.value.repository_name_pattern || `${form.value.id}-{github_login}`
+      const repoName = pattern.replace('{github_login}', login)
+      startRetryWatch(login, repoName)
+      
       retryForm.value = { login: '' }
     } else {
       toast.error(explainDispatchFailure(res, 'Retry failed'))
@@ -1133,6 +1295,10 @@ onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
   window.removeEventListener('hashchange', onHashChange)
   stopPublishWatch()
+  if (retryPollTimer) {
+    clearTimeout(retryPollTimer)
+    retryPollTimer = null
+  }
 })
 
 watch(

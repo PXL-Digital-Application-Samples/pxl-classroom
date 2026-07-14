@@ -192,7 +192,7 @@
                 <td class="col-last-commit">
                   <template v-if="s.repo_url && latestSha(s)">
                     <div v-if="s.latest_observed_at" class="commit-time-top" :title="fmt(s.latest_observed_at)">
-                      {{ formatRelative(s.latest_observed_at) }}
+                      {{ formatRelative(s.latest_observed_at, assignment?.timezone) }}
                     </div>
                     <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
                       {{ latestSha(s).slice(0, 7) }}
@@ -217,7 +217,7 @@
                       </span>
                     </span>
                     <div class="tag-time text-muted" :title="fmt(s.tagged_submission_observed_at)">
-                      {{ formatRelative(s.tagged_submission_observed_at) }}
+                      {{ formatRelative(s.tagged_submission_observed_at, assignment?.timezone) }}
                     </div>
                   </template>
                   <span v-else class="text-muted untagged" title="No submit/ tag found">—</span>
@@ -296,7 +296,7 @@
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
               <div v-if="latestSha(s)" class="commit-row">
                 Last commit
-                <span v-if="s.latest_observed_at" :title="fmt(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at) }}</span>
+                <span v-if="s.latest_observed_at" :title="fmt(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at, assignment?.timezone) }}</span>
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
@@ -331,7 +331,7 @@
             </template>
             <button v-if="!isGitHubActionsAutograde" class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
             <button v-else class="btn btn-primary" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
-              {{ syncingGrades ? 'Syncing...' : 'Sync CI results from GitHub' }}
+              {{ syncingGrades ? `Syncing (${syncedGradesCount}/${totalGradesToSync})` : 'Sync CI results from GitHub' }}
             </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
@@ -427,7 +427,7 @@ const SortIcon = (props) => props.dir
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader } from '../lib/api.js'
+import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getRepo } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -538,6 +538,8 @@ const isGitHubActionsAutograde = computed(() => autogradeEnabled.value && assign
 const preservedCount = computed(() => (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' && s.preserved_sha).length)
 const autogradeTotalPoints = computed(() => (assignment.value?.autograde?.tests || []).reduce((sum, t) => sum + (t.points || 0), 0))
 const syncingGrades = ref(false)
+const syncedGradesCount = ref(0)
+const totalGradesToSync = ref(0)
 
 // CI-derived summaries carry a single pass/fail conclusion, not per-test
 // points — display them as such instead of implying granular grading.
@@ -568,7 +570,7 @@ const deadlinePassed = computed(() => {
   if (!currentDeadline.value) return false
   return new Date(currentDeadline.value).getTime() < Date.now()
 })
-const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value) : '')
+const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value, assignment.value?.timezone) : '')
 const deadlineAbs = computed(() => {
   if (!currentDeadline.value) return ''
   return new Date(currentDeadline.value).toLocaleString('en-GB', {
@@ -682,6 +684,10 @@ async function loadAll() {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   stopDailyWatch()
+  if (retryPollTimer) {
+    clearTimeout(retryPollTimer)
+    retryPollTimer = null
+  }
 })
 
 // Best-effort: surface granted deadline extensions in the table + modal.
@@ -778,7 +784,7 @@ function latestSha(s) {
   return s.latest_observed_sha || s.last_on_time_sha || null
 }
 
-function formatRelative(iso) {
+function formatRelative(iso, timezone = null) {
   if (!iso) return ''
   const diffMs = Date.now() - new Date(iso).getTime()
   if (Number.isNaN(diffMs)) return ''
@@ -789,7 +795,16 @@ function formatRelative(iso) {
   if (abs < hr) s = `${Math.max(1, Math.round(abs / min))}m`
   else if (abs < day) s = `${Math.round(abs / hr)}h`
   else if (abs < 30 * day) s = `${Math.round(abs / day)}d`
-  else s = new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  else {
+    try {
+      s = new Date(iso).toLocaleDateString('en-GB', {
+        timeZone: timezone || assignment.value?.timezone || 'Europe/Brussels',
+        day: 'numeric', month: 'short', year: 'numeric'
+      })
+    } catch {
+      s = new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    }
+  }
   return future ? `in ${s}` : `${s} ago`
 }
 
@@ -968,7 +983,10 @@ async function refreshLiveStatus() {
   const token = getToken()
   if (!token || !report.value) return
 
-  const queue = report.value.students.filter(s => s.repo_name)
+  // Clone the students array and the student objects themselves.
+  const clonedStudents = report.value.students.map(s => ({ ...s }))
+
+  const queue = clonedStudents.filter(s => s.repo_name)
   if (queue.length === 0) {
     toast.info('No provisioned repositories to check.')
     return
@@ -1014,6 +1032,9 @@ async function refreshLiveStatus() {
     return
   }
 
+  // Success! Swap the cloned students back in.
+  report.value.students = clonedStudents
+
   const refreshedAt = new Date().toISOString()
   liveRefreshedAt.value = refreshedAt
   report.value.live_refreshed_at = refreshedAt
@@ -1055,6 +1076,8 @@ async function syncGradesFromGitHub() {
     return
   }
 
+  totalGradesToSync.value = queue.length
+  syncedGradesCount.value = 0
   syncingGrades.value = true
   const summary = { graded: [], failed: [] }
 
@@ -1067,12 +1090,19 @@ async function syncGradesFromGitHub() {
         const total = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
         let earned = 0;
         let passed = false;
-        if (checkRuns.length > 0) {
-          const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
-          if (run.conclusion === "success") {
-            earned = total;
-            passed = true;
-          }
+        
+        if (checkRuns.length === 0) {
+          summary.failed.push({
+            login: s.github_login,
+            reason: "no CI run at preserved SHA"
+          });
+          continue;
+        }
+
+        const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
+        if (run && run.conclusion === "success") {
+          earned = total;
+          passed = true;
         }
         
         summary.graded.push({
@@ -1083,6 +1113,8 @@ async function syncGradesFromGitHub() {
         })
       } catch (err) {
         summary.failed.push({ login: s.github_login, reason: err.message })
+      } finally {
+        syncedGradesCount.value++
       }
     }
     
@@ -1251,17 +1283,50 @@ async function grantExtensionFor(student) {
   }
 }
 
+let retryPollTimer = null
+
+function startRetryWatch(login, repoName) {
+  if (retryPollTimer) clearTimeout(retryPollTimer)
+  let pollCount = 0
+  const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
+  const tick = async () => {
+    pollCount++
+    const token = getToken()
+    if (token) {
+      const res = await getRepo(token, props.org, repoName)
+      if (res.ok) {
+        toast.success(`Retry succeeded: repository <a href="https://github.com/${props.org}/${repoName}" target="_blank" style="color: inherit; text-decoration: underline;">${repoName}</a> is live.`)
+        await loadAll()
+        return
+      }
+    }
+    if (pollCount >= 24) { // 24 * 5s = 2 mins
+      toast.error(`Retry for ${login} timed out. Check the <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">workflow run</a>.`)
+      return
+    }
+    retryPollTimer = setTimeout(tick, 5000)
+  }
+  retryPollTimer = setTimeout(tick, 5000)
+}
+
 async function retryAcceptanceFor(student) {
   actionRetrying.value = true
+  const login = student.github_login
   try {
     const token = getToken()
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
       org: props.org,
       assignment_id: props.assignmentId,
-      github_login: student.github_login,
+      github_login: login,
     })
     if (res.ok || res.status === 204) {
-      toast.success(`Retry triggered for ${student.github_login}`)
+      const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
+      toast.success(`Retry triggered for ${login}. Watching for repository to appear… <a href="${workflowUrl}" target="_blank" style="color: inherit; text-decoration: underline;">View workflow run</a>`)
+      
+      const pattern = assignment.value?.repository_name_pattern || `${props.assignmentId}-{github_login}`
+      const repoName = pattern.replace('{github_login}', login)
+      startRetryWatch(login, repoName)
+      
       actionStudent.value = null
     } else {
       toast.error(explainDispatchFailure(res, 'Retry failed'))

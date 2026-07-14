@@ -44,6 +44,15 @@
         <p class="text-secondary">Loading dashboard data…</p>
       </div>
 
+      <!-- Orgs load error -->
+      <div v-else-if="orgsLoadError" class="center-card fade-in">
+        <h2>Couldn't load your organizations</h2>
+        <p class="text-secondary" role="alert" style="margin-bottom: var(--space-md);">
+          {{ orgsLoadError }}
+        </p>
+        <button class="btn btn-primary" @click="loadOrgs">Retry</button>
+      </div>
+
       <!-- No installation visible to this account -->
       <div v-else-if="orgsLoaded && orgs.length === 0" class="center-card fade-in">
         <h2>No PXL Classroom installation visible</h2>
@@ -109,7 +118,7 @@
           @click="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
           role="button"
           tabindex="0"
-          @keyup.enter="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
+          @keydown.enter="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
           @keydown.space.prevent="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
         >
           <div class="card-header flex items-center justify-between">
@@ -181,6 +190,7 @@ const dashState = ref('')
 // True once /user/installations has answered — gates the "no installation
 // visible" empty state so it can't flash during the initial load.
 const orgsLoaded = ref(false)
+const orgsLoadError = ref(null)
 
 const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
 
@@ -213,6 +223,8 @@ async function loadOrgs() {
   const token = getToken()
   if (!token) return
 
+  orgsLoadError.value = null
+  orgsLoaded.value = false
   try {
     // Get installations accessible to this user token.
     // For GitHub Apps, /user/installations already filters to installations the
@@ -222,7 +234,10 @@ async function loadOrgs() {
     // org-administration scope which our user-to-server tokens don't have,
     // and the call would 403.
     const installs = await getInstallations(token)
-    if (!installs.ok) return
+    if (!installs.ok) {
+      orgsLoadError.value = `Failed to load installations (HTTP ${installs.status})`
+      return
+    }
 
     const installOrgs = (installs.data.installations || [])
       .filter((i) => i.account?.type === 'Organization')
@@ -240,6 +255,7 @@ async function loadOrgs() {
     }
   } catch (e) {
     console.error('Failed to load orgs:', e)
+    orgsLoadError.value = `Failed to load installations: ${e.message || 'unknown error'}`
   } finally {
     orgsLoaded.value = true
   }

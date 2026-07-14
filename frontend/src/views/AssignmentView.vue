@@ -115,21 +115,35 @@
         <div v-else class="acceptance-card card">
           <!-- Not yet accepted -->
           <div v-if="acceptState === 'ready'">
-            <h2>Accept assignment</h2>
-            <p class="text-secondary">
-              You're signed in as <strong>{{ user.login }}</strong>.
-              Click below to accept this assignment and get your repository.
-            </p>
-            <button class="btn btn-success btn-lg btn-with-icon" @click="acceptAssignment" :disabled="accepting">
-              <template v-if="accepting">
-                <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
-                <span>Accepting…</span>
-              </template>
-              <template v-else>
-                <Icon name="check" :size="18" />
-                <span>Accept assignment</span>
-              </template>
-            </button>
+            <div v-if="assignment && assignment.state === 'closed'" class="text-center">
+              <h2>Assignment closed</h2>
+              <p class="text-secondary">
+                This assignment is closed — you can no longer accept it.
+              </p>
+            </div>
+            <div v-else-if="assignment && new Date() < new Date(assignment.opens_at)" class="text-center">
+              <h2>Assignment not open yet</h2>
+              <p class="text-secondary">
+                Opens {{ formatDate(assignment.opens_at, assignment.timezone) }}
+              </p>
+            </div>
+            <div v-else>
+              <h2>Accept assignment</h2>
+              <p class="text-secondary">
+                You're signed in as <strong>{{ user.login }}</strong>.
+                Click below to accept this assignment and get your repository.
+              </p>
+              <button class="btn btn-success btn-lg btn-with-icon" @click="acceptAssignment" :disabled="accepting">
+                <template v-if="accepting">
+                  <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+                  <span>Accepting…</span>
+                </template>
+                <template v-else>
+                  <Icon name="check" :size="18" />
+                  <span>Accept assignment</span>
+                </template>
+              </button>
+            </div>
           </div>
 
           <!-- Accepted, waiting for provisioning -->

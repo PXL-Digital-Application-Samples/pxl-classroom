@@ -36,7 +36,10 @@
       <div v-else class="org-list">
         <div v-for="org in indexData.orgs" :key="org.login" class="org-section">
           <h3>{{ org.login }}</h3>
-          <div v-if="org.assignments && org.assignments.length > 0" class="assignment-grid">
+          <div v-if="org.loadError" class="text-danger" style="margin-bottom: var(--space-md)">
+            Couldn't load assignments.
+          </div>
+          <div v-else-if="org.assignments && org.assignments.length > 0" class="assignment-grid">
             <router-link
               v-for="a in org.assignments"
               :key="a.id"
@@ -75,20 +78,30 @@ onMounted(async () => {
       let data = null
       try { data = await res.json() } catch { /* treat as no data */ }
       if (data?.orgs) {
-        // For each org, fetch its assignments.json to get the list of open assignments
-        for (const org of data.orgs) {
-          org.assignments = []
-          const orgRes = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`)
-          if (orgRes.ok) {
-            let orgData = null
-            try { orgData = await orgRes.json() } catch { /* treat as no data */ }
-            org.assignments = Object.entries(orgData?.assignments || {})
-              .map(([id, a]) => ({ id, ...a }))
-              .filter(a => a.state === 'published')
-          }
-        }
-        // Filter out orgs with no assignments
-        data.orgs = data.orgs.filter(o => o.assignments.length > 0)
+        // Fetch all org assignments in parallel
+        await Promise.all(
+          data.orgs.map(async (org) => {
+            org.assignments = []
+            org.loadError = false
+            try {
+              const orgRes = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`)
+              if (orgRes.ok) {
+                let orgData = null
+                try { orgData = await orgRes.json() } catch { /* treat as no data */ }
+                org.assignments = Object.entries(orgData?.assignments || {})
+                  .map(([id, a]) => ({ id, ...a }))
+                  .filter(a => a.state === 'published')
+              } else {
+                org.loadError = true
+              }
+            } catch (e) {
+              console.error(`Failed to load assignments for ${org.login}`, e)
+              org.loadError = true
+            }
+          })
+        )
+        // Filter out orgs with no assignments unless they had a load error
+        data.orgs = data.orgs.filter(o => o.assignments.length > 0 || o.loadError)
         indexData.value = data
       }
     }
@@ -170,6 +183,10 @@ h1 {
   display: flex;
   justify-content: center;
   padding: var(--space-lg);
+}
+
+.text-danger {
+  color: var(--accent-red);
 }
 
 .org-section {

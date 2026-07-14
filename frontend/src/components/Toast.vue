@@ -9,7 +9,7 @@
         @mouseenter="pauseToast(t.id)"
         @mouseleave="resumeToast(t.id)"
       >
-        <span class="toast-message">{{ t.message }}</span>
+        <span class="toast-message" v-html="t.message"></span>
         <button class="toast-close" type="button" @click="dismissToast(t.id)" aria-label="Dismiss notification">×</button>
       </div>
     </TransitionGroup>

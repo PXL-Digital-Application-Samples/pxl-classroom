@@ -21,7 +21,11 @@
 
     <main class="container">
       <div v-if="!user" class="center-card fade-in">
-        <h2>Sign in</h2>
+        <h2>Sign in to view usage</h2>
+        <p class="text-secondary" style="margin-bottom: var(--space-md);">
+          Sign in with a GitHub account that owns <strong>{{ org }}</strong> to load the usage report.
+          Sessions last 8 hours — if you were signed in earlier, it has expired.
+        </p>
         <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
         <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
           <template v-if="authLoading">
@@ -98,28 +102,30 @@
 
         <input v-model="filter" type="search" placeholder="Filter by repo or SKU…" class="filter-input" />
 
-        <table class="usage-table">
-          <thead>
-            <tr>
-              <th @click="sortBy('repo')" @keydown.enter="sortBy('repo')" @keydown.space.prevent="sortBy('repo')" tabindex="0" :aria-sort="ariaSortFor('repo')"><span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span></th>
-              <th @click="sortBy('sku')" @keydown.enter="sortBy('sku')" @keydown.space.prevent="sortBy('sku')" tabindex="0" :aria-sort="ariaSortFor('sku')"><span class="th-label">SKU<SortIcon :dir="sortDirFor('sku')" /></span></th>
-              <th @click="sortBy('used')" @keydown.enter="sortBy('used')" @keydown.space.prevent="sortBy('used')" tabindex="0" :aria-sort="ariaSortFor('used')" class="num"><span class="th-label">Used<SortIcon :dir="sortDirFor('used')" /></span></th>
-              <th class="num">Limit</th>
-              <th>Unit</th>
-              <th>Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in filtered" :key="item.repo + item.sku" :class="{ 'over-threshold': item.over }">
-              <td><code>{{ item.repo }}</code></td>
-              <td>{{ item.sku }}</td>
-              <td class="num"><strong v-if="item.over">{{ item.used }}</strong><span v-else>{{ item.used }}</span></td>
-              <td class="num">{{ item.limit ?? '—' }}</td>
-              <td>{{ item.unit }}</td>
-              <td><span class="badge">{{ item.limit_source }}</span></td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="table-wrapper">
+          <table class="usage-table">
+            <thead>
+              <tr>
+                <th @click="sortBy('repo')" @keydown.enter="sortBy('repo')" @keydown.space.prevent="sortBy('repo')" tabindex="0" :aria-sort="ariaSortFor('repo')"><span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span></th>
+                <th @click="sortBy('sku')" @keydown.enter="sortBy('sku')" @keydown.space.prevent="sortBy('sku')" tabindex="0" :aria-sort="ariaSortFor('sku')"><span class="th-label">SKU<SortIcon :dir="sortDirFor('sku')" /></span></th>
+                <th @click="sortBy('used')" @keydown.enter="sortBy('used')" @keydown.space.prevent="sortBy('used')" tabindex="0" :aria-sort="ariaSortFor('used')" class="num"><span class="th-label">Used<SortIcon :dir="sortDirFor('used')" /></span></th>
+                <th class="num">Limit</th>
+                <th>Unit</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in filtered" :key="item.repo + item.sku" :class="{ 'over-threshold': item.over }">
+                <td><code>{{ item.repo }}</code></td>
+                <td>{{ item.sku }}</td>
+                <td class="num"><strong v-if="item.over">{{ item.used }}</strong><span v-else>{{ item.used }}</span></td>
+                <td class="num">{{ item.limit ?? '—' }}</td>
+                <td>{{ item.unit }}</td>
+                <td><span class="badge">{{ item.limit_source }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </main>
   </div>
@@ -304,6 +310,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.table-wrapper { overflow-x: auto; border: 1px solid var(--border-default); border-radius: var(--radius-lg); margin-bottom: var(--space-md); }
 .report-meta { padding: var(--space-md); background: var(--bg-secondary); border-radius: 8px; margin-bottom: var(--space-md); border: 1px solid var(--border-default); }
 .report-meta p { margin: 0.25rem 0; }
 .report-meta-row { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-md); flex-wrap: wrap; }

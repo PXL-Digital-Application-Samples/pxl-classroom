@@ -160,7 +160,14 @@ export async function getRepoContent(token, owner, repo, path) {
  */
 export async function listRepoDir(token, owner, repo, path) {
   const res = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)
-  if (!res.ok || !Array.isArray(res.data)) return []
+  if (!res.ok) {
+    const err = new Error(res.data?.message || `Failed to list repo directory (HTTP ${res.status})`)
+    err.status = res.status
+    throw err
+  }
+  if (!Array.isArray(res.data)) {
+    throw new Error('Expected directory contents array')
+  }
   return res.data.map((f) => ({ name: f.name, path: f.path, type: f.type }))
 }
 
