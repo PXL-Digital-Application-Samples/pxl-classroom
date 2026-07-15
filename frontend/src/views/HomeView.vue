@@ -11,18 +11,14 @@
         <p class="subtitle">GitHub-native assignment distribution for PXL</p>
 
         <div class="actions">
-          <router-link to="/dashboard" class="btn btn-primary btn-lg">
-            Open Dashboard
-          </router-link>
+          <a href="#open-assignments" class="btn btn-primary btn-lg">
+            View Open Assignments
+          </a>
         </div>
-
-        <p class="hint">
-          Students: open the assignment link shared by your lecturer.
-        </p>
       </div>
     </div>
 
-    <div class="container" style="padding-bottom: var(--space-2xl)">
+    <div id="open-assignments" class="container" style="padding-bottom: var(--space-2xl)">
       <h2 style="text-align: center; margin-bottom: var(--space-xl)">Open Assignments</h2>
       <div v-if="loading" class="center-card">
         <div class="spinner"></div>
@@ -57,6 +53,14 @@
         </div>
       </div>
     </div>
+
+    <footer class="home-footer">
+      <div class="container">
+        <router-link to="/dashboard" class="footer-link">
+          Lecturers: Go to Dashboard →
+        </router-link>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -235,6 +239,22 @@ h1 {
 
 .deadline-text {
   font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.home-footer {
+  padding: var(--space-xl) 0;
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+  margin-top: var(--space-2xl);
+}
+.footer-link {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color var(--transition-normal);
+}
+.footer-link:hover {
   color: var(--text-secondary);
 }
 </style>
