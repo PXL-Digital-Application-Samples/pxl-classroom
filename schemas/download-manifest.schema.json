@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/download-manifest.schema.json",
+  "title": "DownloadManifest",
+  "description": "Download manifest file written to the submissions directory by PXL Classroom CLI or SPA.",
+  "type": "object",
+  "required": ["schema_version", "org", "assignment_id", "generated_at", "students"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. v1 uses archive_sha, archive_branch, archive_branch_url, and downloaded_at."
+    },
+    "org": {
+      "type": "string",
+      "description": "The target organization."
+    },
+    "assignment_id": {
+      "type": "string",
+      "description": "The assignment ID."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The timestamp when the manifest was generated."
+    },
+    "students": {
+      "type": "array",
+      "description": "List of student submissions.",
+      "items": {
+        "type": "object",
+        "required": ["login", "archive_sha", "archive_branch", "archive_branch_url"],
+        "additionalProperties": false,
+        "properties": {
+          "login": {
+            "type": "string",
+            "description": "Student GitHub login."
+          },
+          "archive_sha": {
+            "type": "string",
+            "description": "The git SHA of the student submission preserved in the archive repo."
+          },
+          "archive_branch": {
+            "type": "string",
+            "description": "The branch name under which this student's submission is archived."
+          },
+          "archive_branch_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The GitHub URL to browse the student's archived branch."
+          },
+          "downloaded_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "The timestamp when the CLI downloaded the repository, or null if exported from the browser."
+          }
+        }
+      }
+    }
+  }
+}

@@ -229,7 +229,7 @@ There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queu
 
 `regenerate-dashboard.yml` has no cron. It is triggered by:
 
-- `acceptance-handler.yml` after a successful provisioning (so the dashboard reflects new students promptly).
+- `acceptance-handler.yml` after a student accepts (so the public Pages assignments list is rebuilt, and real-time interim reports are generated to keep `reports/dashboard.json` updated).
 - `daily-activity.yml` after the nightly run (so the dashboard reflects new observations and finalized state).
 - Manual `workflow_dispatch` (for repair).
 
@@ -334,7 +334,7 @@ Idempotency: a re-star (unstar then restar) re-fires `watch:started`; the accept
 
 Failure modes:
 - Rate limit / GitHub outage → workflow fails → SPA polls 30× over ~3 min (20 × 3 s, then 10 × 10 s) → "GitHub is currently experiencing high load. Please try again in 15 minutes."
-- Outside the open window or above `max_acceptances` → acceptance script returns `rejected:*` → SPA surfaces the reason.
+- Outside the open window or above `max_acceptances` → SPA pre-computes the rejection client-side, gates acceptance, and surfaces the reason. (The acceptance script also enforces this as a server-side backup.)
 
 ### 9.2 Nightly cycle
 
@@ -410,7 +410,7 @@ Admin sets Actions spending limit + budget alerts on <org>
 
 ## 10. Frontend
 
-Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory only (never localStorage) and dies on tab close.
+Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory and sessionStorage only (never localStorage) and dies on tab close.
 
 The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `prefers-color-scheme: light` variant. Every authenticated view — including deep links to the Admin Panel and per-assignment detail — renders a sign-in card when no session exists, never a data-shaped empty state; device-flow failures render inline in that card.
 

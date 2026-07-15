@@ -54,7 +54,8 @@
         <h2>No report yet</h2>
         <p class="text-secondary">
           Reports for <code>{{ assignmentId }}</code> are written to the control repo by the nightly
-          <code>daily-activity.yml</code> run in the hub; the first one lands the night after publishing.
+          <code>daily-activity.yml</code> run in the hub or automatically after student acceptances.
+          You can also force an interim report to generate immediately using the button below.
         </p>
         <div v-if="dailyWatch === ''">
           <button class="btn btn-primary btn-with-icon" @click="runDailyActivity" :disabled="dailyTriggering">
@@ -247,7 +248,9 @@
                 </td>
                 <td class="col-warnings">
                   <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
-                    <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
+                    <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs" :title="getWarningDesc(w)">
+                      {{ getWarningLabel(w) }}
+                    </span>
                   </div>
                   <span v-else class="text-muted">-</span>
                 </td>
@@ -323,7 +326,9 @@
               </div>
             </div>
             <div v-if="s.warnings?.length" class="student-card-warnings">
-              <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs">{{ w }}</span>
+              <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs" :title="getWarningDesc(w)">
+                {{ getWarningLabel(w) }}
+              </span>
             </div>
           </article>
         </div>
@@ -448,7 +453,7 @@ const SortIcon = (props) => props.dir
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getRepo } from '../lib/api.js'
+import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getRepo, getWorkflowRuns } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -580,6 +585,33 @@ function extensionFor(login) {
   const doc = overridesByLogin.value.get(login)
   const ext = (doc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
   return ext || null
+}
+
+const WARNING_MAP = {
+  'missing-repo-id': {
+    label: 'missing repo ID',
+    desc: 'The repository record is missing a GitHub repository ID. Run Setup Org or reconcile registry.'
+  },
+  'accepted-not-provisioned': {
+    label: 'accepted not provisioned',
+    desc: 'The student accepted the assignment, but no repository has been provisioned yet. Try triggering a retry acceptance.'
+  },
+  'late-activity-detected': {
+    label: 'late activity',
+    desc: 'Commits were detected after the student\'s effective deadline.'
+  },
+  'deadline-gap': {
+    label: 'deadline gap',
+    desc: 'There is a large uncertainty interval between the student\'s last on-time push and the deadline.'
+  }
+}
+
+function getWarningLabel(w) {
+  return WARNING_MAP[w]?.label || w
+}
+
+function getWarningDesc(w) {
+  return WARNING_MAP[w]?.desc || ''
 }
 
 // Deadline source of truth: the current assignment YAML (so a Live Status
@@ -899,6 +931,7 @@ function downloadManifest() {
     archive_sha: s.preserved_sha,
     archive_branch: `preserved/${props.assignmentId}/${s.github_login}`,
     archive_branch_url: `https://github.com/${props.org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${props.assignmentId}/${s.github_login}`)}`,
+    downloaded_at: null,
   }))
   const manifest = {
     schema_version: 1,
@@ -941,6 +974,10 @@ function clearFilters() {
 // caller counts failures so a partial refresh is never presented (or saved)
 // as a complete one.
 async function refreshOne(token, s) {
+  if (s.lock_down_at) {
+    refreshedStudentsCount.value++
+    return true
+  }
   try {
     const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
     if (!res.ok) return false
@@ -950,8 +987,6 @@ async function refreshOne(token, s) {
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
       const sha = commit.sha
-      const commitDateStr = commit.commit.committer.date
-      const commitDate = new Date(commitDateStr)
 
       // Source of truth for the deadline: per-student override (already on
       // the record), else the current assignment YAML's deadline_at. Fixes
@@ -962,10 +997,10 @@ async function refreshOne(token, s) {
       if (effectiveSource && !s.effective_deadline_at) s.effective_deadline_at = effectiveSource
 
       s.latest_observed_sha = sha
-      s.latest_observed_at = commitDateStr
+      s.latest_observed_at = new Date().toISOString()
 
       if (deadline) {
-        if (commitDate <= deadline) {
+        if (new Date() <= deadline) {
           s.submission_status = 'on-time'
           s.last_on_time_sha = sha
         } else {
@@ -1104,9 +1139,11 @@ async function syncGradesFromGitHub() {
   const summary = { graded: [], failed: [] }
 
   let apiFailedCount = 0
+  let cursor = 0
 
-  try {
-    for (const s of queue) {
+  const syncWorker = async () => {
+    while (cursor < queue.length) {
+      const s = queue[cursor++]
       try {
         // s.repo_name is already the full org/repo name.
         const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
@@ -1145,9 +1182,20 @@ async function syncGradesFromGitHub() {
         syncedGradesCount.value++
       }
     }
+  }
+
+  try {
+    const workers = Array.from({ length: Math.min(6, queue.length) }, syncWorker)
+    await Promise.all(workers)
 
     if (apiFailedCount > 0) {
       toast.error(`CI results sync failed for ${apiFailedCount} student(s) due to API errors. Nothing was saved; try again later.`)
+      syncingGrades.value = false
+      return
+    }
+
+    if (summary.graded.length === 0) {
+      toast.error('Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.')
       syncingGrades.value = false
       return
     }
@@ -1314,7 +1362,7 @@ async function grantExtensionFor(student) {
     const path = `overrides/${props.assignmentId}/${student.github_login}.json`
     const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${student.github_login} on ${props.assignmentId}`)
     if (res.ok) {
-      toast.success(`Extension granted to ${student.github_login}`)
+      toast.success(`Extension granted to ${student.github_login} (status updates on the next nightly run or Live Status refresh).`)
       // Reflect immediately in the table + any re-opened modal.
       overridesByLogin.value.set(student.github_login, overrideDoc)
       overridesByLogin.value = new Map(overridesByLogin.value)
@@ -1330,24 +1378,41 @@ async function grantExtensionFor(student) {
 
 let retryPollTimer = null
 
-function startRetryWatch(login, repoName) {
+function startRetryWatch(login, repoName, initialRunId) {
   if (retryPollTimer) clearTimeout(retryPollTimer)
   let pollCount = 0
   const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
   const tick = async () => {
     pollCount++
     const token = getToken()
-    if (token) {
-      const res = await getRepo(token, props.org, repoName)
-      if (res.ok) {
-        toast.success(`Retry succeeded: repository is live.`, {
-          link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
-        })
-        await loadAll()
-        return
+    if (!token) return
+
+    try {
+      const res = await getWorkflowRuns(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml')
+      if (res.ok && res.data?.workflow_runs) {
+        const latestRun = res.data.workflow_runs[0]
+        if (latestRun && latestRun.id !== initialRunId) {
+          if (latestRun.status === 'completed') {
+            if (latestRun.conclusion === 'success') {
+              toast.success(`Retry succeeded: repository is live.`, {
+                link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
+              })
+              await loadAll()
+              return
+            } else {
+              toast.error(`Retry workflow failed.`, {
+                link: { text: 'Check the workflow run.', href: latestRun.html_url }
+              })
+              return
+            }
+          }
+        }
       }
+    } catch (e) {
+      console.error('Error polling retry workflow:', e)
     }
-    if (pollCount >= 24) { // 24 * 5s = 2 mins
+
+    if (pollCount >= 48) { // 48 * 5s = 4 minutes
       toast.error(`Retry for ${login} timed out.`, {
         link: { text: 'Check the workflow run.', href: workflowUrl }
       })
@@ -1363,20 +1428,42 @@ async function retryAcceptanceFor(student) {
   const login = student.github_login
   try {
     const token = getToken()
+
+    const deadline = assignment.value?.deadline_at ? new Date(assignment.value.deadline_at) : null
+    const opensAt = assignment.value?.opens_at ? new Date(assignment.value.opens_at) : null
+    const now = new Date()
+    const isOutsideWindow = (deadline && now > deadline) || (opensAt && now < opensAt)
+    if (isOutsideWindow) {
+      if (!window.confirm(`Warning: The assignment window is currently closed (opens: ${opensAt ? opensAt.toLocaleString() : 'N/A'}, deadline: ${deadline ? deadline.toLocaleString() : 'N/A'}). Retrying will bypass these constraints. Proceed?`)) {
+        return
+      }
+    }
+
+    let initialRunId = null
+    try {
+      const runsRes = await getWorkflowRuns(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml')
+      if (runsRes.ok && runsRes.data?.workflow_runs) {
+        initialRunId = runsRes.data.workflow_runs[0]?.id || null
+      }
+    } catch (e) {
+      console.error('Failed to fetch initial workflow run:', e)
+    }
+
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
       org: props.org,
       assignment_id: props.assignmentId,
       github_login: login,
+      bypass_window: "true",
     })
     if (res.ok || res.status === 204) {
       const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
-      toast.success(`Retry triggered for ${login}. Watching for repository to appear…`, {
+      toast.success(`Retry triggered for ${login}. Watching workflow run progress…`, {
         link: { text: 'View workflow run', href: workflowUrl }
       })
       
       const pattern = assignment.value?.repository_name_pattern || `${props.assignmentId}-{github_login}`
       const repoName = pattern.replace('{github_login}', login)
-      startRetryWatch(login, repoName)
+      startRetryWatch(login, repoName, initialRunId)
       
       actionStudent.value = null
     } else {

@@ -68,12 +68,13 @@ test("Deadline 24 h ago -> in-window", () => {
   assert.equal(res.finalizable[0].assignment_id, "a3");
 });
 
-test("Deadline 26 h ago -> out-of-window", () => {
+test("Deadline 26 h ago -> in-window (no 25h bound)", () => {
   const past = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString();
   const res = runFindFinalizable({
     "a4": `state: published\ndeadline_at: "${past}"`
   });
-  assert.equal(res.finalizable.length, 0);
+  assert.equal(res.finalizable.length, 1);
+  assert.equal(res.finalizable[0].assignment_id, "a4");
 });
 
 test("lockdown-record.json exists -> skip (idempotency)", () => {

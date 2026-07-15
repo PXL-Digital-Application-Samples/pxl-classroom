@@ -82,17 +82,22 @@ async function main() {
 
   // 4. Check open window (guardrail)
   const now = new Date();
-  if (assignment.opens_at) {
-    const opens = new Date(assignment.opens_at);
-    if (now < opens)
-      await fail("rejected:not-open", `assignment opens at ${assignment.opens_at}, current time is ${now.toISOString()}`);
+  const bypassWindow = env("BYPASS_WINDOW") === "true";
+  if (bypassWindow) {
+    log("window", { ok: true, note: `bypassing open window checks (BYPASS_WINDOW=true)` });
+  } else {
+    if (assignment.opens_at) {
+      const opens = new Date(assignment.opens_at);
+      if (now < opens)
+        await fail("rejected:not-open", `assignment opens at ${assignment.opens_at}, current time is ${now.toISOString()}`);
+    }
+    if (assignment.deadline_at) {
+      const deadline = new Date(assignment.deadline_at);
+      if (now > deadline)
+        await fail("rejected:past-deadline", `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}`);
+    }
+    log("window", { ok: true, note: `within open window` });
   }
-  if (assignment.deadline_at) {
-    const deadline = new Date(assignment.deadline_at);
-    if (now > deadline)
-      await fail("rejected:past-deadline", `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}`);
-  }
-  log("window", { ok: true, note: `within open window` });
 
   // 5. Check idempotency — already accepted?
   const acceptDir = join(dataDir, "acceptances", assignmentId);

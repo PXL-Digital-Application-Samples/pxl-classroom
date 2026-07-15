@@ -235,6 +235,13 @@ export async function triggerWorkflow(token, owner, repo, workflowId, inputs = n
 }
 
 /**
+ * List workflow runs for a specific workflow file.
+ */
+export async function getWorkflowRuns(token, owner, repo, workflowId) {
+  return ghApi(token, 'GET', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`)
+}
+
+/**
  * Format a workflow_dispatch failure for the toast. Prefers GitHub's own
  * message because 403/404 almost never means "user has no access" — for a
  * hub collaborator it usually means the App's user-to-server token lacks

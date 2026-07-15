@@ -91,7 +91,7 @@ onMounted(async () => {
                 try { orgData = await orgRes.json() } catch { /* treat as no data */ }
                 org.assignments = Object.entries(orgData?.assignments || {})
                   .map(([id, a]) => ({ id, ...a }))
-                  .filter(a => a.state === 'published')
+                  .filter(a => a.state === 'published' && (!a.deadline_at || new Date(a.deadline_at) > new Date()))
               } else {
                 org.loadError = true
               }
@@ -104,7 +104,11 @@ onMounted(async () => {
         // Filter out orgs with no assignments unless they had a load error
         data.orgs = data.orgs.filter(o => o.assignments.length > 0 || o.loadError)
         indexData.value = data
+      } else {
+        indexData.value = { orgs: [] }
       }
+    } else {
+      loadError.value = true
     }
   } catch (e) {
     console.error("Failed to load public index", e)

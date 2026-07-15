@@ -84,18 +84,20 @@
             v-for="a in assignments"
             :key="a.id"
             :class="{ active: editing && editing.id === a.id }"
-            role="button"
-            tabindex="0"
-            @click="editAssignment(a)"
-            @keydown.enter="editAssignment(a)"
-            @keydown.space.prevent="editAssignment(a)"
+            style="padding: 0; margin-bottom: 4px;"
           >
-            <div class="title">{{ a.title || a.id }}</div>
-            <div class="slug">{{ a.id }}</div>
-            <div class="meta">
-              <span class="badge" :class="`badge-${a.state}`">{{ a.state }}</span>
-              <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
-            </div>
+            <router-link
+              :to="{ name: 'admin', params: { org: props.org }, query: { edit: a.id } }"
+              @click.prevent="editAssignment(a)"
+              style="text-decoration: none; color: inherit; display: block;"
+            >
+              <div class="title">{{ a.title || a.id }}</div>
+              <div class="slug">{{ a.id }}</div>
+              <div class="meta">
+                <span class="badge" :class="`badge-${a.state}`">{{ a.state }}</span>
+                <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
+              </div>
+            </router-link>
           </li>
         </ul>
       </aside>
@@ -195,7 +197,10 @@
                 </button>
               </div>
               <div v-if="touchedFields.template && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
-              <small v-if="!loadingTemplates && templates.length === 0">
+              <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
+                Failed to load templates: {{ templatesError }}.
+              </small>
+              <small v-else-if="!loadingTemplates && templates.length === 0">
                 No template repositories found in <code>{{ org }}</code>. Create one and mark it as a template in repo Settings.
               </small>
               <small v-else-if="!loadingTemplates">
@@ -418,16 +423,16 @@
 
             <div v-if="publishWatch === 'watching'" class="publish-watch">
               <div class="spinner sm"></div>
-              <span class="text-secondary">Publish triggered. Waiting for the broker repo to appear… (checked {{ publishPollCount }}×)</span>
+              <span class="text-secondary">Publish triggered. Waiting for the assignment to go live on the Pages site… (checked {{ publishPollCount }}×)</span>
             </div>
             <div v-else-if="publishWatch === 'ready'" class="publish-watch publish-ready">
               <Icon name="check-circle" :size="15" />
-              <span>Broker is live. The accept link works now.</span>
+              <span>Assignment is live. The accept link works now.</span>
               <button class="link-btn" type="button" @click="copyAcceptLink">Copy accept link</button>
             </div>
             <div v-else-if="publishWatch === 'timeout'" class="publish-watch">
               <span class="text-warning">
-                Broker not visible after 2 minutes. Check the
+                Assignment not live on Pages site after 8 minutes. Check the
                 <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">publish workflow run</a>.
               </span>
             </div>
@@ -479,7 +484,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates } from '../lib/api.js'
+import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
@@ -563,6 +568,7 @@ const assignmentsError = ref(null)
 const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
 const templates = ref([])
 const loadingTemplates = ref(false)
+const templatesError = ref(null)
 const editing = ref(null) // current assignment being edited (null = none)
 const manualSlug = ref(false)
 const saving = ref(false)
@@ -653,6 +659,8 @@ const fieldErrors = computed(() => {
     const slugRegex = /^[a-z0-9][a-z0-9-]{0,99}$/
     if (!slugRegex.test(form.value.id)) {
       errors.id = 'Slug must be lowercase, start with a letter/number, and contain only lowercase letters, numbers, and hyphens (max 100 characters).'
+    } else if (['admin', 'usage'].includes(form.value.id)) {
+      errors.id = 'Slug "admin" and "usage" are reserved and cannot be used.'
     } else if (isNew.value && assignments.value.some(a => a.id === form.value.id)) {
       errors.id = 'Slug already exists. Choose a unique slug.'
     }
@@ -922,6 +930,14 @@ async function loadAssignments() {
       const order = { draft: 0, published: 1, closed: 2, archived: 3 }
       return (order[a.state] ?? 9) - (order[b.state] ?? 9) || a.id.localeCompare(b.id)
     })
+
+    const editId = route.query.edit
+    if (editId) {
+      const a = assignments.value.find((x) => x.id === editId)
+      if (a) {
+        editAssignment(a)
+      }
+    }
   } catch (e) {
     console.error('Failed to load assignments', e)
     assignmentsError.value = e.message || 'Unknown error'
@@ -932,6 +948,7 @@ async function loadAssignments() {
 
 async function loadTemplates() {
   loadingTemplates.value = true
+  templatesError.value = null
   const token = getToken()
   try {
     const repos = await listOrgTemplates(token, props.org)
@@ -943,6 +960,7 @@ async function loadTemplates() {
     }
   } catch (e) {
     console.error('Failed to load templates', e)
+    templatesError.value = e.message || 'Failed to load templates'
   }
   loadingTemplates.value = false
 }
@@ -1266,23 +1284,27 @@ function startPublishWatch() {
   stopPublishWatch()
   publishWatch.value = 'watching'
   publishPollCount.value = 0
-  const brokerRepo = `broker-${form.value.id}`
   const tick = async () => {
     publishPollCount.value++
-    const token = getToken()
-    if (token) {
-      const res = await getRepo(token, props.org, brokerRepo)
+    try {
+      const pagesUrl = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json?t=${Date.now()}`
+      const res = await fetch(pagesUrl)
       if (res.ok) {
-        publishWatch.value = 'ready'
-        toast.success('Published. The accept link is live.')
-        return
+        const data = await res.json()
+        if (data?.assignments?.[form.value.id]) {
+          publishWatch.value = 'ready'
+          toast.success('Published. The accept link is live.')
+          return
+        }
       }
+    } catch (e) {
+      // ignore
     }
-    if (publishPollCount.value >= 24) { // 24 × 5s = 2 minutes
+    if (publishPollCount.value >= 48) { // 48 * 10s = 8 minutes
       publishWatch.value = 'timeout'
       return
     }
-    publishPollTimer = setTimeout(tick, 5000)
+    publishPollTimer = setTimeout(tick, 10000)
   }
   publishPollTimer = setTimeout(tick, 5000)
 }
@@ -1354,23 +1376,40 @@ async function setState(newState) {
 
 let retryPollTimer = null
 
-function startRetryWatch(login, repoName) {
+function startRetryWatch(login, repoName, initialRunId) {
   if (retryPollTimer) clearTimeout(retryPollTimer)
   let pollCount = 0
   const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
   const tick = async () => {
     pollCount++
     const token = getToken()
-    if (token) {
-      const res = await getRepo(token, props.org, repoName)
-      if (res.ok) {
-        toast.success(`Retry succeeded: repository is live.`, {
-          link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
-        })
-        return
+    if (!token) return
+
+    try {
+      const res = await getWorkflowRuns(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml')
+      if (res.ok && res.data?.workflow_runs) {
+        const latestRun = res.data.workflow_runs[0]
+        if (latestRun && latestRun.id !== initialRunId) {
+          if (latestRun.status === 'completed') {
+            if (latestRun.conclusion === 'success') {
+              toast.success(`Retry succeeded: repository is live.`, {
+                link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
+              })
+              return
+            } else {
+              toast.error(`Retry workflow failed.`, {
+                link: { text: 'Check the workflow run.', href: latestRun.html_url }
+              })
+              return
+            }
+          }
+        }
       }
+    } catch (e) {
+      console.error('Error polling retry workflow:', e)
     }
-    if (pollCount >= 24) { // 24 * 5s = 2 mins
+
+    if (pollCount >= 48) { // 48 * 5s = 4 minutes
       toast.error(`Retry for ${login} timed out.`, {
         link: { text: 'Check the workflow run.', href: workflowUrl }
       })
@@ -1510,7 +1549,7 @@ async function grantExtension() {
     const path = `overrides/${form.value.id}/${canonicalLogin}.json`
     const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${canonicalLogin} on ${form.value.id}`)
     if (res.ok) {
-      toast.success(`Extension granted to ${canonicalLogin}`)
+      toast.success(`Extension granted to ${canonicalLogin} (status updates on the next nightly run or Live Status refresh).`)
       const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
       const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
       extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
@@ -1542,20 +1581,41 @@ async function retryAcceptance() {
 
     const canonicalLogin = checkResult.canonicalLogin || login
 
+    const deadline = form.value?.deadline_at_local ? new Date(form.value.deadline_at_local) : (form.value?.deadline_at ? new Date(form.value.deadline_at) : null)
+    const opensAt = form.value?.opens_at_local ? new Date(form.value.opens_at_local) : (form.value?.opens_at ? new Date(form.value.opens_at) : null)
+    const now = new Date()
+    const isOutsideWindow = (deadline && now > deadline) || (opensAt && now < opensAt)
+    if (isOutsideWindow) {
+      if (!window.confirm(`Warning: The assignment window is currently closed (opens: ${opensAt ? opensAt.toLocaleString() : 'N/A'}, deadline: ${deadline ? deadline.toLocaleString() : 'N/A'}). Retrying will bypass these constraints. Proceed?`)) {
+        return
+      }
+    }
+
+    let initialRunId = null
+    try {
+      const runsRes = await getWorkflowRuns(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml')
+      if (runsRes.ok && runsRes.data?.workflow_runs) {
+        initialRunId = runsRes.data.workflow_runs[0]?.id || null
+      }
+    } catch (e) {
+      console.error('Failed to fetch initial workflow run:', e)
+    }
+
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
       org: props.org,
       assignment_id: form.value.id,
       github_login: canonicalLogin,
+      bypass_window: "true",
     })
     if (res.ok || res.status === 204) {
       const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
-      toast.success(`Retry triggered for ${canonicalLogin}. Watching for repository to appear…`, {
+      toast.success(`Retry triggered for ${canonicalLogin}. Watching workflow run progress…`, {
         link: { text: 'View workflow run', href: workflowUrl }
       })
       
       const pattern = form.value.repository_name_pattern || `${form.value.id}-{github_login}`
       const repoName = pattern.replace('{github_login}', canonicalLogin)
-      startRetryWatch(canonicalLogin, repoName)
+      startRetryWatch(canonicalLogin, repoName, initialRunId)
       
       retryForm.value = { login: '' }
     } else {
@@ -1689,14 +1749,19 @@ watch(
 }
 .assignment-list { list-style: none; padding: 0; margin: 0; }
 .assignment-list li {
+  margin-bottom: 4px;
+}
+.assignment-list li a {
   padding: var(--space-sm) var(--space-md);
   border-radius: 6px;
   cursor: pointer;
-  margin-bottom: 4px;
   border: 1px solid transparent;
+  text-decoration: none;
+  color: inherit;
+  display: block;
 }
-.assignment-list li:hover { background: var(--bg-elevated, var(--bg-tertiary)); }
-.assignment-list li.active {
+.assignment-list li a:hover { background: var(--bg-elevated, var(--bg-tertiary)); }
+.assignment-list li.active a {
   background: var(--bg-elevated, var(--bg-tertiary));
   border-color: var(--accent-blue);
 }

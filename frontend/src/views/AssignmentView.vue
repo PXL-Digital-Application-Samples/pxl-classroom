@@ -51,7 +51,7 @@
         <div class="assignment-card card">
           <div class="assignment-meta">
             <span :class="['badge', stateBadgeClass]">{{ assignment.state }}</span>
-            <span v-if="assignment.acceptance_mode" class="badge badge-info">{{ assignment.acceptance_mode }}</span>
+            <span v-if="assignment.acceptance_mode && assignment.acceptance_mode !== 'self-service'" class="badge badge-info">{{ assignment.acceptance_mode }}</span>
           </div>
 
           <h1 class="assignment-title">{{ assignment.title }}</h1>
@@ -97,10 +97,16 @@
         <div v-else class="acceptance-card card">
           <!-- Not yet accepted -->
           <div v-if="acceptState === 'ready'">
-            <div v-if="assignment && assignment.state === 'closed'" class="text-center">
+            <div v-if="assignment && (assignment.state === 'closed' || (assignment.deadline_at && new Date() > new Date(assignment.deadline_at)))" class="text-center">
               <h2>Assignment closed</h2>
               <p class="text-secondary">
                 This assignment is closed. You can no longer accept it.
+              </p>
+            </div>
+            <div v-else-if="assignment && assignment.accepted_count >= (assignment.max_acceptances ?? 150)" class="text-center">
+              <h2>Registration cap reached</h2>
+              <p class="text-secondary">
+                This assignment has reached its registration limit. Please contact your lecturer.
               </p>
             </div>
             <div v-else-if="assignment && new Date() < new Date(assignment.opens_at)" class="text-center">
@@ -200,8 +206,15 @@
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
             <h2>Taking longer than expected</h2>
             <p class="text-secondary">
-              GitHub is currently experiencing high load, or you have hit a rate limit.
-              Please try again in 15 minutes.
+              The setup process is taking longer than expected. This could be due to:
+            </p>
+            <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
+              <li>The assignment registration cap has been reached.</li>
+              <li>You are not on the lecturer's roster for this course.</li>
+              <li>GitHub is currently experiencing high load or rate limits.</li>
+            </ul>
+            <p class="text-secondary">
+              If your repository does not appear shortly, please contact your lecturer.
             </p>
             <button class="btn btn-primary" @click="checkAgain" :disabled="checkingAgain">
               {{ checkingAgain ? 'Checking…' : 'Check again' }}

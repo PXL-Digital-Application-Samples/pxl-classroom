@@ -54,6 +54,17 @@ async function main() {
     // Only include published or closed assignments in public output
     if (def.state !== "published" && def.state !== "closed") continue;
 
+    let acceptedCount = 0;
+    const acceptancesDir = join(dataDir, "acceptances", def.id);
+    if (existsSync(acceptancesDir)) {
+      try {
+        const accFiles = await readdir(acceptancesDir);
+        acceptedCount = accFiles.filter((f) => f.endsWith(".json")).length;
+      } catch (e) {
+        console.error(`Error reading acceptances for ${def.id}:`, e.message);
+      }
+    }
+
     // Extract ONLY public metadata — no roster, no repo URLs, no tokens
     assignments[def.id] = {
       id: def.id,
@@ -70,6 +81,8 @@ async function main() {
       repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,
       // The broker repo name is public (the broker is a public repo)
       broker_repo: def.state === "published" ? `broker-${def.id}` : null,
+      max_acceptances: def.max_acceptances ?? 150,
+      accepted_count: acceptedCount,
     };
   }
 

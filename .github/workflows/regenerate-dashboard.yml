@@ -46,18 +46,25 @@ jobs:
           data-dir: "control"
           output-dir: "control/public"
 
-      - name: Commit public data
+      - name: Generate interim reports
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ matrix.org }}
+        run: |
+          node scripts/generate-interim-reports.mjs control
+
+      - name: Commit public data and reports
         shell: bash
         run: |
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control add public/
+          git -C control add public/ reports/ || true
           if git -C control diff --cached --quiet; then
             echo "No changes."
             exit 0
           fi
-          git -C control commit -m "Regenerate dashboard data [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
+          git -C control commit -m "Regenerate dashboard data and reports [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
           scripts/git-push-with-retry.sh control
 
   deploy-pages:

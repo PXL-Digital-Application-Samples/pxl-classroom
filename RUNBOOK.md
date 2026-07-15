@@ -264,7 +264,7 @@ To restore:
 1. Admin Panel → **Grant Deadline Extension**.
 2. Fill: assignment ID, student login, new deadline, reason.
 3. The Admin Panel validates the student login against the roster, repository records, daily reports, or GitHub `/users/<login>` API, and then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`).
-4. The next nightly run recomputes `effective_deadline_at` for this student; the dashboard updates after `regenerate-dashboard.yml` runs.
+4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Live Status refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
 
 ### 6.3 Student says "I clicked Accept but nothing happened"
 
@@ -272,8 +272,8 @@ Possible causes:
 
 - **They starred but signed out before the SPA could detect the repo.** Ask them to re-open the assignment URL. The SPA polls `/repos/<org>/<expected-name>` and `/user/repository_invitations` — if the repo exists, they'll see the link.
 - **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can unstar and re-star the broker. Alternatively, a lecturer can trigger **Retry acceptance** for the student from the Admin Panel or the assignment detail view.
-  - *Lecturer Retry Flow:* The SPA validates the student login (against roster/records/reports/GitHub), triggers `retry-acceptance.yml`, and initiates a background watch (2-minute timeout, polling every 5s) for the student's repository to appear. The toast notifications include a direct link to the running workflow run.
-- **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button.
+  - *Lecturer Retry Flow:* The SPA validates the student login (against roster/records/reports/GitHub), checks if the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run.
+- **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button. If a student needs to accept outside the window, the lecturer must trigger a retry acceptance (which prompts to bypass window checks).
 - **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or via Admin Panel) or reject.
 
 ### 6.4 The nightly workflow is disabled and a student needs the dashboard updated
@@ -550,7 +550,7 @@ pxl-classroom roster list   --org <org>                          # tabular view
 
 An import whose diff **removes** students prompts for confirmation on a TTY (same guard as the Admin Panel); non-interactive runs must pass `--force` to allow removals.
 
-The `--org` value sticks (config remembers it) so subsequent invocations can omit the flag. When the flag is omitted, the CLI prints a reminder to stdout identifying the resolved last-used organization.
+The `--org` value sticks (config remembers it) so subsequent invocations can omit the flag. When the flag is omitted, the CLI prints a reminder to stderr identifying the resolved last-used organization.
 
 All CLI commands query the control repo. If assignments or reports are queried that do not exist, the CLI catches 404 errors and displays a friendly explanation instead of raw stack traces. If repository records are empty, it handles the 404 gracefully and returns an empty list.
 

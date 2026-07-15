@@ -155,8 +155,9 @@ export function registerDownloadCommand(program) {
         .filter((r) => r && !r.error)
         .map((r) => ({
           login: r.login,
-          sha: r.sha,
-          branch: r.branch,
+          archive_sha: r.sha,
+          archive_branch: r.branch,
+          archive_branch_url: `https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(r.branch)}`,
           downloaded_at: new Date().toISOString(),
         }));
 
@@ -165,7 +166,13 @@ export function registerDownloadCommand(program) {
           const content = await readFile(manifestPath, "utf8");
           const existing = JSON.parse(content);
           if (existing && Array.isArray(existing.students)) {
-            const list = [...existing.students];
+            const list = existing.students.map((s) => ({
+              login: s.login,
+              archive_sha: s.archive_sha || s.sha,
+              archive_branch: s.archive_branch || s.branch,
+              archive_branch_url: s.archive_branch_url || `https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(s.archive_branch || s.branch)}`,
+              downloaded_at: s.downloaded_at || null,
+            }));
             for (const r of studentsList) {
               const idx = list.findIndex((s) => s.login === r.login);
               if (idx !== -1) {

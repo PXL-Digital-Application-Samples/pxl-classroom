@@ -20,6 +20,11 @@ on:
         description: Student GitHub login
         required: true
         type: string
+      bypass_window:
+        description: Bypass assignment time windows
+        required: false
+        type: string
+        default: 'true'
 
 permissions:
   contents: read
@@ -90,6 +95,7 @@ jobs:
           github-login: ${{ inputs.github_login }}
           github-id: ${{ steps.lookup.outputs.id }}
           workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          bypass-window: ${{ inputs.bypass_window || 'true' }}
 
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning

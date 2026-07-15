@@ -37,6 +37,10 @@ inputs:
     description: URL of the calling workflow run. Defaults to repository_dispatch client_payload.
     required: false
     default: ${{ github.event.client_payload.workflow_run_url }}
+  bypass-window:
+    description: Bypass assignment time windows (opens_at and deadline_at checks)
+    required: false
+    default: 'false'
 
 outputs:
   assignment_id:
@@ -91,4 +95,5 @@ runs:
         ORG: ${{ inputs.org }}
         CONTROL_REPO: ${{ inputs.control-repo }}
         DATA_DIR: ${{ inputs.data-dir }}
+        BYPASS_WINDOW: ${{ inputs.bypass-window }}
       run: node "$GITHUB_ACTION_PATH/accept.mjs"

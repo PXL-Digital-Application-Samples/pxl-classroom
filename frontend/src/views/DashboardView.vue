@@ -92,12 +92,20 @@
           <p class="text-secondary">
             The control repo exists, but <code>reports/dashboard.json</code> hasn't been generated yet.
             It appears when an assignment is published (and refreshes nightly).
+            <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
+              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel — publish to track them here.
+            </span>
           </p>
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
         </template>
         <template v-else>
           <h2>No assignments yet</h2>
-          <p class="text-secondary">Create your first assignment in the Admin Panel.</p>
+          <p class="text-secondary">
+            Create your first assignment in the Admin Panel.
+            <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
+              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel — publish to track them here.
+            </span>
+          </p>
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
         </template>
       </div>
@@ -107,7 +115,13 @@
         <SystemHealth :org="selectedOrg" />
 
         <div class="flex items-center justify-between" style="margin-bottom: var(--space-md);">
-          <h2 style="margin: 0; font-size: 1.25rem;">Assignments</h2>
+          <div class="flex items-center gap-md">
+            <h2 style="margin: 0; font-size: 1.25rem;">Assignments</h2>
+            <label v-if="archivedCount > 0" class="flex items-center gap-xs text-sm text-secondary" style="cursor: pointer; user-select: none;">
+              <input type="checkbox" v-model="showArchived" />
+              <span>Show archived ({{ archivedCount }})</span>
+            </label>
+          </div>
           <div class="flex items-center gap-sm">
             <router-link :to="{ name: 'usage-org', params: { org: selectedOrg } }" class="btn" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
               Usage
@@ -117,46 +131,47 @@
             </router-link>
           </div>
         </div>
-        <div class="assignment-grid">
-          <div
-          v-for="a in assignments"
-          :key="a.id"
-          class="assignment-card card"
-          @click="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
-          role="button"
-          tabindex="0"
-          @keydown.enter="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
-          @keydown.space.prevent="$router.push({ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } })"
-        >
-          <div class="card-header flex items-center justify-between">
-            <span :class="['badge', stateClass(a.state)]">{{ a.state }}</span>
-            <span class="text-muted text-sm">{{ a.id }}</span>
-          </div>
-          <h3>{{ a.title }}</h3>
-          <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
-          <div class="stats-row">
-            <div class="stat">
-              <span class="stat-value">{{ a.accepted ?? '—' }}</span>
-              <span class="stat-label">Accepted</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value stat-green">{{ a.on_time ?? '—' }}</span>
-              <span class="stat-label">On-time</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value stat-yellow">{{ a.late ?? '—' }}</span>
-              <span class="stat-label">Late</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value stat-red">{{ a.no_submission ?? '—' }}</span>
-              <span class="stat-label">No sub</span>
-            </div>
-            <div class="stat" v-if="a.with_warnings">
-              <span class="stat-value stat-orange">{{ a.with_warnings }}</span>
-              <span class="stat-label">Warnings</span>
-            </div>
-          </div>
+        
+        <div v-if="visibleAssignments.length === 0" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
+          No active assignments right now.
         </div>
+        <div v-else class="assignment-grid">
+          <router-link
+            v-for="a in visibleAssignments"
+            :key="a.id"
+            :to="{ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } }"
+            class="assignment-card card"
+            style="text-decoration: none; color: inherit; display: block;"
+          >
+            <div class="card-header flex items-center justify-between">
+              <span :class="['badge', stateClass(a.state)]">{{ a.state }}</span>
+              <span class="text-muted text-sm">{{ a.id }}</span>
+            </div>
+            <h3>{{ a.title }}</h3>
+            <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
+            <div class="stats-row">
+              <div class="stat">
+                <span class="stat-value">{{ a.accepted ?? '—' }}</span>
+                <span class="stat-label">Accepted</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value stat-green">{{ a.on_time ?? '—' }}</span>
+                <span class="stat-label">On-time</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value stat-yellow">{{ a.late ?? '—' }}</span>
+                <span class="stat-label">Late</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value stat-red">{{ a.no_submission ?? '—' }}</span>
+                <span class="stat-label">No sub</span>
+              </div>
+              <div class="stat" v-if="a.with_warnings">
+                <span class="stat-value stat-orange">{{ a.with_warnings }}</span>
+                <span class="stat-label">Warnings</span>
+              </div>
+            </div>
+          </router-link>
         </div>
       </div>
     </main>
@@ -164,14 +179,14 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import UserBadge from '../components/UserBadge.vue'
 import SystemHealth from '../components/SystemHealth.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getInstallations, getRepoContent, getRepo } from '../lib/api.js'
+import { getInstallations, getRepoContent, getRepo, listRepoDir } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -194,6 +209,20 @@ let pollAbort = null
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
 const dashState = ref('')
 const dashError = ref(null)
+
+const draftCount = ref(0)
+const showArchived = ref(false)
+
+const archivedCount = computed(() => {
+  return assignments.value.filter(a => a.state === 'archived').length
+})
+
+const visibleAssignments = computed(() => {
+  return assignments.value.filter(a => {
+    if (a.state === 'archived' && !showArchived.value) return false
+    return true
+  })
+})
 
 // True once /user/installations has answered — gates the "no installation
 // visible" empty state so it can't flash during the initial load.
@@ -273,6 +302,7 @@ async function loadDashboard(org) {
   loadingData.value = true
   assignments.value = []
   dashState.value = ''
+  draftCount.value = 0
 
   const token = getToken()
   if (!token) { loadingData.value = false; return }
@@ -291,13 +321,31 @@ async function loadDashboard(org) {
       e.status = repoRes.status
       throw e
     }
+
+    try {
+      const files = await listRepoDir(token, org, config.controlRepo, 'assignments')
+      const drafts = files.filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
+      draftCount.value = drafts.length
+    } catch (e) {
+      // ignore
+    }
+
     const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
     if (!content) {
       dashState.value = 'no-dashboard'
       return
     }
     const data = JSON.parse(content)
-    assignments.value = Object.entries(data.assignments || {}).map(([id, a]) => ({ id, ...a }))
+    
+    const stateOrder = { published: 1, closed: 2, archived: 3 }
+    assignments.value = Object.entries(data.assignments || {})
+      .map(([id, a]) => ({ id, ...a }))
+      .sort((a, b) => {
+        const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
+        if (diff !== 0) return diff
+        return (a.id || '').localeCompare(b.id || '')
+      })
+
     if (assignments.value.length === 0) dashState.value = 'empty'
   } catch (e) {
     console.error('Failed to load dashboard:', e)

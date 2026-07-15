@@ -20,10 +20,8 @@ async function main() {
           
           const deadline = new Date(assignment.deadline_at).getTime();
           const now = Date.now();
-          // within the last 25 hours (one full cron interval + slack)
-          const oneHourAgo = now - 25 * 60 * 60 * 1000;
           
-          if (deadline <= now && deadline >= oneHourAgo) {
+          if (deadline <= now) {
             // Check idempotency: lockdowns/<id>/lockdown-record.json
             const lockdownFile = path.join(lockdownsDir, id, 'lockdown-record.json');
             if (!fs.existsSync(lockdownFile)) {
