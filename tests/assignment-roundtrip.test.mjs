@@ -72,3 +72,29 @@ test("SPA-serialized YAML with autograde passes validateAgainst('assignment', ..
   const { valid, errors } = validateAgainst("assignment", spaSerialized);
   assert.ok(valid, `SPA-serialized YAML with autograde should be valid, but got errors: ${JSON.stringify(errors)}`);
 });
+
+test("assignment with default prefilled repository_name_pattern '{slug}-{github_login}' passes schema validation", () => {
+  const spaSerialized = {
+    schema_version: 1,
+    id: "linux-processes-2026",
+    title: "Linux Processes",
+    description: "Short description",
+    organization: "PXLAutomation",
+    template: {
+      owner: "PXLAutomation",
+      repository: "template-automation-pe-1"
+    },
+    repository_name_pattern: "{slug}-{github_login}",
+    opens_at: "2026-09-21T06:00:00Z",
+    deadline_at: "2026-10-05T21:59:59Z",
+    timezone: "Europe/Brussels",
+    submission_ref: "refs/heads/main",
+    student_permission: "admin",
+    acceptance_mode: "self-service",
+    late_policy: "report",
+    state: "draft"
+  };
+
+  const { valid, errors } = validateAgainst("assignment", spaSerialized);
+  assert.ok(valid, `Default '{slug}-{github_login}' pattern should be valid, but got: ${JSON.stringify(errors)}`);
+});

@@ -304,7 +304,8 @@ export async function listOrgTemplates(token, org) {
     const q = encodeURIComponent(`org:${org} is:template`)
     const res = await ghApi(token, 'GET', `/search/repositories?q=${q}&per_page=100`)
     if (res.ok) {
-      return res.data?.items || []
+      const items = res.data?.items || []
+      return items.filter((r) => r.is_template)
     }
   } catch (e) {
     console.error('Search templates failed, falling back to listOrgRepos', e)

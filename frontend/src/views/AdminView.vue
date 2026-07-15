@@ -481,7 +481,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns } from '../lib/api.js'
@@ -494,6 +494,7 @@ import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
+const route = useRoute()
 
 // ---------------------------------------------------------------- auth
 
@@ -716,6 +717,22 @@ function selectTemplate(t) {
   showTemplateDropdown.value = false
   touchedFields.value.template = true
   activeDropdownIdx.value = -1
+
+  // Auto-fill Title and Slug from template name if they are empty
+  const repoName = t.full_name.split('/')[1] || ''
+  if (repoName) {
+    if (!form.value.title) {
+      form.value.title = repoName
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+      touchedFields.value.title = true
+    }
+    if (!form.value.id && isNew.value) {
+      form.value.id = toSlug(repoName)
+      touchedFields.value.id = true
+    }
+  }
 }
 
 function onTemplateInput() {
@@ -725,6 +742,24 @@ function onTemplateInput() {
   const match = templates.value.find(t => t.full_name.toLowerCase() === templateSearchText.value.toLowerCase().trim())
   form.value.template = match ? match.full_name : templateSearchText.value.trim()
   touchedFields.value.template = true
+
+  // If there's a match, auto-fill Title and Slug from template name if they are empty
+  if (match) {
+    const repoName = match.full_name.split('/')[1] || ''
+    if (repoName) {
+      if (!form.value.title) {
+        form.value.title = repoName
+          .split('-')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ')
+        touchedFields.value.title = true
+      }
+      if (!form.value.id && isNew.value) {
+        form.value.id = toSlug(repoName)
+        touchedFields.value.id = true
+      }
+    }
+  }
 }
 
 function navigateDropdown(direction) {
@@ -755,6 +790,12 @@ function handleClickOutside(ev) {
 watch(() => form.value.template, (newVal) => {
   if (newVal !== templateSearchText.value) {
     templateSearchText.value = newVal || ''
+  }
+})
+
+watch(() => form.value.id, (newId) => {
+  if (isNew.value && !manualRepositoryNamePattern.value) {
+    form.value.repository_name_pattern = newId ? `${newId}-{github_login}` : '{slug}-{github_login}'
   }
 })
 
@@ -806,7 +847,7 @@ function emptyForm() {
     description: '',
     organization: props.org,
     template: '',
-    repository_name_pattern: '',
+    repository_name_pattern: '{slug}-{github_login}',
     opens_at_local: toLocalInputValue(now),
     deadline_at_local: toLocalInputValue(in14d),
     _opens_at_original: '',

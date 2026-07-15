@@ -122,7 +122,7 @@ autograde:
     let exitCode = 0;
     try {
       process.exit = (code) => { throw new Error(`process.exit(${code})`); };
-      await program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "a1", "--runner", "host", "--concurrency", "2", "--dry-run"]);
+      await program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "a1", "--runner", "host", "--concurrency", "2", "--dry-run", "--force-host"]);
     } catch (e) {
       exitCode = 1;
     } finally {
@@ -132,6 +132,10 @@ autograde:
     }
 
 
+    if (!stdout.includes("student1: 0/10")) {
+      console.log("TEST STDOUT:", stdout);
+      console.log("TEST STDERR:", stderr);
+    }
     assert.ok(stdout.includes("student1: 0/10"));
     assert.equal(commitCount, 0);
     assert.equal(exitCode, 1); // 1 failed
