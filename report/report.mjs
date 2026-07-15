@@ -152,7 +152,7 @@ async function main() {
 
     // Tagged-submission observations are tracked separately so the UI can
     // surface them and so a tag — when present and on-time — wins over the
-    // default-branch tip. See EXTRA_FEATURES_PLAN.md §4.
+    // default-branch tip. See ARCHITECTURE.md §11.1a.
     let latestTagObservation = null;
 
     for (const obs of observations) {

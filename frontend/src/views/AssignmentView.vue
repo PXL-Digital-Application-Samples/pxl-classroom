@@ -173,7 +173,8 @@
             </div>
             <p class="text-secondary">You have administrator access. Clone it and start working!</p>
 
-            <!-- Tagged-submission indicator (EXTRA_FEATURES_PLAN §4) -->
+            <!-- Tagged-submission indicator. Shown only when a tag exists: tagging is
+                 optional (ARCHITECTURE.md §11.1a) and an untagged repo is not a gap. -->
             <div v-if="latestSubmitTag" class="submit-tag-banner" role="status">
               <svg class="submit-tag-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
@@ -181,13 +182,9 @@
               </svg>
               <div>
                 <strong>Submission tagged</strong>
-                <span class="text-muted"> at {{ formatDate(latestSubmitTag.declared_at, assignment.timezone) }}</span>
                 <div class="text-muted submit-tag-name"><code>{{ latestSubmitTag.tag }}</code></div>
+                <div class="text-muted">The tagged commit is graded instead of the tip of your default branch.</div>
               </div>
-            </div>
-            <div v-else class="submit-tag-hint">
-              <p class="text-muted">No <code>submit/</code> tag yet. Tag a submission to bind an explicit, sortable timestamp to your commit:</p>
-              <code class="submit-tag-cmd">git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) &amp;&amp; git push origin --tags</code>
             </div>
           </div>
 
@@ -878,25 +875,6 @@ main {
 .submit-tag-name code {
   font-family: var(--font-mono);
   font-size: 0.8rem;
-}
-.submit-tag-hint {
-  text-align: left;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-.submit-tag-hint p { margin: 0; }
-.submit-tag-cmd {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  background: var(--bg-tertiary);
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 
 .repo-link {
