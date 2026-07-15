@@ -232,14 +232,7 @@
       </div>
     </main>
 
-    <footer class="assignment-footer">
-      <div class="container">
-        <router-link to="/dashboard" class="footer-link">
-          <span>Lecturer dashboard</span>
-          <Icon name="arrow-right" :size="14" />
-        </router-link>
-      </div>
-    </footer>
+    <!-- removed footer to avoid confusing students -->
   </div>
 </template>
 
@@ -875,21 +868,6 @@ main {
 }
 .repo-link:hover {
   color: #79c0ff;
-}
-
-.assignment-footer {
-  padding: var(--space-lg) 0;
-  text-align: center;
-}
-.footer-link {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-.footer-link:hover {
-  color: var(--text-secondary);
 }
 
 @media (max-width: 640px) {
