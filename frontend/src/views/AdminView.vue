@@ -1005,7 +1005,7 @@ async function loadAssignments() {
     })
 
     const editId = route.query.edit
-    if (editId) {
+    if (editId && (!editing.value || editing.value.id !== editId)) {
       const a = assignments.value.find((x) => x.id === editId)
       if (a) {
         editAssignment(a)
