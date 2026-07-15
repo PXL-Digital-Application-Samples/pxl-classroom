@@ -64,9 +64,14 @@
             </div>
             <div class="date-item">
               <span class="date-label">Deadline</span>
-              <time :datetime="assignment.deadline_at" :class="{ 'text-warning': isPastDeadline }">
-                {{ formatDate(assignment.deadline_at, assignment.timezone) }}
-              </time>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <time :datetime="assignment.deadline_at" :class="{ 'text-warning': isPastDeadline }">
+                  {{ formatDate(assignment.deadline_at, assignment.timezone) }}
+                </time>
+                <span v-if="timeRemainingStr" :class="['badge', timeRemainingBadgeClass]" style="text-transform: none; font-size: 0.7rem; padding: 2px 8px;">
+                  {{ timeRemainingStr }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -280,9 +285,42 @@ const pollInterval = ref(3000)
 const pollCount = ref(0)
 let pollTimer = null
 
+const now = ref(new Date())
+let nowInterval = null
+
 const isPastDeadline = computed(() => {
   if (!assignment.value?.deadline_at) return false
-  return new Date() > new Date(assignment.value.deadline_at)
+  return now.value > new Date(assignment.value.deadline_at)
+})
+
+const timeRemainingStr = computed(() => {
+  if (!assignment.value?.deadline_at) return ''
+  const diffMs = new Date(assignment.value.deadline_at) - now.value
+  if (diffMs <= 0) return 'Closed'
+  
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  
+  if (diffDays > 0) {
+    const hoursPart = diffHours % 24
+    return `${diffDays}d ${hoursPart}h left`
+  }
+  if (diffHours > 0) {
+    const minsPart = diffMins % 60
+    return `${diffHours}h ${minsPart}m left`
+  }
+  return `${diffMins}m left`
+})
+
+const timeRemainingBadgeClass = computed(() => {
+  if (!assignment.value?.deadline_at) return 'badge-neutral'
+  const diffMs = new Date(assignment.value.deadline_at) - now.value
+  if (diffMs <= 0) return 'badge-error'
+  
+  const diffHours = Math.floor(diffMs / 3600000)
+  if (diffHours < 24) return 'badge-warning'
+  return 'badge-success'
 })
 
 const stateBadgeClass = computed(() => {
@@ -297,11 +335,15 @@ onMounted(async () => {
     user.value = getUser()
     await checkExistingState()
   }
+  nowInterval = setInterval(() => {
+    now.value = new Date()
+  }, 30000)
 })
 
 onUnmounted(() => {
   if (pollAbort) pollAbort.abort()
   if (pollTimer) clearTimeout(pollTimer)
+  if (nowInterval) clearInterval(nowInterval)
 })
 
 
