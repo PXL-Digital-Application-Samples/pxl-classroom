@@ -57,7 +57,7 @@
     <footer class="home-footer">
       <div class="container">
         <router-link to="/dashboard" class="footer-link">
-          Lecturers: Go to Dashboard →
+          Lecturer Portal
         </router-link>
       </div>
     </footer>
