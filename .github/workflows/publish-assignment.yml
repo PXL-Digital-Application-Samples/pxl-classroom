@@ -61,6 +61,8 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           ORG: ${{ inputs.org }}
+          PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
+          PXL_APP_PRIVATE_KEY: ${{ secrets.PXL_APP_PRIVATE_KEY }}
         run: |
           BROKER_REPO="broker-${ASSIGNMENT_ID}"
           if gh repo view "${ORG}/${BROKER_REPO}" --json name > /dev/null 2>&1; then
@@ -76,6 +78,10 @@ jobs:
 
           gh variable set ASSIGNMENT_ID --body "${ASSIGNMENT_ID}" --repo "${ORG}/${BROKER_REPO}"
           gh variable set CONTROL_ORG --body "${ORG}" --repo "${ORG}/${BROKER_REPO}"
+
+          # Automatically populate App secrets on the broker repository
+          echo "$PXL_APP_CLIENT_ID" | gh secret set PXL_APP_CLIENT_ID --repo "${ORG}/${BROKER_REPO}"
+          echo "$PXL_APP_PRIVATE_KEY" | gh secret set PXL_APP_PRIVATE_KEY --repo "${ORG}/${BROKER_REPO}"
 
           TMPDIR=$(mktemp -d)
           cd "$TMPDIR"
