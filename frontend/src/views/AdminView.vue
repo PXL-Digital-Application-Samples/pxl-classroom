@@ -115,6 +115,30 @@
             <h3 v-else>Edit: <code>{{ form.id }}</code> <span class="badge" :class="`badge-${form.state}`">{{ form.state }}</span></h3>
           </div>
 
+          <!-- PUBLISHED ASSIGNMENT INFO BANNER -->
+          <div v-if="!isNew && form.state === 'published'" class="published-info-card fade-in">
+            <div class="published-header">
+              <Icon name="check-circle" :size="16" class="text-green" />
+              <h4>Assignment is Published &amp; Live</h4>
+            </div>
+            <p class="published-desc">
+              Share the student accept link below. Students who open it will be prompted to accept the assignment and automatically provisioned a repository.
+            </p>
+            <div class="link-share-row">
+              <div class="link-box">
+                <span class="link-text">{{ shareableLink }}</span>
+                <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student accept link">
+                  <Icon name="copy" :size="12" />
+                  <span>Copy Link</span>
+                </button>
+              </div>
+              <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }" class="btn btn-primary btn-track">
+                <span>Track Roster &amp; Progress</span>
+                <Icon name="arrow-right" :size="14" />
+              </router-link>
+            </div>
+          </div>
+
           <!-- BASICS -->
           <fieldset>
             <legend>Basics</legend>
@@ -627,6 +651,11 @@ const currentExtText = ref(null)
 const retryForm = ref({ login: '' })
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
+
+const shareableLink = computed(() => {
+  const base = window.location.origin + (import.meta.env.BASE_URL || '/')
+  return `${base}${props.org}/a/${form.value.id}`
+})
 
 const manualRepositoryNamePattern = ref(false)
 const templateSearchText = ref('')
@@ -1358,10 +1387,8 @@ function stopPublishWatch() {
 }
 
 function copyAcceptLink() {
-  const base = window.location.origin + (import.meta.env.BASE_URL || '/')
-  const link = `${base}${props.org}/a/${form.value.id}`
-  navigator.clipboard.writeText(link).then(
-    () => toast.success(`Accept link copied: ${link}`),
+  navigator.clipboard.writeText(shareableLink.value).then(
+    () => toast.success(`Accept link copied: ${shareableLink.value}`),
     () => toast.error('Could not copy link'),
   )
 }
@@ -2046,5 +2073,71 @@ details .field { padding: 0 var(--space-sm); }
 }
 .spin-animation {
   animation: spin 1s linear infinite;
+}
+
+/* PUBLISHED INFO CARD */
+.published-info-card {
+  background: rgba(63, 185, 80, 0.08);
+  border: 1px solid rgba(63, 185, 80, 0.25);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.published-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.published-header h4 {
+  margin: 0;
+  color: var(--accent-green);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.text-green {
+  color: var(--accent-green);
+}
+.published-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+.link-share-row {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-xs);
+}
+.link-box {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 2px 2px 2px var(--space-sm);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.link-text {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  word-break: break-all;
+  user-select: all;
+}
+.btn-copy {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 0.8rem;
+  border-color: var(--border-default);
+}
+.btn-track {
+  white-space: nowrap;
 }
 </style>
