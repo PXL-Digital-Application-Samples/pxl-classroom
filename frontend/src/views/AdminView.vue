@@ -992,7 +992,22 @@ async function loadAssignments() {
           const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
           if (!text) return null
           const doc = parseYaml(text)
-          return { ...doc, id: doc.id || f.name.replace(/\.yml$/, '') }
+          const id = doc.id || f.name.replace(/\.yml$/, '')
+          
+          // If we are currently editing this assignment, merge the local form state
+          // to prevent eventual consistency lag from showing stale data in the UI.
+          if (editing.value && editing.value.id === id) {
+            return {
+              ...doc,
+              id,
+              state: form.value.state,
+              title: form.value.title || doc.title,
+              deadline_at: form.value.deadline_at_local ? localToUtc(form.value.deadline_at_local) : doc.deadline_at,
+              timezone: form.value.timezone || doc.timezone,
+            }
+          }
+          
+          return { ...doc, id }
         } catch {
           return null
         }
