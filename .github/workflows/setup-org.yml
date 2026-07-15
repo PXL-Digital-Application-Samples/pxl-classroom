@@ -82,21 +82,18 @@ jobs:
           git init
           git config user.name "pxl-classroom-provisioner[bot]"
           git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
-          
-          mkdir -p assignments acceptances repositories observations lockdowns reports public
-          touch assignments/.gitkeep acceptances/.gitkeep repositories/.gitkeep observations/.gitkeep lockdowns/.gitkeep reports/.gitkeep public/.gitkeep
-          
-          cat > README.md << 'EOF'
-          # PXL Classroom Control Repo
-          This is an automated data repository for PXL Classroom. Do not modify these files manually unless you know what you are doing.
-          EOF
-          
-          git add .
-          git commit -m "Initialize control repo structure"
+
           git branch -M main
           git remote add origin https://x-access-token:${{ steps.generate_token.outputs.token }}@github.com/${{ inputs.target_org }}/pxl-classroom-control.git
-          
+
+          # Pull first, then scaffold: the script only creates what is absent,
+          # so this backfills existing control repos without clobbering data.
           git pull --rebase origin main || true
+
+          node "$GITHUB_WORKSPACE/scripts/scaffold-control-repo.mjs" .
+
+          git add .
+          git diff --cached --quiet || git commit -m "Initialize control repo structure"
 
           # Wave 2 architecture: control repos are data-only. If a legacy
           # control repo had workflows pushed before the centralization, strip
