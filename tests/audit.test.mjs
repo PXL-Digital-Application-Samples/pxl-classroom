@@ -10,6 +10,7 @@ test("EXPECTED_APP_PERMISSIONS shape", () => {
   assert.equal(EXPECTED_APP_PERMISSIONS.metadata, "read");
   assert.equal(EXPECTED_APP_PERMISSIONS.secrets, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.variables, "write");
+  assert.equal(EXPECTED_APP_PERMISSIONS.workflows, "write");
 });
 
 function createMockRequest({
