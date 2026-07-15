@@ -51,6 +51,82 @@
         <li>Re-run the <code>deploy-frontend.yml</code> workflow so the SPA rebuilds with the client ID.</li>
         <li>Install the App per <a :href="`${runbookUrl}#14-install-the-app-on-the-hubs-owning-org-scoped-narrowly`" target="_blank" rel="noopener">RUNBOOK §1.4</a> (hub org, <em>only</em> the hub repo) and <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">§2.1</a> (each participating org, all repositories).</li>
       </ol>
+
+      <!-- Verify App Installation & Permissions -->
+      <div class="verify-section">
+        <h4>Verify App installation & permissions</h4>
+        <p class="text-secondary" style="font-size: 0.9rem; margin-bottom: var(--space-md);">
+          Once you have installed the App on your organization, you can verify that the App is correctly installed and has all the required permissions (including manually added ones like <code>organization_plan: read</code>).
+        </p>
+
+        <!-- Not authenticated with the new App -->
+        <div v-if="!verifyToken" class="verify-auth-box">
+          <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">
+            First, authenticate with the new App to enable API checks:
+          </p>
+          <button class="btn btn-primary btn-with-icon" type="button" @click="startVerifyLogin" :disabled="verifyAuthLoading">
+            <template v-if="verifyAuthLoading">
+              <div class="spinner sm"></div>
+              <span>Waiting…</span>
+            </template>
+            <template v-else>
+              <Icon name="zap" :size="14" />
+              <span>Sign in with new App</span>
+            </template>
+          </button>
+          <p v-if="verifyAuthError" class="auth-error" style="margin-top: var(--space-sm);" role="alert">
+            {{ verifyAuthError }}
+          </p>
+          <DeviceFlowCard v-if="verifyDeviceFlow" :flow="verifyDeviceFlow" @cancel="cancelVerifyLogin" style="margin-top: var(--space-md);" />
+        </div>
+
+        <!-- Authenticated — show organization checker -->
+        <div v-else class="verify-checker-box">
+          <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">
+            Signed in with the new App as <strong>@{{ verifyUser.login }}</strong>. Enter the target organization:
+          </p>
+          <div class="flex gap-sm items-center" style="margin-bottom: var(--space-sm); max-width: 480px;">
+            <input v-model.trim="verifyOrg" placeholder="e.g. PXLAutomation" style="flex: 1; padding: 8px 12px;" />
+            <button class="btn btn-primary btn-with-icon" type="button" @click="runPermissionCheck" :disabled="verifyLoading">
+              <template v-if="verifyLoading">
+                <div class="spinner sm"></div>
+                <span>Checking…</span>
+              </template>
+              <template v-else>
+                <Icon name="refresh-cw" :size="14" />
+                <span>Check</span>
+              </template>
+            </button>
+          </div>
+
+          <div v-if="verifyError" class="auth-error" style="margin-top: var(--space-sm); max-width: 480px;" role="alert">
+            {{ verifyError }}
+          </div>
+
+          <div v-if="verifyChecks" class="verify-results" style="margin-top: var(--space-md); max-width: 480px;">
+            <div :class="['result-summary', verifyChecks.allOk ? 'text-success' : 'text-danger']" style="font-weight: 600; font-size: 0.95rem; margin-bottom: var(--space-sm); display: flex; align-items: center; gap: 6px;">
+              <Icon :name="verifyChecks.allOk ? 'check-circle' : 'x-circle'" :size="16" />
+              <span>{{ verifyChecks.allOk ? 'App healthy!' : 'Drift detected — action required' }}</span>
+            </div>
+
+            <ul class="check-list" style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-xs);">
+              <li v-for="c in verifyChecks.permissions" :key="c.name" class="check-item flex items-center justify-between" style="padding: 8px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; font-size: 0.85rem;">
+                <span style="font-family: var(--font-mono); color: var(--text-primary);">{{ c.name }}</span>
+                <span class="flex items-center gap-xs">
+                  <span :class="c.ok ? 'text-success' : 'text-danger'" style="font-weight: 500;">
+                    {{ c.actual }} <span v-if="!c.ok">(want {{ c.expected }})</span>
+                  </span>
+                  <Icon :name="c.ok ? 'check' : 'x'" :size="14" :class="c.ok ? 'text-success' : 'text-danger'" />
+                </span>
+              </li>
+            </ul>
+
+            <div v-if="!verifyChecks.allOk" class="text-warning notice" style="margin-top: var(--space-md); font-size: 0.85rem; border-color: var(--accent-yellow);">
+              <strong>Fixing drift:</strong> Go to step 2/4. Adjust permissions on the App settings page, reinstall or re-approve the App in organization Settings, and then click check again.
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-else-if="conversionError" class="card setup-card">
@@ -104,7 +180,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from '../components/Icon.vue'
+import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
+import { startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
+import { ghApi } from '../lib/api.js'
 import { EXPECTED_APP_PERMISSIONS } from '../../../lib/audit.mjs'
 
 const route = useRoute()
@@ -113,6 +192,17 @@ const ownerOrg = ref('')
 const converting = ref(false)
 const credentials = ref(null)
 const conversionError = ref('')
+
+const verifyToken = ref(null)
+const verifyUser = ref(null)
+const verifyOrg = ref('')
+const verifyLoading = ref(false)
+const verifyAuthLoading = ref(false)
+const verifyAuthError = ref(null)
+const verifyDeviceFlow = ref(null)
+const verifyChecks = ref(null)
+const verifyError = ref('')
+let verifyAbort = null
 
 const hubFullName = `${config.hubOwner}/${config.hubRepo}`
 const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
@@ -188,6 +278,93 @@ function downloadPem() {
   a.download = 'pxl-classroom-provisioner.private-key.pem'
   a.click()
   URL.revokeObjectURL(url)
+}
+
+async function startVerifyLogin() {
+  verifyAuthError.value = null
+  verifyAuthLoading.value = true
+  try {
+    const flow = await startDeviceFlow(credentials.value.client_id)
+    verifyDeviceFlow.value = flow
+    verifyAbort = new AbortController()
+    const result = await pollDeviceFlow(credentials.value.client_id, flow.device_code, flow.interval, verifyAbort.signal)
+    verifyUser.value = result.user
+    verifyToken.value = result.token
+    verifyDeviceFlow.value = null
+    if (ownerOrg.value && !verifyOrg.value) {
+      verifyOrg.value = ownerOrg.value
+    }
+  } catch (e) {
+    if (e.message !== 'Cancelled') verifyAuthError.value = e.message
+    verifyDeviceFlow.value = null
+  }
+  verifyAuthLoading.value = false
+}
+
+function cancelVerifyLogin() {
+  if (verifyAbort) verifyAbort.abort()
+  verifyDeviceFlow.value = null
+  verifyAuthLoading.value = false
+}
+
+async function runPermissionCheck() {
+  if (!verifyOrg.value.trim()) {
+    verifyError.value = 'Organization name is required.'
+    return
+  }
+  verifyLoading.value = true
+  verifyError.value = ''
+  verifyChecks.value = null
+  try {
+    const res = await ghApi(verifyToken.value, 'GET', `/orgs/${verifyOrg.value}/installation`)
+    if (res.status === 404) {
+      verifyError.value = `App is not installed on organization "${verifyOrg.value}". Make sure to install the App on your org (step 4).`
+      verifyLoading.value = false
+      return
+    }
+    if (!res.ok) {
+      verifyError.value = `Failed to fetch installation details (HTTP ${res.status}): ${res.data?.message || 'unknown error'}`
+      verifyLoading.value = false
+      return
+    }
+
+    const installation = res.data
+    const actual = installation.permissions || {}
+    
+    // Check manifest permissions
+    const list = []
+    for (const [perm, expected] of Object.entries(EXPECTED_APP_PERMISSIONS)) {
+      const got = actual[perm]
+      list.push({
+        name: perm,
+        expected,
+        actual: got ?? 'missing',
+        ok: got === expected
+      })
+    }
+
+    // Check manual Plan permission (organization_plan)
+    const gotPlan = actual['organization_plan']
+    list.push({
+      name: 'organization_plan (Plan: Read-only)',
+      expected: 'read',
+      actual: gotPlan ?? 'missing',
+      ok: gotPlan === 'read'
+    })
+
+    const allOk = list.every(c => c.ok)
+    
+    verifyChecks.value = {
+      installed: true,
+      allOk,
+      permissions: list,
+      installationId: installation.id
+    }
+  } catch (e) {
+    verifyError.value = `Check failed: ${e.message || String(e)}`
+  } finally {
+    verifyLoading.value = false
+  }
 }
 
 onMounted(() => {
@@ -276,4 +453,32 @@ onMounted(() => {
 
 .loading-inline { display: flex; align-items: center; gap: var(--space-sm); color: var(--text-secondary); }
 .spinner.sm { width: 14px; height: 14px; border-width: 2px; }
+
+.verify-section {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border-muted);
+}
+.verify-section h4 {
+  margin: 0 0 var(--space-sm);
+  font-size: 1.1rem;
+}
+.verify-auth-box, .verify-checker-box {
+  background: var(--bg-secondary);
+  padding: var(--space-md);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-sm);
+}
+.auth-error {
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.85rem;
+  background: rgba(248, 81, 73, 0.05);
+}
+.text-success { color: var(--accent-green); }
+.text-danger { color: var(--accent-red); }
+.text-warning { color: var(--accent-yellow); }
 </style>

@@ -14,6 +14,22 @@ function runAccept(envOverrides = {}, setupData = null) {
   const outputEnv = join(dir, "output.env");
   const summaryEnv = join(dir, "summary.md");
 
+  // Always write a default roster unless setupData.noRoster is true
+  if (!setupData || !setupData.noRoster) {
+    mkdirSync(join(dir, "students"), { recursive: true });
+    const roster = setupData?.roster || {
+      schema_version: 2,
+      students: [
+        { student_number: "SIS-1", full_name: "Valid User", github_login: "valid" },
+        { student_number: "SIS-2", full_name: "Alice User", github_login: "alice" },
+        { student_number: "SIS-3", full_name: "Bob User", github_login: "bob" },
+        { student_number: "SIS-4", full_name: "Charlie User", github_login: "charlie" },
+        { student_number: "SIS-5", full_name: "Dave User", github_login: "dave" }
+      ]
+    };
+    writeFileSync(join(dir, "students", "roster.yml"), JSON.stringify(roster));
+  }
+
   if (setupData) {
     if (setupData.assignmentYaml) {
       mkdirSync(join(dir, "assignments"), { recursive: true });
@@ -188,4 +204,30 @@ template_repo: old-tpl`;
   );
   assert.equal(res.status, 1);
   assert.equal(res.outputs.outcome, "fail:exception");
+});
+
+test("rejected:no-roster", () => {
+  const yaml = `state: published
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" },
+    { assignmentYaml: yaml, noRoster: true }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:no-roster");
+});
+
+test("rejected:not-on-roster", () => {
+  const yaml = `state: published
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:not-on-roster");
 });

@@ -13,6 +13,7 @@ import { Command } from "commander";
 import { mkdir, writeFile, rm, mkdtemp } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { createInterface } from "node:readline/promises";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { parse as yamlParse } from "yaml";
@@ -131,6 +132,7 @@ export function registerGradeCommand(program) {
     .option("--runner <runner>", "docker | host (default docker)", "docker")
     .option("--concurrency <n>", "Parallel students", parseConcurrency, 2)
     .option("--dry-run", "Do not commit results back to the control repo", false)
+    .option("--force-host", "Bypass security warning for host execution", false)
     .action(async (opts, command) => {
       const org = resolveOrg(opts.org);
       const octokit = makeOctokit();
@@ -164,6 +166,24 @@ export function registerGradeCommand(program) {
       const gradedBy = await authedLogin(octokit);
       const isGitHubActions = assignment.autograde?.execution_environment === "github_actions";
       const runnerName = isGitHubActions ? "github_actions" : opts.runner;
+
+      if (opts.runner === "host" && !isGitHubActions && !opts.forceHost) {
+        if (!process.stdin.isTTY) {
+          process.stderr.write(
+            `\nError: local host execution (--runner host) requires TTY confirmation or the --force-host bypass flag.\n`,
+          );
+          process.exit(1);
+        }
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const answer = (await rl.question(
+          `\nWARNING: Local host execution (--runner host) will execute arbitrary student code directly on your host machine without isolation. Continue? [y/N] `,
+        )).trim().toLowerCase();
+        rl.close();
+        if (answer !== "y" && answer !== "yes") {
+          process.stdout.write(`Aborted — nothing executed.\n`);
+          return;
+        }
+      }
       if (isGitHubActions && command.getOptionValueSource("runner") === "cli") {
         process.stderr.write(
           `warning: --runner ${opts.runner} is ignored — this assignment's execution_environment ` +

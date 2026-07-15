@@ -184,6 +184,35 @@ async function loadExisting() {
   }
 }
 
+function formatRosterValidationError(e, doc) {
+  const match = e.instancePath.match(/^\/students\/(\d+)(?:\/([a-zA-Z0-9_]+))?$/)
+  if (match) {
+    const idx = parseInt(match[1], 10)
+    const rowNo = idx + 2
+    const field = match[2]
+    
+    const student = doc?.students?.[idx]
+    const studentDesc = student
+      ? ` (${student.full_name || 'Unknown'} - SIS: ${student.student_number || 'N/A'})`
+      : ''
+
+    let friendlyMsg = e.message
+    if (field) {
+      if (e.keyword === 'format' && e.params?.format === 'email') {
+        friendlyMsg = `'${field}' is not a valid email address.`
+      } else if (e.keyword === 'minLength') {
+        friendlyMsg = `'${field}' cannot be blank.`
+      } else {
+        friendlyMsg = `'${field}' ${e.message}.`
+      }
+      return `Row ${rowNo}${studentDesc}: ${friendlyMsg}`
+    } else {
+      return `Row ${rowNo}${studentDesc}: ${e.message}`
+    }
+  }
+  return `${e.instancePath || '(root)'} ${e.message}` + (e.params?.allowedValue !== undefined ? ` (allowed: ${JSON.stringify(e.params.allowedValue)})` : '')
+}
+
 async function parseAndValidate() {
   parseError.value = ''
   validationErrors.value = []
@@ -193,8 +222,7 @@ async function parseAndValidate() {
     const doc = csvToRoster(csvText.value)
     const { valid, errors } = await validateAgainst('roster', doc)
     if (!valid) {
-      validationErrors.value = errors.map((e) =>
-        `${e.instancePath || '(root)'} ${e.message}` + (e.params?.allowedValue !== undefined ? ` (allowed: ${JSON.stringify(e.params.allowedValue)})` : ''))
+      validationErrors.value = errors.map((e) => formatRosterValidationError(e, doc))
       return
     }
     parsedRoster.value = doc

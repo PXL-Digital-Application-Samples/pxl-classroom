@@ -107,7 +107,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 ### 4.2 Identity
 
 - **Lecturers** authenticate to the SPA via GitHub device flow against the Provisioner App. Authorization derives from organization ownership: any owner of an org where the App is installed is a lecturer in that org. The SPA reads control-repo data with the **lecturer's own token**; no per-user secret on the server side.
-- **Students** authenticate to the SPA via the same device flow. Acceptance is **open** in v1: any GitHub account that stars the broker within `opens_at … deadline_at` and below `max_acceptances` is provisioned. The lecturer reconciles `github_login` → roster student afterward via overrides.
+- **Students** authenticate to the SPA via the same device flow. Acceptance is gated by roster registration: the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned.
 - **Automation** authenticates as the App, using short-lived per-org installation tokens minted at workflow runtime.
 
 ### 4.3 Bounded blast radius
@@ -318,7 +318,7 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 8. acceptance-handler.yml in the hub:
    a. Mints App token for inputs.org
    b. Checks out <org>/pxl-classroom-control
-   c. Runs ./acceptance — validates payload, checks opens_at..deadline_at,
+   c. Runs ./acceptance — validates payload, checks roster registration, checks opens_at..deadline_at,
       checks max_acceptances, writes acceptances/<id>/<login>.json
    d. If accepted/already-accepted, runs ./provisioning — creates the repo
       from template (idempotent on existing) and grants student admin
@@ -624,7 +624,7 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 
 ## 15. Constraints accepted in v1
 
-- **Open acceptance.** Any GitHub account that stars the broker within the window and below the cap gets a repo. The lecturer reconciles `github_login` → real student afterward. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, lecturer reconciliation. Residual risk accepted.
+- **Roster-gated acceptance.** Students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo. This prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
 - **Lock-down is a deterrent, not tamper-proof.** A student who prepared beforehand may retain alternative write paths. Reports flag observed late activity; preservation captures the on-time SHA.
 - **No institutional verification.** A student could associate with the wrong roster entry. Lecturer review + overrides correct it. MS 365 / Entra ID verification is a v2 candidate and would be the only explicit exception to the GitHub-only constraint.
 - **Public broker is public.** Star activity is publicly visible. Acceptable.

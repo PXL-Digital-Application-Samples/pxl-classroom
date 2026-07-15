@@ -99,6 +99,25 @@ async function main() {
     log("window", { ok: true, note: `within open window` });
   }
 
+  // 4.5 Check roster registration
+  const rosterPath = join(dataDir, "students", "roster.yml");
+  if (!existsSync(rosterPath)) {
+    await fail("rejected:no-roster", `roster file not found: ${rosterPath}`);
+  }
+  let roster;
+  try {
+    roster = await loadYaml(rosterPath);
+  } catch (err) {
+    await fail("fail:exception", `roster YAML parsing failed: ${err.message}`);
+  }
+  const onRoster = (roster?.students || []).some(
+    (s) => s.github_login?.toLowerCase() === login.toLowerCase()
+  );
+  if (!onRoster) {
+    await fail("rejected:not-on-roster", `student @${login} is not registered in the roster`);
+  }
+  log("roster", { ok: true, note: `@${login} is on the roster` });
+
   // 5. Check idempotency — already accepted?
   const acceptDir = join(dataDir, "acceptances", assignmentId);
   const acceptFile = join(acceptDir, `${login}.json`);

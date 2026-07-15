@@ -127,7 +127,7 @@
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
               <template v-else>
                 <Icon name="refresh-cw" :size="14" />
-                <span>Live Status</span>
+                <span>Live Status{{ selectedLogins.size > 0 ? ` (${selectedLogins.size})` : '' }}</span>
               </template>
             </button>
             <button class="btn btn-with-icon" @click="exportCSV">
@@ -154,6 +154,9 @@
           <table>
             <thead>
               <tr>
+                <th style="width: 40px; text-align: center; padding-left: 12px; padding-right: 12px;">
+                  <input type="checkbox" :checked="isAllSelected" :indeterminate="isSomeSelected" @change="toggleSelectAll" aria-label="Select all students" />
+                </th>
                 <th @click="sortBy('github_login')" @keydown.enter="sortBy('github_login')" @keydown.space.prevent="sortBy('github_login')" tabindex="0" class="sortable" :aria-sort="ariaSort('github_login')">
                   <span class="th-label">Login<SortIcon :dir="sortDir('github_login')" /></span>
                 </th>
@@ -181,6 +184,9 @@
             </thead>
             <tbody>
               <tr v-for="s in filteredStudents" :key="s.github_login">
+                <td style="text-align: center; padding-left: 12px; padding-right: 12px;">
+                  <input type="checkbox" :checked="selectedLogins.has(s.github_login)" @change="toggleSelect(s.github_login)" :aria-label="`Select ${s.github_login}`" />
+                </td>
                 <td>
                   <a :href="`https://github.com/${s.github_login}`" target="_blank">{{ s.github_login }}</a>
                 </td>
@@ -277,9 +283,10 @@
             <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
           </div>
           <article v-for="s in filteredStudents" :key="s.github_login" class="student-card">
-            <header class="student-card-head">
-              <a :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login">{{ s.github_login }}</a>
-              <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
+            <header class="student-card-head" style="display: flex; align-items: center; gap: var(--space-sm);">
+              <input type="checkbox" :checked="selectedLogins.has(s.github_login)" @change="toggleSelect(s.github_login)" :aria-label="`Select ${s.github_login}`" style="margin: 0; cursor: pointer;" />
+              <a :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login" style="flex: 1;">{{ s.github_login }}</a>
+              <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`" style="margin-left: auto;">
                 <Icon name="more-horizontal" :size="18" />
               </button>
             </header>
@@ -576,10 +583,47 @@ const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'gith
 // extensions are visible (and inspectable before granting again).
 const overridesByLogin = ref(new Map())
 
-// Base columns: login, acceptance, status, repo, last commit, submit tag,
+const selectedLogins = ref(new Set())
+
+function toggleSelect(login) {
+  if (selectedLogins.value.has(login)) {
+    selectedLogins.value.delete(login)
+  } else {
+    selectedLogins.value.add(login)
+  }
+  selectedLogins.value = new Set(selectedLogins.value)
+}
+
+const isAllSelected = computed(() => {
+  const list = filteredStudents.value
+  if (list.length === 0) return false
+  return list.every(s => selectedLogins.value.has(s.github_login))
+})
+
+const isSomeSelected = computed(() => {
+  const list = filteredStudents.value
+  if (list.length === 0) return false
+  const count = list.filter(s => selectedLogins.value.has(s.github_login)).length
+  return count > 0 && count < list.length
+})
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    for (const s of filteredStudents.value) {
+      selectedLogins.value.delete(s.github_login)
+    }
+  } else {
+    for (const s of filteredStudents.value) {
+      selectedLogins.value.add(s.github_login)
+    }
+  }
+  selectedLogins.value = new Set(selectedLogins.value)
+}
+
+// Base columns: select, login, acceptance, status, repo, last commit, submit tag,
 // commits, warnings, actions — plus the two conditional columns.
 const tableColumnCount = computed(() =>
-  9 + (isGitHubActionsAutograde.value ? 1 : 0) + (feedbackPrEnabled.value ? 1 : 0))
+  10 + (isGitHubActionsAutograde.value ? 1 : 0) + (feedbackPrEnabled.value ? 1 : 0))
 
 function extensionFor(login) {
   const doc = overridesByLogin.value.get(login)
@@ -1043,7 +1087,8 @@ async function refreshLiveStatus() {
   // Clone the students array and the student objects themselves.
   const clonedStudents = report.value.students.map(s => ({ ...s }))
 
-  const queue = clonedStudents.filter(s => s.repo_name)
+  const hasSelection = selectedLogins.value.size > 0
+  const queue = clonedStudents.filter(s => s.repo_name && (!hasSelection || selectedLogins.value.has(s.github_login)))
   if (queue.length === 0) {
     toast.info('No provisioned repositories to check.')
     return
@@ -1089,8 +1134,13 @@ async function refreshLiveStatus() {
     return
   }
 
-  // Success! Swap the cloned students back in.
-  report.value.students = clonedStudents
+  // Success! Swap the refreshed students back in.
+  for (const refreshedStudent of queue) {
+    const idx = report.value.students.findIndex(s => s.github_login === refreshedStudent.github_login)
+    if (idx !== -1) {
+      report.value.students[idx] = refreshedStudent
+    }
+  }
 
   const refreshedAt = new Date().toISOString()
   liveRefreshedAt.value = refreshedAt
@@ -1109,6 +1159,10 @@ async function refreshLiveStatus() {
     }
     await syncDashboardAggregate(token)
     toast.success(`Live status updated for ${totalStudentsToRefresh.value} students (saved).`)
+    
+    // Clear selection after successful update
+    selectedLogins.value.clear()
+    selectedLogins.value = new Set()
   } catch (e) {
     console.error('Failed to persist report:', e)
     toast.error('Refreshed locally but save failed.')
