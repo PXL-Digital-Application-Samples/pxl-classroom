@@ -38,6 +38,7 @@ export async function ghApi(token, method, path, body = null) {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
+    ...(method === 'GET' ? { cache: 'no-store' } : {}),
   })
 
   if (res.status === 401 && token) handleSessionExpiry()
