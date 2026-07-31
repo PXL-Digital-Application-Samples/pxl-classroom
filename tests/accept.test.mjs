@@ -231,3 +231,165 @@ template:
   assert.equal(res.status, 1);
   assert.equal(res.outputs.outcome, "rejected:not-on-roster");
 });
+
+// --- roster_mode: open ------------------------------------------------------
+//
+// Restores the v1 "open acceptance" behaviour per assignment. The roster gate
+// is skipped; opens_at..deadline_at and max_acceptances remain the guardrails.
+
+test("roster_mode:open — accepts a login absent from the roster", () => {
+  const yaml = `state: published
+roster_mode: open
+repository_name_pattern: exam-{github_login}
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(res.outputs.target_repo, "exam-stranger");
+});
+
+test("roster_mode:open — accepts when no roster file exists at all", () => {
+  // The scaffold-default control repo case: a freshly created org has no
+  // students/roster.yml, which under enforced mode rejects everyone.
+  const yaml = `state: published
+roster_mode: open
+repository_name_pattern: exam-{github_login}
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(res.outputs.target_repo, "exam-stranger");
+});
+
+test("roster_mode:open — still enforces the deadline window", () => {
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const yaml = `state: published
+roster_mode: open
+deadline_at: "${past}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:past-deadline");
+});
+
+test("roster_mode:open — still enforces opens_at", () => {
+  const future = new Date(Date.now() + 86400000).toISOString();
+  const yaml = `state: published
+roster_mode: open
+opens_at: "${future}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:not-open");
+});
+
+test("roster_mode:open — still enforces max_acceptances", () => {
+  const yaml = `state: published
+roster_mode: open
+max_acceptances: 1
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true, acceptances: { "test-asgn": { "someone": { accepted_at: "2026-01-01" } } } }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:cap-reached");
+});
+
+test("roster_mode:open — still requires state: published", () => {
+  const yaml = `state: draft
+roster_mode: open
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:not-published");
+});
+
+test("roster_mode:open — idempotency still returns already-accepted", () => {
+  const yaml = `state: published
+roster_mode: open
+repository_name_pattern: exam-{github_login}
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true, acceptances: { "test-asgn": { "stranger": { accepted_at: "2026-01-01" } } } }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "already-accepted");
+  assert.equal(res.outputs.target_repo, "exam-stranger");
+});
+
+test("roster_mode:enforced — explicit value still gates on the roster", () => {
+  const yaml = `state: published
+roster_mode: enforced
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:not-on-roster");
+});
+
+test("roster_mode — unrecognised values fail closed (treated as enforced)", () => {
+  // Fail-closed matters: a typo must never silently open enrollment. Schema
+  // validation rejects these at save time; accept.mjs is the backstop for
+  // hand-edited YAML.
+  for (const bad of ["Open", "OPEN", "yes", "true", "", "none"]) {
+    const yaml = `state: published
+roster_mode: "${bad}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+    const res = runAccept(
+      { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+      { assignmentYaml: yaml }
+    );
+    assert.equal(res.status, 1, `roster_mode="${bad}" should not open enrollment`);
+    assert.equal(res.outputs.outcome, "rejected:not-on-roster", `roster_mode="${bad}"`);
+  }
+});
+
+test("roster_mode — absent value defaults to enforced (backward compatible)", () => {
+  const yaml = `state: published
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:no-roster");
+});

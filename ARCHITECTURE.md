@@ -107,7 +107,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 ### 4.2 Identity
 
 - **Lecturers** authenticate to the SPA via GitHub device flow against the Provisioner App. Authorization derives from organization ownership: any owner of an org where the App is installed is a lecturer in that org. The SPA reads control-repo data with the **lecturer's own token**; no per-user secret on the server side.
-- **Students** authenticate to the SPA via the same device flow. Acceptance is gated by roster registration: the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned.
+- **Students** authenticate to the SPA via the same device flow. Acceptance gating is per assignment, via `roster_mode`. Under `enforced` (the default) the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned. Under `open` any GitHub account may accept within the window and below the cap, and the lecturer reconciles `github_login` → student afterward; unrecognised `roster_mode` values fail closed to `enforced`.
 - **Automation** authenticates as the App, using short-lived per-org installation tokens minted at workflow runtime.
 
 ### 4.3 Bounded blast radius
@@ -186,6 +186,7 @@ timezone: Europe/Brussels
 submission_ref: refs/heads/main
 student_permission: admin             # pull|triage|push|maintain|admin
 acceptance_mode: self-service         # self-service|pre-provisioned
+roster_mode: enforced                 # enforced|open — who may accept (§15)
 late_policy: report                   # report|block
 state: published                      # draft|published|closed|archived
 max_acceptances: 150
@@ -318,8 +319,9 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 8. acceptance-handler.yml in the hub:
    a. Mints App token for inputs.org
    b. Checks out <org>/pxl-classroom-control
-   c. Runs ./acceptance — validates payload, checks roster registration, checks opens_at..deadline_at,
-      checks max_acceptances, writes acceptances/<id>/<login>.json
+   c. Runs ./acceptance — validates payload, checks roster registration (unless
+      roster_mode: open), checks opens_at..deadline_at, checks max_acceptances,
+      writes acceptances/<id>/<login>.json
    d. If accepted/already-accepted, runs ./provisioning — creates the repo
       from template (idempotent on existing) and grants student admin
    e. If provisioning failed, runs ./notify with event-type=provisioning-failed
@@ -624,7 +626,11 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 
 ## 15. Constraints accepted in v1
 
-- **Roster-gated acceptance.** Students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo. This prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
+- **Roster-gated acceptance, with a per-assignment opt-out.** By default (`roster_mode: enforced`) students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo, which prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
+
+  Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` → real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published — the alternative being an assignment that silently provisions nobody. The window and the cap remain the only guardrails, so keep `max_acceptances` tight on open assignments. Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
+
+  Open-mode acceptors appear in reports without roster metadata — `report/report.mjs` unions acceptances, repositories, observations and roster, so they are listed with `full_name`/`student_number`/`class_group` as `null` until the lecturer imports a roster or applies overrides.
 - **Lock-down is a deterrent, not tamper-proof.** A student who prepared beforehand may retain alternative write paths. Reports flag observed late activity; preservation captures the on-time SHA.
 - **No institutional verification.** A student could associate with the wrong roster entry. Lecturer review + overrides correct it. MS 365 / Entra ID verification is a v2 candidate and would be the only explicit exception to the GitHub-only constraint.
 - **Public broker is public.** Star activity is publicly visible. Acceptable.

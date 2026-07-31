@@ -212,7 +212,7 @@
             </p>
             <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
               <li>The assignment registration cap has been reached.</li>
-              <li>You are not on the lecturer's roster for this course.</li>
+              <li v-if="assignment?.roster_mode !== 'open'">You are not on the lecturer's roster for this course.</li>
               <li>GitHub is currently experiencing high load or rate limits.</li>
             </ul>
             <p class="text-secondary">

@@ -76,6 +76,9 @@ async function main() {
       deadline_at: def.deadline_at,
       timezone: def.timezone || "Europe/Brussels",
       acceptance_mode: def.acceptance_mode || "self-service",
+      // Policy flag, not student data — the SPA uses it to explain accurately
+      // why an acceptance may not complete. Never carries roster contents.
+      roster_mode: def.roster_mode === "open" ? "open" : "enforced",
       // Pattern is public — it's a template, not student data. SPA needs it
       // to compute the expected repo URL after acceptance (P0-10).
       repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,

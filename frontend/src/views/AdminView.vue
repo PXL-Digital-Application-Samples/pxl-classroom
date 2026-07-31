@@ -263,6 +263,22 @@
           <fieldset>
             <legend>Guardrails</legend>
             <div class="field">
+              <label>Who may accept</label>
+              <select v-model="form.roster_mode">
+                <option value="enforced">enforced: only students on the roster</option>
+                <option value="open">open: any GitHub account (exams, unknown cohort)</option>
+              </select>
+              <small v-if="form.roster_mode !== 'open'">
+                Students must appear in <code>students/roster.yml</code>. Import them under the
+                <strong>Roster</strong> tab — an empty roster means nobody can accept.
+              </small>
+              <small v-else class="text-warning">
+                <strong>Anyone</strong> with the link can claim a repo while the assignment is open.
+                The deadline window and the max-acceptances cap are the only limits — keep the cap tight,
+                and reconcile logins to students afterward.
+              </small>
+            </div>
+            <div class="field">
               <label>Max acceptances</label>
               <input type="number" v-model.number="form.max_acceptances" min="1" @input="touchedFields.max_acceptances = true" />
               <div v-if="touchedFields.max_acceptances && fieldErrors.max_acceptances" class="field-error-msg">{{ fieldErrors.max_acceptances }}</div>
@@ -888,6 +904,7 @@ function emptyForm() {
     submission_ref: 'refs/heads/main',
     student_permission: 'admin',
     acceptance_mode: 'self-service',
+    roster_mode: 'enforced',
     late_policy: 'report',
     state: 'draft',
     max_acceptances: 150,
@@ -1109,6 +1126,7 @@ function editAssignment(a) {
     submission_ref: a.submission_ref || 'refs/heads/main',
     student_permission: a.student_permission || 'admin',
     acceptance_mode: a.acceptance_mode || 'self-service',
+    roster_mode: a.roster_mode === 'open' ? 'open' : 'enforced',
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
     max_acceptances: a.max_acceptances ?? 150,
@@ -1198,6 +1216,7 @@ function buildDoc(state = null) {
     submission_ref: form.value.submission_ref || 'refs/heads/main',
     student_permission: form.value.student_permission,
     acceptance_mode: form.value.acceptance_mode,
+    roster_mode: form.value.roster_mode || 'enforced',
     late_policy: form.value.late_policy,
     state: state || form.value.state,
     ...(form.value.max_acceptances ? { max_acceptances: Number(form.value.max_acceptances) } : {}),
@@ -1231,6 +1250,14 @@ async function validate(state = null) {
   }
   if (form.value.max_acceptances === 0) {
     problems.push('Max acceptances must be at least 1 (leave the field empty for no cap).')
+  }
+  // Open enrollment removes the roster gate; an uncapped open assignment lets
+  // any GitHub account create unlimited repos from the template. Require the
+  // one guardrail that is left.
+  if (doc.roster_mode === 'open' && !doc.max_acceptances) {
+    problems.push(
+      'Open enrollment requires a max-acceptances cap — without the roster gate it is the only limit on who can claim a repo.',
+    )
   }
 
   validationErrors.value = problems
@@ -1548,11 +1575,16 @@ async function validateStudentLogin(login, assignmentId) {
     }
   } catch { /* ignored */ }
 
-  // 4. Try checking if user exists on GitHub via API
+  // 4. Try checking if user exists on GitHub via API.
+  //    Under roster_mode=open there is no roster to be absent from, so any
+  //    real GitHub account is a legitimate target for a retry/extension —
+  //    only a non-existent login is an error.
+  const openMode = form.value?.roster_mode === 'open'
   try {
     const userRes = await ghApi(token, 'GET', `/users/${login}`)
     if (userRes.ok) {
       const canonical = userRes.data?.login || login
+      if (openMode) return { valid: true, canonicalLogin: canonical }
       return { valid: false, reason: 'not_on_roster', canonicalLogin: canonical }
     } else if (userRes.status === 404) {
       return { valid: false, reason: 'not_exists' }

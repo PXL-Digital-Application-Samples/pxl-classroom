@@ -73,6 +73,36 @@ test("SPA-serialized YAML with autograde passes validateAgainst('assignment', ..
   assert.ok(valid, `SPA-serialized YAML with autograde should be valid, but got errors: ${JSON.stringify(errors)}`);
 });
 
+// The SPA's buildDoc() always emits roster_mode, and the schema is
+// additionalProperties:false — so an unlisted field would break every save.
+test("roster_mode accepts both enum values and rejects anything else", () => {
+  const base = {
+    schema_version: 1,
+    id: "exam-2026",
+    title: "Exam",
+    organization: "PXLAutomation",
+    template: { owner: "PXLAutomation", repository: "tpl" },
+    repository_name_pattern: "exam-{github_login}",
+    opens_at: "2026-09-21T06:00:00Z",
+    deadline_at: "2026-10-05T21:59:59Z",
+    state: "published",
+  };
+
+  for (const mode of ["enforced", "open"]) {
+    const { valid, errors } = validateAgainst("assignment", { ...base, roster_mode: mode });
+    assert.ok(valid, `roster_mode="${mode}" should be valid, got: ${JSON.stringify(errors)}`);
+  }
+
+  for (const bad of ["Open", "OPEN", "none", "", true, 1, null]) {
+    const { valid } = validateAgainst("assignment", { ...base, roster_mode: bad });
+    assert.ok(!valid, `roster_mode=${JSON.stringify(bad)} should be rejected by the schema`);
+  }
+
+  // Omitted entirely — still valid (defaults to enforced at read time).
+  const { valid } = validateAgainst("assignment", base);
+  assert.ok(valid, "roster_mode is optional");
+});
+
 test("assignment with default prefilled repository_name_pattern '{slug}-{github_login}' passes schema validation", () => {
   const spaSerialized = {
     schema_version: 1,

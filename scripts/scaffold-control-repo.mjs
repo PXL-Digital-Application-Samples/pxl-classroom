@@ -32,6 +32,11 @@ const ROSTER = `# PXL Classroom — student roster (schema v2).
 # acceptance/accept.mjs rejects any login that is not listed here
 # (rejected:not-on-roster), and rejects every student if this file is absent
 # (rejected:no-roster). An empty roster means nobody can accept.
+#
+# This gate applies to assignments with roster_mode: enforced (the default).
+# An assignment set to roster_mode: open — typically an exam whose cohort is
+# not known up front — skips it entirely; the deadline window and
+# max_acceptances are then the only guardrails.
 
 schema_version: 2
 students: []

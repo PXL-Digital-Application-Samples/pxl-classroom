@@ -99,6 +99,12 @@
       "default": "self-service",
       "description": "How student repos are created: self-service (star event) or pre-provisioned."
     },
+    "roster_mode": {
+      "type": "string",
+      "enum": ["enforced", "open"],
+      "default": "enforced",
+      "description": "Who may accept. 'enforced' (default) requires the student's login in students/roster.yml. 'open' allows any GitHub account within the opens_at..deadline_at window and below max_acceptances; the lecturer reconciles logins to students afterward."
+    },
     "late_policy": {
       "type": "string",
       "enum": ["report", "block"],

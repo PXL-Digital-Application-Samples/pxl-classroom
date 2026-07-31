@@ -558,6 +558,14 @@ All CLI commands query the control repo. If assignments or reports are queried t
 
 Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` — both safe for one-shot writes.
 
+#### Running an assignment without a roster
+
+An assignment whose cohort isn't known when you publish it — an exam, a workshop, an open lab — can skip the roster gate. In the Admin Panel's **Guardrails** section set **Who may accept** to `open` (equivalently, `roster_mode: open` in the YAML).
+
+Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits — keep the cap close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
+
+Symptom this fixes: with `roster_mode: enforced` (the default) and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
+
 ### 12.5 Auditing an org's install
 
 `pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA shows the same checks in the **System health** panel at the top of the dashboard.

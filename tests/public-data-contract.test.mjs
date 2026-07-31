@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -56,6 +56,38 @@ test("generate.mjs outputs assignments as an object keyed by ID", () => {
   assert.equal(a.id, "test-valid");
   assert.equal(a.title, "Test Valid Assignment"); // from valid-assignment.yml title
   assert.equal(a.state, "published"); // from valid-assignment.yml state
+});
+
+test("generate.mjs publishes roster_mode, defaulting to enforced", () => {
+  const scanner = join(here, "..", "pages", "scan.mjs");
+
+  const run = (yamlExtra) => {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-gen-rm-"));
+    const assignmentsDir = join(dir, "assignments");
+    mkdirSync(assignmentsDir);
+    const base = readFileSync(fix("valid-assignment.yml"), "utf8");
+    writeFileSync(join(assignmentsDir, "test-valid.yml"), base + yamlExtra);
+    const outDir = join(dir, "public");
+    const res = spawnSync("node", [generator], {
+      env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir },
+      encoding: "utf8",
+    });
+    assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+    const out = JSON.parse(readFileSync(join(outDir, "assignments.json"), "utf8"));
+    return { mode: out.assignments["test-valid"].roster_mode, outDir };
+  };
+
+  // Absent -> enforced; explicit open -> open; garbage -> fails closed.
+  assert.equal(run("").mode, "enforced");
+  assert.equal(run("\nroster_mode: open\n").mode, "open");
+  assert.equal(run("\nroster_mode: enforced\n").mode, "enforced");
+  assert.equal(run("\nroster_mode: Open\n").mode, "enforced");
+
+  // The field name contains "roster" — make sure publishing it does not trip
+  // the privacy gate, which would block every Pages deploy.
+  const { outDir } = run("\nroster_mode: open\n");
+  const scan = spawnSync("node", [scanner, outDir], { encoding: "utf8" });
+  assert.equal(scan.status, 0, `privacy scanner blocked roster_mode: ${scan.stdout}${scan.stderr}`);
 });
 
 test("generate.mjs outputs assignments as an empty object if no assignments directory exists", () => {
