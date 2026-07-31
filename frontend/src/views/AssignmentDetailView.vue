@@ -206,7 +206,7 @@
                 <td class="col-last-commit">
                   <template v-if="s.repo_url && latestSha(s)">
                     <div v-if="s.latest_observed_at" class="commit-time-top" :title="fmt(s.latest_observed_at)">
-                      {{ formatRelative(s.latest_observed_at, assignment?.timezone) }}
+                      {{ formatRelative(s.latest_observed_at) }}
                     </div>
                     <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
                       {{ latestSha(s).slice(0, 7) }}
@@ -231,7 +231,7 @@
                       </span>
                     </span>
                     <div class="tag-time text-muted" :title="fmt(s.tagged_submission_observed_at)">
-                      {{ formatRelative(s.tagged_submission_observed_at, assignment?.timezone) }}
+                      {{ formatRelative(s.tagged_submission_observed_at) }}
                     </div>
                   </template>
                   <span v-else class="text-muted untagged" title="No submit/ tag found">-</span>
@@ -313,7 +313,7 @@
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
               <div v-if="latestSha(s)" class="commit-row">
                 Last commit
-                <span v-if="s.latest_observed_at" :title="fmt(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at, assignment?.timezone) }}</span>
+                <span v-if="s.latest_observed_at" :title="fmt(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at) }}</span>
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
@@ -668,7 +668,7 @@ const deadlinePassed = computed(() => {
   if (!currentDeadline.value) return false
   return new Date(currentDeadline.value).getTime() < Date.now()
 })
-const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value, assignment.value?.timezone) : '')
+const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value) : '')
 const deadlineAbs = computed(() => {
   return currentDeadline.value ? fmt(currentDeadline.value) : ''
 })
@@ -880,7 +880,11 @@ function latestSha(s) {
   return s.latest_observed_sha || s.last_on_time_sha || null
 }
 
-function formatRelative(iso, timezone = null) {
+// Always a duration, never a date: the result is wrapped in "in …" / "… ago",
+// so an absolute date here reads as "in 30 Aug 2026". Every caller already
+// shows the exact timestamp alongside (the deadline card's label, or a title
+// tooltip), so this only ever needs to answer "how long?".
+function formatRelative(iso) {
   if (!iso) return ''
   const diffMs = Date.now() - new Date(iso).getTime()
   if (Number.isNaN(diffMs)) return ''
@@ -890,17 +894,9 @@ function formatRelative(iso, timezone = null) {
   let s
   if (abs < hr) s = `${Math.max(1, Math.round(abs / min))}m`
   else if (abs < day) s = `${Math.round(abs / hr)}h`
-  else if (abs < 30 * day) s = `${Math.round(abs / day)}d`
-  else {
-    try {
-      s = new Date(iso).toLocaleDateString('en-GB', {
-        timeZone: timezone || assignment.value?.timezone || 'Europe/Brussels',
-        day: 'numeric', month: 'short', year: 'numeric'
-      })
-    } catch {
-      s = new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-    }
-  }
+  else if (abs < 60 * day) s = `${Math.round(abs / day)}d`
+  else if (abs < 730 * day) s = `${Math.round(abs / (30 * day))}mo`
+  else s = `${Math.round(abs / (365 * day))}y`
   return future ? `in ${s}` : `${s} ago`
 }
 
