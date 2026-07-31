@@ -208,7 +208,12 @@ jobs:
           assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
 
+      # always(): lockdown demotes permissions through the API before preserve
+      # runs, so those facts are already true of the world — dropping them on a
+      # preserve failure loses the frozen snapshot and the attempt counter that
+      # find-finalizable uses to retry (and to stop retrying).
       - name: Commit + push
+        if: always()
         run: |
           set -e
           git -C control config user.name "pxl-classroom[bot]"
@@ -221,8 +226,15 @@ jobs:
   check-idle:
     needs: [aggregate-finalizable, finalize]
     # result check required: a skipped aggregate job yields a null output,
-    # and null == '0' is true under GitHub's numeric coercion
-    if: always() && needs.aggregate-finalizable.result == 'success' && needs.aggregate-finalizable.outputs.active_count == '0'
+    # and null == '0' is true under GitHub's numeric coercion.
+    # A failed finalize leg still has outstanding work (typically an unarchived
+    # submission). Disabling the workflow here would strand it forever, since
+    # nothing would re-run to retry — so stay enabled and let tomorrow's cron
+    # pick it up. It self-disables once the retry succeeds or hits the ceiling.
+    if: >-
+      always() && needs.aggregate-finalizable.result == 'success'
+      && needs.aggregate-finalizable.outputs.active_count == '0'
+      && needs.finalize.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       actions: write

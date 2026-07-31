@@ -221,9 +221,19 @@ When a student stars a broker, the central `acceptance-handler.yml` workflow run
 A single workflow, `daily-activity.yml`, runs at `0 0 * * *` UTC. For every participating org with active assignments, it:
 
 1. **Collects** observations for the configured submission ref of every accepted student.
-2. **Finds finalizable** assignments — those whose `deadline_at` has just passed and that have not yet been finalized.
+2. **Finds finalizable** assignments — those whose `deadline_at` has passed and whose finalize is not yet *complete*.
 3. **Finalizes** each one in a per-assignment matrix leg: `collect → lockdown → preserve → report`.
-4. **Disables itself** (`gh workflow disable daily-activity.yml`) if no active assignments remain.
+4. **Disables itself** (`gh workflow disable daily-activity.yml`) if no active assignments remain **and** no finalize leg failed.
+
+#### 6.2.1 Finalize is complete only when the submissions are archived
+
+The idempotency key is *not* "a lockdown record exists". A run that locked students down and then failed in `preserve` would otherwise be recorded as finished and never retried, leaving submissions permanently unarchived — which is exactly what happened on 2026-07-30. `find-finalizable.mjs` therefore re-queues a past-deadline assignment when its `lockdown-record.json` lists a student with a `snapshot_sha` but no verified `observations/<id>/<login>/preservation.json`.
+
+Three properties make that retry safe:
+
+- **Snapshots are frozen.** On a retry `lockdown.mjs` reuses each student's recorded `snapshot_sha` and `lockdown_at` instead of re-reading `HEAD`. Without this a late commit — pushed before the demotion propagated, or enabled by an extension — would silently replace the on-time submission. New students still get a fresh snapshot.
+- **Retries are capped.** `finalize_attempts` is incremented in the lockdown record; past `MAX_FINALIZE_ATTEMPTS` (3) the assignment is left alone with an explanatory log line, so a repo that can never be preserved (deleted, for instance) cannot burn a matrix leg every night. Reset the counter in the record to force another attempt.
+- **The record is always committed.** The `Commit + push` step runs `if: always()`, because lockdown has already demoted permissions through the API by that point; discarding the record would lose both the frozen snapshot and the attempt counter.
 
 There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queue.yml` — those were earlier cron-heavy designs that have been removed.
 

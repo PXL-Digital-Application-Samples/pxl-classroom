@@ -281,7 +281,15 @@ Possible causes:
 
 Check which step failed in the `Daily Activity & Deadline Check` run — the matrix runs one leg per (org, assignment).
 
-- **`3. Preserve` → `remote unpack failed: index-pack failed`.** The archive push sent an incomplete object graph. Fixed by fetching full history before pushing; if it reappears, verify `preserve/preserve.mjs` is not fetching with `--depth`. Submissions for that assignment were **not** archived — re-run the workflow after the fix; preservation is idempotent (`push --force` to a per-student ref).
+- **`3. Preserve` → `remote unpack failed: index-pack failed`.** The archive push sent an incomplete object graph. Fixed by fetching full history before pushing; if it reappears, verify `preserve/preserve.mjs` is not fetching with `--depth`. Submissions for that assignment were **not** archived — the next nightly run retries automatically (see below); preservation is idempotent (`push --force` to a per-student ref).
+
+**Failed finalizes retry themselves.** An assignment counts as finalized only once every locked-down student has a verified `preservation.json`, so a leg that locked down but failed to archive is re-queued on the next nightly run, and the workflow will not self-disable while a leg is failing. Retried snapshots are frozen — a student's late commit can never replace their on-time submission.
+
+Retries stop after 3 attempts (`finalize_attempts` in `lockdowns/<id>/lockdown-record.json`) so a permanently un-preservable repo does not run every night forever. The run log names the assignment and the pending students. After fixing the cause, force another attempt by editing that file and setting `finalize_attempts` back to `0`:
+
+```bash
+gh workflow run daily-activity.yml
+```
 - **`1. Collect` → `fail:no-repos`.** An assignment nobody accepted. No longer fails the run; if you still see it, the hub is on an older commit.
 - **Weekly usage 403 `Resource not accessible by integration`.** The manual `organization_plan: read` permission is not granted/accepted for that org (§10.6). The report now skips that org instead of failing.
 

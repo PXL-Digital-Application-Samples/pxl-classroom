@@ -85,6 +85,26 @@ async function readRepoRecords() {
   return records;
 }
 
+// --- Read a previous lockdown record (retry path) ----------------------------
+//
+// A finalize run can be retried — e.g. preservation failed and find-finalizable
+// re-queued the assignment. On a retry the deadline snapshot MUST NOT be taken
+// again: the student's HEAD may have moved on since (late pushes still land
+// until the demotion propagates, and a lecturer can grant an extension), and
+// re-snapshotting would silently replace the on-time submission with a later
+// commit. Prior snapshots are therefore frozen and reused verbatim.
+async function readPriorLockdown() {
+  try {
+    const raw = await readFile(
+      join(cfg.dataDir, "lockdowns", cfg.assignmentId, "lockdown-record.json"),
+      "utf8"
+    );
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 // --- Main --------------------------------------------------------------------
 async function main() {
   const bad = validate();
@@ -101,6 +121,19 @@ async function main() {
   const submissionRef = assignment.submission_ref || "refs/heads/main";
   const deadlineAt = assignment.deadline_at || null;
   log("assignment", { ok: true, note: `deadline_at=${deadlineAt} submission_ref=${submissionRef}` });
+
+  // 2b. Prior lockdown (retry path) — frozen snapshots, keyed by login
+  const prior = await readPriorLockdown();
+  const priorByLogin = new Map(
+    (prior?.results || []).filter((r) => r.github_login).map((r) => [r.github_login, r])
+  );
+  const attempt = (prior?.finalize_attempts ?? 0) + 1;
+  if (prior) {
+    log("prior-lockdown", {
+      ok: true,
+      note: `retry #${attempt} — reusing ${priorByLogin.size} frozen snapshot(s)`,
+    });
+  }
 
   // 3. Read repo records
   const records = await readRepoRecords();
@@ -132,11 +165,25 @@ async function main() {
         ? submissionRef.slice("refs/heads/".length)
         : repoRes.data.default_branch;
 
-      const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits/${branch}`);
-      const snapshotSha = commitRes.ok ? commitRes.data.sha : null;
+      // Frozen on retry: never re-snapshot a student who was already locked
+      // down, or a late commit would replace their on-time submission.
+      const priorRec = priorByLogin.get(login);
+      const frozen = !!priorRec?.snapshot_sha;
+      let snapshotSha;
+      if (frozen) {
+        snapshotSha = priorRec.snapshot_sha;
+        log(`lockdown ${login}`, {
+          ok: true,
+          note: `snapshot frozen from attempt #${prior.finalize_attempts ?? 1} (${snapshotSha.slice(0, 12)})`,
+        });
+      } else {
+        const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits/${branch}`);
+        snapshotSha = commitRes.ok ? commitRes.data.sha : null;
+      }
 
-      // Write the final observation
-      if (snapshotSha) {
+      // Write the final observation (only for a fresh snapshot — re-recording a
+      // frozen one would fabricate a second observation of the same fact)
+      if (snapshotSha && !frozen) {
         const now = new Date().toISOString();
         const observation = {
           schema_version: 1,
@@ -155,9 +202,11 @@ async function main() {
         await writeFile(join(obsDir, `${safeTs}.json`), JSON.stringify(observation, null, 2) + "\n");
       }
 
-      // 4b. Demote student to pull (read-only)
+      // 4b. Demote student to pull (read-only). Re-run on a retry too: it is
+      // idempotent and re-locks anyone who regained write access since.
       const demote = await gh("PUT", `/repos/${cfg.org}/${repoName}/collaborators/${login}`, { permission: "pull" });
-      const lockdownAt = new Date().toISOString();
+      // The lockdown instant is a historical fact — keep the original on retry.
+      const lockdownAt = frozen ? priorRec.lockdown_at : new Date().toISOString();
       if (!(demote.status === 204 || demote.status === 201)) {
         log(`lockdown ${login}`, { ok: false, note: `demote HTTP ${demote.status}` });
         errorCount++;
@@ -216,6 +265,11 @@ async function main() {
     assignment_id: cfg.assignmentId,
     deadline_at: deadlineAt,
     executed_at: new Date().toISOString(),
+    // First finalize is attempt 1. find-finalizable re-queues this assignment
+    // while preservation is incomplete, and stops once the ceiling is hit so a
+    // permanently un-preservable repo cannot burn a matrix leg every night.
+    finalize_attempts: attempt,
+    first_finalized_at: prior?.first_finalized_at || new Date().toISOString(),
     observer_run: cfg.runUrl,
     locked_count: lockedCount,
     error_count: errorCount,
