@@ -60,13 +60,30 @@ for (let d = new Date(WEEK_START + "T00:00:00Z"); d <= new Date(WEEK_END + "T23:
 }
 
 const allItems = [];
+// `organization_plan: read` is granted by hand in the App's settings (see
+// RUNBOOK §2) and an org owner may simply not have accepted it yet. That is a
+// configuration gap, not a broken run: report it and exit cleanly rather than
+// failing the weekly workflow every Sunday.
 for (const ym of monthsToFetch) {
   const [year, month] = ym.split("-");
-  const items = await ghAllItems(
-    `/organizations/${orgId}/settings/billing/usage?year=${year}&month=${month}`,
-    "usageItems",
-    ghOpts,
-  );
+  let items;
+  try {
+    items = await ghAllItems(
+      `/organizations/${orgId}/settings/billing/usage?year=${year}&month=${month}`,
+      "usageItems",
+      ghOpts,
+    );
+  } catch (err) {
+    if (/\b(403|404)\b/.test(err.message)) {
+      console.error(
+        `[skip] ${ORG}: billing usage unavailable (${err.message.slice(0, 120)}).\n` +
+        `       Grant the App the manual "Organization plan: read" permission and ` +
+        `have an org owner accept it — RUNBOOK §2. Skipping the usage report.`,
+      );
+      process.exit(0);
+    }
+    throw err;
+  }
   for (const item of items) {
     const day = (item.date || "").slice(0, 10);
     if (day >= WEEK_START && day <= WEEK_END) allItems.push(item);

@@ -186,7 +186,8 @@ timezone: Europe/Brussels
 submission_ref: refs/heads/main
 student_permission: admin             # pull|triage|push|maintain|admin
 acceptance_mode: self-service         # self-service|pre-provisioned
-roster_mode: enforced                 # enforced|open — who may accept (§15)
+roster_mode: enforced                 # enforced|open — who may accept (§15).
+                                      # open requires max_acceptances.
 late_policy: report                   # report|block
 state: published                      # draft|published|closed|archived
 max_acceptances: 150
@@ -628,7 +629,7 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 
 - **Roster-gated acceptance, with a per-assignment opt-out.** By default (`roster_mode: enforced`) students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo, which prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
 
-  Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` → real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published — the alternative being an assignment that silently provisions nobody. The window and the cap remain the only guardrails, so keep `max_acceptances` tight on open assignments. Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
+  Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` → real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published — the alternative being an assignment that silently provisions nobody. Because the roster gate is gone, `max_acceptances` becomes **mandatory** under `open` and is the binding limit — enforced by the schema, by the Admin Panel, and by `accept.mjs` (`fail:config`). Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
 
   Open-mode acceptors appear in reports without roster metadata — `report/report.mjs` unions acceptances, repositories, observations and roster, so they are listed with `full_name`/`student_number`/`class_group` as `null` until the lecturer imports a roster or applies overrides.
 - **Lock-down is a deterrent, not tamper-proof.** A student who prepared beforehand may retain alternative write paths. Reports flag observed late activity; preservation captures the on-time SHA.

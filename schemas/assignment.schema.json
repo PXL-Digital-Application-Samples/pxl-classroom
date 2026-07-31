@@ -15,6 +15,16 @@
     "deadline_at"
   ],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "$comment": "Open enrollment removes the roster gate, leaving max_acceptances as the only limit on who can claim a repo. It is therefore mandatory whenever roster_mode is open.",
+      "if": {
+        "properties": { "roster_mode": { "const": "open" } },
+        "required": ["roster_mode"]
+      },
+      "then": { "required": ["max_acceptances"] }
+    }
+  ],
   "properties": {
     "schema_version": {
       "type": "integer",

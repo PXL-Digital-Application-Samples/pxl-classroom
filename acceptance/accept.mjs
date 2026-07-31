@@ -108,9 +108,19 @@ async function main() {
   // treated as "enforced" so existing assignments stay roster-gated.
   const rosterMode = assignment.roster_mode === "open" ? "open" : "enforced";
   if (rosterMode === "open") {
+    // Open enrollment without a cap is unbounded: any GitHub account could
+    // claim repos from the template indefinitely. The schema requires the cap
+    // and the Admin Panel blocks saving without it; this is the backstop for
+    // hand-edited YAML, and it fails closed rather than provisioning.
+    if (!assignment.max_acceptances) {
+      await fail(
+        "fail:config",
+        `assignment has roster_mode: open without max_acceptances — open enrollment requires a cap, since it is the only remaining limit. Set max_acceptances in the assignment YAML.`
+      );
+    }
     log("roster", {
       ok: true,
-      note: `roster_mode=open — roster gate skipped (window + cap still enforced)`,
+      note: `roster_mode=open — roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
     });
   } else {
     const rosterPath = join(dataDir, "students", "roster.yml");

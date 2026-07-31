@@ -275,6 +275,15 @@ Possible causes:
   - *Lecturer Retry Flow:* The SPA validates the student login (against roster/records/reports/GitHub), checks if the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run.
 - **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button. If a student needs to accept outside the window, the lecturer must trigger a retry acceptance (which prompts to bypass window checks).
 - **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or via Admin Panel) or reject.
+- **The student is not on the roster.** Under the default `roster_mode: enforced` the acceptance is rejected server-side with `rejected:not-on-roster` (or `rejected:no-roster` if `students/roster.yml` is missing), and the student sits on "Setting up your repository…" until it times out — the SPA cannot read the private roster, so it can't say this directly. Confirm in the hub's Actions tab: the `Accept assignment` run for that student shows the rejection reason in its summary. Fix by importing the roster (§12.4) or, for an assignment with no fixed cohort, switching it to open enrollment (§12.4 → *Running an assignment without a roster*).
+
+### 6.3b Nightly finalize failed
+
+Check which step failed in the `Daily Activity & Deadline Check` run — the matrix runs one leg per (org, assignment).
+
+- **`3. Preserve` → `remote unpack failed: index-pack failed`.** The archive push sent an incomplete object graph. Fixed by fetching full history before pushing; if it reappears, verify `preserve/preserve.mjs` is not fetching with `--depth`. Submissions for that assignment were **not** archived — re-run the workflow after the fix; preservation is idempotent (`push --force` to a per-student ref).
+- **`1. Collect` → `fail:no-repos`.** An assignment nobody accepted. No longer fails the run; if you still see it, the hub is on an older commit.
+- **Weekly usage 403 `Resource not accessible by integration`.** The manual `organization_plan: read` permission is not granted/accepted for that org (§10.6). The report now skips that org instead of failing.
 
 ### 6.4 The nightly workflow is disabled and a student needs the dashboard updated
 
@@ -562,7 +571,7 @@ Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The C
 
 An assignment whose cohort isn't known when you publish it — an exam, a workshop, an open lab — can skip the roster gate. In the Admin Panel's **Guardrails** section set **Who may accept** to `open` (equivalently, `roster_mode: open` in the YAML).
 
-Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits — keep the cap close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
+Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits. The cap is therefore **required** with open enrollment — the form will not save without it, and `accept.mjs` rejects a hand-edited uncapped open assignment with `fail:config`. Keep it close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
 
 Symptom this fixes: with `roster_mode: enforced` (the default) and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 

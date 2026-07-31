@@ -165,7 +165,10 @@ async function main() {
 
     const records = await readRepoRecords(assignmentId);
     if (records.length === 0) {
-      if (cfg.assignmentId) await fail("fail:no-repos", `no repository records in repositories/${assignmentId}/`);
+      // An assignment nobody accepted is an empty population, not an error:
+      // failing here turned every nightly finalize red and buried real
+      // failures in the other matrix legs.
+      log("repo-records", { ok: true, note: `no repository records for ${assignmentId} — nothing to collect` });
       continue;
     }
     

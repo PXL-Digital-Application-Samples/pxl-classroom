@@ -139,8 +139,14 @@ async function main() {
 
       await mkdir(cloneDir);
       git(`init --bare`, { cwd: cloneDir });
-      git(`fetch --depth=1 "${srcUrl}" ${sourceSha}`, { cwd: cloneDir });
-      
+      // Full fetch, NOT --depth=1. A shallow fetch grafts away the commit's
+      // ancestors, so the pack we then push references objects the archive
+      // does not have and the remote rejects it with
+      //   "remote unpack failed: index-pack failed".
+      // That only bites once a student has more than the initial template
+      // commit, which is why shallow appeared to work at first.
+      git(`fetch --no-tags "${srcUrl}" ${sourceSha}`, { cwd: cloneDir });
+
       try {
         git(`cat-file -e ${sourceSha}`, { cwd: cloneDir });
       } catch {

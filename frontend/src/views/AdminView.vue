@@ -279,10 +279,13 @@
               </small>
             </div>
             <div class="field">
-              <label>Max acceptances</label>
+              <label>Max acceptances<span v-if="form.roster_mode === 'open'"> (required)</span></label>
               <input type="number" v-model.number="form.max_acceptances" min="1" @input="touchedFields.max_acceptances = true" />
               <div v-if="touchedFields.max_acceptances && fieldErrors.max_acceptances" class="field-error-msg">{{ fieldErrors.max_acceptances }}</div>
               <small v-if="form.max_acceptances">Hard cap on accepted students. Acceptances beyond this are rejected.</small>
+              <small v-else-if="form.roster_mode === 'open'" class="field-error-msg">
+                Required with open enrollment — without the roster gate this is the only limit on who can claim a repo.
+              </small>
               <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
             <div class="field checkbox">
@@ -753,6 +756,10 @@ const fieldErrors = computed(() => {
     if (Number.isNaN(val) || !Number.isInteger(val) || val < 1) {
       errors.max_acceptances = 'Max acceptances must be a positive integer (or empty for no cap).'
     }
+  } else if (form.value.roster_mode === 'open') {
+    // Open enrollment drops the roster gate, so the cap is the only limit left.
+    // Blocks Save (canSave watches fieldErrors), not just the submit handler.
+    errors.max_acceptances = 'Open enrollment requires a cap — set a maximum number of acceptances.'
   }
 
   return errors

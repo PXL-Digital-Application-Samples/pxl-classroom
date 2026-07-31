@@ -240,6 +240,7 @@ template:
 test("roster_mode:open — accepts a login absent from the roster", () => {
   const yaml = `state: published
 roster_mode: open
+max_acceptances: 50
 repository_name_pattern: exam-{github_login}
 template:
   owner: TestOrg
@@ -258,6 +259,7 @@ test("roster_mode:open — accepts when no roster file exists at all", () => {
   // students/roster.yml, which under enforced mode rejects everyone.
   const yaml = `state: published
 roster_mode: open
+max_acceptances: 50
 repository_name_pattern: exam-{github_login}
 template:
   owner: TestOrg
@@ -303,6 +305,23 @@ template:
   assert.equal(res.outputs.outcome, "rejected:not-open");
 });
 
+test("roster_mode:open — without max_acceptances fails closed", () => {
+  // Open enrollment drops the roster gate, so the cap is the only limit left
+  // on who can claim a repo. Schema + Admin Panel require it; this is the
+  // backstop for hand-edited YAML.
+  const yaml = `state: published
+roster_mode: open
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
+    { assignmentYaml: yaml, noRoster: true }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "fail:config");
+});
+
 test("roster_mode:open — still enforces max_acceptances", () => {
   const yaml = `state: published
 roster_mode: open
@@ -335,6 +354,7 @@ template:
 test("roster_mode:open — idempotency still returns already-accepted", () => {
   const yaml = `state: published
 roster_mode: open
+max_acceptances: 50
 repository_name_pattern: exam-{github_login}
 template:
   owner: TestOrg

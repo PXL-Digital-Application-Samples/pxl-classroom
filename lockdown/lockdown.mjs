@@ -104,8 +104,10 @@ async function main() {
 
   // 3. Read repo records
   const records = await readRepoRecords();
-  if (records.length === 0) await fail("fail:no-repos", `no repository records in repositories/${cfg.assignmentId}/`);
-  log("repo-records", { ok: true, note: `${records.length} student(s)` });
+  // Zero students is a valid population — the loop below no-ops and step 5
+  // still writes an empty lockdown-record.json, which preserve needs in order
+  // to report "no students to preserve" instead of fail:no-lockdowns.
+  log("repo-records", { ok: true, note: records.length ? `${records.length} student(s)` : "no repository records — nothing to lock down" });
 
   // 4. Lockdown each repo
   let lockedCount = 0;
