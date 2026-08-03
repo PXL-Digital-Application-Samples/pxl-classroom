@@ -151,6 +151,21 @@
               <div class="progress-bar-fill"></div>
             </div>
             <p class="text-muted">Checking every {{ pollInterval / 1000 }}s… (attempt {{ pollCount }})</p>
+
+            <!-- Students who are not already org members are added by invitation
+                 rather than granted directly, and this page cannot detect that:
+                 listing invitations needs an OAuth `repo` scope the student's
+                 App token does not carry. So offer the link rather than waiting
+                 out the full timeout. -->
+            <div v-if="pollCount >= 5 && invitationUrl" class="invitation-hint" role="status">
+              <p class="text-secondary">
+                Taking more than a few seconds? GitHub may be waiting for you to accept an
+                invitation to the repository.
+              </p>
+              <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary">
+                Accept your repository invitation
+              </a>
+            </div>
           </div>
 
           <!-- Repository ready -->
@@ -206,19 +221,35 @@
           <!-- Timeout state -->
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
-            <h2>Taking longer than expected</h2>
-            <p class="text-secondary">
-              The setup process is taking longer than expected. This could be due to:
-            </p>
+            <h2>One more step — accept your invitation</h2>
+
+            <!-- By far the most common cause, and the one this page cannot
+                 detect on its own (see the pending state). Lead with it. -->
+            <template v-if="invitationUrl">
+              <p class="text-secondary">
+                Your repository has almost certainly been created. Unless you are already a member of
+                <strong>{{ org }}</strong>, GitHub adds you by invitation — and it needs you to accept it
+                before you can see the repository.
+              </p>
+              <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
+                Accept your repository invitation
+              </a>
+              <p class="text-muted" style="margin-top: var(--space-sm);">
+                It is also waiting in your GitHub notifications and in the email GitHub sent you.
+                Once accepted, come back and press <strong>Check again</strong>.
+              </p>
+            </template>
+
+            <p class="text-secondary">Less commonly, setup can stall because:</p>
             <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
               <li>The assignment registration cap has been reached.</li>
               <li v-if="assignment?.roster_mode !== 'open'">You are not on the lecturer's roster for this course.</li>
               <li>GitHub is currently experiencing high load or rate limits.</li>
             </ul>
             <p class="text-secondary">
-              If your repository does not appear shortly, please contact your lecturer.
+              If your repository does not appear after accepting, please contact your lecturer.
             </p>
-            <button class="btn btn-primary" @click="checkAgain" :disabled="checkingAgain">
+            <button class="btn" @click="checkAgain" :disabled="checkingAgain">
               {{ checkingAgain ? 'Checking…' : 'Check again' }}
             </button>
           </div>
@@ -514,6 +545,19 @@ async function acceptAssignment() {
   }
   accepting.value = false
 }
+
+// Deterministic from the assignment's naming pattern, so it works even though
+// the invitation itself is invisible to us: GET /user/repository_invitations
+// needs an OAuth `repo` scope, and student tokens are GitHub App user tokens
+// with no scopes at all (see lib/auth.js). GitHub serves the accept/decline
+// page at /<owner>/<repo>/invitations, and simply redirects to the repo once
+// the student is already a collaborator — safe to show either way.
+const invitationUrl = computed(() => {
+  if (!assignment.value || !user.value?.login) return null
+  const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
+  const repo = pattern.replace('{github_login}', user.value.login)
+  return `https://github.com/${props.org}/${repo}/invitations`
+})
 
 // Poll for repo provisioning
 function startPolling() {
@@ -825,6 +869,19 @@ main {
   flex-direction: column;
   align-items: center;
   gap: var(--space-md);
+}
+
+/* Surfaced mid-poll once waiting stops being the likely explanation. */
+.invitation-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  max-width: 480px;
 }
 
 .progress-bar {
