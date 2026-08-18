@@ -122,6 +122,14 @@
             "format": "date-time",
             "description": "Actual author/committer timestamp of the latest commit."
           },
+          "commit_message": {
+            "type": ["string", "null"],
+            "description": "Commit message of the latest observed commit."
+          },
+          "latest_commit_message": {
+            "type": ["string", "null"],
+            "description": "Commit message of the latest observed commit."
+          },
           "commit_count": {
             "type": ["integer", "null"],
             "minimum": 0,

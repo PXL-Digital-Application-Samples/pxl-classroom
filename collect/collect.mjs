@@ -207,6 +207,7 @@ async function main() {
         const latestCommit = commits[0];
         const sha = latestCommit.sha;
         const commitDate = latestCommit.commit?.committer?.date || latestCommit.commit?.author?.date || null;
+        const commitMessage = latestCommit.commit?.message || null;
 
         let commitCount = commits.length;
         const link = commitRes.headers?.get?.("link");
@@ -227,6 +228,7 @@ async function main() {
           sha: sha,
           commit_count: commitCount,
           commit_date: commitDate,
+          commit_message: commitMessage,
           observer_run: cfg.runUrl,
           collection_type: env("COLLECTION_TYPE", "scheduled"),
         };

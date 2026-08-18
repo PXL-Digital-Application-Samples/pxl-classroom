@@ -167,15 +167,15 @@
                 <th @click="sortBy('latest_observed_at')" @keydown.enter="sortBy('latest_observed_at')" @keydown.space.prevent="sortBy('latest_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('latest_observed_at')">
                   <span class="th-label">Last commit<SortIcon :dir="sortDir('latest_observed_at')" /></span>
                 </th>
-                <th @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
-                  <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
-                </th>
                 <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')">
                   <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
                 <th v-if="isGitHubActionsAutograde" class="col-ci">CI Status</th>
                 <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
                 <th class="col-warnings">Warnings</th>
+                <th @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
+                  <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
+                </th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -202,33 +202,12 @@
                     <div v-if="commitTime(s)" class="commit-time-top" :title="fmt(commitTime(s))">
                       {{ formatRelative(commitTime(s)) }}
                     </div>
-                    <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
+                    <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha" :title="commitMsg(s) || `Commit ${latestSha(s)}`">
                       {{ latestSha(s).slice(0, 7) }}
                     </a>
                   </template>
                   <span v-else-if="s.repo_url" class="text-muted">no commits</span>
                   <span v-else class="text-muted">-</span>
-                </td>
-                <td class="col-submit-tag">
-                  <template v-if="s.tagged_submission_tag">
-                    <span class="tag-row">
-                      <Icon name="tag" :size="13" class="tag-icon" />
-                      <a v-if="s.repo_url && s.tagged_submission_sha"
-                         :href="`${s.repo_url}/tree/${encodeURIComponent(s.tagged_submission_tag)}`"
-                         target="_blank"
-                         class="mono tag-link"
-                         :title="`Tag observed ${fmt(s.tagged_submission_observed_at)} · declared ${fmt(s.tagged_submission_declared_at)}`">
-                        {{ shortTag(s.tagged_submission_tag) }}
-                      </a>
-                      <span v-else class="mono tag-link" :title="fmt(s.tagged_submission_observed_at)">
-                        {{ shortTag(s.tagged_submission_tag) }}
-                      </span>
-                    </span>
-                    <div class="tag-time text-muted" :title="fmt(s.tagged_submission_observed_at)">
-                      {{ formatRelative(s.tagged_submission_observed_at) }}
-                    </div>
-                  </template>
-                  <span v-else class="text-muted untagged" title="No submit/ tag found">-</span>
                 </td>
                 <td class="num">
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
@@ -253,6 +232,27 @@
                     </span>
                   </div>
                   <span v-else class="text-muted">-</span>
+                </td>
+                <td class="col-submit-tag">
+                  <template v-if="s.tagged_submission_tag">
+                    <span class="tag-row">
+                      <Icon name="tag" :size="13" class="tag-icon" />
+                      <a v-if="s.repo_url && s.tagged_submission_sha"
+                         :href="`${s.repo_url}/tree/${encodeURIComponent(s.tagged_submission_tag)}`"
+                         target="_blank"
+                         class="mono tag-link"
+                         :title="`Tag observed ${fmt(s.tagged_submission_observed_at)} · declared ${fmt(s.tagged_submission_declared_at)}`">
+                        {{ shortTag(s.tagged_submission_tag) }}
+                      </a>
+                      <span v-else class="mono tag-link" :title="fmt(s.tagged_submission_observed_at)">
+                        {{ shortTag(s.tagged_submission_tag) }}
+                      </span>
+                    </span>
+                    <div class="tag-time text-muted" :title="fmt(s.tagged_submission_observed_at)">
+                      {{ formatRelative(s.tagged_submission_observed_at) }}
+                    </div>
+                  </template>
+                  <span v-else class="text-muted untagged" title="No submit/ tag found">-</span>
                 </td>
                 <td class="col-actions">
                   <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
@@ -307,7 +307,7 @@
               <div v-if="latestSha(s)" class="commit-row">
                 Last commit
                 <span v-if="commitTime(s)" :title="fmt(commitTime(s))">{{ formatRelative(commitTime(s)) }}</span>
-                <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
+                <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted" :title="commitMsg(s) || `Commit ${latestSha(s)}`">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
               <div v-if="isGitHubActionsAutograde" class="commit-row" style="margin-top: var(--space-xs, 4px); align-items: center;">
@@ -844,6 +844,10 @@ function commitTime(s) {
   return s.commit_date || s.latest_commit_date || s.latest_observed_at || null
 }
 
+function commitMsg(s) {
+  return s.commit_message || s.latest_commit_message || null
+}
+
 // Always a duration, never a date: the result is wrapped in "in …" / "… ago",
 // so an absolute date here reads as "in 30 Aug 2026". Every caller already
 // shows the exact timestamp alongside (the deadline card's label, or a title
@@ -993,6 +997,7 @@ async function refreshOne(token, s) {
       const commit = res.data[0]
       const sha = commit.sha
       const commitDate = commit.commit?.committer?.date || commit.commit?.author?.date || null
+      const commitMessage = commit.commit?.message || null
 
       // Source of truth for the deadline: per-student override (already on
       // the record), else the current assignment YAML's deadline_at. Fixes
@@ -1004,6 +1009,8 @@ async function refreshOne(token, s) {
 
       s.commit_date = commitDate
       s.latest_commit_date = commitDate
+      s.commit_message = commitMessage
+      s.latest_commit_message = commitMessage
       s.latest_observed_sha = sha
       s.latest_observed_at = new Date().toISOString()
 
