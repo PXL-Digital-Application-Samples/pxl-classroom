@@ -172,8 +172,8 @@
                 </th>
                 <th v-if="isGitHubActionsAutograde" class="col-ci">CI Status</th>
                 <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
-                <th class="col-warnings">Warnings</th>
-                <th @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
+                <th v-if="hasWarnings" class="col-warnings">Warnings</th>
+                <th v-if="hasSubmitTags" @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
                   <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
                 </th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
@@ -225,7 +225,7 @@
                   </template>
                   <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">- pending</span>
                 </td>
-                <td class="col-warnings">
+                <td v-if="hasWarnings" class="col-warnings">
                   <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
                     <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs" :title="getWarningDesc(w)">
                       {{ getWarningLabel(w) }}
@@ -233,7 +233,7 @@
                   </div>
                   <span v-else class="text-muted">-</span>
                 </td>
-                <td class="col-submit-tag">
+                <td v-if="hasSubmitTags" class="col-submit-tag">
                   <template v-if="s.tagged_submission_tag">
                     <span class="tag-row">
                       <Icon name="tag" :size="13" class="tag-icon" />
@@ -576,10 +576,20 @@ const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'gith
 // extensions are visible (and inspectable before granting again).
 const overridesByLogin = ref(new Map())
 
-// Base columns: login, acceptance, status, repo, last commit, submit tag,
-// commits, warnings, actions — plus the two conditional columns.
+// Base columns: login, acceptance, status, repo, last commit,
+// commits, actions — plus the four conditional columns (CI, Feedback PR, Warnings, Submit tag).
+const hasWarnings = computed(() =>
+  (report.value?.students || []).some(s => s.warnings && s.warnings.length > 0))
+
+const hasSubmitTags = computed(() =>
+  (report.value?.students || []).some(s => !!s.tagged_submission_tag))
+
 const tableColumnCount = computed(() =>
-  9 + (isGitHubActionsAutograde.value ? 1 : 0) + (feedbackPrEnabled.value ? 1 : 0))
+  7 +
+  (isGitHubActionsAutograde.value ? 1 : 0) +
+  (feedbackPrEnabled.value ? 1 : 0) +
+  (hasWarnings.value ? 1 : 0) +
+  (hasSubmitTags.value ? 1 : 0))
 
 function extensionFor(login) {
   const doc = overridesByLogin.value.get(login)
