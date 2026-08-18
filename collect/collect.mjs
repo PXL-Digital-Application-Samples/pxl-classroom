@@ -216,8 +216,29 @@ async function main() {
           if (m) commitCount = parseInt(m[1], 10);
         }
 
-        const authorName = latestCommit.commit?.author?.name || null;
-        const authorEmail = latestCommit.commit?.author?.email || null;
+        let authorName = latestCommit.commit?.author?.name || null;
+        let authorEmail = latestCommit.commit?.author?.email || null;
+
+        const isBotName = (str) => {
+          if (!str) return false;
+          const s = str.toLowerCase();
+          return s.includes("[bot]") || s.includes("provisioner") || s === "github" || s === "web-flow";
+        };
+
+        if (isBotName(authorName)) authorName = null;
+        if (authorEmail && authorEmail.includes("noreply.github.com")) authorEmail = null;
+
+        if (!authorName || !authorEmail) {
+          try {
+            const userRes = await gh("GET", `/users/${login}`);
+            if (userRes.ok && userRes.data) {
+              if (!authorName && userRes.data.name) authorName = userRes.data.name;
+              if (!authorEmail && userRes.data.email) authorEmail = userRes.data.email;
+            }
+          } catch {
+            // non-fatal
+          }
+        }
 
         const now = new Date().toISOString();
         const observation = {
