@@ -121,11 +121,10 @@ function relativeTime(iso) {
 
 <style scoped>
 .health-panel {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-md) var(--space-lg);
-  margin-bottom: var(--space-lg);
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
 }
 .health-head {
   display: flex;

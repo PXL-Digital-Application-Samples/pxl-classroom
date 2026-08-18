@@ -11,11 +11,22 @@
           </router-link>
           <h1>Dashboard</h1>
         </div>
-        <div class="header-right flex items-center gap-md">
+        <div class="header-right flex items-center gap-sm">
           <select v-if="orgs.length > 0" v-model="selectedOrg" class="org-select" aria-label="Select organization">
             <option value="">Select organization…</option>
             <option v-for="org in orgs" :key="org.login" :value="org.login">{{ org.login }}</option>
           </select>
+          <button
+            v-if="selectedOrg"
+            type="button"
+            class="btn btn-sm btn-with-icon health-btn"
+            @click="showHealthModal = true"
+            title="System Health & Diagnostics"
+            aria-label="System Health"
+          >
+            <Icon name="activity" :size="14" />
+            <span>Health</span>
+          </button>
           <UserBadge :user="user" @logout="handleLogout" />
         </div>
       </div>
@@ -171,8 +182,22 @@
             </div>
           </router-link>
         </div>
+      </div>
 
-        <SystemHealth :org="selectedOrg" style="margin-top: var(--space-xl);" />
+      <!-- Health Diagnostics Modal -->
+      <div v-if="showHealthModal" class="modal-overlay" @click.self="showHealthModal = false">
+        <div class="modal health-modal" role="dialog" aria-modal="true" :aria-label="`System Health for ${selectedOrg}`">
+          <header class="modal-head">
+            <div class="flex items-center gap-sm">
+              <Icon name="activity" :size="18" />
+              <h3 style="margin: 0;">System Health: <code>{{ selectedOrg }}</code></h3>
+            </div>
+            <button class="modal-close" type="button" @click="showHealthModal = false" aria-label="Close">×</button>
+          </header>
+          <div class="modal-body">
+            <SystemHealth :org="selectedOrg" />
+          </div>
+        </div>
       </div>
     </main>
   </div>
@@ -184,6 +209,7 @@ import { useRouter, useRoute } from 'vue-router'
 import UserBadge from '../components/UserBadge.vue'
 import SystemHealth from '../components/SystemHealth.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
+import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getRepoContent, getRepo, listRepoDir } from '../lib/api.js'
@@ -204,6 +230,7 @@ const loadingData = ref(false)
 const authLoading = ref(false)
 const authError = ref(null)
 const deviceFlow = ref(null)
+const showHealthModal = ref(false)
 let pollAbort = null
 
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
@@ -537,8 +564,82 @@ main {
 .text-secondary { color: var(--text-secondary); }
 .text-muted { color: var(--text-muted); }
 
+.health-btn {
+  padding: 6px 11px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.health-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-hover, var(--border-default));
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-md);
+  backdrop-filter: blur(4px);
+}
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 620px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.health-modal .modal-head {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-tertiary);
+}
+.health-modal .modal-head h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.health-modal .modal-head code {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0 var(--space-xs);
+}
+.modal-close:hover {
+  color: var(--text-primary);
+}
+.health-modal .modal-body {
+  padding: var(--space-lg);
+  overflow-y: auto;
+}
+
 @media (max-width: 640px) {
-  .header-right { flex-direction: column; gap: var(--space-sm); }
-  .org-select { min-width: 160px; }
+  .header-right { flex-direction: column; gap: var(--space-sm); align-items: stretch; }
+  .org-select { min-width: 160px; width: 100%; }
+  .health-btn { justify-content: center; }
 }
 </style>
