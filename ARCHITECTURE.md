@@ -433,9 +433,9 @@ The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `
 |---|---|---|
 | `/` | `HomeView` | Public — lists open assignments grouped by org from `/data/<org>/assignments.json` |
 | `/:org/a/:assignmentId` | `AssignmentView` | Student — accept flow, polling, repo link |
-| `/dashboard/:org?` | `DashboardView` | Lecturer — org picker (from `/user/installations`), then assignment list |
+| `/dashboard/:org?` | `DashboardView` | Lecturer — org picker (from `/user/installations`) with System Health audit check modal, then assignment list |
 | `/dashboard/:org/admin` | `AdminView` | Lecturer — Admin Panel: create assignment, publish, grant extension |
-| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer — per-assignment detail + per-student table |
+| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer — per-assignment detail + per-student table with smart hover tooltips |
 | `/dashboard/:org/usage` | `UsageView` | Lecturer — per-org weekly usage report |
 | `/usage` | `UsageOverviewView` | Lecturer — cross-org usage aggregate |
 | `/setup` | `SetupView` | Admin — App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
@@ -444,7 +444,7 @@ A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pag
 
 ### 10.2 Authentication
 
-GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. There is **no client secret in the browser** — device flow is a public-client flow.
+GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** — device flow is a public-client flow.
 
 The App needs the following permissions. Five are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
 
@@ -457,6 +457,7 @@ The App needs the following permissions. Five are declared in the manifest at `f
 | `secrets: write` | ✔ | Set per-broker / per-control-repo Actions secrets during provisioning. |
 | `organization_plan: read` | ✗ manual | Enhanced Billing endpoint used by the weekly usage report. |
 | `starring: write` (account) | ✗ manual | Students star the broker to trigger acceptance. User-level permission. |
+| `email addresses: read` (account) | ✗ optional | Read student verified primary email upon acceptance/login. |
 
 **A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly — every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
 
@@ -468,7 +469,7 @@ The App needs the following permissions. Five are declared in the manifest at `f
 
 What a leaked lecturer token grants: the intersection of the table above with the user's GitHub permissions on installed orgs. In practice for an org owner that is contents/admin/secrets/actions write on every repo the App is installed on. The `actions: write` delta on top of the existing write permissions is small in marginal terms — workflows are public, inputs are validated, and the dispatch attack surface is bounded by what those workflows are designed to do. Token lifetime is 8 hours; lecturers can revoke at any time at `https://github.com/settings/applications`.
 
-Student tokens, which only have Account/Starring write granted at OAuth time, remain essentially harmless (worst case: mass-star on the student's behalf for ≤ 8 hours).
+Student tokens, which only have Account/Starring write and email read granted at OAuth time, remain essentially harmless (worst case: mass-star on the student's behalf for ≤ 8 hours).
 
 For PXL's classroom threat model, this is acceptable. If the deployment ever handles higher-value data (e.g. graded assignments worth credit transferable to another institution), swap the proxy to a self-hosted one or a Cloudflare Worker — both are drop-in replacements via `VITE_CORS_PROXY_URL`.
 
@@ -479,7 +480,7 @@ A regression guard test (`tests/cors.test.mjs`) fails CI if `auth.js` ever direc
 - **Public assignment list:** static Pages JSON at `/data/<org>/assignments.json`, fetched from the hub Pages site. The build pipeline gathers these files from each participating organization's control repository using `scripts/fetch-pages-data.mjs` before constructing the SPA, while `pages/generate.mjs` outputs the object format keyed by ID in the control repo.
 - **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch — not N per-student calls.
 - **Student status:** the student's own token reads `/repos/<org>/<expected-name>` and `/user/repository_invitations` — never the control repo.
-- **Refresh / Live Status (Admin UI).** The per-assignment detail view exposes a "Refresh" button that re-queries `/repos/<org>/<repo>/commits?per_page=1` for each provisioned student (concurrency 6) and recomputes `submission_status` against `effective_deadline_at` with nightly semantics: a post-deadline commit never downgrades a student who has an on-time submission on record (it records `first_late_sha`, not a `late` status). The updated `reports/<id>.json` is committed back to the control repo with `live_refreshed_at` + `live_refreshed_by` set — but only when every student refreshed successfully; a partial refresh (rate limit, transient errors) is surfaced and not persisted. The next nightly `export-report` run replaces the file from authoritative observations. Backend `collect/collect.mjs` also gathers `commit_count` and `commit_date` via Link headers during scheduled runs so static reports populate commit counts automatically. Counts against the lecturer's own GitHub REST quota, which is read dynamically via `/rate_limit` and shown in the action bar. The view's CSV export is generated client-side from the report currently on screen (same columns as the nightly CSV), so it always matches the table.
+- **Refresh / Live Status & Student Hover Tooltips (AssignmentDetailView).** The per-assignment detail view exposes a "Refresh" button that re-queries `/repos/<org>/<repo>/commits?per_page=1` for each provisioned student (concurrency 6) and recomputes `submission_status` against `effective_deadline_at` with nightly semantics: a post-deadline commit never downgrades a student who has an on-time submission on record (it records `first_late_sha`, not a `late` status). Refresh also captures `author_name` and `author_email` from commit objects. Hovering over a student's username renders a smart tooltip resolving identity across a 4-tier hierarchy: (1) institutional roster (`students/roster.yml`), (2) Git commit author email/name (prioritizing real email, suppressing noreply addresses and bot names), (3) GitHub public user profile (`GET /users/{login}`, batched in the background without blocking render), and (4) clean fallback. The updated `reports/<id>.json` is committed back to the control repo with `live_refreshed_at` + `live_refreshed_by` set — but only when every student refreshed successfully; a partial refresh (rate limit, transient errors) is surfaced and not persisted. Backend `collect/collect.mjs` also gathers `commit_count`, `commit_date`, `author_name`, and `author_email` during scheduled runs so static reports populate automatically. The view's CSV export is generated client-side from the report currently on screen, matching the table.
 
 The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated Pages artifact contains roster fields, emails, tokens, or keys, the workflow fails and nothing is deployed.
 

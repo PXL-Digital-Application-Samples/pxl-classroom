@@ -21,9 +21,10 @@ GitHub → `pxl-classroom` → Settings → Pages → Source: **GitHub Actions**
    - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Metadata R**, **Secrets RW**.
    - Device Flow: enabled.
 3. Confirm on GitHub's page. GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** — store them per §1.3 immediately. (If the exchange fails — the code is single-use and expires after one hour — the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
-4. Two additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
+4. Additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
    - Organization: **Plan: Read** — required for the weekly usage report (Enhanced Billing endpoint, see §10).
    - Account: **Starring RW** — required so students can star the broker to trigger acceptance.
+   - Account: **Email addresses: Read** (optional) — allows reading verified student emails during acceptance/login.
 
 ### 1.3 Set hub secrets
 
