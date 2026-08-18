@@ -127,7 +127,7 @@
             <div class="link-share-row">
               <div class="link-box">
                 <span class="link-text">{{ shareableLink }}</span>
-                <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student accept link">
+                <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
                   <Icon name="copy" :size="12" />
                   <span>Copy Link</span>
                 </button>
@@ -460,7 +460,7 @@
               </button>
               <button v-if="form.state === 'published'" class="btn btn-warning btn-with-icon" type="button" @click="copyAcceptLink">
                 <Icon name="copy" :size="14" />
-                <span>Copy accept link</span>
+                <span>Copy invitation link</span>
               </button>
               <button v-if="form.state === 'draft'" class="btn btn-danger" type="button" @click="deleteDraft" :disabled="deleting">
                 {{ deleting ? 'Deleting…' : 'Delete draft' }}
@@ -473,8 +473,8 @@
             </div>
             <div v-else-if="publishWatch === 'ready'" class="publish-watch publish-ready">
               <Icon name="check-circle" :size="15" />
-              <span>Assignment is live. The accept link works now.</span>
-              <button class="link-btn" type="button" @click="copyAcceptLink">Copy accept link</button>
+              <span>Assignment is live. The invitation link works now.</span>
+              <button class="link-btn" type="button" @click="copyAcceptLink">Copy invitation link</button>
             </div>
             <div v-else-if="publishWatch === 'timeout'" class="publish-watch">
               <span class="text-warning">
@@ -1440,7 +1440,7 @@ function stopPublishWatch() {
 
 function copyAcceptLink() {
   navigator.clipboard.writeText(shareableLink.value).then(
-    () => toast.success(`Accept link copied: ${shareableLink.value}`),
+    () => toast.success(`Invitation link copied: ${shareableLink.value}`),
     () => toast.error('Could not copy link'),
   )
 }

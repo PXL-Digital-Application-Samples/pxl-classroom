@@ -144,7 +144,7 @@
             </button>
             <button class="btn btn-warning btn-with-icon" @click="copyAcceptLink">
               <Icon name="copy" :size="14" />
-              <span>Copy accept link</span>
+              <span>Copy invitation link</span>
             </button>
           </div>
         </div>
@@ -914,7 +914,7 @@ function copyAcceptLink() {
   // Route shape is /:org/a/:assignmentId — the org segment is required.
   const link = `${base}${props.org}/a/${props.assignmentId}`
   navigator.clipboard.writeText(link).then(
-    () => toast.success(`Accept link copied: ${link}`),
+    () => toast.success(`Invitation link copied: ${link}`),
     () => toast.error('Could not copy link'),
   )
 }
