@@ -276,7 +276,7 @@ import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi } from '../lib/api.js'
+import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent, commitFile } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
@@ -427,6 +427,29 @@ async function refreshSubmitTag(org, repoName) {
   }
 }
 
+async function recordStudentProfile(token, org, repoName) {
+  if (!token || !user.value?.login) return
+  if (!user.value.email && !user.value.name) return
+  try {
+    const existing = await getRepoContent(token, org, repoName, '.pxl/student.json')
+    if (existing) return
+    const body = JSON.stringify(
+      {
+        schema_version: 1,
+        login: user.value.login,
+        name: user.value.name || null,
+        email: user.value.email || null,
+        accepted_at: new Date().toISOString(),
+      },
+      null,
+      2,
+    ) + '\n'
+    await commitFile(token, org, repoName, '.pxl/student.json', body, 'Record student acceptance profile (.pxl/student.json)')
+  } catch (e) {
+    console.debug('Failed to write .pxl/student.json:', e)
+  }
+}
+
 // Check if the user already has a repo for this assignment
 async function checkExistingState() {
   const token = getToken()
@@ -443,6 +466,7 @@ async function checkExistingState() {
     repoFullName.value = repo.data.full_name
     acceptState.value = 'provisioned'
     await refreshSubmitTag(org, expectedName)
+    recordStudentProfile(token, org, expectedName)
     return
   }
 
@@ -579,6 +603,7 @@ function startPolling() {
       repoFullName.value = repo.data.full_name
       acceptState.value = 'provisioned'
       await refreshSubmitTag(org, expectedName)
+      recordStudentProfile(token, org, expectedName)
       return
     }
 

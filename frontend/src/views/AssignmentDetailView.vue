@@ -1164,6 +1164,20 @@ async function refreshOne(token, s) {
         s.author_email = authorEmail
       }
 
+      if (!s.author_email || s.author_email.includes('noreply.github.com')) {
+        try {
+          const repoOnly = s.repo_name.includes('/') ? s.repo_name.split('/')[1] : s.repo_name
+          const pxlContent = await getRepoContent(token, props.org, repoOnly, '.pxl/student.json')
+          if (pxlContent) {
+            const parsed = JSON.parse(pxlContent)
+            if (parsed.email && !parsed.email.includes('noreply.github.com')) s.author_email = parsed.email
+            if (parsed.name && !isBot(parsed.name)) s.author_name = parsed.name
+          }
+        } catch {
+          // non-fatal
+        }
+      }
+
       const isUnstarted = (s.commit_count != null ? s.commit_count <= 1 : false) && !s.tagged_submission_tag
       if (isUnstarted) {
         s.submission_status = 'no-submission'
