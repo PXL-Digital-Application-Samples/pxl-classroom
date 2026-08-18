@@ -112,8 +112,6 @@
 
       <!-- Assignment grid -->
       <div v-else class="fade-in">
-        <SystemHealth :org="selectedOrg" />
-
         <div class="flex items-center justify-between" style="margin-bottom: var(--space-md);">
           <div class="flex items-center gap-md">
             <h2 style="margin: 0; font-size: 1.25rem;">Assignments</h2>
@@ -173,6 +171,8 @@
             </div>
           </router-link>
         </div>
+
+        <SystemHealth :org="selectedOrg" style="margin-top: var(--space-xl);" />
       </div>
     </main>
   </div>
