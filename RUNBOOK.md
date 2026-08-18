@@ -264,7 +264,7 @@ To restore:
 1. Admin Panel → **Grant Deadline Extension**.
 2. Fill: assignment ID, student login, new deadline, reason.
 3. The Admin Panel validates the student login against the roster, repository records, daily reports, or GitHub `/users/<login>` API, and then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`).
-4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Live Status refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
+4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
 
 ### 6.3 Student says "I clicked Accept but nothing happened"
 

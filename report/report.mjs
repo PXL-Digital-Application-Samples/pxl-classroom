@@ -148,6 +148,7 @@ async function main() {
     let firstLateObservedAt = null;
     let latestObservedSha = null;
     let latestObservedAt = null;
+    let latestCommitCount = null;
     let uncertaintySeconds = null;
 
     // Tagged-submission observations are tracked separately so the UI can
@@ -158,6 +159,10 @@ async function main() {
     for (const obs of observations) {
       // Skip preservation records
       if (obs.collection_type === "preservation") continue;
+
+      if (obs.commit_count != null) {
+        latestCommitCount = obs.commit_count;
+      }
 
       if (obs.type === "tagged-submission") {
         if (!latestTagObservation || new Date(obs.observed_at) > new Date(latestTagObservation.observed_at)) {
@@ -262,6 +267,7 @@ async function main() {
       first_late_observed_at: firstLateObservedAt,
       latest_observed_sha: latestObservedSha,
       latest_observed_at: latestObservedAt,
+      commit_count: latestCommitCount ?? null,
       uncertainty_interval_seconds: uncertaintySeconds,
       tagged_submission_tag: latestTagObservation?.tag ?? null,
       tagged_submission_sha: latestTagObservation?.tagged_sha ?? null,
@@ -345,6 +351,7 @@ async function main() {
       "first_late_observed_at",
       "latest_observed_sha",
       "latest_observed_at",
+      "commit_count",
       "uncertainty_interval_seconds",
       "tagged_submission_tag",
       "tagged_submission_sha",

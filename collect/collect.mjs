@@ -190,12 +190,29 @@ async function main() {
           ? submissionRef.slice("refs/heads/".length)
           : repoRes.data.default_branch;
 
-        const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits/${branch}`);
+        const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits?sha=${encodeURIComponent(branch)}&per_page=1`);
         if (!commitRes.ok) {
           log(`snapshot ${login}`, { ok: false, note: `commit HTTP ${commitRes.status}` });
           totalErrors++;
           allRows.push(`| ${login} | — | error (commit ${commitRes.status}) |`);
           continue;
+        }
+
+        const commits = Array.isArray(commitRes.data) ? commitRes.data : [];
+        if (commits.length === 0) {
+          log(`snapshot ${login}`, { ok: true, note: `${branch} has no commits` });
+          continue;
+        }
+
+        const latestCommit = commits[0];
+        const sha = latestCommit.sha;
+        const commitDate = latestCommit.commit?.committer?.date || latestCommit.commit?.author?.date || null;
+
+        let commitCount = commits.length;
+        const link = commitRes.headers?.get?.("link");
+        if (link) {
+          const m = link.match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/);
+          if (m) commitCount = parseInt(m[1], 10);
         }
 
         const now = new Date().toISOString();
@@ -207,7 +224,9 @@ async function main() {
           repo_id: repoRes.data.id,
           observed_at: now,
           ref: submissionRef,
-          sha: commitRes.data.sha,
+          sha: sha,
+          commit_count: commitCount,
+          commit_date: commitDate,
           observer_run: cfg.runUrl,
           collection_type: env("COLLECTION_TYPE", "scheduled"),
         };
@@ -218,7 +237,7 @@ async function main() {
         await mkdir(obsDir, { recursive: true });
         await writeFile(obsPath, JSON.stringify(observation, null, 2) + "\n");
 
-        log(`snapshot ${login}`, { ok: true, note: `${branch}@${commitRes.data.sha.slice(0, 12)}` });
+        log(`snapshot ${login}`, { ok: true, note: `${branch}@${sha.slice(0, 12)} (${commitCount} commits)` });
         totalCollected++;
 
         // Also look for submit/ tags. Failures here are non-fatal — the

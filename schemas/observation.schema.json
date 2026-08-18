@@ -28,6 +28,8 @@
         "observed_at": { "type": "string", "format": "date-time" },
         "ref": { "type": "string", "minLength": 1 },
         "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "commit_count": { "type": ["integer", "null"], "minimum": 0 },
+        "commit_date": { "type": ["string", "null"], "format": "date-time" },
         "observer_run": { "type": "string", "format": "uri" },
         "collection_type": {
           "type": "string",

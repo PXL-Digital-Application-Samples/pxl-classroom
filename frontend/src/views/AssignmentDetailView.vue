@@ -127,7 +127,7 @@
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
               <template v-else>
                 <Icon name="refresh-cw" :size="14" />
-                <span>Live Status{{ selectedLogins.size > 0 ? ` (${selectedLogins.size})` : '' }}</span>
+                <span>Refresh{{ selectedLogins.size > 0 ? ` (${selectedLogins.size})` : '' }}</span>
               </template>
             </button>
             <button class="btn btn-with-icon" @click="exportCSV">
@@ -909,6 +909,7 @@ const CSV_HEADERS = [
   'override_applied', 'override_reason', 'repo_name', 'repo_url',
   'last_on_time_sha', 'last_on_time_observed_at', 'first_late_sha',
   'first_late_observed_at', 'latest_observed_sha', 'latest_observed_at',
+  'commit_count',
   'uncertainty_interval_seconds', 'tagged_submission_tag',
   'tagged_submission_sha', 'tagged_submission_observed_at',
   'tagged_submission_declared_at', 'lock_down_at', 'preservation_status',
@@ -1154,7 +1155,7 @@ async function refreshLiveStatus() {
       return
     }
     await syncDashboardAggregate(token)
-    toast.success(`Live status updated for ${totalStudentsToRefresh.value} students (saved).`)
+    toast.success(`Status refreshed for ${totalStudentsToRefresh.value} students (saved).`)
     
     // Clear selection after successful update
     selectedLogins.value.clear()

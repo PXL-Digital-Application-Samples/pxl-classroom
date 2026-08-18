@@ -185,3 +185,19 @@ test("roster student who didn't accept appears as no-submission", () => {
   assert.equal(dave.submission_status, "no-submission");
   assert.equal(dave.full_name, "Dave");
 });
+
+test("student with commit_count in observations has commit_count in report", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "eve", status: "accepted" }],
+    observations: {
+      eve: [
+        { observed_at: "2026-09-05T10:00:00Z", sha: "a".repeat(40), commit_count: 5 },
+        { observed_at: "2026-09-09T20:00:00Z", sha: "b".repeat(40), commit_count: 12 },
+      ],
+    },
+  });
+  const eve = report.students.find((s) => s.github_login === "eve");
+  assert.equal(eve.submission_status, "on-time");
+  assert.equal(eve.commit_count, 12);
+});

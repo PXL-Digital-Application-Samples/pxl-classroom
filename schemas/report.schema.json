@@ -115,12 +115,30 @@
           "commit_count": {
             "type": ["integer", "null"],
             "minimum": 0,
-            "description": "Total commit count on the submission ref. Populated by the Admin UI's Live Status refresh (parsed from the GitHub Link header on /commits?per_page=1)."
+            "description": "Total commit count on the submission ref. Populated by backend collection and frontend refresh."
           },
           "uncertainty_interval_seconds": {
             "type": ["number", "null"],
             "minimum": 0,
             "description": "Seconds between the last on-time and first late observation. Indicates confidence in the deadline boundary."
+          },
+          "tagged_submission_tag": {
+            "type": ["string", "null"],
+            "description": "Full tag name of the latest observed submit/ tag."
+          },
+          "tagged_submission_sha": {
+            "type": ["string", "null"],
+            "description": "SHA of the commit pointed to by the latest submit/ tag."
+          },
+          "tagged_submission_observed_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Timestamp when the submit/ tag was observed."
+          },
+          "tagged_submission_declared_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Declared student timestamp parsed from the submit/ tag name."
           },
           "lock_down_at": {
             "type": ["string", "null"],
