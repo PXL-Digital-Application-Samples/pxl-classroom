@@ -729,12 +729,30 @@ async function loadAll() {
         try { autogradeSummary.value = JSON.parse(sum) } catch { /* malformed */ }
       }
     }
-    await loadOverrides(token)
+    await Promise.all([
+      loadOverrides(token),
+      fetchRateLimit(token),
+    ])
   } catch (e) {
     console.error('Failed to load report:', e)
     loadError.value = e.message || String(e)
   }
   loading.value = false
+}
+
+async function fetchRateLimit(token) {
+  if (!token) return
+  try {
+    const rl = await ghApi(token, 'GET', '/rate_limit')
+    if (rl.ok && rl.data?.resources?.core) {
+      rateLimit.value = {
+        remaining: rl.data.resources.core.remaining,
+        limit: rl.data.resources.core.limit,
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch rate limit:', e)
+  }
 }
 
 onUnmounted(() => {
@@ -1081,17 +1099,7 @@ async function refreshLiveStatus() {
   await Promise.all(workers)
 
   // Fetch rate-limit headroom (one extra call, doesn't count against core)
-  try {
-    const rl = await ghApi(token, 'GET', '/rate_limit')
-    if (rl.ok && rl.data?.resources?.core) {
-      rateLimit.value = {
-        remaining: rl.data.resources.core.remaining,
-        limit: rl.data.resources.core.limit,
-      }
-    }
-  } catch (e) {
-    console.error('Failed to fetch rate limit:', e)
-  }
+  await fetchRateLimit(token)
 
   // A partial refresh must never be presented — or persisted — as a complete
   // one. Surface the failure count and leave the control repo untouched.
