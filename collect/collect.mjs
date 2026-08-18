@@ -230,20 +230,6 @@ async function main() {
 
         if (!authorName || !authorEmail) {
           try {
-            const pxlRes = await gh("GET", `/repos/${cfg.org}/${repoName}/contents/.pxl/student.json?ref=${encodeURIComponent(branch)}`);
-            if (pxlRes.ok && pxlRes.data?.content) {
-              const raw = Buffer.from(pxlRes.data.content, "base64").toString("utf-8");
-              const parsed = JSON.parse(raw);
-              if (!authorEmail && parsed.email && !parsed.email.includes("noreply.github.com")) authorEmail = parsed.email;
-              if (!authorName && parsed.name && !isBotName(parsed.name)) authorName = parsed.name;
-            }
-          } catch {
-            // non-fatal
-          }
-        }
-
-        if (!authorName || !authorEmail) {
-          try {
             const userRes = await gh("GET", `/users/${login}`);
             if (userRes.ok && userRes.data) {
               if (!authorName && userRes.data.name) authorName = userRes.data.name;
