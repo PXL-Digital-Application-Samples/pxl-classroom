@@ -579,14 +579,18 @@ const rosterByLogin = ref(new Map())
 
 function studentTooltip(s) {
   const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
-  const fullName = s.full_name || roster?.full_name
-  const email = s.email || roster?.email
+  const fullName = s.full_name || roster?.full_name || (s.author_name && s.author_name !== s.github_login ? s.author_name : null)
+  const email = s.email || roster?.email || s.author_email
   const studentNr = s.student_number || roster?.student_number
   const classGroup = s.class_group || roster?.class_group
 
   const parts = []
   if (fullName) parts.push(fullName)
-  if (email) parts.push(`<${email}>`)
+  if (email && !email.includes('noreply.github.com')) {
+    parts.push(`<${email}>`)
+  } else if (email && parts.length === 0) {
+    parts.push(email)
+  }
 
   const meta = []
   if (classGroup) meta.push(classGroup)
@@ -668,8 +672,8 @@ const filteredStudents = computed(() => {
     const q = search.value.toLowerCase()
     list = list.filter((s) => {
       const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
-      const fullName = (s.full_name || roster?.full_name || '').toLowerCase()
-      const email = (s.email || roster?.email || '').toLowerCase()
+      const fullName = (s.full_name || roster?.full_name || s.author_name || '').toLowerCase()
+      const email = (s.email || roster?.email || s.author_email || '').toLowerCase()
       const studentNr = (s.student_number || roster?.student_number || '').toLowerCase()
       const classGroup = (s.class_group || roster?.class_group || '').toLowerCase()
       return s.github_login.toLowerCase().includes(q) ||
@@ -1093,6 +1097,15 @@ async function refreshOne(token, s) {
       s.latest_commit_message = commitMessage
       s.latest_observed_sha = sha
       s.latest_observed_at = new Date().toISOString()
+
+      const authorName = commit.commit?.author?.name || null
+      const authorEmail = commit.commit?.author?.email || null
+      if (authorName && authorName !== s.github_login && authorName !== 'GitHub' && authorName !== 'github-actions[bot]') {
+        s.author_name = authorName
+      }
+      if (authorEmail && !authorEmail.includes('noreply.github.com')) {
+        s.author_email = authorEmail
+      }
 
       const isUnstarted = (s.commit_count != null ? s.commit_count <= 1 : false) && !s.tagged_submission_tag
       if (isUnstarted) {

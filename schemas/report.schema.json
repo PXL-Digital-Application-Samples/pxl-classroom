@@ -72,6 +72,14 @@
             "type": ["string", "null"],
             "description": "Student class group, if linked via roster."
           },
+          "author_name": {
+            "type": ["string", "null"],
+            "description": "Git commit author name from repository commits."
+          },
+          "author_email": {
+            "type": ["string", "null"],
+            "description": "Git commit author email from repository commits."
+          },
           "acceptance_state": {
             "type": "string",
             "description": "Acceptance status of the student for this assignment."
