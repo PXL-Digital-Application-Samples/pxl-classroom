@@ -265,6 +265,7 @@ async function main() {
       github_login: login,
       student_number: rosterEntry?.student_number ?? null,
       full_name: rosterEntry?.full_name ?? null,
+      email: rosterEntry?.email ?? null,
       class_group: rosterEntry?.class_group ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
       effective_deadline_at: effectiveDeadline?.toISOString() ?? null,

@@ -64,6 +64,14 @@
             "type": ["string", "null"],
             "description": "Full name from the roster."
           },
+          "email": {
+            "type": ["string", "null"],
+            "description": "Institutional student email, if linked via roster."
+          },
+          "class_group": {
+            "type": ["string", "null"],
+            "description": "Student class group, if linked via roster."
+          },
           "acceptance_state": {
             "type": "string",
             "description": "Acceptance status of the student for this assignment."

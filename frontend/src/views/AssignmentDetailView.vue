@@ -182,7 +182,7 @@
             <tbody>
               <tr v-for="s in filteredStudents" :key="s.github_login">
                 <td>
-                  <a :href="`https://github.com/${s.github_login}`" target="_blank">{{ s.github_login }}</a>
+                  <a :href="`https://github.com/${s.github_login}`" target="_blank" :title="studentTooltip(s)">{{ s.github_login }}</a>
                 </td>
                 <td>
                   <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ s.acceptance_state }}</span>
@@ -278,7 +278,7 @@
           </div>
           <article v-for="s in filteredStudents" :key="s.github_login" class="student-card">
             <header class="student-card-head" style="display: flex; align-items: center; justify-content: space-between;">
-              <a :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login">{{ s.github_login }}</a>
+              <a :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</a>
               <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
                 <Icon name="more-horizontal" :size="18" />
               </button>
@@ -575,6 +575,29 @@ const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'gith
 // login → override doc from overrides/<assignment>/<login>.json, so granted
 // extensions are visible (and inspectable before granting again).
 const overridesByLogin = ref(new Map())
+const rosterByLogin = ref(new Map())
+
+function studentTooltip(s) {
+  const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
+  const fullName = s.full_name || roster?.full_name
+  const email = s.email || roster?.email
+  const studentNr = s.student_number || roster?.student_number
+  const classGroup = s.class_group || roster?.class_group
+
+  const parts = []
+  if (fullName) parts.push(fullName)
+  if (email) parts.push(`<${email}>`)
+
+  const meta = []
+  if (classGroup) meta.push(classGroup)
+  if (studentNr) meta.push(`s${String(studentNr).replace(/^s/i, '')}`)
+
+  if (meta.length > 0) {
+    parts.push(`(${meta.join(' · ')})`)
+  }
+
+  return parts.length > 0 ? parts.join(' ') : null
+}
 
 // Base columns: login, acceptance, status, repo, last commit,
 // commits, actions — plus the four conditional columns (CI, Feedback PR, Warnings, Submit tag).
@@ -643,7 +666,19 @@ const filteredStudents = computed(() => {
   let list = report.value?.students || []
   if (search.value) {
     const q = search.value.toLowerCase()
-    list = list.filter((s) => s.github_login.toLowerCase().includes(q) || (s.repo_name && s.repo_name.toLowerCase().includes(q)))
+    list = list.filter((s) => {
+      const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
+      const fullName = (s.full_name || roster?.full_name || '').toLowerCase()
+      const email = (s.email || roster?.email || '').toLowerCase()
+      const studentNr = (s.student_number || roster?.student_number || '').toLowerCase()
+      const classGroup = (s.class_group || roster?.class_group || '').toLowerCase()
+      return s.github_login.toLowerCase().includes(q) ||
+             (s.repo_name && s.repo_name.toLowerCase().includes(q)) ||
+             fullName.includes(q) ||
+             email.includes(q) ||
+             studentNr.includes(q) ||
+             classGroup.includes(q)
+    })
   }
   if (statusFilter.value) {
     list = list.filter((s) => s.submission_status === statusFilter.value)
@@ -719,9 +754,10 @@ async function loadAll() {
   if (!token) { loading.value = false; return }
   loadError.value = null
   try {
-    const [reportContent, assignmentContent] = await Promise.all([
+    const [reportContent, assignmentContent, rosterContent] = await Promise.all([
       getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`),
       getRepoContent(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`),
+      getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml'),
     ])
     if (reportContent) {
       report.value = JSON.parse(reportContent)
@@ -729,6 +765,19 @@ async function loadAll() {
     }
     if (assignmentContent) {
       assignment.value = parseYaml(assignmentContent)
+    }
+    if (rosterContent) {
+      try {
+        const parsed = parseYaml(rosterContent)
+        const list = Array.isArray(parsed?.students) ? parsed.students : (Array.isArray(parsed) ? parsed : [])
+        const map = new Map()
+        for (const s of list) {
+          if (s.github_login) map.set(s.github_login.toLowerCase(), s)
+        }
+        rosterByLogin.value = map
+      } catch (e) {
+        console.warn('Failed to parse roster:', e)
+      }
     }
     if (report.value && assignment.value?.feedback_pr === true) {
       await mergeRepoRecordsIntoReport(token)
