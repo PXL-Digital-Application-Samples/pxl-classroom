@@ -580,27 +580,23 @@ const rosterByLogin = ref(new Map())
 function studentTooltip(s) {
   const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
   const fullName = s.full_name || roster?.full_name || (s.author_name && s.author_name !== s.github_login ? s.author_name : null)
-  const email = s.email || roster?.email || s.author_email
+  const rawEmail = s.email || roster?.email || s.author_email
+  const realEmail = rawEmail && !rawEmail.includes('noreply.github.com') ? rawEmail : null
   const studentNr = s.student_number || roster?.student_number
   const classGroup = s.class_group || roster?.class_group
-
-  const parts = []
-  if (fullName) parts.push(fullName)
-  if (email && !email.includes('noreply.github.com')) {
-    parts.push(`<${email}>`)
-  } else if (email && parts.length === 0) {
-    parts.push(email)
-  }
 
   const meta = []
   if (classGroup) meta.push(classGroup)
   if (studentNr) meta.push(`s${String(studentNr).replace(/^s/i, '')}`)
+  const metaStr = meta.length > 0 ? ` (${meta.join(' · ')})` : ''
 
-  if (meta.length > 0) {
-    parts.push(`(${meta.join(' · ')})`)
+  if (realEmail) {
+    return fullName ? `${realEmail} — ${fullName}${metaStr}` : `${realEmail}${metaStr}`
   }
-
-  return parts.length > 0 ? parts.join(' ') : null
+  if (fullName) {
+    return `${fullName}${metaStr}`
+  }
+  return null
 }
 
 // Base columns: login, acceptance, status, repo, last commit,
