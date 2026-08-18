@@ -151,6 +151,8 @@ async function main() {
     let latestCommitCount = null;
     let latestCommitDate = null;
     let latestCommitMessage = null;
+    let latestAuthorName = null;
+    let latestAuthorEmail = null;
     let uncertaintySeconds = null;
 
     // Tagged-submission observations are tracked separately so the UI can
@@ -170,6 +172,12 @@ async function main() {
       }
       if (obs.commit_message) {
         latestCommitMessage = obs.commit_message;
+      }
+      if (obs.author_name) {
+        latestAuthorName = obs.author_name;
+      }
+      if (obs.author_email) {
+        latestAuthorEmail = obs.author_email;
       }
 
       if (obs.type === "tagged-submission") {
@@ -267,6 +275,8 @@ async function main() {
       full_name: rosterEntry?.full_name ?? null,
       email: rosterEntry?.email ?? null,
       class_group: rosterEntry?.class_group ?? null,
+      author_name: latestAuthorName ?? null,
+      author_email: latestAuthorEmail ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
       effective_deadline_at: effectiveDeadline?.toISOString() ?? null,
       override_applied: !!override,

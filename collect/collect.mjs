@@ -216,6 +216,9 @@ async function main() {
           if (m) commitCount = parseInt(m[1], 10);
         }
 
+        const authorName = latestCommit.commit?.author?.name || null;
+        const authorEmail = latestCommit.commit?.author?.email || null;
+
         const now = new Date().toISOString();
         const observation = {
           schema_version: 1,
@@ -229,6 +232,8 @@ async function main() {
           commit_count: commitCount,
           commit_date: commitDate,
           commit_message: commitMessage,
+          author_name: authorName,
+          author_email: authorEmail,
           observer_run: cfg.runUrl,
           collection_type: env("COLLECTION_TYPE", "scheduled"),
         };
