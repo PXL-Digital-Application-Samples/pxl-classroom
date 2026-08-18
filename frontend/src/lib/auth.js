@@ -103,17 +103,16 @@ export function clearAuth() {
  * Start the device flow. Returns { device_code, user_code, verification_uri, interval }.
  * @param {string} clientId - GitHub App client ID
  */
-export async function startDeviceFlow(clientId) {
+export async function startDeviceFlow(clientId, scope = 'user:email') {
+  const body = { client_id: clientId }
+  if (scope) body.scope = scope
   const res = await fetch(GITHUB_DEVICE_CODE_URL, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      client_id: clientId,
-      // No scopes — the GitHub App's permissions govern what the token can do
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
@@ -202,7 +201,7 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
 }
 
 /**
- * Fetch the authenticated user's profile.
+ * Fetch the authenticated user's profile and verified email.
  */
 async function fetchUser(token) {
   const res = await fetch(`${GITHUB_API_BASE}/user`, {
@@ -213,10 +212,31 @@ async function fetchUser(token) {
   })
   if (!res.ok) throw new Error(`Failed to fetch user: HTTP ${res.status}`)
   const data = await res.json()
+
+  let email = data.email || null
+  try {
+    const emailsRes = await fetch(`${GITHUB_API_BASE}/user/emails`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+      },
+    })
+    if (emailsRes.ok) {
+      const emails = await emailsRes.json()
+      if (Array.isArray(emails)) {
+        const primary = emails.find((e) => e.primary && e.verified) || emails.find((e) => e.verified) || emails[0]
+        if (primary?.email) email = primary.email
+      }
+    }
+  } catch {
+    // ignore if /user/emails permission is not granted
+  }
+
   return {
     login: data.login,
     id: data.id,
     avatar_url: data.avatar_url,
     name: data.name,
+    email,
   }
 }
