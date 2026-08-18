@@ -25,6 +25,7 @@ on:
 jobs:
   list:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       orgs: ${{ steps.list.outputs.orgs }}
     steps:

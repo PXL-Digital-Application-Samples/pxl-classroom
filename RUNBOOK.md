@@ -694,6 +694,7 @@ Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.jso
 
 When `execution_environment` is `github_actions`, the system automatically injects a `.github/workflows/autograding.yml` file into each student's repository during acceptance provisioning. The tests run automatically on GitHub Actions whenever the student pushes code.
 
+- **Guardrails**: The injected workflow automatically enforces `timeout-minutes: 10` (preventing infinite loops from burning runner quotas) and `concurrency: { cancel-in-progress: true }` (cancelling obsolete runs if a student pushes repeatedly).
 - **Visibility `private`**: The injected workflow calls a reusable workflow stored in the control repository (`pxl-classroom-control`), hiding the actual tests and commands from the student's view.
 - **Visibility `public`**: The tests are executed openly in the student's repository, allowing them to see exactly what commands are run.
 

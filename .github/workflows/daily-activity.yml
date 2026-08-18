@@ -18,6 +18,7 @@ jobs:
     needs: find-orgs
     if: needs.find-orgs.outputs.orgs == '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: write
     steps:
@@ -41,6 +42,7 @@ jobs:
       group: collect-${{ matrix.org }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: npm ci --omit=dev
@@ -80,6 +82,7 @@ jobs:
     needs: [find-orgs, collect]
     if: always() && needs.find-orgs.outputs.orgs != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
@@ -117,6 +120,7 @@ jobs:
   aggregate-finalizable:
     needs: find-finalizable
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       finalizable: ${{ steps.agg.outputs.finalizable }}
       active_count: ${{ steps.agg.outputs.active_count }}
@@ -154,6 +158,7 @@ jobs:
       group: finalize-${{ matrix.assignment.org }}-${{ matrix.assignment.assignment_id }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: npm ci --omit=dev
@@ -236,6 +241,7 @@ jobs:
       && needs.aggregate-finalizable.outputs.active_count == '0'
       && needs.finalize.result != 'failure'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: write
     steps:
@@ -252,6 +258,7 @@ jobs:
     needs: [aggregate-finalizable, finalize]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: write
     steps:

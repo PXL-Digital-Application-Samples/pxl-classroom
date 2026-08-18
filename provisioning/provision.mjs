@@ -119,6 +119,11 @@ on:
   push:
     branches:
       - main
+
+concurrency:
+  group: autograde-\${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   grade:
     uses: ${cfg.org}/pxl-classroom-control/.github/workflows/grade.yml@main
@@ -129,11 +134,17 @@ on:
   push:
     branches:
       - main
+
+concurrency:
+  group: autograde-\${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   grade:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: npm install
       - run: npm test
 `;

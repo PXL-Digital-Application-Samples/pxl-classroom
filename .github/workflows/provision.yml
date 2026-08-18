@@ -66,6 +66,7 @@ concurrency:
 jobs:
   provision:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       repo_id: ${{ steps.prov.outputs.repo-id }}
       repo_url: ${{ steps.prov.outputs.repo-url }}
