@@ -576,18 +576,55 @@ const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'gith
 // extensions are visible (and inspectable before granting again).
 const overridesByLogin = ref(new Map())
 const rosterByLogin = ref(new Map())
+const userProfilesByLogin = ref(new Map())
+const profileCache = new Map()
+
+async function fetchUserProfile(token, login) {
+  if (!login) return null
+  const key = login.toLowerCase()
+  if (profileCache.has(key)) return profileCache.get(key)
+  try {
+    const res = await ghApi(token, 'GET', `/users/${login}`)
+    if (res.ok && res.data) {
+      profileCache.set(key, res.data)
+      return res.data
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function isBot(str) {
+  if (!str) return false
+  const s = str.toLowerCase()
+  return s.includes('[bot]') || s.includes('provisioner') || s === 'github' || s === 'web-flow'
+}
 
 function studentTooltip(s) {
   const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
-  const fullName = s.full_name || roster?.full_name || (s.author_name && s.author_name !== s.github_login ? s.author_name : null)
-  const rawEmail = s.email || roster?.email || s.author_email
+  const profile = userProfilesByLogin.value.get(s.github_login?.toLowerCase())
+
+  // Real email from roster, commit, or GitHub public profile
+  const rawEmail = s.email || roster?.email || s.author_email || profile?.email
   const realEmail = rawEmail && !rawEmail.includes('noreply.github.com') ? rawEmail : null
+
+  // Name from roster, GitHub public profile, or non-bot Git commit author
+  let fullName = s.full_name || roster?.full_name || profile?.name
+  if (!fullName && s.author_name && !isBot(s.author_name)) {
+    fullName = s.author_name
+  }
+  if (fullName && fullName.toLowerCase() === s.github_login.toLowerCase()) {
+    fullName = null
+  }
+
   const studentNr = s.student_number || roster?.student_number
   const classGroup = s.class_group || roster?.class_group
 
   const meta = []
   if (classGroup) meta.push(classGroup)
   if (studentNr) meta.push(`s${String(studentNr).replace(/^s/i, '')}`)
+  if (profile?.company && !meta.includes(profile.company)) meta.push(profile.company)
   const metaStr = meta.length > 0 ? ` (${meta.join(' · ')})` : ''
 
   if (realEmail) {
@@ -668,16 +705,19 @@ const filteredStudents = computed(() => {
     const q = search.value.toLowerCase()
     list = list.filter((s) => {
       const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
-      const fullName = (s.full_name || roster?.full_name || s.author_name || '').toLowerCase()
-      const email = (s.email || roster?.email || s.author_email || '').toLowerCase()
+      const profile = userProfilesByLogin.value.get(s.github_login?.toLowerCase())
+      const fullName = (s.full_name || roster?.full_name || profile?.name || (!isBot(s.author_name) ? s.author_name : '') || '').toLowerCase()
+      const email = (s.email || roster?.email || s.author_email || profile?.email || '').toLowerCase()
       const studentNr = (s.student_number || roster?.student_number || '').toLowerCase()
       const classGroup = (s.class_group || roster?.class_group || '').toLowerCase()
+      const company = (profile?.company || '').toLowerCase()
       return s.github_login.toLowerCase().includes(q) ||
              (s.repo_name && s.repo_name.toLowerCase().includes(q)) ||
              fullName.includes(q) ||
              email.includes(q) ||
              studentNr.includes(q) ||
-             classGroup.includes(q)
+             classGroup.includes(q) ||
+             company.includes(q)
     })
   }
   if (statusFilter.value) {
@@ -778,6 +818,13 @@ async function loadAll() {
       } catch (e) {
         console.warn('Failed to parse roster:', e)
       }
+    }
+    if (report.value?.students) {
+      const logins = [...new Set(report.value.students.map(s => s.github_login).filter(Boolean))]
+      await Promise.all(logins.map(async (login) => {
+        const p = await fetchUserProfile(token, login)
+        if (p) userProfilesByLogin.value.set(login.toLowerCase(), p)
+      }))
     }
     if (report.value && assignment.value?.feedback_pr === true) {
       await mergeRepoRecordsIntoReport(token)
@@ -1096,7 +1143,7 @@ async function refreshOne(token, s) {
 
       const authorName = commit.commit?.author?.name || null
       const authorEmail = commit.commit?.author?.email || null
-      if (authorName && authorName !== s.github_login && authorName !== 'GitHub' && authorName !== 'github-actions[bot]') {
+      if (authorName && authorName !== s.github_login && !isBot(authorName)) {
         s.author_name = authorName
       }
       if (authorEmail && !authorEmail.includes('noreply.github.com')) {
