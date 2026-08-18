@@ -142,7 +142,7 @@
               <Icon name="copy" :size="14" />
               <span>Copy CLI command</span>
             </button>
-            <button class="btn btn-with-icon" @click="copyAcceptLink">
+            <button class="btn btn-warning btn-with-icon" @click="copyAcceptLink">
               <Icon name="copy" :size="14" />
               <span>Copy accept link</span>
             </button>

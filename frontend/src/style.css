@@ -156,6 +156,15 @@ a:hover {
   background: #2ea043;
 }
 
+.btn-warning {
+  background: var(--status-warning);
+  border-color: var(--accent-yellow);
+  color: #fff;
+}
+.btn-warning:hover {
+  background: #bb8009;
+}
+
 .btn-lg {
   padding: var(--space-md) var(--space-lg);
   font-size: 1rem;

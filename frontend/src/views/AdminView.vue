@@ -458,7 +458,7 @@
               <button v-if="form.state === 'published' || form.state === 'closed'" class="btn" type="button" @click="setState('draft')" :disabled="saving">
                 Revert to draft
               </button>
-              <button v-if="form.state === 'published'" class="btn btn-with-icon" type="button" @click="copyAcceptLink">
+              <button v-if="form.state === 'published'" class="btn btn-warning btn-with-icon" type="button" @click="copyAcceptLink">
                 <Icon name="copy" :size="14" />
                 <span>Copy accept link</span>
               </button>
