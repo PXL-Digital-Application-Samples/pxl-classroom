@@ -201,3 +201,18 @@ test("student with commit_count in observations has commit_count in report", () 
   assert.equal(eve.submission_status, "on-time");
   assert.equal(eve.commit_count, 12);
 });
+
+test("student with 1 commit (unstarted repo) is classified as no-submission", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "frank", status: "accepted" }],
+    observations: {
+      frank: [
+        { observed_at: "2026-09-05T10:00:00Z", sha: "a".repeat(40), commit_count: 1, commit_message: "Initial commit" },
+      ],
+    },
+  });
+  const frank = report.students.find((s) => s.github_login === "frank");
+  assert.equal(frank.submission_status, "no-submission");
+  assert.equal(frank.commit_count, 1);
+});

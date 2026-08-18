@@ -1032,7 +1032,10 @@ async function refreshOne(token, s) {
       s.latest_observed_sha = sha
       s.latest_observed_at = new Date().toISOString()
 
-      if (deadline) {
+      const isUnstarted = (s.commit_count != null ? s.commit_count <= 1 : false) && !s.tagged_submission_tag
+      if (isUnstarted) {
+        s.submission_status = 'no-submission'
+      } else if (deadline) {
         if (new Date() <= deadline) {
           s.submission_status = 'on-time'
           s.last_on_time_sha = sha

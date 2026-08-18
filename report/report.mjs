@@ -222,9 +222,14 @@ async function main() {
     }
 
     // Determine status using the effective (post-override) deadline.
+    // A repo with 0 commits or only the single automatic "Initial commit" (commit_count <= 1)
+    // without a submit/ tag represents an unstarted repository where the student submitted no work.
+    const isUnstarted = !latestTagObservation && (latestCommitCount != null ? latestCommitCount <= 1 : false);
+
     let submissionStatus = "unknown";
-    if (!acceptance) {
+    if (!acceptance || isUnstarted) {
       submissionStatus = "no-submission";
+      noSubCount++;
     } else if (lastOnTimeSha) {
       if (firstLateSha && firstLateSha !== lastOnTimeSha) {
         submissionStatus = "late";
