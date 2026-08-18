@@ -19,13 +19,12 @@
           <button
             v-if="selectedOrg"
             type="button"
-            class="btn btn-sm btn-with-icon health-btn"
+            class="btn btn-icon health-btn"
             @click="showHealthModal = true"
-            title="System Health & Diagnostics"
-            aria-label="System Health"
+            title="System health check"
+            aria-label="System health check"
           >
-            <Icon name="activity" :size="14" />
-            <span>Health</span>
+            <Icon name="activity" :size="16" />
           </button>
           <UserBadge :user="user" @logout="handleLogout" />
         </div>
@@ -565,14 +564,19 @@ main {
 .text-muted { color: var(--text-muted); }
 
 .health-btn {
-  padding: 6px 11px;
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
   background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 .health-btn:hover {
   background: var(--bg-tertiary);
