@@ -202,7 +202,7 @@
                     <div v-if="commitTime(s)" class="commit-time-top" :title="fmt(commitTime(s))">
                       {{ formatRelative(commitTime(s)) }}
                     </div>
-                    <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha" :title="commitMsg(s) || `Commit ${latestSha(s)}`">
+                    <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha" :title="commitMsg(s) || null">
                       {{ latestSha(s).slice(0, 7) }}
                     </a>
                   </template>
@@ -307,7 +307,7 @@
               <div v-if="latestSha(s)" class="commit-row">
                 Last commit
                 <span v-if="commitTime(s)" :title="fmt(commitTime(s))">{{ formatRelative(commitTime(s)) }}</span>
-                <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted" :title="commitMsg(s) || `Commit ${latestSha(s)}`">· {{ latestSha(s).slice(0, 7) }}</a>
+                <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted" :title="commitMsg(s) || null">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
               <div v-if="isGitHubActionsAutograde" class="commit-row" style="margin-top: var(--space-xs, 4px); align-items: center;">
@@ -863,7 +863,10 @@ function commitTime(s) {
 }
 
 function commitMsg(s) {
-  return s.commit_message || s.latest_commit_message || null
+  if (s.commit_message) return s.commit_message
+  if (s.latest_commit_message) return s.latest_commit_message
+  if (s.commit_count === 1) return 'Initial commit'
+  return null
 }
 
 // Always a duration, never a date: the result is wrapped in "in …" / "… ago",
