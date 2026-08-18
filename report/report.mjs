@@ -149,6 +149,7 @@ async function main() {
     let latestObservedSha = null;
     let latestObservedAt = null;
     let latestCommitCount = null;
+    let latestCommitDate = null;
     let uncertaintySeconds = null;
 
     // Tagged-submission observations are tracked separately so the UI can
@@ -162,6 +163,9 @@ async function main() {
 
       if (obs.commit_count != null) {
         latestCommitCount = obs.commit_count;
+      }
+      if (obs.commit_date) {
+        latestCommitDate = obs.commit_date;
       }
 
       if (obs.type === "tagged-submission") {
@@ -267,6 +271,8 @@ async function main() {
       first_late_observed_at: firstLateObservedAt,
       latest_observed_sha: latestObservedSha,
       latest_observed_at: latestObservedAt,
+      commit_date: latestCommitDate ?? null,
+      latest_commit_date: latestCommitDate ?? null,
       commit_count: latestCommitCount ?? null,
       uncertainty_interval_seconds: uncertaintySeconds,
       tagged_submission_tag: latestTagObservation?.tag ?? null,

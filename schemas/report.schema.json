@@ -112,6 +112,16 @@
             "format": "date-time",
             "description": "Timestamp of the most recent observation."
           },
+          "commit_date": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Actual author/committer timestamp of the latest commit."
+          },
+          "latest_commit_date": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Actual author/committer timestamp of the latest commit."
+          },
           "commit_count": {
             "type": ["integer", "null"],
             "minimum": 0,

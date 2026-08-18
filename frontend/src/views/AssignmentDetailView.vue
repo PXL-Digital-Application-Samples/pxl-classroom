@@ -199,8 +199,8 @@
                 </td>
                 <td class="col-last-commit">
                   <template v-if="s.repo_url && latestSha(s)">
-                    <div v-if="s.latest_observed_at" class="commit-time-top" :title="fmt(s.latest_observed_at)">
-                      {{ formatRelative(s.latest_observed_at) }}
+                    <div v-if="commitTime(s)" class="commit-time-top" :title="fmt(commitTime(s))">
+                      {{ formatRelative(commitTime(s)) }}
                     </div>
                     <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha">
                       {{ latestSha(s).slice(0, 7) }}
@@ -306,7 +306,7 @@
               <a :href="s.repo_url" target="_blank" class="mono">{{ shortRepo(s.repo_name) }}</a>
               <div v-if="latestSha(s)" class="commit-row">
                 Last commit
-                <span v-if="s.latest_observed_at" :title="fmt(s.latest_observed_at)">{{ formatRelative(s.latest_observed_at) }}</span>
+                <span v-if="commitTime(s)" :title="fmt(commitTime(s))">{{ formatRelative(commitTime(s)) }}</span>
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
@@ -639,8 +639,12 @@ const filteredStudents = computed(() => {
     list = list.filter((s) => s.submission_status === statusFilter.value)
   }
   list = [...list].sort((a, b) => {
-    const av = a[sortKey.value]
-    const bv = b[sortKey.value]
+    let av = a[sortKey.value]
+    let bv = b[sortKey.value]
+    if (sortKey.value === 'latest_observed_at') {
+      av = a.commit_date || a.latest_commit_date || a.latest_observed_at
+      bv = b.commit_date || b.latest_commit_date || b.latest_observed_at
+    }
     // Nulls last regardless of direction
     if (av == null && bv == null) return 0
     if (av == null) return 1
@@ -836,6 +840,10 @@ function latestSha(s) {
   return s.latest_observed_sha || s.last_on_time_sha || null
 }
 
+function commitTime(s) {
+  return s.commit_date || s.latest_commit_date || s.latest_observed_at || null
+}
+
 // Always a duration, never a date: the result is wrapped in "in …" / "… ago",
 // so an absolute date here reads as "in 30 Aug 2026". Every caller already
 // shows the exact timestamp alongside (the deadline card's label, or a title
@@ -984,6 +992,7 @@ async function refreshOne(token, s) {
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
       const sha = commit.sha
+      const commitDate = commit.commit?.committer?.date || commit.commit?.author?.date || null
 
       // Source of truth for the deadline: per-student override (already on
       // the record), else the current assignment YAML's deadline_at. Fixes
@@ -993,6 +1002,8 @@ async function refreshOne(token, s) {
       const deadline = effectiveSource ? new Date(effectiveSource) : null
       if (effectiveSource && !s.effective_deadline_at) s.effective_deadline_at = effectiveSource
 
+      s.commit_date = commitDate
+      s.latest_commit_date = commitDate
       s.latest_observed_sha = sha
       s.latest_observed_at = new Date().toISOString()
 
