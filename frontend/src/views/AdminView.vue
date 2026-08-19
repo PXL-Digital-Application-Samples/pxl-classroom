@@ -296,12 +296,12 @@
                 <small>Teams with fewer members will show an under-capacity warning in the lecturer dashboard.</small>
               </div>
 
-              <div class="field checkbox">
+              <div v-if="form.group_config.formation_mode === 'self-service'" class="field checkbox">
                 <label>
                   <input type="checkbox" v-model="form.group_config.allow_team_creation" />
-                  Allow students to create new teams (Self-service mode)
+                  Allow students to create new teams
                 </label>
-                <small>When enabled, students can create new teams during acceptance or join existing open teams.</small>
+                <small>When enabled, students can create custom new teams or join open teams. When unchecked, students can only join existing teams created by the lecturer.</small>
               </div>
             </div>
           </fieldset>
