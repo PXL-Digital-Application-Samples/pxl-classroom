@@ -110,9 +110,27 @@
         </div>
 
         <form v-else class="editor-form" @submit.prevent>
-          <div class="editor-title">
-            <h3 v-if="isNew">New assignment</h3>
-            <h3 v-else>Edit: <code>{{ form.id }}</code> <span class="badge" :class="`badge-${form.state}`">{{ form.state }}</span></h3>
+          <div class="editor-header-bar">
+            <div class="editor-title">
+              <h3 v-if="isNew">New assignment</h3>
+              <h3 v-else>Edit: <code>{{ form.id }}</code> <span class="badge" :class="`badge-${form.state}`">{{ form.state }}</span></h3>
+            </div>
+            <div class="editor-header-actions">
+              <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
+              <button
+                v-if="isNew || form.state === 'draft'"
+                class="btn"
+                type="button"
+                @click="saveAssignment('draft')"
+                :disabled="saving || !canSave"
+              >{{ saving ? 'Saving…' : 'Save as draft' }}</button>
+              <button
+                class="btn btn-primary"
+                type="button"
+                @click="saveAndPublish"
+                :disabled="saving || !canSave"
+              >{{ saving ? 'Saving…' : (form.state === 'published' ? 'Save' : 'Save & publish') }}</button>
+            </div>
           </div>
 
           <!-- PUBLISHED ASSIGNMENT INFO BANNER -->
@@ -314,8 +332,8 @@
             <div class="field">
               <label>Who may accept</label>
               <select v-model="form.roster_mode">
-                <option value="enforced">enforced: only students on the roster</option>
                 <option value="open">open: any GitHub account (exams, unknown cohort)</option>
+                <option value="enforced">enforced: only students on the roster</option>
               </select>
               <small v-if="form.roster_mode !== 'open'">
                 Students must appear in <code>students/roster.yml</code>. Import them under the
@@ -420,8 +438,8 @@
             <div class="field">
               <label>Late policy</label>
               <select v-model="form.late_policy">
-                <option value="report">report: observe and report late activity</option>
                 <option value="block">block: refuse late pushes</option>
+                <option value="report">report: observe and report late activity</option>
               </select>
             </div>
             <div class="field">
@@ -449,12 +467,6 @@
                 <option value="pre-provisioned">pre-provisioned (lecturer creates repos in advance)</option>
               </select>
             </div>
-          </details>
-
-          <!-- YAML PREVIEW -->
-          <details class="yaml-preview-section">
-            <summary>YAML preview</summary>
-            <pre class="yaml-code"><code>{{ generatedYaml }}</code></pre>
           </details>
 
           <!-- VALIDATION ERRORS -->
@@ -966,10 +978,10 @@ function emptyForm() {
     submission_ref: 'refs/heads/main',
     student_permission: 'admin',
     acceptance_mode: 'self-service',
-    roster_mode: 'enforced',
-    late_policy: 'report',
+    roster_mode: 'open',
+    late_policy: 'block',
     state: 'draft',
-    max_acceptances: 150,
+    max_acceptances: 50,
     lock_down_enabled: true,
     feedback_pr: false,
     feedback_pr_baseline_branch: 'pxl-baseline',
@@ -1217,7 +1229,7 @@ function editAssignment(a) {
     roster_mode: a.roster_mode === 'open' ? 'open' : 'enforced',
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
-    max_acceptances: a.max_acceptances ?? 150,
+    max_acceptances: a.max_acceptances ?? 50,
     lock_down_enabled: a.lock_down_enabled ?? true,
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
@@ -2033,7 +2045,26 @@ watch(
   color: var(--text-secondary);
 }
 .editor-form { display: flex; flex-direction: column; gap: var(--space-md); }
-.editor-title h3 { margin: 0 0 var(--space-md) 0; display: flex; align-items: center; gap: var(--space-sm); }
+.editor-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-xs);
+}
+.editor-header-bar .editor-title h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
 
 fieldset {
   border: 1px solid var(--border-default);
