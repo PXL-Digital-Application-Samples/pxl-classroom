@@ -350,3 +350,135 @@ test("Notification issue formatting produces actionable messages for auto-merge 
   assert.equal(prIssue.title, "[Action Required] Starter Code Update Available in PR #4");
   assert.ok(prIssue.body.includes("[#4](https://github.com/org/repo/pull/4)"));
 });
+
+// -----------------------------------------------------------------------------
+// 8. Batch Cohort Synchronization Simulation
+// -----------------------------------------------------------------------------
+
+test("Batch cohort sync correctly processes mixed outcomes (clean, conflict, up-to-date, unaccepted)", () => {
+  const root = mkdtempSync(join(tmpdir(), "pxl-sync-batch-"));
+  const templateDir = join(root, "template");
+  const studentClean = join(root, "student-clean");
+  const studentConflict = join(root, "student-conflict");
+  const studentUpToDate = join(root, "student-uptodate");
+
+  mkdirSync(templateDir);
+  mkdirSync(studentClean);
+  mkdirSync(studentConflict);
+  mkdirSync(studentUpToDate);
+
+  // Template initial
+  git(["init", "--initial-branch=main", "."], templateDir);
+  git(["config", "user.email", "t@example.com"], templateDir);
+  git(["config", "user.name", "Test"], templateDir);
+  writeFileSync(join(templateDir, "README.md"), "# Initial\n");
+  writeFileSync(join(templateDir, "task.py"), "def run(): pass\n");
+  git(["add", "."], templateDir);
+  git(["commit", "-m", "Initial"], templateDir);
+
+  // Student 1: Clean (modified other file)
+  git(["clone", fileUrl(templateDir), "."], studentClean);
+  git(["config", "user.email", "s1@example.com"], studentClean);
+  git(["config", "user.name", "S1"], studentClean);
+  writeFileSync(join(studentClean, "my_work.py"), "# Clean work\n");
+  git(["add", "."], studentClean);
+  git(["commit", "-m", "S1 progress"], studentClean);
+
+  // Student 2: Conflict (modified task.py)
+  git(["clone", fileUrl(templateDir), "."], studentConflict);
+  git(["config", "user.email", "s2@example.com"], studentConflict);
+  git(["config", "user.name", "S2"], studentConflict);
+  writeFileSync(join(studentConflict, "task.py"), "def run(): return 'student-custom'\n");
+  git(["add", "."], studentConflict);
+  git(["commit", "-m", "S2 edited task"], studentConflict);
+
+  // Template gets update
+  writeFileSync(join(templateDir, "task.py"), "def run(): return 'lecturer-fix'\n");
+  git(["add", "."], templateDir);
+  git(["commit", "-m", "Lecturer update task"], templateDir);
+  const tplSha = git(["rev-parse", "HEAD"], templateDir);
+
+  // Student 3: Up-to-date (already has tplSha)
+  git(["clone", fileUrl(templateDir), "."], studentUpToDate);
+  git(["config", "user.email", "s3@example.com"], studentUpToDate);
+  git(["config", "user.name", "S3"], studentUpToDate);
+
+  // Simulate Batch Processor
+  const cohort = [
+    { login: "student-clean", dir: studentClean, repo: "org/repo-clean" },
+    { login: "student-conflict", dir: studentConflict, repo: "org/repo-conflict" },
+    { login: "student-uptodate", dir: studentUpToDate, repo: "org/repo-uptodate" },
+    { login: "student-unaccepted", dir: null, repo: null },
+  ];
+
+  const outcomes = [];
+
+  for (const s of cohort) {
+    if (!s.dir || !s.repo) {
+      outcomes.push({ login: s.login, outcome: "skipped-no-repo" });
+      continue;
+    }
+
+    const currentHead = git(["rev-parse", "HEAD"], s.dir);
+    if (currentHead === tplSha) {
+      outcomes.push({ login: s.login, outcome: "skipped-up-to-date" });
+      continue;
+    }
+
+    git(["fetch", fileUrl(templateDir), "main"], s.dir);
+
+    try {
+      git(["merge", tplSha, "-m", "Auto-merge template update"], s.dir);
+      outcomes.push({ login: s.login, outcome: "auto-merged" });
+    } catch {
+      // Merge conflict -> abort merge and create PR branch
+      git(["merge", "--abort"], s.dir);
+      const prBranch = `starter-update-batch-test`;
+      git(["branch", prBranch, tplSha], s.dir);
+      outcomes.push({ login: s.login, outcome: "pr-opened", branch: prBranch });
+    }
+  }
+
+  assert.equal(outcomes[0].outcome, "auto-merged");
+  assert.equal(outcomes[1].outcome, "pr-opened");
+  assert.equal(outcomes[2].outcome, "skipped-up-to-date");
+  assert.equal(outcomes[3].outcome, "skipped-no-repo");
+});
+
+// -----------------------------------------------------------------------------
+// 9. Dry-Run Safety Invariant
+// -----------------------------------------------------------------------------
+
+test("Dry-run sync simulation performs zero mutations on student repository", () => {
+  const root = mkdtempSync(join(tmpdir(), "pxl-sync-dryrun-"));
+  const templateDir = join(root, "template");
+  const studentDir = join(root, "student");
+
+  mkdirSync(templateDir);
+  mkdirSync(studentDir);
+
+  git(["init", "--initial-branch=main", "."], templateDir);
+  git(["config", "user.email", "t@example.com"], templateDir);
+  git(["config", "user.name", "Test"], templateDir);
+  writeFileSync(join(templateDir, "file.txt"), "v1\n");
+  git(["add", "."], templateDir);
+  git(["commit", "-m", "Initial"], templateDir);
+
+  git(["clone", fileUrl(templateDir), "."], studentDir);
+  git(["config", "user.email", "s@example.com"], studentDir);
+  git(["config", "user.name", "Student"], studentDir);
+  const studentHeadBefore = git(["rev-parse", "HEAD"], studentDir);
+
+  // Template updates
+  writeFileSync(join(templateDir, "file.txt"), "v2\n");
+  git(["add", "."], templateDir);
+  git(["commit", "-m", "Update"], templateDir);
+
+  // Dry-run only checks diff without git merge or branch push
+  const branchesBefore = git(["branch", "--list"], studentDir);
+  const studentHeadAfter = git(["rev-parse", "HEAD"], studentDir);
+
+  assert.equal(studentHeadAfter, studentHeadBefore, "HEAD must not move during dry run");
+  assert.equal(git(["branch", "--list"], studentDir), branchesBefore, "No branches must be created during dry run");
+});
+

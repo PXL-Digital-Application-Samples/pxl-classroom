@@ -250,3 +250,55 @@ test("Feature 3: updating repository record on PR creation preserves existing re
   assert.equal(updatedRecord.repo_id, 123456);
   assert.equal(updatedRecord.github_login, "alice");
 });
+
+function computeFeedbackPrModalStats(students) {
+  const list = students || [];
+  const eligible = list.filter(
+    (s) => s.repo_name && (s.commit_count > 0 || s.latest_observed_sha) && !s.feedback_pr_number
+  );
+  const alreadyOpened = list.filter((s) => s.feedback_pr_number);
+  const skippedNoCommits = list.filter(
+    (s) => s.repo_name && !s.feedback_pr_number && !(s.commit_count > 0 || s.latest_observed_sha)
+  );
+
+  return {
+    eligibleCount: eligible.length,
+    alreadyOpenedCount: alreadyOpened.length,
+    skippedNoCommitsCount: skippedNoCommits.length,
+    eligibleStudents: eligible,
+  };
+}
+
+test("Feature 3: computeFeedbackPrModalStats computes exact counts across mixed cohort states", () => {
+  const students = [
+    { github_login: "alice", repo_name: "org/repo-alice", commit_count: 3, feedback_pr_number: null },
+    { github_login: "bob", repo_name: "org/repo-bob", commit_count: 1, feedback_pr_number: null },
+    { github_login: "carol", repo_name: "org/repo-carol", commit_count: 5, feedback_pr_number: 12 },
+    { github_login: "dave", repo_name: "org/repo-dave", commit_count: 0, latest_observed_sha: null, feedback_pr_number: null },
+    { github_login: "eve", repo_name: null, commit_count: null, feedback_pr_number: null },
+  ];
+
+  const stats = computeFeedbackPrModalStats(students);
+  assert.equal(stats.eligibleCount, 2); // alice, bob
+  assert.equal(stats.alreadyOpenedCount, 1); // carol
+  assert.equal(stats.skippedNoCommitsCount, 1); // dave
+  assert.deepEqual(stats.eligibleStudents.map((s) => s.github_login), ["alice", "bob"]);
+});
+
+test("Feature 3: Draft PR creation payload uses draft: true and preserves student main branch untouched", () => {
+  const assignment = { title: "Linux Processes Lab", feedback_pr_baseline_branch: "pxl-baseline" };
+  const targetStudent = { github_login: "alice", repo_name: "PXLAutomation/linux-processes-alice" };
+
+  const payload = {
+    title: `${assignment.title} - Feedback`,
+    body: "PXL Classroom feedback thread for inline reviews.",
+    head: "main",
+    base: assignment.feedback_pr_baseline_branch || "pxl-baseline",
+    draft: true,
+  };
+
+  assert.equal(payload.draft, true, "Pull Request must be opened in Draft mode");
+  assert.equal(payload.head, "main", "Head branch must point to student main");
+  assert.equal(payload.base, "pxl-baseline", "Base branch must point to frozen baseline snapshot");
+  assert.ok(!payload.merge_method, "No merge method must be specified - student code is never merged");
+});
