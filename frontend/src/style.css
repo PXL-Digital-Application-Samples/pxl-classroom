@@ -156,6 +156,15 @@ a:hover {
   background: #2ea043;
 }
 
+.btn-danger {
+  background: var(--status-danger, #da3633);
+  border-color: var(--accent-red, #f85149);
+  color: #fff;
+}
+.btn-danger:hover {
+  background: #b62324;
+}
+
 .btn-warning {
   background: var(--status-warning);
   border-color: var(--accent-yellow);

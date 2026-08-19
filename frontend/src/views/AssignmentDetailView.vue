@@ -123,17 +123,6 @@
             </select>
           </div>
           <div class="flex gap-sm items-center">
-            <button
-              v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
-              :class="['btn', 'btn-with-icon', assignment.state === 'published' ? 'btn-secondary' : 'btn-success']"
-              type="button"
-              @click="toggleAcceptanceState"
-              :disabled="togglingState"
-              :title="assignment.state === 'published' ? 'Close acceptance to stop new students from registering' : 'Open acceptance to allow students to register'"
-            >
-              <Icon :name="assignment.state === 'published' ? 'lock' : 'unlock'" :size="14" />
-              <span>{{ togglingState ? 'Updating…' : (assignment.state === 'published' ? 'Close acceptance' : 'Open acceptance') }}</span>
-            </button>
             <button class="btn btn-primary btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive">
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
               <template v-else>
@@ -153,7 +142,18 @@
               <Icon name="copy" :size="14" />
               <span>Copy CLI command</span>
             </button>
-            <button class="btn btn-warning btn-with-icon" @click="copyAcceptLink">
+            <button
+              v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
+              :class="['btn', 'btn-with-icon', assignment.state === 'published' ? 'btn-danger' : 'btn-success']"
+              type="button"
+              @click="toggleAcceptanceState"
+              :disabled="togglingState"
+              :title="assignment.state === 'published' ? 'Close acceptance to stop new students from registering' : 'Open acceptance to allow students to register'"
+            >
+              <Icon :name="assignment.state === 'published' ? 'lock' : 'unlock'" :size="14" />
+              <span>{{ togglingState ? 'Updating…' : (assignment.state === 'published' ? 'Close acceptance' : 'Open acceptance') }}</span>
+            </button>
+            <button class="btn btn-success btn-with-icon" @click="copyAcceptLink">
               <Icon name="copy" :size="14" />
               <span>Copy invitation link</span>
             </button>
