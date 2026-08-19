@@ -446,9 +446,9 @@ The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `
 |---|---|---|
 | `/` | `HomeView` | Role-adaptive portal - unauthenticated landing with sign-in & direct lookup; authenticated student "My Assignments" (accepted repos only); lecturer dashboard router |
 | `/:org/a/:assignmentId` | `AssignmentView` | Student - accept flow, polling, repo link |
-| `/dashboard/:org?` | `DashboardView` | Lecturer - org picker (from `/user/installations`) with System Health audit check modal, then assignment list |
+| `/dashboard/:org?` | `DashboardView` | Lecturer - org selector (with live status lights & memory), System Health audit modal, live assignment sync, + Assignment shortcut, and embedded Resource Usage & Limits panel |
 | `/dashboard/:org/admin` | `AdminView` | Lecturer - Admin Panel: create assignment, publish, grant extension |
-| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips |
+| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips, amber Admin shortcut, and Export dropdown menu |
 | `/dashboard/:org/usage` | `UsageView` | Lecturer - per-org weekly usage report |
 | `/usage` | `UsageOverviewView` | Lecturer - cross-org usage aggregate |
 | `/setup` | `SetupView` | Admin - App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
@@ -555,7 +555,7 @@ The lecturer (org owner) leaves inline review comments on the PR. Comments persi
 
 ### 11.5 Bulk submission download
 
-Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI command" button on `AssignmentDetailView` - the browser can't clone Git, so the actual bulk op stays on the CLI.
+Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI Download" command inside the "Export" dropdown on `AssignmentDetailView` - the browser can't clone Git, so the actual bulk op stays on the CLI.
 
 ### 11.6 Autograding (Lecturer-side & Student-side)
 

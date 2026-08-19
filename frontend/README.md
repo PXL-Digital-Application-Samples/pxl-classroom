@@ -14,12 +14,12 @@ The client-side Single Page Application (SPA) for PXL Classroom, hosted statical
 
 | Route | View | Description |
 |---|---|---|
-| `/` | `HomeView` | Public landing page listing open assignments grouped by organization |
+| `/` | `HomeView` | Role-adaptive portal: student accepted assignments and lecturer dashboard launcher |
 | `/:org/a/:assignmentId` | `AssignmentView` | Student acceptance card, status polling, and repository link |
-| `/dashboard/:org?` | `DashboardView` | Lecturer dashboard, organization selector, assignment overview, System Health modal |
+| `/dashboard/:org?` | `DashboardView` | Lecturer dashboard: org selector with live status lights & memory, assignments overview, live state sync, + Assignment shortcut, System Health modal, and embedded Resource Usage & Limits panel |
 | `/dashboard/:org/admin` | `AdminView` | Lecturer Admin Panel: assignment editor, publish trigger, deadline extensions, roster management |
-| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Per-assignment student table, live status refresh, hover identity resolution, Feedback PR status, download manifest, autograding results |
-| `/dashboard/:org/usage` | `UsageView` | Per-organization weekly SKU usage breakdown with threshold indicators |
+| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Per-assignment student table, live status refresh, hover identity resolution, Feedback PR status, amber Admin shortcut, Export dropdown menu (CSV, Manifest, CLI), and autograding results |
+| `/dashboard/:org/usage` | `UsageView` | Per-organization weekly resource usage breakdown with threshold indicators |
 | `/usage` | `UsageOverviewView` | Cross-organization weekly usage aggregator |
 | `/setup` | `SetupView` | Initial setup page to register the GitHub App from a manifest and verify install permissions |
 

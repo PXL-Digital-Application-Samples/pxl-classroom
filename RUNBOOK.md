@@ -669,7 +669,7 @@ pxl-classroom download --org PXLAutomation \
 
 - Resumable: a re-run skips students whose checkout already matches the archive SHA.
 - Writes `./submissions/_manifest.json` with `{login, archive_sha, archive_branch, archive_branch_url, downloaded_at}` rows for plagiarism tools / local CI.
-- The SPA's **Download manifest** button on `AssignmentDetailView` exports the manifest alone (no clone), and **Copy CLI command** pre-fills the `download` invocation for paste.
+- The SPA's **Export** dropdown menu on `AssignmentDetailView` exports the JSON manifest alone (no clone) alongside CSV export and **Copy CLI Download** to pre-fill the `download` invocation for paste.
 
 ### 12.9 Autograding
 
