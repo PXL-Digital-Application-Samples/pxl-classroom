@@ -2,11 +2,22 @@
 
 Operational procedures for setting up, running, and recovering PXL Classroom. Pairs with `ARCHITECTURE.md` (the technical reference).
 
-This runbook is for two audiences. **System administrators** (the people who own the hub and the App): §1, §2, §3, §9, §10. **Lecturers** (organization owners running classes): §4, §5, §6, §7, §8.
+> [!IMPORTANT]
+> ### 🧭 Where do I start?
+> - **Onboarding a new course or academic year organization (e.g. `PXL-2TIN-DevOps-2627`)?**
+>   👉 **STOP! Do NOT follow §1.** You do **not** need to deploy a frontend or create a new GitHub App. PXL Classroom is multi-tenant: the central hub and central App serve all organizations. **Jump straight to [Section 2: Onboarding a new organization](#2-onboarding-a-new-organization-per-org)**.
+> - **Setting up the entire central PXL Classroom infrastructure from scratch for the first time?**
+>   👉 Follow [Section 1: First-time system setup](#1-first-time-system-setup-one-time-central-system-administrator). This is executed **only once** by the central system administrator on the root hub repository (`PXL-Digital-Application-Samples/pxl-classroom`).
+> - **Lecturer managing assignments, rosters, and deadlines for your course?**
+>   👉 Jump to [Section 4: Creating and publishing an assignment](#4-creating-and-publishing-an-assignment).
 
 ---
 
-## 1. First-time system setup (one time, system administrator)
+## 1. First-time system setup (one time, central system administrator)
+
+> [!CAUTION]
+> **This section is for the central system administrator ONLY and is performed ONCE for the entire institution.**
+> If the central hub (`PXL-Digital-Application-Samples/pxl-classroom`) and the central GitHub App already exist, **skip this section entirely**. To onboard a new course organization, go directly to **[Section 2: Onboarding a new organization](#2-onboarding-a-new-organization-per-org)**.
 
 The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initialize it. They are run once, by an admin who owns the hub.
 
@@ -96,13 +107,18 @@ System is now ready to onboard the first organization.
 
 ## 2. Onboarding a new organization (per org)
 
+> [!NOTE]
+> Follow this procedure whenever a lecturer wants to use PXL Classroom for a new course or academic year organization (e.g. `PXL-2TIN-DevOps-2627`).
+> **You do NOT need to deploy a frontend or create a new GitHub App.** All course organizations connect to the existing central hub (`PXL-Digital-Application-Samples/pxl-classroom`) and use the existing central GitHub App!
+
 Done by a system administrator together with the organization owner.
 
-### 2.1 Install the App on the new org
+### 2.1 Install the central GitHub App on the new org
 
-1. Organization owner: App page → Install → choose the target org.
-2. Scope: **All repositories**. (The App needs Administration RW across the org to provision student repos.)
-3. Confirm.
+1. Organization owner: Open the installation page for the central **PXL Classroom Provisioner** App (e.g. `https://github.com/apps/pxl-classroom-provisioner` or through the App settings → **Install App**).
+2. Choose the target organization (e.g. `PXL-2TIN-DevOps-2627`).
+3. Scope: **All repositories** (the App needs Administration RW across the org to provision student repos and manage permissions).
+4. Confirm installation.
 
 ### 2.2 Run Setup Organization
 
