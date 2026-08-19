@@ -1043,11 +1043,16 @@ async function loadAssignments() {
       return (order[a.state] ?? 9) - (order[b.state] ?? 9) || a.id.localeCompare(b.id)
     })
 
-    const editId = route.query.edit
-    if (editId && (!editing.value || editing.value.id !== editId)) {
-      const a = assignments.value.find((x) => x.id === editId)
-      if (a) {
-        editAssignment(a)
+    if (route.query.new === '1' || route.query.new === 'true' || route.query.action === 'new') {
+      activeTab.value = 'assignments'
+      newAssignment()
+    } else {
+      const editId = route.query.edit
+      if (editId && (!editing.value || editing.value.id !== editId)) {
+        const a = assignments.value.find((x) => x.id === editId)
+        if (a) {
+          editAssignment(a)
+        }
       }
     }
   } catch (e) {
@@ -1785,6 +1790,20 @@ watch(
   () => form.value.title,
   () => {
     if (isNew.value && !manualSlug.value) autoSyncSlug()
+  }
+)
+
+watch(
+  () => route.query,
+  (q) => {
+    if (q.new === '1' || q.new === 'true' || q.action === 'new') {
+      activeTab.value = 'assignments'
+      newAssignment()
+    } else if (q.edit) {
+      activeTab.value = 'assignments'
+      const a = assignments.value.find((x) => x.id === q.edit)
+      if (a) editAssignment(a)
+    }
   }
 )
 </script>

@@ -92,9 +92,9 @@
           </span>
         </div>
         <div class="org-actions-group flex items-center gap-sm">
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
+          <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
             <Icon name="plus" :size="14" />
-            <span>Admin Panel</span>
+            <span>Assignment</span>
           </router-link>
         </div>
       </div>
