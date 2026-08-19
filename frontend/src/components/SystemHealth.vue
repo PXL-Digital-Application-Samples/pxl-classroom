@@ -82,12 +82,31 @@ async function run() {
       const r = await ghApi(token, method, path)
       return { status: r.status, ok: r.ok, data: r.data }
     }
-    result.value = await runAudit({
+    const auditRes = await runAudit({
       request,
       org: props.org,
       hubOwner: config.hubOwner,
       hubRepo: config.hubRepo,
     })
+    try {
+      const rl = await ghApi(token, 'GET', '/rate_limit')
+      if (rl.ok && rl.data?.resources?.core) {
+        const core = rl.data.resources.core
+        const rem = core.remaining
+        const lim = core.limit
+        const resetMins = core.reset ? Math.max(1, Math.ceil((new Date(core.reset * 1000).getTime() - Date.now()) / 60000)) : 60
+        const sev = rem < 500 ? (rem < 100 ? 'fail' : 'warn') : 'ok'
+        auditRes.checks.push({
+          id: 'api-rate-limit',
+          severity: sev,
+          label: `GitHub API Quota: ${rem.toLocaleString()} / ${lim.toLocaleString()} requests available`,
+          message: rem < 500
+            ? `API rate limit is running low (${rem} requests left). Resets in ~${resetMins} min.`
+            : `API quota is healthy. Resets hourly in ~${resetMins} min.`,
+        })
+      }
+    } catch { /* best effort */ }
+    result.value = auditRes
   } catch (e) {
     // Surface the failure in the panel - a silently reverting button reads
     // as "nothing happened".

@@ -12,7 +12,7 @@
       </div>
       <div class="flex items-center gap-sm">
         <button
-          v-if="report && !runWatching"
+          v-if="!runWatching"
           class="btn btn-sm btn-with-icon"
           type="button"
           @click="generateNow"
@@ -20,12 +20,65 @@
           title="Trigger an on-demand usage scan on GitHub Actions"
         >
           <Icon name="refresh-cw" :size="12" :class="{ 'spin-anim': triggering }" />
-          <span>{{ triggering ? 'Scanning…' : 'Regenerate now' }}</span>
+          <span>{{ triggering ? 'Scanning…' : (report ? 'Regenerate now' : 'Run audit now') }}</span>
         </button>
-        <div v-else-if="runWatching" class="inline-spinner text-xs text-secondary">
+        <div v-else class="inline-spinner text-xs text-secondary">
           <div class="spinner" style="width: 12px; height: 12px; border-width: 2px;"></div>
           <span>Auditing… ({{ pollCount }}×)</span>
         </div>
+      </div>
+    </div>
+
+    <!-- Org-Wide Summary KPI Cards (ALWAYS visible) -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <span class="kpi-label">Actions Minutes (Linux)</span>
+        <div class="kpi-val-row">
+          <span class="kpi-val">{{ orgTotals.actionsMinutes }}</span>
+          <span class="kpi-unit">min used</span>
+        </div>
+        <span class="kpi-sub text-muted">Weekly limit: 800 min/repo</span>
+      </div>
+
+      <div class="kpi-card">
+        <span class="kpi-label">Storage &amp; Artifacts</span>
+        <div class="kpi-val-row">
+          <span class="kpi-val">{{ orgTotals.storageGbHours }}</span>
+          <span class="kpi-unit">GB-hrs</span>
+        </div>
+        <span class="kpi-sub text-muted">Weekly limit: 5 GB-hrs/repo</span>
+      </div>
+
+      <div class="kpi-card">
+        <span class="kpi-label">Organization API Quota</span>
+        <div class="kpi-val-row" v-if="rateLimit">
+          <span :class="['kpi-val', rateLimit.remaining < 500 ? 'text-danger' : '']">
+            {{ rateLimit.remaining.toLocaleString() }}
+          </span>
+          <span class="kpi-unit">/ {{ rateLimit.limit.toLocaleString() }} avail</span>
+        </div>
+        <div class="kpi-val-row" v-else>
+          <span class="kpi-val text-muted">-</span>
+          <span class="kpi-unit">/ 5,000 avail</span>
+        </div>
+        <span class="kpi-sub text-muted">{{ formatRateReset(rateLimit?.reset) }}</span>
+      </div>
+
+      <div class="kpi-card">
+        <span class="kpi-label">Organization Status</span>
+        <div class="kpi-val-row">
+          <span v-if="report && report.over_count > 0" class="status-pill status-pill-warn">
+            ⚠ {{ report.over_count }} repo(s) over
+          </span>
+          <span v-else-if="report" class="status-pill status-pill-ok">
+            ✓ All {{ org }} within limits
+          </span>
+          <span v-else class="status-pill" style="background: var(--bg-tertiary); color: var(--text-secondary);">
+            Audit Pending
+          </span>
+        </div>
+        <span class="kpi-sub text-muted" v-if="report">Period: {{ report.week_start }} → {{ report.week_end }}</span>
+        <span class="kpi-sub text-muted" v-else>Weekly audit runs Sundays 22:00 UTC</span>
       </div>
     </div>
 
@@ -44,7 +97,7 @@
     <!-- Empty State / No Report Generated Yet -->
     <div v-else-if="!report" class="usage-empty text-sm">
       <p class="text-secondary" style="margin-bottom: var(--space-xs);">
-        No usage report found for <code>{{ org }}</code> yet. The audit runs automatically every <strong>Sunday at 22:00 UTC</strong>, or you can run one now.
+        No weekly breakdown report found for <code>{{ org }}</code> yet. The audit runs automatically every <strong>Sunday at 22:00 UTC</strong>, or you can run one now.
       </p>
       <button
         v-if="!runWatching"
@@ -56,63 +109,10 @@
         <Icon name="zap" :size="12" />
         <span>{{ triggering ? 'Starting audit…' : 'Generate usage report now' }}</span>
       </button>
-      <div v-else class="inline-spinner">
-        <div class="spinner" style="width: 12px; height: 12px; border-width: 2px;"></div>
-        <span>Workflow dispatched. Watching for results… ({{ pollCount }}×)</span>
-      </div>
     </div>
 
     <!-- Loaded Report Content -->
     <div v-else class="usage-content">
-      <!-- Org-Wide Summary KPI Cards -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <span class="kpi-label">Actions Minutes (Linux)</span>
-          <div class="kpi-val-row">
-            <span class="kpi-val">{{ orgTotals.actionsMinutes }}</span>
-            <span class="kpi-unit">min used</span>
-          </div>
-          <span class="kpi-sub text-muted">Weekly limit: 800 min/repo</span>
-        </div>
-
-        <div class="kpi-card">
-          <span class="kpi-label">Storage &amp; Artifacts</span>
-          <div class="kpi-val-row">
-            <span class="kpi-val">{{ orgTotals.storageGbHours }}</span>
-            <span class="kpi-unit">GB-hrs</span>
-          </div>
-          <span class="kpi-sub text-muted">Weekly limit: 5 GB-hrs/repo</span>
-        </div>
-
-        <div class="kpi-card">
-          <span class="kpi-label">Organization API Quota</span>
-          <div class="kpi-val-row" v-if="rateLimit">
-            <span :class="['kpi-val', rateLimit.remaining < 500 ? 'text-danger' : '']">
-              {{ rateLimit.remaining.toLocaleString() }}
-            </span>
-            <span class="kpi-unit">/ {{ rateLimit.limit.toLocaleString() }} avail</span>
-          </div>
-          <div class="kpi-val-row" v-else>
-            <span class="kpi-val text-muted">-</span>
-            <span class="kpi-unit">/ 5,000 avail</span>
-          </div>
-          <span class="kpi-sub text-muted">{{ formatRateReset(rateLimit?.reset) }}</span>
-        </div>
-
-        <div class="kpi-card">
-          <span class="kpi-label">Organization Status</span>
-          <div class="kpi-val-row">
-            <span v-if="report.over_count > 0" class="status-pill status-pill-warn">
-              ⚠ {{ report.over_count }} repo(s) over
-            </span>
-            <span v-else class="status-pill status-pill-ok">
-              ✓ All {{ org }} within limits
-            </span>
-          </div>
-          <span class="kpi-sub text-muted">Period: {{ report.week_start }} → {{ report.week_end }}</span>
-        </div>
-      </div>
-
       <!-- Filter / Search toolbar -->
       <div class="usage-toolbar flex items-center justify-between">
         <div class="text-xs text-muted">
