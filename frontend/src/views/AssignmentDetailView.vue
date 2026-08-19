@@ -658,6 +658,65 @@
         </div>
       </div>
 
+      <!-- Feedback PRs Confirmation Modal -->
+      <div v-if="showFeedbackPrModal" class="modal-overlay" @click.self="showFeedbackPrModal = false">
+        <div class="modal feedback-pr-modal" role="dialog" aria-modal="true" aria-label="Open Feedback Pull Requests">
+          <header class="modal-head">
+            <h3>Open Feedback Pull Requests</h3>
+            <button class="modal-close" type="button" @click="showFeedbackPrModal = false" :disabled="openingFeedbackPrs" aria-label="Close">×</button>
+          </header>
+
+          <section class="modal-section">
+            <p>
+              This creates a dedicated <strong>Draft Pull Request</strong> (comparing <code>main</code> against the frozen <code>{{ assignment?.feedback_pr_baseline_branch || 'pxl-baseline' }}</code> branch) in student repositories that have pushed commits.
+            </p>
+
+            <div class="safety-box">
+              <h4 class="safety-box-title">Student Code Safety & Scope</h4>
+              <ul class="safety-list">
+                <li><strong>No student code is altered or merged:</strong> The student's <code>main</code> branch, files, and git commit history remain completely untouched.</li>
+                <li><strong>Safe Draft mode:</strong> The pull request is opened in Draft status for inline review comments and annotations only.</li>
+                <li><strong>Continuous tracking:</strong> As students make and push further commits to <code>main</code>, the pull request automatically updates to include their new work.</li>
+                <li><strong>Control repository records:</strong> PR numbers and links are saved to your control repository (<code>pxl-classroom-control/repositories/</code>), not written to student repos.</li>
+              </ul>
+            </div>
+
+            <div class="cohort-summary-grid">
+              <div class="cohort-summary-item">
+                <span class="cohort-summary-val">{{ feedbackPrEligibleCount }}</span>
+                <span class="cohort-summary-lbl">Eligible (commits pushed)</span>
+              </div>
+              <div class="cohort-summary-item">
+                <span class="cohort-summary-val">{{ feedbackPrAlreadyOpenedCount }}</span>
+                <span class="cohort-summary-lbl">Already opened</span>
+              </div>
+              <div class="cohort-summary-item">
+                <span class="cohort-summary-val">{{ feedbackPrSkippedNoCommitsCount }}</span>
+                <span class="cohort-summary-lbl">Skipped (0 commits yet)</span>
+              </div>
+            </div>
+
+            <div v-if="feedbackPrEligibleCount === 0" class="empty-eligible-notice">
+              All student repositories with pushed commits already have Feedback PRs opened, or no students have pushed code yet.
+            </div>
+          </section>
+
+          <footer class="modal-actions">
+            <button class="btn" type="button" @click="showFeedbackPrModal = false" :disabled="openingFeedbackPrs">
+              Cancel
+            </button>
+            <button
+              class="btn btn-primary"
+              type="button"
+              @click="executeOpenFeedbackPrs"
+              :disabled="openingFeedbackPrs || feedbackPrEligibleCount === 0"
+            >
+              {{ openingFeedbackPrs ? 'Opening Pull Requests…' : `Open Feedback PRs on ${feedbackPrEligibleCount} Repo(s)` }}
+            </button>
+          </footer>
+        </div>
+      </div>
+
       <!-- Starter Code Sync Modal -->
       <StarterSyncModal
         v-if="showStarterSyncModal && assignment"
@@ -876,23 +935,35 @@ async function retryPreservation() {
   }
 }
 
-async function openFeedbackPrs() {
+const showFeedbackPrModal = ref(false)
+const feedbackPrCandidates = computed(() =>
+  (report.value?.students || []).filter(
+    (s) => s.repo_name && (s.commit_count > 0 || s.latest_observed_sha) && !s.feedback_pr_number
+  )
+)
+const feedbackPrEligibleCount = computed(() => feedbackPrCandidates.value.length)
+const feedbackPrAlreadyOpenedCount = computed(() =>
+  (report.value?.students || []).filter((s) => s.feedback_pr_number).length
+)
+const feedbackPrSkippedNoCommitsCount = computed(() =>
+  (report.value?.students || []).filter(
+    (s) => s.repo_name && !s.feedback_pr_number && !(s.commit_count > 0 || s.latest_observed_sha)
+  ).length
+)
+
+function openFeedbackPrs() {
+  showFeedbackPrModal.value = true
+}
+
+async function executeOpenFeedbackPrs() {
   const token = getToken()
   if (!token || !report.value) return
 
-  const targets = (report.value.students || []).filter(
-    (s) => s.repo_name && (s.commit_count > 0 || s.latest_observed_sha) && !s.feedback_pr_number
-  )
-
+  const targets = feedbackPrCandidates.value
   if (targets.length === 0) {
-    toast.info('All student repositories with commits already have Feedback PRs opened.')
+    toast.info('No eligible student repositories to open Feedback PRs for.')
     return
   }
-
-  const confirm = window.confirm(
-    `Open feedback pull requests on ${targets.length} student repositories?`
-  )
-  if (!confirm) return
 
   openingFeedbackPrs.value = true
   const baseline = assignment.value?.feedback_pr_baseline_branch || 'pxl-baseline'
@@ -946,6 +1017,7 @@ async function openFeedbackPrs() {
   }
 
   openingFeedbackPrs.value = false
+  showFeedbackPrModal.value = false
   if (opened > 0) {
     toast.success(`Successfully opened ${opened} feedback PR(s).`)
   }
@@ -2533,6 +2605,87 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   gap: var(--space-xs, 6px);
   align-items: center;
   flex-wrap: wrap;
+}
+
+.feedback-pr-modal {
+  max-width: 580px;
+}
+
+.safety-box {
+  background: var(--bg-tertiary, #21262d);
+  border: 1px solid var(--border-default, #30363d);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-sm, 12px) var(--space-md, 16px);
+  margin: var(--space-md, 16px) 0;
+}
+
+.safety-box-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-xs, 6px) 0;
+  color: var(--text-primary, #c9d1d9);
+}
+
+.safety-list {
+  margin: 0;
+  padding-left: var(--space-md, 18px);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #8b949e);
+}
+
+.safety-list li + li {
+  margin-top: 4px;
+}
+
+.cohort-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-sm, 8px);
+  margin: var(--space-md, 16px) 0;
+}
+
+.cohort-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-sm, 8px);
+  background: var(--bg-secondary, #161b22);
+  border: 1px solid var(--border-default, #30363d);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.cohort-summary-val {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #c9d1d9);
+}
+
+.cohort-summary-lbl {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #8b949e);
+  margin-top: 2px;
+}
+
+.empty-eligible-notice {
+  padding: var(--space-sm, 8px) var(--space-md, 12px);
+  background: var(--bg-secondary, #161b22);
+  border: 1px dashed var(--border-default, #30363d);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.84rem;
+  color: var(--text-secondary, #8b949e);
+  text-align: center;
+  margin-top: var(--space-sm, 8px);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm, 8px);
+  padding: var(--space-md, 16px);
+  border-top: 1px solid var(--border-default, #30363d);
+  background: var(--bg-secondary, #161b22);
 }
 
 @media (max-width: 768px) {
