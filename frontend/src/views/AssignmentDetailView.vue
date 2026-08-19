@@ -190,7 +190,7 @@
                 <td>
                   <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
-                    ext → {{ fmt(extensionFor(s.github_login).value) }}
+                    ext -> {{ fmt(extensionFor(s.github_login).value) }}
                   </div>
                 </td>
                 <td class="col-repo">
@@ -295,7 +295,7 @@
                 extended
               </span>
             </div>
-            <!-- Touch devices can't reach title tooltips — repeat the detail as text. -->
+            <!-- Touch devices can't reach title tooltips - repeat the detail as text. -->
             <div v-if="s.tagged_submission_tag" class="student-card-detail text-muted">
               Tag observed {{ fmt(s.tagged_submission_observed_at) }}
             </div>
@@ -352,7 +352,7 @@
             Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
             Total points: <strong>{{ autogradeTotalPoints }}</strong>.
             <template v-if="isGitHubActionsAutograde">
-              Sync reads each student's CI conclusion at the preserved SHA — it is a
+              Sync reads each student's CI conclusion at the preserved SHA - it is a
               <strong>pass/fail signal</strong>, not per-test grading.
             </template>
             <button v-if="!isGitHubActionsAutograde" class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
@@ -445,7 +445,7 @@ import { h } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import Icon from '../components/Icon.vue'
 
-// Tiny render helper — keeps the table markup readable. `dir` is "asc" |
+// Tiny render helper - keeps the table markup readable. `dir` is "asc" |
 // "desc" | null; null renders nothing so non-active columns stay quiet.
 const SortIcon = (props) => props.dir
   ? h(Icon, { name: props.dir === 'asc' ? 'arrow-up' : 'arrow-down', size: 11, class: 'sort-glyph' })
@@ -498,7 +498,7 @@ const actionRetrying = ref(false)
 const modalEl = ref(null)
 let modalReturnFocus = null
 
-// "Run daily activity now" — dispatch + watch for the first report to land.
+// "Run daily activity now" - dispatch + watch for the first report to land.
 const dailyTriggering = ref(false)
 const dailyWatch = ref('') // '' | 'watching' | 'timeout'
 const dailyPollCount = ref(0)
@@ -537,7 +537,7 @@ function startDailyWatch() {
           dailyWatch.value = ''
           toast.success('Report ready.')
           return
-        } catch { /* half-written file — keep polling */ }
+        } catch { /* half-written file - keep polling */ }
       }
     }
     if (dailyPollCount.value >= 30) { // 30 × 10s = 5 minutes
@@ -569,10 +569,10 @@ const syncedGradesCount = ref(0)
 const totalGradesToSync = ref(0)
 
 // CI-derived summaries carry a single pass/fail conclusion, not per-test
-// points — display them as such instead of implying granular grading.
+// points - display them as such instead of implying granular grading.
 const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'github_actions')
 
-// login → override doc from overrides/<assignment>/<login>.json, so granted
+// login -> override doc from overrides/<assignment>/<login>.json, so granted
 // extensions are visible (and inspectable before granting again).
 const overridesByLogin = ref(new Map())
 const rosterByLogin = ref(new Map())
@@ -628,7 +628,7 @@ function studentTooltip(s) {
   const metaStr = meta.length > 0 ? ` (${meta.join(' · ')})` : ''
 
   if (realEmail) {
-    return fullName ? `${realEmail} — ${fullName}${metaStr}` : `${realEmail}${metaStr}`
+    return fullName ? `${realEmail} - ${fullName}${metaStr}` : `${realEmail}${metaStr}`
   }
   if (fullName) {
     return `${fullName}${metaStr}`
@@ -637,7 +637,7 @@ function studentTooltip(s) {
 }
 
 // Base columns: login, acceptance, status, repo, last commit,
-// commits, actions — plus the four conditional columns (CI, Feedback PR, Warnings, Submit tag).
+// commits, actions - plus the four conditional columns (CI, Feedback PR, Warnings, Submit tag).
 const hasWarnings = computed(() =>
   (report.value?.students || []).some(s => s.warnings && s.warnings.length > 0))
 
@@ -942,7 +942,7 @@ function sortBy(key) {
   if (sortKey.value === key) sortAsc.value = !sortAsc.value
   else { sortKey.value = key; sortAsc.value = true }
 }
-// Returns 'asc' | 'desc' | null — consumed by the <SortIcon> render helper
+// Returns 'asc' | 'desc' | null - consumed by the <SortIcon> render helper
 // so the active column shows a directional arrow, the rest show nothing.
 function sortDir(key) {
   if (sortKey.value !== key) return null
@@ -966,7 +966,7 @@ function shortRepo(name) {
   return name.includes('/') ? name.split('/')[1] : name
 }
 
-// `submit/2026-10-05T20:34:11Z-a1b2c3d` → `a1b2c3d` (short SHA suffix) so the
+// `submit/2026-10-05T20:34:11Z-a1b2c3d` -> `a1b2c3d` (short SHA suffix) so the
 // column stays narrow. Full tag name is on hover via title.
 function shortTag(tag) {
   if (!tag) return ''
@@ -1010,7 +1010,7 @@ function formatRelative(iso) {
 }
 
 // Same column set as report.mjs's nightly CSV, but generated from the report
-// currently on screen — so an export taken after a Live Status refresh can
+// currently on screen - so an export taken after a Live Status refresh can
 // never contradict the table the lecturer just looked at.
 const CSV_HEADERS = [
   'github_login', 'student_number', 'full_name', 'class_group',
@@ -1056,7 +1056,7 @@ function exportCSV() {
 
 function copyAcceptLink() {
   const base = window.location.origin + (import.meta.env.BASE_URL || '/')
-  // Route shape is /:org/a/:assignmentId — the org segment is required.
+  // Route shape is /:org/a/:assignmentId - the org segment is required.
   const link = `${base}${props.org}/a/${props.assignmentId}`
   navigator.clipboard.writeText(link).then(
     () => toast.success(`Invitation link copied: ${link}`),
@@ -1064,7 +1064,7 @@ function copyAcceptLink() {
   )
 }
 
-// Manifest of preserved submissions — login + archive SHA + clickable
+// Manifest of preserved submissions - login + archive SHA + clickable
 // archive branch URL. Power users do the actual bulk clone via the CLI; the
 // browser can't (and the manifest is enough to drive plagiarism tooling).
 function downloadManifest() {
@@ -1120,7 +1120,7 @@ function clearFilters() {
   statusFilter.value = ''
 }
 
-// Returns true when the row was refreshed, false on any API failure — the
+// Returns true when the row was refreshed, false on any API failure - the
 // caller counts failures so a partial refresh is never presented (or saved)
 // as a complete one.
 async function refreshOne(token, s) {
@@ -1173,7 +1173,7 @@ async function refreshOne(token, s) {
           s.last_on_time_sha = sha
         } else {
           // Post-deadline commit. Nightly semantics: an on-time submission on
-          // record keeps the student on-time — late *activity* is not a late
+          // record keeps the student on-time - late *activity* is not a late
           // *submission*. Only classify 'late' when nothing on-time exists.
           s.first_late_sha = s.first_late_sha || sha
           if (!s.last_on_time_sha) {
@@ -1236,7 +1236,7 @@ async function refreshLiveStatus() {
   // Fetch rate-limit headroom (one extra call, doesn't count against core)
   await fetchRateLimit(token)
 
-  // A partial refresh must never be presented — or persisted — as a complete
+  // A partial refresh must never be presented - or persisted - as a complete
   // one. Surface the failure count and leave the control repo untouched.
   if (failedCount > 0) {
     toast.error(
@@ -1286,7 +1286,7 @@ async function syncGradesFromGitHub() {
   
   // CI results are read at each student's *preserved* SHA, which only exists
   // after the deadline-night finalize. Never commit an empty summary (it
-  // would overwrite a previous one) — explain the precondition instead.
+  // would overwrite a previous one) - explain the precondition instead.
   const queue = report.value.students.filter(s => s.repo_name && s.preserved_sha)
   if (queue.length === 0) {
     toast.info(
@@ -1311,7 +1311,7 @@ async function syncGradesFromGitHub() {
         // s.repo_name is already the full org/repo name.
         const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
         if (!checksReq.ok) {
-          throw new Error(`checks API fetch failed — HTTP ${checksReq.status}`)
+          throw new Error(`checks API fetch failed - HTTP ${checksReq.status}`)
         }
         const checkRuns = checksReq.data?.check_runs || [];
         const total = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
@@ -1393,7 +1393,7 @@ async function syncGradesFromGitHub() {
 
 // Mirror report.mjs's dashboard aggregate, but only for the assignment we
 // just refreshed. Skips silently if dashboard.json doesn't exist or doesn't
-// already have an entry for this assignment — we don't conjure entries.
+// already have an entry for this assignment - we don't conjure entries.
 async function syncDashboardAggregate(token) {
   try {
     const path = 'reports/dashboard.json'
@@ -1647,7 +1647,7 @@ async function retryAcceptanceFor(student) {
   padding: var(--space-md) 0;
 }
 .back-link { font-size: 0.875rem; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
-/* The breadcrumb must shrink inside the header flex row — otherwise a long
+/* The breadcrumb must shrink inside the header flex row - otherwise a long
    assignment id forces horizontal page scroll on mobile. */
 .breadcrumb { min-width: 0; flex: 1; }
 .breadcrumb h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

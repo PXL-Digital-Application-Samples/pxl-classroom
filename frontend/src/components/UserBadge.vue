@@ -18,7 +18,7 @@ defineProps({
 })
 const emit = defineEmits(['logout'])
 
-// Device-flow tokens live ~8h and there is no refresh — show the remaining
+// Device-flow tokens live ~8h and there is no refresh - show the remaining
 // time so expiry isn't a surprise mid-session. Ticks once a minute.
 const now = ref(Date.now())
 let timer = null

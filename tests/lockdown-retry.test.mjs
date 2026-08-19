@@ -1,9 +1,9 @@
-// PXL Classroom — lockdown-retry.test.mjs
+// PXL Classroom - lockdown-retry.test.mjs
 //
 // A finalize run can be retried (find-finalizable re-queues an assignment whose
 // submissions were locked down but never preserved). Retrying must not move the
-// recorded submission: a student's HEAD can advance after the deadline — late
-// pushes land until the demotion propagates, and lecturers grant extensions —
+// recorded submission: a student's HEAD can advance after the deadline - late
+// pushes land until the demotion propagates, and lecturers grant extensions -
 // so re-snapshotting would silently replace the on-time submission with a later
 // commit.
 //
@@ -168,7 +168,7 @@ test("retry does not fabricate a second observation of the frozen snapshot", asy
 });
 
 test("a student added after the first lockdown still gets a fresh snapshot", async () => {
-  // Frozen means "already recorded", not "never snapshot anything again" — a
+  // Frozen means "already recorded", not "never snapshot anything again" - a
   // late-provisioned student must not be skipped by the retry.
   const dir = makeControlDir({
     schema_version: 1,

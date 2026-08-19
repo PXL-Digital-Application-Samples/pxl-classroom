@@ -1,4 +1,4 @@
-// PXL Classroom CLI — gittree adapter.
+// PXL Classroom CLI - gittree adapter.
 //
 // Wraps the root lib/gittree.mjs so commands pass an Octokit instance instead
 // of { fetch, token }. The root module is HTTP-stack-agnostic (it accepts a

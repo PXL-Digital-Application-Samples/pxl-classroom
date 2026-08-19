@@ -9,7 +9,7 @@
               <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
             </svg>
           </router-link>
-          <h1>Usage — all organizations</h1>
+          <h1>Usage - all organizations</h1>
         </div>
         <div class="header-right flex items-center gap-md">
           <router-link to="/" class="btn">Home</router-link>
@@ -55,7 +55,7 @@
         <p class="text-secondary">
           No weekly usage reports landed in any of the <strong>{{ orgsTotal }}</strong> orgs where the App is installed.
           The report scans every repo against your configured thresholds (Actions minutes, Codespaces, Packages, etc.)
-          and flags anything over. It runs automatically every <strong>Sunday at 22:00 UTC</strong> —
+          and flags anything over. It runs automatically every <strong>Sunday at 22:00 UTC</strong> -
           but you can kick off a one-off run right now across all participating orgs.
         </p>
 
@@ -93,7 +93,7 @@
               <p v-if="overCount > 0" class="text-danger"><strong>{{ overCount }}</strong> repo/SKU pair(s) over threshold across all orgs.</p>
               <p v-else class="text-success">All scanned orgs within configured limits.</p>
               <p v-if="skippedOrgsMessage" class="text-warning" style="font-size: 0.9rem; margin-top: var(--space-xs, 4px); font-weight: 500;">
-                ⚠️ {{ skippedOrgsMessage }}
+                [WARNING]️ {{ skippedOrgsMessage }}
               </p>
             </div>
             <div class="regen">
@@ -133,7 +133,7 @@
                 <td><code>{{ item.repo }}</code></td>
                 <td>{{ item.sku }}</td>
                 <td class="num"><strong v-if="item.over">{{ item.used }}</strong><span v-else>{{ item.used }}</span></td>
-                <td class="num">{{ item.limit ?? '—' }}</td>
+                <td class="num">{{ item.limit ?? '-' }}</td>
                 <td>{{ item.unit }}</td>
                 <td><span class="badge">{{ item.limit_source }}</span></td>
               </tr>
@@ -180,7 +180,7 @@ const skippedOrgsMessage = computed(() => {
   if (skippedOrgs.value.length === 0) return null
   return `${orgsTotal.value - skippedOrgs.value.length} of ${orgsTotal.value} orgs loaded; the following reports could not be read: ${skippedOrgs.value.join(', ')}`
 })
-// Newest generated_at across all loaded org reports — the "did a fresh
+// Newest generated_at across all loaded org reports - the "did a fresh
 // report land yet" signal for the regenerate watcher.
 const newestGeneratedAt = ref(null)
 const triggering = ref(false)
@@ -297,7 +297,7 @@ async function startLogin() {
     deviceFlow.value = null
     await loadAll()
   } catch (e) {
-    // Sign-in failures render inside the auth card — never silently.
+    // Sign-in failures render inside the auth card - never silently.
     if (e.message !== 'Cancelled') authError.value = e.message
     deviceFlow.value = null
   } finally {
@@ -323,10 +323,10 @@ async function generateNow() {
   if (!token) return
   triggering.value = true
   try {
-    // No 'org' input → workflow fans out to every participating org
+    // No 'org' input -> workflow fans out to every participating org
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'weekly-usage-report.yml', {})
     if (res.ok || res.status === 204) {
-      toast.success('Workflow triggered — watching for reports…')
+      toast.success('Workflow triggered - watching for reports…')
       runWatching.value = true
       startRunPoll()
     } else {

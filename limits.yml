@@ -1,4 +1,4 @@
-# PXL Classroom — global weekly usage limits per SKU.
+# PXL Classroom - global weekly usage limits per SKU.
 #
 # Resolution order: per-repo override > per-org override > this file's default.
 # - per-repo: <org>/pxl-classroom-control/limits-overrides.json

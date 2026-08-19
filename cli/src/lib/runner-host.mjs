@@ -1,4 +1,4 @@
-// PXL Classroom CLI — host runner.
+// PXL Classroom CLI - host runner.
 //
 // Executes a single test directly on the lecturer's machine via /bin/sh -c.
 // No sandboxing. Use --runner=docker for untrusted student code.
@@ -43,7 +43,7 @@ function normalize(s) {
 
 export async function runHost({ test, workdir }) {
   if (process.platform === "win32") {
-    throw new Error("host runner is POSIX-only — use --runner=docker on Windows");
+    throw new Error("host runner is POSIX-only - use --runner=docker on Windows");
   }
   const timeoutMs = (test.timeout_s ?? 30) * 1000;
   if (test.type === "run") {

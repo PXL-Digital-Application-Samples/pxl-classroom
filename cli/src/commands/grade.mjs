@@ -1,4 +1,4 @@
-// PXL Classroom CLI — `grade` command.
+// PXL Classroom CLI - `grade` command.
 //
 // Runs assignment.autograde tests locally against preserved archive SHAs and
 // writes per-student results to grading/<assignment-id>/<login>.json (+
@@ -7,7 +7,7 @@
 //
 // Idempotent and resumable: results are written one at a time; if you Ctrl-C
 // halfway through, re-running picks up where you left off. The grader never
-// touches the student's live repo — only archive branches.
+// touches the student's live repo - only archive branches.
 
 import { Command } from "commander";
 import { mkdir, writeFile, rm, mkdtemp } from "node:fs/promises";
@@ -180,13 +180,13 @@ export function registerGradeCommand(program) {
         )).trim().toLowerCase();
         rl.close();
         if (answer !== "y" && answer !== "yes") {
-          process.stdout.write(`Aborted — nothing executed.\n`);
+          process.stdout.write(`Aborted - nothing executed.\n`);
           return;
         }
       }
       if (isGitHubActions && command.getOptionValueSource("runner") === "cli") {
         process.stderr.write(
-          `warning: --runner ${opts.runner} is ignored — this assignment's execution_environment ` +
+          `warning: --runner ${opts.runner} is ignored - this assignment's execution_environment ` +
           `is github_actions, so grades come from the Checks API, not a local runner.\n`,
         );
       }
@@ -197,7 +197,7 @@ export function registerGradeCommand(program) {
       if (isGitHubActions) {
         process.stdout.write(
           `Note: github_actions grading maps each student's single CI conclusion at the ` +
-          `preserved SHA onto all tests — it is pass/fail, not per-test scoring.\n`,
+          `preserved SHA onto all tests - it is pass/fail, not per-test scoring.\n`,
         );
       }
 
@@ -251,7 +251,7 @@ export function registerGradeCommand(program) {
               }))
             };
           } catch (err) {
-            process.stderr.write(`  ! ${s.github_login}: checks API fetch failed — ${err.message}\n`);
+            process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
             summary.failed.push({ login: s.github_login, reason: `checks: ${err.message}` });
             return;
           }
@@ -263,7 +263,7 @@ export function registerGradeCommand(program) {
               sha: s.preserved_sha, token,
             });
           } catch (err) {
-            process.stderr.write(`  ! ${s.github_login}: archive fetch failed — ${err.message}\n`);
+            process.stderr.write(`  ! ${s.github_login}: archive fetch failed - ${err.message}\n`);
             summary.failed.push({ login: s.github_login, reason: `archive: ${err.message}` });
             return;
           }
@@ -273,7 +273,7 @@ export function registerGradeCommand(program) {
               login: s.github_login, sha: archive.sha, archive, gradedBy,
             });
           } catch (err) {
-            process.stderr.write(`  ! ${s.github_login}: grading failed — ${err.message}\n`);
+            process.stderr.write(`  ! ${s.github_login}: grading failed - ${err.message}\n`);
             summary.failed.push({ login: s.github_login, reason: `grading: ${err.message}` });
             try { await rm(archive.workdir, { recursive: true, force: true }); } catch { /* best effort */ }
             return;

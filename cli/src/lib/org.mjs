@@ -1,4 +1,4 @@
-// PXL Classroom CLI — resolveOrg helper.
+// PXL Classroom CLI - resolveOrg helper.
 
 import { loadConfig, saveConfig } from "./config.mjs";
 
@@ -12,7 +12,7 @@ export function resolveOrg(flag) {
   if (flag) {
     saveConfig({ last_org: flag });
   } else {
-    process.stderr.write(`org: ${org} (last used — pass --org to override)\n`);
+    process.stderr.write(`org: ${org} (last used - pass --org to override)\n`);
   }
   return org;
 }

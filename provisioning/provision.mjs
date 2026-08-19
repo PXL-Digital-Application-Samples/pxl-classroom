@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — production provisioner.
+// PXL Classroom - production provisioner.
 //
 // Creates a private org repo from a private template, grants a student a role
 // (default admin), records the immutable repo ID, and is idempotent: a re-run
@@ -39,7 +39,7 @@ async function summary(md) {
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
 }
 const steps = [];
-const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` — ${detail.note}` : ""}`); };
+const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` - ${detail.note}` : ""}`); };
 
 async function fail(category, note) {
   log(category, { ok: false, note });
@@ -71,7 +71,7 @@ function validate() {
 // Creates a frozen branch (idempotent) pointing at the repo's default-branch
 // HEAD and protects it against force-push/delete. The Feedback PR itself
 // cannot be opened at provisioning time because main and the baseline point
-// at the same SHA — GitHub returns 422 "No commits between …". The PR is
+// at the same SHA - GitHub returns 422 "No commits between …". The PR is
 // opened lazily by `pxl-classroom feedback open` once the student has pushed.
 async function setupFeedbackBaseline(repo) {
   const branch = cfg.baselineBranch;
@@ -180,7 +180,7 @@ async function main() {
   // 3. Idempotency: existing repo?
   const existing = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}`);
   const alreadyExists = existing.status === 200;
-  log("idempotency", { ok: existing.status === 200 || existing.status === 404, note: alreadyExists ? `exists id=${existing.data.id} — reuse` : "absent — create" });
+  log("idempotency", { ok: existing.status === 200 || existing.status === 404, note: alreadyExists ? `exists id=${existing.data.id} - reuse` : "absent - create" });
 
   // 4. Create from template (skip if exists / dry-run).
   let repo = alreadyExists ? existing.data : null;
@@ -229,7 +229,7 @@ async function main() {
   await summary(
     `### Provisioning: \`${outcome}\`\n\n` +
     `| field | value |\n|---|---|\n` +
-    `| repo | ${repo?.full_name ?? "(dry-run)"} |\n| id | ${repo?.id ?? "—"} |\n` +
+    `| repo | ${repo?.full_name ?? "(dry-run)"} |\n| id | ${repo?.id ?? "-"} |\n` +
     `| student | ${cfg.studentLogin} (${cfg.permission}) |\n| template | ${cfg.templateOwner}/${cfg.templateRepo} |\n`
   );
   log("done", { ok: true, note: outcome });

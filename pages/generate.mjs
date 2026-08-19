@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — public Pages data generator.
+// PXL Classroom - public Pages data generator.
 //
 // Reads assignment definitions from the control repo and produces a public
 // metadata JSON file containing ONLY public assignment information.
@@ -34,7 +34,7 @@ async function main() {
 
   const assignmentsDir = join(dataDir, "assignments");
   if (!existsSync(assignmentsDir)) {
-    console.log("[ok] No assignments directory — generating empty output");
+    console.log("[ok] No assignments directory - generating empty output");
     const output = {
       schema_version: 1,
       generated_at: new Date().toISOString(),
@@ -65,7 +65,7 @@ async function main() {
       }
     }
 
-    // Extract ONLY public metadata — no roster, no repo URLs, no tokens
+    // Extract ONLY public metadata - no roster, no repo URLs, no tokens
     assignments[def.id] = {
       id: def.id,
       title: def.title,
@@ -76,10 +76,10 @@ async function main() {
       deadline_at: def.deadline_at,
       timezone: def.timezone || "Europe/Brussels",
       acceptance_mode: def.acceptance_mode || "self-service",
-      // Policy flag, not student data — the SPA uses it to explain accurately
+      // Policy flag, not student data - the SPA uses it to explain accurately
       // why an acceptance may not complete. Never carries roster contents.
       roster_mode: def.roster_mode === "open" ? "open" : "enforced",
-      // Pattern is public — it's a template, not student data. SPA needs it
+      // Pattern is public - it's a template, not student data. SPA needs it
       // to compute the expected repo URL after acceptance (P0-10).
       repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,
       // The broker repo name is public (the broker is a public repo)

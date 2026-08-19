@@ -1,4 +1,4 @@
-// PXL Classroom — public-data-contract.test.mjs
+// PXL Classroom - public-data-contract.test.mjs
 //
 // Verifies that the Pages public data generator outputs the contract shape
 // expected by the SPA (an object keyed by assignment ID instead of an array).
@@ -83,7 +83,7 @@ test("generate.mjs publishes roster_mode, defaulting to enforced", () => {
   assert.equal(run("\nroster_mode: enforced\n").mode, "enforced");
   assert.equal(run("\nroster_mode: Open\n").mode, "enforced");
 
-  // The field name contains "roster" — make sure publishing it does not trip
+  // The field name contains "roster" - make sure publishing it does not trip
   // the privacy gate, which would block every Pages deploy.
   const { outDir } = run("\nroster_mode: open\n");
   const scan = spawnSync("node", [scanner, outDir], { encoding: "utf8" });

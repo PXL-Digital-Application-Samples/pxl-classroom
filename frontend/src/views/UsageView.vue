@@ -9,7 +9,7 @@
               <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
             </svg>
           </router-link>
-          <h1>Usage — {{ org }}</h1>
+          <h1>Usage - {{ org }}</h1>
         </div>
         <div class="header-right flex items-center gap-md">
           <router-link :to="{ name: 'dashboard', params: { org } }" class="btn">Back to dashboard</router-link>
@@ -54,7 +54,7 @@
         <p class="text-secondary">
           The Weekly Usage Report scans every repo in <code>{{ org }}</code> against your configured thresholds
           (Actions minutes, Codespaces, Packages, etc.) and flags anything over. It runs automatically
-          every <strong>Sunday at 22:00 UTC</strong> — but you can also kick off a one-off run right now.
+          every <strong>Sunday at 22:00 UTC</strong> - but you can also kick off a one-off run right now.
         </p>
 
         <div v-if="!triggering && !runWatching">
@@ -63,7 +63,7 @@
             <span>Generate report now</span>
           </button>
           <p class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-sm);">
-            Triggers <code>weekly-usage-report.yml</code> in the hub. Takes roughly 1–2 minutes.
+            Triggers <code>weekly-usage-report.yml</code> in the hub. Takes roughly 1-2 minutes.
           </p>
         </div>
 
@@ -87,7 +87,7 @@
         <div class="report-meta">
           <div class="report-meta-row">
             <div>
-              <p><strong>Week:</strong> {{ report.week_start }} → {{ report.week_end }}</p>
+              <p><strong>Week:</strong> {{ report.week_start }} -> {{ report.week_end }}</p>
               <p><strong>Generated:</strong> {{ formatDate(report.generated_at) }}</p>
               <p v-if="report.over_count > 0" class="text-danger">
                 <strong>{{ report.over_count }}</strong> repo/SKU pair(s) over threshold.
@@ -126,7 +126,7 @@
                 <td><code>{{ item.repo }}</code></td>
                 <td>{{ item.sku }}</td>
                 <td class="num"><strong v-if="item.over">{{ item.used }}</strong><span v-else>{{ item.used }}</span></td>
-                <td class="num">{{ item.limit ?? '—' }}</td>
+                <td class="num">{{ item.limit ?? '-' }}</td>
                 <td>{{ item.unit }}</td>
                 <td><span class="badge">{{ item.limit_source }}</span></td>
               </tr>
@@ -224,7 +224,7 @@ async function generateNow() {
   try {
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'weekly-usage-report.yml', { org: props.org })
     if (res.ok || res.status === 204) {
-      toast.success('Workflow triggered — watching for the report…')
+      toast.success('Workflow triggered - watching for the report…')
       runWatching.value = true
       startRunPoll()
     } else {
@@ -280,7 +280,7 @@ async function startLogin() {
     deviceFlow.value = null
     await loadReport()
   } catch (e) {
-    // Sign-in failures render inside the auth card — never silently.
+    // Sign-in failures render inside the auth card - never silently.
     if (e.message !== 'Cancelled') authError.value = e.message
     deviceFlow.value = null
   } finally {

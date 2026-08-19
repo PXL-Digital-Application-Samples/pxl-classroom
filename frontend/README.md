@@ -1,4 +1,4 @@
-# PXL Classroom — Frontend SPA
+# PXL Classroom - Frontend SPA
 
 The client-side Single Page Application (SPA) for PXL Classroom, hosted statically on GitHub Pages.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — registry reconciliation.
+// PXL Classroom - registry reconciliation.
 //
 // Scans the local `repositories/` registry and compares it to the actual GitHub
 // state. Detects deleted repos, public repos (should be private), and missing

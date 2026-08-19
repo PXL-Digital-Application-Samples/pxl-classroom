@@ -10,7 +10,7 @@
     "schema_version": {
       "type": "integer",
       "const": 2,
-      "description": "Schema version. v2 renames student_id→student_number and display_name→full_name, and adds email."
+      "description": "Schema version. v2 renames student_id->student_number and display_name->full_name, and adds email."
     },
     "students": {
       "type": "array",

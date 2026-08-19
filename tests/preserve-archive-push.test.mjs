@@ -1,4 +1,4 @@
-// PXL Classroom — preserve-archive-push.test.mjs
+// PXL Classroom - preserve-archive-push.test.mjs
 //
 // Regression test for the preservation archive push.
 //
@@ -24,7 +24,7 @@ import { join } from "node:path";
 const git = (args, cwd) =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
 
-// file:// URL for a local path — forces the real git wire protocol on all
+// file:// URL for a local path - forces the real git wire protocol on all
 // platforms (and normalises the Windows drive letter).
 const fileUrl = (p) => `file:///${p.replace(/\\/g, "/").replace(/^\//, "")}`;
 

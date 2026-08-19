@@ -2,7 +2,7 @@ name: PXL Classroom Pages Generator
 description: >-
   Generate public assignment metadata JSON for GitHub Pages, run the privacy
   scanner, and output deployment-ready files. No private data (roster, per-student
-  state) is included — those are fetched at runtime.
+  state) is included - those are fetched at runtime.
 
 inputs:
   data-dir:
@@ -62,6 +62,6 @@ runs:
           echo "outcome=published" >> "$GITHUB_OUTPUT"
         else
           echo "outcome=blocked" >> "$GITHUB_OUTPUT"
-          echo "::error::Privacy scan blocked publication — see scan output"
+          echo "::error::Privacy scan blocked publication - see scan output"
           exit 1
         fi

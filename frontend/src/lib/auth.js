@@ -1,10 +1,10 @@
-// PXL Classroom — GitHub Device Flow authentication module.
+// PXL Classroom - GitHub Device Flow authentication module.
 //
 // Implements the GitHub device authorization flow for static frontends.
-// Based on spikes/02-auth/device-flow.mjs (Spike 2 — PASS).
+// Based on spikes/02-auth/device-flow.mjs (Spike 2 - PASS).
 //
 // Flow:
-//   1. POST /login/device/code → get device_code, user_code, verification_uri
+//   1. POST /login/device/code -> get device_code, user_code, verification_uri
 //   2. User opens verification_uri and enters user_code
 //   3. Poll POST /login/oauth/access_token until authorized
 //   4. Use access_token to call GitHub API
@@ -12,7 +12,7 @@
 // Token storage: sessionStorage only (cleared on tab close).
 // Never localStorage. Never embedded in Pages output.
 
-// github.com/login/* does NOT send CORS headers — direct browser fetch fails.
+// github.com/login/* does NOT send CORS headers - direct browser fetch fails.
 // Route the two device-flow endpoints through a CORS proxy. api.github.com
 // does support CORS and is called directly.
 //
@@ -47,7 +47,7 @@ export function initAuth() {
         _tokenExpiresAt = new Date(data.expires_at)
         return true
       }
-      // Expired — clear
+      // Expired - clear
       sessionStorage.removeItem('pxl_auth')
     } catch {
       sessionStorage.removeItem('pxl_auth')
@@ -154,7 +154,7 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
     const data = await res.json()
 
     if (data.access_token) {
-      // Success — fetch user info
+      // Success - fetch user info
       const user = await fetchUser(data.access_token)
 
       // Calculate expiry

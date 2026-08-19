@@ -1,4 +1,4 @@
-// PXL Classroom CLI — stable stringify.
+// PXL Classroom CLI - stable stringify.
 
 export function stableStringify(obj) {
   if (obj === null || typeof obj !== "object") return JSON.stringify(obj);

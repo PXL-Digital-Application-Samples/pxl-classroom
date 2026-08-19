@@ -88,7 +88,7 @@ test("lockdown-record.json exists -> skip (idempotency)", () => {
 // --- retry on incomplete preservation ---------------------------------------
 //
 // Lockdown alone used to be the idempotency key, so a run that locked down and
-// then failed in preserve was recorded as finished and never retried — the
+// then failed in preserve was recorded as finished and never retried - the
 // submissions were silently never archived.
 
 /**
@@ -162,7 +162,7 @@ test("partial preservation -> re-queued", () => {
 });
 
 test("student without a snapshot SHA cannot be preserved -> not re-queued", () => {
-  // A lockdown error (e.g. repo gone) — retrying preserve can never fix it, so
+  // A lockdown error (e.g. repo gone) - retrying preserve can never fix it, so
   // it must not pin the assignment in a nightly retry loop.
   const res = runWithLockdown([{ login: "alice", snapshot_sha: null }]);
   assert.equal(res.finalizable.length, 0);

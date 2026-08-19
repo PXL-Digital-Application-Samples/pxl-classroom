@@ -1,4 +1,4 @@
-// PXL Classroom CLI — `download` command.
+// PXL Classroom CLI - `download` command.
 //
 // Pulls preserved submissions out of <org>/pxl-classroom-archive into a local
 // tree. Archive-backed so post-deadline rewrites of the live student repo
@@ -27,7 +27,7 @@ const ARCHIVE_REPO = "pxl-classroom-archive";
 
 
 // Run a git subprocess with stdio captured. Throws on non-zero exit. Token
-// is never put on the command line — only in the URL, which itself is only
+// is never put on the command line - only in the URL, which itself is only
 // read by git, not logged here.
 function runGit(args, opts = {}) {
   return new Promise((resolveFn, reject) => {

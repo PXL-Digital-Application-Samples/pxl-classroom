@@ -94,7 +94,7 @@
             </ul>
           </details>
 
-          <!-- Removed is the destructive part of the diff — always expanded. -->
+          <!-- Removed is the destructive part of the diff - always expanded. -->
           <details v-if="diff.removed.length" open>
             <summary>Removed ({{ diff.removed.length }})</summary>
             <ul>
@@ -285,7 +285,7 @@ async function onFileChange(ev) {
   await parseAndValidate()
 }
 
-// The pane's copy says "drop a CSV" — honor it.
+// The pane's copy says "drop a CSV" - honor it.
 const dragging = ref(false)
 async function onDrop(ev) {
   dragging.value = false
@@ -297,7 +297,7 @@ async function onDrop(ev) {
 
 async function commitRoster() {
   if (!canCommit.value) return
-  // Removals are the destructive part — one extra look before they land.
+  // Removals are the destructive part - one extra look before they land.
   if (diff.value.removed.length > 0 && !window.confirm(
     `This commit removes ${diff.value.removed.length} student(s) from the roster ` +
     `(listed under "Removed"). Continue?`,
@@ -323,7 +323,7 @@ watch(() => props.org, () => loadExisting())
 
 onMounted(loadExisting)
 
-// A parsed import with an uncommitted diff is unsaved work — the parent
+// A parsed import with an uncommitted diff is unsaved work - the parent
 // includes it in the route-leave / beforeunload guards.
 defineExpose({
   isDirty: () => canCommit.value,

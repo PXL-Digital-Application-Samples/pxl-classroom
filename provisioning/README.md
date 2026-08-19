@@ -2,17 +2,17 @@
 
 The repository provisioner handles student repository creation and role grants. It is exposed in two reusable units:
 
-- **Composite action** — `provisioning/action.yml` + `provision.mjs`. Carries its own logic (reached via `$GITHUB_ACTION_PATH`), mints the per-org **GitHub App installation token**, and executes the provisioning operations. Third-party actions are pinned to full commit SHAs.
-- **Reusable workflow** — `.github/workflows/provision.yml` (`workflow_call`). Enforces the **`concurrency`** guard (one in-flight provision per org+repo to prevent duplicate repositories), sets minimal workflow `permissions`, and exposes typed inputs, secrets, and outputs.
+- **Composite action** - `provisioning/action.yml` + `provision.mjs`. Carries its own logic (reached via `$GITHUB_ACTION_PATH`), mints the per-org **GitHub App installation token**, and executes the provisioning operations. Third-party actions are pinned to full commit SHAs.
+- **Reusable workflow** - `.github/workflows/provision.yml` (`workflow_call`). Enforces the **`concurrency`** guard (one in-flight provision per org+repo to prevent duplicate repositories), sets minimal workflow `permissions`, and exposes typed inputs, secrets, and outputs.
 
-> Why both: composite actions cannot declare `concurrency`, and preventing duplicate repository creation during acceptance bursts is a core requirement — so the concurrency guard lives in the caller workflow.
+> Why both: composite actions cannot declare `concurrency`, and preventing duplicate repository creation during acceptance bursts is a core requirement - so the concurrency guard lives in the caller workflow.
 
 ## What it does (idempotent)
 
 1. Validates inputs against strict allowlists (org/repo names, GitHub login, permission levels).
 2. Verifies that the template repository exists and has template mode enabled.
-3. If the target repo already exists → **reuses** it (no duplicates); otherwise creates it as a private repository from the template.
-4. Grants the student their configured permission level (default `admin`) — creating an invitation if outside collaborator.
+3. If the target repo already exists -> **reuses** it (no duplicates); otherwise creates it as a private repository from the template.
+4. Grants the student their configured permission level (default `admin`) - creating an invitation if outside collaborator.
 5. If `feedback_pr: true` is configured, creates and protects the `pxl-baseline` branch.
 6. If student-side autograding is configured (`execution_environment: github_actions`), injects `.github/workflows/autograding.yml`.
 7. Emits outputs `repo_id`, `repo_url`, `repo_name`, `outcome`, and step summary.

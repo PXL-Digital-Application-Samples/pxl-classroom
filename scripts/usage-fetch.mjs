@@ -78,7 +78,7 @@ for (const ym of monthsToFetch) {
       console.error(
         `[skip] ${ORG}: billing usage unavailable (${err.message.slice(0, 120)}).\n` +
         `       Grant the App the manual "Organization plan: read" permission and ` +
-        `have an org owner accept it — RUNBOOK §2. Skipping the usage report.`,
+        `have an org owner accept it - RUNBOOK §2. Skipping the usage report.`,
       );
       process.exit(0);
     }

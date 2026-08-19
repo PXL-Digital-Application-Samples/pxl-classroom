@@ -1,4 +1,4 @@
-// PXL Classroom CLI — device flow auth against the Provisioner App.
+// PXL Classroom CLI - device flow auth against the Provisioner App.
 //
 // Uses @octokit/auth-oauth-device. On first login the user is shown a code
 // and a verification URL; we poll GitHub until they authorize. The resulting
@@ -70,7 +70,7 @@ export function requireToken() {
   const obtained = Date.parse(tok.obtained_at);
   if (Number.isFinite(obtained) && Date.now() - obtained > TOKEN_TTL_MS) {
     throw new Error(
-      "session expired — device-flow tokens live ~8h. Run `pxl-classroom auth login` again.",
+      "session expired - device-flow tokens live ~8h. Run `pxl-classroom auth login` again.",
     );
   }
   return tok;

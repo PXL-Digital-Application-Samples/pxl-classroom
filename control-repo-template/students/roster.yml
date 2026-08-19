@@ -1,4 +1,4 @@
-# PXL Classroom — student roster (schema v2).
+# PXL Classroom - student roster (schema v2).
 #
 # Full schema: schemas/roster.schema.json
 # github_login and github_id are filled during acceptance (v1 uses open acceptance).

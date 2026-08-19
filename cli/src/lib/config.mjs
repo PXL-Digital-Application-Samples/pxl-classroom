@@ -1,4 +1,4 @@
-// PXL Classroom CLI — config + token cache.
+// PXL Classroom CLI - config + token cache.
 //
 // Token cache:   ~/.config/pxl-classroom/token           (0600, JSON)
 // Config:        ~/.config/pxl-classroom/config.json     (0600, JSON)

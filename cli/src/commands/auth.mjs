@@ -1,8 +1,8 @@
-// PXL Classroom CLI — `auth` subcommand group.
+// PXL Classroom CLI - `auth` subcommand group.
 //
-// login   — device flow against the Provisioner App
-// status  — show current token + login
-// logout  — wipe the cached token
+// login   - device flow against the Provisioner App
+// status  - show current token + login
+// logout  - wipe the cached token
 
 import { Command } from "commander";
 import { spawn } from "node:child_process";
@@ -22,7 +22,7 @@ function openInBrowser(url) {
     const child = spawn(cmd, args, { stdio: "ignore", detached: true });
     child.on("error", () => {});
     child.unref();
-  } catch { /* headless — the printed URL is enough */ }
+  } catch { /* headless - the printed URL is enough */ }
 }
 
 export function registerAuthCommand(program) {

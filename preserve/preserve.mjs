@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — submission preservation.
+// PXL Classroom - submission preservation.
 //
 // Based on spikes/05-preservation/preserve.sh, rewritten in Node.js.
 // Preserves a candidate SHA from each student's repo into an instructor-controlled
@@ -35,7 +35,7 @@ async function summary(md) {
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
 }
 const steps = [];
-const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` — ${detail.note}` : ""}`); };
+const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` - ${detail.note}` : ""}`); };
 
 async function fail(category, note) {
   log(category, { ok: false, note });
@@ -124,7 +124,7 @@ async function main() {
     if (!sourceSha) {
       log(`preserve ${login}`, { ok: false, note: "no snapshot_sha" });
       errorCount++;
-      rows.push(`| ${login} | — | skipped (no SHA) |`);
+      rows.push(`| ${login} | - | skipped (no SHA) |`);
       continue;
     }
 
@@ -181,7 +181,7 @@ async function main() {
 
       preservedCount++;
       log(`preserve ${login}`, { ok: true, note: `preserved ${sourceSha.slice(0, 12)}` });
-      rows.push(`| ${login} | \`${sourceSha.slice(0, 12)}\` | ✓ preserved |`);
+      rows.push(`| ${login} | \`${sourceSha.slice(0, 12)}\` | [OK] preserved |`);
     } catch (e) {
       log(`preserve ${login}`, { ok: false, note: e.message });
       errorCount++;

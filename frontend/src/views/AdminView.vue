@@ -270,11 +270,11 @@
               </select>
               <small v-if="form.roster_mode !== 'open'">
                 Students must appear in <code>students/roster.yml</code>. Import them under the
-                <strong>Roster</strong> tab — an empty roster means nobody can accept.
+                <strong>Roster</strong> tab - an empty roster means nobody can accept.
               </small>
               <small v-else class="text-warning">
                 <strong>Anyone</strong> with the link can claim a repo while the assignment is open.
-                The deadline window and the max-acceptances cap are the only limits — keep the cap tight,
+                The deadline window and the max-acceptances cap are the only limits - keep the cap tight,
                 and reconcile logins to students afterward.
               </small>
             </div>
@@ -284,14 +284,14 @@
               <div v-if="touchedFields.max_acceptances && fieldErrors.max_acceptances" class="field-error-msg">{{ fieldErrors.max_acceptances }}</div>
               <small v-if="form.max_acceptances">Hard cap on accepted students. Acceptances beyond this are rejected.</small>
               <small v-else-if="form.roster_mode === 'open'" class="field-error-msg">
-                Required with open enrollment — without the roster gate this is the only limit on who can claim a repo.
+                Required with open enrollment - without the roster gate this is the only limit on who can claim a repo.
               </small>
               <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
             <div class="field checkbox">
               <label>
                 <input type="checkbox" v-model="form.lock_down_enabled" />
-                Lock down student repos at the deadline (demote admin → pull)
+                Lock down student repos at the deadline (demote admin -> pull)
               </label>
             </div>
             <div class="field checkbox">
@@ -420,7 +420,7 @@
           <!-- SAVE ACTIONS -->
           <div class="actions">
             <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
-            <!-- "Save as draft" only while the assignment IS a draft — on a
+            <!-- "Save as draft" only while the assignment IS a draft - on a
                  published assignment it would silently unpublish. -->
             <button
               v-if="isNew || form.state === 'draft'"
@@ -595,7 +595,7 @@ function setTab(name) {
     history.replaceState(null, '', `#${name}`)
   }
 }
-// Registered in onMounted / removed in onUnmounted — a setup-scope listener
+// Registered in onMounted / removed in onUnmounted - a setup-scope listener
 // would leak (and mutate unmounted state) across route visits.
 function onHashChange() { activeTab.value = tabFromHash() }
 
@@ -624,7 +624,7 @@ const extending = ref(false)
 const retrying = ref(false)
 const deleting = ref(false)
 
-// '' | 'watching' | 'ready' | 'timeout' — post-publish broker watch
+// '' | 'watching' | 'ready' | 'timeout' - post-publish broker watch
 const publishWatch = ref('')
 const publishPollCount = ref(0)
 let publishPollTimer = null
@@ -632,7 +632,7 @@ let publishPollTimer = null
 const form = ref(emptyForm())
 
 // Snapshot of the form as of the last load/save. Anything different means
-// unsaved edits — guard list navigation and Cancel against silent loss.
+// unsaved edits - guard list navigation and Cancel against silent loss.
 const savedSnapshot = ref('')
 function snapshotForm() {
   savedSnapshot.value = JSON.stringify(form.value)
@@ -658,7 +658,7 @@ function confirmRosterDiscard() {
 }
 
 // In-page navigation is guarded via confirmDiscard(); guard the two exits
-// that used to lose edits silently — leaving the route (e.g. the Dashboard
+// that used to lose edits silently - leaving the route (e.g. the Dashboard
 // back button) and closing/refreshing the tab.
 onBeforeRouteLeave(() => confirmDiscard() && confirmRosterDiscard())
 function onBeforeUnload(e) {
@@ -759,7 +759,7 @@ const fieldErrors = computed(() => {
   } else if (form.value.roster_mode === 'open') {
     // Open enrollment drops the roster gate, so the cap is the only limit left.
     // Blocks Save (canSave watches fieldErrors), not just the submit handler.
-    errors.max_acceptances = 'Open enrollment requires a cap — set a maximum number of acceptances.'
+    errors.max_acceptances = 'Open enrollment requires a cap - set a maximum number of acceptances.'
   }
 
   return errors
@@ -1115,7 +1115,7 @@ function editAssignment(a) {
   if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
   stopPublishWatch()
   editing.value = { id: a.id }
-  manualSlug.value = true // existing assignments — never auto-rewrite the slug
+  manualSlug.value = true // existing assignments - never auto-rewrite the slug
   manualRepositoryNamePattern.value = true
   form.value = {
     schema_version: a.schema_version || 1,
@@ -1234,7 +1234,7 @@ function buildDoc(state = null) {
           feedback_pr_baseline_branch: form.value.feedback_pr_baseline_branch || 'pxl-baseline',
         }
       : {}),
-    // Included whenever enabled — an empty tests list then fails schema
+    // Included whenever enabled - an empty tests list then fails schema
     // validation visibly instead of being silently dropped from the YAML.
     ...(form.value.autograde_enabled
       ? { autograde: { enabled: true, execution_environment: form.value.autograde_execution_environment, visibility: form.value.autograde_visibility, tests: cleanTests() } }
@@ -1263,7 +1263,7 @@ async function validate(state = null) {
   // one guardrail that is left.
   if (doc.roster_mode === 'open' && !doc.max_acceptances) {
     problems.push(
-      'Open enrollment requires a max-acceptances cap — without the roster gate it is the only limit on who can claim a repo.',
+      'Open enrollment requires a max-acceptances cap - without the roster gate it is the only limit on who can claim a repo.',
     )
   }
 
@@ -1272,7 +1272,7 @@ async function validate(state = null) {
 }
 
 // Soft warning (non-blocking): a deadline in the past finalizes on the very
-// next nightly run — usually a typo, occasionally intentional (migrations).
+// next nightly run - usually a typo, occasionally intentional (migrations).
 const deadlineInPast = computed(() => {
   if (!form.value.deadline_at_local) return false
   try { return new Date(form.value.deadline_at_local) < new Date() } catch { return false }
@@ -1354,7 +1354,7 @@ async function saveAndPublish() {
     const dispatched = await publishExisting()
     // The dispatch failed (typically 403: no hub access / missing
     // actions:write). Don't leave the YAML claiming "published" while no
-    // broker exists — students would see a published assignment with a dead
+    // broker exists - students would see a published assignment with a dead
     // accept flow. Revert to draft and say so.
     if (!dispatched) await revertToDraftAfterFailedPublish()
   }
@@ -1480,7 +1480,7 @@ async function setState(newState) {
     if (res.ok) {
       form.value.state = newState
       snapshotForm()
-      toast.success(`${form.value.id} → ${newState}`)
+      toast.success(`${form.value.id} -> ${newState}`)
       await loadAssignments()
     } else {
       toast.error(`Update failed: ${res.data?.message || 'unknown error'}`)
@@ -1584,7 +1584,7 @@ async function validateStudentLogin(login, assignmentId) {
 
   // 4. Try checking if user exists on GitHub via API.
   //    Under roster_mode=open there is no roster to be absent from, so any
-  //    real GitHub account is a legitimate target for a retry/extension —
+  //    real GitHub account is a legitimate target for a retry/extension -
   //    only a non-existent login is an error.
   const openMode = form.value?.roster_mode === 'open'
   try {
@@ -1618,7 +1618,7 @@ async function grantExtension() {
     const checkResult = await validateStudentLogin(extForm.value.login, form.value.id)
     if (!checkResult.valid) {
       if (checkResult.reason === 'not_exists') {
-        toast.error(`${extForm.value.login} isn't a GitHub login — check the spelling.`)
+        toast.error(`${extForm.value.login} isn't a GitHub login - check the spelling.`)
       } else {
         toast.error(`${extForm.value.login} exists but isn't on this assignment's roster/records.`)
       }
@@ -1630,7 +1630,7 @@ async function grantExtension() {
 
     // An extension must move the deadline forward, not shorten it. The floor
     // is the student's *current effective* deadline: an already-granted
-    // extension (if later) wins over the assignment deadline — same rule as
+    // extension (if later) wins over the assignment deadline - same rule as
     // the per-row modal in the report view.
     let currentEffective = localToUtc(form.value.deadline_at_local)
     let overridesList = []
@@ -1645,7 +1645,7 @@ async function grantExtension() {
           currentEffective = prevExt.value
         }
       }
-    } catch { /* unreadable override — fall back to the assignment deadline */ }
+    } catch { /* unreadable override - fall back to the assignment deadline */ }
     if (currentEffective && new Date(newDeadlineUtc) <= new Date(currentEffective)) {
       toast.error(`The extension must be later than ${canonicalLogin}'s current effective deadline (${formatDate(currentEffective, form.value.timezone)}).`)
       return
@@ -1697,7 +1697,7 @@ async function retryAcceptance() {
     const checkResult = await validateStudentLogin(login, form.value.id)
     if (!checkResult.valid) {
       if (checkResult.reason === 'not_exists') {
-        toast.error(`${login} isn't a GitHub login — check the spelling.`)
+        toast.error(`${login} isn't a GitHub login - check the spelling.`)
       } else {
         toast.error(`${login} exists but isn't on this assignment's roster/records.`)
       }

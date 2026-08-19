@@ -144,7 +144,7 @@ jobs:
           fi
 
           # A flow-style empty list ('orgs: []') cannot take appended block
-          # entries — normalize it to block form first.
+          # entries - normalize it to block form first.
           sed -i 's/^orgs:[[:space:]]*\[\][[:space:]]*$/orgs:/' participating-orgs.yml
 
           if ! grep -Eq "^[[:space:]]*-[[:space:]]+login:[[:space:]]+${TARGET_ORG}[[:space:]]*$" participating-orgs.yml; then

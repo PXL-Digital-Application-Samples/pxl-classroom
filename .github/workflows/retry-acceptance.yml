@@ -80,7 +80,7 @@ jobs:
             git pull --rebase || true
             git push
           else
-            echo "No prior acceptance file at $ACCEPT_FILE — proceeding to fresh acceptance."
+            echo "No prior acceptance file at $ACCEPT_FILE - proceeding to fresh acceptance."
           fi
 
       - name: Run acceptance

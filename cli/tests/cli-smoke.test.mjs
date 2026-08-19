@@ -1,11 +1,11 @@
-// CLI smoke test — guards against parse/import errors shipping unnoticed.
+// CLI smoke test - guards against parse/import errors shipping unnoticed.
 //
 // The bin imports every command module eagerly, so a single SyntaxError in
 // any of them kills ALL commands (this happened: a stray brace in
 // download.mjs broke the whole CLI for three weeks because no test imported
 // the file). Two layers here:
-//   1. dynamic-import every module under src/ — catches syntax + import errors
-//   2. spawn `pxl-classroom --help` — proves the bin actually starts
+//   1. dynamic-import every module under src/ - catches syntax + import errors
+//   2. spawn `pxl-classroom --help` - proves the bin actually starts
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

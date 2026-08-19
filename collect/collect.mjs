@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — submission ref snapshot collector.
+// PXL Classroom - submission ref snapshot collector.
 //
 // Reads repository records for an assignment, snapshots each student's
 // submission ref HEAD SHA, and writes observation files. Continues on
@@ -30,7 +30,7 @@ async function summary(md) {
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
 }
 const steps = [];
-const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` — ${detail.note}` : ""}`); };
+const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` - ${detail.note}` : ""}`); };
 
 async function fail(category, note) {
   log(category, { ok: false, note });
@@ -70,7 +70,7 @@ async function readAssignment(assignmentId) {
 // tag name, and returns the lexicographically latest tag (== latest declared
 // time, since the format is ISO-8601-Z). Returns null when no submit/ tags are
 // present or the latest one is malformed. We intentionally do NOT trust the
-// student-supplied timestamp for classification — the tag itself is the
+// student-supplied timestamp for classification - the tag itself is the
 // observation (lecturer-side declared_at is observed-not-authoritative).
 const SUBMIT_TAG_RE = /^refs\/tags\/(submit\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)-[0-9a-f]{7,40})$/;
 
@@ -93,7 +93,7 @@ async function findLatestSubmitTag(org, repoName) {
   const latest = candidates[0];
 
   // Resolve the tagged SHA. If the tag is annotated, object.sha points at the
-  // tag object, not the commit — we need to follow it through /git/tags.
+  // tag object, not the commit - we need to follow it through /git/tags.
   let taggedSha = latest.objectSha;
   if (latest.objectType === "tag" && latest.objectSha) {
     const tagObj = await gh("GET", `/repos/${org}/${repoName}/git/tags/${latest.objectSha}`);
@@ -168,7 +168,7 @@ async function main() {
       // An assignment nobody accepted is an empty population, not an error:
       // failing here turned every nightly finalize red and buried real
       // failures in the other matrix legs.
-      log("repo-records", { ok: true, note: `no repository records for ${assignmentId} — nothing to collect` });
+      log("repo-records", { ok: true, note: `no repository records for ${assignmentId} - nothing to collect` });
       continue;
     }
     
@@ -182,7 +182,7 @@ async function main() {
         if (!repoRes.ok) {
           log(`snapshot ${login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
           totalErrors++;
-          allRows.push(`| ${login} | — | error (repo ${repoRes.status}) |`);
+          allRows.push(`| ${login} | - | error (repo ${repoRes.status}) |`);
           continue;
         }
 
@@ -194,7 +194,7 @@ async function main() {
         if (!commitRes.ok) {
           log(`snapshot ${login}`, { ok: false, note: `commit HTTP ${commitRes.status}` });
           totalErrors++;
-          allRows.push(`| ${login} | — | error (commit ${commitRes.status}) |`);
+          allRows.push(`| ${login} | - | error (commit ${commitRes.status}) |`);
           continue;
         }
 
@@ -268,7 +268,7 @@ async function main() {
         log(`snapshot ${login}`, { ok: true, note: `${branch}@${sha.slice(0, 12)} (${commitCount} commits)` });
         totalCollected++;
 
-        // Also look for submit/ tags. Failures here are non-fatal — the
+        // Also look for submit/ tags. Failures here are non-fatal - the
         // default-branch snapshot is the floor.
         let tagNote = "";
         try {
@@ -289,16 +289,16 @@ async function main() {
             const tagPath = join(obsDir, `${safeTs}-tag.json`);
             await writeFile(tagPath, JSON.stringify(tagObservation, null, 2) + "\n");
             tagNote = ` · tag ${submit.tag}`;
-            log(`tag ${login}`, { ok: true, note: `${submit.tag} → ${submit.tagged_sha.slice(0, 12)}` });
+            log(`tag ${login}`, { ok: true, note: `${submit.tag} -> ${submit.tagged_sha.slice(0, 12)}` });
           }
         } catch (e) {
           log(`tag ${login}`, { ok: false, note: e.message });
         }
-        allRows.push(`| ${login} | \`${commitRes.data.sha.slice(0, 12)}\`${tagNote} | ✓ |`);
+        allRows.push(`| ${login} | \`${commitRes.data.sha.slice(0, 12)}\`${tagNote} | [OK] |`);
       } catch (e) {
         log(`snapshot ${login}`, { ok: false, note: e.message });
         totalErrors++;
-        allRows.push(`| ${login} | — | exception |`);
+        allRows.push(`| ${login} | - | exception |`);
       }
     }
   }

@@ -1,4 +1,4 @@
-// PXL Classroom CLI — Phase C schema-shape tests.
+// PXL Classroom CLI - Phase C schema-shape tests.
 //
 // Covers the new fields landing in Phase C:
 //   - assignment.schema.json    : feedback_pr + feedback_pr_baseline_branch + autograde

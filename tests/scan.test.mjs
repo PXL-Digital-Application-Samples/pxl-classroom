@@ -1,4 +1,4 @@
-// PXL Classroom — scan.test.mjs
+// PXL Classroom - scan.test.mjs
 //
 // The privacy scanner blocks publication of any Pages output containing
 // roster fields, tokens, emails, or keys. Verify:

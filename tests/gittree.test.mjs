@@ -1,4 +1,4 @@
-// PXL Classroom — gittree.test.mjs
+// PXL Classroom - gittree.test.mjs
 //
 // Drives lib/gittree.mjs against a mocked fetch that simulates the Git Data API.
 // Covers: happy path, multi-file, delete-via-null, non-FF rebase retry,
@@ -10,7 +10,7 @@ import { commitWithRebase, commitWithFreshRepoRetry, GittreeError } from "../lib
 
 // Tiny in-memory GitHub Git Data API fake.
 // Records every call to `calls` and consults a per-test `scenario` that maps
-// "METHOD PATH-TEMPLATE" → response (or response[]).
+// "METHOD PATH-TEMPLATE" -> response (or response[]).
 function makeMockFetch(scenario) {
   const calls = [];
   const cursors = Object.create(null);

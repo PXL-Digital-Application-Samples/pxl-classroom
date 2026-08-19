@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — acceptance handler.
+// PXL Classroom - acceptance handler.
 //
 // Runs in the private control repo, triggered by repository_dispatch from the
 // public broker.  Validates the dispatch payload, checks assignment guardrails
@@ -29,7 +29,7 @@ async function summary(md) {
 }
 const log = (step, detail) =>
   console.log(
-    `[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` — ${detail.note}` : ""}`
+    `[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` - ${detail.note}` : ""}`
   );
 
 async function fail(category, note) {
@@ -115,12 +115,12 @@ async function main() {
     if (!assignment.max_acceptances) {
       await fail(
         "fail:config",
-        `assignment has roster_mode: open without max_acceptances — open enrollment requires a cap, since it is the only remaining limit. Set max_acceptances in the assignment YAML.`
+        `assignment has roster_mode: open without max_acceptances - open enrollment requires a cap, since it is the only remaining limit. Set max_acceptances in the assignment YAML.`
       );
     }
     log("roster", {
       ok: true,
-      note: `roster_mode=open — roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
+      note: `roster_mode=open - roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
     });
   } else {
     const rosterPath = join(dataDir, "students", "roster.yml");
@@ -142,7 +142,7 @@ async function main() {
     log("roster", { ok: true, note: `@${login} is on the roster` });
   }
 
-  // 5. Check idempotency — already accepted?
+  // 5. Check idempotency - already accepted?
   const acceptDir = join(dataDir, "acceptances", assignmentId);
   const acceptFile = join(acceptDir, `${login}.json`);
   if (existsSync(acceptFile)) {

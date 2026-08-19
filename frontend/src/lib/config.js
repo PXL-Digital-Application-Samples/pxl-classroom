@@ -1,4 +1,4 @@
-// PXL Classroom — app configuration.
+// PXL Classroom - app configuration.
 //
 // These values configure the frontend. In production, set via environment
 // variables (VITE_ prefix) at build time.

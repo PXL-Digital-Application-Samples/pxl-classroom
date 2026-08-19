@@ -1,4 +1,4 @@
-// PXL Classroom CLI — control repo helpers.
+// PXL Classroom CLI - control repo helpers.
 
 import { parse as yamlParse } from "yaml";
 
@@ -13,7 +13,7 @@ export async function getAssignment(octokit, { org, assignmentId }) {
     return yamlParse(text);
   } catch (e) {
     if (e.status === 404) {
-      throw new Error(`no assignments/${assignmentId}.yml in ${org}/${CONTROL_REPO} yet — make sure the assignment ID is correct and published/draft exists.`);
+      throw new Error(`no assignments/${assignmentId}.yml in ${org}/${CONTROL_REPO} yet - make sure the assignment ID is correct and published/draft exists.`);
     }
     throw e;
   }
@@ -28,7 +28,7 @@ export async function getReport(octokit, { org, assignmentId }) {
     return JSON.parse(text);
   } catch (e) {
     if (e.status === 404) {
-      throw new Error(`no reports/${assignmentId}.json in ${org}/${CONTROL_REPO} yet — the nightly writes it; trigger 'Run daily activity now' from the assignment page or wait for tonight's run.`);
+      throw new Error(`no reports/${assignmentId}.json in ${org}/${CONTROL_REPO} yet - the nightly writes it; trigger 'Run daily activity now' from the assignment page or wait for tonight's run.`);
     }
     throw e;
   }

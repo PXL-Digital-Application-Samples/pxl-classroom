@@ -69,7 +69,7 @@
     },
     "feedback_pr_number": {
       "type": ["integer", "null"],
-      "description": "Number of the draft Feedback PR (head=main → base=<baseline>), if one was opened."
+      "description": "Number of the draft Feedback PR (head=main -> base=<baseline>), if one was opened."
     },
     "feedback_pr_url": {
       "type": ["string", "null"],

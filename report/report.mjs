@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// PXL Classroom — deadline report generator.
+// PXL Classroom - deadline report generator.
 //
 // Reads observations, acceptances, repository records, and overrides for a
 // given assignment and produces:
-//   - reports/<id>.json — structured deadline report
-//   - reports/<id>.csv  — CSV export (one row per student)
-//   - reports/dashboard.json — aggregated dashboard data
+//   - reports/<id>.json - structured deadline report
+//   - reports/<id>.csv  - CSV export (one row per student)
+//   - reports/dashboard.json - aggregated dashboard data
 //
 // The report classifies each student's submission as on-time, late, or
 // no-submission based on the observation evidence. It does NOT treat Git
@@ -156,7 +156,7 @@ async function main() {
     let uncertaintySeconds = null;
 
     // Tagged-submission observations are tracked separately so the UI can
-    // surface them and so a tag — when present and on-time — wins over the
+    // surface them and so a tag - when present and on-time - wins over the
     // default-branch tip. See ARCHITECTURE.md §11.1a.
     let latestTagObservation = null;
 
@@ -202,7 +202,7 @@ async function main() {
 
     // If a submit/ tag was seen, prefer it as the authoritative submission.
     // observed_at is server-side (set by collect/), declared_at is the
-    // student-supplied ISO timestamp baked into the tag name — we trust the
+    // student-supplied ISO timestamp baked into the tag name - we trust the
     // former for classification.
     if (latestTagObservation) {
       const tagObservedAt = new Date(latestTagObservation.observed_at);

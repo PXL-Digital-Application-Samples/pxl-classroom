@@ -1,4 +1,4 @@
-# PXL Classroom — Runbook
+# PXL Classroom - Runbook
 
 Operational procedures for setting up, running, and recovering PXL Classroom. Pairs with `ARCHITECTURE.md` (the technical reference).
 
@@ -23,17 +23,17 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
 ### 1.1 Enable Pages
 
-1. In GitHub → `pxl-classroom` → Settings → Pages → Build and deployment → Source: select **GitHub Actions**.
+1. In GitHub -> `pxl-classroom` -> Settings -> Pages -> Build and deployment -> Source: select **GitHub Actions**.
    > [!NOTE]
-   > GitHub displays "Suggested workflows" below this setting. You do **not** need to click "Configure" or create a new workflow — the repository already includes `.github/workflows/deploy-frontend.yml` which GitHub Actions uses automatically.
-2. Trigger the initial build: go to Actions → **Deploy frontend to Pages** → **Run workflow** (branch `main`).
+   > GitHub displays "Suggested workflows" below this setting. You do **not** need to click "Configure" or create a new workflow - the repository already includes `.github/workflows/deploy-frontend.yml` which GitHub Actions uses automatically.
+2. Trigger the initial build: go to Actions -> **Deploy frontend to Pages** -> **Run workflow** (branch `main`).
    > [!NOTE]
    > Running `deploy-frontend.yml` before setting the secrets in §1.3 is completely safe and expected. The data fetch script (`scripts/fetch-pages-data.mjs`) detects that credentials are not configured yet, logs an informational notice, and exits cleanly with an empty index, deploying the frontend shell so the `/setup` page becomes accessible.
 
 ### 1.2 Create the central GitHub App
 
 1. In a browser, open the Pages site at `https://<pages-host>/pxl-classroom/setup` (e.g. `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`).
-2. Enter the owning **organization** (recommended — leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
+2. Enter the owning **organization** (recommended - leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
    - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Workflows RW**.
    - Device Flow: enabled.
    - Callback URLs: pre-filled for your Pages domain.
@@ -41,19 +41,19 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
    > [!NOTE]
    > **App Name Uniqueness & 34-Character Limit:** GitHub App names must be **globally unique across GitHub.com** and **at most 34 characters long**. The manifest automatically generates a scoped name (e.g. `PXL Classroom (<org>)` or `PXL (<org>)`). If GitHub reports "Name already taken", adjust the name in the text field to any unique name up to 34 characters (e.g. `PXL Provisioner 2627` or `PXL (<org>)`) and click **Create GitHub App for <org>**.
 
-   GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** — store them per §1.3 immediately. (If the exchange fails — the code is single-use and expires after one hour — the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
+   GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** - store them per §1.3 immediately. (If the exchange fails - the code is single-use and expires after one hour - the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
 4. Additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
-   - Organization: **Plan: Read** — required for the weekly usage report (Enhanced Billing endpoint, see §10).
-   - Account: **Starring RW** — required so students can star the broker to trigger acceptance.
-   - Account: **Email addresses: Read** (optional) — allows reading verified student emails during acceptance/login.
+   - Organization: **Plan: Read** - required for the weekly usage report (Enhanced Billing endpoint, see §10).
+   - Account: **Starring RW** - required so students can star the broker to trigger acceptance.
+   - Account: **Email addresses: Read** (optional) - allows reading verified student emails during acceptance/login.
 
 ### 1.3 Set hub secrets
 
-In `pxl-classroom` → Settings → Secrets and variables → Actions:
+In `pxl-classroom` -> Settings -> Secrets and variables -> Actions:
 
 | Secret | Value |
 |---|---|
-| `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token` — the older `app-id` input is deprecated. |
+| `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token` - the older `app-id` input is deprecated. |
 | `PXL_APP_PRIVATE_KEY` | full PEM body from §1.2, including BEGIN/END lines |
 | `VITE_GITHUB_CLIENT_ID` | Same Client ID as `PXL_APP_CLIENT_ID`; used at SPA build time to wire the device flow. |
 | `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. MUST end in `?url=` or `?` (`?` is auto-rewritten to `?url=`); anything else throws at SPA init. |
@@ -62,20 +62,20 @@ In `pxl-classroom` → Settings → Secrets and variables → Actions:
 
 The broker workflows mint tokens against this installation to dispatch into the hub. Scope it tightly.
 
-1. App settings page → **Install App** → choose `PXL-Digital-Application-Samples`.
-2. **Only select repositories** → tick `pxl-classroom` only.
+1. App settings page -> **Install App** -> choose `PXL-Digital-Application-Samples`.
+2. **Only select repositories** -> tick `pxl-classroom` only.
 3. Confirm install.
 
 Verify: `gh api /app/installations` (with App-level JWT) should show this installation with `repository_selection: selected` and `repositories: [pxl-classroom]`.
 
 ### 1.5 Branch protection on `main`
 
-`pxl-classroom` is public. The workflows are the highest-value target. The repo is maintained by direct pushes to `main` (no pull requests), so PR-review and required-status-check rules are deliberately **not** used — a required status check rejects any direct push, because the pushed commit cannot have a passing check yet. CI still runs on every push and fails loudly.
+`pxl-classroom` is public. The workflows are the highest-value target. The repo is maintained by direct pushes to `main` (no pull requests), so PR-review and required-status-check rules are deliberately **not** used - a required status check rejects any direct push, because the pushed commit cannot have a passing check yet. CI still runs on every push and fails loudly.
 
 Configure (both branch rules can be applied via the API, see below):
 
 - Branch rule for `main`: block force-pushes and deletions, **including for administrators**. No PR requirement, no required checks, no signed-commits requirement.
-- Settings → Code security: enable secret scanning **and** push protection.
+- Settings -> Code security: enable secret scanning **and** push protection.
 
 ```
 printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}' | \
@@ -84,7 +84,7 @@ printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_requ
 
 ### 1.6 Protection on `participating-orgs` branch
 
-This branch is the registry of participating orgs. The Setup-Organization workflow commits to it directly from automation, so it must accept plain pushes. Apply the same rule as `main` (force-push and deletion blocking only — same API call with `participating-orgs` in place of `main`).
+This branch is the registry of participating orgs. The Setup-Organization workflow commits to it directly from automation, so it must accept plain pushes. Apply the same rule as `main` (force-push and deletion blocking only - same API call with `participating-orgs` in place of `main`).
 
 ### 1.7 Verify
 
@@ -99,7 +99,7 @@ gh api /app/installations
 
 ### 1.8 SPA directory structure
 
-Do not move `frontend/` to a subdirectory without updating `frontend/vite.config.js` `server.fs.allow` — `lib/dashboard-aggregate.mjs` is imported from outside the SPA root.
+Do not move `frontend/` to a subdirectory without updating `frontend/vite.config.js` `server.fs.allow` - `lib/dashboard-aggregate.mjs` is imported from outside the SPA root.
 
 System is now ready to onboard the first organization.
 
@@ -115,14 +115,14 @@ Done by a system administrator together with the organization owner.
 
 ### 2.1 Install the central GitHub App on the new org
 
-1. Organization owner: Open the installation page for the central **PXL Classroom Provisioner** App (e.g. `https://github.com/apps/pxl-classroom-provisioner` or through the App settings → **Install App**).
+1. Organization owner: Open the installation page for the central **PXL Classroom Provisioner** App (e.g. `https://github.com/apps/pxl-classroom-provisioner` or through the App settings -> **Install App**).
 2. Choose the target organization (e.g. `PXL-2TIN-DevOps-2627`).
 3. Scope: **All repositories** (the App needs Administration RW across the org to provision student repos and manage permissions).
 4. Confirm installation.
 
 ### 2.2 Run Setup Organization
 
-In `pxl-classroom` → Actions → **Setup Organization** → Run workflow:
+In `pxl-classroom` -> Actions -> **Setup Organization** -> Run workflow:
 
 | Input | Value |
 |---|---|
@@ -137,33 +137,33 @@ The workflow:
 
 ### 2.3 Configure the org's Actions budget
 
-**Default: leave the spending limit at €0.** All hub workflows (provisioning, collection, finalize, dashboards) run on the public hub repo and are free. The only Actions billed to a participating org are workflows inside its private student repos — student-side autograding and any CI students add themselves — and those first draw from the plan's included minutes (GitHub Team: 3,000 min/month). With a €0 limit nothing can ever bill, and an acceptance-spam attacker cannot rack up cost.
+**Default: leave the spending limit at €0.** All hub workflows (provisioning, collection, finalize, dashboards) run on the public hub repo and are free. The only Actions billed to a participating org are workflows inside its private student repos - student-side autograding and any CI students add themselves - and those first draw from the plan's included minutes (GitHub Team: 3,000 min/month). With a €0 limit nothing can ever bill, and an acceptance-spam attacker cannot rack up cost.
 
-1. Org → Settings → **Billing & Licensing** → **Budgets and alerts** → **New budget**: Product-level budget → **Actions** → scope: entire organization → amount **€0** → toggle **"Stop usage when budget limit is reached"** ON → check "Receive budget threshold alerts" with the budget owner as recipient → Create.
-2. Note: GitHub's alert emails fire at fixed 75/90/100% *of the budget amount*, so on a €0 budget they provide no early warning — they become useful only if the budget is later raised. Early warning on included-minutes consumption comes from the system's own weekly usage report, which checks each org against `limits.yml` and @-mentions the `budget_owner_login` in the Instructor Notifications issue.
+1. Org -> Settings -> **Billing & Licensing** -> **Budgets and alerts** -> **New budget**: Product-level budget -> **Actions** -> scope: entire organization -> amount **€0** -> toggle **"Stop usage when budget limit is reached"** ON -> check "Receive budget threshold alerts" with the budget owner as recipient -> Create.
+2. Note: GitHub's alert emails fire at fixed 75/90/100% *of the budget amount*, so on a €0 budget they provide no early warning - they become useful only if the budget is later raised. Early warning on included-minutes consumption comes from the system's own weekly usage report, which checks each org against `limits.yml` and @-mentions the `budget_owner_login` in the Instructor Notifications issue.
 
 Raise the limit per the table below **only when** the autograding workload actually exhausts the included minutes:
 
 | Class size | Suggested limit when raising | Headroom |
 |---|---|---|
 | ≤ 50 students | €60 / month | ~10,000 min ≈ 200 min/student |
-| 51–150 students | €120 / month | ~20,000 min ≈ 130 min/student |
-| 151–500 students | €250 / month | ~42,000 min ≈ 80 min/student |
+| 51-150 students | €120 / month | ~20,000 min ≈ 130 min/student |
+| 151-500 students | €250 / month | ~42,000 min ≈ 80 min/student |
 
 Bursty courses (Terraform, container builds) need higher limits; size the budget against the actual workload, not the headcount.
 
-**What 100% means:** GitHub stops Actions on private repos in that org. Student-owned CI runs queue and never start. The hub side is unaffected (hub Actions are free — public repo). What you do at 100%: confirm with budget owner; raise if appropriate; otherwise communicate to students that CI is paused until the next monthly reset (integrity layer — lock-down, preservation, reports — continues to run).
+**What 100% means:** GitHub stops Actions on private repos in that org. Student-owned CI runs queue and never start. The hub side is unaffected (hub Actions are free - public repo). What you do at 100%: confirm with budget owner; raise if appropriate; otherwise communicate to students that CI is paused until the next monthly reset (integrity layer - lock-down, preservation, reports - continues to run).
 
 ### 2.4 Grant lecturers access to the hub repo
 
 Lecturers trigger **Publish** and **Retry acceptance** from the Admin Panel; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a detailed error toast (e.g. `Trigger failed (403): ... Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access`).
 
 - Add each org's lecturers as **Read** collaborators (or members of an admin team) on the hub repo.
-- Without this access, the lecturer can still create/edit assignments (writes go to their own control repo), but cannot publish or retry from the SPA — a hub admin must run those workflows on their behalf.
+- Without this access, the lecturer can still create/edit assignments (writes go to their own control repo), but cannot publish or retry from the SPA - a hub admin must run those workflows on their behalf.
 
 ### 2.5 Register the budget owner
 
-Edit `participating-orgs.yml` on the `participating-orgs` branch — add or update the entry:
+Edit `participating-orgs.yml` on the `participating-orgs` branch - add or update the entry:
 
 ```yaml
 orgs:
@@ -182,14 +182,14 @@ Schema: `schemas/participating-orgs.schema.json`. See §10 for what `overrides` 
 
 Each participating org must have:
 
-- A named human **budget owner** (`budget_owner_login` in `participating-orgs.yml` — GitHub login).
-- A configured **Actions spending limit** in GitHub UI (≥ recommended floor in §2.3) — the hard stop.
-- **Billing alerts** at 50% / 80% / 100% routed to the budget owner — early warning.
+- A named human **budget owner** (`budget_owner_login` in `participating-orgs.yml` - GitHub login).
+- A configured **Actions spending limit** in GitHub UI (≥ recommended floor in §2.3) - the hard stop.
+- **Billing alerts** at 50% / 80% / 100% routed to the budget owner - early warning.
 
 Beyond GitHub's own limit/alerts (which are EUR-based), PXL Classroom runs its own **weekly per-SKU threshold check** that fires before the EUR cap is hit. See §10 for tuning the thresholds. The two systems are complementary:
 
 - **GitHub's spending limit** stops Actions when EUR is exceeded. A blunt, after-the-fact cutoff.
-- **PXL Classroom's weekly check** warns the budget owner on Monday morning when *any* repo's actual usage (minutes, storage GiB·h, etc.) crosses a configured threshold. Catches outliers — e.g. a repo accumulating storage with zero CI activity — that the EUR view hides.
+- **PXL Classroom's weekly check** warns the budget owner on Monday morning when *any* repo's actual usage (minutes, storage GiB·h, etc.) crosses a configured threshold. Catches outliers - e.g. a repo accumulating storage with zero CI activity - that the EUR view hides.
 
 The hub side itself has no per-org cost (public repo). Everything billed lives in the participating org and is bounded by the limit there.
 
@@ -202,7 +202,7 @@ Done by a lecturer.
 ### 4.1 Create the template repository
 
 1. In your organization, create a new repository whose name starts with `template-` (e.g., `template-automation-pe-1`).
-2. Settings → General → tick **Template repository**.
+2. Settings -> General -> tick **Template repository**.
 3. Add starter code, `.github/workflows/` for the student's own CI, and assignment instructions. Anything you commit here becomes the student's starting point.
 
 ### 4.2 Define the assignment in the Admin Panel
@@ -221,23 +221,23 @@ Done by a lecturer.
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
 | Max acceptances | guardrail: cap on accepted students (default 150; leave empty for no cap; 0 is rejected) |
 | Lock down student repos at the deadline | default on |
-| Open a draft Feedback PR for each student | optional — creates a protected `pxl-baseline` branch at provisioning (see §12.7) |
-| Enable autograding | optional — test editor + execution environment picker (see §12.9) |
+| Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §12.7) |
+| Enable autograding | optional - test editor + execution environment picker (see §12.9) |
 
 5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
 ### 4.3 Publish
 
-In the editor → click **Save & publish** (on an existing draft, the Lifecycle section's **Publish (create broker, enable nightly)** does the same). The panel watches for the broker repo and confirms when the accept link is live.
+In the editor -> click **Save & publish** (on an existing draft, the Lifecycle section's **Publish (create broker, enable nightly)** does the same). The panel watches for the broker repo and confirms when the accept link is live.
 
-If the workflow dispatch fails (typically 403 — you're not a hub collaborator, see §2.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again.
+If the workflow dispatch fails (typically 403 - you're not a hub collaborator, see §2.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again.
 
 This dispatches `publish-assignment.yml`, which:
 
 - Creates `<org>/broker-<id>` (public).
 - Pushes the broker's `acceptance-trigger.yml` workflow.
 - Sets variables on the broker (`ASSIGNMENT_ID`, `CONTROL_ORG`).
-- Flips `state` from `draft` → `published` in the control repo.
+- Flips `state` from `draft` -> `published` in the control repo.
 - **Enables the nightly workflow** (`gh workflow enable daily-activity.yml`). From here on, the nightly cycle is active for your org.
 
 ### 4.4 Share the link
@@ -252,7 +252,7 @@ That's the only URL students need. They open it, sign in, click Accept, wait ~30
 
 ### 5.1 The Instructor Notifications issue
 
-Each org's control repo has an open issue titled **PXL Classroom — Instructor Notifications**. The system posts (or updates) a comment for each significant event:
+Each org's control repo has an open issue titled **PXL Classroom - Instructor Notifications**. The system posts (or updates) a comment for each significant event:
 
 | Event | Meaning |
 |---|---|
@@ -288,7 +288,7 @@ To restore:
 
 ### 6.2 Grant an extension
 
-1. Admin Panel → **Grant Deadline Extension**.
+1. Admin Panel -> **Grant Deadline Extension**.
 2. Fill: assignment ID, student login, new deadline, reason.
 3. The Admin Panel validates the student login against the roster, repository records, daily reports, or GitHub `/users/<login>` API, and then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`).
 4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
@@ -297,38 +297,38 @@ To restore:
 
 Possible causes:
 
-- **They starred but signed out before the SPA could detect the repo.** Ask them to re-open the assignment URL. The SPA polls `/repos/<org>/<expected-name>` and `/user/repository_invitations` — if the repo exists, they'll see the link.
+- **They starred but signed out before the SPA could detect the repo.** Ask them to re-open the assignment URL. The SPA polls `/repos/<org>/<expected-name>` and `/user/repository_invitations` - if the repo exists, they'll see the link.
 - **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can unstar and re-star the broker. Alternatively, a lecturer can trigger **Retry acceptance** for the student from the Admin Panel or the assignment detail view.
   - *Lecturer Retry Flow:* The SPA validates the student login (against roster/records/reports/GitHub), checks if the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run.
 - **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button. If a student needs to accept outside the window, the lecturer must trigger a retry acceptance (which prompts to bypass window checks).
 - **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or via Admin Panel) or reject.
-- **The student is not on the roster.** Under the default `roster_mode: enforced` the acceptance is rejected server-side with `rejected:not-on-roster` (or `rejected:no-roster` if `students/roster.yml` is missing), and the student sits on "Setting up your repository…" until it times out — the SPA cannot read the private roster, so it can't say this directly. Confirm in the hub's Actions tab: the `Accept assignment` run for that student shows the rejection reason in its summary. Fix by importing the roster (§12.4) or, for an assignment with no fixed cohort, switching it to open enrollment (§12.4 → *Running an assignment without a roster*).
+- **The student is not on the roster.** Under the default `roster_mode: enforced` the acceptance is rejected server-side with `rejected:not-on-roster` (or `rejected:no-roster` if `students/roster.yml` is missing), and the student sits on "Setting up your repository…" until it times out - the SPA cannot read the private roster, so it can't say this directly. Confirm in the hub's Actions tab: the `Accept assignment` run for that student shows the rejection reason in its summary. Fix by importing the roster (§12.4) or, for an assignment with no fixed cohort, switching it to open enrollment (§12.4 -> *Running an assignment without a roster*).
 
 ### 6.3b Nightly finalize failed
 
-Check which step failed in the `Daily Activity & Deadline Check` run — the matrix runs one leg per (org, assignment).
+Check which step failed in the `Daily Activity & Deadline Check` run - the matrix runs one leg per (org, assignment).
 
-- **`3. Preserve` → `remote unpack failed: index-pack failed`.** The archive push sent an incomplete object graph. Fixed by fetching full history before pushing; if it reappears, verify `preserve/preserve.mjs` is not fetching with `--depth`. Submissions for that assignment were **not** archived — the next nightly run retries automatically (see below); preservation is idempotent (`push --force` to a per-student ref).
+- **`3. Preserve` -> `remote unpack failed: index-pack failed`.** The archive push sent an incomplete object graph. Fixed by fetching full history before pushing; if it reappears, verify `preserve/preserve.mjs` is not fetching with `--depth`. Submissions for that assignment were **not** archived - the next nightly run retries automatically (see below); preservation is idempotent (`push --force` to a per-student ref).
 
-**Failed finalizes retry themselves.** An assignment counts as finalized only once every locked-down student has a verified `preservation.json`, so a leg that locked down but failed to archive is re-queued on the next nightly run, and the workflow will not self-disable while a leg is failing. Retried snapshots are frozen — a student's late commit can never replace their on-time submission.
+**Failed finalizes retry themselves.** An assignment counts as finalized only once every locked-down student has a verified `preservation.json`, so a leg that locked down but failed to archive is re-queued on the next nightly run, and the workflow will not self-disable while a leg is failing. Retried snapshots are frozen - a student's late commit can never replace their on-time submission.
 
 Retries stop after 3 attempts (`finalize_attempts` in `lockdowns/<id>/lockdown-record.json`) so a permanently un-preservable repo does not run every night forever. The run log names the assignment and the pending students. After fixing the cause, force another attempt by editing that file and setting `finalize_attempts` back to `0`:
 
 ```bash
 gh workflow run daily-activity.yml
 ```
-- **`1. Collect` → `fail:no-repos`.** An assignment nobody accepted. No longer fails the run; if you still see it, the hub is on an older commit.
+- **`1. Collect` -> `fail:no-repos`.** An assignment nobody accepted. No longer fails the run; if you still see it, the hub is on an older commit.
 - **Weekly usage 403 `Resource not accessible by integration`.** The manual `organization_plan: read` permission is not granted/accepted for that org (§10.6). The report now skips that org instead of failing.
 
 ### 6.4 The nightly workflow is disabled and a student needs the dashboard updated
 
 Expected: `daily-activity.yml` disables itself when no assignments are active. A re-publish reactivates it. To force one regen:
 
-1. Actions → `regenerate-dashboard.yml` → Run workflow → input: org.
+1. Actions -> `regenerate-dashboard.yml` -> Run workflow -> input: org.
 
 For a forced nightly run:
 
-1. Actions → `daily-activity.yml` → enable, then Run workflow.
+1. Actions -> `daily-activity.yml` -> enable, then Run workflow.
 2. Or from the SPA: an assignment's detail page offers **Run daily activity now** while no report exists yet (dispatches the same workflow scoped to the org and watches for the report to land).
 
 (The publish workflow also enables it, so publishing any assignment also wakes it up.)
@@ -367,12 +367,12 @@ Every workflow takes `org` as an input; many also take `assignment_id` for scopi
 
 ## 8. Removing an organization
 
-1. Edit `participating-orgs.yml` on the `participating-orgs` branch — remove the org's entry, commit.
-2. Uninstall the App from the org (org owner) → org Settings → Integrations → PXL Classroom Provisioner → Uninstall.
+1. Edit `participating-orgs.yml` on the `participating-orgs` branch - remove the org's entry, commit.
+2. Uninstall the App from the org (org owner) -> org Settings -> Integrations -> PXL Classroom Provisioner -> Uninstall.
 3. Decide what to do with the data:
    - **Keep:** leave `<org>/pxl-classroom-control` and `<org>/pxl-classroom-archive` in place. They remain readable to org members.
    - **Archive:** rename them to indicate they're decommissioned.
-   - **Delete:** delete the repos. Preserved submission evidence is lost — be sure.
+   - **Delete:** delete the repos. Preserved submission evidence is lost - be sure.
 
 ---
 
@@ -380,30 +380,30 @@ Every workflow takes `org` as an input; many also take `assignment_id` for scopi
 
 ### 9.1 Compromised App private key
 
-1. App settings → Private keys → **Revoke** the leaked key.
+1. App settings -> Private keys -> **Revoke** the leaked key.
 2. Generate a new key, download the PEM.
 3. Update `PXL_APP_CLIENT_ID` (unchanged) and `PXL_APP_PRIVATE_KEY` (new PEM) in the hub's repo secrets.
-4. No per-org change needed — installations re-mint from the new key automatically.
+4. No per-org change needed - installations re-mint from the new key automatically.
 5. Investigate the leak vector before re-enabling workflows.
 
 ### 9.2 A student repo was accidentally made public
 
-1. Org Settings → Repositories → set the repo private again.
-2. Open the repo → Settings → check for any forks created while public; coordinate with the student.
+1. Org Settings -> Repositories -> set the repo private again.
+2. Open the repo -> Settings -> check for any forks created while public; coordinate with the student.
 3. If the repo contained secrets, treat as a leak: rotate.
 
 ### 9.3 Malicious acceptance burst
 
 A bot stars many brokers from many accounts.
 
-1. Edit affected `assignments/<id>.yml` — set `state: closed`. Acceptance handler rejects new attempts on closed assignments.
+1. Edit affected `assignments/<id>.yml` - set `state: closed`. Acceptance handler rejects new attempts on closed assignments.
 2. Optionally lower `max_acceptances` to the current accepted count.
-3. Disable the broker repository (org Settings → archive the broker repo) — `watch:started` does not fire on archived repos.
+3. Disable the broker repository (org Settings -> archive the broker repo) - `watch:started` does not fire on archived repos.
 4. Reconcile in Admin Panel to identify any provisioned bot repos; delete them in bulk.
 
 ### 9.4 Hub workflow file was modified by a fork PR
 
-If branch protection is configured (§1.5), this can't merge without admin review. If it did merge — assume compromise:
+If branch protection is configured (§1.5), this can't merge without admin review. If it did merge - assume compromise:
 
 1. Revert the malicious commit.
 2. Force-rotate the App key (§9.1) on the assumption the workflow exfiltrated it.
@@ -428,11 +428,11 @@ git commit -m "Re-encode participating-orgs.yml as UTF-8"
 git push origin participating-orgs
 ```
 
-Verify: `file participating-orgs.yml` reports `ASCII text` or `UTF-8 Unicode text`, no `BOM`. `setup-org.yml` now normalises automatically going forward — this recovery is only needed once.
+Verify: `file participating-orgs.yml` reports `ASCII text` or `UTF-8 Unicode text`, no `BOM`. `setup-org.yml` now normalises automatically going forward - this recovery is only needed once.
 
 ---
 
-## 10. Weekly usage tracking — tuning thresholds
+## 10. Weekly usage tracking - tuning thresholds
 
 The system warns when any repo crosses a per-SKU threshold. Three layers of configuration; first match wins:
 
@@ -441,7 +441,7 @@ The system warns when any repo crosses a per-SKU threshold. Three layers of conf
 | Layer | File | When to use |
 |---|---|---|
 | **Global** | `limits.yml` (hub root) | The default. Edit when a new SKU appears in the weekly reports, or when a default needs adjusting for the typical course. |
-| **Per-org** | `participating-orgs.yml` → `orgs[i].overrides` | An entire org has a different profile. Example: an Actions-heavy course org gets a higher `Actions Linux` budget across the board. |
+| **Per-org** | `participating-orgs.yml` -> `orgs[i].overrides` | An entire org has a different profile. Example: an Actions-heavy course org gets a higher `Actions Linux` budget across the board. |
 | **Per-repo** | `<org>/pxl-classroom-control/limits-overrides.json` | One specific repo is an outlier. Example: `pxl-sweeper-HanneloreRamakersPXL` accumulates artifacts as a feature; raise its `Actions storage` limit. |
 
 ### 10.2 Example: silence one noisy repo's storage warning
@@ -459,7 +459,7 @@ Commit to `<org>/pxl-classroom-control/limits-overrides.json`. The next Sunday's
 
 ### 10.3 SKUs you'll see
 
-GitHub's Enhanced Billing API returns SKUs as data — the catalog isn't fixed. Common ones for PXL Classroom orgs:
+GitHub's Enhanced Billing API returns SKUs as data - the catalog isn't fixed. Common ones for PXL Classroom orgs:
 
 | SKU | Unit | Typical usage |
 |---|---|---|
@@ -480,30 +480,30 @@ Add an entry to `limits.yml` for any SKU you want thresholded. SKUs without a co
 
 - **Sunday 22:00 UTC** the weekly cron fires.
 - Report is written to the org's control repo even when nothing is over threshold (so the dashboard always has the latest data).
-- If anything is over: comment posted to the **"PXL Classroom — Weekly Usage Report"** issue with `@budget_owner_login`. GitHub emails the budget owner via their notification settings.
-- The workflow run exits non-zero on overrun → red X in the Actions tab.
+- If anything is over: comment posted to the **"PXL Classroom - Weekly Usage Report"** issue with `@budget_owner_login`. GitHub emails the budget owner via their notification settings.
+- The workflow run exits non-zero on overrun -> red X in the Actions tab.
 
 ### 10.5 Manual rerun
 
 Need a fresh report mid-week:
 
 - From the SPA: the Usage pages (`/dashboard/<org>/usage` and `/usage`) have a **Generate report now** button while empty and a **Regenerate now** button once a report exists.
-- Or Actions → **Weekly Usage Report** → Run workflow (optionally scope to one `org` input).
+- Or Actions -> **Weekly Usage Report** -> Run workflow (optionally scope to one `org` input).
 
 ### 10.6 If you change App permissions (re-approval flow)
 
-Whenever the App's permission set widens — for example, adding `organization_plan: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA — every already-installed org needs to opt back in.
+Whenever the App's permission set widens - for example, adding `organization_plan: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA - every already-installed org needs to opt back in.
 
 1. Update the manifest in `frontend/src/views/SetupView.vue` (or directly in the App's GitHub settings if it already exists).
-2. Each org owner: open the org's installed-apps page (`github.com/organizations/<org>/settings/installations`) → PXL Classroom Provisioner → click **Review request** and approve the new permissions.
+2. Each org owner: open the org's installed-apps page (`github.com/organizations/<org>/settings/installations`) -> PXL Classroom Provisioner -> click **Review request** and approve the new permissions.
 3. Lecturers who were already authenticated keep their previous (narrower) token until it expires (8 h max). Next sign-in mints a token with the new scope.
 4. No control-repo or workflow change needed.
 
-Verify with `gh api /app` — `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` → PXL Classroom Provisioner.
+Verify with `gh api /app` - `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` -> PXL Classroom Provisioner.
 
 **Recent re-approval triggers in this project:**
-- `organization_plan: read` — Enhanced Billing endpoint, used by the weekly usage report.
-- `actions: write` — `workflow_dispatch` from the Admin UI / Usage view. Without it the SPA's "Generate now", "Publish", and "Retry acceptance" buttons return 403 (`Resource not accessible by integration`).
+- `organization_plan: read` - Enhanced Billing endpoint, used by the weekly usage report.
+- `actions: write` - `workflow_dispatch` from the Admin UI / Usage view. Without it the SPA's "Generate now", "Publish", and "Retry acceptance" buttons return 403 (`Resource not accessible by integration`).
 
 ## 11. Verification checklist (after major changes)
 
@@ -544,11 +544,11 @@ A `gh extension install` distribution will follow once Phase A stabilises. On Wi
 
 ```bash
 pxl-classroom auth login --client-id <Iv23li…>     # Client ID from the App settings page ("About"), the /setup completion screen, or the PXL_APP_CLIENT_ID secret
-# → prints a verification URL + 8-char user code (+ a security notice:
+# -> prints a verification URL + 8-char user code (+ a security notice:
 #   authorize only "PXL Classroom Provisioner")
-# → attempts to open the verification page in your default browser
+# -> attempts to open the verification page in your default browser
 #   (best-effort; on headless shells use the printed URL)
-# → token cached at ~/.config/pxl-classroom/token (0600)
+# -> token cached at ~/.config/pxl-classroom/token (0600)
 
 pxl-classroom auth status     # who am I, when did I auth, where is the token?
 pxl-classroom auth logout     # wipe the cached token (config is preserved)
@@ -567,7 +567,7 @@ Both files are JSON, chmod 0600 on POSIX. Token TTL matches the device-flow OAut
 
 ### 12.4 Importing a roster
 
-The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Admin Panel → **Roster** tab or the CLI imports it from CSV.
+The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Admin Panel -> **Roster** tab or the CLI imports it from CSV.
 
 **CSV format** (header row required):
 
@@ -598,15 +598,15 @@ The `--org` value sticks (config remembers it) so subsequent invocations can omi
 
 All CLI commands query the control repo. If assignments or reports are queried that do not exist, the CLI catches 404 errors and displays a friendly explanation instead of raw stack traces. If repository records are empty, it handles the 404 gracefully and returns an empty list.
 
-**SPA flow:** open `/dashboard/<org>/admin#roster`, drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses — no drift between surfaces.
+**SPA flow:** open `/dashboard/<org>/admin#roster`, drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses - no drift between surfaces.
 
-Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` — both safe for one-shot writes.
+Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` - both safe for one-shot writes.
 
 #### Running an assignment without a roster
 
-An assignment whose cohort isn't known when you publish it — an exam, a workshop, an open lab — can skip the roster gate. In the Admin Panel's **Guardrails** section set **Who may accept** to `open` (equivalently, `roster_mode: open` in the YAML).
+An assignment whose cohort isn't known when you publish it - an exam, a workshop, an open lab - can skip the roster gate. In the Admin Panel's **Guardrails** section set **Who may accept** to `open` (equivalently, `roster_mode: open` in the YAML).
 
-Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits. The cap is therefore **required** with open enrollment — the form will not save without it, and `accept.mjs` rejects a hand-edited uncapped open assignment with `fail:config`. Keep it close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
+Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits. The cap is therefore **required** with open enrollment - the form will not save without it, and `accept.mjs` rejects a hand-edited uncapped open assignment with `fail:config`. Keep it close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
 
 Symptom this fixes: with `roster_mode: enforced` (the default) and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 
@@ -620,9 +620,9 @@ pxl-classroom audit --org PXLAutomation --assignment linux-processes-2026
 pxl-classroom audit --org PXLAutomation --json    # machine output for CI
 ```
 
-Exit codes: `0` clean, `1` warnings, `2` failures. The check engine lives in `lib/audit.mjs` and is shared with the SPA — both surfaces use the same code path, only the HTTP carrier differs (Octokit in the CLI, browser fetch in the SPA).
+Exit codes: `0` clean, `1` warnings, `2` failures. The check engine lives in `lib/audit.mjs` and is shared with the SPA - both surfaces use the same code path, only the HTTP carrier differs (Octokit in the CLI, browser fetch in the SPA).
 
-If `app-permissions match manifest` reports drift, re-approve the App in the org → Settings → GitHub Apps → PXL Classroom Provisioner → Configure. The expected permissions are the canonical `EXPECTED_APP_PERMISSIONS` in `lib/audit.mjs`, which `SetupView.vue` also imports — there is only one source of truth.
+If `app-permissions match manifest` reports drift, re-approve the App in the org -> Settings -> GitHub Apps -> PXL Classroom Provisioner -> Configure. The expected permissions are the canonical `EXPECTED_APP_PERMISSIONS` in `lib/audit.mjs`, which `SetupView.vue` also imports - there is only one source of truth.
 
 ### 12.6 Tagged submissions
 
@@ -634,7 +634,7 @@ Tag format students copy from the template README:
 git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
 ```
 
-The system never requires the tag — untagged submissions still land via the snapshot path. The timestamp inside the tag name is `declared_at` (observed-not-authoritative); the `observed_at` written by `collect/` is the time the hub saw the tag and is what classification uses.
+The system never requires the tag - untagged submissions still land via the snapshot path. The timestamp inside the tag name is `declared_at` (observed-not-authoritative); the `observed_at` written by `collect/` is the time the hub saw the tag and is what classification uses.
 
 The lecturer dashboard's **Submit tag** column on `AssignmentDetailView` shows the latest tag per student, and the student `AssignmentView` shows a "Submission tagged at …" banner once `collect/` has seen the tag.
 
@@ -642,19 +642,19 @@ The lecturer dashboard's **Submit tag** column on `AssignmentDetailView` shows t
 
 Enable `feedback_pr: true` on the assignment (the Admin Panel's **Guardrails** section has a checkbox; manual YAML also works). Provisioning then creates and protects a `pxl-baseline` branch on each new student repo.
 
-Open the actual draft PRs lazily — at provisioning time, `main` and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
+Open the actual draft PRs lazily - at provisioning time, `main` and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
 
 ```bash
 pxl-classroom feedback open --assignment linux-processes-2026                  # opens for all students with commits ahead of pxl-baseline
 pxl-classroom feedback open --assignment linux-processes-2026 --login alice    # one student
-pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        # preview only — creates no PRs, commits nothing
+pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        # preview only - creates no PRs, commits nothing
 
 pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
 ```
 
-The CLI is idempotent — re-runs skip students whose record already has `feedback_pr_number`. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "— pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't run `feedback open`).
+The CLI is idempotent - re-runs skip students whose record already has `feedback_pr_number`. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't run `feedback open`).
 
-Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Comments persist as the student keeps pushing — the PR head tracks `main`. The student cannot delete `pxl-baseline` (App-level protection outranks repo admin).
+Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Comments persist as the student keeps pushing - the PR head tracks `main`. The student cannot delete `pxl-baseline` (App-level protection outranks repo admin).
 
 ### 12.8 Bulk submission download
 
@@ -702,7 +702,7 @@ autograde:
 
 #### Option A: Lecturer-side (CLI-only)
 
-When `execution_environment` is `lecturer_local`, run the grader **on your machine** — never on the platform:
+When `execution_environment` is `lecturer_local`, run the grader **on your machine** - never on the platform:
 
 ```bash
 pxl-classroom grade --org PXLAutomation \
@@ -713,7 +713,7 @@ pxl-classroom grade --org PXLAutomation \
 pxl-classroom grade --assignment linux-processes-2026 --login alice --dry-run    # one student, no commit
 ```
 
-Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512 MB memory, per-test wall-clock timeouts), or `--runner host` for trusted code (POSIX only — uses `/bin/sh`).
+Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512 MB memory, per-test wall-clock timeouts), or `--runner host` for trusted code (POSIX only - uses `/bin/sh`).
 
 Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the **Autograder** panel on `AssignmentDetailView`.
 
@@ -728,4 +728,4 @@ When `execution_environment` is `github_actions`, the system automatically injec
 To pull the grades back into the control repository:
 1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment.
 2. Click the **Sync CI results from GitHub** button in the Autograder panel.
-3. The SPA will fetch the CI statuses directly from the GitHub Checks API for all preserved students and write a bulk `summary.json` to the control repository. Preserved SHAs only exist after the deadline-night finalize — before that the button explains the precondition and commits nothing.
+3. The SPA will fetch the CI statuses directly from the GitHub Checks API for all preserved students and write a bulk `summary.json` to the control repository. Preserved SHAs only exist after the deadline-night finalize - before that the button explains the precondition and commits nothing.

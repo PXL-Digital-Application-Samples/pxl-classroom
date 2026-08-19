@@ -74,7 +74,7 @@ test("SPA-serialized YAML with autograde passes validateAgainst('assignment', ..
 });
 
 // The SPA's buildDoc() always emits roster_mode, and the schema is
-// additionalProperties:false — so an unlisted field would break every save.
+// additionalProperties:false - so an unlisted field would break every save.
 test("roster_mode accepts both enum values and rejects anything else", () => {
   const base = {
     schema_version: 1,
@@ -86,7 +86,7 @@ test("roster_mode accepts both enum values and rejects anything else", () => {
     opens_at: "2026-09-21T06:00:00Z",
     deadline_at: "2026-10-05T21:59:59Z",
     state: "published",
-    // Required under roster_mode: open — see the dedicated test below.
+    // Required under roster_mode: open - see the dedicated test below.
     max_acceptances: 40,
   };
 
@@ -100,7 +100,7 @@ test("roster_mode accepts both enum values and rejects anything else", () => {
     assert.ok(!valid, `roster_mode=${JSON.stringify(bad)} should be rejected by the schema`);
   }
 
-  // Omitted entirely — still valid (defaults to enforced at read time).
+  // Omitted entirely - still valid (defaults to enforced at read time).
   const { valid } = validateAgainst("assignment", base);
   assert.ok(valid, "roster_mode is optional");
 });
@@ -118,14 +118,14 @@ test("roster_mode: open requires max_acceptances", () => {
     state: "published",
   };
 
-  // Open enrollment drops the roster gate — the cap is the only limit left.
+  // Open enrollment drops the roster gate - the cap is the only limit left.
   const uncapped = validateAgainst("assignment", { ...base, roster_mode: "open" });
   assert.ok(!uncapped.valid, "roster_mode: open without max_acceptances must be rejected");
 
   const capped = validateAgainst("assignment", { ...base, roster_mode: "open", max_acceptances: 40 });
   assert.ok(capped.valid, `open + cap should be valid, got: ${JSON.stringify(capped.errors)}`);
 
-  // Enforced mode keeps the cap optional — the roster is the guardrail there.
+  // Enforced mode keeps the cap optional - the roster is the guardrail there.
   const enforcedUncapped = validateAgainst("assignment", { ...base, roster_mode: "enforced" });
   assert.ok(enforcedUncapped.valid, "enforced mode may omit max_acceptances");
   assert.ok(validateAgainst("assignment", base).valid, "absent roster_mode may omit max_acceptances");

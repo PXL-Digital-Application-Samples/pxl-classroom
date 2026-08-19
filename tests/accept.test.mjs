@@ -237,7 +237,7 @@ template:
 // Restores the v1 "open acceptance" behaviour per assignment. The roster gate
 // is skipped; opens_at..deadline_at and max_acceptances remain the guardrails.
 
-test("roster_mode:open — accepts a login absent from the roster", () => {
+test("roster_mode:open - accepts a login absent from the roster", () => {
   const yaml = `state: published
 roster_mode: open
 max_acceptances: 50
@@ -254,7 +254,7 @@ template:
   assert.equal(res.outputs.target_repo, "exam-stranger");
 });
 
-test("roster_mode:open — accepts when no roster file exists at all", () => {
+test("roster_mode:open - accepts when no roster file exists at all", () => {
   // The scaffold-default control repo case: a freshly created org has no
   // students/roster.yml, which under enforced mode rejects everyone.
   const yaml = `state: published
@@ -273,7 +273,7 @@ template:
   assert.equal(res.outputs.target_repo, "exam-stranger");
 });
 
-test("roster_mode:open — still enforces the deadline window", () => {
+test("roster_mode:open - still enforces the deadline window", () => {
   const past = new Date(Date.now() - 86400000).toISOString();
   const yaml = `state: published
 roster_mode: open
@@ -289,7 +289,7 @@ template:
   assert.equal(res.outputs.outcome, "rejected:past-deadline");
 });
 
-test("roster_mode:open — still enforces opens_at", () => {
+test("roster_mode:open - still enforces opens_at", () => {
   const future = new Date(Date.now() + 86400000).toISOString();
   const yaml = `state: published
 roster_mode: open
@@ -305,7 +305,7 @@ template:
   assert.equal(res.outputs.outcome, "rejected:not-open");
 });
 
-test("roster_mode:open — without max_acceptances fails closed", () => {
+test("roster_mode:open - without max_acceptances fails closed", () => {
   // Open enrollment drops the roster gate, so the cap is the only limit left
   // on who can claim a repo. Schema + Admin Panel require it; this is the
   // backstop for hand-edited YAML.
@@ -322,7 +322,7 @@ template:
   assert.equal(res.outputs.outcome, "fail:config");
 });
 
-test("roster_mode:open — still enforces max_acceptances", () => {
+test("roster_mode:open - still enforces max_acceptances", () => {
   const yaml = `state: published
 roster_mode: open
 max_acceptances: 1
@@ -337,7 +337,7 @@ template:
   assert.equal(res.outputs.outcome, "rejected:cap-reached");
 });
 
-test("roster_mode:open — still requires state: published", () => {
+test("roster_mode:open - still requires state: published", () => {
   const yaml = `state: draft
 roster_mode: open
 template:
@@ -351,7 +351,7 @@ template:
   assert.equal(res.outputs.outcome, "rejected:not-published");
 });
 
-test("roster_mode:open — idempotency still returns already-accepted", () => {
+test("roster_mode:open - idempotency still returns already-accepted", () => {
   const yaml = `state: published
 roster_mode: open
 max_acceptances: 50
@@ -368,7 +368,7 @@ template:
   assert.equal(res.outputs.target_repo, "exam-stranger");
 });
 
-test("roster_mode:enforced — explicit value still gates on the roster", () => {
+test("roster_mode:enforced - explicit value still gates on the roster", () => {
   const yaml = `state: published
 roster_mode: enforced
 template:
@@ -382,7 +382,7 @@ template:
   assert.equal(res.outputs.outcome, "rejected:not-on-roster");
 });
 
-test("roster_mode — unrecognised values fail closed (treated as enforced)", () => {
+test("roster_mode - unrecognised values fail closed (treated as enforced)", () => {
   // Fail-closed matters: a typo must never silently open enrollment. Schema
   // validation rejects these at save time; accept.mjs is the backstop for
   // hand-edited YAML.
@@ -401,7 +401,7 @@ template:
   }
 });
 
-test("roster_mode — absent value defaults to enforced (backward compatible)", () => {
+test("roster_mode - absent value defaults to enforced (backward compatible)", () => {
   const yaml = `state: published
 template:
   owner: TestOrg

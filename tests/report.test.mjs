@@ -1,4 +1,4 @@
-// PXL Classroom — report.test.mjs
+// PXL Classroom - report.test.mjs
 //
 // Deadline-classification truth table. Drives the report.mjs script against
 // a synthetic data tree and asserts the per-student status output. Critical

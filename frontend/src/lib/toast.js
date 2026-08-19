@@ -5,7 +5,7 @@ export const toasts = ref([])
 let idCounter = 0
 
 // Success/info auto-dismiss quickly; errors carry remediation text (often two
-// sentences) and stay long enough to read — and can always be dismissed or
+// sentences) and stay long enough to read - and can always be dismissed or
 // paused (hover) via the Toast component.
 const DURATION_MS = { success: 5000, info: 7000, error: 15000 }
 

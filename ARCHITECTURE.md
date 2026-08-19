@@ -1,6 +1,6 @@
-# PXL Classroom — Architecture & Technical Specification
+# PXL Classroom - Architecture & Technical Specification
 
-A GitHub-native assignment distribution and submission-reporting system for higher education. Targets **GitHub Team for Education** (never GitHub Enterprise). Replaces the subset of GitHub Classroom that PXL relies on, with a model that lets students keep repository-administrator access — including secrets, environments, self-hosted runners — so course materials can teach Actions properly.
+A GitHub-native assignment distribution and submission-reporting system for higher education. Targets **GitHub Team for Education** (never GitHub Enterprise). Replaces the subset of GitHub Classroom that PXL relies on, with a model that lets students keep repository-administrator access - including secrets, environments, self-hosted runners - so course materials can teach Actions properly.
 
 This document is the single technical reference for the system. It supersedes the historical `REQUIREMENTS.md`, `IMPLEMENTATION_PLAN.md`, `REVIEW.md`, `REVIEW_PLAN.md`, `REDUCTION_PLAN.md`, and `SPIKES_PLAN.md`.
 
@@ -67,11 +67,11 @@ Five repository roles, one App, one Pages site.
 
 | Role | Visibility | Count | Owns |
 |---|---|---|---|
-| **Central hub** — `PXL-Digital-Application-Samples/pxl-classroom` | Public | 1 | All workflows, composite actions, scripts, frontend source, schemas |
-| **Control repo** — `<org>/pxl-classroom-control` | Private | 1 per org | Assignments, roster, acceptances, repositories, observations, reports, overrides, errors |
-| **Broker repo** — `<org>/broker-<assignment-id>` | Public | 1 per assignment | A single `watch:started` workflow that dispatches to the hub |
-| **Archive repo** — `<org>/pxl-classroom-archive` | Private | 1 per org | Preserved submission SHAs as branches |
-| **Student repo** — `<org>/<repository_name_pattern>` | Private | 1 per accepted student | The student's own work |
+| **Central hub** - `PXL-Digital-Application-Samples/pxl-classroom` | Public | 1 | All workflows, composite actions, scripts, frontend source, schemas |
+| **Control repo** - `<org>/pxl-classroom-control` | Private | 1 per org | Assignments, roster, acceptances, repositories, observations, reports, overrides, errors |
+| **Broker repo** - `<org>/broker-<assignment-id>` | Public | 1 per assignment | A single `watch:started` workflow that dispatches to the hub |
+| **Archive repo** - `<org>/pxl-classroom-archive` | Private | 1 per org | Preserved submission SHAs as branches |
+| **Student repo** - `<org>/<repository_name_pattern>` | Private | 1 per accepted student | The student's own work |
 
 Workflows live **only** in the central hub. Control repos hold data; they contain no `.github/workflows/` directory. This is what makes the system upgradable in one place and keeps participating-org Actions budgets near zero.
 
@@ -95,7 +95,7 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 
 The App is installed:
 
-- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. The broker mints a token for this installation to dispatch into the hub. A compromised broker workflow can only dispatch events to the hub — bounded blast radius.
+- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. The broker mints a token for this installation to dispatch into the hub. A compromised broker workflow can only dispatch events to the hub - bounded blast radius.
 - On each participating org (`PXLAutomation`, `PXLCloudAndAutomation`, etc.), **scoped to all repositories**. The hub mints per-org tokens at workflow runtime for provisioning, collection, lock-down, preservation, and archive operations against the target org.
 
 The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see RUNBOOK §1.2).
@@ -107,12 +107,12 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 ### 4.1 What is authoritative
 
 - **Authoritative:** the per-org control repository. It holds assignments, roster, acceptances, repository IDs, observations, reports, overrides. Students never have read or write access.
-- **Not authoritative:** student repositories. Students hold admin so the course can teach Actions, secrets, environments, runners — but that means students can rewrite history, disable Actions, alter workflows, and delete the repo. The system treats student repos as observable, not trustworthy.
+- **Not authoritative:** student repositories. Students hold admin so the course can teach Actions, secrets, environments, runners - but that means students can rewrite history, disable Actions, alter workflows, and delete the repo. The system treats student repos as observable, not trustworthy.
 
 ### 4.2 Identity
 
 - **Lecturers** authenticate to the SPA via GitHub device flow against the Provisioner App. Authorization derives from organization ownership: any owner of an org where the App is installed is a lecturer in that org. The SPA reads control-repo data with the **lecturer's own token**; no per-user secret on the server side.
-- **Students** authenticate to the SPA via the same device flow. Acceptance gating is per assignment, via `roster_mode`. Under `enforced` (the default) the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned. Under `open` any GitHub account may accept within the window and below the cap, and the lecturer reconciles `github_login` → student afterward; unrecognised `roster_mode` values fail closed to `enforced`.
+- **Students** authenticate to the SPA via the same device flow. Acceptance gating is per assignment, via `roster_mode`. Under `enforced` (the default) the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned. Under `open` any GitHub account may accept within the window and below the cap, and the lecturer reconciles `github_login` -> student afterward; unrecognised `roster_mode` values fail closed to `enforced`.
 - **Automation** authenticates as the App, using short-lived per-org installation tokens minted at workflow runtime.
 
 ### 4.3 Bounded blast radius
@@ -124,7 +124,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 
 ### 4.4 Lock-down semantics
 
-At a deadline, automation demotes the student from admin to `pull` on their assignment repository via the App. Because the demotion runs through the org-level App installation — which outranks repo-level admin — the student cannot self-restore. This is a deterrent, not a tamper-proof control: a student who prepared beforehand may have alternative write paths (added collaborator, deploy key, fork). Reports continue to flag observed late activity; preservation is the safety net.
+At a deadline, automation demotes the student from admin to `pull` on their assignment repository via the App. Because the demotion runs through the org-level App installation - which outranks repo-level admin - the student cannot self-restore. This is a deterrent, not a tamper-proof control: a student who prepared beforehand may have alternative write paths (added collaborator, deploy key, fork). Reports continue to flag observed late activity; preservation is the safety net.
 
 ---
 
@@ -154,7 +154,7 @@ The model explicitly distinguishes:
 - **Facts** returned by GitHub (`repo_id`, `repo_url`).
 - **Observations** made at a specific time (`observed_at`, `observed_sha`).
 - **Calculated** values (`submission_status`, `effective_deadline_at`).
-- **Lecturer overrides** (`type`, `reason`, `overridden_by`, `overridden_at`) — append-only; never erase evidence.
+- **Lecturer overrides** (`type`, `reason`, `overridden_by`, `overridden_at`) - append-only; never erase evidence.
 
 ### 5.3 Schemas
 
@@ -166,7 +166,7 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `roster.schema.json` | Roster entries |
 | `acceptance.schema.json` | Per-student acceptance record |
 | `repository-record.schema.json` | Provisioned repo facts |
-| `observation.schema.json` | A single submission observation — `snapshot` of the submission ref or a `tagged-submission` produced from `refs/tags/submit/*` |
+| `observation.schema.json` | A single submission observation - `snapshot` of the submission ref or a `tagged-submission` produced from `refs/tags/submit/*` |
 | `report.schema.json` | Computed per-assignment report |
 | `override.schema.json` | Lecturer overrides (8 types, see schema) |
 | `error-record.schema.json` | Workflow/script error records |
@@ -195,7 +195,7 @@ timezone: Europe/Brussels
 submission_ref: refs/heads/main
 student_permission: admin             # pull|triage|push|maintain|admin
 acceptance_mode: self-service         # self-service|pre-provisioned
-roster_mode: enforced                 # enforced|open — who may accept (§15).
+roster_mode: enforced                 # enforced|open - who may accept (§15).
                                       # open requires max_acceptances.
 late_policy: report                   # report|block
 state: published                      # draft|published|closed|archived
@@ -205,7 +205,7 @@ lock_down_enabled: true
 
 ### 5.5 Participating-orgs registry
 
-`participating-orgs.yml` lives on a dedicated **`participating-orgs` branch** of the hub repo (not `main`). This branch has lighter protection — `main`'s "PRs + ≥2 reviews + signed commits" rule would block automation commits, but the orgs registry is high-frequency. The Setup-Organization workflow commits directly to this branch; cron workflows fetch from `ref: participating-orgs`.
+`participating-orgs.yml` lives on a dedicated **`participating-orgs` branch** of the hub repo (not `main`). This branch has lighter protection - `main`'s "PRs + ≥2 reviews + signed commits" rule would block automation commits, but the orgs registry is high-frequency. The Setup-Organization workflow commits directly to this branch; cron workflows fetch from `ref: participating-orgs`.
 
 ```yaml
 schema_version: 1
@@ -219,34 +219,34 @@ orgs:
 
 ---
 
-## 6. Operational model — minimal-minutes (Wave 8)
+## 6. Operational model - minimal-minutes (Wave 8)
 
 The defining design decision of v1: **the system consumes zero billed minutes when no class is active.** Active classes are tightly bounded.
 
 ### 6.1 Synchronous provisioning
 
-When a student stars a broker, the central `acceptance-handler.yml` workflow runs the full sequence in a single workflow run: accept → provision → write registry record → dispatch dashboard regen. **There is no queue.** A 250-student burst is handled by GitHub's own workflow scheduler and the App's per-org rate-limit budget; if the org is rate-limited, the workflow run fails and the SPA shows the student "GitHub is currently experiencing high load. Please try again in 15 minutes." (`AssignmentView.vue`). The student retries by re-starring the broker; idempotency makes this safe.
+When a student stars a broker, the central `acceptance-handler.yml` workflow runs the full sequence in a single workflow run: accept -> provision -> write registry record -> dispatch dashboard regen. **There is no queue.** A 250-student burst is handled by GitHub's own workflow scheduler and the App's per-org rate-limit budget; if the org is rate-limited, the workflow run fails and the SPA shows the student "GitHub is currently experiencing high load. Please try again in 15 minutes." (`AssignmentView.vue`). The student retries by re-starring the broker; idempotency makes this safe.
 
 ### 6.2 One nightly cron
 
 A single workflow, `daily-activity.yml`, runs at `0 0 * * *` UTC. For every participating org with active assignments, it:
 
 1. **Collects** observations for the configured submission ref of every accepted student.
-2. **Finds finalizable** assignments — those whose `deadline_at` has passed and whose finalize is not yet *complete*.
-3. **Finalizes** each one in a per-assignment matrix leg: `collect → lockdown → preserve → report`.
+2. **Finds finalizable** assignments - those whose `deadline_at` has passed and whose finalize is not yet *complete*.
+3. **Finalizes** each one in a per-assignment matrix leg: `collect -> lockdown -> preserve -> report`.
 4. **Disables itself** (`gh workflow disable daily-activity.yml`) if no active assignments remain **and** no finalize leg failed.
 
 #### 6.2.1 Finalize is complete only when the submissions are archived
 
-The idempotency key is *not* "a lockdown record exists". A run that locked students down and then failed in `preserve` would otherwise be recorded as finished and never retried, leaving submissions permanently unarchived — which is exactly what happened on 2026-07-30. `find-finalizable.mjs` therefore re-queues a past-deadline assignment when its `lockdown-record.json` lists a student with a `snapshot_sha` but no verified `observations/<id>/<login>/preservation.json`.
+The idempotency key is *not* "a lockdown record exists". A run that locked students down and then failed in `preserve` would otherwise be recorded as finished and never retried, leaving submissions permanently unarchived - which is exactly what happened on 2026-07-30. `find-finalizable.mjs` therefore re-queues a past-deadline assignment when its `lockdown-record.json` lists a student with a `snapshot_sha` but no verified `observations/<id>/<login>/preservation.json`.
 
 Three properties make that retry safe:
 
-- **Snapshots are frozen.** On a retry `lockdown.mjs` reuses each student's recorded `snapshot_sha` and `lockdown_at` instead of re-reading `HEAD`. Without this a late commit — pushed before the demotion propagated, or enabled by an extension — would silently replace the on-time submission. New students still get a fresh snapshot.
+- **Snapshots are frozen.** On a retry `lockdown.mjs` reuses each student's recorded `snapshot_sha` and `lockdown_at` instead of re-reading `HEAD`. Without this a late commit - pushed before the demotion propagated, or enabled by an extension - would silently replace the on-time submission. New students still get a fresh snapshot.
 - **Retries are capped.** `finalize_attempts` is incremented in the lockdown record; past `MAX_FINALIZE_ATTEMPTS` (3) the assignment is left alone with an explanatory log line, so a repo that can never be preserved (deleted, for instance) cannot burn a matrix leg every night. Reset the counter in the record to force another attempt.
 - **The record is always committed.** The `Commit + push` step runs `if: always()`, because lockdown has already demoted permissions through the API by that point; discarding the record would lose both the frozen snapshot and the attempt counter.
 
-There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queue.yml` — those were earlier cron-heavy designs that have been removed.
+There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queue.yml` - those were earlier cron-heavy designs that have been removed.
 
 ### 6.3 Event-driven dashboard regeneration
 
@@ -262,13 +262,13 @@ There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queu
 
 ```
 Lecturer publishes assignment
-   ↓
+   v
 publish-assignment.yml runs `gh workflow enable daily-activity.yml`
-   ↓
-Nightly cron runs — collects, finalizes, regenerates dashboard
-   ↓
+   v
+Nightly cron runs - collects, finalizes, regenerates dashboard
+   v
 After all deadlines pass, check-idle job runs `gh workflow disable daily-activity.yml`
-   ↓
+   v
 0 runs / 0 billed minutes until the next publish
 ```
 
@@ -289,7 +289,7 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `acceptance-handler.yml` | `repository_dispatch [acceptance]` | Sync: accept → provision → dispatch dashboard regen. Per-student concurrency. |
+| `acceptance-handler.yml` | `repository_dispatch [acceptance]` | Sync: accept -> provision -> dispatch dashboard regen. Per-student concurrency. |
 | `daily-activity.yml` | `cron 0 0 * * *` + `workflow_dispatch` | Nightly: collect, finalize finalizable assignments, disable self when idle. **Disabled when no class active.** |
 | `publish-assignment.yml` | `workflow_dispatch` | Create broker repo, set vars, push broker workflow, flip assignment `state` to `published`, **enable `daily-activity.yml`**. |
 | `regenerate-dashboard.yml` | `workflow_dispatch` (called by other workflows) | Multi-org: generate public Pages JSON + run privacy scanner + commit to each org's `public/`. |
@@ -298,10 +298,10 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 | `weekly-usage-report.yml` | `cron 0 22 * * SUN` + `workflow_dispatch` | Sunday 22:00 UTC. Per-org matrix: fetch Enhanced Billing usage for the past 7 days, threshold per SKU, write report to control repo, @-mention budget owner if anything over, fail run on overrun. |
 | `setup-org.yml` | `workflow_dispatch` | Create `pxl-classroom-control` in target org; register org in `participating-orgs` branch. |
 | `provision.yml` | `workflow_call` | Reusable workflow wrapping `provisioning/action.yml` with concurrency controls. |
-| `deploy-frontend.yml` | `push` to `main` (paths: `frontend/**`, `lib/**`, `schemas/**`) + `workflow_dispatch` | Build SPA + copy schemas → publish to GitHub Pages. |
+| `deploy-frontend.yml` | `push` to `main` (paths: `frontend/**`, `lib/**`, `schemas/**`) + `workflow_dispatch` | Build SPA + copy schemas -> publish to GitHub Pages. |
 | `ci.yml` | `pull_request` + `push` | Run `node --test tests/`. |
 
-**Broker template:** `acceptance/broker-workflow.yml` is the file `publish-assignment.yml` copies into each broker repository as `.github/workflows/acceptance-trigger.yml`. It's the one workflow that does NOT live in the hub at runtime — it lives on every broker — but it is owned and re-published from the hub.
+**Broker template:** `acceptance/broker-workflow.yml` is the file `publish-assignment.yml` copies into each broker repository as `.github/workflows/acceptance-trigger.yml`. It's the one workflow that does NOT live in the hub at runtime - it lives on every broker - but it is owned and re-published from the hub.
 
 ---
 
@@ -321,7 +321,7 @@ All in the hub's repository root. Each is a self-contained composite that mints 
 | `registry/` | org, optional `assignment-id`, `data-dir` | `drift-detected` |
 | `notify/` | org, `event-type`, `assignment-id`, `details`, `dedup-key` | `outcome` = `notified` / `deduplicated` / `fail:*` |
 
-Pattern in every central workflow: `checkout(hub) → npm ci → mint App token for inputs.org → checkout(control repo) → run action with data-dir=control/ → commit & push the diff to the control repo.`
+Pattern in every central workflow: `checkout(hub) -> npm ci -> mint App token for inputs.org -> checkout(control repo) -> run action with data-dir=control/ -> commit & push the diff to the control repo.`
 
 Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippets in workflow YAML.
 
@@ -335,7 +335,7 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 1. Student opens https://<pages-host>/pxl-classroom/<org>/a/<assignment-id>
 2. SPA shows title, opens_at, deadline, current state.
    - *Acceptance Gating:* The SPA gates the acceptance flow: if the assignment state is not 'published' (e.g., if it is 'closed' or 'draft') or if the current time is before `opens_at`, it displays a status warning message instead of the Accept button. If the student has already accepted and has a provisioned repository, they can still access their repository.
-3. Student clicks "Accept" → device-flow auth (only if first time this session)
+3. Student clicks "Accept" -> device-flow auth (only if first time this session)
 4. SPA POSTs PUT /user/starred/<org>/broker-<assignment-id>          [Account/Starring]
 5. Broker's watch:started workflow fires
 6. Broker mints a token for the pxl-classroom-scoped App installation
@@ -343,10 +343,10 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 8. acceptance-handler.yml in the hub:
    a. Mints App token for inputs.org
    b. Checks out <org>/pxl-classroom-control
-   c. Runs ./acceptance — validates payload, checks roster registration (unless
+   c. Runs ./acceptance - validates payload, checks roster registration (unless
       roster_mode: open), checks opens_at..deadline_at, checks max_acceptances,
       writes acceptances/<id>/<login>.json
-   d. If accepted/already-accepted, runs ./provisioning — creates the repo
+   d. If accepted/already-accepted, runs ./provisioning - creates the repo
       from template (idempotent on existing) and grants student admin
    e. If provisioning failed, runs ./notify with event-type=provisioning-failed
    f. Commits repositories/<id>/<login>.json + updated acceptance to control repo
@@ -359,57 +359,57 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 Idempotency: a re-star (unstar then restar) re-fires `watch:started`; the acceptance script detects an existing acceptance and returns `already-accepted`; provisioning detects an existing repo and returns `reused`. The student gets the same repo URL.
 
 Failure modes:
-- Rate limit / GitHub outage → workflow fails → SPA polls 30× over ~3 min (20 × 3 s, then 10 × 10 s) → "GitHub is currently experiencing high load. Please try again in 15 minutes."
-- Outside the open window or above `max_acceptances` → SPA pre-computes the rejection client-side, gates acceptance, and surfaces the reason. (The acceptance script also enforces this as a server-side backup.)
+- Rate limit / GitHub outage -> workflow fails -> SPA polls 30× over ~3 min (20 × 3 s, then 10 × 10 s) -> "GitHub is currently experiencing high load. Please try again in 15 minutes."
+- Outside the open window or above `max_acceptances` -> SPA pre-computes the rejection client-side, gates acceptance, and surfaces the reason. (The acceptance script also enforces this as a server-side backup.)
 
 ### 9.2 Nightly cycle
 
 ```
 00:00 UTC daily-activity.yml fires (only if not disabled)
-   ↓
+   v
 find-orgs (reads participating-orgs branch)
-   ↓
+   v
 For each org (max 4 parallel):
-   collect — snapshot observations for accepted students
-   ↓
-find-finalizable — assignments whose deadline_at just passed
-   ↓
+   collect - snapshot observations for accepted students
+   v
+find-finalizable - assignments whose deadline_at just passed
+   v
 For each finalizable assignment:
-   collect (deadline-mode) → lockdown → preserve → report
+   collect (deadline-mode) -> lockdown -> preserve -> report
    commit observations/, lockdowns/, reports/ to control repo
-   ↓
-check-idle: if no active assignments remain → gh workflow disable daily-activity.yml
-   ↓
+   v
+check-idle: if no active assignments remain -> gh workflow disable daily-activity.yml
+   v
 trigger-dashboard: dispatches regenerate-dashboard.yml
 ```
 
 ### 9.3 Publish
 
 ```
-Lecturer opens Admin Panel → Publish Assignment
-   ↓
+Lecturer opens Admin Panel -> Publish Assignment
+   v
 SPA dispatches publish-assignment.yml with {org, assignment_id}
-   ↓
+   v
 publish-assignment.yml:
    a. Mints App token for org, checks out control repo
    b. Validates assignments/<id>.yml exists
    c. Creates or updates <org>/broker-<id> public repo
    d. Sets ASSIGNMENT_ID and CONTROL_ORG variables on the broker
    e. Pushes acceptance/broker-workflow.yml as .github/workflows/acceptance-trigger.yml
-   f. Flips state: draft → published in assignments/<id>.yml
-   g. gh workflow enable daily-activity.yml      ← wakes the nightly job
+   f. Flips state: draft -> published in assignments/<id>.yml
+   g. gh workflow enable daily-activity.yml      <- wakes the nightly job
 ```
 
 ### 9.4 Override (deadline extension)
 
 ```
-Lecturer opens Admin Panel → Grant Extension
-   ↓
+Lecturer opens Admin Panel -> Grant Extension
+   v
 SPA validates the override JSON against override.schema.json
-   ↓
+   v
 SPA commits overrides/<id>/<login>.json directly to the control repo
    (via Contents API with lecturer's own token)
-   ↓
+   v
 Next nightly run's report.mjs reads overrides, computes effective_deadline_at,
    re-classifies submission_status accordingly
 ```
@@ -418,18 +418,18 @@ Next nightly run's report.mjs reads overrides, computes effective_deadline_at,
 
 ```
 Admin installs PXL Classroom Provisioner App on <org>
-   ↓
+   v
 Admin triggers Setup Organization workflow in hub (workflow_dispatch)
    with input: target_org=<org>
-   ↓
+   v
 setup-org.yml:
    a. Mints App token for <org>
    b. Creates <org>/pxl-classroom-control (private) if missing
    c. Pushes initial directory scaffold (no workflows)
    d. Appends to participating-orgs.yml on participating-orgs branch
-   ↓
+   v
 Admin sets Actions spending limit + budget alerts on <org>
-   (mandatory — see RUNBOOK §3)
+   (mandatory - see RUNBOOK §3)
 ```
 
 ---
@@ -438,26 +438,26 @@ Admin sets Actions spending limit + budget alerts on <org>
 
 Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory and sessionStorage only (never localStorage) and dies on tab close.
 
-The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `prefers-color-scheme: light` variant. Every authenticated view — including deep links to the Admin Panel and per-assignment detail — renders a sign-in card when no session exists, never a data-shaped empty state; device-flow failures render inline in that card.
+The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `prefers-color-scheme: light` variant. Every authenticated view - including deep links to the Admin Panel and per-assignment detail - renders a sign-in card when no session exists, never a data-shaped empty state; device-flow failures render inline in that card.
 
 ### 10.1 Routes
 
 | Path | View | Audience |
 |---|---|---|
-| `/` | `HomeView` | Public — lists open assignments grouped by org from `/data/<org>/assignments.json` |
-| `/:org/a/:assignmentId` | `AssignmentView` | Student — accept flow, polling, repo link |
-| `/dashboard/:org?` | `DashboardView` | Lecturer — org picker (from `/user/installations`) with System Health audit check modal, then assignment list |
-| `/dashboard/:org/admin` | `AdminView` | Lecturer — Admin Panel: create assignment, publish, grant extension |
-| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer — per-assignment detail + per-student table with smart hover tooltips |
-| `/dashboard/:org/usage` | `UsageView` | Lecturer — per-org weekly usage report |
-| `/usage` | `UsageOverviewView` | Lecturer — cross-org usage aggregate |
-| `/setup` | `SetupView` | Admin — App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
+| `/` | `HomeView` | Public - lists open assignments grouped by org from `/data/<org>/assignments.json` |
+| `/:org/a/:assignmentId` | `AssignmentView` | Student - accept flow, polling, repo link |
+| `/dashboard/:org?` | `DashboardView` | Lecturer - org picker (from `/user/installations`) with System Health audit check modal, then assignment list |
+| `/dashboard/:org/admin` | `AdminView` | Lecturer - Admin Panel: create assignment, publish, grant extension |
+| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips |
+| `/dashboard/:org/usage` | `UsageView` | Lecturer - per-org weekly usage report |
+| `/usage` | `UsageOverviewView` | Lecturer - cross-org usage aggregate |
+| `/setup` | `SetupView` | Admin - App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
 
 A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pages.
 
 ### 10.2 Authentication
 
-GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** — device flow is a public-client flow.
+GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** - device flow is a public-client flow.
 
 The App needs the following permissions. Eight repository permissions are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two permissions are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
 
@@ -475,28 +475,28 @@ The App needs the following permissions. Eight repository permissions are declar
 | `starring: write` (account) | No (manual) | Students star the broker to trigger acceptance. User-level permission. |
 | `email addresses: read` (account) | No (optional) | Read student verified primary email upon acceptance/login. |
 
-**A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly — every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
+**A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly - every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
 
 | Setting | Default | Override |
 |---|---|---|
 | `VITE_CORS_PROXY_URL` | `https://corsproxy.io/?url=` | Set a hub repo secret of the same name; `deploy-frontend.yml` picks it up at build time. MUST end in `?url=` or `?`. |
 
-**Threat model accepted for v1.** The proxy operator sees the `device_code` and `access_token` in transit at sign-in (not subsequent API calls — those go directly to `api.github.com`, which is CORS-friendly). A compromised proxy operator can therefore *replay* lecturer tokens harvested during the breach window; they cannot intercept any subsequent traffic.
+**Threat model accepted for v1.** The proxy operator sees the `device_code` and `access_token` in transit at sign-in (not subsequent API calls - those go directly to `api.github.com`, which is CORS-friendly). A compromised proxy operator can therefore *replay* lecturer tokens harvested during the breach window; they cannot intercept any subsequent traffic.
 
-What a leaked lecturer token grants: the intersection of the table above with the user's GitHub permissions on installed orgs. In practice for an org owner that is contents/admin/secrets/actions write on every repo the App is installed on. The `actions: write` delta on top of the existing write permissions is small in marginal terms — workflows are public, inputs are validated, and the dispatch attack surface is bounded by what those workflows are designed to do. Token lifetime is 8 hours; lecturers can revoke at any time at `https://github.com/settings/applications`.
+What a leaked lecturer token grants: the intersection of the table above with the user's GitHub permissions on installed orgs. In practice for an org owner that is contents/admin/secrets/actions write on every repo the App is installed on. The `actions: write` delta on top of the existing write permissions is small in marginal terms - workflows are public, inputs are validated, and the dispatch attack surface is bounded by what those workflows are designed to do. Token lifetime is 8 hours; lecturers can revoke at any time at `https://github.com/settings/applications`.
 
 Student tokens, which only have Account/Starring write and email read granted at OAuth time, remain essentially harmless (worst case: mass-star on the student's behalf for ≤ 8 hours).
 
-For PXL's classroom threat model, this is acceptable. If the deployment ever handles higher-value data (e.g. graded assignments worth credit transferable to another institution), swap the proxy to a self-hosted one or a Cloudflare Worker — both are drop-in replacements via `VITE_CORS_PROXY_URL`.
+For PXL's classroom threat model, this is acceptable. If the deployment ever handles higher-value data (e.g. graded assignments worth credit transferable to another institution), swap the proxy to a self-hosted one or a Cloudflare Worker - both are drop-in replacements via `VITE_CORS_PROXY_URL`.
 
-A regression guard test (`tests/cors.test.mjs`) fails CI if `auth.js` ever directly fetches `github.com/login/*` without going through the proxy variable — exactly the regression that broke production once already.
+A regression guard test (`tests/cors.test.mjs`) fails CI if `auth.js` ever directly fetches `github.com/login/*` without going through the proxy variable - exactly the regression that broke production once already.
 
 ### 10.3 Data sources
 
 - **Public assignment list:** static Pages JSON at `/data/<org>/assignments.json`, fetched from the hub Pages site. The build pipeline gathers these files from each participating organization's control repository using `scripts/fetch-pages-data.mjs` before constructing the SPA, while `pages/generate.mjs` outputs the object format keyed by ID in the control repo.
-- **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch — not N per-student calls.
-- **Student status:** the student's own token reads `/repos/<org>/<expected-name>` and `/user/repository_invitations` — never the control repo.
-- **Refresh / Live Status & Student Hover Tooltips (AssignmentDetailView).** The per-assignment detail view exposes a "Refresh" button that re-queries `/repos/<org>/<repo>/commits?per_page=1` for each provisioned student (concurrency 6) and recomputes `submission_status` against `effective_deadline_at` with nightly semantics: a post-deadline commit never downgrades a student who has an on-time submission on record (it records `first_late_sha`, not a `late` status). Refresh also captures `author_name` and `author_email` from commit objects. Hovering over a student's username renders a smart tooltip resolving identity across a 4-tier hierarchy: (1) institutional roster (`students/roster.yml`), (2) Git commit author email/name (prioritizing real email, suppressing noreply addresses and bot names), (3) GitHub public user profile (`GET /users/{login}`, batched in the background without blocking render), and (4) clean fallback. The updated `reports/<id>.json` is committed back to the control repo with `live_refreshed_at` + `live_refreshed_by` set — but only when every student refreshed successfully; a partial refresh (rate limit, transient errors) is surfaced and not persisted. Backend `collect/collect.mjs` also gathers `commit_count`, `commit_date`, `author_name`, and `author_email` during scheduled runs so static reports populate automatically. The view's CSV export is generated client-side from the report currently on screen, matching the table.
+- **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch - not N per-student calls.
+- **Student status:** the student's own token reads `/repos/<org>/<expected-name>` and `/user/repository_invitations` - never the control repo.
+- **Refresh / Live Status & Student Hover Tooltips (AssignmentDetailView).** The per-assignment detail view exposes a "Refresh" button that re-queries `/repos/<org>/<repo>/commits?per_page=1` for each provisioned student (concurrency 6) and recomputes `submission_status` against `effective_deadline_at` with nightly semantics: a post-deadline commit never downgrades a student who has an on-time submission on record (it records `first_late_sha`, not a `late` status). Refresh also captures `author_name` and `author_email` from commit objects. Hovering over a student's username renders a smart tooltip resolving identity across a 4-tier hierarchy: (1) institutional roster (`students/roster.yml`), (2) Git commit author email/name (prioritizing real email, suppressing noreply addresses and bot names), (3) GitHub public user profile (`GET /users/{login}`, batched in the background without blocking render), and (4) clean fallback. The updated `reports/<id>.json` is committed back to the control repo with `live_refreshed_at` + `live_refreshed_by` set - but only when every student refreshed successfully; a partial refresh (rate limit, transient errors) is surfaced and not persisted. Backend `collect/collect.mjs` also gathers `commit_count`, `commit_date`, `author_name`, and `author_email` during scheduled runs so static reports populate automatically. The view's CSV export is generated client-side from the report currently on screen, matching the table.
 
 The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated Pages artifact contains roster fields, emails, tokens, or keys, the workflow fails and nothing is deployed.
 
@@ -506,7 +506,7 @@ The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated P
 
 ### 10.5 CLI companion
 
-The `cli/` workspace ships a `pxl-classroom` command — an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, install audits, feedback-PR orchestration, bulk submission download, autograding runs). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
+The `cli/` workspace ships a `pxl-classroom` command - an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, install audits, feedback-PR orchestration, bulk submission download, autograding runs). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
 
 The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (accepts an Octokit-style request fn or a plain `{ fetch, token }`), so the CLI, workflow scripts, and the SPA can share it without dependency lock-in.
 
@@ -514,25 +514,25 @@ The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (acc
 
 ## 11. Deadlines, evidence, lock-down, preservation
 
-### 11.1 Evidence level A — central snapshots
+### 11.1 Evidence level A - central snapshots
 
-PXL Classroom does not use Git author/committer dates as authoritative submission times — those are settable by the client. The system instead records:
+PXL Classroom does not use Git author/committer dates as authoritative submission times - those are settable by the client. The system instead records:
 
 - `observed_at` (server time when the API call was made)
 - `observed_sha` (the SHA the configured submission ref pointed at)
 - `repo_id`, `ref`
 
-The deadline report classifies a submission by comparing observation times to `effective_deadline_at` (deadline + any override). The uncertainty interval between the deadline instant and the nightly observation is reported — never assumed away.
+The deadline report classifies a submission by comparing observation times to `effective_deadline_at` (deadline + any override). The uncertainty interval between the deadline instant and the nightly observation is reported - never assumed away.
 
-### 11.1a Optional evidence — submit/ tags
+### 11.1a Optional evidence - submit/ tags
 
-`collect/` additionally lists `refs/tags/submit/*` on each student repo. When a matching tag is found, a `tagged-submission` observation is written (separate file alongside the snapshot, same observations directory). The observed time (server-side, when `collect/` ran) is authoritative; the timestamp embedded in the tag name is recorded as `declared_at` (observed-not-authoritative — students set the value).
+`collect/` additionally lists `refs/tags/submit/*` on each student repo. When a matching tag is found, a `tagged-submission` observation is written (separate file alongside the snapshot, same observations directory). The observed time (server-side, when `collect/` ran) is authoritative; the timestamp embedded in the tag name is recorded as `declared_at` (observed-not-authoritative - students set the value).
 
-When a tagged-submission exists, the deadline report prefers its SHA over the default-branch tip; otherwise it falls back to the snapshot — there is no breaking change for untagged submissions. Tag format: `submit/<ISO-8601-Z>-<short-sha>` (lex-sortable). The student helper one-liner lives in the control-repo template README.
+When a tagged-submission exists, the deadline report prefers its SHA over the default-branch tip; otherwise it falls back to the snapshot - there is no breaking change for untagged submissions. Tag format: `submit/<ISO-8601-Z>-<short-sha>` (lex-sortable). The student helper one-liner lives in the control-repo template README.
 
 ### 11.2 Lock-down
 
-At nightly finalize, the App demotes the student admin → `pull` and captures a final snapshot. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 — 22s deadline→execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
+At nightly finalize, the App demotes the student admin -> `pull` and captures a final snapshot. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
 
 Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). Reports continue to flag any observed late activity regardless of lock-down.
 
@@ -549,19 +549,19 @@ When `feedback_pr: true` on the assignment, provisioning additionally:
 1. Creates a frozen branch `pxl-baseline` (configurable via `feedback_pr_baseline_branch`) at the just-generated default-branch HEAD.
 2. Applies branch protection that forbids force-push and delete. The App's org-admin role outranks the student's repo admin so the student cannot remove the baseline (same primacy as lock-down).
 
-The Feedback PR itself (head `main` → base `pxl-baseline`, draft) cannot be opened at provisioning time — both refs point at the same SHA and GitHub refuses with 422 "No commits between …". The PR is therefore opened lazily by `pxl-classroom feedback open` once students have pushed at least one commit. The CLI is idempotent and records `feedback_pr_number` / `feedback_pr_url` on the repository record.
+The Feedback PR itself (head `main` -> base `pxl-baseline`, draft) cannot be opened at provisioning time - both refs point at the same SHA and GitHub refuses with 422 "No commits between …". The PR is therefore opened lazily by `pxl-classroom feedback open` once students have pushed at least one commit. The CLI is idempotent and records `feedback_pr_number` / `feedback_pr_url` on the repository record.
 
 The lecturer (org owner) leaves inline review comments on the PR. Comments persist as the student continues to push; the PR head tracks `main`.
 
 ### 11.5 Bulk submission download
 
-Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI command" button on `AssignmentDetailView` — the browser can't clone Git, so the actual bulk op stays on the CLI.
+Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI command" button on `AssignmentDetailView` - the browser can't clone Git, so the actual bulk op stays on the CLI.
 
 ### 11.6 Autograding (Lecturer-side & Student-side)
 
 Assignment YAML may carry an `autograde` block (`enabled`, `execution_environment`, `visibility`, and `tests[]`, mirroring classroom50's `run` / `io` / `python` taxonomy). The system supports two execution paths:
 
-**1. Lecturer-side (CLI-only):** When `execution_environment` is `lecturer_local`, tests execute on the **lecturer's** machine via `pxl-classroom grade --runner docker|host` against archive SHAs — never on the platform — keeping Wave 8 minimal-minutes intact. Results land in `grading/<assignment-id>/<login>.json` plus `summary.json` (validated against `schemas/grading-result.schema.json`). The Docker runner sandboxes each test with `--network=none`, read-only bind mount, `--memory=512m`, and per-test wall-clock timeouts; the host runner is host-direct and intended for trusted-code use only.
+**1. Lecturer-side (CLI-only):** When `execution_environment` is `lecturer_local`, tests execute on the **lecturer's** machine via `pxl-classroom grade --runner docker|host` against archive SHAs - never on the platform - keeping Wave 8 minimal-minutes intact. Results land in `grading/<assignment-id>/<login>.json` plus `summary.json` (validated against `schemas/grading-result.schema.json`). The Docker runner sandboxes each test with `--network=none`, read-only bind mount, `--memory=512m`, and per-test wall-clock timeouts; the host runner is host-direct and intended for trusted-code use only.
 
 **2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the provisioning workflow injects a `.github/workflows/autograding.yml` file directly into the student repository. The workflow runs the tests automatically on the GitHub platform on every student push. If `visibility` is `private`, the workflow invokes a reusable workflow stored in the control repository to hide the test configurations from the student. Grades are synced via the SPA using the "Sync CI results from GitHub" button, which queries the GitHub Checks API at each student's **preserved** SHA and writes the aggregated results to `summary.json` in the control repository (before the deadline finalize there are no preserved SHAs; the button explains this and commits nothing).
 
@@ -571,7 +571,7 @@ In both modes, `AssignmentDetailView` shows a read-only Autograder panel renderi
 
 ## 12. Notifications & audit
 
-A single instructor-only tracking issue per participating org, opened in the control repo titled `PXL Classroom — Instructor Notifications`. The `notify/` action posts (or updates, by `dedup-key`) a comment for any of:
+A single instructor-only tracking issue per participating org, opened in the control repo titled `PXL Classroom - Instructor Notifications`. The `notify/` action posts (or updates, by `dedup-key`) a comment for any of:
 
 | Event type | Producer |
 |---|---|
@@ -587,7 +587,7 @@ Dedup-keys are stable per `(org, assignment, login, condition)` so repeated nigh
 
 Every state-changing workflow run records: run URL, initiating actor, op type, assignment ID, affected student, start/complete time, outcome, GitHub IDs, error category. Source changes happen through Git commits. Generated records identify the source revision.
 
-**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical sets re-exported from the engine (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.yml`, and — given an `--assignment` — samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
+**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical sets re-exported from the engine (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.yml`, and - given an `--assignment` - samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
 
 ---
 
@@ -597,7 +597,7 @@ The system tolerates duplicate events, delayed workflow execution, canceled runs
 
 Target scale: 500 active students, 20 active assignments, 10,000 managed repositories over an org's lifetime, 250-student class-wide acceptance burst.
 
-**Bursts.** The secondary rate limit (≈80 content writes/min, 500/hr per token) is the bottleneck. Per-org App tokens are scoped per-installation, so two orgs can burst in parallel. Within one org: a 250-student burst issues ~500 writes (create + grant). The synchronous acceptance model trades retries for queue complexity — students who fail get a clear "try again in 15 minutes" and the retry is a free re-star.
+**Bursts.** The secondary rate limit (≈80 content writes/min, 500/hr per token) is the bottleneck. Per-org App tokens are scoped per-installation, so two orgs can burst in parallel. Within one org: a 250-student burst issues ~500 writes (create + grant). The synchronous acceptance model trades retries for queue complexity - students who fail get a clear "try again in 15 minutes" and the retry is a free re-star.
 
 **Per-org concurrency.** `acceptance-handler.yml` uses `concurrency: accept-${org}-${assignment_id}-${github_login}` so duplicate stars from the same user never run in parallel.
 
@@ -607,7 +607,7 @@ Target scale: 500 active students, 20 active assignments, 10,000 managed reposit
 
 ## 14. Multi-organization architecture
 
-One App, installed per org. One participating-orgs registry on a dedicated branch. One public Pages dashboard for all orgs. Data is per-org private — Org A cannot read Org B's roster.
+One App, installed per org. One participating-orgs registry on a dedicated branch. One public Pages dashboard for all orgs. Data is per-org private - Org A cannot read Org B's roster.
 
 ### 14.1 Why per-org control repos
 
@@ -615,11 +615,11 @@ GitHub repository permissions are all-or-nothing. A shared control repository wo
 
 ### 14.2 The participating-orgs branch
 
-`participating-orgs.yml` lives on its own branch with light protection. The Setup-Organization workflow commits there directly. Cron workflows fetch via `actions/checkout` with `ref: participating-orgs`. The branch is never merged into `main` — it's a deliberately decoupled metadata store.
+`participating-orgs.yml` lives on its own branch with light protection. The Setup-Organization workflow commits there directly. Cron workflows fetch via `actions/checkout` with `ref: participating-orgs`. The branch is never merged into `main` - it's a deliberately decoupled metadata store.
 
 ### 14.3 Weekly usage tracking
 
-The system tracks GitHub usage per repo per SKU and warns when anything crosses a configured threshold. No EUR involved — actuals only (minutes, GiB·h, GB, hours), because a repo with 4 GiB·h of stale artifacts and zero minutes is invisible in a cost view but still a real problem.
+The system tracks GitHub usage per repo per SKU and warns when anything crosses a configured threshold. No EUR involved - actuals only (minutes, GiB·h, GB, hours), because a repo with 4 GiB·h of stale artifacts and zero minutes is invisible in a cost view but still a real problem.
 
 **Sunday 22:00 UTC**, `weekly-usage-report.yml` fires. Per participating org (matrix):
 
@@ -628,7 +628,7 @@ The system tracks GitHub usage per repo per SKU and warns when anything crosses 
 3. Group by `(repositoryName, sku)`, sum quantity.
 4. Resolve threshold per (repo, SKU) via three-tier lookup.
 5. Write `reports/usage-<YYYY>-W<NN>.json` + `reports/usage-latest.json` to the control repo.
-6. If `over_count > 0`: @-mention `budget_owner_login` in a comment on the "PXL Classroom — Weekly Usage Report" issue (created on demand).
+6. If `over_count > 0`: @-mention `budget_owner_login` in a comment on the "PXL Classroom - Weekly Usage Report" issue (created on demand).
 7. Exit non-zero if anything over (red X in Actions tab).
 
 **Threshold resolution.** Per (repo, SKU), the limit is the first that matches:
@@ -636,19 +636,19 @@ The system tracks GitHub usage per repo per SKU and warns when anything crosses 
 | Source | Location | Scope |
 |---|---|---|
 | Per-repo | `<org>/pxl-classroom-control/limits-overrides.json` | Specific repo + SKU |
-| Per-org | `participating-orgs.yml` → `orgs[i].overrides` | All repos in that org, for that SKU |
+| Per-org | `participating-orgs.yml` -> `orgs[i].overrides` | All repos in that org, for that SKU |
 | Global | `limits.yml` (hub root) | Default |
 
 If no threshold is configured for a SKU anywhere, that SKU's usage is recorded but never flagged.
 
 **Frontend.** Two views read the latest report from each control repo at runtime with the lecturer's own token:
 
-- `/dashboard/<org>/usage` — per-org table, sortable, over-threshold rows highlighted red.
-- `/usage` — cross-org view, iterates the lecturer's App installations, aggregates every repo/SKU pair, filterable by "over only".
+- `/dashboard/<org>/usage` - per-org table, sortable, over-threshold rows highlighted red.
+- `/usage` - cross-org view, iterates the lecturer's App installations, aggregates every repo/SKU pair, filterable by "over only".
 
 **Permission cost.** The Enhanced Billing endpoint requires the App to have `Organization plan: read`. After this permission is added to the App, each participating org owner sees a one-time re-approval prompt on next visit to the installation page. See `RUNBOOK.md` §10.6.
 
-**Budget owner.** `participating-orgs.yml` now requires `budget_owner_login` (GitHub login, used for @-mention). Optional `budget_owner_email` is informational only — GitHub emails are sent via the @-mention notification.
+**Budget owner.** `participating-orgs.yml` now requires `budget_owner_login` (GitHub login, used for @-mention). Optional `budget_owner_email` is informational only - GitHub emails are sent via the @-mention notification.
 
 ---
 
@@ -656,14 +656,14 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 
 - **Roster-gated acceptance, with a per-assignment opt-out.** By default (`roster_mode: enforced`) students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo, which prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
 
-  Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` → real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published — the alternative being an assignment that silently provisions nobody. Because the roster gate is gone, `max_acceptances` becomes **mandatory** under `open` and is the binding limit — enforced by the schema, by the Admin Panel, and by `accept.mjs` (`fail:config`). Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
+  Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` -> real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published - the alternative being an assignment that silently provisions nobody. Because the roster gate is gone, `max_acceptances` becomes **mandatory** under `open` and is the binding limit - enforced by the schema, by the Admin Panel, and by `accept.mjs` (`fail:config`). Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
 
-  Open-mode acceptors appear in reports without roster metadata — `report/report.mjs` unions acceptances, repositories, observations and roster, so they are listed with `full_name`/`student_number`/`class_group` as `null` until the lecturer imports a roster or applies overrides.
+  Open-mode acceptors appear in reports without roster metadata - `report/report.mjs` unions acceptances, repositories, observations and roster, so they are listed with `full_name`/`student_number`/`class_group` as `null` until the lecturer imports a roster or applies overrides.
 - **Lock-down is a deterrent, not tamper-proof.** A student who prepared beforehand may retain alternative write paths. Reports flag observed late activity; preservation captures the on-time SHA.
 - **No institutional verification.** A student could associate with the wrong roster entry. Lecturer review + overrides correct it. MS 365 / Entra ID verification is a v2 candidate and would be the only explicit exception to the GitHub-only constraint.
 - **Public broker is public.** Star activity is publicly visible. Acceptable.
 - **GitHub Pages is public.** Privacy scanner is a hard publish gate; no roster/email/token can land in public output.
-- **Class-wide burst is best-effort.** No queue. If 250 students all star within seconds, GitHub's rate limit may reject some — they retry by re-starring.
+- **Class-wide burst is best-effort.** No queue. If 250 students all star within seconds, GitHub's rate limit may reject some - they retry by re-starring.
 
 ---
 

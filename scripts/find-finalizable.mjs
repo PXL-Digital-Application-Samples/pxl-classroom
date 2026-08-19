@@ -5,7 +5,7 @@ import { loadYaml } from '../lib/yaml.mjs';
 // A finalize is only done when every locked-down student's submission is also
 // preserved. Lockdown alone used to be the idempotency key, so a run that
 // locked down successfully and then failed in preserve was recorded as
-// finished and never retried — the submissions were silently never archived.
+// finished and never retried - the submissions were silently never archived.
 //
 // Retries are capped: a repo that can never be preserved (deleted, for
 // instance) must not re-run a matrix leg every night forever. Past the ceiling
@@ -51,7 +51,7 @@ function finalizeReason(controlDir, lockdownsDir, id) {
   if (attempts >= MAX_FINALIZE_ATTEMPTS) {
     console.error(
       `${id}: ${pending.length} unpreserved submission(s) but ${attempts} finalize attempts ` +
-      `already made (ceiling ${MAX_FINALIZE_ATTEMPTS}) — not retrying. ` +
+      `already made (ceiling ${MAX_FINALIZE_ATTEMPTS}) - not retrying. ` +
       `Investigate, then reset finalize_attempts in lockdowns/${id}/lockdown-record.json to retry.`
     );
     return null;
@@ -81,7 +81,7 @@ async function main() {
           if (deadline <= now) {
             const reason = finalizeReason(controlDir, lockdownsDir, id);
             if (reason) {
-              console.error(`${id}: queueing finalize — ${reason}`);
+              console.error(`${id}: queueing finalize - ${reason}`);
               finalizable.push({ org, assignment_id: id });
             }
           }

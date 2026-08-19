@@ -1,7 +1,7 @@
-// PXL Classroom — GitHub API client.
+// PXL Classroom - GitHub API client.
 //
 // Thin wrapper around fetch() for GitHub API calls. Uses the authenticated
-// user's own token — never a privileged credential.
+// user's own token - never a privileged credential.
 
 import { clearAuth } from './auth.js'
 import { toast } from './toast.js'
@@ -11,7 +11,7 @@ const API_BASE = 'https://api.github.com'
 // A 401 from api.github.com with a token attached means the token is dead
 // (the device-flow tokens live 8h). Handle it once, centrally: clear the
 // stale auth, tell the user plainly, and reload into the signed-out state of
-// the current route — instead of every view rendering a misleading empty
+// the current route - instead of every view rendering a misleading empty
 // state while errors pile up in the console.
 let sessionExpiredNotified = false
 function handleSessionExpiry() {
@@ -244,7 +244,7 @@ export async function getWorkflowRuns(token, owner, repo, workflowId) {
 
 /**
  * Format a workflow_dispatch failure for the toast. Prefers GitHub's own
- * message because 403/404 almost never means "user has no access" — for a
+ * message because 403/404 almost never means "user has no access" - for a
  * hub collaborator it usually means the App's user-to-server token lacks
  * actions:write, or the workflow file isn't on the dispatched ref. The
  * old canned "ask a hub admin to add you as a collaborator" hid this.
@@ -265,7 +265,7 @@ export function explainDispatchFailure(res, fallback) {
 
 /**
  * List repos in an org. With a prefix, uses the Search API (single bounded
- * query — works regardless of org size). Without one, paginates the org repos
+ * query - works regardless of org size). Without one, paginates the org repos
  * endpoint via Link rel="next".
  */
 export async function listOrgRepos(token, org, prefix = '') {

@@ -22,7 +22,7 @@ files manually unless you know what you are doing.
 Layout is documented in ARCHITECTURE.md §5.1.
 `;
 
-const ROSTER = `# PXL Classroom — student roster (schema v2).
+const ROSTER = `# PXL Classroom - student roster (schema v2).
 #
 # Full schema: schemas/roster.schema.json
 # Bulk-import from CSV with the CLI:
@@ -34,8 +34,8 @@ const ROSTER = `# PXL Classroom — student roster (schema v2).
 # (rejected:no-roster). An empty roster means nobody can accept.
 #
 # This gate applies to assignments with roster_mode: enforced (the default).
-# An assignment set to roster_mode: open — typically an exam whose cohort is
-# not known up front — skips it entirely; the deadline window and
+# An assignment set to roster_mode: open - typically an exam whose cohort is
+# not known up front - skips it entirely; the deadline window and
 # max_acceptances are then the only guardrails.
 
 schema_version: 2

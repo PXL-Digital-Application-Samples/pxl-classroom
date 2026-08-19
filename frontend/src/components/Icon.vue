@@ -27,7 +27,7 @@ const props = defineProps({
 })
 
 // Lucide-derived 24×24 outline paths. All strokes are currentColor so the
-// caller's text color drives the icon — keeps theming trivial.
+// caller's text color drives the icon - keeps theming trivial.
 const ICONS = {
   activity:
     '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',

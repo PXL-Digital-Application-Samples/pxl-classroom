@@ -1,9 +1,9 @@
-// PXL Classroom — yaml.test.mjs
+// PXL Classroom - yaml.test.mjs
 //
 // Verifies the shared YAML loader handles:
-//   - nested objects (the assignment `template:` block — the case the
+//   - nested objects (the assignment `template:` block - the case the
 //     replaced minimal parsers got wrong)
-//   - arrays (the roster file shape — the other case they got wrong)
+//   - arrays (the roster file shape - the other case they got wrong)
 //   - type coercion (numbers, booleans, nulls, ISO dates as strings)
 
 import { test } from "node:test";
@@ -19,7 +19,7 @@ test("loadYaml parses a valid assignment with a nested template block", async ()
   const doc = await loadYaml(fix("valid-assignment.yml"));
   assert.equal(doc.id, "test-valid");
   assert.equal(doc.organization, "PXLAutomation");
-  // The nested template block — minimal parsers misparsed this
+  // The nested template block - minimal parsers misparsed this
   assert.equal(typeof doc.template, "object");
   assert.equal(doc.template.owner, "PXLAutomation");
   assert.equal(doc.template.repository, "template-automation-pe-1");

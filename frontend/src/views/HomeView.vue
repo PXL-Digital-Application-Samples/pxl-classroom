@@ -24,7 +24,7 @@
         <div class="spinner"></div>
       </div>
       <div v-else-if="loadError" class="center-card text-secondary">
-        Couldn't load the assignment list — check your connection and refresh.
+        Couldn't load the assignment list - check your connection and refresh.
       </div>
       <div v-else-if="!indexData || indexData.orgs.length === 0" class="center-card text-secondary">
         No open assignments right now.
@@ -78,7 +78,7 @@ onMounted(async () => {
     const res = await fetch(`${import.meta.env.BASE_URL}data/index.json`)
     if (res.ok) {
       // A non-JSON body (e.g. an HTML fallback for a missing data file) means
-      // no data has been published yet — that's "no open assignments", not a
+      // no data has been published yet - that's "no open assignments", not a
       // connection error. Only a failed fetch reaches the catch below.
       let data = null
       try { data = await res.json() } catch { /* treat as no data */ }
@@ -138,7 +138,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   min-height: 50vh;
-  /* Clip the 400px decorative glow — it otherwise causes horizontal
+  /* Clip the 400px decorative glow - it otherwise causes horizontal
      scrolling on narrow viewports. */
   overflow: hidden;
 }

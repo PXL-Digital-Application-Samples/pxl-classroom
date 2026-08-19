@@ -1,4 +1,4 @@
-// PXL Classroom CLI — Docker sandbox runner.
+// PXL Classroom CLI - Docker sandbox runner.
 //
 // Each test runs in a fresh ephemeral container. Default image is debian:stable-slim
 // for `run`/`io` and python:3.12-slim for `python`. Override via test.image (not

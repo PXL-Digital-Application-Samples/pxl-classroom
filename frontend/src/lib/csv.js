@@ -1,6 +1,6 @@
-// PXL Classroom — CSV roster import helper for the SPA.
+// PXL Classroom - CSV roster import helper for the SPA.
 //
-// Uses papaparse (same parser the CLI uses → identical behavior). Returns a
+// Uses papaparse (same parser the CLI uses -> identical behavior). Returns a
 // roster doc in the v2 schema shape, plus optional per-line parse errors.
 // Schema validation is the caller's responsibility (validateAgainst('roster')).
 

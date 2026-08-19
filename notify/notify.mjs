@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — instructor notification handler.
+// PXL Classroom - instructor notification handler.
 //
 // Posts or updates an instructor-only tracking issue in the private control
 // repo. Deduplicates repeated alerts for the same condition using a dedup key
@@ -19,17 +19,17 @@ async function setOutput(name, value) {
     await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value ?? ""}\n`);
 }
 
-const TRACKING_ISSUE_TITLE = "🔔 PXL Classroom — Instructor Notifications";
+const TRACKING_ISSUE_TITLE = "[NOTICE] PXL Classroom - Instructor Notifications";
 const DEDUP_MARKER = "<!-- pxl-dedup:";
 
 const EMOJI_MAP = {
-  "provisioning-failed": "❌",
-  "collection-failed": "⚠️",
+  "provisioning-failed": "[ERROR]",
+  "collection-failed": "[WARNING]️",
   "deadline-gap": "⏰",
-  "missing-access": "🔒",
-  "unexpected-deletion": "🗑️",
-  "late-activity": "📝",
-  "preservation-failed": "💾",
+  "missing-access": "[LOCKDOWN]",
+  "unexpected-deletion": "[DELETE]️",
+  "late-activity": "[NOTE]",
+  "preservation-failed": "[BACKUP]",
 };
 
 export async function notifyEvent({ org, controlRepo, eventType, assignmentId, details, dedupKey }) {

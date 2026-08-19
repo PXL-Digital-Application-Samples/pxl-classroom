@@ -1,8 +1,8 @@
-// PXL Classroom CLI — `roster` subcommand group.
+// PXL Classroom CLI - `roster` subcommand group.
 //
-// import   — read a CSV, validate against roster.schema.json, diff vs. the
+// import   - read a CSV, validate against roster.schema.json, diff vs. the
 //            committed roster, and commit (or just preview with --dry-run).
-// list     — print the committed roster.
+// list     - print the committed roster.
 //
 // CSV columns match the roster.schema.json field names directly:
 //   student_number (required)
@@ -199,12 +199,12 @@ export function registerRosterCommand(program) {
         return;
       }
       if (diff.added.length + diff.updated.length + diff.removed.length === 0) {
-        process.stdout.write(`\nRoster unchanged — nothing to commit.\n`);
+        process.stdout.write(`\nRoster unchanged - nothing to commit.\n`);
         return;
       }
 
       // Removals are the destructive part of the diff (an accidental partial
-      // CSV wipes everyone not in it) — same confirmation the Admin Panel asks.
+      // CSV wipes everyone not in it) - same confirmation the Admin Panel asks.
       if (diff.removed.length > 0 && !opts.force) {
         if (!process.stdin.isTTY) {
           process.stderr.write(
@@ -219,7 +219,7 @@ export function registerRosterCommand(program) {
         )).trim().toLowerCase();
         rl.close();
         if (answer !== "y" && answer !== "yes") {
-          process.stdout.write(`Aborted — nothing committed.\n`);
+          process.stdout.write(`Aborted - nothing committed.\n`);
           return;
         }
       }

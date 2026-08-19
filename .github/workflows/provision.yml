@@ -1,4 +1,4 @@
-# PXL Classroom — reusable provisioning workflow.
+# PXL Classroom - reusable provisioning workflow.
 #
 # Per-assignment/per-org caller workflows invoke this via `workflow_call`.
 # It owns the concurrency guard (prevents duplicate provisioning for the same

@@ -36,7 +36,7 @@
       <div v-if="!user" class="center-card fade-in">
         <h2>Sign in to access the dashboard</h2>
         <p class="text-secondary">Sign in with a GitHub account that owns an organization with PXL Classroom installed.</p>
-        <p v-if="authError" class="auth-error" role="alert">{{ authError }} — try signing in again.</p>
+        <p v-if="authError" class="auth-error" role="alert">{{ authError }} - try signing in again.</p>
         <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
           <template v-if="authLoading">
             <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
@@ -75,8 +75,8 @@
         <h2>No PXL Classroom installation visible</h2>
         <p class="text-secondary">
           Your account (<strong>{{ user.login }}</strong>) can't see the PXL Classroom App installed on any
-          organization. Ask a hub admin to install the App on your org — see
-          <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">RUNBOOK §2.1</a> —
+          organization. Ask a hub admin to install the App on your org - see
+          <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">RUNBOOK §2.1</a> -
           or sign in with the account that administers it.
         </p>
       </div>
@@ -87,13 +87,13 @@
         <p class="text-secondary">Choose an organization from the dropdown above.</p>
       </div>
 
-      <!-- No assignments — say WHY, each cause has a different remedy -->
+      <!-- No assignments - say WHY, each cause has a different remedy -->
       <div v-else-if="assignments.length === 0" class="center-card fade-in">
         <template v-if="dashState === 'no-control-repo'">
           <h2>{{ selectedOrg }} isn't onboarded yet</h2>
           <p class="text-secondary">
             There is no <code>{{ selectedOrg }}/pxl-classroom-control</code> repository (or you can't see it).
-            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow — see
+            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow - see
             <a :href="`${runbookUrl}#2-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener">RUNBOOK §2</a>.
           </p>
         </template>
@@ -103,7 +103,7 @@
             The control repo exists, but <code>reports/dashboard.json</code> hasn't been generated yet.
             It appears when an assignment is published (and refreshes nightly).
             <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel — publish to track them here.
+              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
             </span>
           </p>
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
@@ -113,7 +113,7 @@
           <p class="text-secondary">
             Create your first assignment in the Admin Panel.
             <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel — publish to track them here.
+              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
             </span>
           </p>
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
@@ -159,19 +159,19 @@
             <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
             <div class="stats-row">
               <div class="stat">
-                <span class="stat-value">{{ a.accepted ?? '—' }}</span>
+                <span class="stat-value">{{ a.accepted ?? '-' }}</span>
                 <span class="stat-label">Accepted</span>
               </div>
               <div class="stat">
-                <span class="stat-value stat-green">{{ a.on_time ?? '—' }}</span>
+                <span class="stat-value stat-green">{{ a.on_time ?? '-' }}</span>
                 <span class="stat-label">On-time</span>
               </div>
               <div class="stat">
-                <span class="stat-value stat-yellow">{{ a.late ?? '—' }}</span>
+                <span class="stat-value stat-yellow">{{ a.late ?? '-' }}</span>
                 <span class="stat-label">Late</span>
               </div>
               <div class="stat">
-                <span class="stat-value stat-red">{{ a.no_submission ?? '—' }}</span>
+                <span class="stat-value stat-red">{{ a.no_submission ?? '-' }}</span>
                 <span class="stat-label">No sub</span>
               </div>
               <div class="stat" v-if="a.with_warnings">
@@ -250,7 +250,7 @@ const visibleAssignments = computed(() => {
   })
 })
 
-// True once /user/installations has answered — gates the "no installation
+// True once /user/installations has answered - gates the "no installation
 // visible" empty state so it can't flash during the initial load.
 const orgsLoaded = ref(false)
 const orgsLoadError = ref(null)
@@ -291,7 +291,7 @@ async function loadOrgs() {
   try {
     // Get installations accessible to this user token.
     // For GitHub Apps, /user/installations already filters to installations the
-    // user can access — which for org installations means the user is an org
+    // user can access - which for org installations means the user is an org
     // admin (or the install grants user-level repo access). No further
     // membership check is needed; /user/memberships/orgs/{org} requires the
     // org-administration scope which our user-to-server tokens don't have,
@@ -306,7 +306,7 @@ async function loadOrgs() {
       .filter((i) => i.account?.type === 'Organization')
       .map((i) => i.account)
 
-    // No visible installation ⇒ say so honestly (dedicated empty state)
+    // No visible installation => say so honestly (dedicated empty state)
     // instead of silently pretending the default org is the user's.
     orgs.value = installOrgs
 
@@ -335,7 +335,7 @@ async function loadDashboard(org) {
 
   dashError.value = null
   try {
-    // Distinguish "org not onboarded" from "no dashboard yet" from "empty" —
+    // Distinguish "org not onboarded" from "no dashboard yet" from "empty" -
     // each empty state points the lecturer at a different remedy.
     const repoRes = await getRepo(token, org, config.controlRepo)
     if (!repoRes.ok) {
@@ -401,7 +401,7 @@ async function startLogin() {
     deviceFlow.value = null
     await loadOrgs()
   } catch (e) {
-    // Sign-in failures render inside the auth card — never silently.
+    // Sign-in failures render inside the auth card - never silently.
     if (e.message !== 'Cancelled') authError.value = e.message
     deviceFlow.value = null
   }

@@ -17,14 +17,14 @@ for (const [k, v] of Object.entries(required)) {
   }
 }
 
-const ISSUE_TITLE = "PXL Classroom — Weekly Usage Report";
+const ISSUE_TITLE = "PXL Classroom - Weekly Usage Report";
 const ghOpts = { token: GITHUB_TOKEN, throwOnError: true };
 
 const report = JSON.parse(readFileSync(REPORT_PATH, "utf8"));
 const overs = report.items.filter(i => i.over);
 
 if (overs.length === 0) {
-  console.log("Nothing over threshold — skipping notification.");
+  console.log("Nothing over threshold - skipping notification.");
   process.exit(0);
 }
 
@@ -54,7 +54,7 @@ if (existing) {
 }
 
 const lines = [
-  `@${BUDGET_OWNER_LOGIN} — **${overs.length}** repo/SKU pair(s) over threshold for week ${report.week_start} → ${report.week_end}.`,
+  `@${BUDGET_OWNER_LOGIN} - **${overs.length}** repo/SKU pair(s) over threshold for week ${report.week_start} -> ${report.week_end}.`,
   "",
   "| Repo | SKU | Used | Limit | Unit | Source |",
   "|------|-----|------|-------|------|--------|",

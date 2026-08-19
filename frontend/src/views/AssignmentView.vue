@@ -221,14 +221,14 @@
           <!-- Timeout state -->
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
-            <h2>One more step — accept your invitation</h2>
+            <h2>One more step - accept your invitation</h2>
 
             <!-- By far the most common cause, and the one this page cannot
                  detect on its own (see the pending state). Lead with it. -->
             <template v-if="invitationUrl">
               <p class="text-secondary">
                 Your repository has almost certainly been created. Unless you are already a member of
-                <strong>{{ org }}</strong>, GitHub adds you by invitation — and it needs you to accept it
+                <strong>{{ org }}</strong>, GitHub adds you by invitation - and it needs you to accept it
                 before you can see the repository.
               </p>
               <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
@@ -377,7 +377,7 @@ onUnmounted(() => {
 
 
 // Load assignment from public metadata. A missing assignment (or missing org
-// data file) is NOT an error — it renders the dedicated "not found" state
+// data file) is NOT an error - it renders the dedicated "not found" state
 // with guidance. Only transport failures land in the retryable error state.
 async function loadAssignment() {
   loading.value = true
@@ -387,7 +387,7 @@ async function loadAssignment() {
     const res = await fetch(url)
     if (res.ok) {
       // A non-JSON body (e.g. an HTML fallback for a missing data file)
-      // means the org has no published data — that's "not found", not an error.
+      // means the org has no published data - that's "not found", not an error.
       let data = null
       try { data = await res.json() } catch { /* treat as not found */ }
       if (data?.assignments && data.assignments[props.assignmentId]) {
@@ -403,7 +403,7 @@ async function loadAssignment() {
 const SUBMIT_TAG_PATTERN = /^refs\/tags\/(submit\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)-[0-9a-f]{7,40})$/
 
 // Look up the latest refs/tags/submit/* tag on the student's repo. Lexicographic
-// sort on the ISO-Z timestamp = chronological. Silent on failure — the banner
+// sort on the ISO-Z timestamp = chronological. Silent on failure - the banner
 // just renders the "no tag yet" hint.
 async function refreshSubmitTag(org, repoName) {
   const token = getToken()
@@ -465,7 +465,7 @@ async function checkExistingState() {
   const brokerRepo = assignment.value.broker_repo || `broker-${props.assignmentId}`
   const starred = await isStarred(token, org, brokerRepo)
   if (starred) {
-    // Already starred — provisioning might be in progress
+    // Already starred - provisioning might be in progress
     acceptState.value = 'pending'
     startPolling()
     return
@@ -474,7 +474,7 @@ async function checkExistingState() {
   acceptState.value = 'ready'
 }
 
-// Auth. Sign-in failures stay inside the auth card — the assignment loaded
+// Auth. Sign-in failures stay inside the auth card - the assignment loaded
 // fine, so the page-level error state (which replaces it) is wrong here.
 async function startLogin() {
   authError.value = null
@@ -517,7 +517,7 @@ function handleLogout() {
 // Accept assignment (star the broker)
 // If the user is already starring the broker (e.g. from a previous attempt that
 // failed), PUT /user/starred returns 204 but does NOT fire watch:started. So we
-// first unstar, then re-star — guaranteeing a fresh watch:started event that
+// first unstar, then re-star - guaranteeing a fresh watch:started event that
 // re-triggers the central acceptance-handler.
 async function acceptAssignment() {
   accepting.value = true
@@ -551,7 +551,7 @@ async function acceptAssignment() {
 // needs an OAuth `repo` scope, and student tokens are GitHub App user tokens
 // with no scopes at all (see lib/auth.js). GitHub serves the accept/decline
 // page at /<owner>/<repo>/invitations, and simply redirects to the repo once
-// the student is already a collaborator — safe to show either way.
+// the student is already a collaborator - safe to show either way.
 const invitationUrl = computed(() => {
   if (!assignment.value || !user.value?.login) return null
   const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
@@ -634,7 +634,7 @@ async function handleAcceptInvitation() {
   }
 }
 
-// Timeout state: check whether the repo actually arrived while we waited —
+// Timeout state: check whether the repo actually arrived while we waited -
 // only fall back to the Accept button when nothing exists yet, so students
 // don't needlessly re-fire the acceptance pipeline.
 const checkingAgain = ref(false)

@@ -1,6 +1,6 @@
-// PXL Classroom CLI — roster CSV parsing tests.
+// PXL Classroom CLI - roster CSV parsing tests.
 //
-// Exercises the CSV → roster conversion + schema validation path without
+// Exercises the CSV -> roster conversion + schema validation path without
 // any network. The command-action layer is integration-tested manually
 // against a scratch control repo per the plan's verification step.
 
@@ -8,12 +8,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 // We test the parser/diff helpers by spawning the CLI binary against a
-// captive CSV in dry-run mode against an unreachable org — the parse +
+// captive CSV in dry-run mode against an unreachable org - the parse +
 // validate steps run before any network call, so we get coverage of the
 // schema-level errors.
 //
 // For purely-internal helper coverage, we re-import the same papaparse
-// path used by the command. Keeping it short — the meaningful integration
+// path used by the command. Keeping it short - the meaningful integration
 // surface is "does the schema reject bad rows?".
 
 import Papa from "papaparse";
@@ -70,7 +70,7 @@ test("invalid email fails schema validation", () => {
   assert.ok(errors.some((e) => e.keyword === "format" || /email/.test(JSON.stringify(e))));
 });
 
-test("schema_version: 1 fails — must be 2", () => {
+test("schema_version: 1 fails - must be 2", () => {
   const { valid } = validateAgainst("roster", {
     schema_version: 1,
     students: [{ student_number: "01", full_name: "X" }],

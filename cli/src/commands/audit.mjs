@@ -1,4 +1,4 @@
-// PXL Classroom CLI — `audit` command.
+// PXL Classroom CLI - `audit` command.
 //
 // Runs the read-only audit checks from lib/audit.mjs against an org's PXL
 // Classroom install. Exit codes mirror the plan:
@@ -35,17 +35,17 @@ function makeRequest(octokit) {
 }
 
 function severityGlyph(sev) {
-  return { ok: "✓", info: "·", warn: "!", fail: "✗" }[sev] || "?";
+  return { ok: "[OK]", info: "·", warn: "!", fail: "[FAIL]" }[sev] || "?";
 }
 
 function severityColor(sev) {
-  // ANSI dimming/colors — kept minimal so output reads in plain pipes too.
+  // ANSI dimming/colors - kept minimal so output reads in plain pipes too.
   return { ok: "\x1b[32m", info: "\x1b[2m", warn: "\x1b[33m", fail: "\x1b[31m" }[sev] || "";
 }
 
 function printHuman(result) {
   const reset = "\x1b[0m";
-  process.stdout.write(`\nAudit — ${result.org}${result.assignment_id ? ` / ${result.assignment_id}` : ""}\n`);
+  process.stdout.write(`\nAudit - ${result.org}${result.assignment_id ? ` / ${result.assignment_id}` : ""}\n`);
   process.stdout.write(`Overall: ${severityColor(result.overall)}${result.overall.toUpperCase()}${reset}\n\n`);
   for (const c of result.checks) {
     const glyph = `${severityColor(c.severity)}${severityGlyph(c.severity)}${reset}`;

@@ -1,6 +1,6 @@
 # `pxl-classroom` CLI
 
-Command-line companion for PXL Classroom — for lecturer-side operations where
+Command-line companion for PXL Classroom - for lecturer-side operations where
 clicking through the Admin Panel scales poorly. Same GitHub App, same
 device-flow auth, same schemas as the SPA.
 
@@ -39,9 +39,9 @@ after creating the App, or in the hub's repo secrets as `PXL_APP_CLIENT_ID`.
 
 ```bash
 pxl-classroom auth login --client-id Iv23li…
-# → prints a verification URL + 8-character code
-# → opens the App's authorization page in your browser
-# → token cached at ~/.config/pxl-classroom/token (0600)
+# -> prints a verification URL + 8-character code
+# -> opens the App's authorization page in your browser
+# -> token cached at ~/.config/pxl-classroom/token (0600)
 ```
 
 After the first login the client ID is remembered:
@@ -68,7 +68,7 @@ Set `PXL_APP_CLIENT_ID` in your shell to skip the `--client-id` flag.
 - HTTP via `@octokit/rest`. The same multi-file commit primitive backing the
   CLI lives at `../lib/gittree.mjs` and accepts an Octokit-style request fn
   so the same module can later be reused by workflow scripts and the SPA.
-- Schemas are read from `../schemas/` — no fetch, no drift versus the SPA.
+- Schemas are read from `../schemas/` - no fetch, no drift versus the SPA.
 - Ctrl-C exits immediately (exit code 130). Long operations (`grade`,
-  `download`) are resumable — results are written per student, so a re-run
+  `download`) are resumable - results are written per student, so a re-run
   picks up where the interrupted run stopped.

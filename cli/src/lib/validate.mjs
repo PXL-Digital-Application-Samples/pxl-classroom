@@ -1,4 +1,4 @@
-// PXL Classroom CLI — ajv schema validator.
+// PXL Classroom CLI - ajv schema validator.
 //
 // Loads JSON schemas directly from ../../../schemas/*.schema.json via fs,
 // keeping CLI validation in lockstep with the frontend (which fetches the

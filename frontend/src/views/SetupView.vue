@@ -16,7 +16,7 @@
     <div v-else-if="credentials" class="card setup-card">
       <h3>App created: {{ credentials.name }}</h3>
       <p class="text-warning notice">
-        These credentials are shown <strong>once</strong>. Store them as hub secrets now — this page cannot retrieve them again.
+        These credentials are shown <strong>once</strong>. Store them as hub secrets now - this page cannot retrieve them again.
       </p>
       <dl class="cred-list">
         <div class="cred"><dt>App ID</dt><dd><code>{{ credentials.id }}</code></dd></div>
@@ -34,18 +34,18 @@
       <h4>Finish the setup</h4>
       <ol class="steps">
         <li>
-          In the hub repo (<code>{{ hubFullName }}</code>) → Settings → Secrets and variables → Actions, set:
+          In the hub repo (<code>{{ hubFullName }}</code>) -> Settings -> Secrets and variables -> Actions, set:
           <ul>
-            <li><code>PXL_APP_CLIENT_ID</code> — the Client ID above</li>
-            <li><code>PXL_APP_PRIVATE_KEY</code> — the full PEM body, including the BEGIN/END lines</li>
-            <li><code>VITE_GITHUB_CLIENT_ID</code> — same Client ID (wires the device flow at SPA build time)</li>
+            <li><code>PXL_APP_CLIENT_ID</code> - the Client ID above</li>
+            <li><code>PXL_APP_PRIVATE_KEY</code> - the full PEM body, including the BEGIN/END lines</li>
+            <li><code>VITE_GITHUB_CLIENT_ID</code> - same Client ID (wires the device flow at SPA build time)</li>
           </ul>
         </li>
         <li>
           On the App settings page, add the two permissions the manifest cannot carry:
           <ul>
-            <li>Organization → <strong>Plan: Read-only</strong> (weekly usage report)</li>
-            <li>Account → <strong>Starring: Read and write</strong> (students star the broker to accept)</li>
+            <li>Organization -> <strong>Plan: Read-only</strong> (weekly usage report)</li>
+            <li>Account -> <strong>Starring: Read and write</strong> (students star the broker to accept)</li>
           </ul>
         </li>
         <li>Re-run the <code>deploy-frontend.yml</code> workflow so the SPA rebuilds with the client ID.</li>
@@ -80,7 +80,7 @@
           <DeviceFlowCard v-if="verifyDeviceFlow" :flow="verifyDeviceFlow" @cancel="cancelVerifyLogin" style="margin-top: var(--space-md);" />
         </div>
 
-        <!-- Authenticated — show organization checker -->
+        <!-- Authenticated - show organization checker -->
         <div v-else class="verify-checker-box">
           <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">
             Signed in with the new App as <strong>@{{ verifyUser.login }}</strong>. Enter the target organization:
@@ -106,7 +106,7 @@
           <div v-if="verifyChecks" class="verify-results" style="margin-top: var(--space-md); max-width: 480px;">
             <div :class="['result-summary', verifyChecks.allOk ? 'text-success' : 'text-danger']" style="font-weight: 600; font-size: 0.95rem; margin-bottom: var(--space-sm); display: flex; align-items: center; gap: 6px;">
               <Icon :name="verifyChecks.allOk ? 'check-circle' : 'x-circle'" :size="16" />
-              <span>{{ verifyChecks.allOk ? 'App healthy!' : 'Drift detected — action required' }}</span>
+              <span>{{ verifyChecks.allOk ? 'App healthy!' : 'Drift detected - action required' }}</span>
             </div>
 
             <ul class="check-list" style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-xs);">
@@ -166,11 +166,11 @@
       <details class="manual-details">
         <summary>What happens next / doing it manually</summary>
         <ol class="steps">
-          <li>GitHub shows a confirmation page — click <strong>Create GitHub App for …</strong>.</li>
+          <li>GitHub shows a confirmation page - click <strong>Create GitHub App for …</strong>.</li>
           <li>You are redirected back here; this page exchanges the one-time code and shows the App ID, Client ID, and private key.</li>
           <li>You store the three hub secrets (<code>PXL_APP_CLIENT_ID</code>, <code>PXL_APP_PRIVATE_KEY</code>, <code>VITE_GITHUB_CLIENT_ID</code>), add the two manual permissions (Organization <strong>Plan: Read</strong>, Account <strong>Starring: Read and write</strong>), and re-run <code>deploy-frontend.yml</code>.</li>
         </ol>
-        <p class="text-secondary">Full procedure: <a :href="`${runbookUrl}#12-create-the-central-github-app`" target="_blank" rel="noopener">RUNBOOK §1.2–§1.4</a>.</p>
+        <p class="text-secondary">Full procedure: <a :href="`${runbookUrl}#12-create-the-central-github-app`" target="_blank" rel="noopener">RUNBOOK §1.2-§1.4</a>.</p>
       </details>
     </div>
   </div>

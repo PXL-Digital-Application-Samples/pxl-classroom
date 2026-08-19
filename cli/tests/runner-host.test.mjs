@@ -1,4 +1,4 @@
-// PXL Classroom CLI — host-runner smoke tests.
+// PXL Classroom CLI - host-runner smoke tests.
 //
 // Skipped on Windows: the host runner spawns /bin/sh, which is POSIX-only.
 // Most lecturers grade on macOS or a Linux box.

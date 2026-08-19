@@ -1,4 +1,4 @@
-# PXL Classroom — broker watch:started handler.
+# PXL Classroom - broker watch:started handler.
 #
 # SECURITY MODEL:
 # This workflow lives on a PUBLIC broker repo's default branch (one per assignment).
@@ -11,12 +11,12 @@
 # only dispatch events to pxl-classroom. Bounded blast radius.
 #
 # Secrets required:
-#   PXL_APP_CLIENT_ID      — Provisioning App Client ID (Iv… string)
-#   PXL_APP_PRIVATE_KEY    — Provisioning App private key (PEM)
+#   PXL_APP_CLIENT_ID      - Provisioning App Client ID (Iv… string)
+#   PXL_APP_PRIVATE_KEY    - Provisioning App private key (PEM)
 #
 # Variables required:
-#   ASSIGNMENT_ID          — set when publish-assignment creates this repo
-#   CONTROL_ORG            — e.g. "PXLAutomation" (the org owning the control repo)
+#   ASSIGNMENT_ID          - set when publish-assignment creates this repo
+#   CONTROL_ORG            - e.g. "PXLAutomation" (the org owning the control repo)
 
 name: Acceptance trigger
 

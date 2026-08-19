@@ -1,6 +1,6 @@
-# PXL Classroom — Control Repository
+# PXL Classroom - Control Repository
 
-This is a **data-only** repository for a single PXL Classroom organization. It contains assignment definitions, roster, acceptances, repository records, observations, reports, and lecturer overrides — all as machine-readable JSON/YAML, schema-versioned, recoverable from Git history.
+This is a **data-only** repository for a single PXL Classroom organization. It contains assignment definitions, roster, acceptances, repository records, observations, reports, and lecturer overrides - all as machine-readable JSON/YAML, schema-versioned, recoverable from Git history.
 
 **There are no workflows here.** All automation runs from the central public `pxl-classroom` hub, which checks this repo out, runs scripts against the data tree, commits changes back, and pushes. Do not add `.github/workflows/` here.
 
@@ -28,7 +28,7 @@ This repository is created automatically when a system administrator runs the **
 
 ## Managing assignments
 
-Do not edit files manually. Use the **PXL Classroom Dashboard → Admin Panel** to:
+Do not edit files manually. Use the **PXL Classroom Dashboard -> Admin Panel** to:
 
 - Create assignment definitions (validated against `assignment.schema.json` before commit).
 - Publish assignments (creates the broker repo + enables the nightly workflow).
@@ -40,10 +40,10 @@ See `RUNBOOK.md` in the hub for operational detail.
 
 Students may tag a submission to bind a sortable, server-side timestamp to a specific commit. The hub's `collect/` action lists these tags as a separate evidence layer and the report prefers them over the default-branch tip when both are present.
 
-Tag format — copy/paste this into course materials or a Make target:
+Tag format - copy/paste this into course materials or a Make target:
 
 ```bash
 git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
 ```
 
-The system does not mandate tagging — observations on the default-branch tip remain authoritative when no tag exists. The declared timestamp inside the tag name is *observed*, not authoritative: classification on/late uses the time `collect/` saw the tag, not the student-supplied string.
+The system does not mandate tagging - observations on the default-branch tip remain authoritative when no tag exists. The declared timestamp inside the tag name is *observed*, not authoritative: classification on/late uses the time `collect/` saw the tag, not the student-supplied string.

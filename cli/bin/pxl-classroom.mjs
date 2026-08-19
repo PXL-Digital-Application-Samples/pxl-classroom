@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — CLI entrypoint.
+// PXL Classroom - CLI entrypoint.
 //
 // Wires top-level commander subcommands. Implementation lives in src/commands/.
 
@@ -15,7 +15,7 @@ const program = new Command();
 
 program
   .name("pxl-classroom")
-  .description("PXL Classroom companion CLI — lecturer roster, assignment, and audit operations.")
+  .description("PXL Classroom companion CLI - lecturer roster, assignment, and audit operations.")
   .version("0.1.0");
 
 const ac = new AbortController();

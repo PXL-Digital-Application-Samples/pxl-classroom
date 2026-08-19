@@ -1,4 +1,4 @@
-// PXL Classroom CLI — authed Octokit factory.
+// PXL Classroom CLI - authed Octokit factory.
 //
 // Builds an Octokit with the cached OAuth token and a sensible user-agent.
 // Use this for read-only and Contents-API calls; for multi-file commits use

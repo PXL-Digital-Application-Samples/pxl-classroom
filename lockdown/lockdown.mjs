@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PXL Classroom — deadline lock-down.
+// PXL Classroom - deadline lock-down.
 //
 // Based on spikes/04-deadline/deadline.mjs. For each managed repository:
 //   1. Takes a final snapshot of the submission ref
@@ -33,7 +33,7 @@ async function summary(md) {
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
 }
 const steps = [];
-const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` — ${detail.note}` : ""}`); };
+const log = (step, detail) => { steps.push({ step, ...detail }); console.log(`[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` - ${detail.note}` : ""}`); };
 
 async function fail(category, note) {
   log(category, { ok: false, note });
@@ -87,7 +87,7 @@ async function readRepoRecords() {
 
 // --- Read a previous lockdown record (retry path) ----------------------------
 //
-// A finalize run can be retried — e.g. preservation failed and find-finalizable
+// A finalize run can be retried - e.g. preservation failed and find-finalizable
 // re-queued the assignment. On a retry the deadline snapshot MUST NOT be taken
 // again: the student's HEAD may have moved on since (late pushes still land
 // until the demotion propagates, and a lecturer can grant an extension), and
@@ -122,7 +122,7 @@ async function main() {
   const deadlineAt = assignment.deadline_at || null;
   log("assignment", { ok: true, note: `deadline_at=${deadlineAt} submission_ref=${submissionRef}` });
 
-  // 2b. Prior lockdown (retry path) — frozen snapshots, keyed by login
+  // 2b. Prior lockdown (retry path) - frozen snapshots, keyed by login
   const prior = await readPriorLockdown();
   const priorByLogin = new Map(
     (prior?.results || []).filter((r) => r.github_login).map((r) => [r.github_login, r])
@@ -131,16 +131,16 @@ async function main() {
   if (prior) {
     log("prior-lockdown", {
       ok: true,
-      note: `retry #${attempt} — reusing ${priorByLogin.size} frozen snapshot(s)`,
+      note: `retry #${attempt} - reusing ${priorByLogin.size} frozen snapshot(s)`,
     });
   }
 
   // 3. Read repo records
   const records = await readRepoRecords();
-  // Zero students is a valid population — the loop below no-ops and step 5
+  // Zero students is a valid population - the loop below no-ops and step 5
   // still writes an empty lockdown-record.json, which preserve needs in order
   // to report "no students to preserve" instead of fail:no-lockdowns.
-  log("repo-records", { ok: true, note: records.length ? `${records.length} student(s)` : "no repository records — nothing to lock down" });
+  log("repo-records", { ok: true, note: records.length ? `${records.length} student(s)` : "no repository records - nothing to lock down" });
 
   // 4. Lockdown each repo
   let lockedCount = 0;
@@ -158,7 +158,7 @@ async function main() {
       if (!repoRes.ok) {
         log(`lockdown ${login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
         errorCount++;
-        rows.push(`| ${login} | — | — | error |`);
+        rows.push(`| ${login} | - | - | error |`);
         continue;
       }
       const branch = submissionRef.startsWith("refs/heads/")
@@ -181,7 +181,7 @@ async function main() {
         snapshotSha = commitRes.ok ? commitRes.data.sha : null;
       }
 
-      // Write the final observation (only for a fresh snapshot — re-recording a
+      // Write the final observation (only for a fresh snapshot - re-recording a
       // frozen one would fabricate a second observation of the same fact)
       if (snapshotSha && !frozen) {
         const now = new Date().toISOString();
@@ -205,12 +205,12 @@ async function main() {
       // 4b. Demote student to pull (read-only). Re-run on a retry too: it is
       // idempotent and re-locks anyone who regained write access since.
       const demote = await gh("PUT", `/repos/${cfg.org}/${repoName}/collaborators/${login}`, { permission: "pull" });
-      // The lockdown instant is a historical fact — keep the original on retry.
+      // The lockdown instant is a historical fact - keep the original on retry.
       const lockdownAt = frozen ? priorRec.lockdown_at : new Date().toISOString();
       if (!(demote.status === 204 || demote.status === 201)) {
         log(`lockdown ${login}`, { ok: false, note: `demote HTTP ${demote.status}` });
         errorCount++;
-        rows.push(`| ${login} | \`${(snapshotSha || "—").slice(0, 12)}\` | — | demote failed |`);
+        rows.push(`| ${login} | \`${(snapshotSha || "-").slice(0, 12)}\` | - | demote failed |`);
         continue;
       }
 
@@ -243,17 +243,17 @@ async function main() {
 
       if (isLocked) {
         lockedCount++;
-        log(`lockdown ${login}`, { ok: true, note: `${branch}@${(snapshotSha || "?").slice(0, 12)} → pull (${uncertaintySec ?? "?"}s)` });
-        rows.push(`| ${login} | \`${(snapshotSha || "—").slice(0, 12)}\` | ${uncertaintySec ?? "—"}s | ✓ locked |`);
+        log(`lockdown ${login}`, { ok: true, note: `${branch}@${(snapshotSha || "?").slice(0, 12)} -> pull (${uncertaintySec ?? "?"}s)` });
+        rows.push(`| ${login} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | [OK] locked |`);
       } else {
         errorCount++;
         log(`lockdown ${login}`, { ok: false, note: `permission after=${permAfter}, expected read` });
-        rows.push(`| ${login} | \`${(snapshotSha || "—").slice(0, 12)}\` | ${uncertaintySec ?? "—"}s | perm=${permAfter} |`);
+        rows.push(`| ${login} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | perm=${permAfter} |`);
       }
     } catch (e) {
       log(`lockdown ${login}`, { ok: false, note: e.message });
       errorCount++;
-      rows.push(`| ${login} | — | — | exception |`);
+      rows.push(`| ${login} | - | - | exception |`);
     }
   }
 

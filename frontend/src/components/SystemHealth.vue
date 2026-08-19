@@ -89,7 +89,7 @@ async function run() {
       hubRepo: config.hubRepo,
     })
   } catch (e) {
-    // Surface the failure in the panel — a silently reverting button reads
+    // Surface the failure in the panel - a silently reverting button reads
     // as "nothing happened".
     console.error('Audit failed:', e)
     runError.value = e.message || 'unexpected error'

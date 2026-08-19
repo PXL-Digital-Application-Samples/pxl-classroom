@@ -1,13 +1,13 @@
-// PXL Classroom CLI — `feedback` subcommand group.
+// PXL Classroom CLI - `feedback` subcommand group.
 //
-// open  — for each provisioned student on an assignment, open a draft PR with
+// open  - for each provisioned student on an assignment, open a draft PR with
 //         head = main, base = <baseline> (default "pxl-baseline"). Idempotent:
 //         skips when a PR already exists on the record or on GitHub. Updates
 //         the repository record with feedback_pr_number + feedback_pr_url.
-// list  — print PR URLs + open review-comment counts for the assignment.
+// list  - print PR URLs + open review-comment counts for the assignment.
 //
 // PRs cannot be opened at provisioning time (main and baseline point at the
-// same SHA — GitHub returns 422 "No commits between …"). This command is the
+// same SHA - GitHub returns 422 "No commits between …"). This command is the
 // designated lazy path: run it after the deadline (or whenever students have
 // pushed at least one commit ahead of baseline).
 
@@ -41,7 +41,7 @@ async function openDraftPr(octokit, { org, repo, head, base, title, body }) {
     const errors = err.response?.data?.errors || [];
     const errText = JSON.stringify(errors) + " " + message;
     if (err.status === 422 && /No commits between|no commits between|already exists/i.test(errText)) {
-      // "already exists" → find it; "no commits between" → propagate as null
+      // "already exists" -> find it; "no commits between" -> propagate as null
       if (/already exists/i.test(errText)) {
         const list = await octokit.request("GET /repos/{owner}/{repo}/pulls", {
           owner: org, repo, head: `${org}:${head}`, base, state: "open", per_page: 1,
@@ -80,7 +80,7 @@ export function registerFeedbackCommand(program) {
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .requiredOption("--assignment <id>", "Assignment ID")
     .option("--login <login>", "Open for one student only")
-    .option("--dry-run", "Preview which PRs would be opened — no PRs are created, no records committed", false)
+    .option("--dry-run", "Preview which PRs would be opened - no PRs are created, no records committed", false)
     .action(async (opts) => {
       const org = resolveOrg(opts.org);
       const octokit = makeOctokit();
@@ -91,7 +91,7 @@ export function registerFeedbackCommand(program) {
         process.exit(1);
       }
       const baseline = assignment.feedback_pr_baseline_branch || DEFAULT_BASELINE;
-      const title = `${assignment.title || opts.assignment} — Feedback`;
+      const title = `${assignment.title || opts.assignment} - Feedback`;
       const body = [
         "PXL Classroom feedback thread.",
         "",
@@ -116,10 +116,10 @@ export function registerFeedbackCommand(program) {
         if (recHasPr) { existing++; continue; }
 
         // Dry-run must have zero side effects: no PR creation, no record
-        // updates — just report what a real run would attempt.
+        // updates - just report what a real run would attempt.
         if (opts.dryRun) {
           opened++;
-          process.stdout.write(`  + ${login}: would open draft PR on ${org}/${repo} (main → ${baseline})\n`);
+          process.stdout.write(`  + ${login}: would open draft PR on ${org}/${repo} (main -> ${baseline})\n`);
           continue;
         }
 
@@ -196,7 +196,7 @@ export function registerFeedbackCommand(program) {
         const login = rec.doc.github_login;
         const num = rec.doc.feedback_pr_number;
         if (!Number.isInteger(num)) {
-          process.stdout.write(`${pad(login, widths.login)}  ${pad("—", widths.pr)}  ${pad("—", widths.comments)}  (no PR opened)\n`);
+          process.stdout.write(`${pad(login, widths.login)}  ${pad("-", widths.pr)}  ${pad("-", widths.comments)}  (no PR opened)\n`);
           continue;
         }
         const repo = repoOnly(rec.doc.repo_name);
