@@ -3,13 +3,13 @@
 Operational procedures for setting up, running, and recovering PXL Classroom. Pairs with `ARCHITECTURE.md` (the technical reference).
 
 > [!IMPORTANT]
-> ### 🧭 Where do I start?
+> ### Where do I start?
 > - **Onboarding a new course or academic year organization (e.g. `PXL-2TIN-DevOps-2627`)?**
->   👉 **STOP! Do NOT follow §1.** You do **not** need to deploy a frontend or create a new GitHub App. PXL Classroom is multi-tenant: the central hub and central App serve all organizations. **Jump straight to [Section 2: Onboarding a new organization](#2-onboarding-a-new-organization-per-org)**.
+>   **Do not follow §1.** You do **not** need to deploy a frontend or create a new GitHub App. PXL Classroom is multi-tenant: the central hub and central App serve all organizations. **Jump straight to [Section 2: Onboarding a new organization](#2-onboarding-a-new-organization-per-org)**.
 > - **Setting up the entire central PXL Classroom infrastructure from scratch for the first time?**
->   👉 Follow [Section 1: First-time system setup](#1-first-time-system-setup-one-time-central-system-administrator). This is executed **only once** by the central system administrator on the root hub repository (`PXL-Digital-Application-Samples/pxl-classroom`).
+>   Follow [Section 1: First-time system setup](#1-first-time-system-setup-one-time-central-system-administrator). This is executed **only once** by the central system administrator on the root hub repository (`PXL-Digital-Application-Samples/pxl-classroom`).
 > - **Lecturer managing assignments, rosters, and deadlines for your course?**
->   👉 Jump to [Section 4: Creating and publishing an assignment](#4-creating-and-publishing-an-assignment).
+>   Jump to [Section 4: Creating and publishing an assignment](#4-creating-and-publishing-an-assignment).
 
 ---
 
@@ -573,13 +573,13 @@ The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Adm
 
 | Column | Required | Notes |
 |---|---|---|
-| `student_number` | ✔ | Institutional SIS ID; treated as a string (preserves leading zeroes). |
-| `full_name`      | ✔ | Display name. |
-| `email`          | – | Validated against the `email` format. |
-| `class_group`    | – | E.g. `3A`. |
-| `github_login`   | – | If known up front; otherwise filled at acceptance. |
-| `github_id`      | – | Integer; pinned to survive renames. Usually filled at acceptance. |
-| `active`         | – | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
+| `student_number` | Yes | Institutional SIS ID; treated as a string (preserves leading zeroes). |
+| `full_name`      | Yes | Display name. |
+| `email`          | Optional | Validated against the `email` format. |
+| `class_group`    | Optional | E.g. `3A`. |
+| `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
+| `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
+| `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
 
 Unknown columns are rejected. Duplicate `student_number` values are rejected.
 

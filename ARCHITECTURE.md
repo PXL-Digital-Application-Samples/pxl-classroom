@@ -81,17 +81,17 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 
 | Scope | Permission | In Manifest? | Used by |
 |---|---|---|---|
-| Repository: Actions | Read/Write | ✔ | Dispatching hub workflows from the SPA / Admin UI |
-| Repository: Administration | Read/Write | ✔ | Provisioning repositories, lock-down demotion |
-| Repository: Contents | Read/Write | ✔ | Provisioning (template copy), commits to control repo & archive |
-| Repository: Issues | Read/Write | ✔ | Creating tracking & notification issues in control repo |
-| Repository: Metadata | Read | ✔ | Repository queries and baseline checks |
-| Repository: Pull Requests | Read/Write | ✔ | Feedback PR orchestration |
-| Repository: Secrets | Read/Write | ✔ | Setting Actions secrets during provisioning |
-| Repository: Workflows | Read/Write | ✔ | Provisioning Actions workflows in student repositories |
-| Organization: Plan | Read | ✗ (Manual) | Enhanced Billing endpoint used by the weekly usage report |
-| Account: Starring | Read/Write | ✗ (Manual) | The browser-side device-flow token (stars broker on accept) |
-| Account: Email addresses | Read | ✗ (Optional) | Reading verified student email during acceptance/login |
+| Repository: Actions | Read/Write | Yes | Dispatching hub workflows from the SPA / Admin UI |
+| Repository: Administration | Read/Write | Yes | Provisioning repositories, lock-down demotion |
+| Repository: Contents | Read/Write | Yes | Provisioning (template copy), commits to control repo & archive |
+| Repository: Issues | Read/Write | Yes | Creating tracking & notification issues in control repo |
+| Repository: Metadata | Read | Yes | Repository queries and baseline checks |
+| Repository: Pull Requests | Read/Write | Yes | Feedback PR orchestration |
+| Repository: Secrets | Read/Write | Yes | Setting Actions secrets during provisioning |
+| Repository: Workflows | Read/Write | Yes | Provisioning Actions workflows in student repositories |
+| Organization: Plan | Read | No (Manual) | Enhanced Billing endpoint used by the weekly usage report |
+| Account: Starring | Read/Write | No (Manual) | The browser-side device-flow token (stars broker on accept) |
+| Account: Email addresses | Read | No (Optional) | Reading verified student email during acceptance/login |
 
 The App is installed:
 
@@ -463,17 +463,17 @@ The App needs the following permissions. Eight repository permissions are declar
 
 | Permission | In manifest? | Why |
 |---|---|---|
-| `actions: write` | ✔ | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage) and sets broker variables. |
-| `administration: write` | ✔ | Create student repos, demote at lock-down. |
-| `contents: write` | ✔ | Read/write assignment YAMLs, overrides, reports in the control repo. |
-| `issues: write` | ✔ | Open notification & tracking issues in the control repo. |
-| `metadata: read` | ✔ | Baseline repository metadata. |
-| `pull_requests: write` | ✔ | Open & manage Feedback PRs on student repositories. |
-| `secrets: write` | ✔ | Set per-broker / per-control-repo Actions secrets during provisioning. |
-| `workflows: write` | ✔ | Provision Actions workflows in student repositories. |
-| `organization_plan: read` | ✗ manual | Enhanced Billing endpoint used by the weekly usage report. |
-| `starring: write` (account) | ✗ manual | Students star the broker to trigger acceptance. User-level permission. |
-| `email addresses: read` (account) | ✗ optional | Read student verified primary email upon acceptance/login. |
+| `actions: write` | Yes | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage) and sets broker variables. |
+| `administration: write` | Yes | Create student repos, demote at lock-down. |
+| `contents: write` | Yes | Read/write assignment YAMLs, overrides, reports in the control repo. |
+| `issues: write` | Yes | Open notification & tracking issues in the control repo. |
+| `metadata: read` | Yes | Baseline repository metadata. |
+| `pull_requests: write` | Yes | Open & manage Feedback PRs on student repositories. |
+| `secrets: write` | Yes | Set per-broker / per-control-repo Actions secrets during provisioning. |
+| `workflows: write` | Yes | Provision Actions workflows in student repositories. |
+| `organization_plan: read` | No (manual) | Enhanced Billing endpoint used by the weekly usage report. |
+| `starring: write` (account) | No (manual) | Students star the broker to trigger acceptance. User-level permission. |
+| `email addresses: read` (account) | No (optional) | Read student verified primary email upon acceptance/login. |
 
 **A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly — every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
 
