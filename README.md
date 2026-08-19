@@ -29,6 +29,10 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 - **Zero Infrastructure:**
   - 100% serverless on GitHub Pages, Actions, and a single GitHub App.
   - Workflows sleep when idle, and weekly audits monitor SKU billing limits.
+- **Automated Archival:**
+  - Nightly automation demotes student permissions to read-only at deadlines.
+  - Clones and preserves verified commit SHAs as immutable branches in `<org>/pxl-classroom-archive`.
+  - Guarantees an unalterable record for grade disputes, examination boards, and institutional accreditation.
 
 ---
 
@@ -50,7 +54,8 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 | **Autograding: Cloud Actions** | Runs in student repo on push (`classroom-resources/*`) | Runs in student repo on push (Actions + `check50`) | Automatic Actions grading with score harvesting into dashboard |
 | **Autograding: Local Sandboxing**| Not supported natively | Not supported natively (grades live repos) | Sandboxed Local Docker CLI (Zero cloud Actions minutes billed) |
 | **Deadline Enforcement** | Soft deadline (manual freeze or stop Actions) | Timestamp logging & manual review | Automated API lockdown (demotes students from Admin to Read) |
-| **Submission Archiving** | None (grades live repo HEAD) | None (grades live repo HEAD) | Permanent copy saved to private archive repository |
+| **Submission Archiving** | None (grades live repo HEAD) | None (grades live repo HEAD) | Dedicated private archive repository (`<org>/pxl-classroom-archive`) |
+| **Archive Tamper Resistance** | Vulnerable to history rewrite or deletion | Vulnerable to history rewrite or deletion | Immune (SHA verified via `git ls-remote` in isolated archive) |
 | **Feedback Pull Requests** | Created on repo creation (breaks on empty commits) | Standard GitHub PR / comments | Clean baseline branch with draft PR opened on first commit |
 | **LMS & Grade Export** | LTI 1.3 (Canvas, Moodle, Blackboard) | Basic CSV export | Live CSV and JSON export matching table filters (LTI in v2) |
 
