@@ -26,7 +26,11 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
    - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Workflows RW**.
    - Device Flow: enabled.
    - Callback URLs: pre-filled for your Pages domain.
-3. Confirm on GitHub's page. GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** — store them per §1.3 immediately. (If the exchange fails — the code is single-use and expires after one hour — the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
+3. Confirm on GitHub's page.
+   > [!NOTE]
+   > **App Name Uniqueness & 34-Character Limit:** GitHub App names must be **globally unique across GitHub.com** and **at most 34 characters long**. The manifest automatically generates a scoped name (e.g. `PXL Classroom (<org>)` or `PXL (<org>)`). If GitHub reports "Name already taken", adjust the name in the text field to any unique name up to 34 characters (e.g. `PXL Provisioner 2627` or `PXL (<org>)`) and click **Create GitHub App for <org>**.
+
+   GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** — store them per §1.3 immediately. (If the exchange fails — the code is single-use and expires after one hour — the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
 4. Additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
    - Organization: **Plan: Read** — required for the weekly usage report (Enhanced Billing endpoint, see §10).
    - Account: **Starring RW** — required so students can star the broker to trigger acceptance.
