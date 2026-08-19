@@ -70,14 +70,19 @@
         <button class="btn btn-primary" @click="loadDashboard">Retry</button>
       </div>
 
-      <!-- No installation visible to this account -->
+      <!-- No installation visible to this account (Student or unconfigured lecturer) -->
       <div v-else-if="orgsLoaded && orgs.length === 0" class="center-card fade-in">
-        <h2>No PXL Classroom installation visible</h2>
+        <h2>Student Account Detected</h2>
         <p class="text-secondary">
-          Your account (<strong>{{ user.login }}</strong>) can't see the PXL Classroom App installed on any
-          organization. Ask a hub admin to install the App on your org - see
-          <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">RUNBOOK §2.1</a> -
-          or sign in with the account that administers it.
+          Your account (<strong>{{ user.login }}</strong>) does not administer any course organizations.
+          If you are enrolled in a course, view your accepted repositories in the Student Portal.
+        </p>
+        <router-link to="/" class="btn btn-primary" style="margin-top: var(--space-xs);">
+          Go to My Assignments
+        </router-link>
+        <p class="text-muted text-xs" style="margin-top: var(--space-lg); line-height: 1.4;">
+          If you are a lecturer, ensure the PXL Classroom App is installed on your organization — see
+          <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">RUNBOOK §2.1</a>.
         </p>
       </div>
 

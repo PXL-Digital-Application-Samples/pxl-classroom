@@ -444,7 +444,7 @@ The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `
 
 | Path | View | Audience |
 |---|---|---|
-| `/` | `HomeView` | Public - lists open assignments grouped by org from `/data/<org>/assignments.json` |
+| `/` | `HomeView` | Role-adaptive portal - unauthenticated landing with sign-in & direct lookup; authenticated student "My Assignments" (accepted repos only); lecturer dashboard router |
 | `/:org/a/:assignmentId` | `AssignmentView` | Student - accept flow, polling, repo link |
 | `/dashboard/:org?` | `DashboardView` | Lecturer - org picker (from `/user/installations`) with System Health audit check modal, then assignment list |
 | `/dashboard/:org/admin` | `AdminView` | Lecturer - Admin Panel: create assignment, publish, grant extension |

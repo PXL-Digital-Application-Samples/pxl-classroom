@@ -7,10 +7,10 @@
             <Icon name="arrow-left" :size="14" />
             <span>Dashboard</span>
           </router-link>
-          <span class="separator">/</span>
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="org-name">{{ org }}</router-link>
-          <span class="separator">/</span>
           <h1 :title="assignmentId">{{ assignmentId }}</h1>
+          <span v-if="assignment" :class="['badge', assignment.state === 'published' ? 'badge-success' : (assignment.state === 'closed' ? 'badge-warning' : 'badge-neutral')]">
+            {{ assignment.state === 'published' ? 'Accepting' : (assignment.state === 'closed' ? 'Acceptance Closed' : assignment.state) }}
+          </span>
         </div>
         <UserBadge :user="user" @logout="handleLogout" />
       </div>
@@ -123,6 +123,17 @@
             </select>
           </div>
           <div class="flex gap-sm items-center">
+            <button
+              v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
+              :class="['btn', 'btn-with-icon', assignment.state === 'published' ? 'btn-secondary' : 'btn-success']"
+              type="button"
+              @click="toggleAcceptanceState"
+              :disabled="togglingState"
+              :title="assignment.state === 'published' ? 'Close acceptance to stop new students from registering' : 'Open acceptance to allow students to register'"
+            >
+              <Icon :name="assignment.state === 'published' ? 'lock' : 'unlock'" :size="14" />
+              <span>{{ togglingState ? 'Updating…' : (assignment.state === 'published' ? 'Close acceptance' : 'Open acceptance') }}</span>
+            </button>
             <button class="btn btn-primary btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive">
               <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
               <template v-else>
@@ -459,7 +470,7 @@ import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
-import { parse as parseYaml } from 'yaml'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const REFRESH_CONCURRENCY = 6
 
@@ -473,6 +484,38 @@ const loading = ref(true)
 const report = ref(null)
 const assignment = ref(null)
 const loadError = ref(null)
+const togglingState = ref(false)
+
+async function toggleAcceptanceState() {
+  const token = getToken()
+  if (!token || !assignment.value) return
+  const currentState = assignment.value.state || 'published'
+  const nextState = currentState === 'published' ? 'closed' : 'published'
+
+  const confirmMsg = nextState === 'closed'
+    ? `Close acceptance for "${props.assignmentId}"? Students can no longer accept new repositories (existing accepted repositories are unaffected).`
+    : `Open acceptance for "${props.assignmentId}"? Students with the link can now accept and get their repositories.`
+
+  if (!window.confirm(confirmMsg)) return
+
+  togglingState.value = true
+  try {
+    const path = `assignments/${props.assignmentId}.yml`
+    const updatedDoc = { ...assignment.value, state: nextState }
+    const yamlStr = stringifyYaml(updatedDoc)
+    const res = await commitFile(token, props.org, config.controlRepo, path, yamlStr, `Set ${props.assignmentId} state to ${nextState}`)
+    if (res.ok) {
+      assignment.value.state = nextState
+      toast.success(`Acceptance is now ${nextState === 'published' ? 'OPEN' : 'CLOSED'}`)
+    } else {
+      toast.error(`Failed to change state: ${res.data?.message || 'unknown error'}`)
+    }
+  } catch (e) {
+    toast.error(`Failed to update state: ${e.message}`)
+  } finally {
+    togglingState.value = false
+  }
+}
 
 // All dates in this view render in the assignment's display timezone
 // (assignment.timezone, set in the Admin Panel), falling back to the

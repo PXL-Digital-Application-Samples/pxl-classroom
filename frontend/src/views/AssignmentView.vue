@@ -42,7 +42,7 @@
         </p>
         <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-md); justify-content: center;">
           <button class="btn btn-primary" @click="retry">Check again</button>
-          <router-link to="/" class="btn btn-secondary">See open assignments</router-link>
+          <router-link to="/" class="btn btn-secondary">Home</router-link>
         </div>
       </div>
 
@@ -103,9 +103,10 @@
           <!-- Not yet accepted -->
           <div v-if="acceptState === 'ready'">
             <div v-if="assignment && (assignment.state === 'closed' || (assignment.deadline_at && new Date() > new Date(assignment.deadline_at)))" class="text-center">
+              <Icon name="lock" :size="48" class="status-icon" />
               <h2>Assignment closed</h2>
               <p class="text-secondary">
-                This assignment is closed. You can no longer accept it.
+                New registrations for this assignment are currently closed.
               </p>
             </div>
             <div v-else-if="assignment && assignment.accepted_count >= (assignment.max_acceptances ?? 150)" class="text-center">
@@ -114,7 +115,8 @@
                 This assignment has reached its registration limit. Please contact your lecturer.
               </p>
             </div>
-            <div v-else-if="assignment && new Date() < new Date(assignment.opens_at)" class="text-center">
+            <div v-else-if="assignment && assignment.opens_at && new Date() < new Date(assignment.opens_at)" class="text-center">
+              <Icon name="clock" :size="48" class="status-icon" />
               <h2>Assignment not open yet</h2>
               <p class="text-secondary">
                 Opens {{ formatDate(assignment.opens_at, assignment.timezone) }}

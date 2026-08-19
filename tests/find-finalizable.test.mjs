@@ -204,12 +204,14 @@ test("unreadable lockdown record -> re-queued rather than assumed done", () => {
   assert.equal(JSON.parse(res.stdout.trim()).length, 1);
 });
 
-test("state != 'published' -> not counted in activeCount", () => {
+test("draft and past-deadline not counted in activeCount, published and closed with future deadline counted", () => {
   const future = new Date(Date.now() + 86400000).toISOString();
+  const past = new Date(Date.now() - 86400000).toISOString();
   const res = runFindFinalizable({
     "a6": `state: draft\ndeadline_at: "${future}"`,
     "a7": `state: closed\ndeadline_at: "${future}"`,
-    "a8": `state: published\ndeadline_at: "${future}"`
+    "a8": `state: published\ndeadline_at: "${future}"`,
+    "a9": `state: closed\ndeadline_at: "${past}"`
   });
-  assert.equal(res.activeCount, 1); // only a8
+  assert.equal(res.activeCount, 2); // a7 (closed with future deadline) + a8 (published with future deadline)
 });

@@ -100,7 +100,7 @@ async function main() {
       if (file.endsWith('.yml') || file.endsWith('.yaml') || file.endsWith('.json')) {
         try {
           const assignment = await loadYaml(path.join(assignmentsDir, file));
-          if (assignment && assignment.state === 'published') {
+          if (assignment && (assignment.state === 'published' || assignment.state === 'closed')) {
             if (!assignment.deadline_at || new Date(assignment.deadline_at).getTime() > Date.now()) {
               activeCount++;
             }

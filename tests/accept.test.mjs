@@ -98,8 +98,18 @@ test("rejected:no-assignment", () => {
   assert.equal(res.outputs.outcome, "rejected:no-assignment");
 });
 
-test("rejected:not-published", () => {
+test("rejected:not-published (draft assignment)", () => {
   const yaml = `state: draft
+template:
+  owner: x
+  repository: y`;
+  const res = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" }, { assignmentYaml: yaml });
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:not-published");
+});
+
+test("rejected:not-published (closed assignment)", () => {
+  const yaml = `state: closed
 template:
   owner: x
   repository: y`;
