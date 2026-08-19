@@ -136,6 +136,7 @@ At a deadline, automation demotes the student from admin to `pull` on their assi
 <org>/pxl-classroom-control/
 ├── assignments/<id>.yml               # source: assignment definition
 ├── students/roster.yml                # source: roster
+├── teams/<id>/<team-slug>.json        # source: team definition & members (group assignments)
 ├── acceptances/<id>/<login>.json      # observation: who accepted, when
 ├── repositories/<id>/<login>.json     # fact: provisioned repo id, name, url, state
 ├── observations/<id>/<login>/*.json   # observations: snapshot (sha, ref, time)
@@ -164,6 +165,7 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 |---|---|
 | `assignment.schema.json` | Assignment definition (see §5.4) |
 | `roster.schema.json` | Roster entries |
+| `team.schema.json` | Team manifest and members for group assignments (`teams/<id>/<team-slug>.json`) |
 | `acceptance.schema.json` | Per-student acceptance record |
 | `repository-record.schema.json` | Provisioned repo facts |
 | `observation.schema.json` | A single submission observation - `snapshot` of the submission ref or a `tagged-submission` produced from `refs/tags/submit/*` |
@@ -216,6 +218,17 @@ orgs:
     overrides:                           # optional SKU overrides
       "Actions Linux": 2000
 ```
+
+### 5.8 Group Assignments
+
+Assignments can be polymorphic: `assignment_type: "individual"` (default) or `"group"`.
+
+- **Configuration:** `group_config` on the assignment YAML specifies `max_team_size` (integer, e.g. 3), `min_team_size` (optional integer, flags under-capacity teams with warning badges in the lecturer dashboard), `formation_mode` (`"self-service"`), and `allow_team_creation` (boolean).
+- **Manifests:** Each team is stored as a JSON document in `teams/<id>/<team-slug>.json` conforming to `team.schema.json`.
+- **Target Repositories:** Group assignments use `{team_slug}` in `repository_name_pattern` (e.g. `{id}-{team_slug}`). All teammates share read/write access to the single team repository.
+- **Sequential Concurrency:** `acceptance-handler.yml` sets concurrency group `accept-${org}-${assignment_id}-${team_slug || login}` to serialize concurrent joins and team creation, strictly guarding team capacity without distributed locks.
+- **Team Switching:** Students can switch teams prior to the deadline. On switch, `accept.mjs` revokes old team membership and marks 0-member teams as `vacant: true`; `provision.mjs` revokes collaborator access on the previous repository and grants access on the new team repository.
+- **Preservation & Reporting:** Lockdown demotes all team members to `pull`; preserve archives the submission to `refs/heads/preserved/<id>/<team-slug>`; `report.mjs` computes both a top-level `teams` array and student-level `team_slug`/`team_name` fields.
 
 ---
 

@@ -44,6 +44,10 @@ inputs:
     description: Baseline branch name (used as the PR base).
     required: false
     default: "pxl-baseline"
+  previous-repo:
+    description: Previous repository to remove collaborator from if switching teams
+    required: false
+    default: ""
 
 outputs:
   repo-id:
@@ -98,4 +102,5 @@ runs:
         PRIVATE: ${{ inputs.repo-private }}
         FEEDBACK_PR: ${{ inputs.feedback-pr }}
         FEEDBACK_PR_BASELINE_BRANCH: ${{ inputs.feedback-pr-baseline-branch }}
+        PREVIOUS_REPO: ${{ inputs.previous-repo }}
       run: node "$GITHUB_ACTION_PATH/provision.mjs"

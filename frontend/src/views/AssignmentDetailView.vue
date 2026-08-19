@@ -221,14 +221,44 @@
           </div>
         </div>
 
+        <!-- Segmented Tab for Group Assignments -->
+        <div v-if="isGroupAssignment" class="tab-pill-selector" style="display: flex; gap: var(--space-sm); margin-bottom: var(--space-md);">
+          <button
+            type="button"
+            class="tab-pill"
+            :class="{ active: viewTab === 'teams' }"
+            @click="viewTab = 'teams'"
+          >
+            👥 Teams View ({{ report.teams ? report.teams.length : 0 }})
+          </button>
+          <button
+            type="button"
+            class="tab-pill"
+            :class="{ active: viewTab === 'students' }"
+            @click="viewTab = 'students'"
+          >
+            👤 Students View ({{ report.students.length }})
+          </button>
+        </div>
+
+        <!-- Group Assignment: Teams Table View -->
+        <TeamsTable
+          v-if="isGroupAssignment && viewTab === 'teams'"
+          :teams="report.teams || []"
+          :assignment="assignment"
+          :org="org"
+          :roster="roster"
+        />
+
         <!-- Student table (desktop) -->
-        <div class="table-wrapper desktop-only">
+        <div v-else class="table-wrapper desktop-only">
           <table>
             <thead>
               <tr>
                 <th @click="sortBy('github_login')" @keydown.enter="sortBy('github_login')" @keydown.space.prevent="sortBy('github_login')" tabindex="0" class="sortable" :aria-sort="ariaSort('github_login')">
                   <span class="th-label">Login<SortIcon :dir="sortDir('github_login')" /></span>
                 </th>
+                <th v-if="isGroupAssignment">Team</th>
                 <th @click="sortBy('acceptance_state')" @keydown.enter="sortBy('acceptance_state')" @keydown.space.prevent="sortBy('acceptance_state')" tabindex="0" class="sortable" :aria-sort="ariaSort('acceptance_state')">
                   <span class="th-label">Acceptance<SortIcon :dir="sortDir('acceptance_state')" /></span>
                 </th>
@@ -255,6 +285,12 @@
               <tr v-for="s in filteredStudents" :key="s.github_login">
                 <td>
                   <a :href="`https://github.com/${s.github_login}`" target="_blank" :title="studentTooltip(s)">{{ s.github_login }}</a>
+                </td>
+                <td v-if="isGroupAssignment">
+                  <span v-if="s.team_name || s.team_slug" class="badge badge-neutral" style="font-size: 0.75rem;">
+                    {{ s.team_name || s.team_slug }}
+                  </span>
+                  <span v-else class="text-muted text-xs">-</span>
                 </td>
                 <td>
                   <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ s.acceptance_state }}</span>
@@ -516,6 +552,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { h } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import Icon from '../components/Icon.vue'
+import TeamsTable from '../components/TeamsTable.vue'
 
 // Tiny render helper - keeps the table markup readable. `dir` is "asc" |
 // "desc" | null; null renders nothing so non-active columns stay quiet.
@@ -546,6 +583,11 @@ const report = ref(null)
 const assignment = ref(null)
 const loadError = ref(null)
 const togglingState = ref(false)
+const viewTab = ref('teams')
+
+const isGroupAssignment = computed(() =>
+  assignment.value?.assignment_type === 'group' || (report.value?.teams && report.value.teams.length > 0)
+)
 
 async function toggleAcceptanceState() {
   const token = getToken()

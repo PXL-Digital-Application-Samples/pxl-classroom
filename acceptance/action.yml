@@ -41,6 +41,18 @@ inputs:
     description: Bypass assignment time windows (opens_at and deadline_at checks)
     required: false
     default: 'false'
+  team-slug:
+    description: Team slug for group assignments
+    required: false
+    default: ${{ github.event.client_payload.team_slug }}
+  team-name:
+    description: Team display name for group assignments
+    required: false
+    default: ${{ github.event.client_payload.team_name }}
+  team-action:
+    description: Team action (join, create, switch)
+    required: false
+    default: ${{ github.event.client_payload.team_action }}
 
 outputs:
   assignment_id:
@@ -58,6 +70,18 @@ outputs:
   target_repo:
     description: Deterministic target repository name
     value: ${{ steps.accept.outputs.target_repo }}
+  team_slug:
+    description: Team slug if group assignment
+    value: ${{ steps.accept.outputs.team_slug }}
+  team_name:
+    description: Team name if group assignment
+    value: ${{ steps.accept.outputs.team_name }}
+  is_first_member:
+    description: Whether this is the first member of the team
+    value: ${{ steps.accept.outputs.is_first_member }}
+  previous_repo:
+    description: Previous team repository name if switching teams
+    value: ${{ steps.accept.outputs.previous_repo }}
   template_owner:
     description: Template repository owner (from the assignment definition)
     value: ${{ steps.accept.outputs.template_owner }}
@@ -96,4 +120,7 @@ runs:
         CONTROL_REPO: ${{ inputs.control-repo }}
         DATA_DIR: ${{ inputs.data-dir }}
         BYPASS_WINDOW: ${{ inputs.bypass-window }}
+        TEAM_SLUG: ${{ inputs.team-slug }}
+        TEAM_NAME: ${{ inputs.team-name }}
+        TEAM_ACTION: ${{ inputs.team-action }}
       run: node "$GITHUB_ACTION_PATH/accept.mjs"

@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/team.schema.json",
+  "title": "Team",
+  "description": "A team definition stored in teams/<assignment-id>/<team-slug>.json within a PXL Classroom control repository.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "team_slug",
+    "team_name",
+    "members",
+    "created_at",
+    "created_by"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the assignment this team belongs to."
+    },
+    "team_slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "description": "URL-safe slug uniquely identifying the team within the assignment."
+    },
+    "team_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Human-readable display name of the team."
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$"
+      },
+      "uniqueItems": true,
+      "description": "GitHub logins of the students currently belonging to this team."
+    },
+    "max_members": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum capacity of the team (from assignment group_config)."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the team was created."
+    },
+    "created_by": {
+      "type": "string",
+      "description": "GitHub login of the student or lecturer who created the team."
+    },
+    "repo_name": {
+      "type": "string",
+      "description": "Full or relative repository name for the team."
+    },
+    "repo_id": {
+      "type": "integer",
+      "description": "Immutable GitHub repository ID of the provisioned team repo."
+    },
+    "repo_url": {
+      "type": "string",
+      "description": "HTTPS URL of the provisioned team repository."
+    },
+    "vacant": {
+      "type": "boolean",
+      "description": "True if all members have left or switched away from this team."
+    }
+  }
+}

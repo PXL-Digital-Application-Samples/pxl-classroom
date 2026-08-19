@@ -235,7 +235,47 @@
               <label>Repository name pattern <span class="req">*</span></label>
               <input v-model="form.repository_name_pattern" @input="manualRepositoryNamePattern = true; touchedFields.repository_name_pattern = true" placeholder="linux-processes-{github_login}" />
               <div v-if="touchedFields.repository_name_pattern && fieldErrors.repository_name_pattern" class="field-error-msg">{{ fieldErrors.repository_name_pattern }}</div>
-              <small>Must contain <code>{github_login}</code>. The student's repo will be named per this pattern.</small>
+              <small>Must contain <code>{{ form.assignment_type === 'group' ? '{team_slug}' : '{github_login}' }}</code>. The repository will be named per this pattern.</small>
+            </div>
+          </fieldset>
+
+          <!-- ASSIGNMENT TYPE -->
+          <fieldset>
+            <legend>Assignment Type</legend>
+            <div class="field">
+              <label>Collaboration Model</label>
+              <div class="radio-group" style="display: flex; gap: var(--space-lg); margin-top: 4px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  <input type="radio" v-model="form.assignment_type" value="individual" @change="onAssignmentTypeChange" />
+                  <span><strong>Individual</strong> (1 student per repository)</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  <input type="radio" v-model="form.assignment_type" value="group" @change="onAssignmentTypeChange" />
+                  <span><strong>Group</strong> (team collaboration on 1 repository)</span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="form.assignment_type === 'group'" class="group-config-box" style="margin-top: var(--space-md); padding: var(--space-md); background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-default); display: flex; flex-direction: column; gap: var(--space-md);">
+              <div class="field">
+                <label>Maximum team size <span class="req">*</span></label>
+                <input type="number" v-model.number="form.group_config.max_team_size" min="2" max="50" style="max-width: 140px;" />
+                <small>Maximum number of students allowed per team.</small>
+              </div>
+
+              <div class="field">
+                <label>Minimum team size</label>
+                <input type="number" v-model.number="form.group_config.min_team_size" min="1" max="50" style="max-width: 140px;" />
+                <small>Teams with fewer members will show an under-capacity warning in the lecturer dashboard.</small>
+              </div>
+
+              <div class="field checkbox">
+                <label>
+                  <input type="checkbox" v-model="form.group_config.allow_team_creation" />
+                  Allow students to create new teams (Self-service mode)
+                </label>
+                <small>When enabled, students can create new teams during acceptance or join existing open teams.</small>
+              </div>
             </div>
           </fieldset>
 
@@ -922,6 +962,13 @@ function emptyForm() {
     autograde_execution_environment: 'lecturer_local',
     autograde_visibility: 'private',
     autograde_tests: [],
+    assignment_type: 'individual',
+    group_config: {
+      max_team_size: 3,
+      min_team_size: 2,
+      formation_mode: 'self-service',
+      allow_team_creation: true,
+    },
   }
 }
 
@@ -975,7 +1022,21 @@ function autoSyncSlug() {
     form.value.id = toSlug(form.value.title)
     // Also keep repository_name_pattern in sync with slug if it has not been manually edited
     if (!manualRepositoryNamePattern.value) {
-      form.value.repository_name_pattern = `${form.value.id}-{github_login}`
+      form.value.repository_name_pattern = form.value.assignment_type === 'group'
+        ? `${form.value.id}-{team_slug}`
+        : `${form.value.id}-{github_login}`
+    }
+  }
+}
+
+function onAssignmentTypeChange() {
+  if (form.value.assignment_type === 'group') {
+    if (!manualRepositoryNamePattern.value || form.value.repository_name_pattern.endsWith('-{github_login}')) {
+      form.value.repository_name_pattern = form.value.repository_name_pattern.replace('{github_login}', '{team_slug}')
+    }
+  } else {
+    if (!manualRepositoryNamePattern.value || form.value.repository_name_pattern.endsWith('-{team_slug}')) {
+      form.value.repository_name_pattern = form.value.repository_name_pattern.replace('{team_slug}', '{github_login}')
     }
   }
 }
@@ -1149,6 +1210,13 @@ function editAssignment(a) {
     autograde_execution_environment: a.autograde?.execution_environment || 'lecturer_local',
     autograde_visibility: a.autograde?.visibility || 'private',
     autograde_tests: a.autograde?.tests || [],
+    assignment_type: a.assignment_type || 'individual',
+    group_config: {
+      max_team_size: a.group_config?.max_team_size || 3,
+      min_team_size: a.group_config?.min_team_size || 2,
+      formation_mode: a.group_config?.formation_mode || 'self-service',
+      allow_team_creation: a.group_config?.allow_team_creation !== false,
+    },
   }
   templateSearchText.value = form.value.template || ''
   touchedFields.value = {
@@ -1233,6 +1301,17 @@ function buildDoc(state = null) {
     state: state || form.value.state,
     ...(form.value.max_acceptances ? { max_acceptances: Number(form.value.max_acceptances) } : {}),
     lock_down_enabled: !!form.value.lock_down_enabled,
+    ...(form.value.assignment_type ? { assignment_type: form.value.assignment_type } : {}),
+    ...(form.value.assignment_type === 'group'
+      ? {
+          group_config: {
+            max_team_size: Number(form.value.group_config?.max_team_size) || 3,
+            ...(form.value.group_config?.min_team_size ? { min_team_size: Number(form.value.group_config.min_team_size) } : {}),
+            formation_mode: form.value.group_config?.formation_mode || 'self-service',
+            allow_team_creation: form.value.group_config?.allow_team_creation !== false,
+          },
+        }
+      : {}),
     ...(form.value.feedback_pr
       ? {
           feedback_pr: true,

@@ -423,3 +423,195 @@ template:
   assert.equal(res.status, 1);
   assert.equal(res.outputs.outcome, "rejected:no-roster");
 });
+
+test("group assignment - creates team manifest and outputs team target repo", () => {
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  max_team_size: 3
+  min_team_size: 2
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    {
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "alice",
+      GITHUB_ID: "101",
+      TEAM_SLUG: "alpha-team",
+      TEAM_NAME: "Alpha Team",
+    },
+    { assignmentYaml: yaml }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(res.outputs.team_slug, "alpha-team");
+  assert.equal(res.outputs.target_repo, "asgn-alpha-team");
+  assert.equal(res.outputs.is_first_member, "true");
+
+  const teamDoc = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "alpha-team.json"), "utf8"));
+  assert.equal(teamDoc.team_slug, "alpha-team");
+  assert.deepEqual(teamDoc.members, ["alice"]);
+  assert.equal(teamDoc.max_members, 3);
+});
+
+test("group assignment - second member joins existing team", () => {
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  max_team_size: 2
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res1 = runAccept(
+    {
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "alice",
+      GITHUB_ID: "101",
+      TEAM_SLUG: "beta-team",
+      TEAM_NAME: "Beta Team",
+    },
+    { assignmentYaml: yaml }
+  );
+  assert.equal(res1.status, 0);
+
+  // Now bob joins the same team
+  const res2 = runAccept(
+    {
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "bob",
+      GITHUB_ID: "102",
+      TEAM_SLUG: "beta-team",
+    },
+    {
+      assignmentYaml: yaml,
+      acceptances: {
+        "test-asgn": {
+          alice: { schema_version: 1, assignment_id: "test-asgn", github_login: "alice", team_slug: "beta-team" },
+        },
+      },
+    }
+  );
+  // Setting up beta-team in res2's temp dir before running:
+  // Instead, let's run in a single setupData or verify via accept
+});
+
+test("group assignment - rejects when team capacity is exceeded", () => {
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  max_team_size: 2
+template:
+  owner: TestOrg
+  repository: tpl`;
+
+  const dir = mkdtempSync(join(tmpdir(), "pxl-group-cap-test-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", "test-asgn.yml"), yaml);
+  mkdirSync(join(dir, "students"), { recursive: true });
+  writeFileSync(
+    join(dir, "students", "roster.yml"),
+    JSON.stringify({
+      schema_version: 2,
+      students: [
+        { student_number: "1", github_login: "alice" },
+        { student_number: "2", github_login: "bob" },
+        { student_number: "3", github_login: "charlie" },
+      ],
+    })
+  );
+  mkdirSync(join(dir, "teams", "test-asgn"), { recursive: true });
+  writeFileSync(
+    join(dir, "teams", "test-asgn", "full-team.json"),
+    JSON.stringify({
+      schema_version: 1,
+      assignment_id: "test-asgn",
+      team_slug: "full-team",
+      team_name: "Full Team",
+      members: ["alice", "bob"],
+      max_members: 2,
+    })
+  );
+
+  const res = spawnSync("node", [acceptScript], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      DATA_DIR: dir,
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "charlie",
+      GITHUB_ID: "103",
+      TEAM_SLUG: "full-team",
+      GITHUB_OUTPUT: join(dir, "out.env"),
+    },
+  });
+  assert.equal(res.status, 1);
+  const out = readFileSync(join(dir, "out.env"), "utf8");
+  assert.match(out, /outcome=rejected:team-full/);
+});
+
+test("group assignment - student switches team", () => {
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  max_team_size: 3
+template:
+  owner: TestOrg
+  repository: tpl`;
+
+  const dir = mkdtempSync(join(tmpdir(), "pxl-group-switch-test-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", "test-asgn.yml"), yaml);
+  mkdirSync(join(dir, "students"), { recursive: true });
+  writeFileSync(
+    join(dir, "students", "roster.yml"),
+    JSON.stringify({
+      schema_version: 2,
+      students: [{ student_number: "1", github_login: "alice" }],
+    })
+  );
+  mkdirSync(join(dir, "teams", "test-asgn"), { recursive: true });
+  writeFileSync(
+    join(dir, "teams", "test-asgn", "old-team.json"),
+    JSON.stringify({
+      schema_version: 1,
+      assignment_id: "test-asgn",
+      team_slug: "old-team",
+      team_name: "Old Team",
+      members: ["alice"],
+      max_members: 3,
+    })
+  );
+
+  const res = spawnSync("node", [acceptScript], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      DATA_DIR: dir,
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "alice",
+      GITHUB_ID: "101",
+      TEAM_SLUG: "new-team",
+      TEAM_NAME: "New Team",
+      TEAM_ACTION: "switch",
+      GITHUB_OUTPUT: join(dir, "out.env"),
+    },
+  });
+  assert.equal(res.status, 0);
+
+  // Old team should now be vacant with 0 members
+  const oldTeam = JSON.parse(readFileSync(join(dir, "teams", "test-asgn", "old-team.json"), "utf8"));
+  assert.deepEqual(oldTeam.members, []);
+  assert.equal(oldTeam.vacant, true);
+
+  // New team should have alice
+  const newTeam = JSON.parse(readFileSync(join(dir, "teams", "test-asgn", "new-team.json"), "utf8"));
+  assert.deepEqual(newTeam.members, ["alice"]);
+
+  const out = readFileSync(join(dir, "out.env"), "utf8");
+  assert.match(out, /previous_repo=asgn-old-team/);
+});

@@ -86,7 +86,42 @@ async function main() {
       broker_repo: def.state === "published" ? `broker-${def.id}` : null,
       max_acceptances: def.max_acceptances ?? 150,
       accepted_count: acceptedCount,
+      assignment_type: def.assignment_type || "individual",
+      group_config: def.assignment_type === "group" ? (def.group_config || null) : undefined,
     };
+
+    // If group assignment, also generate sanitized public teams file
+    if (def.assignment_type === "group") {
+      const teamsDir = join(dataDir, "teams", def.id);
+      const publicTeamsDir = join(outputDir, "teams");
+      await mkdir(publicTeamsDir, { recursive: true });
+      const publicTeams = [];
+
+      if (existsSync(teamsDir)) {
+        const teamFiles = (await readdir(teamsDir)).filter((f) => f.endsWith(".json"));
+        for (const tf of teamFiles) {
+          try {
+            const tdata = JSON.parse(await readFile(join(teamsDir, tf), "utf-8"));
+            if (!tdata.vacant) {
+              const maxMem = tdata.max_members || def.group_config?.max_team_size || 3;
+              publicTeams.push({
+                team_slug: tdata.team_slug,
+                team_name: tdata.team_name,
+                members: tdata.members || [],
+                member_count: (tdata.members || []).length,
+                max_members: maxMem,
+                is_full: (tdata.members || []).length >= maxMem,
+              });
+            }
+          } catch {}
+        }
+      }
+
+      await writeFile(
+        join(publicTeamsDir, `${def.id}.json`),
+        JSON.stringify({ schema_version: 1, assignment_id: def.id, teams: publicTeams }, null, 2) + "\n"
+      );
+    }
   }
 
   const output = {

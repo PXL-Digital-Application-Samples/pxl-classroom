@@ -43,6 +43,39 @@
       "type": ["string", "null"],
       "description": "GitHub login of the lecturer who triggered the last Live Status refresh."
     },
+    "teams": {
+      "type": "array",
+      "description": "Per-team summary for group assignments.",
+      "items": {
+        "type": "object",
+        "required": ["team_slug", "team_name", "members"],
+        "properties": {
+          "team_slug": { "type": "string" },
+          "team_name": { "type": "string" },
+          "members": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "repo_name": { "type": ["string", "null"] },
+          "repo_url": { "type": ["string", "null"] },
+          "repo_id": { "type": ["integer", "null"] },
+          "submission_status": {
+            "type": "string",
+            "enum": ["on-time", "late", "no-submission", "unknown"]
+          },
+          "latest_observed_sha": { "type": ["string", "null"] },
+          "commit_count": { "type": ["integer", "null"] },
+          "lock_down_at": { "type": ["string", "null"] },
+          "preservation_status": { "type": ["string", "null"] },
+          "preserved_sha": { "type": ["string", "null"] },
+          "under_capacity": { "type": "boolean" },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
     "students": {
       "type": "array",
       "description": "Per-student submission summary.",
@@ -55,6 +88,14 @@
             "type": "string",
             "minLength": 1,
             "description": "GitHub username of the student."
+          },
+          "team_slug": {
+            "type": ["string", "null"],
+            "description": "Team slug if the student is in a team for a group assignment."
+          },
+          "team_name": {
+            "type": ["string", "null"],
+            "description": "Display name of the team if in a group assignment."
           },
           "student_number": {
             "type": ["string", "null"],

@@ -217,7 +217,8 @@ Done by a lecturer.
 | Title | shown to students |
 | Slug (URL identifier) | URL-safe, auto-derived from the title, e.g. `linux-processes-2026`. The Admin Panel checks for duplicate slugs in the local list and queries the control repo's Contents API to block silent overwrites. |
 | Template repository | pick from template repositories in your org (repositories marked as templates on GitHub) |
-| Repository name pattern | must contain `{github_login}`, e.g. `linux-processes-{github_login}` |
+| Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}` |
+| Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
 | Max acceptances | guardrail: cap on accepted students (default 150; leave empty for no cap; 0 is rejected) |
 | Lock down student repos at the deadline | default on |

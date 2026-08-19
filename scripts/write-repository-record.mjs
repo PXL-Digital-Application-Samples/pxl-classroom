@@ -3,7 +3,7 @@
 // disk. Replaces an inline heredoc in acceptance-handler.yml / retry-acceptance.yml
 // (CLAUDE.md: no `node -e` / large heredocs in workflow YAML).
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { validateAgainst } from "../lib/validate.mjs";
@@ -14,6 +14,7 @@ const { values } = parseArgs({
     "login":         { type: "string" },
     "org":           { type: "string" },
     "target-repo":   { type: "string" },
+    "team-slug":     { type: "string" },
     "repo-id":       { type: "string" },
     "repo-url":      { type: "string" },
     "baseline-sha":  { type: "string" },
@@ -31,6 +32,7 @@ if (missing.length) {
 
 const assignmentId = values["assignment-id"];
 const login = values["login"];
+const teamSlug = values["team-slug"];
 const repoIdRaw = (values["repo-id"] || "").trim();
 const baselineSha = (values["baseline-sha"] || "").trim();
 
@@ -49,6 +51,7 @@ const record = {
   feedback_pr_number: null,
   feedback_pr_url: null,
   feedback_pr_baseline_sha: baselineSha || null,
+  ...(teamSlug ? { team_slug: teamSlug } : {}),
 };
 
 // repo_id is required by the schema; reject up-front rather than write garbage.
@@ -75,3 +78,21 @@ mkdirSync(outDir, { recursive: true });
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, JSON.stringify(record, null, 2) + "\n");
 console.log(`wrote ${outPath}`);
+
+// If team-slug is provided, also update teams/<assignment-id>/<team-slug>.json with repo facts
+if (teamSlug) {
+  const teamPath = join(values["data-dir"], "teams", assignmentId, `${teamSlug}.json`);
+  if (existsSync(teamPath)) {
+    try {
+      const team = JSON.parse(readFileSync(teamPath, "utf-8"));
+      team.repo_name = record.repo_name;
+      team.repo_id = record.repo_id;
+      team.repo_url = record.repo_url;
+      writeFileSync(teamPath, JSON.stringify(team, null, 2) + "\n");
+      console.log(`updated team record ${teamPath}`);
+    } catch (e) {
+      console.error(`warning: could not update team record ${teamPath}: ${e.message}`);
+    }
+  }
+}
+

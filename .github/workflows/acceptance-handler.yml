@@ -8,7 +8,7 @@ permissions:
   actions: write # dispatches regenerate-dashboard.yml
 
 concurrency:
-  group: accept-${{ github.event.client_payload.org }}-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.github_login }}
+  group: accept-${{ github.event.client_payload.org }}-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.team_slug || github.event.client_payload.github_login }}
   cancel-in-progress: false
 
 jobs:
@@ -51,6 +51,7 @@ jobs:
           student-login: ${{ steps.accept.outputs.github_login }}
           feedback-pr: ${{ steps.accept.outputs.feedback_pr }}
           feedback-pr-baseline-branch: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
+          previous-repo: ${{ steps.accept.outputs.previous_repo }}
           
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
@@ -72,6 +73,7 @@ jobs:
         env:
           ASSIGNMENT_ID: ${{ steps.accept.outputs.assignment_id }}
           LOGIN: ${{ steps.accept.outputs.github_login }}
+          TEAM_SLUG: ${{ steps.accept.outputs.team_slug }}
           OUTCOME: ${{ steps.prov.outputs.outcome }}
         run: |
           set -e
@@ -81,12 +83,13 @@ jobs:
               --login "$LOGIN" \
               --org "${{ github.event.client_payload.org }}" \
               --target-repo "${{ steps.accept.outputs.target_repo }}" \
+              --team-slug "$TEAM_SLUG" \
               --repo-id "${{ steps.prov.outputs.repo-id }}" \
               --repo-url "${{ steps.prov.outputs.repo-url }}" \
               --baseline-sha "${{ steps.prov.outputs.baseline-sha }}" \
               --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
               --data-dir control
-            git -C control add "repositories/"
+            git -C control add "repositories/" "teams/"
           fi
 
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"

@@ -72,10 +72,52 @@
         }
       }
     },
+    "assignment_type": {
+      "type": "string",
+      "enum": ["individual", "group"],
+      "default": "individual",
+      "description": "Whether this is an individual student assignment or a group assignment."
+    },
+    "group_config": {
+      "type": "object",
+      "description": "Configuration for group assignments when assignment_type is 'group'.",
+      "required": ["max_team_size"],
+      "additionalProperties": false,
+      "properties": {
+        "max_team_size": {
+          "type": "integer",
+          "minimum": 2,
+          "default": 3,
+          "description": "Maximum number of students per team."
+        },
+        "min_team_size": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Target minimum number of students per team (warns on dashboard if under-capacity)."
+        },
+        "formation_mode": {
+          "type": "string",
+          "enum": ["self-service", "pre-assigned"],
+          "default": "self-service",
+          "description": "How teams are formed: self-service (students pick/create) or pre-assigned (from roster)."
+        },
+        "allow_team_creation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether students are allowed to create new teams in self-service mode."
+        },
+        "team_name_prefix": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]*$",
+          "description": "Optional prefix automatically added to new team names."
+        }
+      }
+    },
     "repository_name_pattern": {
       "type": "string",
-      "pattern": "\\{github_login\\}",
-      "description": "Naming pattern for student repositories. Must contain {github_login}."
+      "pattern": "(\\{github_login\\}|\\{team_slug\\})",
+      "description": "Naming pattern for repositories. Must contain {github_login} for individual or {team_slug} for group."
     },
     "opens_at": {
       "type": "string",

@@ -95,7 +95,15 @@
           <DeviceFlowCard v-else :flow="deviceFlow" @cancel="cancelLogin" />
         </div>
 
-        <!-- Authenticated - acceptance flow -->
+        <!-- Authenticated - Group Assignment Flow -->
+        <GroupAcceptanceCard
+          v-else-if="assignment && assignment.assignment_type === 'group'"
+          :assignment="assignment"
+          :org="org"
+          :user="user"
+        />
+
+        <!-- Authenticated - Individual acceptance flow -->
         <div v-else class="acceptance-card card">
           <!-- Not yet accepted -->
           <div v-if="acceptState === 'ready'">
@@ -272,6 +280,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
+import GroupAcceptanceCard from '../components/GroupAcceptanceCard.vue'
 import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'

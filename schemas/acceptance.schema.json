@@ -42,6 +42,14 @@
       "type": "string",
       "description": "URL of the workflow run that processed the star event."
     },
+    "team_slug": {
+      "type": "string",
+      "description": "URL-safe slug identifying the team if this is a group assignment."
+    },
+    "team_name": {
+      "type": "string",
+      "description": "Display name of the team if this is a group assignment."
+    },
     "status": {
       "type": "string",
       "enum": ["accepted", "provisioning", "provisioned", "failed"],

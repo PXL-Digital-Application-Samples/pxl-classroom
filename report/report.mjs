@@ -114,6 +114,18 @@ async function main() {
   );
   const overrideByLogin = new Map(overrides.map((o) => [o.github_login, o]));
 
+  // Load teams (for group assignments)
+  const teams = await readDirJsonFiles(
+    join(dataDir, "teams", assignmentId)
+  );
+  const teamBySlug = new Map(teams.map((t) => [t.team_slug, t]));
+  const teamByMemberLogin = new Map();
+  for (const t of teams) {
+    for (const m of t.members || []) {
+      teamByMemberLogin.set(m.toLowerCase(), t);
+    }
+  }
+
   // Build per-student report.
   // Include roster students who haven't accepted yet so the dashboard shows
   // the full population, not just the active acceptors.
@@ -268,9 +280,12 @@ async function main() {
     if (acceptance && !repo) warnings.push("accepted-not-provisioned");
     if (firstLateSha) warnings.push("late-activity-detected");
 
+    const team = teamByMemberLogin.get(login.toLowerCase()) || (acceptance?.team_slug ? teamBySlug.get(acceptance.team_slug) : null);
     const rosterEntry = rosterByLogin.get(login);
     students.push({
       github_login: login,
+      team_slug: team?.team_slug ?? acceptance?.team_slug ?? null,
+      team_name: team?.team_name ?? acceptance?.team_name ?? null,
       student_number: rosterEntry?.student_number ?? null,
       full_name: rosterEntry?.full_name ?? null,
       email: rosterEntry?.email ?? null,
@@ -338,6 +353,35 @@ async function main() {
     }
   }
 
+  const teamsReport = teams.map((t) => {
+    const members = t.members || [];
+    const memberStudents = students.filter((s) =>
+      members.map((m) => m.toLowerCase()).includes(s.github_login.toLowerCase())
+    );
+    const firstMember = memberStudents[0];
+    const underCapacity = assignment.group_config?.min_team_size
+      ? members.length < assignment.group_config.min_team_size
+      : false;
+    const warnings = [];
+    if (underCapacity) warnings.push("under-capacity");
+    return {
+      team_slug: t.team_slug,
+      team_name: t.team_name,
+      members,
+      repo_name: t.repo_name || firstMember?.repo_name || null,
+      repo_url: t.repo_url || firstMember?.repo_url || null,
+      repo_id: t.repo_id || firstMember?.repo_id || null,
+      submission_status: firstMember?.submission_status || "no-submission",
+      latest_observed_sha: firstMember?.latest_observed_sha || null,
+      commit_count: firstMember?.commit_count || null,
+      lock_down_at: firstMember?.lock_down_at || null,
+      preservation_status: firstMember?.preservation_status || null,
+      preserved_sha: firstMember?.preserved_sha || null,
+      under_capacity: underCapacity,
+      warnings,
+    };
+  });
+
   // Build report
   const report = {
     schema_version: 1,
@@ -345,6 +389,7 @@ async function main() {
     generated_at: new Date().toISOString(),
     generator_version: "1.0.0",
     source_revision: process.env.GITHUB_SHA || "unknown",
+    ...(assignment.assignment_type === "group" ? { teams: teamsReport } : {}),
     students,
   };
 
@@ -363,6 +408,8 @@ async function main() {
   if (outputFormat === "csv" || outputFormat === "both") {
     const csvHeaders = [
       "github_login",
+      "team_slug",
+      "team_name",
       "student_number",
       "full_name",
       "class_group",

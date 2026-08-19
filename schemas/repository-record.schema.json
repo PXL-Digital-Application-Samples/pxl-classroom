@@ -7,7 +7,6 @@
   "required": [
     "schema_version",
     "assignment_id",
-    "github_login",
     "repo_id",
     "repo_name",
     "repo_url"
@@ -27,7 +26,16 @@
     "github_login": {
       "type": "string",
       "minLength": 1,
-      "description": "GitHub username of the repository owner (student)."
+      "description": "GitHub username of the repository owner (for individual assignment)."
+    },
+    "team_slug": {
+      "type": "string",
+      "description": "Team slug if this is a group repository."
+    },
+    "members": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "GitHub logins of the members sharing this repository."
     },
     "repo_id": {
       "type": "integer",

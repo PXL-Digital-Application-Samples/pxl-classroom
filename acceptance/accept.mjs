@@ -142,10 +142,106 @@ async function main() {
     log("roster", { ok: true, note: `@${login} is on the roster` });
   }
 
-  // 5. Check idempotency - already accepted?
+  // 5. Group assignment team resolution & checks
+  const isGroup = assignment.assignment_type === "group";
+  let teamSlug = env("TEAM_SLUG", "");
+  let teamName = env("TEAM_NAME", "");
+  const teamAction = env("TEAM_ACTION", "join");
+  let previousTeamSlug = null;
+  let previousRepo = null;
+  let isFirstMember = true;
+
+  if (isGroup) {
+    if (!teamSlug && teamName) {
+      teamSlug = teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    }
+    if (!teamSlug) {
+      await fail("rejected:no-team", "team_slug or team_name is required for group assignments");
+    }
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(teamSlug)) {
+      await fail("rejected:invalid-team-slug", `team_slug "${teamSlug}" is not a valid slug`);
+    }
+
+    const teamsDir = join(dataDir, "teams", assignmentId);
+    await mkdir(teamsDir, { recursive: true });
+
+    let oldTeam = null;
+    let oldTeamFile = null;
+    if (existsSync(teamsDir)) {
+      const teamFiles = (await readdir(teamsDir)).filter((f) => f.endsWith(".json"));
+      for (const tf of teamFiles) {
+        try {
+          const tdata = JSON.parse(await readFile(join(teamsDir, tf), "utf-8"));
+          if (tdata.members?.some((m) => m.toLowerCase() === login.toLowerCase())) {
+            oldTeam = tdata;
+            oldTeamFile = join(teamsDir, tf);
+            break;
+          }
+        } catch {}
+      }
+    }
+
+    const teamFile = join(teamsDir, `${teamSlug}.json`);
+    const maxTeamSize = assignment.group_config?.max_team_size || 3;
+
+    if (oldTeam) {
+      if (oldTeam.team_slug === teamSlug) {
+        log("team-idempotent", { ok: true, note: `already in team ${teamSlug}` });
+      } else {
+        log("team-switch", { ok: true, note: `switching from ${oldTeam.team_slug} to ${teamSlug}` });
+        previousTeamSlug = oldTeam.team_slug;
+        previousRepo = deriveRepoName(assignment.repository_name_pattern, oldTeam.team_slug, login);
+        oldTeam.members = oldTeam.members.filter((m) => m.toLowerCase() !== login.toLowerCase());
+        if (oldTeam.members.length === 0) {
+          oldTeam.vacant = true;
+        }
+        await writeFile(oldTeamFile, JSON.stringify(oldTeam, null, 2) + "\n");
+      }
+    }
+
+    if (existsSync(teamFile)) {
+      const teamData = JSON.parse(await readFile(teamFile, "utf-8"));
+      if (!teamData.members.some((m) => m.toLowerCase() === login.toLowerCase())) {
+        if (teamData.members.length >= (teamData.max_members || maxTeamSize)) {
+          await fail(
+            "rejected:team-full",
+            `team "${teamSlug}" has reached its capacity (${teamData.members.length}/${teamData.max_members || maxTeamSize})`
+          );
+        }
+        teamData.members.push(login);
+        teamData.vacant = false;
+        await writeFile(teamFile, JSON.stringify(teamData, null, 2) + "\n");
+      }
+      teamName = teamData.team_name || teamName || teamSlug;
+      isFirstMember = teamData.members.length === 1;
+    } else {
+      if (assignment.group_config?.allow_team_creation === false) {
+        await fail("rejected:team-creation-disabled", "creating new teams is disabled for this assignment");
+      }
+      const newTeam = {
+        schema_version: 1,
+        assignment_id: assignmentId,
+        team_slug: teamSlug,
+        team_name: teamName || teamSlug,
+        members: [login],
+        max_members: maxTeamSize,
+        created_at: now.toISOString(),
+        created_by: login,
+      };
+      await writeFile(teamFile, JSON.stringify(newTeam, null, 2) + "\n");
+      teamName = newTeam.team_name;
+      isFirstMember = true;
+    }
+  }
+
+  // 6. Check idempotency - already accepted?
   const acceptDir = join(dataDir, "acceptances", assignmentId);
   const acceptFile = join(acceptDir, `${login}.json`);
-  if (existsSync(acceptFile)) {
+  const targetRepo = isGroup
+    ? deriveRepoName(assignment.repository_name_pattern, teamSlug, login)
+    : deriveRepoName(assignment.repository_name_pattern, login, login);
+
+  if (existsSync(acceptFile) && !previousTeamSlug) {
     const existing = JSON.parse(await readFile(acceptFile, "utf-8"));
     log("idempotent", { ok: true, note: `already accepted at ${existing.accepted_at}` });
 
@@ -153,7 +249,11 @@ async function main() {
     await setOutput("github_login", login);
     await setOutput("github_id", githubId);
     await setOutput("outcome", "already-accepted");
-    await setOutput("target_repo", deriveRepoName(assignment.repository_name_pattern, login));
+    await setOutput("target_repo", targetRepo);
+    await setOutput("team_slug", teamSlug);
+    await setOutput("team_name", teamName);
+    await setOutput("is_first_member", isFirstMember ? "true" : "false");
+    await setOutput("previous_repo", previousRepo || "");
     await setOutput("template_owner", assignment.template.owner);
     await setOutput("template_repo", assignment.template.repository);
     await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
@@ -162,9 +262,9 @@ async function main() {
     process.exit(0);
   }
 
-  // 6. Check per-assignment cap (guardrail)
+  // 7. Check per-assignment cap (guardrail)
   const maxAcceptances = assignment.max_acceptances;
-  if (maxAcceptances) {
+  if (maxAcceptances && !previousTeamSlug) {
     let currentCount = 0;
     if (existsSync(acceptDir)) {
       const files = await readdir(acceptDir);
@@ -178,8 +278,6 @@ async function main() {
     log("cap", { ok: true, note: `${currentCount + 1}/${maxAcceptances}` });
   }
 
-  // 7. Derive deterministic repo name
-  const targetRepo = deriveRepoName(assignment.repository_name_pattern, login);
   log("repo-name", { ok: true, note: targetRepo });
 
   // 8. Record acceptance
@@ -192,6 +290,7 @@ async function main() {
     accepted_at: now.toISOString(),
     star_event_ref: workflowRunUrl || null,
     status: "accepted",
+    ...(isGroup ? { team_slug: teamSlug, team_name: teamName } : {}),
   };
   await writeFile(acceptFile, JSON.stringify(record, null, 2) + "\n");
   log("record", { ok: true, note: `wrote ${acceptFile}` });
@@ -202,6 +301,10 @@ async function main() {
   await setOutput("github_id", githubId);
   await setOutput("outcome", "accepted");
   await setOutput("target_repo", targetRepo);
+  await setOutput("team_slug", teamSlug);
+  await setOutput("team_name", teamName);
+  await setOutput("is_first_member", isFirstMember ? "true" : "false");
+  await setOutput("previous_repo", previousRepo || "");
   await setOutput("template_owner", assignment.template.owner);
   await setOutput("template_repo", assignment.template.repository);
   await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
@@ -211,14 +314,18 @@ async function main() {
     `### Acceptance: \`accepted\`\n\n` +
       `| field | value |\n|---|---|\n` +
       `| assignment | ${assignmentId} |\n| student | ${login} (id ${githubId}) |\n` +
-      `| repo | ${org}/${targetRepo} |\n| time | ${now.toISOString()} |\n`
+      `| repo | ${org}/${targetRepo} |\n` +
+      (isGroup ? `| team | ${teamName} (${teamSlug}) |\n` : "") +
+      `| time | ${now.toISOString()} |\n`
   );
   log("done", { ok: true, note: "accepted" });
 }
 
-function deriveRepoName(pattern, login) {
-  if (!pattern) return login;
-  return pattern.replace("{github_login}", login);
+function deriveRepoName(pattern, teamSlugOrLogin, login) {
+  if (!pattern) return teamSlugOrLogin;
+  return pattern
+    .replace("{team_slug}", teamSlugOrLogin)
+    .replace("{github_login}", login || teamSlugOrLogin);
 }
 
 main().catch(async (e) => {
