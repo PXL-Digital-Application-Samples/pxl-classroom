@@ -7,12 +7,11 @@ test("EXPECTED_APP_PERMISSIONS shape", () => {
   assert.equal(EXPECTED_APP_PERMISSIONS.actions, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.administration, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.contents, "write");
-  assert.equal(EXPECTED_APP_PERMISSIONS.metadata, "read");
-  assert.equal(EXPECTED_APP_PERMISSIONS.secrets, "write");
-  assert.equal(EXPECTED_APP_PERMISSIONS.variables, "write");
-  assert.equal(EXPECTED_APP_PERMISSIONS.workflows, "write");
-  assert.equal(EXPECTED_APP_PERMISSIONS.pull_requests, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.issues, "write");
+  assert.equal(EXPECTED_APP_PERMISSIONS.metadata, "read");
+  assert.equal(EXPECTED_APP_PERMISSIONS.pull_requests, "write");
+  assert.equal(EXPECTED_APP_PERMISSIONS.secrets, "write");
+  assert.equal(EXPECTED_APP_PERMISSIONS.workflows, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.organization_plan, "read");
 });
 

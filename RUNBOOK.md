@@ -23,7 +23,7 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
 1. In a browser, open the Pages site at `https://<pages-host>/pxl-classroom/setup` (e.g. `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`).
 2. Enter the owning **organization** (recommended — leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
-   - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Variables RW**, **Workflows RW**.
+   - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Workflows RW**.
    - Device Flow: enabled.
    - Callback URLs: pre-filled for your Pages domain.
 3. Confirm on GitHub's page. GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** — store them per §1.3 immediately. (If the exchange fails — the code is single-use and expires after one hour — the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
@@ -489,7 +489,7 @@ Verify with `gh api /app` — `permissions` should reflect the new set. Lecturer
 
 Run periodically, especially after touching workflows or App settings.
 
-- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `issues: write`, `metadata: read`, `pull_requests: write`, `secrets: write`, `variables: write`, `workflows: write`) **plus** the manually-added perms (`organization_plan: read`, `starring: write`).
+- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `issues: write`, `metadata: read`, `pull_requests: write`, `secrets: write`, `workflows: write`) **plus** the manually-added perms (`organization_plan: read`, `starring: write`).
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.

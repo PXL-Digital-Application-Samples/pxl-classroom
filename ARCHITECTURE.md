@@ -88,7 +88,6 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 | Repository: Metadata | Read | ✔ | Repository queries and baseline checks |
 | Repository: Pull Requests | Read/Write | ✔ | Feedback PR orchestration |
 | Repository: Secrets | Read/Write | ✔ | Setting Actions secrets during provisioning |
-| Repository: Variables | Read/Write | ✔ | Setting Actions variables on broker repositories |
 | Repository: Workflows | Read/Write | ✔ | Provisioning Actions workflows in student repositories |
 | Organization: Plan | Read | ✗ (Manual) | Enhanced Billing endpoint used by the weekly usage report |
 | Account: Starring | Read/Write | ✗ (Manual) | The browser-side device-flow token (stars broker on accept) |
@@ -460,18 +459,17 @@ A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pag
 
 GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** — device flow is a public-client flow.
 
-The App needs the following permissions. Nine repository permissions are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two permissions are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
+The App needs the following permissions. Eight repository permissions are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two permissions are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
 
 | Permission | In manifest? | Why |
 |---|---|---|
-| `actions: write` | ✔ | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage). |
+| `actions: write` | ✔ | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage) and sets broker variables. |
 | `administration: write` | ✔ | Create student repos, demote at lock-down. |
 | `contents: write` | ✔ | Read/write assignment YAMLs, overrides, reports in the control repo. |
 | `issues: write` | ✔ | Open notification & tracking issues in the control repo. |
 | `metadata: read` | ✔ | Baseline repository metadata. |
 | `pull_requests: write` | ✔ | Open & manage Feedback PRs on student repositories. |
 | `secrets: write` | ✔ | Set per-broker / per-control-repo Actions secrets during provisioning. |
-| `variables: write` | ✔ | Set Actions variables on broker repositories. |
 | `workflows: write` | ✔ | Provision Actions workflows in student repositories. |
 | `organization_plan: read` | ✗ manual | Enhanced Billing endpoint used by the weekly usage report. |
 | `starring: write` (account) | ✗ manual | Students star the broker to trigger acceptance. User-level permission. |

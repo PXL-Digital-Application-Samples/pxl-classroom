@@ -335,10 +335,7 @@ async function runPermissionCheck() {
     // Check expected permissions (both manifest and manual permissions)
     const list = []
     for (const [perm, expected] of Object.entries(EXPECTED_APP_PERMISSIONS)) {
-      let got = actual[perm]
-      if (perm === 'variables' && got === undefined) {
-        got = actual.actions_variables
-      }
+      const got = actual[perm]
       list.push({
         name: perm === 'organization_plan' ? 'organization_plan (Plan: Read-only)' : perm,
         expected,
