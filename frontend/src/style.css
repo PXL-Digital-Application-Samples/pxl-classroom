@@ -190,6 +190,24 @@ a:hover {
   font-size: 1rem;
 }
 
+/* Logos */
+.header-logo {
+  height: 26px;
+  width: auto;
+  object-fit: contain;
+  vertical-align: middle;
+  display: inline-block;
+}
+
+.hero-logo {
+  height: 84px;
+  width: auto;
+  object-fit: contain;
+  margin: 0 auto var(--space-md) auto;
+  display: block;
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.4));
+}
+
 /* Cards */
 .card {
   background: var(--bg-secondary);

@@ -4,10 +4,7 @@
     <header class="home-header">
       <div class="container flex items-center justify-between">
         <div class="logo flex items-center gap-sm">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-          </svg>
+          <img :src="logoUrl" alt="PXL Classroom" class="header-logo" />
           <span class="brand-title">PXL Classroom</span>
         </div>
         <div class="header-right flex items-center gap-sm">
@@ -24,10 +21,7 @@
       <div class="hero">
         <div class="hero-glow"></div>
         <div class="container">
-          <svg class="hero-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-          </svg>
+          <img :src="logoUrl" alt="PXL Classroom" class="hero-logo" />
           <h1>PXL Classroom</h1>
           <p class="subtitle">GitHub-native assignment distribution and evaluation for PXL</p>
 
@@ -217,6 +211,7 @@ import { useRouter } from 'vue-router'
 import UserBadge from '../components/UserBadge.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
+import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getInvitations, ghApi } from '../lib/api.js'

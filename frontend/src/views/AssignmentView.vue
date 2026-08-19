@@ -2,11 +2,8 @@
   <div class="assignment-page">
     <header class="assignment-header">
       <div class="container">
-        <div class="logo">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-          </svg>
+        <div class="logo flex items-center gap-sm">
+          <img :src="logoUrl" alt="PXL Classroom" class="header-logo" />
           <span>PXL Classroom</span>
         </div>
         <UserBadge :user="user" @logout="handleLogout" />
@@ -276,6 +273,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
+import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi } from '../lib/api.js'
