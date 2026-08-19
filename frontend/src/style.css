@@ -174,6 +174,17 @@ a:hover {
   background: #bb8009;
 }
 
+.btn-amber {
+  background: #d29922;
+  border-color: #bb8009;
+  color: #ffffff;
+}
+.btn-amber:hover {
+  background: #bb8009;
+  border-color: #9e6a03;
+  color: #ffffff;
+}
+
 .btn-lg {
   padding: var(--space-md) var(--space-lg);
   font-size: 1rem;

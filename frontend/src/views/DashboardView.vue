@@ -201,11 +201,6 @@
               <span>Show archived ({{ archivedCount }})</span>
             </label>
           </div>
-          <div class="flex items-center gap-sm">
-            <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
-              Admin Panel
-            </router-link>
-          </div>
         </div>
         
         <div v-if="visibleAssignments.length === 0" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">

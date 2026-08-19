@@ -12,7 +12,17 @@
             {{ assignment.state === 'published' ? 'Accepting' : (assignment.state === 'closed' ? 'Acceptance Closed' : assignment.state) }}
           </span>
         </div>
-        <UserBadge :user="user" @logout="handleLogout" />
+        <div class="header-right flex items-center gap-md">
+          <router-link
+            :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"
+            class="btn btn-amber btn-with-icon"
+            title="Open and edit this assignment in the Admin Panel"
+          >
+            <Icon name="edit-3" :size="14" />
+            <span>Admin</span>
+          </router-link>
+          <UserBadge :user="user" @logout="handleLogout" />
+        </div>
       </div>
     </header>
 
