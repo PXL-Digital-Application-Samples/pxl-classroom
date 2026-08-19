@@ -85,13 +85,28 @@
         </div>
 
         <div class="kpi-card">
+          <span class="kpi-label">Organization API Quota</span>
+          <div class="kpi-val-row" v-if="rateLimit">
+            <span :class="['kpi-val', rateLimit.remaining < 500 ? 'text-danger' : '']">
+              {{ rateLimit.remaining.toLocaleString() }}
+            </span>
+            <span class="kpi-unit">/ {{ rateLimit.limit.toLocaleString() }} avail</span>
+          </div>
+          <div class="kpi-val-row" v-else>
+            <span class="kpi-val text-muted">-</span>
+            <span class="kpi-unit">/ 5,000 avail</span>
+          </div>
+          <span class="kpi-sub text-muted">{{ formatRateReset(rateLimit?.reset) }}</span>
+        </div>
+
+        <div class="kpi-card">
           <span class="kpi-label">Organization Status</span>
           <div class="kpi-val-row">
             <span v-if="report.over_count > 0" class="status-pill status-pill-warn">
-              ⚠ {{ report.over_count }} repo(s) over threshold
+              ⚠ {{ report.over_count }} repo(s) over
             </span>
             <span v-else class="status-pill status-pill-ok">
-              ✓ All {{ org }} repos within limits
+              ✓ All {{ org }} within limits
             </span>
           </div>
           <span class="kpi-sub text-muted">Period: {{ report.week_start }} → {{ report.week_end }}</span>
@@ -162,7 +177,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
 import Icon from './Icon.vue'
 import { getToken } from '../lib/auth.js'
-import { getRepoContent, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
+import { getRepoContent, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -188,6 +203,7 @@ const sortDir = ref('desc')
 const triggering = ref(false)
 const runWatching = ref(false)
 const pollCount = ref(0)
+const rateLimit = ref(null)
 let runPollInterval = null
 
 const orgTotals = computed(() => {
@@ -235,6 +251,14 @@ function formatSource(src) {
   return 'None'
 }
 
+function formatRateReset(resetDate) {
+  if (!resetDate) return 'Hourly REST quota'
+  const diffMs = resetDate.getTime() - Date.now()
+  if (diffMs <= 0) return 'Resets momentarily'
+  const mins = Math.ceil(diffMs / 60000)
+  return `Resets in ~${mins} min`
+}
+
 const filtered = computed(() => {
   if (!report.value?.items) return []
   const f = filter.value.toLowerCase().trim()
@@ -266,12 +290,32 @@ function ariaSortFor(key) {
   return sortDir.value === 'asc' ? 'ascending' : 'descending'
 }
 
+async function fetchRateLimit() {
+  const token = getToken()
+  if (!token) return
+  try {
+    const res = await ghApi(token, 'GET', '/rate_limit')
+    if (res.ok && res.data?.resources?.core) {
+      const core = res.data.resources.core
+      rateLimit.value = {
+        remaining: core.remaining,
+        limit: core.limit,
+        used: core.used || (core.limit - core.remaining),
+        reset: core.reset ? new Date(core.reset * 1000) : null,
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch rate limit:', e)
+  }
+}
+
 async function loadReport() {
   const token = getToken()
   if (!token || !props.org) return
   loading.value = true
   loadError.value = null
   try {
+    await fetchRateLimit()
     const content = await getRepoContent(token, props.org, config.controlRepo, 'reports/usage-latest.json')
     if (content) {
       report.value = JSON.parse(content)
@@ -404,7 +448,7 @@ onBeforeUnmount(() => {
 /* KPI Summary Cards */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-sm);
   margin-bottom: var(--space-sm);
 }
