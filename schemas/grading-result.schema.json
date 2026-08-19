@@ -50,7 +50,7 @@
     },
     "runner": {
       "type": "string",
-      "enum": ["docker", "host"],
+      "enum": ["docker", "host", "github_actions"],
       "description": "How the tests were executed."
     },
     "total_points": {

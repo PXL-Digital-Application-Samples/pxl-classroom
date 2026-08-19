@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { parse } from "yaml";
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
 
 test("buildAutogradingWorkflow: generates reusable caller when visibility is private", () => {
@@ -11,9 +12,14 @@ test("buildAutogradingWorkflow: generates reusable caller when visibility is pri
       tests: [{ id: "t1", type: "run", command: "npm test", points: 10 }]
     }
   };
-  const yaml = buildAutogradingWorkflow(assignment, "PXLAutomation");
-  assert.ok(yaml.includes("uses: PXLAutomation/pxl-classroom-control/.github/workflows/grade.yml@main"));
-  assert.ok(!yaml.includes("classroom-resources"));
+  const yamlStr = buildAutogradingWorkflow(assignment, "PXLAutomation");
+  assert.ok(yamlStr.includes("uses: PXLAutomation/pxl-classroom-control/.github/workflows/grade.yml@main"));
+  assert.ok(!yamlStr.includes("classroom-resources"));
+
+  // Verify valid YAML
+  const doc = parse(yamlStr);
+  assert.equal(doc.name, "Autograding");
+  assert.ok(doc.jobs?.grade?.uses);
 });
 
 test("buildAutogradingWorkflow: generates full autograding workflow with graders and reporter when visibility is public", () => {
@@ -24,32 +30,83 @@ test("buildAutogradingWorkflow: generates full autograding workflow with graders
       visibility: "public",
       tests: [
         { id: "task-1-lint", type: "run", command: "npm run lint", timeout_s: 5, points: 5 },
-        { id: "task-2-io", type: "io", command: "./greet", stdin: "Alice\n", expected_stdout: "Hello Alice\n", timeout_s: 3, points: 10 },
+        { id: "task-2-io", type: "io", command: "./greet", stdin: "Alice\nBob\n", expected_stdout: "Hello Alice\nHello Bob\n", timeout_s: 3, points: 10 },
         { id: "task-3-pytest", type: "python", script: "def test_it(): pass", timeout_s: 15, points: 15 }
       ]
     }
   };
-  const yaml = buildAutogradingWorkflow(assignment, "PXLAutomation");
+  const yamlStr = buildAutogradingWorkflow(assignment, "PXLAutomation");
   
   // Graders present
-  assert.ok(yaml.includes("uses: classroom-resources/autograding-command-grader@v1"));
-  assert.ok(yaml.includes("uses: classroom-resources/autograding-io-grader@v1"));
-  assert.ok(yaml.includes("uses: classroom-resources/autograding-python-grader@v1"));
+  assert.ok(yamlStr.includes("uses: classroom-resources/autograding-command-grader@v1"));
+  assert.ok(yamlStr.includes("uses: classroom-resources/autograding-io-grader@v1"));
+  assert.ok(yamlStr.includes("uses: classroom-resources/autograding-python-grader@v1"));
 
   // Reporter present
-  assert.ok(yaml.includes("uses: classroom-resources/autograding-grading-reporter@v1"));
-  assert.ok(yaml.includes("TASK_1_LINT_RESULTS"));
-  assert.ok(yaml.includes("TASK_2_IO_RESULTS"));
-  assert.ok(yaml.includes("TASK_3_PYTEST_RESULTS"));
-  assert.ok(yaml.includes("runners: task-1-lint,task-2-io,task-3-pytest"));
+  assert.ok(yamlStr.includes("uses: classroom-resources/autograding-grading-reporter@v1"));
+  assert.ok(yamlStr.includes("TASK_1_LINT_RESULTS"));
+  assert.ok(yamlStr.includes("TASK_2_IO_RESULTS"));
+  assert.ok(yamlStr.includes("TASK_3_PYTEST_RESULTS"));
+  assert.ok(yamlStr.includes("runners: task-1-lint,task-2-io,task-3-pytest"));
   
   // Guardrails
-  assert.ok(yaml.includes("timeout-minutes: 10"));
-  assert.ok(yaml.includes("cancel-in-progress: true"));
+  assert.ok(yamlStr.includes("timeout-minutes: 10"));
+  assert.ok(yamlStr.includes("cancel-in-progress: true"));
+
+  // Verify parsed YAML structure
+  const doc = parse(yamlStr);
+  assert.equal(doc.name, "Autograding");
+  assert.equal(doc.jobs.grade["timeout-minutes"], 10);
+  assert.equal(doc.jobs.grade.steps.length, 5); // checkout + 3 tests + reporter
 });
 
-test("buildAutogradingWorkflow: fallback for public visibility with no tests", () => {
+test("buildAutogradingWorkflow: sanitizes runner IDs and environment variable keys", () => {
   const assignment = {
+    autograde: {
+      enabled: true,
+      execution_environment: "github_actions",
+      visibility: "public",
+      tests: [
+        { id: "Task 1.0 (Setup & Build)", type: "run", command: "make build", points: 10 },
+        { id: "task_2_test!", type: "run", command: "make test", points: 20 }
+      ]
+    }
+  };
+  const yamlStr = buildAutogradingWorkflow(assignment, "PXLAutomation");
+  const doc = parse(yamlStr);
+  assert.ok(doc);
+  
+  // Reporter step is the last step
+  const reporterStep = doc.jobs.grade.steps[doc.jobs.grade.steps.length - 1];
+  assert.equal(reporterStep.uses, "classroom-resources/autograding-grading-reporter@v1");
+  assert.ok(reporterStep.with.runners.includes("task-1-0--setup---build-"));
+  assert.ok(reporterStep.with.runners.includes("task_2_test-"));
+  assert.ok(reporterStep.env["TASK_1_0__SETUP___BUILD__RESULTS"]);
+  assert.ok(reporterStep.env["TASK_2_TEST__RESULTS"]);
+});
+
+test("buildAutogradingWorkflow: handles io tests with multiline strings and default parameters", () => {
+  const assignment = {
+    autograde: {
+      enabled: true,
+      execution_environment: "github_actions",
+      visibility: "public",
+      tests: [
+        { id: "io-test-default", type: "io", command: "./calc" }
+      ]
+    }
+  };
+  const yamlStr = buildAutogradingWorkflow(assignment, "PXLAutomation");
+  const doc = parse(yamlStr);
+  const ioStep = doc.jobs.grade.steps[1];
+  assert.equal(ioStep.uses, "classroom-resources/autograding-io-grader@v1");
+  assert.equal(ioStep.with["max-score"], 1);
+  assert.equal(ioStep.with.timeout, 10);
+  assert.equal(ioStep.with.command, "./calc");
+});
+
+test("buildAutogradingWorkflow: fallback for public visibility with no tests or null tests", () => {
+  const assignmentEmpty = {
     autograde: {
       enabled: true,
       execution_environment: "github_actions",
@@ -57,7 +114,20 @@ test("buildAutogradingWorkflow: fallback for public visibility with no tests", (
       tests: []
     }
   };
-  const yaml = buildAutogradingWorkflow(assignment, "PXLAutomation");
-  assert.ok(yaml.includes("npm test"));
-  assert.ok(yaml.includes("timeout-minutes: 10"));
+  const yamlEmpty = buildAutogradingWorkflow(assignmentEmpty, "PXLAutomation");
+  assert.ok(yamlEmpty.includes("npm test"));
+  const docEmpty = parse(yamlEmpty);
+  assert.equal(docEmpty.jobs.grade.steps.length, 2);
+
+  const assignmentNull = {
+    autograde: {
+      enabled: true,
+      execution_environment: "github_actions",
+      visibility: "public"
+    }
+  };
+  const yamlNull = buildAutogradingWorkflow(assignmentNull, "PXLAutomation");
+  assert.ok(yamlNull.includes("npm test"));
+  const docNull = parse(yamlNull);
+  assert.equal(docNull.jobs.grade.steps.length, 2);
 });

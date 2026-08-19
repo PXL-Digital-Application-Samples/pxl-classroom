@@ -116,6 +116,44 @@ test("grading-result schema accepts a minimal pass-fail record", () => {
   assert.equal(valid, true, JSON.stringify(errors));
 });
 
+test("grading-result schema accepts github_actions runner and decimal points", () => {
+  const { valid, errors } = validateAgainst("grading-result", {
+    schema_version: 1,
+    assignment_id: "cloud-pe-1",
+    github_login: "bob",
+    archive_sha: "b".repeat(40),
+    archive_branch: "preserved/cloud-pe-1/bob",
+    graded_at: "2026-02-02T12:00:00.000Z",
+    graded_by: "teacher1",
+    runner: "github_actions",
+    total_points: 20,
+    earned_points: 17.5,
+    tests: [
+      { id: "task1", passed: true, points: 10, earned: 10 },
+      { id: "task2", passed: false, points: 10, earned: 7.5 },
+    ],
+  });
+  assert.equal(valid, true, JSON.stringify(errors));
+});
+
+test("grading-result schema accepts host runner", () => {
+  const { valid, errors } = validateAgainst("grading-result", {
+    schema_version: 1,
+    assignment_id: "algo-1",
+    github_login: "carol",
+    archive_sha: "c".repeat(40),
+    graded_at: "2026-02-02T12:00:00.000Z",
+    graded_by: "teacher1",
+    runner: "host",
+    total_points: 100,
+    earned_points: 100,
+    tests: [
+      { id: "all-tests", passed: true, points: 100, earned: 100 },
+    ],
+  });
+  assert.equal(valid, true, JSON.stringify(errors));
+});
+
 test("grading-result rejects unknown runner", () => {
   const { valid } = validateAgainst("grading-result", {
     schema_version: 1,
@@ -123,6 +161,7 @@ test("grading-result rejects unknown runner", () => {
     archive_sha: "a".repeat(40),
     graded_at: "2026-02-02T12:00:00.000Z",
     graded_by: "z", runner: "yolo",
+    total_points: 10, earned_points: 0,
     tests: [],
   });
   assert.equal(valid, false);

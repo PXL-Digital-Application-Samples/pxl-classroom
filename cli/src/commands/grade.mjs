@@ -245,7 +245,7 @@ export function registerGradeCommand(program) {
               return;
             }
             const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
-            const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
+            const run = checkRuns.find(r => /grad|classroom/i.test(r.name)) || checkRuns[0];
             const parsedScore = parseCheckRunScore(run, totalFallback);
             const earned = parsedScore.earned;
             const total = parsedScore.total > 0 ? parsedScore.total : totalFallback;

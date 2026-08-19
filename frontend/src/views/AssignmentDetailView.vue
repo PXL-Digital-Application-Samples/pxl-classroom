@@ -1539,7 +1539,7 @@ async function syncGradesFromGitHub() {
           continue
         }
 
-        const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0]
+        const run = checkRuns.find(r => /grad|classroom/i.test(r.name)) || checkRuns[0]
         const parsed = parseCheckRunScore(run, totalFallback)
         
         summary.graded.push({

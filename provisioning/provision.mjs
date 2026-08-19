@@ -184,8 +184,8 @@ jobs:
         uses: classroom-resources/autograding-python-grader@v1
         with:
           test-name: "${t.id}"
-          setup-command: "pip install pytest"
-          command: "pytest"
+          setup-command: "${t.setup_command || "pip install pytest"}"
+          command: "${t.command || "pytest"}"
           timeout: ${t.timeout_s || 10}
           max-score: ${t.points || 1}`);
     } else {
