@@ -120,7 +120,7 @@
             <input
               v-model="search"
               type="search"
-              placeholder="Search by login or repo…"
+              placeholder="Search by login, email or repo…"
               class="search-input"
               aria-label="Search students"
             />
@@ -806,7 +806,7 @@ const deadlineAbs = computed(() => {
 const filteredStudents = computed(() => {
   let list = report.value?.students || []
   if (search.value) {
-    const q = search.value.toLowerCase()
+    const q = search.value.toLowerCase().trim()
     list = list.filter((s) => {
       const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
       const profile = userProfilesByLogin.value.get(s.github_login?.toLowerCase())
