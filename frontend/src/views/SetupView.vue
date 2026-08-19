@@ -225,8 +225,11 @@ const permissionSummary = computed(() =>
 )
 
 const manifest = computed(() => {
+  const appName = ownerOrg.value
+    ? `PXL Classroom (${ownerOrg.value})`
+    : 'PXL Classroom Provisioner'
   return JSON.stringify({
-    name: 'PXL Classroom Provisioner',
+    name: appName,
     url: hostUrl.value,
     hook_attributes: {
       url: hostUrl.value,
