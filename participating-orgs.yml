@@ -8,3 +8,5 @@ orgs:
     budget_owner_email: tom.cool@pxl.be
   - login: PXL-2TIN-CloudEssentials-2627
     budget_owner_login: d-ries
+  - login: PXL-2TIN-DevOps-2627
+    budget_owner_login: d-ries
