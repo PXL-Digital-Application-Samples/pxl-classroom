@@ -571,7 +571,7 @@ Dedup-keys are stable per `(org, assignment, login, condition)` so repeated nigh
 
 Every state-changing workflow run records: run URL, initiating actor, op type, assignment ID, affected student, start/complete time, outcome, GitHub IDs, error category. Source changes happen through Git commits. Generated records identify the source revision.
 
-**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical set re-exported from the engine (`EXPECTED_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.json`, and — given an `--assignment` — samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
+**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical sets re-exported from the engine (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.json`, and — given an `--assignment` — samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
 
 ---
 

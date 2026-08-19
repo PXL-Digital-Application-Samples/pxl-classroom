@@ -12,14 +12,20 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
 ### 1.1 Enable Pages
 
-GitHub → `pxl-classroom` → Settings → Pages → Source: **GitHub Actions**.
+1. In GitHub → `pxl-classroom` → Settings → Pages → Build and deployment → Source: select **GitHub Actions**.
+   > [!NOTE]
+   > GitHub displays "Suggested workflows" below this setting. You do **not** need to click "Configure" or create a new workflow — the repository already includes `.github/workflows/deploy-frontend.yml` which GitHub Actions uses automatically.
+2. Trigger the initial build: go to Actions → **Deploy frontend to Pages** → **Run workflow** (branch `main`).
+   > [!NOTE]
+   > Running `deploy-frontend.yml` before setting the secrets in §1.3 is completely safe and expected. The data fetch script (`scripts/fetch-pages-data.mjs`) detects that credentials are not configured yet, logs an informational notice, and exits cleanly with an empty index, deploying the frontend shell so the `/setup` page becomes accessible.
 
 ### 1.2 Create the central GitHub App
 
-1. In a browser, open the Pages site at `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`.
+1. In a browser, open the Pages site at `https://<pages-host>/pxl-classroom/setup` (e.g. `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`).
 2. Enter the owning **organization** (recommended — leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
-   - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Metadata R**, **Secrets RW**.
+   - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Variables RW**, **Workflows RW**.
    - Device Flow: enabled.
+   - Callback URLs: pre-filled for your Pages domain.
 3. Confirm on GitHub's page. GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** — store them per §1.3 immediately. (If the exchange fails — the code is single-use and expires after one hour — the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
 4. Additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
    - Organization: **Plan: Read** — required for the weekly usage report (Enhanced Billing endpoint, see §10).

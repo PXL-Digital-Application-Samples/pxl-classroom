@@ -184,7 +184,7 @@ import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { ghApi } from '../lib/api.js'
-import { EXPECTED_APP_PERMISSIONS } from '../../../lib/audit.mjs'
+import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS } from '../../../lib/audit.mjs'
 
 const route = useRoute()
 
@@ -219,7 +219,7 @@ const formAction = computed(() =>
 )
 
 const permissionSummary = computed(() =>
-  Object.entries(EXPECTED_APP_PERMISSIONS)
+  Object.entries(MANIFEST_APP_PERMISSIONS)
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ')
 )
@@ -233,8 +233,9 @@ const manifest = computed(() => {
     },
     // GitHub redirects here with a one-time ?code= we exchange below.
     redirect_url: `${hostUrl.value}setup`,
+    callback_urls: [`${hostUrl.value}setup`, hostUrl.value],
     public: true,
-    default_permissions: { ...EXPECTED_APP_PERMISSIONS },
+    default_permissions: { ...MANIFEST_APP_PERMISSIONS },
     default_events: [],
     request_oauth_on_install: true,
     setup_url: hostUrl.value,
@@ -331,26 +332,20 @@ async function runPermissionCheck() {
     const installation = res.data
     const actual = installation.permissions || {}
     
-    // Check manifest permissions
+    // Check expected permissions (both manifest and manual permissions)
     const list = []
     for (const [perm, expected] of Object.entries(EXPECTED_APP_PERMISSIONS)) {
-      const got = actual[perm]
+      let got = actual[perm]
+      if (perm === 'variables' && got === undefined) {
+        got = actual.actions_variables
+      }
       list.push({
-        name: perm,
+        name: perm === 'organization_plan' ? 'organization_plan (Plan: Read-only)' : perm,
         expected,
         actual: got ?? 'missing',
         ok: got === expected
       })
     }
-
-    // Check manual Plan permission (organization_plan)
-    const gotPlan = actual['organization_plan']
-    list.push({
-      name: 'organization_plan (Plan: Read-only)',
-      expected: 'read',
-      actual: gotPlan ?? 'missing',
-      ok: gotPlan === 'read'
-    })
 
     const allOk = list.every(c => c.ok)
     
