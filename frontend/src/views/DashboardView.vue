@@ -339,50 +339,14 @@ function onOutsideClick(e) {
   }
 }
 
-async function loadOrgStatuses(orgList, token) {
+async function loadOrgStatuses(orgList) {
   const now = new Date()
   await Promise.all(
     orgList.map(async (org) => {
       const login = org.login.toLowerCase()
-      if (token) {
-        try {
-          const files = await listRepoDir(token, org.login, config.controlRepo, 'assignments')
-          const ymls = files.filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
-          if (ymls.length === 0) {
-            orgStatusMap.value.set(login, 'empty')
-            return
-          }
-          const docs = await Promise.all(
-            ymls.map(async (f) => {
-              try {
-                const text = await getRepoContent(token, org.login, config.controlRepo, f.path)
-                return text ? parseYaml(text) : null
-              } catch {
-                return null
-              }
-            })
-          )
-          const list = docs.filter(Boolean)
-          if (list.length === 0) {
-            orgStatusMap.value.set(login, 'empty')
-            return
-          }
-          const hasActive = list.some((a) => {
-            if (a.state !== 'published') return false
-            if (a.opens_at && now < new Date(a.opens_at)) return false
-            if (a.deadline_at && now > new Date(a.deadline_at)) return false
-            return true
-          })
-          orgStatusMap.value.set(login, hasActive ? 'active' : 'inactive')
-          return
-        } catch (e) {
-          // fall through to public pages check
-        }
-      }
-
       try {
-        // 1. Try public Pages data
-        const res = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`)
+        // Zero API cost: read pre-built static Pages assignments JSON
+        const res = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`, { cache: 'no-cache' })
         if (res.ok) {
           let data = null
           try { data = await res.json() } catch { /* ignore */ }
@@ -522,44 +486,7 @@ async function loadDashboard(org) {
 
   dashError.value = null
   try {
-    // Distinguish "org not onboarded" from "no dashboard yet" from "empty" -
-    // each empty state points the lecturer at a different remedy.
-    const repoRes = await getRepo(token, org, config.controlRepo)
-    if (!repoRes.ok) {
-      if (repoRes.status === 404) {
-        dashState.value = 'no-control-repo'
-        orgStatusMap.value.set(org.toLowerCase(), 'empty')
-        return
-      }
-      const e = new Error(repoRes.data?.message || `Failed to read repository (HTTP ${repoRes.status})`)
-      e.status = repoRes.status
-      throw e
-    }
-
-    let yamlAssignments = []
-    try {
-      const files = await listRepoDir(token, org, config.controlRepo, 'assignments')
-      const ymls = files.filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
-      
-      const loaded = await Promise.all(
-        ymls.map(async (f) => {
-          try {
-            const text = await getRepoContent(token, org, config.controlRepo, f.path)
-            if (!text) return null
-            const doc = parseYaml(text)
-            const id = doc.id || f.name.replace(/\.ya?ml$/, '')
-            return { ...doc, id }
-          } catch {
-            return null
-          }
-        })
-      )
-      yamlAssignments = loaded.filter(Boolean)
-      draftCount.value = yamlAssignments.filter(a => a.state === 'draft').length
-    } catch (e) {
-      // ignore
-    }
-
+    // 1 single API call: Fetch aggregated dashboard report directly
     let reportData = null
     try {
       const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
@@ -567,56 +494,46 @@ async function loadDashboard(org) {
         reportData = JSON.parse(content)
       }
     } catch (e) {
-      // ignore
-    }
-
-    const mergedMap = new Map()
-    if (reportData?.assignments) {
-      for (const [id, a] of Object.entries(reportData.assignments)) {
-        mergedMap.set(id, { id, ...a })
+      if (e.status === 404) {
+        dashState.value = 'no-dashboard'
       }
     }
 
-    for (const ya of yamlAssignments) {
-      const existing = mergedMap.get(ya.id) || {}
-      mergedMap.set(ya.id, {
-        ...existing,
-        ...ya,
-        // Live state, title, and dates from repository YAMLs are always authoritative
-        state: ya.state || existing.state || 'draft',
-        title: ya.title || existing.title || ya.id,
-        deadline_at: ya.deadline_at || existing.deadline_at,
-        opens_at: ya.opens_at || existing.opens_at,
-        timezone: ya.timezone || existing.timezone,
+    if (reportData?.assignments && Object.keys(reportData.assignments).length > 0) {
+      const stateOrder = { published: 1, closed: 2, archived: 3 }
+      const displayList = Object.entries(reportData.assignments)
+        .map(([id, a]) => ({ id, ...a }))
+        .filter(a => a.state !== 'draft')
+        .sort((a, b) => {
+          const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
+          if (diff !== 0) return diff
+          return (a.id || '').localeCompare(b.id || '')
+        })
+
+      assignments.value = displayList
+      const now = new Date()
+      const hasActive = assignments.value.some((a) => {
+        if (a.state !== 'published') return false
+        if (a.opens_at && now < new Date(a.opens_at)) return false
+        if (a.deadline_at && now > new Date(a.deadline_at)) return false
+        return true
       })
+      dashState.value = assignments.value.length === 0 ? 'empty' : ''
+      orgStatusMap.value.set(org.toLowerCase(), hasActive ? 'active' : (assignments.value.length > 0 ? 'inactive' : 'empty'))
+      return
     }
 
-    const stateOrder = { published: 1, closed: 2, archived: 3 }
-    const displayList = Array.from(mergedMap.values())
-      .filter(a => a.state !== 'draft')
-      .sort((a, b) => {
-        const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
-        if (diff !== 0) return diff
-        return (a.id || '').localeCompare(b.id || '')
-      })
-
-    assignments.value = displayList
-
-    const now = new Date()
-    const hasActive = assignments.value.some((a) => {
-      if (a.state !== 'published') return false
-      if (a.opens_at && now < new Date(a.opens_at)) return false
-      if (a.deadline_at && now > new Date(a.deadline_at)) return false
-      return true
-    })
-
-    if (assignments.value.length === 0) {
-      dashState.value = yamlAssignments.length === 0 && !reportData ? 'no-dashboard' : 'empty'
-      orgStatusMap.value.set(org.toLowerCase(), 'empty')
-    } else {
-      dashState.value = ''
-      orgStatusMap.value.set(org.toLowerCase(), hasActive ? 'active' : 'inactive')
+    // Fallback only if dashboard.json is missing or empty (e.g. newly onboarded org before first cron)
+    const repoRes = await getRepo(token, org, config.controlRepo)
+    if (!repoRes.ok) {
+      if (repoRes.status === 404) {
+        dashState.value = 'no-control-repo'
+        orgStatusMap.value.set(org.toLowerCase(), 'empty')
+        return
+      }
     }
+    dashState.value = 'no-dashboard'
+    orgStatusMap.value.set(org.toLowerCase(), 'empty')
   } catch (e) {
     console.error('Failed to load dashboard:', e)
     if (e instanceof SyntaxError) {
