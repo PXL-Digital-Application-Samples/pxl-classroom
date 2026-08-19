@@ -1,0 +1,66 @@
+name: Open Feedback PRs
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: "Organization"
+        required: true
+        type: string
+      assignment_id:
+        description: "Assignment ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  open-prs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Mint App token for Org
+        id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+          
+      - name: Checkout control repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci --omit=dev
+
+      - name: Open Feedback PRs
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+        run: |
+          node scripts/open-feedback-prs.mjs
+
+      - name: Commit updated repository records
+        working-directory: control
+        run: |
+          git config user.name "PXL Classroom Provisioner"
+          git config user.email "pxl-classroom@users.noreply.github.com"
+          if [ -n "$(git status --porcelain repositories/)" ]; then
+            git add repositories/
+            git commit -m "Record feedback PRs for ${{ inputs.assignment_id }}"
+            git push
+          else
+            echo "No repository record updates to commit."
+          fi

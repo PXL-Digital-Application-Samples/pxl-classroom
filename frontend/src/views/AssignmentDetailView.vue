@@ -88,6 +88,73 @@
 
       <!-- Report loaded -->
       <div v-else class="report-content fade-in">
+        <!-- Post-Deadline Preservation Summary Banner -->
+        <div v-if="deadlinePassed && report" class="card preservation-banner">
+          <div class="preservation-banner-header">
+            <div class="preservation-banner-title-group">
+              <span class="preservation-banner-title">Preservation &amp; Lockdown Status</span>
+              <span :class="['badge', allPreserved ? 'badge-success' : preservedCount > 0 ? 'badge-warning' : 'badge-neutral']">
+                {{ allPreserved ? 'All Preserved' : preservedCount > 0 ? `${preservedCount}/${eligiblePreservationCount} Preserved` : 'Preservation Pending' }}
+              </span>
+            </div>
+            <div class="preservation-banner-meta text-secondary text-sm">
+              <span v-if="preservationLockdownTime">
+                Lockdown: {{ fmt(preservationLockdownTime) }}
+                <span v-if="preservationUncertaintySeconds != null" :title="`Delay between deadline and lockdown execution`">
+                  (delay: {{ preservationUncertaintySeconds }}s)
+                </span>
+              </span>
+              <span v-else>
+                Deadline passed: {{ deadlineAbs }}
+              </span>
+            </div>
+          </div>
+
+          <div class="preservation-banner-body">
+            <p class="text-sm text-secondary" style="margin: 0;">
+              Submission commit snapshots are preserved in the private organization archive repository.
+            </p>
+            <div class="preservation-banner-actions">
+              <a
+                :href="`https://github.com/${props.org}/pxl-classroom-archive`"
+                target="_blank"
+                rel="noopener"
+                class="btn btn-sm btn-secondary btn-with-icon"
+              >
+                <Icon name="external-link" :size="13" />
+                <span>Archive Repo</span>
+              </a>
+              <button
+                v-if="unpreservedCount > 0"
+                class="btn btn-sm btn-primary btn-with-icon"
+                type="button"
+                @click="retryPreservation"
+                :disabled="retryingPreservation"
+              >
+                <Icon name="refresh-cw" :size="13" />
+                <span>{{ retryingPreservation ? 'Retrying…' : `Retry Preservation (${unpreservedCount})` }}</span>
+              </button>
+              <button
+                class="btn btn-sm btn-secondary btn-with-icon"
+                type="button"
+                @click="handleDownloadManifest"
+                :disabled="preservedCount === 0"
+              >
+                <Icon name="tag" :size="13" />
+                <span>Download Manifest</span>
+              </button>
+              <button
+                class="btn btn-sm btn-secondary btn-with-icon"
+                type="button"
+                @click="handleCopyDownloadCmd"
+              >
+                <Icon name="copy" :size="13" />
+                <span>Copy CLI Download</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Summary cards -->
         <div class="summary-row">
           <div class="summary-card card deadline-card">
@@ -204,6 +271,27 @@
               </div>
             </div>
             <button
+              v-if="feedbackPrEnabled"
+              class="btn btn-secondary btn-with-icon"
+              type="button"
+              @click="openFeedbackPrs"
+              :disabled="openingFeedbackPrs"
+              title="Open Feedback Pull Requests on student repositories with commits"
+            >
+              <Icon name="message-square" :size="14" />
+              <span>{{ openingFeedbackPrs ? 'Opening PRs…' : 'Open Feedback PRs' }}</span>
+            </button>
+            <button
+              v-if="assignment && assignment.template"
+              class="btn btn-secondary btn-with-icon"
+              type="button"
+              @click="showStarterSyncModal = true"
+              title="Sync updated starter code or tests from template repository"
+            >
+              <Icon name="git-pull-request" :size="14" />
+              <span>Sync Starter Code</span>
+            </button>
+            <button
               v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
               :class="['btn', 'btn-with-icon', assignment.state === 'published' ? 'btn-danger' : 'btn-success']"
               type="button"
@@ -229,7 +317,7 @@
             :class="{ active: viewTab === 'teams' }"
             @click="viewTab = 'teams'"
           >
-            👥 Teams View ({{ report.teams ? report.teams.length : 0 }})
+            Teams View ({{ report.teams ? report.teams.length : 0 }})
           </button>
           <button
             type="button"
@@ -237,7 +325,7 @@
             :class="{ active: viewTab === 'students' }"
             @click="viewTab = 'students'"
           >
-            👤 Students View ({{ report.students.length }})
+            Students View ({{ report.students.length }})
           </button>
         </div>
 
@@ -300,6 +388,19 @@
                   <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
                     ext -> {{ fmt(extensionFor(s.github_login).value) }}
+                  </div>
+                  <div v-if="s.preservation_status === 'preserved' && s.preserved_sha" class="archive-link-wrap" style="margin-top: 3px;">
+                    <a
+                      :href="`https://github.com/${props.org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${props.assignmentId}/${s.github_login}`)}`"
+                      target="_blank"
+                      rel="noopener"
+                      class="mono text-xs"
+                      :title="`Preserved in archive repository at SHA ${s.preserved_sha}`"
+                      style="display: inline-flex; align-items: center; gap: 3px; color: var(--text-secondary, #8b949e); text-decoration: underline;"
+                    >
+                      <Icon name="archive" :size="11" />
+                      <span>archive ({{ s.preserved_sha.slice(0, 7) }})</span>
+                    </a>
                   </div>
                 </td>
                 <td class="col-repo">
@@ -537,8 +638,35 @@
               {{ actionRetrying ? 'Triggering…' : 'Retry acceptance' }}
             </button>
           </section>
+
+          <section v-if="actionStudent.preservation_status === 'preserved' && actionStudent.preserved_sha" class="modal-section">
+            <h4>Preserved Submission Archive</h4>
+            <p class="text-secondary">
+              Preserved commit SHA: <code class="mono">{{ actionStudent.preserved_sha }}</code>
+            </p>
+            <a
+              :href="`https://github.com/${props.org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${props.assignmentId}/${actionStudent.github_login}`)}`"
+              target="_blank"
+              rel="noopener"
+              class="btn btn-secondary btn-with-icon"
+              style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none;"
+            >
+              <Icon name="external-link" :size="14" />
+              <span>View Preserved Code in Archive</span>
+            </a>
+          </section>
         </div>
       </div>
+
+      <!-- Starter Code Sync Modal -->
+      <StarterSyncModal
+        v-if="showStarterSyncModal && assignment"
+        :assignment="assignment"
+        :org="org"
+        :students="report?.students || []"
+        @close="showStarterSyncModal = false"
+        @synced="loadData"
+      />
     </main>
   </div>
 </template>
@@ -549,6 +677,7 @@ import { h } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import Icon from '../components/Icon.vue'
 import TeamsTable from '../components/TeamsTable.vue'
+import StarterSyncModal from '../components/StarterSyncModal.vue'
 
 // Tiny render helper - keeps the table markup readable. `dir` is "asc" |
 // "desc" | null; null renders nothing so non-active columns stay quiet.
@@ -705,6 +834,126 @@ const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
 const autogradeEnabled = computed(() => assignment.value?.autograde?.enabled === true)
 const isGitHubActionsAutograde = computed(() => autogradeEnabled.value && assignment.value?.autograde?.execution_environment === 'github_actions')
 const preservedCount = computed(() => (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' && s.preserved_sha).length)
+const eligiblePreservationCount = computed(() =>
+  (report.value?.students || []).filter((s) => s.repo_name && s.acceptance_state === 'accepted').length
+)
+const unpreservedCount = computed(() =>
+  (report.value?.students || []).filter(
+    (s) => s.repo_name && s.acceptance_state === 'accepted' && !(s.preservation_status === 'preserved' && s.preserved_sha)
+  ).length
+)
+const allPreserved = computed(() =>
+  eligiblePreservationCount.value > 0 && preservedCount.value >= eligiblePreservationCount.value
+)
+const preservationLockdownTime = computed(() => {
+  const s = (report.value?.students || []).find((s) => s.lock_down_at)
+  return s?.lock_down_at || null
+})
+const preservationUncertaintySeconds = computed(() => {
+  const s = (report.value?.students || []).find((s) => s.uncertainty_interval_seconds != null)
+  return s?.uncertainty_interval_seconds ?? null
+})
+
+const showStarterSyncModal = ref(false)
+const openingFeedbackPrs = ref(false)
+const retryingPreservation = ref(false)
+
+async function retryPreservation() {
+  const token = getToken()
+  if (!token) return
+  retryingPreservation.value = true
+  try {
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', 'main', {})
+    if (res.ok) {
+      toast.success('Preservation workflow dispatched.')
+    } else {
+      toast.error(`Failed to trigger preservation: ${res.error || 'Unknown error'}`)
+    }
+  } catch (err) {
+    toast.error(`Failed to retry preservation: ${err.message}`)
+  } finally {
+    retryingPreservation.value = false
+  }
+}
+
+async function openFeedbackPrs() {
+  const token = getToken()
+  if (!token || !report.value) return
+
+  const targets = (report.value.students || []).filter(
+    (s) => s.repo_name && (s.commit_count > 0 || s.latest_observed_sha) && !s.feedback_pr_number
+  )
+
+  if (targets.length === 0) {
+    toast.info('All student repositories with commits already have Feedback PRs opened.')
+    return
+  }
+
+  const confirm = window.confirm(
+    `Open feedback pull requests on ${targets.length} student repositories?`
+  )
+  if (!confirm) return
+
+  openingFeedbackPrs.value = true
+  const baseline = assignment.value?.feedback_pr_baseline_branch || 'pxl-baseline'
+  const title = `${assignment.value?.title || props.assignmentId} - Feedback`
+  const body = 'PXL Classroom feedback thread for inline reviews.'
+
+  let opened = 0
+  let failed = 0
+
+  for (const s of targets) {
+    const repoName = s.repo_name?.split('/')[1] || s.repo_name
+    try {
+      const prRes = await ghApi(token, 'POST', `/repos/${props.org}/${repoName}/pulls`, {
+        title,
+        body,
+        head: 'main',
+        base: baseline,
+        draft: true,
+      })
+
+      if (prRes.ok && prRes.data) {
+        opened++
+        s.feedback_pr_number = prRes.data.number
+        s.feedback_pr_url = prRes.data.html_url
+
+        try {
+          const recPath = `repositories/${props.assignmentId}/${s.github_login}.json`
+          const existingContent = await getRepoContent(token, props.org, config.controlRepo, recPath)
+          if (existingContent) {
+            const recDoc = JSON.parse(existingContent)
+            recDoc.feedback_pr_number = prRes.data.number
+            recDoc.feedback_pr_url = prRes.data.html_url
+            await commitFile(
+              token,
+              props.org,
+              config.controlRepo,
+              recPath,
+              JSON.stringify(recDoc, null, 2) + '\n',
+              `Record feedback PR #${prRes.data.number} for ${s.github_login}`
+            )
+          }
+        } catch (commitErr) {
+          console.warn(`Failed to commit repo record for ${s.github_login}:`, commitErr)
+        }
+      } else {
+        failed++
+      }
+    } catch {
+      failed++
+    }
+  }
+
+  openingFeedbackPrs.value = false
+  if (opened > 0) {
+    toast.success(`Successfully opened ${opened} feedback PR(s).`)
+  }
+  if (failed > 0) {
+    toast.warning(`${failed} PR creation(s) skipped or failed.`)
+  }
+}
+
 const autogradeTotalPoints = computed(() => (assignment.value?.autograde?.tests || []).reduce((sum, t) => sum + (t.points || 0), 0))
 const syncingGrades = ref(false)
 const syncedGradesCount = ref(0)
@@ -2243,6 +2492,47 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   background: var(--bg-tertiary);
   border-radius: 999px;
   color: var(--color-accent, #58a6ff);
+}
+
+.preservation-banner {
+  padding: var(--space-md, 16px);
+  background: var(--bg-secondary, #161b22);
+  border: 1px solid var(--border-default, #30363d);
+  border-radius: var(--radius-md, 6px);
+  margin-bottom: var(--space-md, 16px);
+}
+
+.preservation-banner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-xs, 6px);
+}
+
+.preservation-banner-title-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+}
+
+.preservation-banner-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.preservation-banner-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md, 16px);
+  flex-wrap: wrap;
+}
+
+.preservation-banner-actions {
+  display: flex;
+  gap: var(--space-xs, 6px);
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 768px) {

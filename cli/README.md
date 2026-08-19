@@ -11,6 +11,7 @@ Command groups:
 | `auth login \| status \| logout` | Device-flow authentication, cached token |
 | `roster import \| list` | CSV roster import with diff preview (`--dry-run`) |
 | `audit` | Read-only install health checks (exit 0/1/2 for CI) |
+| `sync-starter` | Smart starter code update sync (auto-merge to main + PR fallback) |
 | `feedback open \| list` | Draft Feedback PRs per student (idempotent) |
 | `download` | Bulk-fetch preserved submissions from the archive repo |
 | `grade` | Run autograde tests against preserved SHAs (docker/host) |

@@ -645,6 +645,11 @@ Enable `feedback_pr: true` on the assignment (the Admin Panel's **Guardrails** s
 
 Open the actual draft PRs lazily - at provisioning time, `main` and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
 
+**Option A: Web UI (1-Click):**
+Navigate to the assignment's `AssignmentDetailView` in the SPA. Click the **Open Feedback PRs** button in the action bar. The web app iterates all student repositories with pushed commits and opens draft pull requests (`main` -> `pxl-baseline`), committing record updates to the control repo and displaying PR links immediately.
+
+**Option B: CLI Companion:**
+
 ```bash
 pxl-classroom feedback open --assignment linux-processes-2026                  # opens for all students with commits ahead of pxl-baseline
 pxl-classroom feedback open --assignment linux-processes-2026 --login alice    # one student
@@ -653,11 +658,11 @@ pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        #
 pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
 ```
 
-The CLI is idempotent - re-runs skip students whose record already has `feedback_pr_number`. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't run `feedback open`).
+The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
 
 Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Comments persist as the student keeps pushing - the PR head tracks `main`. The student cannot delete `pxl-baseline` (App-level protection outranks repo admin).
 
-### 12.8 Bulk submission download
+### 12.8 Bulk Submission Download & Preservation Status
 
 `pxl-classroom download` clones each preserved submission out of `<org>/pxl-classroom-archive` (the archive-backed evidence layer, immune to post-deadline rewrites of the student repo).
 
@@ -670,7 +675,8 @@ pxl-classroom download --org PXLAutomation \
 
 - Resumable: a re-run skips students whose checkout already matches the archive SHA.
 - Writes `./submissions/_manifest.json` with `{login, archive_sha, archive_branch, archive_branch_url, downloaded_at}` rows for plagiarism tools / local CI.
-- The SPA's **Export** dropdown menu on `AssignmentDetailView` exports the JSON manifest alone (no clone) alongside CSV export and **Copy CLI Download** to pre-fill the `download` invocation for paste.
+- **Preservation Summary Banner:** When an assignment's deadline has passed, `AssignmentDetailView` renders a top banner displaying live preserved counts vs eligible students, lockdown execution timestamp, and measured uncertainty delay (`uncertainty_seconds = lockdown_at - deadline_at`). Quick buttons allow 1-click targeted retries, downloading the SHA manifest, navigating to the archive repo, and copying the CLI download command.
+- **Direct Archive Links:** The student table and teams table display direct clickable hyperlinks to `https://github.com/<org>/pxl-classroom-archive/tree/preserved/<assignment-id>/<login>` (or team slug) for every preserved submission.
 
 ### 12.9 Autograding
 
@@ -679,24 +685,12 @@ Configure tests on the assignment YAML (the Admin Panel surfaces a banner when a
 ```yaml
 autograde:
   enabled: true
-  execution_environment: lecturer_local  # or 'github_actions'
-  visibility: private                    # or 'public' (if github_actions)
+  execution_environment: github_actions
+  visibility: public
   tests:
-    - id: compile
+    - name: "Test 1: Hello World"
       type: run
-      command: "make"
-      timeout_s: 30
-      points: 10
-    - id: tests-pass
-      type: run
-      command: "make test"
-      timeout_s: 120
-      points: 40
-    - id: io-1
-      type: io
-      command: "./a.out"
-      stdin: "3 4\n"
-      expected_stdout: "7"
+      command: "pytest tests/test_lab.py"
       timeout_s: 5
       points: 5
 ```
@@ -732,3 +726,34 @@ To pull the grades back into the control repository:
 1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment (or run `pxl-classroom grade --assignment <id>`).
 2. Click the **Sync CI results from GitHub** button in the Autograder panel.
 3. The system fetches the Checks API outputs for all students (supporting both preserved and active commit SHAs), parses granular `Points <earned>/<total>` results, and writes `grading/<id>/summary.json` to the control repository.
+
+### 12.10 Starter Code Resynchronization & Updates
+
+If you need to distribute template fixes, new test assertions, or additional scaffolding after students have already accepted an assignment:
+
+#### Option A: Web UI (Interactive Modal)
+1. On `AssignmentDetailView`, click the **Sync Starter Code** button in the action bar.
+2. **Inspect Diff & Select Files:** Review template commits and select which modified files to synchronize using checkboxes (e.g. sync only `tests/` and leave project files untouched).
+3. **Pre-Flight Conflict Analysis:** The modal automatically checks student repositories in the background with a live progress bar, categorizing repositories into:
+   - **Clean Auto-Merges:** Repositories that haven't modified the target files will receive clean direct merges.
+   - **Potential Conflicts:** Repositories with custom changes on the target files will receive isolated Pull Requests.
+4. **Customize & Dispatch:** Adjust the commit/PR title, custom instructions, and choose whether to open a tracking issue in each student repository. Click **Apply Starter Update** to trigger the workflow.
+
+#### Option B: CLI Companion
+
+```bash
+# Preview what would be updated across the cohort
+pxl-classroom sync-starter --assignment linux-processes-2026 --dry-run
+
+# Sync all template changes with automatic conflict fallback
+pxl-classroom sync-starter --assignment linux-processes-2026
+
+# Selectively sync specific files and customize the message
+pxl-classroom sync-starter --assignment linux-processes-2026 \
+                           --files "tests/test_lab1.py" \
+                           --title "Fix assertion in test 3" \
+                           --message "Updated test suite with corrected edge case assertion."
+```
+
+- **Smart Auto-Merge Mechanics:** Clean repositories have the template commit merged directly into `main` (zero friction for students; changes arrive on their next `git pull`). Conflicted repositories receive an isolated branch `refs/heads/starter-update-<timestamp>` with an open Pull Request into `main`, ensuring student work is never overwritten.
+- **Audit Records:** Complete execution summaries are stored in the control repo at `syncs/<assignment-id>/<sync-id>.json`.

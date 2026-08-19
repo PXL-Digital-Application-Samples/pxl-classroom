@@ -1,0 +1,91 @@
+name: Sync Starter Code
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: "Organization"
+        required: true
+        type: string
+      assignment_id:
+        description: "Assignment ID"
+        required: true
+        type: string
+      selected_files:
+        description: "JSON array of selected file paths (e.g. [\"*\"])"
+        required: false
+        type: string
+        default: '["*"]'
+      pr_title:
+        description: "Custom PR / commit title"
+        required: false
+        type: string
+        default: ""
+      pr_body:
+        description: "Custom PR / issue description"
+        required: false
+        type: string
+        default: ""
+      create_issue:
+        description: "Open tracking issue in student repositories"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  sync-starter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Mint App token for Org
+        id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+          
+      - name: Checkout control repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci --omit=dev
+
+      - name: Execute Starter Code Sync
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+          SELECTED_FILES: ${{ inputs.selected_files }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          PR_BODY: ${{ inputs.pr_body }}
+          CREATE_ISSUE: ${{ inputs.create_issue }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          node scripts/sync-starter.mjs
+
+      - name: Commit sync records
+        working-directory: control
+        run: |
+          git config user.name "PXL Classroom Provisioner"
+          git config user.email "pxl-classroom@users.noreply.github.com"
+          if [ -n "$(git status --porcelain syncs/)" ]; then
+            git add syncs/
+            git commit -m "Record starter code sync for ${{ inputs.assignment_id }}"
+            git push
+          else
+            echo "No sync records to commit."
+          fi

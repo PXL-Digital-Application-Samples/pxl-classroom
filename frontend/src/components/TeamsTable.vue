@@ -127,9 +127,17 @@
 
             <!-- Preserved column -->
             <td>
-              <span v-if="team.preservation_status === 'preserved'" class="badge badge-success" title="Preserved in archive">
+              <a
+                v-if="team.preservation_status === 'preserved'"
+                :href="`https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${assignment.id}/${team.team_slug}`)}`"
+                target="_blank"
+                rel="noopener"
+                class="badge badge-success archive-link"
+                title="View preserved code in archive repository"
+                style="display: inline-flex; align-items: center; text-decoration: none;"
+              >
                 Preserved
-              </span>
+              </a>
               <span v-else-if="team.lock_down_at" class="badge badge-neutral" title="Locked down">
                 Locked
               </span>

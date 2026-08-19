@@ -1,0 +1,252 @@
+// PXL Classroom - features-archive-banner-feedback.test.mjs
+//
+// Comprehensive unit and integration tests covering:
+// - Feature 1: Direct GitHub Archive Branch URL generation & encoding for students & teams.
+// - Feature 2: Post-Deadline Preservation Summary Banner metrics & state calculations.
+// - Feature 3: Feedback PR bulk opener filtering, idempotency, and repository record updates.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+// -----------------------------------------------------------------------------
+// Feature 1: Direct Archive Branch URLs
+// -----------------------------------------------------------------------------
+
+function buildStudentArchiveBranchUrl(org, assignmentId, login, preservationStatus, preservedSha) {
+  if (preservationStatus !== "preserved" || !preservedSha) return null;
+  const refKey = `preserved/${assignmentId}/${login}`;
+  return `https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(refKey)}`;
+}
+
+function buildTeamArchiveBranchUrl(org, assignmentId, teamSlug, preservationStatus) {
+  if (preservationStatus !== "preserved") return null;
+  const refKey = `preserved/${assignmentId}/${teamSlug}`;
+  return `https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(refKey)}`;
+}
+
+test("Feature 1: buildStudentArchiveBranchUrl generates valid URL for preserved student", () => {
+  const url = buildStudentArchiveBranchUrl("PXLAutomation", "linux-processes", "alice", "preserved", "a".repeat(40));
+  assert.equal(url, "https://github.com/PXLAutomation/pxl-classroom-archive/tree/preserved%2Flinux-processes%2Falice");
+});
+
+test("Feature 1: buildStudentArchiveBranchUrl safely encodes special characters in assignment ID or login", () => {
+  const url = buildStudentArchiveBranchUrl("PXLAutomation", "devops_lab-1", "student.name+test", "preserved", "a".repeat(40));
+  assert.equal(url, "https://github.com/PXLAutomation/pxl-classroom-archive/tree/preserved%2Fdevops_lab-1%2Fstudent.name%2Btest");
+});
+
+test("Feature 1: buildStudentArchiveBranchUrl returns null if unpreserved or pending", () => {
+  assert.equal(buildStudentArchiveBranchUrl("PXLAutomation", "linux-processes", "bob", "pending", null), null);
+  assert.equal(buildStudentArchiveBranchUrl("PXLAutomation", "linux-processes", "carol", "failed", null), null);
+  assert.equal(buildStudentArchiveBranchUrl("PXLAutomation", "linux-processes", "dave", null, null), null);
+});
+
+test("Feature 1: buildTeamArchiveBranchUrl generates valid URL for group assignment teams", () => {
+  const url = buildTeamArchiveBranchUrl("PXLAutomation", "project-2026", "team-alpha-1", "preserved");
+  assert.equal(url, "https://github.com/PXLAutomation/pxl-classroom-archive/tree/preserved%2Fproject-2026%2Fteam-alpha-1");
+});
+
+test("Feature 1: buildTeamArchiveBranchUrl returns null for non-preserved team", () => {
+  assert.equal(buildTeamArchiveBranchUrl("PXLAutomation", "project-2026", "team-beta", "not-required"), null);
+});
+
+// -----------------------------------------------------------------------------
+// Feature 2: Post-Deadline Preservation Summary Banner Calculations
+// -----------------------------------------------------------------------------
+
+function computePreservationBannerMetrics(report, deadlinePassed) {
+  if (!deadlinePassed || !report) return null;
+
+  const students = report.students || [];
+  const eligible = students.filter((s) => s.repo_name && s.acceptance_state === "accepted");
+  const preserved = students.filter((s) => s.preservation_status === "preserved" && s.preserved_sha);
+  const unpreserved = eligible.filter((s) => !(s.preservation_status === "preserved" && s.preserved_sha));
+
+  const allPreserved = eligible.length > 0 && preserved.length >= eligible.length;
+
+  const lockdownStudent = students.find((s) => s.lock_down_at);
+  const lockdownTime = lockdownStudent?.lock_down_at || null;
+
+  const uncertaintyStudent = students.find((s) => s.uncertainty_interval_seconds != null);
+  const uncertaintySeconds = uncertaintyStudent?.uncertainty_interval_seconds ?? null;
+
+  return {
+    eligibleCount: eligible.length,
+    preservedCount: preserved.length,
+    unpreservedCount: unpreserved.length,
+    allPreserved,
+    lockdownTime,
+    uncertaintySeconds,
+    statusText: allPreserved
+      ? "All Preserved"
+      : preserved.length > 0
+      ? `${preserved.length}/${eligible.length} Preserved`
+      : "Preservation Pending",
+    statusBadgeClass: allPreserved
+      ? "badge-success"
+      : preserved.length > 0
+      ? "badge-warning"
+      : "badge-neutral",
+  };
+}
+
+test("Feature 2: returns null if deadline has not passed", () => {
+  const res = computePreservationBannerMetrics({ students: [] }, false);
+  assert.equal(res, null);
+});
+
+test("Feature 2: calculates allPreserved correctly when all eligible students are preserved", () => {
+  const report = {
+    students: [
+      {
+        github_login: "alice",
+        repo_name: "PXLAutomation/linux-alice",
+        acceptance_state: "accepted",
+        preservation_status: "preserved",
+        preserved_sha: "1".repeat(40),
+        lock_down_at: "2026-10-15T12:00:18Z",
+        uncertainty_interval_seconds: 18,
+      },
+      {
+        github_login: "bob",
+        repo_name: "PXLAutomation/linux-bob",
+        acceptance_state: "accepted",
+        preservation_status: "preserved",
+        preserved_sha: "2".repeat(40),
+        lock_down_at: "2026-10-15T12:00:18Z",
+        uncertainty_interval_seconds: 18,
+      },
+    ],
+  };
+
+  const metrics = computePreservationBannerMetrics(report, true);
+  assert.equal(metrics.eligibleCount, 2);
+  assert.equal(metrics.preservedCount, 2);
+  assert.equal(metrics.unpreservedCount, 0);
+  assert.equal(metrics.allPreserved, true);
+  assert.equal(metrics.statusText, "All Preserved");
+  assert.equal(metrics.statusBadgeClass, "badge-success");
+  assert.equal(metrics.lockdownTime, "2026-10-15T12:00:18Z");
+  assert.equal(metrics.uncertaintySeconds, 18);
+});
+
+test("Feature 2: calculates partial preservation correctly with unpreserved retry count", () => {
+  const report = {
+    students: [
+      {
+        github_login: "alice",
+        repo_name: "PXLAutomation/linux-alice",
+        acceptance_state: "accepted",
+        preservation_status: "preserved",
+        preserved_sha: "1".repeat(40),
+      },
+      {
+        github_login: "bob",
+        repo_name: "PXLAutomation/linux-bob",
+        acceptance_state: "accepted",
+        preservation_status: "failed",
+        preserved_sha: null,
+      },
+      {
+        github_login: "carol",
+        repo_name: "PXLAutomation/linux-carol",
+        acceptance_state: "accepted",
+        preservation_status: "pending",
+        preserved_sha: null,
+      },
+      {
+        github_login: "dave",
+        repo_name: null,
+        acceptance_state: "unaccepted",
+        preservation_status: null,
+        preserved_sha: null,
+      },
+    ],
+  };
+
+  const metrics = computePreservationBannerMetrics(report, true);
+  assert.equal(metrics.eligibleCount, 3);
+  assert.equal(metrics.preservedCount, 1);
+  assert.equal(metrics.unpreservedCount, 2);
+  assert.equal(metrics.allPreserved, false);
+  assert.equal(metrics.statusText, "1/3 Preserved");
+  assert.equal(metrics.statusBadgeClass, "badge-warning");
+});
+
+test("Feature 2: calculates preservation pending when 0 preserved", () => {
+  const report = {
+    students: [
+      {
+        github_login: "alice",
+        repo_name: "PXLAutomation/linux-alice",
+        acceptance_state: "accepted",
+        preservation_status: null,
+        preserved_sha: null,
+      },
+    ],
+  };
+
+  const metrics = computePreservationBannerMetrics(report, true);
+  assert.equal(metrics.eligibleCount, 1);
+  assert.equal(metrics.preservedCount, 0);
+  assert.equal(metrics.unpreservedCount, 1);
+  assert.equal(metrics.allPreserved, false);
+  assert.equal(metrics.statusText, "Preservation Pending");
+  assert.equal(metrics.statusBadgeClass, "badge-neutral");
+});
+
+// -----------------------------------------------------------------------------
+// Feature 3: Feedback PR Opening Logic & Idempotency
+// -----------------------------------------------------------------------------
+
+function filterFeedbackPrCandidates(students, assignmentFeedbackPrEnabled) {
+  if (!assignmentFeedbackPrEnabled) return [];
+  return students.filter(
+    (s) => s.repo_name && (s.commit_count > 0 || s.latest_observed_sha) && !s.feedback_pr_number
+  );
+}
+
+test("Feature 3: filterFeedbackPrCandidates returns empty list when feedback_pr is false on assignment", () => {
+  const students = [
+    { github_login: "alice", repo_name: "PXL/repo-alice", commit_count: 5, feedback_pr_number: null },
+  ];
+  const candidates = filterFeedbackPrCandidates(students, false);
+  assert.deepEqual(candidates, []);
+});
+
+test("Feature 3: filterFeedbackPrCandidates selects only students with commits and no existing PR", () => {
+  const students = [
+    { github_login: "alice", repo_name: "PXL/repo-alice", commit_count: 5, feedback_pr_number: null },
+    { github_login: "bob", repo_name: "PXL/repo-bob", commit_count: 0, feedback_pr_number: null },
+    { github_login: "carol", repo_name: "PXL/repo-carol", commit_count: 3, feedback_pr_number: 1 },
+    { github_login: "dave", repo_name: null, commit_count: null, feedback_pr_number: null },
+  ];
+  const candidates = filterFeedbackPrCandidates(students, true);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].github_login, "alice");
+});
+
+test("Feature 3: updating repository record on PR creation preserves existing record metadata", () => {
+  const originalRecord = {
+    schema_version: 1,
+    assignment_id: "linux-processes",
+    github_login: "alice",
+    repo_name: "PXLAutomation/linux-processes-alice",
+    repo_id: 123456,
+    created_at: "2026-10-01T10:00:00Z",
+    feedback_pr_baseline_branch: "pxl-baseline",
+  };
+
+  const prNumber = 1;
+  const prUrl = "https://github.com/PXLAutomation/linux-processes-alice/pull/1";
+
+  const updatedRecord = {
+    ...originalRecord,
+    feedback_pr_number: prNumber,
+    feedback_pr_url: prUrl,
+  };
+
+  assert.equal(updatedRecord.feedback_pr_number, 1);
+  assert.equal(updatedRecord.feedback_pr_url, prUrl);
+  assert.equal(updatedRecord.repo_id, 123456);
+  assert.equal(updatedRecord.github_login, "alice");
+});

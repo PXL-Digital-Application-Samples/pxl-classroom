@@ -549,11 +549,13 @@ At nightly finalize, the App demotes the student admin -> `pull` and captures a 
 
 Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). Reports continue to flag any observed late activity regardless of lock-down.
 
-### 11.3 Preservation
+### 11.3 Preservation & Summary Banner
 
-`preserve.mjs` pushes the candidate SHA into `<org>/pxl-classroom-archive` as a branch under `preserved/<assignment-id>/<login>`. The hash is verified via `git ls-remote`. Force-push or history rewrite of the source repository cannot remove the preserved object, because it lives in a different repository the student cannot administer.
+`preserve.mjs` pushes the candidate SHA into `<org>/pxl-classroom-archive` as a branch under `preserved/<assignment-id>/<login>` (or `preserved/<assignment-id>/<team-slug>` for group assignments). The hash is verified via `git ls-remote`. Force-push or history rewrite of the source repository cannot remove the preserved object, because it lives in a different repository the student cannot administer.
 
 Without preservation, a SHA recorded in `observations/` could become unreachable if the student rewrites history. With preservation, the reachable object survives.
+
+On `AssignmentDetailView.vue`, the Post-Deadline Preservation Summary Banner provides real-time verification of preserved vs eligible student records, displays the measured uncertainty delay interval (`uncertainty_seconds = lockdown_at - deadline_at`), provides 1-click targeted retries for any failed records, and links directly to `<org>/pxl-classroom-archive`. Student and team rows render direct hyperlinks to their specific archive branch.
 
 ### 11.4 Feedback PR (optional)
 
@@ -562,7 +564,7 @@ When `feedback_pr: true` on the assignment, provisioning additionally:
 1. Creates a frozen branch `pxl-baseline` (configurable via `feedback_pr_baseline_branch`) at the just-generated default-branch HEAD.
 2. Applies branch protection that forbids force-push and delete. The App's org-admin role outranks the student's repo admin so the student cannot remove the baseline (same primacy as lock-down).
 
-The Feedback PR itself (head `main` -> base `pxl-baseline`, draft) cannot be opened at provisioning time - both refs point at the same SHA and GitHub refuses with 422 "No commits between …". The PR is therefore opened lazily by `pxl-classroom feedback open` once students have pushed at least one commit. The CLI is idempotent and records `feedback_pr_number` / `feedback_pr_url` on the repository record.
+The Feedback PR itself (head `main` -> base `pxl-baseline`, draft) cannot be opened at provisioning time - both refs point at the same SHA and GitHub refuses with 422 "No commits between …". The PR is therefore opened lazily once students have pushed at least one commit. Lecturers can trigger PR creation with 1 click in the SPA via the **"Open Feedback PRs"** button in `AssignmentDetailView.vue`, or headless via the CLI `pxl-classroom feedback open` or `.github/workflows/open-feedback-prs.yml`. The action is idempotent and records `feedback_pr_number` / `feedback_pr_url` on the repository record.
 
 The lecturer (org owner) leaves inline review comments on the PR. Comments persist as the student continues to push; the PR head tracks `main`.
 
@@ -579,6 +581,18 @@ Assignment YAML may carry an `autograde` block (`enabled`, `execution_environmen
 **2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions on every student push. During provisioning, if the template repository already provides its own `.github/workflows/autograding.yml` or `classroom.yml`, it is preserved without overwrite; otherwise, provisioning injects a workflow composed of `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter` actions (or calls a private reusable workflow in the control repo if `visibility` is `private`). Grades are synced via the SPA using the "Sync CI results from GitHub" button (or CLI `pxl-classroom grade`), which queries the GitHub Checks API at each student's preserved or latest observed commit SHA, parses granular `Points <earned>/<total>` strings from check-run outputs, and commits the aggregated results to `grading/<id>/summary.json`.
 
 In both modes, `AssignmentDetailView` shows a read-only Autograder panel rendering the latest summary.
+
+### 11.7 Smart Starter Code Synchronization
+
+If an instructor updates starter code or test suites after students have accepted repositories:
+
+1. **Selective File Picking & Diff Inspection:** `StarterSyncModal.vue` allows instructors to inspect new template commits and select specific files to synchronize via checkboxes.
+2. **Pre-Flight Conflict Scanner:** The SPA runs a background conflict analysis against student repositories with a live progress bar, categorizing the cohort into Clean Auto-Merges vs. Potential Conflicts.
+3. **Smart Auto-Merge Algorithm:**
+   - **Clean non-conflicting student repositories (90%+):** Executes a direct three-way merge into `main`. Friction for students is zero; the fix arrives automatically on their next `git pull`.
+   - **Conflicted repositories:** Safely aborts mutating `main`, creates an isolated branch `refs/heads/starter-update-<timestamp>`, and opens a Pull Request into `main` so student work is never overwritten.
+4. **Student Tracking Issues:** Automatically opens an informational Issue in each student repository with clear instructions.
+5. **Execution & Records:** Triggered via the Web UI modal, CLI `pxl-classroom sync-starter`, or `.github/workflows/sync-starter-code.yml`. Sync results are committed to `syncs/<assignment-id>/<sync-id>.json` (validated by `schemas/sync-record.schema.json`).
 
 ---
 
@@ -683,10 +697,9 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 ## 16. Deferred to v2
 
 - Institutional identity verification (MS 365 / Entra ID).
-- Template updates after provisioning / starter-code resynchronization.
-- LMS / grade export.
-- Plagiarism / similarity detection.
-- Multi-institution hosting.
+- LMS / LTI 1.3 direct gradebook sync.
+- Plagiarism / similarity detection (Dolos CLI plugin).
+- Multi-institution federated hosting.
 
 ---
 

@@ -117,6 +117,21 @@ const ICONS = {
   'edit-3':
     '<path d="M12 20h9"/>' +
     '<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+  'external-link':
+    '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' +
+    '<polyline points="15 3 21 3 21 9"/>' +
+    '<line x1="10" y1="14" x2="21" y2="3"/>',
+  'git-pull-request':
+    '<circle cx="18" cy="18" r="3"/>' +
+    '<circle cx="6" cy="6" r="3"/>' +
+    '<path d="M13 6h3a2 2 0 0 1 2 2v7"/>' +
+    '<line x1="6" y1="9" x2="6" y2="21"/>',
+  'message-square':
+    '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  archive:
+    '<polyline points="21 8 21 21 3 21 3 8"/>' +
+    '<rect x="1" y="3" width="22" height="5"/>' +
+    '<line x1="10" y1="12" x2="14" y2="12"/>',
 }
 
 const paths = computed(() => ICONS[props.name] || '')

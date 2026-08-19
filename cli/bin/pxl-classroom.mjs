@@ -10,6 +10,7 @@ import { registerAuditCommand } from "../src/commands/audit.mjs";
 import { registerFeedbackCommand } from "../src/commands/feedback.mjs";
 import { registerDownloadCommand } from "../src/commands/download.mjs";
 import { registerGradeCommand } from "../src/commands/grade.mjs";
+import { registerSyncStarterCommand } from "../src/commands/sync-starter.mjs";
 
 const program = new Command();
 
@@ -32,6 +33,7 @@ registerAuditCommand(program, context);
 registerFeedbackCommand(program, context);
 registerDownloadCommand(program, context);
 registerGradeCommand(program, context);
+registerSyncStarterCommand(program, context);
 
 program.parseAsync(process.argv).catch((err) => {
   if (err?.code === "ABORT") {
