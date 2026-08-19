@@ -17,7 +17,7 @@ This document is the single technical reference for the system. It supersedes th
 - Report activity before and after a deadline, including late activity.
 - Operate using only GitHub-hosted services (no external server, no external database).
 
-**Non-goals.** Plagiarism detection; preventing every form of late modification; treating Git commit author/committer dates as authoritative submission times; LMS grade export; group assignments (deferred to v2); guaranteeing tamper-proofing against a malicious organization owner.
+**Non-goals.** Plagiarism detection; preventing every form of late modification; treating Git commit author/committer dates as authoritative submission times; LMS grade export; guaranteeing tamper-proofing against a malicious organization owner.
 
 ---
 
@@ -682,7 +682,6 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 
 ## 16. Deferred to v2
 
-- Group assignments.
 - Institutional identity verification (MS 365 / Entra ID).
 - Template updates after provisioning / starter-code resynchronization.
 - LMS / grade export.
