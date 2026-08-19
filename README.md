@@ -29,27 +29,21 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 - **Fast Web UI & Dashboard:**
   - Create and publish assignments in seconds via the Admin Panel.
   - Monitor progress with live commit sync
-  - 4-tier student identity hover cards
-  - Post-deadline preservation summary banner with live uncertainty delay metrics and 1-click retries.
-  - Direct links to immutable submission archive branches in student and team tables.
-- **Smart Starter Code Synchronization:**
-  - Distribute template fixes or new test suites to active student repositories with one click.
-  - Interactive file diff picker with selective file syncing.
-  - Background pre-flight conflict scanner with live progress bar.
-  - Smart Auto-Merge commits directly to `main` with zero student friction, safely falling back to Pull Requests if conflicts exist.
-  - Automated tracking Issues in student repositories with merge instructions.
+- **Zero Infrastructure:**
+  - 100% serverless on GitHub Pages, Actions, and a single GitHub App.
+  - Workflows sleep when idle, and weekly audits monitor SKU billing limits.
 - **Student & Team Self-Service:**
   - One-click repository provisioning in 15-30s.
   - Students can form teams, join groups under capacity limits, or switch teams before deadlines.
+- **Smart Starter Code Synchronization:**
+  - Distribute template fixes or new test suites to active student repositories with one click.
+  - Interactive file diff picker with selective file syncing.
 - **Dual-Mode Autograding & Feedback PRs:**
   - Automated feedback on push via GitHub Actions or local CLI grading in sandboxed Docker containers (0 Actions minutes billed).
   - 1-click Web UI button to lazily open Feedback Pull Requests (`main` -> `pxl-baseline`) once students push code.
 - **DevOps-Ready Student Admin:**
   - Students get repository Admin rights to manage Secrets, Environments, and Runners
   - backed by automated deadline lockdown and commit archival.
-- **Zero Infrastructure:**
-  - 100% serverless on GitHub Pages, Actions, and a single GitHub App.
-  - Workflows sleep when idle, and weekly audits monitor SKU billing limits.
 - **Automated Archival:**
   - Nightly automation demotes student permissions to read-only at deadlines.
   - Clones and preserves verified commit SHAs as immutable branches in `<org>/pxl-classroom-archive`.
