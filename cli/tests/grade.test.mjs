@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { registerGradeCommand } from "../src/commands/grade.mjs";
+import { registerGradeCommand, parseCheckRunScore } from "../src/commands/grade.mjs";
 
 function runGitSync(args, cwd) {
   const res = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -231,3 +231,65 @@ autograde:
     Object.defineProperty(process, 'platform', originalPlatform);
   }
 });
+
+test("parseCheckRunScore: extracts Points X/Y from summary, text, or title", () => {
+  // Scenario 1: Partial score from reporter summary
+  const run1 = {
+    output: {
+      title: "Autograding",
+      summary: "### Test Results\n\n| Test | Points |\n|---|---|\n| Task 1 | 5/5 |\n\nPoints 18/20",
+      text: ""
+    },
+    conclusion: "failure"
+  };
+  const res1 = parseCheckRunScore(run1, 20);
+  assert.equal(res1.earned, 18);
+  assert.equal(res1.total, 20);
+  assert.equal(res1.matched, true);
+  assert.equal(res1.passed, false);
+
+  // Scenario 2: Perfect score
+  const run2 = {
+    output: {
+      title: "Autograding Tests",
+      summary: "Points 20/20",
+      text: ""
+    },
+    conclusion: "success"
+  };
+  const res2 = parseCheckRunScore(run2, 20);
+  assert.equal(res2.earned, 20);
+  assert.equal(res2.total, 20);
+  assert.equal(res2.matched, true);
+  assert.equal(res2.passed, true);
+
+  // Scenario 3: Decimals / colon formatting
+  const run3 = {
+    output: {
+      title: "Points: 7.5/10",
+      summary: "",
+      text: ""
+    },
+    conclusion: "failure"
+  };
+  const res3 = parseCheckRunScore(run3, 10);
+  assert.equal(res3.earned, 7.5);
+  assert.equal(res3.total, 10);
+  assert.equal(res3.matched, true);
+
+  // Scenario 4: Fallback to binary conclusion when no Points string
+  const run4 = {
+    output: {
+      title: "CI build",
+      summary: "All tests passed",
+      text: ""
+    },
+    conclusion: "success"
+  };
+  const res4 = parseCheckRunScore(run4, 50);
+  assert.equal(res4.earned, 50);
+  assert.equal(res4.total, 50);
+  assert.equal(res4.matched, false);
+  assert.equal(res4.passed, true);
+});
+

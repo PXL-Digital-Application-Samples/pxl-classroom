@@ -11,6 +11,8 @@
 // step summary. No npm dependencies (Node 18+ fetch).
 
 import { appendFile, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parse } from "yaml";
 
@@ -111,11 +113,10 @@ async function setupFeedbackBaseline(repo) {
   return sha;
 }
 
-async function injectAutogradingWorkflow(assignment) {
-  const isPublic = assignment.autograde.visibility === "public";
-  let content = "";
+export function buildAutogradingWorkflow(assignment, org) {
+  const isPublic = assignment?.autograde?.visibility === "public";
   if (!isPublic) {
-    content = `name: Autograding
+    return `name: Autograding
 on:
   push:
     branches:
@@ -127,10 +128,13 @@ concurrency:
 
 jobs:
   grade:
-    uses: ${cfg.org}/pxl-classroom-control/.github/workflows/grade.yml@main
+    uses: ${org}/pxl-classroom-control/.github/workflows/grade.yml@main
 `;
-  } else {
-    content = `name: Autograding
+  }
+
+  const tests = assignment?.autograde?.tests || [];
+  if (tests.length === 0) {
+    return `name: Autograding
 on:
   push:
     branches:
@@ -146,11 +150,94 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: npm install
       - run: npm test
 `;
   }
-  
+
+  const steps = [
+    `      - name: Checkout code\n        uses: actions/checkout@v4`
+  ];
+  const runnerIds = [];
+  const envVars = [];
+
+  for (const t of tests) {
+    const runnerId = (t.id || "test").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    runnerIds.push(runnerId);
+    const envKey = `${runnerId.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_RESULTS`;
+    envVars.push(`          ${envKey}: "\${{ steps.${runnerId}.outputs.result }}"`);
+
+    if (t.type === "io") {
+      steps.push(`      - name: ${t.id}
+        id: ${runnerId}
+        uses: classroom-resources/autograding-io-grader@v1
+        with:
+          test-name: "${t.id}"
+          command: "${t.command || ""}"
+          input: "${(t.stdin || "").replace(/\n/g, "\\n")}"
+          expected-output: "${(t.expected_stdout || "").replace(/\n/g, "\\n")}"
+          comparison-method: "included"
+          timeout: ${t.timeout_s || 10}
+          max-score: ${t.points || 1}`);
+    } else if (t.type === "python") {
+      steps.push(`      - name: ${t.id}
+        id: ${runnerId}
+        uses: classroom-resources/autograding-python-grader@v1
+        with:
+          test-name: "${t.id}"
+          setup-command: "pip install pytest"
+          command: "pytest"
+          timeout: ${t.timeout_s || 10}
+          max-score: ${t.points || 1}`);
+    } else {
+      // default: run
+      steps.push(`      - name: ${t.id}
+        id: ${runnerId}
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: "${t.id}"
+          command: "${t.command || "exit 0"}"
+          timeout: ${t.timeout_s || 10}
+          max-score: ${t.points || 1}`);
+    }
+  }
+
+  // Reporter step
+  steps.push(`      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        env:
+${envVars.join("\n")}
+        with:
+          runners: ${runnerIds.join(",")}`);
+
+  return `name: Autograding
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: autograde-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+${steps.join("\n\n")}
+`;
+}
+
+async function injectAutogradingWorkflow(assignment) {
+  // Check if template repository already supplied an autograding workflow
+  const checkAutograde = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/autograding.yml`);
+  const checkClassroom = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/classroom.yml`);
+  if (checkAutograde.status === 200 || checkClassroom.status === 200) {
+    log("inject-autograding", { ok: true, note: "workflow already present from template - skipping injection" });
+    return;
+  }
+
+  const content = buildAutogradingWorkflow(assignment, cfg.org);
   const b64 = Buffer.from(content).toString("base64");
   const res = await gh("PUT", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/autograding.yml`, {
     message: "Add autograding workflow",
@@ -244,4 +331,7 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(async (e) => { await fail("fail:exception", e.message); });
+const isMain = process.argv[1] && (resolve(process.argv[1]) === fileURLToPath(import.meta.url) || resolve(process.argv[1]).endsWith("provision.mjs"));
+if (isMain) {
+  main().catch(async (e) => { await fail("fail:exception", e.message); });
+}

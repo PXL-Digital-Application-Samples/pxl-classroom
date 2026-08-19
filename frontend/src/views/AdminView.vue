@@ -404,12 +404,11 @@
 
               <small style="display:block; margin-top: 8px;">
                 <template v-if="form.autograde_execution_environment === 'lecturer_local'">
-                  Execution stays off-platform; run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> from your machine.
+                  0 platform Actions minutes billed. Run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> after deadline.
                   Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
                 </template>
                 <template v-else>
-                  Executed automatically via GitHub Actions in the student repositories. Results sync back as a
-                  <strong>pass/fail</strong> CI signal per student.
+                  Executed via GitHub Actions on student pushes (uses organization Actions minutes). If template has custom workflows, they are preserved; otherwise tests above are injected.
                 </template>
               </small>
             </div>
@@ -785,6 +784,10 @@ const fieldErrors = computed(() => {
   // 4. Repository Name Pattern check
   if (!form.value.repository_name_pattern) {
     errors.repository_name_pattern = 'Repository name pattern is required.'
+  } else if (form.value.assignment_type === 'group') {
+    if (!form.value.repository_name_pattern.includes('{team_slug}') && !form.value.repository_name_pattern.includes('{github_login}')) {
+      errors.repository_name_pattern = 'Pattern must contain "{team_slug}" (or "{github_login}").'
+    }
   } else if (!form.value.repository_name_pattern.includes('{github_login}')) {
     errors.repository_name_pattern = 'Pattern must contain "{github_login}".'
   }
@@ -899,7 +902,10 @@ watch(() => form.value.template, (newVal) => {
 
 watch(() => form.value.id, (newId) => {
   if (isNew.value && !manualRepositoryNamePattern.value) {
-    form.value.repository_name_pattern = newId ? `${newId}-{github_login}` : '{slug}-{github_login}'
+    const isGrp = form.value.assignment_type === 'group'
+    form.value.repository_name_pattern = newId
+      ? (isGrp ? `${newId}-{team_slug}` : `${newId}-{github_login}`)
+      : (isGrp ? '{slug}-{team_slug}' : '{slug}-{github_login}')
   }
 })
 

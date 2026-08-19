@@ -23,9 +23,12 @@ name: Acceptance trigger
 on:
   watch:
     types: [started]
+  issues:
+    types: [opened]
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: accept-${{ github.actor }}
@@ -34,7 +37,7 @@ concurrency:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    if: github.event.action == 'started'
+    if: (github.event_name == 'watch' && github.event.action == 'started') || (github.event_name == 'issues' && github.event.action == 'opened')
     steps:
       - name: Validate actor
         id: validate
@@ -44,6 +47,31 @@ jobs:
             || { echo "::error::Missing actor"; exit 1; }
           echo "actor=${{ github.actor }}"       >> "$GITHUB_OUTPUT"
           echo "actor_id=${{ github.event.sender.id }}" >> "$GITHUB_OUTPUT"
+
+      - name: Parse team payload
+        id: payload
+        shell: bash
+        run: |
+          TEAM_SLUG=""
+          TEAM_NAME=""
+          TEAM_ACTION=""
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            BODY="${{ github.event.issue.body }}"
+            if [ -n "$BODY" ]; then
+              TEAM_SLUG=$(echo "$BODY" | jq -r '.team_slug // empty' 2>/dev/null || true)
+              TEAM_NAME=$(echo "$BODY" | jq -r '.team_name // empty' 2>/dev/null || true)
+              TEAM_ACTION=$(echo "$BODY" | jq -r '.team_action // empty' 2>/dev/null || true)
+            fi
+            if [ -z "$TEAM_SLUG" ]; then
+              TITLE="${{ github.event.issue.title }}"
+              if [[ "$TITLE" =~ ^team:(.+) ]]; then
+                TEAM_SLUG="${BASH_REMATCH[1]}"
+              fi
+            fi
+          fi
+          echo "team_slug=$TEAM_SLUG" >> "$GITHUB_OUTPUT"
+          echo "team_name=$TEAM_NAME" >> "$GITHUB_OUTPUT"
+          echo "team_action=$TEAM_ACTION" >> "$GITHUB_OUTPUT"
 
       - name: Mint dispatcher token
         id: token
@@ -59,11 +87,31 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
-          gh api --method POST \
-            "/repos/PXL-Digital-Application-Samples/pxl-classroom/dispatches" \
-            -f "event_type=acceptance" \
-            -f "client_payload[org]=${{ vars.CONTROL_ORG }}" \
-            -f "client_payload[assignment_id]=${{ vars.ASSIGNMENT_ID }}" \
-            -f "client_payload[github_login]=${{ steps.validate.outputs.actor }}" \
-            -f "client_payload[github_id]=${{ steps.validate.outputs.actor_id }}" \
+          ARGS=(
+            "/repos/PXL-Digital-Application-Samples/pxl-classroom/dispatches"
+            -f "event_type=acceptance"
+            -f "client_payload[org]=${{ vars.CONTROL_ORG }}"
+            -f "client_payload[assignment_id]=${{ vars.ASSIGNMENT_ID }}"
+            -f "client_payload[github_login]=${{ steps.validate.outputs.actor }}"
+            -f "client_payload[github_id]=${{ steps.validate.outputs.actor_id }}"
             -f "client_payload[workflow_run_url]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          )
+          if [ -n "${{ steps.payload.outputs.team_slug }}" ]; then
+            ARGS+=(-f "client_payload[team_slug]=${{ steps.payload.outputs.team_slug }}")
+          fi
+          if [ -n "${{ steps.payload.outputs.team_name }}" ]; then
+            ARGS+=(-f "client_payload[team_name]=${{ steps.payload.outputs.team_name }}")
+          fi
+          if [ -n "${{ steps.payload.outputs.team_action }}" ]; then
+            ARGS+=(-f "client_payload[team_action]=${{ steps.payload.outputs.team_action }}")
+          fi
+          gh api --method POST "${ARGS[@]}"
+
+      - name: Clean up trigger issue
+        if: always() && github.event_name == 'issues'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue close "${{ github.event.issue.number }}" --reason "completed" || true
+          gh issue lock "${{ github.event.issue.number }}" --reason "resolved" || true

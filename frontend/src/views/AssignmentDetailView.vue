@@ -461,8 +461,7 @@
             Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
             Total points: <strong>{{ autogradeTotalPoints }}</strong>.
             <template v-if="isGitHubActionsAutograde">
-              Sync reads each student's CI conclusion at the preserved SHA - it is a
-              <strong>pass/fail signal</strong>, not per-test grading.
+              Sync reads CI check-run summaries and point scores directly from GitHub Actions.
             </template>
             <button v-if="!isGitHubActionsAutograde" class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
             <button v-else class="btn btn-primary" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
@@ -474,26 +473,22 @@
               <thead>
                 <tr>
                   <th>Login</th>
-                  <th v-if="summaryIsCiBased">CI result</th>
-                  <template v-else>
-                    <th class="num">Earned</th>
-                    <th class="num">Total</th>
-                  </template>
+                  <th class="num">Earned</th>
+                  <th class="num">Total</th>
+                  <th v-if="summaryIsCiBased">CI status</th>
                   <th>Last graded</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in autogradeSummary.students" :key="row.login">
                   <td><a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a></td>
+                  <td class="num">{{ row.earned_points }}</td>
+                  <td class="num">{{ row.total_points }}</td>
                   <td v-if="summaryIsCiBased">
-                    <span :class="['badge', row.earned_points >= row.total_points && row.total_points > 0 ? 'badge-success' : 'badge-error']">
-                      {{ row.earned_points >= row.total_points && row.total_points > 0 ? 'passed' : 'failed' }}
+                    <span :class="['badge', row.earned_points >= row.total_points && row.total_points > 0 ? 'badge-success' : (row.earned_points > 0 ? 'badge-warning' : 'badge-error')]">
+                      {{ row.earned_points >= row.total_points && row.total_points > 0 ? 'passed' : (row.earned_points > 0 ? 'partial' : 'failed') }}
                     </span>
                   </td>
-                  <template v-else>
-                    <td class="num">{{ row.earned_points }}</td>
-                    <td class="num">{{ row.total_points }}</td>
-                  </template>
                   <td>{{ fmt(row.graded_at) }}</td>
                 </tr>
               </tbody>
@@ -1423,6 +1418,31 @@ async function refreshLiveStatus() {
     }
   }
 
+  // Re-aggregate teams if this is a group assignment
+  if (report.value.teams && Array.isArray(report.value.teams)) {
+    for (const team of report.value.teams) {
+      const members = team.members || []
+      const memberStudents = report.value.students.filter((s) =>
+        members.some((m) => m && s.github_login && m.toLowerCase() === s.github_login.toLowerCase())
+      )
+      const firstMember = memberStudents[0]
+      if (firstMember) {
+        team.repo_name = team.repo_name || firstMember.repo_name || null
+        team.repo_url = team.repo_url || firstMember.repo_url || null
+        team.repo_id = team.repo_id || firstMember.repo_id || null
+        team.submission_status = firstMember.submission_status || 'no-submission'
+        team.latest_observed_sha = firstMember.latest_observed_sha || null
+        team.commit_count = firstMember.commit_count || null
+        team.lock_down_at = firstMember.lock_down_at || null
+        team.preservation_status = firstMember.preservation_status || null
+        team.preserved_sha = firstMember.preserved_sha || null
+      }
+      if (assignment.value?.group_config?.min_team_size) {
+        team.under_capacity = members.length < assignment.value.group_config.min_team_size
+      }
+    }
+  }
+
   const refreshedAt = new Date().toISOString()
   liveRefreshedAt.value = refreshedAt
   report.value.live_refreshed_at = refreshedAt
@@ -1448,18 +1468,44 @@ async function refreshLiveStatus() {
   }
 }
 
+function parseCheckRunScore(run, defaultTotal = 0) {
+  const title = run?.output?.title || ''
+  const summary = run?.output?.summary || ''
+  const text = run?.output?.text || ''
+  const fullText = `${title}\n${summary}\n${text}`
+
+  const match = fullText.match(/Points\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*\/\s*([0-9]+(?:\.[0-9]+)?)/i)
+  if (match) {
+    const earned = parseFloat(match[1])
+    const total = parseFloat(match[2])
+    return {
+      earned,
+      total,
+      passed: earned >= total && total > 0,
+      matched: true,
+      summaryText: summary || text || title,
+    }
+  }
+
+  const passed = run?.conclusion === 'success'
+  return {
+    earned: passed ? defaultTotal : 0,
+    total: defaultTotal,
+    passed,
+    matched: false,
+    summaryText: summary || text || title,
+  }
+}
+
 async function syncGradesFromGitHub() {
   const token = getToken()
   if (!token || !report.value || !assignment.value) return
   
-  // CI results are read at each student's *preserved* SHA, which only exists
-  // after the deadline-night finalize. Never commit an empty summary (it
-  // would overwrite a previous one) - explain the precondition instead.
-  const queue = report.value.students.filter(s => s.repo_name && s.preserved_sha)
+  // CI results are read at each student's preserved SHA (if finalized) or latest observed SHA
+  const queue = report.value.students.filter(s => s.repo_name && (s.preserved_sha || s.latest_observed_sha || s.last_on_time_sha || s.tagged_submission_sha))
   if (queue.length === 0) {
     toast.info(
-      'CI results sync against preserved submissions, which are created by the deadline finalize. ' +
-      'No students are preserved yet. Nothing was synced.',
+      'No student commit observations or preserved submissions found yet. Click Refresh to query student repositories first.',
     )
     return
   }
@@ -1475,35 +1521,31 @@ async function syncGradesFromGitHub() {
   const syncWorker = async () => {
     while (cursor < queue.length) {
       const s = queue[cursor++]
+      const targetSha = s.preserved_sha || s.latest_observed_sha || s.last_on_time_sha || s.tagged_submission_sha
       try {
         // s.repo_name is already the full org/repo name.
-        const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
+        const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${targetSha}/check-runs`)
         if (!checksReq.ok) {
           throw new Error(`checks API fetch failed - HTTP ${checksReq.status}`)
         }
-        const checkRuns = checksReq.data?.check_runs || [];
-        const total = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
-        let earned = 0;
-        let passed = false;
+        const checkRuns = checksReq.data?.check_runs || []
+        const totalFallback = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0)
         
         if (checkRuns.length === 0) {
           summary.failed.push({
             login: s.github_login,
-            reason: "no CI run at preserved SHA"
-          });
-          continue;
+            reason: `no CI run at commit ${targetSha.slice(0, 7)}`
+          })
+          continue
         }
 
-        const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
-        if (run && run.conclusion === "success") {
-          earned = total;
-          passed = true;
-        }
+        const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0]
+        const parsed = parseCheckRunScore(run, totalFallback)
         
         summary.graded.push({
           login: s.github_login,
-          earned_points: earned,
-          total_points: total,
+          earned_points: parsed.earned,
+          total_points: parsed.total > 0 ? parsed.total : totalFallback,
           graded_at: new Date().toISOString()
         })
       } catch (err) {
@@ -1553,7 +1595,7 @@ async function syncGradesFromGitHub() {
     }
   } catch (e) {
     console.error('Failed to sync grades', e)
-    toast.error('Failed to sync grades')
+    toast.error(`Failed to sync grades: ${e.message}`)
   } finally {
     syncingGrades.value = false
   }

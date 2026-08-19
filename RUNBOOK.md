@@ -720,13 +720,15 @@ Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.jso
 
 #### Option B: Student-side (GitHub Actions)
 
-When `execution_environment` is `github_actions`, the system automatically injects a `.github/workflows/autograding.yml` file into each student's repository during acceptance provisioning. The tests run automatically on GitHub Actions whenever the student pushes code.
+When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions whenever the student pushes code.
 
-- **Guardrails**: The injected workflow automatically enforces `timeout-minutes: 10` (preventing infinite loops from burning runner quotas) and `concurrency: { cancel-in-progress: true }` (cancelling obsolete runs if a student pushes repeatedly).
+- **Template Preservation**: If the assignment's template repository already contains a custom autograding workflow (`.github/workflows/autograding.yml` or `classroom.yml`, such as standard GitHub Classroom or Cloud PE workflows), it is preserved during provisioning without overwrite.
+- **Workflow Generation**: If no workflow exists in the template, provisioning injects a workflow utilizing `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter`.
+- **Guardrails**: The generated workflow automatically enforces `timeout-minutes: 10` (preventing infinite loops from burning runner quotas) and `concurrency: { cancel-in-progress: true }` (cancelling obsolete runs if a student pushes repeatedly).
 - **Visibility `private`**: The injected workflow calls a reusable workflow stored in the control repository (`pxl-classroom-control`), hiding the actual tests and commands from the student's view.
 - **Visibility `public`**: The tests are executed openly in the student's repository, allowing them to see exactly what commands are run.
 
 To pull the grades back into the control repository:
-1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment.
+1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment (or run `pxl-classroom grade --assignment <id>`).
 2. Click the **Sync CI results from GitHub** button in the Autograder panel.
-3. The SPA will fetch the CI statuses directly from the GitHub Checks API for all preserved students and write a bulk `summary.json` to the control repository. Preserved SHAs only exist after the deadline-night finalize - before that the button explains the precondition and commits nothing.
+3. The system fetches the Checks API outputs for all students (supporting both preserved and active commit SHAs), parses granular `Points <earned>/<total>` results, and writes `grading/<id>/summary.json` to the control repository.

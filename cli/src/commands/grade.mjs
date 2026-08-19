@@ -122,6 +122,35 @@ function parseConcurrency(val) {
   return parsed;
 }
 
+export function parseCheckRunScore(run, defaultTotal = 0) {
+  const title = run?.output?.title || "";
+  const summary = run?.output?.summary || "";
+  const text = run?.output?.text || "";
+  const fullText = `${title}\n${summary}\n${text}`;
+
+  const match = fullText.match(/Points\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*\/\s*([0-9]+(?:\.[0-9]+)?)/i);
+  if (match) {
+    const earned = parseFloat(match[1]);
+    const total = parseFloat(match[2]);
+    return {
+      earned,
+      total,
+      passed: earned >= total && total > 0,
+      matched: true,
+      summaryText: summary || text || title,
+    };
+  }
+
+  const passed = run?.conclusion === "success";
+  return {
+    earned: passed ? defaultTotal : 0,
+    total: defaultTotal,
+    passed,
+    matched: false,
+    summaryText: summary || text || title,
+  };
+}
+
 export function registerGradeCommand(program) {
   program
     .command("grade")
@@ -196,8 +225,7 @@ export function registerGradeCommand(program) {
       );
       if (isGitHubActions) {
         process.stdout.write(
-          `Note: github_actions grading maps each student's single CI conclusion at the ` +
-          `preserved SHA onto all tests - it is pass/fail, not per-test scoring.\n`,
+          `Note: github_actions grading extracts Points from the Actions check-run output or falls back to CI conclusion.\n`,
         );
       }
 
@@ -216,16 +244,13 @@ export function registerGradeCommand(program) {
               summary.failed.push({ login: s.github_login, reason: "no CI run at preserved SHA" });
               return;
             }
-            const total = tests.reduce((acc, t) => acc + (t.points || 0), 0);
-            let earned = 0;
-            let passed = false;
-            let summaryOutput = "";
+            const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
             const run = checkRuns.find(r => r.name.toLowerCase().includes("grade") || r.name.toLowerCase().includes("autograde")) || checkRuns[0];
-            if (run.conclusion === "success") {
-              earned = total;
-              passed = true;
-            }
-            summaryOutput = run.output?.summary || "";
+            const parsedScore = parseCheckRunScore(run, totalFallback);
+            const earned = parsedScore.earned;
+            const total = parsedScore.total > 0 ? parsedScore.total : totalFallback;
+            const passed = parsedScore.passed;
+            const summaryOutput = parsedScore.summaryText || "";
             
             result = {
               schema_version: 1,
@@ -238,17 +263,27 @@ export function registerGradeCommand(program) {
               runner: "github_actions",
               total_points: total,
               earned_points: earned,
-              tests: tests.map(t => ({
+              tests: tests.length > 0 ? tests.map(t => ({
                 id: t.id,
                 passed: passed,
                 points: t.points,
-                earned: passed ? t.points : 0,
+                earned: parsedScore.matched && totalFallback > 0 ? Math.round((t.points / totalFallback) * earned * 100) / 100 : (passed ? t.points : 0),
                 duration_ms: 0,
                 exit_code: passed ? 0 : 1,
                 timed_out: false,
                 stdout: summaryOutput,
                 stderr: ""
-              }))
+              })) : [{
+                id: "ci-autograding",
+                passed: passed,
+                points: total,
+                earned: earned,
+                duration_ms: 0,
+                exit_code: passed ? 0 : 1,
+                timed_out: false,
+                stdout: summaryOutput,
+                stderr: ""
+              }]
             };
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
