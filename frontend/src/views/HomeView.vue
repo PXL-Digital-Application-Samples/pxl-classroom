@@ -62,7 +62,7 @@
             <h3 style="margin: 0; font-size: 1.1rem;">Have an assignment link?</h3>
           </div>
           <p class="text-secondary text-sm" style="margin-bottom: var(--space-md);">
-            If your lecturer shared a direct link or assignment ID via email, Canvas, or on the projector, paste it here:
+            If your lecturer shared a direct link or assignment ID, paste it here:
           </p>
           <form class="jump-form flex gap-sm" @submit.prevent="jumpToAssignment">
             <input
@@ -129,8 +129,7 @@
           <Icon name="clipboard" :size="48" class="status-icon" />
           <h3>No accepted assignments yet</h3>
           <p class="text-secondary" style="max-width: 480px; line-height: 1.5;">
-            You have not accepted any course assignments yet. When your lecturer gives you an assignment link
-            (via email, Canvas, or during class), open it to join.
+            You have not accepted any course assignments yet. When your lecturer gives you an assignment link, open it to join.
           </p>
 
           <div class="direct-link-box" style="margin-top: var(--space-lg); width: 100%; max-width: 480px;">
