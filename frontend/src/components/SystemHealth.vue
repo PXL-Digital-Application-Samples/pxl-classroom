@@ -40,17 +40,12 @@
           </div>
         </li>
       </ul>
-
-      <details class="health-raw">
-        <summary class="text-muted">Raw audit JSON</summary>
-        <pre>{{ JSON.stringify(result, null, 2) }}</pre>
-      </details>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { getToken } from '../lib/auth.js'
 import { ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
@@ -66,9 +61,14 @@ const running = ref(false)
 const result = ref(null)
 const runError = ref('')
 
+onMounted(() => {
+  run()
+})
+
 watch(() => props.org, () => {
   result.value = null
   runError.value = ''
+  run()
 }, { immediate: false })
 
 async function run() {
@@ -207,20 +207,5 @@ function relativeTime(iso) {
 .check-label { font-size: 0.85rem; font-weight: 500; color: var(--text-primary); }
 .check-message { font-size: 0.78rem; margin-top: 1px; }
 
-.health-raw {
-  margin-top: var(--space-md);
-  font-size: 0.78rem;
-}
-.health-raw summary { cursor: pointer; }
-.health-raw pre {
-  margin-top: var(--space-sm);
-  padding: var(--space-sm);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  max-height: 320px;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-}
 .text-muted { color: var(--text-muted); }
 </style>

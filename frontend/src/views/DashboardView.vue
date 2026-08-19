@@ -440,8 +440,16 @@ const orgsLoadError = ref(null)
 
 const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
 
+function onGlobalKeydown(e) {
+  if (e.key === 'Escape') {
+    showHealthModal.value = false
+    orgDropdownOpen.value = false
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('click', onOutsideClick)
+  window.addEventListener('keydown', onGlobalKeydown)
   if (isAuthenticated()) {
     user.value = getUser()
     await loadOrgs()
@@ -450,6 +458,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('click', onOutsideClick)
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 
 const LAST_ORG_KEY = 'pxl_last_selected_org'
