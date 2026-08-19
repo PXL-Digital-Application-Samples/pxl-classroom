@@ -159,3 +159,9 @@ npx pxl-classroom feedback open --org my-org --assignment lab-1
 | `schemas/` | JSON schemas for assignments, rosters, teams, reports, grading |
 | `control-repo-template/` | Template scaffold for new organization control repos |
 | `tests/`, `cli/tests/` | Unit and integration test suites |
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

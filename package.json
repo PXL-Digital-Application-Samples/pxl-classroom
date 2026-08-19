@@ -2,6 +2,7 @@
   "name": "pxl-classroom-actions",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Shared dependencies for PXL Classroom composite actions and scripts",
   "type": "module",
   "engines": {

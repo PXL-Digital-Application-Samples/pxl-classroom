@@ -2,6 +2,7 @@
   "name": "@pxl-classroom/cli",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Command-line companion for PXL Classroom - lecturer-side roster, assignment, and audit operations.",
   "type": "module",
   "bin": {
