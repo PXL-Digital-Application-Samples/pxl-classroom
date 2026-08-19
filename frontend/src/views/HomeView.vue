@@ -208,16 +208,6 @@
         </div>
       </div>
     </main>
-
-    <!-- FOOTER -->
-    <footer class="home-footer">
-      <div class="container flex items-center justify-between">
-        <span class="text-muted text-xs">PXL Classroom · Secure GitHub Classroom System</span>
-        <router-link to="/dashboard" class="footer-link">
-          Lecturer Portal
-        </router-link>
-      </div>
-    </footer>
   </div>
 </template>
 
@@ -708,23 +698,6 @@ h1 {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-.home-footer {
-  padding: var(--space-lg) 0;
-  border-top: 1px solid var(--border-color);
-  margin-top: auto;
-  background: var(--bg-secondary);
-}
-
-.footer-link {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  text-decoration: none;
-  transition: color var(--transition-normal);
-}
-.footer-link:hover {
-  color: var(--text-secondary);
 }
 
 @media (max-width: 640px) {
