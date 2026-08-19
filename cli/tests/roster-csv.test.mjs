@@ -86,3 +86,18 @@ test("unknown field rejected by additionalProperties: false", () => {
   assert.equal(valid, false);
   assert.ok(errors.some((e) => e.keyword === "additionalProperties"));
 });
+
+test("valid CSV with team_slug and team_name produces valid roster", () => {
+  const csv = [
+    "student_number,full_name,email,class_group,github_login,team_slug,team_name",
+    "0123456,Alice Example,alice@stud.pxl.be,3A,alice-test,team-alpha,Alpha Team",
+    "0654321,Bob Example,bob@stud.pxl.be,3A,bob-test,team-alpha,Alpha Team",
+  ].join("\n");
+  const students = csvToStudents(csv);
+  const doc = { schema_version: 2, students };
+  const { valid, errors } = validateAgainst("roster", doc);
+  assert.equal(valid, true, errors ? JSON.stringify(errors) : "");
+  assert.equal(students.length, 2);
+  assert.equal(students[0].team_slug, "team-alpha");
+  assert.equal(students[0].team_name, "Alpha Team");
+});

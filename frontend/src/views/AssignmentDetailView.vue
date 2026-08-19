@@ -248,6 +248,7 @@
           :assignment="assignment"
           :org="org"
           :roster="roster"
+          @refresh="loadData"
         />
 
         <!-- Student table (desktop) -->

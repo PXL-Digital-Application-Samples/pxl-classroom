@@ -615,3 +615,68 @@ template:
   const out = readFileSync(join(dir, "out.env"), "utf8");
   assert.match(out, /previous_repo=asgn-old-team/);
 });
+
+test("group assignment - resolves pre-assigned team from roster", () => {
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  formation_mode: pre-assigned
+  max_team_size: 3
+template:
+  owner: TestOrg
+  repository: tpl`;
+
+  const res = runAccept(
+    {
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "dave",
+      GITHUB_ID: "105",
+    },
+    {
+      assignmentYaml: yaml,
+      roster: {
+        schema_version: 2,
+        students: [
+          { student_number: "SIS-5", full_name: "Dave User", github_login: "dave", team_slug: "delta-team", team_name: "Delta Team" },
+        ],
+      },
+    }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(res.outputs.team_slug, "delta-team");
+  assert.equal(res.outputs.team_name, "Delta Team");
+  assert.equal(res.outputs.target_repo, "asgn-delta-team");
+});
+
+test("group assignment - pre-assigned mode rejects student with no assigned team", () => {
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  formation_mode: pre-assigned
+  max_team_size: 3
+template:
+  owner: TestOrg
+  repository: tpl`;
+
+  const res = runAccept(
+    {
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "dave",
+      GITHUB_ID: "105",
+    },
+    {
+      assignmentYaml: yaml,
+      roster: {
+        schema_version: 2,
+        students: [
+          { student_number: "SIS-5", full_name: "Dave User", github_login: "dave" },
+        ],
+      },
+    }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:no-assigned-team");
+});

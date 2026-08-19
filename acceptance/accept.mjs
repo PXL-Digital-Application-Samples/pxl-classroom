@@ -107,11 +107,19 @@ async function main() {
   // and max_acceptances remain the guardrails. Absent/unknown values are
   // treated as "enforced" so existing assignments stay roster-gated.
   const rosterMode = assignment.roster_mode === "open" ? "open" : "enforced";
+  let roster = null;
+  const rosterPath = join(dataDir, "students", "roster.yml");
+  if (existsSync(rosterPath)) {
+    try {
+      roster = await loadYaml(rosterPath);
+    } catch (err) {
+      if (rosterMode !== "open") {
+        await fail("fail:exception", `roster YAML parsing failed: ${err.message}`);
+      }
+    }
+  }
+
   if (rosterMode === "open") {
-    // Open enrollment without a cap is unbounded: any GitHub account could
-    // claim repos from the template indefinitely. The schema requires the cap
-    // and the Admin Panel blocks saving without it; this is the backstop for
-    // hand-edited YAML, and it fails closed rather than provisioning.
     if (!assignment.max_acceptances) {
       await fail(
         "fail:config",
@@ -123,15 +131,8 @@ async function main() {
       note: `roster_mode=open - roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
     });
   } else {
-    const rosterPath = join(dataDir, "students", "roster.yml");
-    if (!existsSync(rosterPath)) {
+    if (!roster) {
       await fail("rejected:no-roster", `roster file not found: ${rosterPath}`);
-    }
-    let roster;
-    try {
-      roster = await loadYaml(rosterPath);
-    } catch (err) {
-      await fail("fail:exception", `roster YAML parsing failed: ${err.message}`);
     }
     const onRoster = (roster?.students || []).some(
       (s) => s.github_login?.toLowerCase() === login.toLowerCase()
@@ -152,10 +153,28 @@ async function main() {
   let isFirstMember = true;
 
   if (isGroup) {
+    // If no team_slug provided, attempt to resolve pre-assigned team from roster
+    if (!teamSlug && roster) {
+      const rosterStudent = (roster.students || []).find(
+        (s) => s.github_login?.toLowerCase() === login.toLowerCase()
+      );
+      if (rosterStudent) {
+        const preassigned = rosterStudent.teams?.[assignmentId] || rosterStudent.team_slug;
+        if (preassigned) {
+          teamSlug = preassigned;
+          teamName = rosterStudent.team_name || teamSlug;
+          log("roster-team", { ok: true, note: `resolved pre-assigned team ${teamSlug} from roster` });
+        }
+      }
+    }
+
     if (!teamSlug && teamName) {
       teamSlug = teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
     }
     if (!teamSlug) {
+      if (assignment.group_config?.formation_mode === "pre-assigned") {
+        await fail("rejected:no-assigned-team", `student @${login} has no pre-assigned team in the roster`);
+      }
       await fail("rejected:no-team", "team_slug or team_name is required for group assignments");
     }
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(teamSlug)) {

@@ -52,6 +52,7 @@ function coerceCell(field, raw) {
 const KNOWN_COLUMNS = new Set([
   "student_number", "full_name", "email",
   "class_group", "github_login", "github_id", "active",
+  "team_slug", "team_name",
 ]);
 
 function csvToRoster(csvText, filename) {

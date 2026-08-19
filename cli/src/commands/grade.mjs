@@ -48,9 +48,9 @@ function runGit(args, cwd) {
 
 
 
-async function checkoutArchive({ org, assignmentId, login, sha, token }) {
+async function checkoutArchive({ org, assignmentId, login, teamSlug, sha, token }) {
   const workdir = await mkdtemp(join(tmpdir(), `pxl-grade-${login}-`));
-  const branch = `preserved/${assignmentId}/${login}`;
+  const branch = teamSlug ? `preserved/${assignmentId}/${teamSlug}` : `preserved/${assignmentId}/${login}`;
   const url = `https://x-access-token:${token}@github.com/${org}/${ARCHIVE_REPO}.git`;
   await runGit(["init", "--quiet"], workdir);
   await runGit(["remote", "add", "origin", url], workdir);
@@ -260,7 +260,7 @@ export function registerGradeCommand(program) {
           try {
             archive = await checkoutArchive({
               org, assignmentId: opts.assignment, login: s.github_login,
-              sha: s.preserved_sha, token,
+              teamSlug: s.team_slug, sha: s.preserved_sha, token,
             });
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: archive fetch failed - ${err.message}\n`);

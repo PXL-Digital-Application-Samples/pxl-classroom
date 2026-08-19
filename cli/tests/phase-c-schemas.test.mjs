@@ -127,3 +127,62 @@ test("grading-result rejects unknown runner", () => {
   });
   assert.equal(valid, false);
 });
+
+test("group assignment schema passes validation", () => {
+  const { valid, errors } = validateAgainst("assignment", baseAssignment({
+    assignment_type: "group",
+    repository_name_pattern: "group-project-{team_slug}",
+    group_config: {
+      max_team_size: 4,
+      min_team_size: 2,
+      formation_mode: "self-service",
+      allow_team_creation: true,
+    },
+  }));
+  assert.equal(valid, true, JSON.stringify(errors));
+});
+
+test("team schema validates valid team record", () => {
+  const { valid, errors } = validateAgainst("team", {
+    schema_version: 1,
+    assignment_id: "group-proj",
+    team_slug: "alpha-squad",
+    team_name: "Alpha Squad",
+    members: ["alice", "bob"],
+    max_members: 4,
+    created_at: "2026-02-02T12:00:00.000Z",
+    created_by: "alice",
+    repo_name: "PXLAutomation/group-proj-alpha-squad",
+    repo_id: 123456,
+  });
+  assert.equal(valid, true, JSON.stringify(errors));
+});
+
+test("team schema validates vacant team", () => {
+  const { valid, errors } = validateAgainst("team", {
+    schema_version: 1,
+    assignment_id: "group-proj",
+    team_slug: "alpha-squad",
+    team_name: "Alpha Squad",
+    members: [],
+    max_members: 4,
+    created_at: "2026-02-02T12:00:00.000Z",
+    created_by: "alice",
+    vacant: true,
+  });
+  assert.equal(valid, true, JSON.stringify(errors));
+});
+
+test("team schema rejects invalid team slug", () => {
+  const { valid, errors } = validateAgainst("team", {
+    schema_version: 1,
+    assignment_id: "group-proj",
+    team_slug: "Invalid Slug With Spaces",
+    team_name: "Alpha Squad",
+    members: [],
+    created_at: "2026-02-02T12:00:00.000Z",
+  });
+  assert.equal(valid, false);
+  assert.ok(errors.some((e) => /team_slug/.test(JSON.stringify(e))));
+});
+

@@ -1,6 +1,6 @@
 <template>
   <div class="teams-table-component">
-    <!-- Filter bar -->
+    <!-- Filter bar & Toolbar -->
     <div class="table-toolbar flex justify-between items-center gap-md">
       <div class="search-input-wrapper">
         <Icon name="search" :size="16" class="search-icon" />
@@ -12,11 +12,18 @@
         />
       </div>
 
-      <div class="toolbar-stats text-secondary text-sm">
-        <span>Showing <strong>{{ filteredTeams.length }}</strong> of <strong>{{ teams.length }}</strong> team(s)</span>
-        <span v-if="underCapacityCount > 0" class="badge badge-warning" style="margin-left: 8px;">
-          {{ underCapacityCount }} under-capacity
-        </span>
+      <div class="toolbar-actions flex items-center gap-sm">
+        <button class="btn btn-sm btn-primary btn-with-icon" @click="openCreateTeamModal">
+          <Icon name="plus" :size="14" />
+          <span>Create Team</span>
+        </button>
+
+        <div class="toolbar-stats text-secondary text-sm">
+          <span>Showing <strong>{{ filteredTeams.length }}</strong> of <strong>{{ teams.length }}</strong> team(s)</span>
+          <span v-if="underCapacityCount > 0" class="badge badge-warning" style="margin-left: 8px;">
+            {{ underCapacityCount }} under-capacity
+          </span>
+        </div>
       </div>
     </div>
 
@@ -24,6 +31,9 @@
     <div v-if="filteredTeams.length === 0" class="empty-state card text-center py-xl">
       <Icon name="users" :size="40" class="status-icon" />
       <p class="text-secondary">No teams match your search filter.</p>
+      <button class="btn btn-secondary btn-sm" style="margin-top: 8px;" @click="openCreateTeamModal">
+        Create a new team
+      </button>
     </div>
 
     <!-- Teams Table -->
@@ -38,6 +48,7 @@
             <th>Commits</th>
             <th>Status</th>
             <th>Preserved</th>
+            <th class="col-actions"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -63,7 +74,7 @@
                     @{{ m }}
                   </span>
                 </div>
-                <span v-else class="text-muted text-xs">No members</span>
+                <span v-else class="text-muted text-xs">No members (vacant)</span>
               </div>
             </td>
 
@@ -124,9 +135,135 @@
               </span>
               <span v-else class="text-muted text-xs">-</span>
             </td>
+
+            <!-- Actions column -->
+            <td class="col-actions">
+              <button
+                class="btn btn-sm btn-secondary"
+                type="button"
+                @click="openManageTeamModal(team)"
+                title="Manage team members"
+              >
+                Manage
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Modal: Create Team -->
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+      <div class="modal card">
+        <header class="modal-head flex justify-between items-center">
+          <h3>Create Team - {{ assignment.id }}</h3>
+          <button class="modal-close" @click="showCreateModal = false">×</button>
+        </header>
+        <form @submit.prevent="submitCreateTeam" class="modal-body flex flex-col gap-md">
+          <div class="form-group">
+            <label>Team Name <span class="req">*</span></label>
+            <input
+              v-model="newTeamForm.name"
+              type="text"
+              class="form-control"
+              placeholder="e.g. Team Phoenix"
+              required
+            />
+            <span class="form-hint text-xs text-muted">
+              Team slug: <code>{{ computedNewSlug || 'team-slug' }}</code>
+            </span>
+          </div>
+
+          <div class="form-group">
+            <label>Assign Students (Optional)</label>
+            <div class="unassigned-students-list">
+              <label
+                v-for="s in unassignedStudents"
+                :key="s.github_login"
+                class="student-check-item flex items-center gap-xs text-sm"
+              >
+                <input
+                  type="checkbox"
+                  :value="s.github_login"
+                  v-model="newTeamForm.members"
+                  :disabled="newTeamForm.members.length >= maxTeamSize && !newTeamForm.members.includes(s.github_login)"
+                />
+                <span>@{{ s.github_login }} ({{ s.full_name || s.student_number }})</span>
+              </label>
+              <div v-if="unassignedStudents.length === 0" class="text-muted text-xs">
+                No unassigned students available in roster.
+              </div>
+            </div>
+            <span class="form-hint text-xs text-secondary">
+              Selected {{ newTeamForm.members.length }}/{{ maxTeamSize }} members
+            </span>
+          </div>
+
+          <footer class="modal-foot flex justify-end gap-sm">
+            <button class="btn btn-secondary" type="button" @click="showCreateModal = false">Cancel</button>
+            <button class="btn btn-primary" type="submit" :disabled="!computedNewSlug || saving">
+              {{ saving ? 'Creating…' : 'Create Team' }}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Manage Team -->
+    <div v-if="managingTeam" class="modal-overlay" @click.self="managingTeam = null">
+      <div class="modal card">
+        <header class="modal-head flex justify-between items-center">
+          <h3>Manage: {{ managingTeam.team_name }} (<code>{{ managingTeam.team_slug }}</code>)</h3>
+          <button class="modal-close" @click="managingTeam = null">×</button>
+        </header>
+        <div class="modal-body flex flex-col gap-md">
+          <!-- Current Members list -->
+          <div class="current-members-section">
+            <label class="section-label">Current Members ({{ manageMembers.length }}/{{ maxTeamSize }})</label>
+            <div v-if="manageMembers.length" class="members-manage-list">
+              <div v-for="m in manageMembers" :key="m" class="member-manage-row flex justify-between items-center">
+                <span>@{{ m }} <small class="text-muted">{{ resolveMemberTooltip(m) }}</small></span>
+                <div class="flex gap-xs">
+                  <button class="btn btn-xs btn-danger" type="button" @click="removeMemberFromTeam(m)">
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-muted text-xs">
+              No active members in this team.
+            </div>
+          </div>
+
+          <!-- Add Member section -->
+          <div v-if="manageMembers.length < maxTeamSize" class="add-member-section">
+            <label class="section-label">Add Member</label>
+            <div class="flex gap-sm">
+              <select v-model="selectedStudentToAdd" class="form-control">
+                <option value="">Select unassigned student…</option>
+                <option v-for="s in unassignedStudents" :key="s.github_login" :value="s.github_login">
+                  @{{ s.github_login }} ({{ s.full_name || s.student_number }})
+                </option>
+              </select>
+              <button
+                class="btn btn-sm btn-primary"
+                type="button"
+                :disabled="!selectedStudentToAdd"
+                @click="addMemberToTeam(selectedStudentToAdd)"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          <footer class="modal-foot flex justify-end gap-sm">
+            <button class="btn btn-secondary" type="button" @click="managingTeam = null">Close</button>
+            <button class="btn btn-success" type="button" :disabled="saving" @click="saveTeamMembers">
+              {{ saving ? 'Saving…' : 'Save Changes' }}
+            </button>
+          </footer>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -134,6 +271,10 @@
 <script setup>
 import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
+import { getToken } from '../lib/auth.js'
+import { commitFile } from '../lib/api.js'
+import { config } from '../lib/config.js'
+import { toast } from '../lib/toast.js'
 
 const props = defineProps({
   teams: { type: Array, required: true },
@@ -142,10 +283,49 @@ const props = defineProps({
   roster: { type: Array, default: () => [] },
 })
 
+const emit = defineEmits(['refresh'])
+
 const searchQuery = ref('')
+const showCreateModal = ref(false)
+const managingTeam = ref(null)
+const manageMembers = ref([])
+const selectedStudentToAdd = ref('')
+const saving = ref(false)
+
+const newTeamForm = ref({
+  name: '',
+  members: [],
+})
+
+const maxTeamSize = computed(() => props.assignment.group_config?.max_team_size || 3)
 
 const underCapacityCount = computed(() =>
   props.teams.filter((t) => t.under_capacity).length
+)
+
+const computedNewSlug = computed(() => {
+  if (!newTeamForm.value.name) return ''
+  return newTeamForm.value.name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+})
+
+const assignedLogins = computed(() => {
+  const set = new Set()
+  for (const t of props.teams) {
+    for (const m of t.members || []) {
+      set.add(m.toLowerCase())
+    }
+  }
+  return set
+})
+
+const unassignedStudents = computed(() =>
+  (props.roster || []).filter(
+    (s) => s.github_login && !assignedLogins.value.has(s.github_login.toLowerCase())
+  )
 )
 
 const filteredTeams = computed(() => {
@@ -177,6 +357,111 @@ function statusBadgeClass(status) {
       return 'badge-neutral'
     default:
       return 'badge-neutral'
+  }
+}
+
+function openCreateTeamModal() {
+  newTeamForm.value = { name: '', members: [] }
+  showCreateModal.value = true
+}
+
+function openManageTeamModal(team) {
+  managingTeam.value = team
+  manageMembers.value = [...(team.members || [])]
+  selectedStudentToAdd.value = ''
+}
+
+function removeMemberFromTeam(login) {
+  manageMembers.value = manageMembers.value.filter((m) => m !== login)
+}
+
+function addMemberToTeam(login) {
+  if (login && !manageMembers.value.includes(login)) {
+    manageMembers.value.push(login)
+    selectedStudentToAdd.value = ''
+  }
+}
+
+async function submitCreateTeam() {
+  const slug = computedNewSlug.value
+  if (!slug) return
+  saving.value = true
+  try {
+    const token = getToken()
+    const teamDoc = {
+      schema_version: 1,
+      assignment_id: props.assignment.id,
+      team_slug: slug,
+      team_name: newTeamForm.value.name,
+      members: newTeamForm.value.members,
+      max_members: maxTeamSize.value,
+      created_at: new Date().toISOString(),
+      created_by: 'lecturer',
+    }
+
+    const path = `teams/${props.assignment.id}/${slug}.json`
+    const res = await commitFile(
+      token,
+      props.org,
+      config.controlRepo,
+      path,
+      JSON.stringify(teamDoc, null, 2) + '\n',
+      `Create team ${slug} for ${props.assignment.id}`
+    )
+    if (res.ok) {
+      toast.success(`Team "${newTeamForm.value.name}" created successfully.`)
+      showCreateModal.value = false
+      emit('refresh')
+    } else {
+      toast.error(`Could not create team: HTTP ${res.status}`)
+    }
+  } catch (e) {
+    toast.error(`Error creating team: ${e.message}`)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function saveTeamMembers() {
+  if (!managingTeam.value) return
+  saving.value = true
+  try {
+    const token = getToken()
+    const slug = managingTeam.value.team_slug
+    const teamDoc = {
+      schema_version: 1,
+      assignment_id: props.assignment.id,
+      team_slug: slug,
+      team_name: managingTeam.value.team_name,
+      members: manageMembers.value,
+      max_members: maxTeamSize.value,
+      created_at: managingTeam.value.created_at || new Date().toISOString(),
+      vacant: manageMembers.value.length === 0,
+      repo_name: managingTeam.value.repo_name,
+      repo_id: managingTeam.value.repo_id,
+      repo_url: managingTeam.value.repo_url,
+    }
+
+    const path = `teams/${props.assignment.id}/${slug}.json`
+    const res = await commitFile(
+      token,
+      props.org,
+      config.controlRepo,
+      path,
+      JSON.stringify(teamDoc, null, 2) + '\n',
+      `Update members for team ${slug} (${props.assignment.id})`
+    )
+    if (res.ok) {
+      toast.success(`Team "${managingTeam.value.team_name}" updated successfully.`)
+      managingTeam.value = null
+      emit('refresh')
+    } else {
+      toast.error(`Could not update team: HTTP ${res.status}`)
+    }
+  } catch (e) {
+    toast.error(`Error saving team: ${e.message}`)
+  } finally {
+    saving.value = false
   }
 }
 </script>
@@ -249,5 +534,49 @@ function statusBadgeClass(status) {
 .commit-count-badge {
   font-size: 0.8rem;
   color: var(--text-secondary);
+}
+
+.unassigned-students-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--bg-secondary);
+}
+
+.student-check-item {
+  padding: 4px;
+  cursor: pointer;
+}
+
+.current-members-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.section-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.members-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-secondary);
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+}
+
+.member-manage-row {
+  padding: 4px;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.member-manage-row:last-child {
+  border-bottom: none;
 }
 </style>

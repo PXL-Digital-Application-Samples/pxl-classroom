@@ -258,6 +258,15 @@
 
             <div v-if="form.assignment_type === 'group'" class="group-config-box" style="margin-top: var(--space-md); padding: var(--space-md); background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-default); display: flex; flex-direction: column; gap: var(--space-md);">
               <div class="field">
+                <label>Formation Mode</label>
+                <select v-model="form.group_config.formation_mode">
+                  <option value="self-service">Self-Service: students create or join open teams</option>
+                  <option value="pre-assigned">Pre-Assigned: teams pre-mapped in roster / instructor created</option>
+                </select>
+                <small>Under pre-assigned mode, students only see and accept their assigned team repository.</small>
+              </div>
+
+              <div class="field">
                 <label>Maximum team size <span class="req">*</span></label>
                 <input type="number" v-model.number="form.group_config.max_team_size" min="2" max="50" style="max-width: 140px;" />
                 <small>Maximum number of students allowed per team.</small>

@@ -101,24 +101,53 @@
         </p>
       </div>
 
-      <!-- Mode Selector -->
-      <div class="tab-pill-selector">
-        <button 
-          class="tab-pill" 
-          :class="{ active: tabMode === 'join' }" 
-          @click="tabMode = 'join'"
-        >
-          Join Existing Team ({{ openTeamsCount }} open)
-        </button>
-        <button 
-          v-if="allowTeamCreation"
-          class="tab-pill" 
-          :class="{ active: tabMode === 'create' }" 
-          @click="tabMode = 'create'"
-        >
-          + Create New Team
-        </button>
+      <!-- Pre-Assigned Formation Mode Flow -->
+      <div v-if="isPreAssignedMode" class="preassigned-flow text-center py-md">
+        <div v-if="myCurrentTeam" class="card" style="padding: var(--space-lg); background: var(--bg-secondary);">
+          <Icon name="users" :size="40" class="status-icon" />
+          <h3>Pre-Assigned Team: {{ myCurrentTeam.team_name }}</h3>
+          <p class="text-secondary">
+            You are pre-assigned to team <code>{{ myCurrentTeam.team_slug }}</code>.
+          </p>
+          <div v-if="myCurrentTeam.members && myCurrentTeam.members.length" class="member-chips" style="justify-content: center; margin-bottom: var(--space-md);">
+            <span v-for="m in myCurrentTeam.members" :key="m" class="member-chip" :class="{ 'is-me': m.toLowerCase() === user.login.toLowerCase() }">
+              @{{ m }}
+            </span>
+          </div>
+          <button class="btn btn-primary btn-lg" :disabled="accepting" @click="confirmJoinTeam(myCurrentTeam)">
+            {{ accepting ? 'Joining…' : 'Accept & Join Team' }}
+          </button>
+        </div>
+        <div v-else class="card text-center" style="padding: var(--space-lg); background: var(--bg-secondary);">
+          <Icon name="alert-circle" :size="40" class="status-icon status-icon-warn" />
+          <h3>No Pre-Assigned Team</h3>
+          <p class="text-secondary">
+            This assignment requires teams to be pre-assigned by your lecturer, but your account (<strong>@{{ user.login }}</strong>) is not yet mapped to a team.
+          </p>
+          <p class="text-muted text-sm">Please contact your instructor to be assigned to a group.</p>
+        </div>
       </div>
+
+      <!-- Self-Service Flow (Join or Create Team) -->
+      <template v-else>
+        <!-- Mode Selector -->
+        <div class="tab-pill-selector">
+          <button 
+            class="tab-pill" 
+            :class="{ active: tabMode === 'join' }" 
+            @click="tabMode = 'join'"
+          >
+            Join Existing Team ({{ openTeamsCount }} open)
+          </button>
+          <button 
+            v-if="allowTeamCreation"
+            class="tab-pill" 
+            :class="{ active: tabMode === 'create' }" 
+            @click="tabMode = 'create'"
+          >
+            + Create New Team
+          </button>
+        </div>
 
       <!-- Tab 1: Join Existing Team -->
       <div v-if="tabMode === 'join'" class="tab-content">
@@ -209,6 +238,7 @@
           </button>
         </form>
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -246,6 +276,7 @@ const pollInterval = ref(3000)
 const pollCount = ref(0)
 let pollTimer = null
 
+const isPreAssignedMode = computed(() => props.assignment.group_config?.formation_mode === 'pre-assigned')
 const maxTeamSize = computed(() => props.assignment.group_config?.max_team_size || 3)
 const allowTeamCreation = computed(() => props.assignment.group_config?.allow_team_creation !== false)
 

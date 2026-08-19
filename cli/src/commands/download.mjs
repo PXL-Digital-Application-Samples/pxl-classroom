@@ -51,9 +51,9 @@ function authedArchiveUrl(org, token) {
 
 // Single-student fetch: clone-or-update the archive into a per-student dir
 // and checkout the preserved ref. Returns { login, sha, branch, status }.
-async function fetchOne({ org, assignmentId, login, expectedSha, token, dir }) {
+async function fetchOne({ org, assignmentId, login, teamSlug, expectedSha, token, dir }) {
   const target = join(dir, login);
-  const branch = `preserved/${assignmentId}/${login}`;
+  const branch = teamSlug ? `preserved/${assignmentId}/${teamSlug}` : `preserved/${assignmentId}/${login}`;
   const url = authedArchiveUrl(org, token);
 
   if (existsSync(join(target, ".git"))) {
@@ -98,15 +98,21 @@ export function registerDownloadCommand(program) {
     .description("Download all preserved submissions for an assignment from <org>/pxl-classroom-archive.")
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .requiredOption("--assignment <id>", "Assignment ID")
-    .option("--dir <path>", "Output directory", "./submissions")
-    .option("--concurrency <n>", "Parallel git operations", parseConcurrency, 4)
-    .option("--login <login>", "Download for a single student only")
+    .option("--dir <path>", "Destination directory", "submissions")
+    .option("--concurrency <n>", "Parallel git workers", parseConcurrency, 4)
+    .option("--login <username>", "Download a single student's submission only")
     .action(async (opts) => {
-      const org = resolveOrg(opts.org);
-      const octokit = makeOctokit();
-      const token = requireToken().access_token;
+      const org = await resolveOrg(opts.org);
+      const token = requireToken();
+      const octokit = makeOctokit(token);
 
-      const report = await getReport(octokit, { org, assignmentId: opts.assignment });
+      saveConfig({ defaultOrg: org });
+
+      const report = await getReport(octokit, org, opts.assignment);
+      if (!report) {
+        throw new Error(`Report not found for ${opts.assignment}. Has the deadline finalized?`);
+      }
+
       const eligible = (report.students || []).filter(
         (s) => s.preservation_status === "preserved" && s.preserved_sha && s.github_login,
       );
@@ -127,7 +133,7 @@ export function registerDownloadCommand(program) {
       const results = await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
         return await fetchOne({
           org, assignmentId: opts.assignment,
-          login: s.github_login, expectedSha: s.preserved_sha, token, dir,
+          login: s.github_login, teamSlug: s.team_slug, expectedSha: s.preserved_sha, token, dir,
         });
       });
 

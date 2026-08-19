@@ -216,3 +216,93 @@ test("student with 1 commit (unstarted repo) is classified as no-submission", ()
   assert.equal(frank.submission_status, "no-submission");
   assert.equal(frank.commit_count, 1);
 });
+
+test("group assignment report aggregates teams, calculates under_capacity, and attaches team metadata to students", () => {
+  const groupYaml = `schema_version: 1
+id: test-asgn
+title: Group Test Assignment
+organization: TestOrg
+assignment_type: group
+group_config:
+  min_team_size: 3
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl
+repository_name_pattern: test-asgn-{team_slug}
+opens_at: 2026-09-01T00:00:00Z
+deadline_at: 2026-09-10T23:59:59Z
+state: published
+`;
+
+  const dir = mkdtempSync(join(tmpdir(), "pxl-group-report-test-"));
+  const id = "test-asgn";
+
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", `${id}.yml`), groupYaml);
+
+  mkdirSync(join(dir, "teams", id), { recursive: true });
+  writeFileSync(
+    join(dir, "teams", id, "team-alpha.json"),
+    JSON.stringify({
+      schema_version: 1,
+      assignment_id: id,
+      team_slug: "team-alpha",
+      team_name: "Alpha Team",
+      members: ["alice", "bob"],
+      max_members: 4,
+      repo_name: "TestOrg/test-asgn-team-alpha",
+    })
+  );
+  writeFileSync(
+    join(dir, "teams", id, "team-beta.json"),
+    JSON.stringify({
+      schema_version: 1,
+      assignment_id: id,
+      team_slug: "team-beta",
+      team_name: "Beta Team",
+      members: ["charlie", "dave", "eve"],
+      max_members: 4,
+      repo_name: "TestOrg/test-asgn-team-beta",
+    })
+  );
+
+  mkdirSync(join(dir, "acceptances", id), { recursive: true });
+  for (const s of ["alice", "bob"]) {
+    writeFileSync(
+      join(dir, "acceptances", id, `${s}.json`),
+      JSON.stringify({ github_login: s, status: "accepted", team_slug: "team-alpha", team_name: "Alpha Team" })
+    );
+  }
+  for (const s of ["charlie", "dave", "eve"]) {
+    writeFileSync(
+      join(dir, "acceptances", id, `${s}.json`),
+      JSON.stringify({ github_login: s, status: "accepted", team_slug: "team-beta", team_name: "Beta Team" })
+    );
+  }
+
+  const res = spawnSync("node", [reportScript], {
+    encoding: "utf8",
+    env: { ...process.env, ASSIGNMENT_ID: id, DATA_DIR: dir, OUTPUT_FORMAT: "json" },
+  });
+  assert.equal(res.status, 0);
+
+  const report = JSON.parse(readFileSync(join(dir, "reports", `${id}.json`), "utf8"));
+  assert.ok(Array.isArray(report.teams));
+  assert.equal(report.teams.length, 2);
+
+  const alpha = report.teams.find((t) => t.team_slug === "team-alpha");
+  assert.equal(alpha.team_name, "Alpha Team");
+  assert.equal(alpha.members.length, 2);
+  assert.equal(alpha.under_capacity, true); // 2 < 3 (min_team_size)
+
+  const beta = report.teams.find((t) => t.team_slug === "team-beta");
+  assert.equal(beta.team_name, "Beta Team");
+  assert.equal(beta.members.length, 3);
+  assert.equal(beta.under_capacity, false); // 3 >= 3
+
+  const alice = report.students.find((s) => s.github_login === "alice");
+  assert.equal(alice.team_slug, "team-alpha");
+  assert.equal(alice.team_name, "Alpha Team");
+});
+

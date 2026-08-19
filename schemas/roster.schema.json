@@ -51,6 +51,20 @@
             "type": "boolean",
             "default": true,
             "description": "Whether the student is actively enrolled."
+          },
+          "team_slug": {
+            "type": ["string", "null"],
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Pre-assigned team slug for group assignments."
+          },
+          "team_name": {
+            "type": ["string", "null"],
+            "description": "Pre-assigned team display name."
+          },
+          "teams": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Map of assignment_id to pre-assigned team_slug."
           }
         }
       }
