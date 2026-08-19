@@ -225,9 +225,18 @@ const permissionSummary = computed(() =>
 )
 
 const manifest = computed(() => {
-  const appName = ownerOrg.value
-    ? `PXL Classroom (${ownerOrg.value})`
-    : 'PXL Classroom Provisioner'
+  let appName = 'PXL Classroom Provisioner'
+  if (ownerOrg.value) {
+    const candidate = `PXL Classroom (${ownerOrg.value})`
+    if (candidate.length <= 34) {
+      appName = candidate
+    } else {
+      const shortCandidate = `PXL (${ownerOrg.value})`
+      appName = shortCandidate.length <= 34
+        ? shortCandidate
+        : shortCandidate.slice(0, 33) + ')'
+    }
+  }
   return JSON.stringify({
     name: appName,
     url: hostUrl.value,
