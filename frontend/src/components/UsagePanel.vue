@@ -1,173 +1,215 @@
 <template>
-  <section class="usage-panel card fade-in">
-    <div class="usage-head flex items-center justify-between">
-      <div>
-        <div class="flex items-center gap-sm">
-          <Icon name="activity" :size="16" class="text-accent" />
-          <h3 class="usage-title">Resource Usage &amp; Limits: <code>{{ org }}</code></h3>
+  <section class="usage-panel card fade-in" :class="{ 'is-collapsed': !isExpanded }">
+    <!-- Header Bar (Clickable Accordion Toggle) -->
+    <header
+      class="usage-toggle-head flex items-center justify-between"
+      @click="toggleExpanded"
+      role="button"
+      :aria-expanded="isExpanded"
+      tabindex="0"
+      @keydown.enter.space.prevent="toggleExpanded"
+      title="Click to toggle Resource Usage &amp; Limits details"
+    >
+      <div class="flex items-center gap-sm flex-wrap">
+        <Icon name="activity" :size="16" class="text-accent flex-shrink-0" />
+        <h3 class="usage-title">Resource Usage &amp; Limits: <code>{{ org }}</code></h3>
+
+        <!-- Summary Chips (Visible in Header) -->
+        <div class="usage-summary-chips flex items-center gap-xs">
+          <span class="summary-chip" title="Actions Linux compute minutes used in past 7 days">
+            <Icon name="clock" :size="11" class="chip-icon text-muted" />
+            <strong>{{ orgTotals.actionsMinutes }}</strong> min
+          </span>
+          <span class="summary-chip" title="Storage and artifacts used">
+            <Icon name="database" :size="11" class="chip-icon text-muted" />
+            <strong>{{ orgTotals.storageGbHours }}</strong> GB-hrs
+          </span>
+          <span class="summary-chip" title="Organization GitHub API rate limit headroom" v-if="rateLimit">
+            <Icon name="zap" :size="11" class="chip-icon text-muted" />
+            API: <strong>{{ rateLimit.remaining.toLocaleString() }}</strong> / {{ rateLimit.limit.toLocaleString() }}
+          </span>
+          <span v-if="report && report.over_count > 0" class="status-pill status-pill-warn text-xs">
+            ⚠ {{ report.over_count }} over
+          </span>
+          <span v-else-if="report" class="status-pill status-pill-ok text-xs">
+            ✓ Limits OK
+          </span>
         </div>
+      </div>
+
+      <div class="flex items-center gap-sm flex-shrink-0">
+        <span class="toggle-indicator text-xs text-muted">
+          {{ isExpanded ? 'Hide details' : 'Show details' }}
+        </span>
+        <Icon :name="isExpanded ? 'chevron-up' : 'chevron-down'" :size="14" class="text-muted" />
+      </div>
+    </header>
+
+    <!-- Collapsible Body Content -->
+    <div v-if="isExpanded" class="usage-body fade-in">
+      <div class="usage-sub-row flex items-center justify-between flex-wrap gap-sm">
         <p class="text-muted usage-sub">
           7-day early-warning audit against course resource thresholds (GitHub monthly quotas reset on the 1st of each month).
         </p>
+        <div class="flex items-center gap-sm">
+          <button
+            v-if="!runWatching"
+            class="btn btn-sm btn-with-icon"
+            type="button"
+            @click.stop="generateNow"
+            :disabled="triggering"
+            title="Trigger an on-demand usage scan on GitHub Actions"
+          >
+            <Icon name="refresh-cw" :size="12" :class="{ 'spin-anim': triggering }" />
+            <span>{{ triggering ? 'Scanning…' : (report ? 'Regenerate now' : 'Run audit now') }}</span>
+          </button>
+          <div v-else class="inline-spinner text-xs text-secondary">
+            <div class="spinner" style="width: 12px; height: 12px; border-width: 2px;"></div>
+            <span>Auditing… ({{ pollCount }}×)</span>
+          </div>
+        </div>
       </div>
-      <div class="flex items-center gap-sm">
+
+      <!-- Org-Wide Summary KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Actions Minutes (Linux)</span>
+          <div class="kpi-val-row">
+            <span class="kpi-val">{{ orgTotals.actionsMinutes }}</span>
+            <span class="kpi-unit">min used</span>
+          </div>
+          <span class="kpi-sub text-muted">Weekly limit: 800 min/repo</span>
+        </div>
+
+        <div class="kpi-card">
+          <span class="kpi-label">Storage &amp; Artifacts</span>
+          <div class="kpi-val-row">
+            <span class="kpi-val">{{ orgTotals.storageGbHours }}</span>
+            <span class="kpi-unit">GB-hrs</span>
+          </div>
+          <span class="kpi-sub text-muted">Weekly limit: 5 GB-hrs/repo</span>
+        </div>
+
+        <div class="kpi-card">
+          <span class="kpi-label">Organization API Quota</span>
+          <div class="kpi-val-row" v-if="rateLimit">
+            <span :class="['kpi-val', rateLimit.remaining < 500 ? 'text-danger' : '']">
+              {{ rateLimit.remaining.toLocaleString() }}
+            </span>
+            <span class="kpi-unit">/ {{ rateLimit.limit.toLocaleString() }} avail</span>
+          </div>
+          <div class="kpi-val-row" v-else>
+            <span class="kpi-val text-muted">-</span>
+            <span class="kpi-unit">/ 5,000 avail</span>
+          </div>
+          <span class="kpi-sub text-muted">{{ formatRateReset(rateLimit?.reset) }}</span>
+        </div>
+
+        <div class="kpi-card">
+          <span class="kpi-label">Organization Status</span>
+          <div class="kpi-val-row">
+            <span v-if="report && report.over_count > 0" class="status-pill status-pill-warn">
+              ⚠ {{ report.over_count }} repo(s) over
+            </span>
+            <span v-else-if="report" class="status-pill status-pill-ok">
+              ✓ All {{ org }} within limits
+            </span>
+            <span v-else class="status-pill" style="background: var(--bg-tertiary); color: var(--text-secondary);">
+              Audit Pending
+            </span>
+          </div>
+          <span class="kpi-sub text-muted" v-if="report">Period: {{ report.week_start }} → {{ report.week_end }}</span>
+          <span class="kpi-sub text-muted" v-else>Weekly audit runs Sundays 22:00 UTC</span>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div v-if="loading" class="usage-loading flex items-center gap-sm text-secondary">
+        <div class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></div>
+        <span class="text-sm">Loading usage data for {{ org }}…</span>
+      </div>
+
+      <!-- Error State -->
+      <div v-else-if="loadError" class="usage-error flex items-center justify-between" role="alert">
+        <span class="text-sm">Failed to load usage report: {{ loadError }}</span>
+        <button class="btn btn-sm" type="button" @click="loadReport">Retry</button>
+      </div>
+
+      <!-- Empty State / No Report Generated Yet -->
+      <div v-else-if="!report" class="usage-empty text-sm">
+        <p class="text-secondary" style="margin-bottom: var(--space-xs);">
+          No weekly breakdown report found for <code>{{ org }}</code> yet. The audit runs automatically every <strong>Sunday at 22:00 UTC</strong>, or you can run one now.
+        </p>
         <button
           v-if="!runWatching"
-          class="btn btn-sm btn-with-icon"
+          class="btn btn-primary btn-sm btn-with-icon"
           type="button"
           @click="generateNow"
           :disabled="triggering"
-          title="Trigger an on-demand usage scan on GitHub Actions"
         >
-          <Icon name="refresh-cw" :size="12" :class="{ 'spin-anim': triggering }" />
-          <span>{{ triggering ? 'Scanning…' : (report ? 'Regenerate now' : 'Run audit now') }}</span>
+          <Icon name="zap" :size="12" />
+          <span>{{ triggering ? 'Starting audit…' : 'Generate usage report now' }}</span>
         </button>
-        <div v-else class="inline-spinner text-xs text-secondary">
-          <div class="spinner" style="width: 12px; height: 12px; border-width: 2px;"></div>
-          <span>Auditing… ({{ pollCount }}×)</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Org-Wide Summary KPI Cards (ALWAYS visible) -->
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <span class="kpi-label">Actions Minutes (Linux)</span>
-        <div class="kpi-val-row">
-          <span class="kpi-val">{{ orgTotals.actionsMinutes }}</span>
-          <span class="kpi-unit">min used</span>
-        </div>
-        <span class="kpi-sub text-muted">Weekly limit: 800 min/repo</span>
       </div>
 
-      <div class="kpi-card">
-        <span class="kpi-label">Storage &amp; Artifacts</span>
-        <div class="kpi-val-row">
-          <span class="kpi-val">{{ orgTotals.storageGbHours }}</span>
-          <span class="kpi-unit">GB-hrs</span>
+      <!-- Loaded Report Content -->
+      <div v-else class="usage-content">
+        <!-- Filter / Search toolbar -->
+        <div class="usage-toolbar flex items-center justify-between">
+          <div class="text-xs text-muted">
+            Showing <strong>{{ filtered.length }}</strong> of {{ (report.items || []).length }} resource line item(s)
+          </div>
+          <input
+            v-model="filter"
+            type="search"
+            placeholder="Filter repositories or resources…"
+            class="filter-search-input"
+            aria-label="Filter usage items"
+          />
         </div>
-        <span class="kpi-sub text-muted">Weekly limit: 5 GB-hrs/repo</span>
-      </div>
 
-      <div class="kpi-card">
-        <span class="kpi-label">Organization API Quota</span>
-        <div class="kpi-val-row" v-if="rateLimit">
-          <span :class="['kpi-val', rateLimit.remaining < 500 ? 'text-danger' : '']">
-            {{ rateLimit.remaining.toLocaleString() }}
-          </span>
-          <span class="kpi-unit">/ {{ rateLimit.limit.toLocaleString() }} avail</span>
+        <!-- Compact Table -->
+        <div class="table-wrapper">
+          <table class="usage-table">
+            <thead>
+              <tr>
+                <th @click="sortBy('repo')" tabindex="0" :aria-sort="ariaSortFor('repo')">
+                  <span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span>
+                </th>
+                <th @click="sortBy('sku')" tabindex="0" :aria-sort="ariaSortFor('sku')">
+                  <span class="th-label">Resource Type<SortIcon :dir="sortDirFor('sku')" /></span>
+                </th>
+                <th @click="sortBy('used')" tabindex="0" :aria-sort="ariaSortFor('used')" class="num">
+                  <span class="th-label">Used (7 Days)<SortIcon :dir="sortDirFor('used')" /></span>
+                </th>
+                <th class="num">Weekly Limit</th>
+                <th>Unit</th>
+                <th>Threshold Level</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="filtered.length === 0">
+                <td colspan="6" class="text-center text-muted" style="padding: var(--space-md);">
+                  No matching usage records found.
+                </td>
+              </tr>
+              <tr v-for="item in filtered" :key="item.repo + item.sku" :class="{ 'over-threshold': item.over }">
+                <td>
+                  <span v-if="item.repo === '<org-level>'" class="text-muted">&lt;org-level&gt;</span>
+                  <code v-else>{{ item.repo }}</code>
+                </td>
+                <td>{{ formatSku(item.sku) }}</td>
+                <td class="num">
+                  <strong v-if="item.over" class="text-danger">{{ item.used }}</strong>
+                  <span v-else>{{ item.used }}</span>
+                </td>
+                <td class="num">{{ item.limit ?? '-' }}</td>
+                <td>{{ item.unit }}</td>
+                <td><span class="badge source-badge">{{ formatSource(item.limit_source) }}</span></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="kpi-val-row" v-else>
-          <span class="kpi-val text-muted">-</span>
-          <span class="kpi-unit">/ 5,000 avail</span>
-        </div>
-        <span class="kpi-sub text-muted">{{ formatRateReset(rateLimit?.reset) }}</span>
-      </div>
-
-      <div class="kpi-card">
-        <span class="kpi-label">Organization Status</span>
-        <div class="kpi-val-row">
-          <span v-if="report && report.over_count > 0" class="status-pill status-pill-warn">
-            ⚠ {{ report.over_count }} repo(s) over
-          </span>
-          <span v-else-if="report" class="status-pill status-pill-ok">
-            ✓ All {{ org }} within limits
-          </span>
-          <span v-else class="status-pill" style="background: var(--bg-tertiary); color: var(--text-secondary);">
-            Audit Pending
-          </span>
-        </div>
-        <span class="kpi-sub text-muted" v-if="report">Period: {{ report.week_start }} → {{ report.week_end }}</span>
-        <span class="kpi-sub text-muted" v-else>Weekly audit runs Sundays 22:00 UTC</span>
-      </div>
-    </div>
-
-    <!-- Loading -->
-    <div v-if="loading" class="usage-loading flex items-center gap-sm text-secondary">
-      <div class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></div>
-      <span class="text-sm">Loading usage data for {{ org }}…</span>
-    </div>
-
-    <!-- Error State -->
-    <div v-else-if="loadError" class="usage-error flex items-center justify-between" role="alert">
-      <span class="text-sm">Failed to load usage report: {{ loadError }}</span>
-      <button class="btn btn-sm" type="button" @click="loadReport">Retry</button>
-    </div>
-
-    <!-- Empty State / No Report Generated Yet -->
-    <div v-else-if="!report" class="usage-empty text-sm">
-      <p class="text-secondary" style="margin-bottom: var(--space-xs);">
-        No weekly breakdown report found for <code>{{ org }}</code> yet. The audit runs automatically every <strong>Sunday at 22:00 UTC</strong>, or you can run one now.
-      </p>
-      <button
-        v-if="!runWatching"
-        class="btn btn-primary btn-sm btn-with-icon"
-        type="button"
-        @click="generateNow"
-        :disabled="triggering"
-      >
-        <Icon name="zap" :size="12" />
-        <span>{{ triggering ? 'Starting audit…' : 'Generate usage report now' }}</span>
-      </button>
-    </div>
-
-    <!-- Loaded Report Content -->
-    <div v-else class="usage-content">
-      <!-- Filter / Search toolbar -->
-      <div class="usage-toolbar flex items-center justify-between">
-        <div class="text-xs text-muted">
-          Showing <strong>{{ filtered.length }}</strong> of {{ (report.items || []).length }} resource line item(s)
-        </div>
-        <input
-          v-model="filter"
-          type="search"
-          placeholder="Filter repositories or resources…"
-          class="filter-search-input"
-          aria-label="Filter usage items"
-        />
-      </div>
-
-      <!-- Compact Table -->
-      <div class="table-wrapper">
-        <table class="usage-table">
-          <thead>
-            <tr>
-              <th @click="sortBy('repo')" tabindex="0" :aria-sort="ariaSortFor('repo')">
-                <span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span>
-              </th>
-              <th @click="sortBy('sku')" tabindex="0" :aria-sort="ariaSortFor('sku')">
-                <span class="th-label">Resource Type<SortIcon :dir="sortDirFor('sku')" /></span>
-              </th>
-              <th @click="sortBy('used')" tabindex="0" :aria-sort="ariaSortFor('used')" class="num">
-                <span class="th-label">Used (7 Days)<SortIcon :dir="sortDirFor('used')" /></span>
-              </th>
-              <th class="num">Weekly Limit</th>
-              <th>Unit</th>
-              <th>Threshold Level</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="filtered.length === 0">
-              <td colspan="6" class="text-center text-muted" style="padding: var(--space-md);">
-                No matching usage records found.
-              </td>
-            </tr>
-            <tr v-for="item in filtered" :key="item.repo + item.sku" :class="{ 'over-threshold': item.over }">
-              <td>
-                <span v-if="item.repo === '<org-level>'" class="text-muted">&lt;org-level&gt;</span>
-                <code v-else>{{ item.repo }}</code>
-              </td>
-              <td>{{ formatSku(item.sku) }}</td>
-              <td class="num">
-                <strong v-if="item.over" class="text-danger">{{ item.used }}</strong>
-                <span v-else>{{ item.used }}</span>
-              </td>
-              <td class="num">{{ item.limit ?? '-' }}</td>
-              <td>{{ item.unit }}</td>
-              <td><span class="badge source-badge">{{ formatSource(item.limit_source) }}</span></td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </div>
   </section>
@@ -193,6 +235,13 @@ SortIcon.props = ['dir']
 const props = defineProps({
   org: { type: String, required: true }
 })
+
+// Collapsible state (collapsed by default)
+const isExpanded = ref(false)
+
+function toggleExpanded() {
+  isExpanded.value = !isExpanded.value
+}
 
 const loading = ref(false)
 const report = ref(null)
@@ -400,22 +449,37 @@ onBeforeUnmount(() => {
   background: var(--bg-surface, #161b22);
   border-radius: var(--radius-md, 6px);
   padding: var(--space-md);
+  transition: all 0.2s ease;
 }
 
-.usage-head {
-  margin-bottom: var(--space-sm);
-  flex-wrap: wrap;
-  gap: var(--space-sm);
+.usage-panel.is-collapsed {
+  padding: 10px 14px;
+}
+
+.usage-toggle-head {
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+
+.usage-toggle-head:hover .usage-title {
+  color: var(--accent-blue);
+}
+
+.usage-toggle-head:focus-visible {
+  outline: 2px solid var(--accent-blue);
 }
 
 .usage-title {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 6px;
+  transition: color 0.15s ease;
 }
 
 .usage-title code {
@@ -425,8 +489,47 @@ onBeforeUnmount(() => {
   border-radius: 4px;
 }
 
+.usage-summary-chips {
+  margin-left: var(--space-xs);
+}
+
+.summary-chip {
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.summary-chip strong {
+  color: var(--text-primary);
+}
+
+.chip-icon {
+  opacity: 0.75;
+}
+
+.toggle-indicator {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.usage-body {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-default);
+}
+
+.usage-sub-row {
+  margin-bottom: var(--space-sm);
+}
+
 .usage-sub {
-  margin: 2px 0 0;
+  margin: 0;
   font-size: 0.78rem;
   line-height: 1.3;
 }
@@ -626,6 +729,14 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
+}
+
+@media (max-width: 768px) {
+  .usage-summary-chips {
+    width: 100%;
+    margin-left: 0;
+    margin-top: var(--space-xs);
+  }
 }
 
 @media (max-width: 640px) {
