@@ -79,21 +79,27 @@ Workflows live **only** in the central hub. Control repos hold data; they contai
 
 A single GitHub App, `PXL Classroom Provisioner`, with:
 
-| Scope | Permission | Used by |
-|---|---|---|
-| Repository: Administration | Read/Write | Provisioning, lock-down |
-| Repository: Contents | Read/Write | Provisioning (template copy), commits to control repo & archive |
-| Repository: Metadata | Read | Everything |
-| Account: Starring | Read/Write (Device Flow) | The browser-side device-flow token (stars broker on accept) |
+| Scope | Permission | In Manifest? | Used by |
+|---|---|---|---|
+| Repository: Actions | Read/Write | ✔ | Dispatching hub workflows from the SPA / Admin UI |
+| Repository: Administration | Read/Write | ✔ | Provisioning repositories, lock-down demotion |
+| Repository: Contents | Read/Write | ✔ | Provisioning (template copy), commits to control repo & archive |
+| Repository: Issues | Read/Write | ✔ | Creating tracking & notification issues in control repo |
+| Repository: Metadata | Read | ✔ | Repository queries and baseline checks |
+| Repository: Pull Requests | Read/Write | ✔ | Feedback PR orchestration |
+| Repository: Secrets | Read/Write | ✔ | Setting Actions secrets during provisioning |
+| Repository: Variables | Read/Write | ✔ | Setting Actions variables on broker repositories |
+| Repository: Workflows | Read/Write | ✔ | Provisioning Actions workflows in student repositories |
+| Organization: Plan | Read | ✗ (Manual) | Enhanced Billing endpoint used by the weekly usage report |
+| Account: Starring | Read/Write | ✗ (Manual) | The browser-side device-flow token (stars broker on accept) |
+| Account: Email addresses | Read | ✗ (Optional) | Reading verified student email during acceptance/login |
 
 The App is installed:
 
 - On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. The broker mints a token for this installation to dispatch into the hub. A compromised broker workflow can only dispatch events to the hub — bounded blast radius.
 - On each participating org (`PXLAutomation`, `PXLCloudAndAutomation`, etc.), **scoped to all repositories**. The hub mints per-org tokens at workflow runtime for provisioning, collection, lock-down, preservation, and archive operations against the target org.
 
-**`secrets:write` is not requested, anywhere.** The App never injects secrets into per-org repositories; per-org control repos hold no workflows and therefore no Actions secrets are needed.
-
-The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see RUNBOOK §1).
+The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see RUNBOOK §1.2).
 
 ---
 
@@ -166,6 +172,10 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `override.schema.json` | Lecturer overrides (8 types, see schema) |
 | `error-record.schema.json` | Workflow/script error records |
 | `participating-orgs.schema.json` | Hub-side registry of participating orgs |
+| `limits.schema.json` | Global and per-org weekly usage limits |
+| `limits-overrides.schema.json` | Per-repository SKU threshold overrides |
+| `grading-result.schema.json` | Autograder run result record |
+| `download-manifest.schema.json` | Preserved submission archive download manifest |
 
 ### 5.4 Assignment definition
 
@@ -202,8 +212,10 @@ lock_down_enabled: true
 schema_version: 1
 orgs:
   - login: PXLAutomation
-    budget_owner: jane.doe@pxl.be
-    spending_limit_eur: 100
+    budget_owner_login: tomcoolpxl
+    budget_owner_email: tom.cool@pxl.be  # optional
+    overrides:                           # optional SKU overrides
+      "Actions Linux": 2000
 ```
 
 ---
@@ -283,9 +295,11 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 | `publish-assignment.yml` | `workflow_dispatch` | Create broker repo, set vars, push broker workflow, flip assignment `state` to `published`, **enable `daily-activity.yml`**. |
 | `regenerate-dashboard.yml` | `workflow_dispatch` (called by other workflows) | Multi-org: generate public Pages JSON + run privacy scanner + commit to each org's `public/`. |
 | `reconcile-registry.yml` | `workflow_dispatch` only (a push trigger cannot fire for the workflow-less `participating-orgs` data branch) | Detect drift: deleted student repos, visibility changes, revoked access. |
+| `retry-acceptance.yml` | `workflow_dispatch` | Lecturer retry for failed student acceptances (with optional window bypass). |
 | `weekly-usage-report.yml` | `cron 0 22 * * SUN` + `workflow_dispatch` | Sunday 22:00 UTC. Per-org matrix: fetch Enhanced Billing usage for the past 7 days, threshold per SKU, write report to control repo, @-mention budget owner if anything over, fail run on overrun. |
 | `setup-org.yml` | `workflow_dispatch` | Create `pxl-classroom-control` in target org; register org in `participating-orgs` branch. |
-| `deploy-frontend.yml` | `push` to `main` (paths: `frontend/**`) + `workflow_dispatch` | Build SPA + copy schemas → publish to GitHub Pages. |
+| `provision.yml` | `workflow_call` | Reusable workflow wrapping `provisioning/action.yml` with concurrency controls. |
+| `deploy-frontend.yml` | `push` to `main` (paths: `frontend/**`, `lib/**`, `schemas/**`) + `workflow_dispatch` | Build SPA + copy schemas → publish to GitHub Pages. |
 | `ci.yml` | `pull_request` + `push` | Run `node --test tests/`. |
 
 **Broker template:** `acceptance/broker-workflow.yml` is the file `publish-assignment.yml` copies into each broker repository as `.github/workflows/acceptance-trigger.yml`. It's the one workflow that does NOT live in the hub at runtime — it lives on every broker — but it is owned and re-published from the hub.
@@ -446,15 +460,19 @@ A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pag
 
 GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** — device flow is a public-client flow.
 
-The App needs the following permissions. Five are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
+The App needs the following permissions. Nine repository permissions are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two permissions are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
 
 | Permission | In manifest? | Why |
 |---|---|---|
 | `actions: write` | ✔ | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage). |
 | `administration: write` | ✔ | Create student repos, demote at lock-down. |
 | `contents: write` | ✔ | Read/write assignment YAMLs, overrides, reports in the control repo. |
-| `metadata: read` | ✔ | Baseline. |
+| `issues: write` | ✔ | Open notification & tracking issues in the control repo. |
+| `metadata: read` | ✔ | Baseline repository metadata. |
+| `pull_requests: write` | ✔ | Open & manage Feedback PRs on student repositories. |
 | `secrets: write` | ✔ | Set per-broker / per-control-repo Actions secrets during provisioning. |
+| `variables: write` | ✔ | Set Actions variables on broker repositories. |
+| `workflows: write` | ✔ | Provision Actions workflows in student repositories. |
 | `organization_plan: read` | ✗ manual | Enhanced Billing endpoint used by the weekly usage report. |
 | `starring: write` (account) | ✗ manual | Students star the broker to trigger acceptance. User-level permission. |
 | `email addresses: read` (account) | ✗ optional | Read student verified primary email upon acceptance/login. |
@@ -571,7 +589,7 @@ Dedup-keys are stable per `(org, assignment, login, condition)` so repeated nigh
 
 Every state-changing workflow run records: run URL, initiating actor, op type, assignment ID, affected student, start/complete time, outcome, GitHub IDs, error category. Source changes happen through Git commits. Generated records identify the source revision.
 
-**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical sets re-exported from the engine (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.json`, and — given an `--assignment` — samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
+**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical sets re-exported from the engine (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.yml`, and — given an `--assignment` — samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
 
 ---
 

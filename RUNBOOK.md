@@ -489,7 +489,7 @@ Verify with `gh api /app` — `permissions` should reflect the new set. Lecturer
 
 Run periodically, especially after touching workflows or App settings.
 
-- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `metadata: read`, `secrets: write`) **plus** the two manually-added perms (`organization_plan: read`, `starring: write`).
+- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `issues: write`, `metadata: read`, `pull_requests: write`, `secrets: write`, `variables: write`, `workflows: write`) **plus** the manually-added perms (`organization_plan: read`, `starring: write`).
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.

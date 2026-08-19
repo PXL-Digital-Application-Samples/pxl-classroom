@@ -1,19 +1,21 @@
-# Provisioning (production)
+# Provisioning
 
-The production version of the Spike 1 provisioner, as the two reusable units the multi-org architecture calls for:
+The repository provisioner handles student repository creation and role grants. It is exposed in two reusable units:
 
-- **Composite action** — `provisioning/action.yml` + `provision.mjs`. Carries its own code (reached via `$GITHUB_ACTION_PATH`), mints the per-org **GitHub App installation token**, and runs the provisioner. Third-party actions are pinned to full commit SHAs.
-- **Reusable workflow** — `.github/workflows/provision.yml` (`workflow_call`). Owns the **`concurrency`** guard (one in-flight provision per org+repo → no duplicate repos), `permissions`, and typed inputs/secrets/outputs. It calls the action.
+- **Composite action** — `provisioning/action.yml` + `provision.mjs`. Carries its own logic (reached via `$GITHUB_ACTION_PATH`), mints the per-org **GitHub App installation token**, and executes the provisioning operations. Third-party actions are pinned to full commit SHAs.
+- **Reusable workflow** — `.github/workflows/provision.yml` (`workflow_call`). Enforces the **`concurrency`** guard (one in-flight provision per org+repo to prevent duplicate repositories), sets minimal workflow `permissions`, and exposes typed inputs, secrets, and outputs.
 
-> Why both: a composite action can't declare `concurrency`, and duplicate-provision prevention is a hard requirement — so the guard lives in the workflow. (Architecture allows "reusable workflows **or** a published action"; this uses both, each for what it's good at.)
+> Why both: composite actions cannot declare `concurrency`, and preventing duplicate repository creation during acceptance bursts is a core requirement — so the concurrency guard lives in the caller workflow.
 
 ## What it does (idempotent)
 
-1. Validate inputs against strict allowlists (org/repo names, GitHub login, permission).
-2. Verify the template exists and is a template.
-3. If the target repo already exists → **reuse** it (no duplicate); else create it private from the template.
-4. Grant the student their role (default `admin`) — an invitation for outside collaborators.
-5. Emit outputs `repo_id`, `repo_url`, `repo_name`, `outcome` and a step summary.
+1. Validates inputs against strict allowlists (org/repo names, GitHub login, permission levels).
+2. Verifies that the template repository exists and has template mode enabled.
+3. If the target repo already exists → **reuses** it (no duplicates); otherwise creates it as a private repository from the template.
+4. Grants the student their configured permission level (default `admin`) — creating an invitation if outside collaborator.
+5. If `feedback_pr: true` is configured, creates and protects the `pxl-baseline` branch.
+6. If student-side autograding is configured (`execution_environment: github_actions`), injects `.github/workflows/autograding.yml`.
+7. Emits outputs `repo_id`, `repo_url`, `repo_name`, `outcome`, and step summary.
 
 `outcome` ∈ `created | reused | dry-run:ok | fail:validation | fail:auth | fail:template-missing | fail:not-a-template | fail:create | fail:grant`.
 
@@ -22,7 +24,7 @@ The production version of the Spike 1 provisioner, as the two reusable units the
 ```yaml
 jobs:
   call:
-    uses: PXL-Digital-Application-Samples/pxl-classroom/.github/workflows/provision.yml@v1
+    uses: PXL-Digital-Application-Samples/pxl-classroom/.github/workflows/provision.yml@main
     with:
       org: PXLAutomation
       template_owner: PXLAutomation
@@ -36,13 +38,7 @@ jobs:
       app_private_key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
 ```
 
-See `.github/workflows/provision-caller-example.yml` for a manual (`workflow_dispatch`) caller used for validation (it reads the `SPIKE_APP_*` secrets).
-
 ## Requirements
 
-- The GitHub App is **installed in the target org**, with permissions **Administration RW, Contents RW, Metadata R** (the confirmed provisioning set).
-- Secrets `app_client_id` / `app_private_key` provided by the caller.
-
-## Versioning
-
-The reusable workflow pins the composite action to a tag (`@v1`). Cut a new tag when the action changes; callers pin the workflow to a tag/SHA too. Third-party actions inside the composite action are SHA-pinned (checkout v7.0.0, create-github-app-token v3.2.0, setup-node v6.4.0).
+- The GitHub App is **installed on the target org** with repository administration and contents write permissions.
+- Secrets `app_client_id` / `app_private_key` are provided by the caller workflow.
