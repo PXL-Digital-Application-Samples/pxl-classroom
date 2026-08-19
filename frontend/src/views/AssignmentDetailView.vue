@@ -962,27 +962,7 @@ async function loadAll() {
         console.warn('Failed to parse roster:', e)
       }
     }
-    if (report.value?.students) {
-      // Fetch public profiles in the background (concurrency 6) without blocking page render.
-      // Skip students who already have full name and email from roster.
-      const neededLogins = report.value.students
-        .filter(s => !s.email || !s.full_name)
-        .map(s => s.github_login)
-        .filter(Boolean)
-      const uniqueLogins = [...new Set(neededLogins)]
 
-      ;(async () => {
-        const BATCH = 6
-        for (let i = 0; i < uniqueLogins.length; i += BATCH) {
-          const chunk = uniqueLogins.slice(i, i + BATCH)
-          await Promise.all(chunk.map(async (login) => {
-            const p = await fetchUserProfile(token, login)
-            if (p) userProfilesByLogin.value.set(login.toLowerCase(), p)
-          }))
-          userProfilesByLogin.value = new Map(userProfilesByLogin.value)
-        }
-      })()
-    }
     if (report.value && assignment.value?.feedback_pr === true) {
       await mergeRepoRecordsIntoReport(token)
     }
