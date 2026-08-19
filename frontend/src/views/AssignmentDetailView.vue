@@ -140,18 +140,69 @@
                 <span>Refresh</span>
               </template>
             </button>
-            <button class="btn btn-with-icon" @click="exportCSV">
-              <Icon name="download" :size="14" />
-              <span>Export CSV</span>
-            </button>
-            <button class="btn btn-with-icon" @click="downloadManifest" :title="preservedCount ? `${preservedCount} preserved submission(s)` : 'No preserved submissions in the report'">
-              <Icon name="download" :size="14" />
-              <span>Download manifest</span>
-            </button>
-            <button class="btn btn-with-icon" @click="copyDownloadCmd">
-              <Icon name="copy" :size="14" />
-              <span>Copy CLI command</span>
-            </button>
+            <!-- Consolidated Export & CLI Menu -->
+            <div class="dropdown-container" ref="exportDropdownRef">
+              <button
+                class="btn btn-with-icon"
+                type="button"
+                @click.stop="toggleExportDropdown"
+                :aria-expanded="exportDropdownOpen"
+                aria-haspopup="true"
+                title="Export data and CLI commands"
+              >
+                <Icon name="download" :size="14" />
+                <span>Export</span>
+                <Icon :name="exportDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="12" />
+              </button>
+
+              <div v-if="exportDropdownOpen" class="export-dropdown-menu fade-in" role="menu">
+                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleExportCSV">
+                  <Icon name="download" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Export CSV</span>
+                    <span class="dropdown-item-sub">Spreadsheet with student submissions &amp; links</span>
+                  </div>
+                </button>
+
+                <button
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleDownloadManifest"
+                  :disabled="preservedCount === 0"
+                  :class="{ 'disabled-item': preservedCount === 0 }"
+                >
+                  <Icon name="tag" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">
+                      Download Manifest
+                      <span v-if="preservedCount > 0" class="badge-count">({{ preservedCount }})</span>
+                    </span>
+                    <span class="dropdown-item-sub">
+                      {{ preservedCount > 0 ? 'JSON index of frozen archive SHAs' : 'Available after deadline lockdown' }}
+                    </span>
+                  </div>
+                </button>
+
+                <div class="dropdown-divider"></div>
+
+                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleCopyDownloadCmd">
+                  <Icon name="copy" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Copy CLI Download</span>
+                    <span class="dropdown-item-sub">Command to bulk-clone preserved repos</span>
+                  </div>
+                </button>
+
+                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleCopyGradeCmd">
+                  <Icon name="copy" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Copy CLI Grade</span>
+                    <span class="dropdown-item-sub">Command to run automated grading runner</span>
+                  </div>
+                </button>
+              </div>
+            </div>
             <button
               v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
               :class="['btn', 'btn-with-icon', assignment.state === 'published' ? 'btn-danger' : 'btn-success']"
@@ -795,12 +846,51 @@ const filteredStudents = computed(() => {
   return list
 })
 
+// Export Dropdown Menu State
+const exportDropdownOpen = ref(false)
+const exportDropdownRef = ref(null)
+
+function toggleExportDropdown() {
+  exportDropdownOpen.value = !exportDropdownOpen.value
+}
+
+function handleExportCSV() {
+  exportDropdownOpen.value = false
+  exportCSV()
+}
+
+function handleDownloadManifest() {
+  exportDropdownOpen.value = false
+  downloadManifest()
+}
+
+function handleCopyDownloadCmd() {
+  exportDropdownOpen.value = false
+  copyDownloadCmd()
+}
+
+function handleCopyGradeCmd() {
+  exportDropdownOpen.value = false
+  copyGradeCmd()
+}
+
+function onDocumentClick(e) {
+  if (exportDropdownRef.value && !exportDropdownRef.value.contains(e.target)) {
+    exportDropdownOpen.value = false
+  }
+}
+
 function onKeydown(e) {
-  if (e.key === 'Escape' && actionStudent.value) closeActions()
+  if (e.key === 'Escape') {
+    if (exportDropdownOpen.value) exportDropdownOpen.value = false
+    if (actionStudent.value) closeActions()
+    if (showBreakdown.value) showBreakdown.value = false
+  }
 }
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  document.addEventListener('click', onDocumentClick)
   if (!isAuthenticated()) { loading.value = false; return }
   user.value = getUser()
   await loadAll()
@@ -930,6 +1020,7 @@ async function fetchRateLimit(token) {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('click', onDocumentClick)
   stopDailyWatch()
   if (retryPollTimer) {
     clearTimeout(retryPollTimer)
@@ -1997,8 +2088,96 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-family: inherit;
   font-size: 0.9rem;
 }
-.modal-section .field textarea { resize: vertical; min-height: 56px; font-family: var(--font-sans); }
 .modal-section p { margin: 0 0 var(--space-sm); font-size: 0.85rem; }
+
+/* Export Dropdown Menu */
+.dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.export-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  min-width: 270px;
+  background: var(--bg-surface, #161b22);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-dropdown-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.export-dropdown-item:hover:not(:disabled) {
+  background: var(--bg-tertiary, #21262d);
+}
+
+.export-dropdown-item.disabled-item,
+.export-dropdown-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dropdown-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: var(--color-accent, #58a6ff);
+}
+
+.dropdown-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropdown-item-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dropdown-item-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.25;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border-default);
+  margin: 4px 0;
+}
+
+.badge-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0 5px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  color: var(--color-accent, #58a6ff);
+}
 
 @media (max-width: 768px) {
   .summary-row { grid-template-columns: repeat(2, 1fr); }
