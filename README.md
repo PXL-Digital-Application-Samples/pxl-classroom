@@ -1,5 +1,9 @@
 # PXL Classroom
 
+<p align="center">
+  <img src="assets/images/pxl_classroom_logo.png" alt="PXL Classroom Logo" width="200" />
+</p>
+
 GitHub-native assignment distribution and submission reporting for higher education. Built on GitHub Pages, GitHub Actions, and a single GitHub App. No external server, no external database.
 
 Target platform: GitHub Team for Education (no GitHub Enterprise required).
