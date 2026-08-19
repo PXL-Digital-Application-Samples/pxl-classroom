@@ -10,6 +10,20 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 ---
 
+## Screenshots
+
+### Lecturer Dashboard Overview
+*Organization overview showing active assignments, submission metrics, and resource limit monitoring.*
+
+![Lecturer Dashboard Overview](assets/images/lecturer-dashboard.png)
+
+### Assignment Submissions & Management
+*Real-time student progress tracking, live submission status badges, and starter code sync actions.*
+
+![Assignment Submissions & Management](assets/images/assignment-submissions.png)
+
+---
+
 ## Highlights
 
 - **Fast Web UI & Dashboard:**
