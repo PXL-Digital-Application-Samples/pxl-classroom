@@ -276,6 +276,7 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { parse as parseYaml } from 'yaml'
 import UserBadge from '../components/UserBadge.vue'
 import SystemHealth from '../components/SystemHealth.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
@@ -349,6 +350,42 @@ async function loadOrgStatuses(orgList, token) {
   await Promise.all(
     orgList.map(async (org) => {
       const login = org.login.toLowerCase()
+      if (token) {
+        try {
+          const files = await listRepoDir(token, org.login, config.controlRepo, 'assignments')
+          const ymls = files.filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
+          if (ymls.length === 0) {
+            orgStatusMap.value.set(login, 'empty')
+            return
+          }
+          const docs = await Promise.all(
+            ymls.map(async (f) => {
+              try {
+                const text = await getRepoContent(token, org.login, config.controlRepo, f.path)
+                return text ? parseYaml(text) : null
+              } catch {
+                return null
+              }
+            })
+          )
+          const list = docs.filter(Boolean)
+          if (list.length === 0) {
+            orgStatusMap.value.set(login, 'empty')
+            return
+          }
+          const hasActive = list.some((a) => {
+            if (a.state !== 'published') return false
+            if (a.opens_at && now < new Date(a.opens_at)) return false
+            if (a.deadline_at && now > new Date(a.deadline_at)) return false
+            return true
+          })
+          orgStatusMap.value.set(login, hasActive ? 'active' : 'inactive')
+          return
+        } catch (e) {
+          // fall through to public pages check
+        }
+      }
+
       try {
         // 1. Try public Pages data
         const res = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`)
@@ -371,30 +408,6 @@ async function loadOrgStatuses(orgList, token) {
         }
       } catch (e) {
         // fallback
-      }
-
-      if (token) {
-        try {
-          const content = await getRepoContent(token, org.login, config.controlRepo, 'reports/dashboard.json')
-          if (content) {
-            const data = JSON.parse(content)
-            const list = Object.values(data?.assignments || {})
-            if (list.length === 0) {
-              orgStatusMap.value.set(login, 'empty')
-              return
-            }
-            const hasActive = list.some((a) => {
-              if (a.state !== 'published') return false
-              if (a.opens_at && now < new Date(a.opens_at)) return false
-              if (a.deadline_at && now > new Date(a.deadline_at)) return false
-              return true
-            })
-            orgStatusMap.value.set(login, hasActive ? 'active' : 'inactive')
-            return
-          }
-        } catch (e) {
-          // ignore
-        }
       }
 
       orgStatusMap.value.set(login, 'empty')
@@ -520,30 +533,71 @@ async function loadDashboard(org) {
       throw e
     }
 
+    let yamlAssignments = []
     try {
       const files = await listRepoDir(token, org, config.controlRepo, 'assignments')
-      const drafts = files.filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
-      draftCount.value = drafts.length
+      const ymls = files.filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
+      
+      const loaded = await Promise.all(
+        ymls.map(async (f) => {
+          try {
+            const text = await getRepoContent(token, org, config.controlRepo, f.path)
+            if (!text) return null
+            const doc = parseYaml(text)
+            const id = doc.id || f.name.replace(/\.ya?ml$/, '')
+            return { ...doc, id }
+          } catch {
+            return null
+          }
+        })
+      )
+      yamlAssignments = loaded.filter(Boolean)
+      draftCount.value = yamlAssignments.filter(a => a.state === 'draft').length
     } catch (e) {
       // ignore
     }
 
-    const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
-    if (!content) {
-      dashState.value = 'no-dashboard'
-      orgStatusMap.value.set(org.toLowerCase(), 'empty')
-      return
+    let reportData = null
+    try {
+      const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
+      if (content) {
+        reportData = JSON.parse(content)
+      }
+    } catch (e) {
+      // ignore
     }
-    const data = JSON.parse(content)
-    
+
+    const mergedMap = new Map()
+    if (reportData?.assignments) {
+      for (const [id, a] of Object.entries(reportData.assignments)) {
+        mergedMap.set(id, { id, ...a })
+      }
+    }
+
+    for (const ya of yamlAssignments) {
+      const existing = mergedMap.get(ya.id) || {}
+      mergedMap.set(ya.id, {
+        ...existing,
+        ...ya,
+        // Live state, title, and dates from repository YAMLs are always authoritative
+        state: ya.state || existing.state || 'draft',
+        title: ya.title || existing.title || ya.id,
+        deadline_at: ya.deadline_at || existing.deadline_at,
+        opens_at: ya.opens_at || existing.opens_at,
+        timezone: ya.timezone || existing.timezone,
+      })
+    }
+
     const stateOrder = { published: 1, closed: 2, archived: 3 }
-    assignments.value = Object.entries(data.assignments || {})
-      .map(([id, a]) => ({ id, ...a }))
+    const displayList = Array.from(mergedMap.values())
+      .filter(a => a.state !== 'draft')
       .sort((a, b) => {
         const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
         if (diff !== 0) return diff
         return (a.id || '').localeCompare(b.id || '')
       })
+
+    assignments.value = displayList
 
     const now = new Date()
     const hasActive = assignments.value.some((a) => {
@@ -554,9 +608,10 @@ async function loadDashboard(org) {
     })
 
     if (assignments.value.length === 0) {
-      dashState.value = 'empty'
+      dashState.value = yamlAssignments.length === 0 && !reportData ? 'no-dashboard' : 'empty'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
     } else {
+      dashState.value = ''
       orgStatusMap.value.set(org.toLowerCase(), hasActive ? 'active' : 'inactive')
     }
   } catch (e) {
