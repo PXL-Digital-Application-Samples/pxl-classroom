@@ -181,43 +181,54 @@ async function main() {
         snapshotSha = commitRes.ok ? commitRes.data.sha : null;
       }
 
+      const members = Array.isArray(rec.members) && rec.members.length ? rec.members : (login ? [login] : []);
+
       // Write the final observation (only for a fresh snapshot - re-recording a
       // frozen one would fabricate a second observation of the same fact)
       if (snapshotSha && !frozen) {
         const now = new Date().toISOString();
-        const observation = {
-          schema_version: 1,
-          assignment_id: cfg.assignmentId,
-          github_login: login,
-          repo_id: repoRes.data.id,
-          observed_at: now,
-          ref: submissionRef,
-          sha: snapshotSha,
-          observer_run: cfg.runUrl,
-          collection_type: "lockdown",
-        };
         const safeTs = now.replace(/[:.]/g, "-");
-        const obsDir = join(cfg.dataDir, "observations", cfg.assignmentId, login);
-        await mkdir(obsDir, { recursive: true });
-        await writeFile(join(obsDir, `${safeTs}.json`), JSON.stringify(observation, null, 2) + "\n");
+        for (const m of members) {
+          const observation = {
+            schema_version: 1,
+            assignment_id: cfg.assignmentId,
+            github_login: m,
+            team_slug: rec.team_slug || undefined,
+            repo_id: repoRes.data.id,
+            observed_at: now,
+            ref: submissionRef,
+            sha: snapshotSha,
+            observer_run: cfg.runUrl,
+            collection_type: "lockdown",
+          };
+          const obsDir = join(cfg.dataDir, "observations", cfg.assignmentId, m);
+          await mkdir(obsDir, { recursive: true });
+          await writeFile(join(obsDir, `${safeTs}.json`), JSON.stringify(observation, null, 2) + "\n");
+        }
       }
 
-      // 4b. Demote student to pull (read-only). Re-run on a retry too: it is
+      // 4b. Demote student(s) to pull (read-only). Re-run on a retry too: it is
       // idempotent and re-locks anyone who regained write access since.
-      const demote = await gh("PUT", `/repos/${cfg.org}/${repoName}/collaborators/${login}`, { permission: "pull" });
-      // The lockdown instant is a historical fact - keep the original on retry.
       const lockdownAt = frozen ? priorRec.lockdown_at : new Date().toISOString();
-      if (!(demote.status === 204 || demote.status === 201)) {
-        log(`lockdown ${login}`, { ok: false, note: `demote HTTP ${demote.status}` });
-        errorCount++;
-        rows.push(`| ${login} | \`${(snapshotSha || "-").slice(0, 12)}\` | - | demote failed |`);
-        continue;
-      }
+      let allLocked = true;
+      let permAfter = "read";
 
-      // 4c. Verify demotion
-      const verify = await gh("GET", `/repos/${cfg.org}/${repoName}/collaborators/${login}/permission`);
-      const permAfter = verify.ok ? verify.data.permission : `error-${verify.status}`;
-      const isLocked = permAfter === "read";
+      for (const m of members) {
+        const demote = await gh("PUT", `/repos/${cfg.org}/${repoName}/collaborators/${m}`, { permission: "pull" });
+        if (!(demote.status === 204 || demote.status === 201)) {
+          log(`lockdown ${m}`, { ok: false, note: `demote HTTP ${demote.status}` });
+          allLocked = false;
+          continue;
+        }
+
+        // 4c. Verify demotion
+        const verify = await gh("GET", `/repos/${cfg.org}/${repoName}/collaborators/${m}/permission`);
+        const userPerm = verify.ok ? verify.data.permission : `error-${verify.status}`;
+        if (userPerm !== "read") {
+          allLocked = false;
+          permAfter = userPerm;
+        }
+      }
 
       // 4d. Uncertainty interval
       let uncertaintySec = null;
@@ -227,31 +238,34 @@ async function main() {
         if (Math.abs(uncertaintySec) > maxUncertainty) maxUncertainty = Math.abs(uncertaintySec);
       }
 
-      // Record lockdown result
-      const result = {
-        github_login: login,
-        repo_name: `${cfg.org}/${repoName}`,
-        repo_id: repoRes.data.id,
-        snapshot_sha: snapshotSha,
-        snapshot_ref: submissionRef,
-        lockdown_at: lockdownAt,
-        permission_after: permAfter,
-        verified: isLocked,
-        uncertainty_seconds: uncertaintySec,
-      };
-      lockdownResults.push(result);
+      // Record lockdown result per member
+      for (const m of members) {
+        lockdownResults.push({
+          github_login: m,
+          team_slug: rec.team_slug || undefined,
+          repo_name: `${cfg.org}/${repoName}`,
+          repo_id: repoRes.data.id,
+          snapshot_sha: snapshotSha,
+          snapshot_ref: submissionRef,
+          lockdown_at: lockdownAt,
+          permission_after: permAfter,
+          verified: allLocked,
+          uncertainty_seconds: uncertaintySec,
+        });
+      }
 
-      if (isLocked) {
+      const displayKey = rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login;
+      if (allLocked) {
         lockedCount++;
-        log(`lockdown ${login}`, { ok: true, note: `${branch}@${(snapshotSha || "?").slice(0, 12)} -> pull (${uncertaintySec ?? "?"}s)` });
-        rows.push(`| ${login} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | [OK] locked |`);
+        log(`lockdown ${displayKey}`, { ok: true, note: `${branch}@${(snapshotSha || "?").slice(0, 12)} -> pull (${uncertaintySec ?? "?"}s)` });
+        rows.push(`| ${displayKey} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | [OK] locked |`);
       } else {
         errorCount++;
-        log(`lockdown ${login}`, { ok: false, note: `permission after=${permAfter}, expected read` });
-        rows.push(`| ${login} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | perm=${permAfter} |`);
+        log(`lockdown ${displayKey}`, { ok: false, note: `permission after=${permAfter}, expected read` });
+        rows.push(`| ${displayKey} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | perm=${permAfter} |`);
       }
     } catch (e) {
-      log(`lockdown ${login}`, { ok: false, note: e.message });
+      log(`lockdown ${login || rec.team_slug}`, { ok: false, note: e.message });
       errorCount++;
       rows.push(`| ${login} | - | - | exception |`);
     }

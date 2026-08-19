@@ -1181,6 +1181,7 @@ function formatRelative(iso) {
 // never contradict the table the lecturer just looked at.
 const CSV_HEADERS = [
   'github_login', 'student_number', 'full_name', 'class_group',
+  'team_slug', 'team_name',
   'acceptance_state', 'submission_status', 'effective_deadline_at',
   'override_applied', 'override_reason', 'repo_name', 'repo_url',
   'last_on_time_sha', 'last_on_time_observed_at', 'first_late_sha',

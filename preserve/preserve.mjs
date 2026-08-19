@@ -128,8 +128,9 @@ async function main() {
       continue;
     }
 
-    const workDir = await mkdtemp(join(tmpdir(), `pxl-preserve-${login}-`));
-    const presRef = `refs/heads/preserved/${cfg.assignmentId}/${login}`;
+    const targetRefKey = rec.team_slug || login;
+    const workDir = await mkdtemp(join(tmpdir(), `pxl-preserve-${targetRefKey}-`));
+    const presRef = `refs/heads/preserved/${cfg.assignmentId}/${targetRefKey}`;
     let verified = false;
 
     try {
@@ -166,6 +167,7 @@ async function main() {
         schema_version: 1,
         assignment_id: cfg.assignmentId,
         github_login: login,
+        team_slug: rec.team_slug || undefined,
         source_repo: `${cfg.org}/${sourceRepo}`,
         source_repo_id: rec.repo_id,
         source_sha: sourceSha,
@@ -180,7 +182,7 @@ async function main() {
       await writeFile(join(presDir, "preservation.json"), JSON.stringify(preservation, null, 2) + "\n");
 
       preservedCount++;
-      log(`preserve ${login}`, { ok: true, note: `preserved ${sourceSha.slice(0, 12)}` });
+      log(`preserve ${login}`, { ok: true, note: `preserved ${sourceSha.slice(0, 12)} -> ${presRef}` });
       rows.push(`| ${login} | \`${sourceSha.slice(0, 12)}\` | [OK] preserved |`);
     } catch (e) {
       log(`preserve ${login}`, { ok: false, note: e.message });

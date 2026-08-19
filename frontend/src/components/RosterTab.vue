@@ -20,7 +20,7 @@
           <label>Upload CSV</label>
           <input type="file" accept=".csv,text/csv" @change="onFileChange" />
           <small>
-            Required columns: <code>student_number</code>, <code>full_name</code>. Optional: <code>email</code>, <code>class_group</code>, <code>github_login</code>, <code>github_id</code>, <code>active</code>.
+            Required columns: <code>student_number</code>, <code>full_name</code>. Optional: <code>email</code>, <code>class_group</code>, <code>github_login</code>, <code>github_id</code>, <code>active</code>, <code>team_slug</code>, <code>team_name</code>.
             <button class="link-btn" type="button" @click="downloadSampleCsv">Download sample CSV</button>
           </small>
         </div>
@@ -30,7 +30,7 @@
           <textarea
             v-model="csvText"
             rows="10"
-            placeholder="student_number,full_name,email,class_group,github_login&#10;0123456,Alice Example,alice@stud.pxl.be,3A,alice-test"
+            placeholder="student_number,full_name,email,class_group,github_login,team_slug,team_name&#10;0123456,Alice Example,alice@stud.pxl.be,3A,alice-test,team-alpha,Alpha Team"
             @input="onCsvInput"
           ></textarea>
         </div>
@@ -235,7 +235,7 @@ function onCsvInput() {
   parseAndValidate()
 }
 
-const CSV_COLUMNS = ['student_number', 'full_name', 'email', 'class_group', 'github_login', 'github_id', 'active']
+const CSV_COLUMNS = ['student_number', 'full_name', 'email', 'class_group', 'github_login', 'github_id', 'active', 'team_slug', 'team_name']
 
 function csvEscape(v) {
   let str = Array.isArray(v) ? v.join('; ') : String(v ?? '')
@@ -260,8 +260,8 @@ function downloadBlob(text, filename, type) {
 function downloadSampleCsv() {
   const sample = [
     CSV_COLUMNS.join(','),
-    '0123456,Alice Example,alice@stud.pxl.be,3A,alice-gh,,true',
-    '0123457,Bob Example,bob@stud.pxl.be,3B,,,true',
+    '0123456,Alice Example,alice@stud.pxl.be,3A,alice-gh,,true,team-alpha,Alpha Team',
+    '0123457,Bob Example,bob@stud.pxl.be,3B,,,true,team-alpha,Alpha Team',
   ].join('\n') + '\n'
   downloadBlob(sample, 'roster-sample.csv', 'text/csv')
 }
