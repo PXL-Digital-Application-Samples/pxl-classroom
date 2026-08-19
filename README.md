@@ -22,6 +22,11 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 ![Assignment Submissions & Management](assets/images/assignment-submissions.png)
 
+### Group Assignments & Team Management
+*Self-service team formation, capacity limits, under-capacity indicators, and team repository tracking.*
+
+![Group Assignments & Team Management](assets/images/group-assignment.png)
+
 ---
 
 ## Highlights
