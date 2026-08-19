@@ -202,9 +202,6 @@
             </label>
           </div>
           <div class="flex items-center gap-sm">
-            <router-link :to="{ name: 'usage-org', params: { org: selectedOrg } }" class="btn" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
-              Usage
-            </router-link>
             <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary" style="padding: var(--space-xs) var(--space-md); font-size: 0.9rem;">
               Admin Panel
             </router-link>
@@ -254,6 +251,9 @@
         </div>
       </div>
 
+      <!-- Embedded Resource Usage & Limits Section -->
+      <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo'" :org="selectedOrg" />
+
       <!-- Health Diagnostics Modal -->
       <div v-if="showHealthModal" class="modal-overlay" @click.self="showHealthModal = false">
         <div class="modal health-modal" role="dialog" aria-modal="true" :aria-label="`System Health for ${selectedOrg}`">
@@ -279,6 +279,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { parse as parseYaml } from 'yaml'
 import UserBadge from '../components/UserBadge.vue'
 import SystemHealth from '../components/SystemHealth.vue'
+import UsagePanel from '../components/UsagePanel.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
