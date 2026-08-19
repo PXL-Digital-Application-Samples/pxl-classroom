@@ -98,6 +98,10 @@ const ICONS = {
   'chevrons-up-down':
     '<polyline points="7 15 12 20 17 15"/>' +
     '<polyline points="7 9 12 4 17 9"/>',
+  'chevron-down':
+    '<polyline points="6 9 12 15 18 9"/>',
+  'chevron-up':
+    '<polyline points="18 15 12 9 6 15"/>',
   'arrow-right':
     '<line x1="5" y1="12" x2="19" y2="12"/>' +
     '<polyline points="12 5 19 12 12 19"/>',

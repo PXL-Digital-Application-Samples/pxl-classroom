@@ -11,7 +11,7 @@
           <span class="brand-title">PXL Classroom</span>
         </div>
         <div class="header-right flex items-center gap-sm">
-          <router-link v-if="isLecturer" to="/dashboard" class="btn btn-sm btn-primary">
+          <router-link v-if="isLecturer" :to="lecturerDashboardTarget" class="btn btn-sm btn-primary">
             Lecturer Dashboard
           </router-link>
           <UserBadge :user="user" @logout="handleLogout" />
@@ -99,7 +99,7 @@
         <p class="text-secondary">
           You are signed in as an organization administrator. Head to the Lecturer Dashboard to manage courses and monitor student submissions.
         </p>
-        <router-link to="/dashboard" class="btn btn-primary btn-lg" style="margin-top: var(--space-md);">
+        <router-link :to="lecturerDashboardTarget" class="btn btn-primary btn-lg" style="margin-top: var(--space-md);">
           <span>Open Lecturer Dashboard</span>
           <Icon name="arrow-right" :size="16" />
         </router-link>
@@ -244,6 +244,16 @@ let pollAbort = null
 // Role State
 const loadingRole = ref(false)
 const isLecturer = ref(false)
+
+const lecturerDashboardTarget = computed(() => {
+  try {
+    const lastOrg = localStorage.getItem('pxl_last_selected_org')
+    if (lastOrg) {
+      return { name: 'dashboard', params: { org: lastOrg } }
+    }
+  } catch { /* ignore */ }
+  return { name: 'dashboard' }
+})
 
 // Student Assignments State
 const loadingAssignments = ref(false)

@@ -2,20 +2,70 @@
   <div class="dashboard-page">
     <header class="dashboard-header">
       <div class="container flex items-center justify-between">
-        <div class="logo flex items-center gap-sm">
+        <div class="logo flex items-center gap-md">
           <router-link to="/" class="logo-link" aria-label="PXL Classroom home">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
               <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
             </svg>
           </router-link>
-          <h1>Dashboard</h1>
+          <div class="header-titles flex items-center gap-sm">
+            <span class="header-app-title">PXL Classroom</span>
+            <span class="lecturer-badge">Lecturer Dashboard</span>
+          </div>
         </div>
         <div class="header-right flex items-center gap-sm">
-          <select v-if="orgs.length > 0" v-model="selectedOrg" class="org-select" aria-label="Select organization">
-            <option value="">Select organization…</option>
-            <option v-for="org in orgs" :key="org.login" :value="org.login">{{ org.login }}</option>
-          </select>
+          <!-- Custom Organization Selector with Styled Status Lights -->
+          <div v-if="orgs.length > 0" class="org-dropdown-container" ref="orgDropdownRef">
+            <button
+              type="button"
+              class="org-dropdown-btn"
+              @click.stop="toggleOrgDropdown"
+              :aria-expanded="orgDropdownOpen"
+              aria-haspopup="listbox"
+              aria-label="Select organization"
+            >
+              <span class="flex items-center gap-sm">
+                <span
+                  class="status-lamp"
+                  :class="`lamp-${getOrgStatus(selectedOrg)}`"
+                  :title="getOrgStatusTitle(selectedOrg)"
+                ></span>
+                <span class="org-label">{{ selectedOrg || 'Select organization…' }}</span>
+              </span>
+              <Icon :name="orgDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="14" class="dropdown-chevron" />
+            </button>
+
+            <div
+              v-if="orgDropdownOpen"
+              class="org-dropdown-menu"
+              role="listbox"
+              aria-label="Organizations"
+              tabindex="-1"
+            >
+              <div
+                v-for="org in orgs"
+                :key="org.login"
+                class="org-dropdown-item"
+                :class="{ 'is-selected': org.login === selectedOrg }"
+                role="option"
+                :aria-selected="org.login === selectedOrg"
+                @click="selectOrg(org.login)"
+                @keydown.enter.prevent="selectOrg(org.login)"
+                @keydown.space.prevent="selectOrg(org.login)"
+                tabindex="0"
+              >
+                <span
+                  class="status-lamp"
+                  :class="`lamp-${getOrgStatus(org.login)}`"
+                  :title="getOrgStatusTitle(org.login)"
+                ></span>
+                <span class="org-item-text">{{ org.login }}</span>
+                <Icon v-if="org.login === selectedOrg" name="check" :size="14" class="check-icon" />
+              </div>
+            </div>
+          </div>
+
           <button
             v-if="selectedOrg"
             type="button"
@@ -32,6 +82,22 @@
     </header>
 
     <main class="container">
+      <!-- Organization Title & Live Status Bar -->
+      <div v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError" class="org-header-bar flex items-center justify-between fade-in">
+        <div class="org-info-group flex items-center gap-md">
+          <h2 class="org-heading">{{ selectedOrg }}</h2>
+          <span class="org-status-pill" :class="`pill-${getOrgStatus(selectedOrg)}`">
+            <span class="status-lamp" :class="`lamp-${getOrgStatus(selectedOrg)}`"></span>
+            <span>{{ getOrgStatusLabel(selectedOrg) }}</span>
+          </span>
+        </div>
+        <div class="org-actions-group flex items-center gap-sm">
+          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
+            <Icon name="plus" :size="14" />
+            <span>Admin Panel</span>
+          </router-link>
+        </div>
+      </div>
       <!-- Not authenticated -->
       <div v-if="!user" class="center-card fade-in">
         <h2>Sign in to access the dashboard</h2>
@@ -208,7 +274,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import UserBadge from '../components/UserBadge.vue'
 import SystemHealth from '../components/SystemHealth.vue'
@@ -237,6 +303,105 @@ const deviceFlow = ref(null)
 const showHealthModal = ref(false)
 let pollAbort = null
 
+// Custom Dropdown State & Status Lights
+const orgDropdownOpen = ref(false)
+const orgDropdownRef = ref(null)
+const orgStatusMap = ref(new Map())
+
+function toggleOrgDropdown() {
+  orgDropdownOpen.value = !orgDropdownOpen.value
+}
+
+function selectOrg(orgLogin) {
+  selectedOrg.value = orgLogin
+  orgDropdownOpen.value = false
+}
+
+function getOrgStatus(orgLogin) {
+  if (!orgLogin) return 'unknown'
+  return orgStatusMap.value.get(orgLogin.toLowerCase()) || 'unknown'
+}
+
+function getOrgStatusTitle(orgLogin) {
+  const status = getOrgStatus(orgLogin)
+  if (status === 'active') return 'Active: at least one open assignment available'
+  if (status === 'inactive') return 'Inactive: assignments exist, but none currently open'
+  if (status === 'empty') return 'Empty: no assignments in this organization'
+  return 'Loading organization status…'
+}
+
+function getOrgStatusLabel(orgLogin) {
+  const status = getOrgStatus(orgLogin)
+  if (status === 'active') return 'Open Assignments Active'
+  if (status === 'inactive') return 'All Assignments Closed'
+  if (status === 'empty') return 'No Assignments'
+  return 'Loading Status…'
+}
+
+function onOutsideClick(e) {
+  if (orgDropdownRef.value && !orgDropdownRef.value.contains(e.target)) {
+    orgDropdownOpen.value = false
+  }
+}
+
+async function loadOrgStatuses(orgList, token) {
+  const now = new Date()
+  await Promise.all(
+    orgList.map(async (org) => {
+      const login = org.login.toLowerCase()
+      try {
+        // 1. Try public Pages data
+        const res = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`)
+        if (res.ok) {
+          let data = null
+          try { data = await res.json() } catch { /* ignore */ }
+          const list = Object.values(data?.assignments || {})
+          if (list.length === 0) {
+            orgStatusMap.value.set(login, 'empty')
+            return
+          }
+          const hasActive = list.some((a) => {
+            if (a.state !== 'published') return false
+            if (a.opens_at && now < new Date(a.opens_at)) return false
+            if (a.deadline_at && now > new Date(a.deadline_at)) return false
+            return true
+          })
+          orgStatusMap.value.set(login, hasActive ? 'active' : 'inactive')
+          return
+        }
+      } catch (e) {
+        // fallback
+      }
+
+      if (token) {
+        try {
+          const content = await getRepoContent(token, org.login, config.controlRepo, 'reports/dashboard.json')
+          if (content) {
+            const data = JSON.parse(content)
+            const list = Object.values(data?.assignments || {})
+            if (list.length === 0) {
+              orgStatusMap.value.set(login, 'empty')
+              return
+            }
+            const hasActive = list.some((a) => {
+              if (a.state !== 'published') return false
+              if (a.opens_at && now < new Date(a.opens_at)) return false
+              if (a.deadline_at && now > new Date(a.deadline_at)) return false
+              return true
+            })
+            orgStatusMap.value.set(login, hasActive ? 'active' : 'inactive')
+            return
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      orgStatusMap.value.set(login, 'empty')
+    })
+  )
+}
+
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
 const dashState = ref('')
 const dashError = ref(null)
@@ -263,17 +428,25 @@ const orgsLoadError = ref(null)
 const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
 
 onMounted(async () => {
+  window.addEventListener('click', onOutsideClick)
   if (isAuthenticated()) {
     user.value = getUser()
     await loadOrgs()
   }
 })
 
+onUnmounted(() => {
+  window.removeEventListener('click', onOutsideClick)
+})
+
+const LAST_ORG_KEY = 'pxl_last_selected_org'
+
 // immediate so navigating back to /dashboard/<org> from the breadcrumb
 // triggers loadDashboard even when selectedOrg is already set from the URL
 // param at init (re-assigning the same value doesn't fire a normal watcher).
 watch(selectedOrg, async (org) => {
   if (org) {
+    try { localStorage.setItem(LAST_ORG_KEY, org) } catch { /* ignore */ }
     if (route.params.org !== org) {
       router.replace({ name: 'dashboard', params: { org } })
     }
@@ -285,8 +458,6 @@ function stateClass(state) {
   return { published: 'badge-success', closed: 'badge-warning', draft: 'badge-neutral', archived: 'badge-neutral' }[state] || 'badge-neutral'
 }
 
-
-
 async function loadOrgs() {
   const token = getToken()
   if (!token) return
@@ -294,13 +465,6 @@ async function loadOrgs() {
   orgsLoadError.value = null
   orgsLoaded.value = false
   try {
-    // Get installations accessible to this user token.
-    // For GitHub Apps, /user/installations already filters to installations the
-    // user can access - which for org installations means the user is an org
-    // admin (or the install grants user-level repo access). No further
-    // membership check is needed; /user/memberships/orgs/{org} requires the
-    // org-administration scope which our user-to-server tokens don't have,
-    // and the call would 403.
     const installs = await getInstallations(token)
     if (!installs.ok) {
       orgsLoadError.value = `Failed to load installations (HTTP ${installs.status})`
@@ -311,13 +475,15 @@ async function loadOrgs() {
       .filter((i) => i.account?.type === 'Organization')
       .map((i) => i.account)
 
-    // No visible installation => say so honestly (dedicated empty state)
-    // instead of silently pretending the default org is the user's.
     orgs.value = installOrgs
+    loadOrgStatuses(installOrgs, token)
 
-    // Auto-select based on URL param or fallback
-    if (props.org && orgs.value.some(o => o.login === props.org)) {
+    // Auto-select based on URL param, remembered localStorage, or single-org fallback
+    const savedOrg = localStorage.getItem(LAST_ORG_KEY)
+    if (props.org && orgs.value.some(o => o.login.toLowerCase() === props.org.toLowerCase())) {
       selectedOrg.value = props.org
+    } else if (savedOrg && orgs.value.some(o => o.login.toLowerCase() === savedOrg.toLowerCase())) {
+      selectedOrg.value = savedOrg
     } else if (orgs.value.length === 1) {
       selectedOrg.value = orgs.value[0].login
     }
@@ -346,6 +512,7 @@ async function loadDashboard(org) {
     if (!repoRes.ok) {
       if (repoRes.status === 404) {
         dashState.value = 'no-control-repo'
+        orgStatusMap.value.set(org.toLowerCase(), 'empty')
         return
       }
       const e = new Error(repoRes.data?.message || `Failed to read repository (HTTP ${repoRes.status})`)
@@ -364,6 +531,7 @@ async function loadDashboard(org) {
     const content = await getRepoContent(token, org, config.controlRepo, 'reports/dashboard.json')
     if (!content) {
       dashState.value = 'no-dashboard'
+      orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return
     }
     const data = JSON.parse(content)
@@ -377,7 +545,20 @@ async function loadDashboard(org) {
         return (a.id || '').localeCompare(b.id || '')
       })
 
-    if (assignments.value.length === 0) dashState.value = 'empty'
+    const now = new Date()
+    const hasActive = assignments.value.some((a) => {
+      if (a.state !== 'published') return false
+      if (a.opens_at && now < new Date(a.opens_at)) return false
+      if (a.deadline_at && now > new Date(a.deadline_at)) return false
+      return true
+    })
+
+    if (assignments.value.length === 0) {
+      dashState.value = 'empty'
+      orgStatusMap.value.set(org.toLowerCase(), 'empty')
+    } else {
+      orgStatusMap.value.set(org.toLowerCase(), hasActive ? 'active' : 'inactive')
+    }
   } catch (e) {
     console.error('Failed to load dashboard:', e)
     if (e instanceof SyntaxError) {
@@ -449,13 +630,199 @@ function handleLogout() {
   display: flex;
 }
 
-h1 {
-  font-size: 1.25rem;
-  font-weight: 600;
+.header-titles {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
-.org-select {
-  min-width: 200px;
+.header-app-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.lecturer-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 9999px);
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent-blue, #58a6ff);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+}
+
+/* Organization Header Banner */
+.org-header-bar {
+  background: var(--bg-surface, #161b22);
+  border: 1px solid var(--border-default, #30363d);
+  border-radius: var(--radius-lg, 8px);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.org-heading {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.org-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: var(--radius-full, 9999px);
+  border: 1px solid var(--border-default, #30363d);
+}
+
+.pill-active {
+  background: rgba(46, 160, 67, 0.12);
+  border-color: rgba(46, 160, 67, 0.35);
+  color: var(--accent-green, #3fb950);
+}
+
+.pill-inactive {
+  background: rgba(176, 101, 0, 0.12);
+  border-color: rgba(176, 101, 0, 0.35);
+  color: #d29922;
+}
+
+.pill-empty {
+  background: rgba(110, 118, 129, 0.12);
+  border-color: rgba(110, 118, 129, 0.25);
+  color: var(--text-secondary, #8b949e);
+}
+
+.pill-unknown {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+/* Custom Dropdown Container & Trigger */
+.org-dropdown-container {
+  position: relative;
+  min-width: 220px;
+}
+
+.org-dropdown-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  background: var(--bg-surface, #161b22);
+  border: 1px solid var(--border-default, #30363d);
+  color: var(--text-primary, #c9d1d9);
+  padding: 5px 12px;
+  border-radius: var(--radius-md, 6px);
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  min-height: 32px;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.org-dropdown-btn:hover {
+  border-color: var(--border-hover, #8b949e);
+  background: var(--bg-surface-hover, #21262d);
+}
+
+.org-dropdown-btn:focus-visible {
+  outline: 2px solid var(--color-accent, #58a6ff);
+  outline-offset: 1px;
+}
+
+.org-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 240px;
+  background: var(--bg-surface, #161b22);
+  border: 1px solid var(--border-default, #30363d);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+  z-index: 100;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.org-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 7px 10px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: var(--font-size-sm, 13px);
+  color: var(--text-primary, #c9d1d9);
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+.org-dropdown-item:hover,
+.org-dropdown-item:focus-visible {
+  background: var(--bg-surface-hover, #21262d);
+  outline: none;
+}
+
+.org-dropdown-item.is-selected {
+  font-weight: 600;
+  color: var(--color-accent, #58a6ff);
+}
+
+.check-icon {
+  margin-left: auto;
+  color: var(--color-accent, #58a6ff);
+}
+
+.dropdown-chevron {
+  color: var(--text-secondary, #8b949e);
+  flex-shrink: 0;
+}
+
+/* Status Lamp Indicators */
+.status-lamp {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* Green Light: Active Open Assignment */
+.lamp-active {
+  background-color: #2ea043;
+  box-shadow: 0 0 6px rgba(46, 160, 67, 0.85);
+}
+
+/* Dim Orange Light: Assignments present, none open */
+.lamp-inactive {
+  background-color: #b06500;
+  opacity: 0.85;
+}
+
+/* Extinguished Light: 0 assignments in org */
+.lamp-empty {
+  background-color: transparent;
+  border: 1.5px solid #484f58;
+  opacity: 0.7;
+}
+
+/* Loading / Unknown */
+.lamp-unknown {
+  background-color: #30363d;
+  opacity: 0.5;
 }
 
 .avatar {
