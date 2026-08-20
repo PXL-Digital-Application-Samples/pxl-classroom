@@ -296,23 +296,25 @@ function overallSummary(sev) {
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1050;
-  padding: var(--space-md);
+  padding: max(24px, 5vh) var(--space-md);
+  overflow-y: auto;
   backdrop-filter: blur(4px);
 }
 .diagnostic-modal {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
   width: 100%;
-  max-width: 680px;
-  max-height: 88vh;
+  max-width: 720px;
+  max-height: calc(100vh - 10vh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  margin: 0 auto;
 }
 .modal-head {
   padding: var(--space-md) var(--space-lg);
