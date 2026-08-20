@@ -78,3 +78,54 @@ test("runAudit - missing org from participating-orgs.yml (regression §2.1)", as
   assert.equal(check.severity, "fail");
   assert.ok(check.message.includes("TestOrg is missing from participating-orgs.yml"));
 });
+
+test("runAudit - assignment broker audit: published and broker exists", async () => {
+  const baseReq = createMockRequest({});
+  const customReq = async (method, path) => {
+    if (path === `/repos/TestOrg/pxl-classroom-control/contents/assignments/hw1.yml`) {
+      return { status: 200, ok: true, data: { content: Buffer.from("state: published\nbroker_repo: broker-hw1").toString("base64") } };
+    }
+    if (path === `/repos/TestOrg/broker-hw1`) {
+      return { status: 200, ok: true, data: { name: "broker-hw1" } };
+    }
+    return baseReq(method, path);
+  };
+  const res = await runAudit({ request: customReq, org: "TestOrg", assignmentId: "hw1", hubOwner: "hub", hubRepo: "repo" });
+  const brokerCheck = res.checks.find(c => c.id === "assignment-broker");
+  assert.ok(brokerCheck);
+  assert.equal(brokerCheck.severity, "ok");
+  assert.ok(brokerCheck.message.includes("broker-hw1 exists"));
+});
+
+test("runAudit - assignment broker audit: published but broker missing", async () => {
+  const baseReq = createMockRequest({});
+  const customReq = async (method, path) => {
+    if (path === `/repos/TestOrg/pxl-classroom-control/contents/assignments/hw1.yml`) {
+      return { status: 200, ok: true, data: { content: Buffer.from("state: published\nbroker_repo: broker-hw1").toString("base64") } };
+    }
+    if (path === `/repos/TestOrg/broker-hw1`) {
+      return { status: 404, ok: false };
+    }
+    return baseReq(method, path);
+  };
+  const res = await runAudit({ request: customReq, org: "TestOrg", assignmentId: "hw1", hubOwner: "hub", hubRepo: "repo" });
+  const brokerCheck = res.checks.find(c => c.id === "assignment-broker");
+  assert.ok(brokerCheck);
+  assert.equal(brokerCheck.severity, "fail");
+  assert.ok(brokerCheck.message.includes("broker repo TestOrg/broker-hw1 does not exist"));
+});
+
+test("runAudit - assignment broker audit: draft assignment", async () => {
+  const baseReq = createMockRequest({});
+  const customReq = async (method, path) => {
+    if (path === `/repos/TestOrg/pxl-classroom-control/contents/assignments/hw1.yml`) {
+      return { status: 200, ok: true, data: { content: Buffer.from("state: draft").toString("base64") } };
+    }
+    return baseReq(method, path);
+  };
+  const res = await runAudit({ request: customReq, org: "TestOrg", assignmentId: "hw1", hubOwner: "hub", hubRepo: "repo" });
+  const brokerCheck = res.checks.find(c => c.id === "assignment-broker");
+  assert.ok(brokerCheck);
+  assert.equal(brokerCheck.severity, "info");
+  assert.ok(brokerCheck.message.includes("broker not required"));
+});

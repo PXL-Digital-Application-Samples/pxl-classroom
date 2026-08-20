@@ -246,21 +246,12 @@
       <!-- Embedded Resource Usage & Limits Section -->
       <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo'" :org="selectedOrg" />
 
-      <!-- Health Diagnostics Modal -->
-      <div v-if="showHealthModal" class="modal-overlay" @click.self="showHealthModal = false">
-        <div class="modal health-modal" role="dialog" aria-modal="true" :aria-label="`System Health for ${selectedOrg}`">
-          <header class="modal-head">
-            <div class="flex items-center gap-sm">
-              <Icon name="activity" :size="18" />
-              <h3 style="margin: 0;">System Health: <code>{{ selectedOrg }}</code></h3>
-            </div>
-            <button class="modal-close" type="button" @click="showHealthModal = false" aria-label="Close">×</button>
-          </header>
-          <div class="modal-body">
-            <SystemHealth :org="selectedOrg" />
-          </div>
-        </div>
-      </div>
+      <!-- Unified Health Diagnostics Modal -->
+      <SystemHealthModal
+        :is-open="showHealthModal"
+        :org="selectedOrg"
+        @close="showHealthModal = false"
+      />
     </main>
   </div>
 </template>
@@ -270,7 +261,7 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { parse as parseYaml } from 'yaml'
 import UserBadge from '../components/UserBadge.vue'
-import SystemHealth from '../components/SystemHealth.vue'
+import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'

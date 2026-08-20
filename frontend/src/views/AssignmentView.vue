@@ -27,20 +27,35 @@
 
       <!-- Assignment not found -->
       <div v-else-if="!assignment" class="center-card fade-in">
-        <Icon name="clipboard" :size="48" class="status-icon" />
-        <h2>Assignment not found</h2>
-        <p class="text-secondary">
-          There is no published assignment "{{ assignmentId }}" in <strong>{{ org }}</strong>.
-          The link may be mistyped, or the assignment isn't open yet.
-        </p>
-        <p class="text-secondary">
-          Ask your lecturer to verify the accept link. If it was published in the last few minutes,
-          wait a moment and refresh.
-        </p>
-        <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-md); justify-content: center;">
-          <button class="btn btn-primary" @click="retry">Check again</button>
-          <router-link to="/" class="btn btn-secondary">Home</router-link>
-        </div>
+        <template v-if="isPollingNotFound">
+          <div class="spinner-lg spinner"></div>
+          <h2>Looking for newly published assignment…</h2>
+          <p class="text-secondary">
+            Checking live deployment for "<strong>{{ assignmentId }}</strong>" in <strong>{{ org }}</strong> (attempt {{ notFoundPollCount }} of {{ maxNotFoundPolls }}).
+          </p>
+          <p class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-xs);">
+            If your lecturer just published this assignment, GitHub Pages takes 1 to 2 minutes to complete deployment. This page will update automatically.
+          </p>
+          <div style="margin-top: var(--space-md);">
+            <button class="btn btn-secondary btn-sm" @click="stopNotFoundPolling">Cancel check</button>
+          </div>
+        </template>
+        <template v-else>
+          <Icon name="clipboard" :size="48" class="status-icon" />
+          <h2>Assignment not found</h2>
+          <p class="text-secondary">
+            There is no published assignment "{{ assignmentId }}" in <strong>{{ org }}</strong>.
+            The link may be mistyped, or the assignment isn't open yet.
+          </p>
+          <p class="text-secondary">
+            Ask your lecturer to verify the accept link. If it was published in the last few minutes,
+            wait a moment and refresh.
+          </p>
+          <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-md); justify-content: center;">
+            <button class="btn btn-primary" @click="startNotFoundPolling">Check again</button>
+            <router-link to="/" class="btn btn-secondary">Home</router-link>
+          </div>
+        </template>
       </div>
 
       <!-- Assignment loaded -->
@@ -377,23 +392,44 @@ onMounted(async () => {
   }, 30000)
 })
 
+const notFoundPollCount = ref(0)
+const maxNotFoundPolls = 6
+const isPollingNotFound = ref(false)
+let notFoundPollTimer = null
+
+function stopNotFoundPolling() {
+  if (notFoundPollTimer) {
+    clearTimeout(notFoundPollTimer)
+    notFoundPollTimer = null
+  }
+  isPollingNotFound.value = false
+}
+
+function startNotFoundPolling() {
+  stopNotFoundPolling()
+  notFoundPollCount.value = 0
+  loadAssignment(false)
+}
+
 onUnmounted(() => {
+  stopNotFoundPolling()
   if (pollAbort) pollAbort.abort()
   if (pollTimer) clearTimeout(pollTimer)
   if (nowInterval) clearInterval(nowInterval)
 })
 
-
-
-// Load assignment from public metadata. A missing assignment (or missing org
-// data file) is NOT an error - it renders the dedicated "not found" state
-// with guidance. Only transport failures land in the retryable error state.
-async function loadAssignment() {
-  loading.value = true
+// Load assignment from public metadata with cache-busting and polite auto-polling.
+// A missing assignment (or missing org data file) is NOT an error - it renders
+// the dedicated "not found" state with guidance. Only transport failures land
+// in the retryable error state.
+async function loadAssignment(isRetry = false) {
+  if (!isRetry) {
+    loading.value = true
+  }
   error.value = null
   try {
-    const url = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json`
-    const res = await fetch(url)
+    const url = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json?t=${Date.now()}`
+    const res = await fetch(url, { cache: 'no-store' })
     if (res.ok) {
       // A non-JSON body (e.g. an HTML fallback for a missing data file)
       // means the org has no published data - that's "not found", not an error.
@@ -401,12 +437,31 @@ async function loadAssignment() {
       try { data = await res.json() } catch { /* treat as not found */ }
       if (data?.assignments && data.assignments[props.assignmentId]) {
         assignment.value = { id: props.assignmentId, ...data.assignments[props.assignmentId] }
+        stopNotFoundPolling()
+        if (isAuthenticated()) {
+          user.value = getUser()
+          await checkExistingState()
+        }
       }
     }
   } catch (e) {
     error.value = `Couldn't load the assignment data (${e.message}). Check your connection and try again.`
+    stopNotFoundPolling()
   }
   loading.value = false
+
+  // Auto-poll when assignment is not yet present on Pages (e.g. freshly published)
+  if (!assignment.value && !error.value) {
+    if (notFoundPollCount.value < maxNotFoundPolls) {
+      isPollingNotFound.value = true
+      notFoundPollCount.value++
+      notFoundPollTimer = setTimeout(() => {
+        loadAssignment(true)
+      }, 5000)
+    } else {
+      isPollingNotFound.value = false
+    }
+  }
 }
 
 const SUBMIT_TAG_PATTERN = /^refs\/tags\/(submit\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)-[0-9a-f]{7,40})$/
@@ -680,7 +735,7 @@ function retry() {
   error.value = null
   acceptState.value = 'ready'
   acceptError.value = null
-  loadAssignment()
+  startNotFoundPolling()
 }
 </script>
 

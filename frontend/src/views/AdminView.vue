@@ -116,6 +116,16 @@
               <h3 v-else>Edit: <code>{{ form.id }}</code> <span class="badge" :class="`badge-${form.state}`">{{ form.state }}</span></h3>
             </div>
             <div class="editor-header-actions">
+              <button
+                v-if="!isNew"
+                class="btn btn-with-icon"
+                type="button"
+                @click="showDiagnosticModal = true"
+                title="Run deep pre-flight diagnostic tests and 1-click auto-fixes on this assignment"
+              >
+                <Icon name="activity" :size="14" />
+                <span>Troubleshoot</span>
+              </button>
               <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
               <button
                 v-if="isNew || form.state === 'draft'"
@@ -134,26 +144,93 @@
           </div>
 
           <!-- PUBLISHED ASSIGNMENT INFO BANNER -->
-          <div v-if="!isNew && form.state === 'published'" class="published-info-card fade-in">
-            <div class="published-header">
-              <Icon name="check-circle" :size="16" class="text-green" />
-              <h4>Assignment is Published &amp; Live</h4>
+          <div v-if="!isNew && form.state === 'published'" class="fade-in">
+            <!-- 1. LIVE & VERIFIED -->
+            <div v-if="publishWatch === 'ready' || (brokerExists === true && pagesLive === true)" class="published-info-card is-success">
+              <div class="published-header">
+                <Icon name="check-circle" :size="16" class="text-green" />
+                <h4>Assignment is Published &amp; Live</h4>
+                <span class="badge badge-success" style="margin-left: auto; font-size: 0.75rem;">Verified Live</span>
+              </div>
+              <p class="published-desc">
+                Verified on GitHub and Pages. Share the student accept link below. Students who open it will be prompted to accept the assignment and automatically provisioned a repository.
+              </p>
+              <div class="link-share-row">
+                <div class="link-box">
+                  <span class="link-text">{{ shareableLink }}</span>
+                  <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
+                    <Icon name="copy" :size="12" />
+                    <span>Copy Link</span>
+                  </button>
+                </div>
+                <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }" class="btn btn-primary btn-track">
+                  <span>Track Roster &amp; Progress</span>
+                  <Icon name="arrow-right" :size="14" />
+                </router-link>
+              </div>
             </div>
-            <p class="published-desc">
-              Share the student accept link below. Students who open it will be prompted to accept the assignment and automatically provisioned a repository.
-            </p>
-            <div class="link-share-row">
-              <div class="link-box">
-                <span class="link-text">{{ shareableLink }}</span>
-                <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
-                  <Icon name="copy" :size="12" />
-                  <span>Copy Link</span>
+
+            <!-- 2. PUBLISHING / DEPLOYING IN PROGRESS -->
+            <div v-else-if="publishWatch === 'watching' || (brokerExists === true && pagesLive === false)" class="published-info-card is-warning">
+              <div class="published-header">
+                <div class="spinner sm"></div>
+                <h4 style="color: var(--accent-yellow, #d29922);">Publishing &amp; Deploying in Progress</h4>
+                <span class="badge badge-warning" style="margin-left: auto; font-size: 0.75rem;">Propagating (~1-2 min)</span>
+              </div>
+              <p class="published-desc">
+                GitHub Actions is setting up the broker repository and deploying the accept portal to GitHub Pages. This usually takes 1 to 2 minutes.
+              </p>
+              <div class="deploy-steps-row" style="display: flex; gap: var(--space-md); margin: var(--space-xs) 0; font-size: 0.85rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: brokerExists ? 'var(--accent-green, #3fb950)' : 'var(--text-secondary)' }">
+                  <Icon :name="brokerExists ? 'check-circle' : 'clock'" :size="14" />
+                  <span>1. Broker Repo {{ brokerExists ? 'Created' : 'Creating…' }}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: pagesLive ? 'var(--accent-green, #3fb950)' : 'var(--accent-yellow, #d29922)' }">
+                  <Icon :name="pagesLive ? 'check-circle' : 'refresh-cw'" :size="14" :class="{ 'spin-animation': !pagesLive }" />
+                  <span>2. Pages Portal {{ pagesLive ? 'Live' : 'Deploying…' }}</span>
+                </div>
+              </div>
+              <div class="link-share-row">
+                <div class="link-box" style="opacity: 0.85;">
+                  <span class="link-text">{{ shareableLink }}</span>
+                  <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
+                    <Icon name="copy" :size="12" />
+                    <span>Copy Link</span>
+                  </button>
+                </div>
+                <button class="btn btn-sm btn-warning btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
+                  <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
+                  <span>Check status</span>
                 </button>
               </div>
-              <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }" class="btn btn-primary btn-track">
-                <span>Track Roster &amp; Progress</span>
-                <Icon name="arrow-right" :size="14" />
-              </router-link>
+            </div>
+
+            <!-- 3. BROKER MISSING / INCOMPLETE PUBLISH -->
+            <div v-else-if="brokerExists === false" class="published-info-card is-error">
+              <div class="published-header">
+                <Icon name="alert-triangle" :size="16" class="text-danger" />
+                <h4 style="color: var(--accent-red, #f85149);">Publish Incomplete: Acceptance Broker Missing</h4>
+                <span class="badge badge-danger" style="margin-left: auto; font-size: 0.75rem;">Action Required</span>
+              </div>
+              <p class="published-desc text-danger">
+                This assignment is set to published, but its broker repository (<code>broker-{{ form.id }}</code>) does not exist on GitHub. Students will receive an error if they try to accept.
+              </p>
+              <div style="display: flex; gap: var(--space-sm); align-items: center; margin-top: var(--space-xs); flex-wrap: wrap;">
+                <button class="btn btn-warning btn-with-icon" type="button" @click="handlePublishClick" :disabled="publishing">
+                  <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': publishing }" />
+                  <span>{{ publishing ? 'Publishing…' : 'Complete Publish / Create Broker' }}</span>
+                </button>
+                <span class="text-secondary" style="font-size: 0.85rem;">Run the publish pipeline now to create the broker and deploy to Pages.</span>
+              </div>
+            </div>
+
+            <!-- 4. CHECKING / LOADING STATE -->
+            <div v-else class="published-info-card">
+              <div class="published-header">
+                <div class="spinner sm"></div>
+                <h4>Checking Live Status…</h4>
+              </div>
+              <p class="published-desc">Checking broker repository and Pages deployment status.</p>
             </div>
           </div>
 
@@ -632,6 +709,17 @@
         </footer>
       </div>
     </div>
+
+    <!-- UNIFIED SYSTEM HEALTH & DIAGNOSTIC MODAL -->
+    <SystemHealthModal
+      :is-open="showDiagnosticModal"
+      :org="org"
+      :assignment-id="form.id"
+      :form-doc="form"
+      @close="showDiagnosticModal = false"
+      @fixed="onDiagnosticFixed"
+      @navigate-tab="onDiagnosticNavigate"
+    />
   </div>
 </template>
 
@@ -647,6 +735,7 @@ import { toast } from '../lib/toast.js'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
+import SystemHealthModal from '../components/SystemHealthModal.vue'
 import Icon from '../components/Icon.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -731,6 +820,7 @@ const manualSlug = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
 const showRepublishModal = ref(false)
+const showDiagnosticModal = ref(false)
 const extending = ref(false)
 const retrying = ref(false)
 const deleting = ref(false)
@@ -739,6 +829,25 @@ const deleting = ref(false)
 const publishWatch = ref('')
 const publishPollCount = ref(0)
 let publishPollTimer = null
+
+// Live infrastructure check state for published assignments
+const liveCheckLoading = ref(false)
+const brokerExists = ref(null) // null = unchecked, true = exists, false = missing
+const pagesLive = ref(null)    // null = unchecked, true = live, false = not live
+
+function onDiagnosticFixed({ type }) {
+  if (type === 'publish_broker' || type === 'deploy_pages') {
+    startPublishWatch()
+  } else if (type === 'mark_template' || type === 'make_broker_public') {
+    verifyLiveInfrastructure(form.value.id)
+  }
+}
+
+function onDiagnosticNavigate(tabName) {
+  if (tabName === 'roster') {
+    setTab('roster')
+  }
+}
 
 const form = ref(emptyForm())
 
@@ -1246,6 +1355,9 @@ function newAssignment() {
     templateSearchText.value = templates.value[0].full_name
   }
   publishWatch.value = ''
+  brokerExists.value = null
+  pagesLive.value = null
+  liveCheckLoading.value = false
   
   const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
   const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
@@ -1321,6 +1433,13 @@ function editAssignment(a) {
     ]
   }
   publishWatch.value = ''
+  if (a.state === 'published') {
+    verifyLiveInfrastructure(a.id)
+  } else {
+    brokerExists.value = null
+    pagesLive.value = null
+    liveCheckLoading.value = false
+  }
   snapshotForm()
 }
 
@@ -1497,6 +1616,9 @@ async function saveAssignment(stateOverride = null) {
       // Stay on the edited assignment
       const stillExists = assignments.value.find((a) => a.id === form.value.id)
       if (stillExists) editing.value = { id: stillExists.id }
+      if (form.value.state === 'published') {
+        verifyLiveInfrastructure(form.value.id)
+      }
     } else {
       toast.error(`Save failed: ${res.data?.message || 'unknown error'}`)
     }
@@ -1505,10 +1627,43 @@ async function saveAssignment(stateOverride = null) {
   }
 }
 
+async function verifyLiveInfrastructure(assignmentId) {
+  if (!assignmentId || form.value.state !== 'published') {
+    brokerExists.value = null
+    pagesLive.value = null
+    liveCheckLoading.value = false
+    return
+  }
+  liveCheckLoading.value = true
+  const token = getToken()
+  const brokerRepo = form.value.broker_repo || `broker-${assignmentId}`
+  try {
+    if (token) {
+      const brokerRes = await getRepo(token, props.org, brokerRepo)
+      brokerExists.value = brokerRes.ok
+    }
+    const pagesUrl = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json?t=${Date.now()}`
+    const res = await fetch(pagesUrl, { cache: 'no-store' })
+    if (res.ok) {
+      const data = await res.json().catch(() => null)
+      pagesLive.value = !!(data?.assignments?.[assignmentId])
+    } else {
+      pagesLive.value = false
+    }
+  } catch (e) {
+    console.warn('Failed to verify live infrastructure:', e)
+  } finally {
+    liveCheckLoading.value = false
+  }
+}
+
 async function saveAndPublish() {
   // Save current edits first (with state=published) then trigger publish workflow.
   if (form.value.state === 'published') {
     await saveAssignment()
+    if (brokerExists.value === false) {
+      await publishExisting()
+    }
     return
   }
   await saveAssignment('published')
@@ -1530,6 +1685,8 @@ async function revertToDraftAfterFailedPublish() {
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Revert ${form.value.id} to draft (publish dispatch failed)`)
     if (res.ok) {
       form.value.state = 'draft'
+      brokerExists.value = null
+      pagesLive.value = null
       snapshotForm()
       await loadAssignments()
       toast.error(`Publish dispatch failed. ${form.value.id} was reverted to draft. Fix hub access and publish again.`)
@@ -1542,7 +1699,7 @@ async function revertToDraftAfterFailedPublish() {
 }
 
 function handlePublishClick() {
-  if (form.value.state === 'published') {
+  if (form.value.state === 'published' && brokerExists.value === true) {
     showRepublishModal.value = true
   } else {
     publishExisting()
@@ -1583,16 +1740,26 @@ function startPublishWatch() {
   stopPublishWatch()
   publishWatch.value = 'watching'
   publishPollCount.value = 0
+  brokerExists.value = null
+  pagesLive.value = null
   const tick = async () => {
     publishPollCount.value++
     try {
+      const token = getToken()
+      const brokerRepo = form.value.broker_repo || `broker-${form.value.id}`
+      if (token && !brokerExists.value) {
+        const brokerRes = await getRepo(token, props.org, brokerRepo)
+        if (brokerRes.ok) brokerExists.value = true
+      }
       const pagesUrl = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json?t=${Date.now()}`
-      const res = await fetch(pagesUrl)
+      const res = await fetch(pagesUrl, { cache: 'no-store' })
       if (res.ok) {
-        const data = await res.json()
+        const data = await res.json().catch(() => null)
         if (data?.assignments?.[form.value.id]) {
+          brokerExists.value = true
+          pagesLive.value = true
           publishWatch.value = 'ready'
-          toast.success('Published. The accept link is live.')
+          toast.success('Published! The accept link is live and verified.')
           return
         }
       }
@@ -2352,6 +2519,14 @@ details .field { padding: 0 var(--space-sm); }
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+}
+.published-info-card.is-warning {
+  background: rgba(210, 153, 34, 0.08);
+  border-color: rgba(210, 153, 34, 0.35);
+}
+.published-info-card.is-error {
+  background: rgba(248, 81, 73, 0.08);
+  border-color: rgba(248, 81, 73, 0.35);
 }
 .published-header {
   display: flex;
