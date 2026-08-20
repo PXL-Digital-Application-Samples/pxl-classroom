@@ -149,11 +149,11 @@
             <div v-if="publishWatch === 'ready' || (brokerExists === true && pagesLive === true)" class="published-info-card is-success">
               <div class="published-header">
                 <Icon name="check-circle" :size="16" class="text-green" />
-                <h4>Assignment is Published &amp; Live</h4>
-                <span class="badge badge-success" style="margin-left: auto; font-size: 0.75rem;">Verified Live</span>
+                <h4>Assignment is Published &amp; Verified Live</h4>
+                <span class="badge badge-success" style="margin-left: auto; font-size: 0.75rem;">Ready to Share</span>
               </div>
               <p class="published-desc">
-                Verified on GitHub and Pages. Share the student accept link below. Students who open it will be prompted to accept the assignment and automatically provisioned a repository.
+                Verified on GitHub and Pages. You can safely share the student invitation link below on Canvas, Toledo, or email. Students who open it will be prompted to accept the assignment and will automatically receive their provisioned repository.
               </p>
               <div class="link-share-row">
                 <div class="link-box">
@@ -178,20 +178,24 @@
                 <span class="badge badge-warning" style="margin-left: auto; font-size: 0.75rem;">Propagating (~1-2 min)</span>
               </div>
               <p class="published-desc">
-                GitHub Actions is setting up the broker repository and deploying the accept portal to GitHub Pages. This usually takes 1 to 2 minutes.
+                GitHub Actions is setting up the student acceptance broker and publishing the web portal. You can safely stay on this page or navigate away — setup will finish automatically in the background.
               </p>
               <div class="deploy-steps-row" style="display: flex; gap: var(--space-md); margin: var(--space-xs) 0; font-size: 0.85rem; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: brokerExists ? 'var(--accent-green, #3fb950)' : 'var(--text-secondary)' }">
-                  <Icon :name="brokerExists ? 'check-circle' : 'clock'" :size="14" />
-                  <span>1. Broker Repo {{ brokerExists ? 'Created' : 'Creating…' }}</span>
+                <div style="display: flex; align-items: center; gap: 4px; color: var(--accent-green, #3fb950);">
+                  <Icon name="check-circle" :size="14" />
+                  <span>1. Setup Workflow Launched</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: brokerExists ? 'var(--accent-green, #3fb950)' : 'var(--accent-yellow, #d29922)' }">
+                  <Icon :name="brokerExists ? 'check-circle' : 'refresh-cw'" :size="14" :class="{ 'spin-animation': !brokerExists }" />
+                  <span>2. Acceptance Broker (<code>broker-{{ form.id }}</code>) {{ brokerExists ? 'Created' : 'Creating…' }}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: pagesLive ? 'var(--accent-green, #3fb950)' : 'var(--accent-yellow, #d29922)' }">
                   <Icon :name="pagesLive ? 'check-circle' : 'refresh-cw'" :size="14" :class="{ 'spin-animation': !pagesLive }" />
-                  <span>2. Pages Portal {{ pagesLive ? 'Live' : 'Deploying…' }}</span>
+                  <span>3. Student Web Portal {{ pagesLive ? 'Live' : 'Deploying (~1 min)…' }}</span>
                 </div>
               </div>
               <div class="link-share-row">
-                <div class="link-box" style="opacity: 0.85;">
+                <div class="link-box">
                   <span class="link-text">{{ shareableLink }}</span>
                   <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
                     <Icon name="copy" :size="12" />
@@ -205,32 +209,66 @@
               </div>
             </div>
 
-            <!-- 3. BROKER MISSING / INCOMPLETE PUBLISH -->
+            <!-- 3. TIMEOUT / TAKING LONGER THAN USUAL -->
+            <div v-else-if="publishWatch === 'timeout'" class="published-info-card is-warning">
+              <div class="published-header">
+                <Icon name="clock" :size="16" class="text-yellow" />
+                <h4 style="color: var(--accent-yellow, #d29922);">Publishing Taking Longer than Usual</h4>
+                <span class="badge badge-warning" style="margin-left: auto; font-size: 0.75rem;">Queue Delay</span>
+              </div>
+              <p class="published-desc">
+                GitHub Actions is taking longer than usual to complete deployment. The student link will activate automatically as soon as the background workflow finishes.
+              </p>
+              <div class="link-share-row">
+                <div class="link-box">
+                  <span class="link-text">{{ shareableLink }}</span>
+                  <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
+                    <Icon name="copy" :size="12" />
+                    <span>Copy Link</span>
+                  </button>
+                </div>
+                <div style="display: flex; gap: var(--space-xs);">
+                  <button class="btn btn-sm btn-warning btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
+                    <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
+                    <span>Check Status Now</span>
+                  </button>
+                  <button class="btn btn-sm btn-with-icon" type="button" @click="showDiagnosticModal = true">
+                    <Icon name="activity" :size="12" />
+                    <span>Troubleshoot</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. BROKER MISSING / INCOMPLETE PUBLISH -->
             <div v-else-if="brokerExists === false" class="published-info-card is-error">
               <div class="published-header">
                 <Icon name="alert-triangle" :size="16" class="text-danger" />
-                <h4 style="color: var(--accent-red, #f85149);">Publish Incomplete: Acceptance Broker Missing</h4>
+                <h4 style="color: var(--accent-red, #f85149);">Publish Incomplete: Student Acceptance Broker Missing</h4>
                 <span class="badge badge-danger" style="margin-left: auto; font-size: 0.75rem;">Action Required</span>
               </div>
               <p class="published-desc text-danger">
-                This assignment is set to published, but its broker repository (<code>broker-{{ form.id }}</code>) does not exist on GitHub. Students will receive an error if they try to accept.
+                This assignment is set to published, but its student acceptance broker (<code>broker-{{ form.id }}</code>) does not exist on GitHub. Students cannot accept until the broker is created.
               </p>
               <div style="display: flex; gap: var(--space-sm); align-items: center; margin-top: var(--space-xs); flex-wrap: wrap;">
                 <button class="btn btn-warning btn-with-icon" type="button" @click="handlePublishClick" :disabled="publishing">
                   <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': publishing }" />
-                  <span>{{ publishing ? 'Publishing…' : 'Complete Publish / Create Broker' }}</span>
+                  <span>{{ publishing ? 'Setting up…' : 'Complete Setup / Create Broker Now' }}</span>
                 </button>
-                <span class="text-secondary" style="font-size: 0.85rem;">Run the publish pipeline now to create the broker and deploy to Pages.</span>
+                <button class="btn btn-with-icon" type="button" @click="showDiagnosticModal = true">
+                  <Icon name="activity" :size="14" />
+                  <span>Troubleshoot</span>
+                </button>
               </div>
             </div>
 
-            <!-- 4. CHECKING / LOADING STATE -->
+            <!-- 5. CHECKING / LOADING STATE -->
             <div v-else class="published-info-card">
               <div class="published-header">
                 <div class="spinner sm"></div>
                 <h4>Checking Live Status…</h4>
               </div>
-              <p class="published-desc">Checking broker repository and Pages deployment status.</p>
+              <p class="published-desc">Checking student acceptance broker repository and Pages deployment status.</p>
             </div>
           </div>
 
@@ -1784,8 +1822,18 @@ function stopPublishWatch() {
 
 function copyAcceptLink() {
   navigator.clipboard.writeText(shareableLink.value).then(
-    () => toast.success(`Invitation link copied: ${shareableLink.value}`),
-    () => toast.error('Could not copy link'),
+    () => {
+      if (form.value.state !== 'published') {
+        toast.info(`Invitation link copied! Note: Assignment is in ${form.value.state} state; students cannot accept until published.`)
+      } else if (brokerExists.value === false) {
+        toast.warning(`Invitation link copied! Warning: Student acceptance broker is not yet created. Click "Complete Setup" before sharing.`)
+      } else if (publishWatch.value === 'watching' || pagesLive.value === false) {
+        toast.warning(`Invitation link copied! Note: GitHub Pages is still finishing deployment (~1 min); it will be active momentarily.`)
+      } else {
+        toast.success(`Invitation link copied! Ready to share with students: ${shareableLink.value}`)
+      }
+    },
+    () => toast.error('Could not copy link to clipboard'),
   )
 }
 

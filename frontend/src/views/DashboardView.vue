@@ -177,14 +177,52 @@
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
         </template>
         <template v-else>
-          <h2>No assignments yet</h2>
-          <p class="text-secondary">
-            Create your first assignment in the Admin Panel.
-            <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
-            </span>
-          </p>
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+          <div class="onboarding-readiness-card">
+            <div class="onboarding-head">
+              <Icon name="award" :size="24" class="text-blue" />
+              <div>
+                <h2>Welcome to {{ selectedOrg }}</h2>
+                <p class="text-secondary">Your course organization is connected to PXL Classroom. Follow these simple steps to launch your first assignment:</p>
+              </div>
+            </div>
+
+            <div class="onboarding-steps">
+              <div class="onboarding-step is-complete">
+                <div class="step-icon"><Icon name="check-circle" :size="16" class="text-green" /></div>
+                <div class="step-body">
+                  <strong>1. Course Organization Connected</strong>
+                  <p>PXL Classroom Provisioner App is installed and active on <code>{{ selectedOrg }}</code>.</p>
+                </div>
+              </div>
+
+              <div class="onboarding-step">
+                <div class="step-icon"><Icon name="git-branch" :size="16" class="text-yellow" /></div>
+                <div class="step-body">
+                  <strong>2. Prepare Starter Code Template</strong>
+                  <p>Have an exercise repository for students? Create a repo in <code>{{ selectedOrg }}</code> on GitHub and check <em>"Template repository"</em> under its Settings.</p>
+                </div>
+              </div>
+
+              <div class="onboarding-step">
+                <div class="step-icon"><Icon name="plus-circle" :size="16" class="text-blue" /></div>
+                <div class="step-body">
+                  <strong>3. Create &amp; Publish Assignment</strong>
+                  <p>Open the Admin Panel, select your template, and generate the student invitation link.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="onboarding-actions">
+              <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
+                <Icon name="plus" :size="14" />
+                <span>Create Your First Assignment</span>
+              </router-link>
+              <button class="btn btn-with-icon" type="button" @click="showDiagnosticModal = true">
+                <Icon name="activity" :size="14" />
+                <span>Check System Health</span>
+              </button>
+            </div>
+          </div>
         </template>
       </div>
 
@@ -979,9 +1017,71 @@ main {
   overflow-y: auto;
 }
 
+/* ONBOARDING READINESS CARD */
+.onboarding-readiness-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  max-width: 720px;
+  margin: var(--space-lg) auto;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+.onboarding-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+.onboarding-head h2 {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 1.25rem;
+}
+.onboarding-head p {
+  margin: 0;
+  line-height: 1.4;
+}
+.onboarding-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+  padding: var(--space-lg) 0;
+}
+.onboarding-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.onboarding-step .step-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.onboarding-step .step-body strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 2px;
+}
+.onboarding-step .step-body p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
 @media (max-width: 640px) {
   .header-right { flex-direction: column; gap: var(--space-sm); align-items: stretch; }
   .org-select { min-width: 160px; width: 100%; }
   .health-btn { justify-content: center; }
+  .onboarding-actions { flex-direction: column; align-items: stretch; }
 }
 </style>

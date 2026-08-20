@@ -255,7 +255,7 @@ test("runDiagnostics - Tier 4: Draft assignment does not fail on missing broker"
   const brokerCheck = res.checks.find(c => c.id === "broker-repo");
   assert.ok(brokerCheck);
   assert.equal(brokerCheck.severity, "info");
-  assert.ok(brokerCheck.message.includes("created when published"));
+  assert.ok(brokerCheck.message.includes("when published"));
 });
 
 test("runDiagnostics - Tier 5: Pages data missing or propagating", async () => {

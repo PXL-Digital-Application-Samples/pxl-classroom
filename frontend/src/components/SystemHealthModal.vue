@@ -38,7 +38,10 @@
           <div v-for="tier in report.tiers" :key="tier.id" class="tier-card" :class="`tier-${tier.severity}`">
             <div class="tier-header" @click="toggleTier(tier.id)">
               <Icon :name="severityIcon(tier.severity)" :size="16" class="tier-glyph" />
-              <span class="tier-title">{{ tier.label }}</span>
+              <div class="tier-title-group">
+                <span class="tier-title">{{ tier.label }}</span>
+                <span v-if="tier.subtitle" class="tier-subtitle">{{ tier.subtitle }}</span>
+              </div>
               <span class="badge" :class="badgeClass(tier.severity)">{{ tier.severity.toUpperCase() }}</span>
               <Icon :name="expandedTiers[tier.id] ? 'chevron-up' : 'chevron-down'" :size="14" class="tier-toggle" />
             </div>
@@ -426,13 +429,20 @@ function overallSummary(sev) {
   flex-shrink: 0;
 }
 .tier-ok .tier-glyph { color: var(--accent-green, #3fb950); }
-.tier-warn .tier-glyph { color: var(--accent-yellow, #d29922); }
-.tier-fail .tier-glyph { color: var(--accent-red, #f85149); }
-
+.tier-title-group {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+}
 .tier-title {
   font-size: 0.88rem;
   font-weight: 600;
-  flex: 1;
+}
+.tier-subtitle {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  font-weight: normal;
 }
 .tier-toggle {
   color: var(--text-muted);
