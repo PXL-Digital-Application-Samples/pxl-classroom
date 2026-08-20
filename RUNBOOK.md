@@ -757,3 +757,46 @@ pxl-classroom sync-starter --assignment linux-processes-2026 \
 
 - **Smart Auto-Merge Mechanics:** Clean repositories have the template commit merged directly into `main` (zero friction for students; changes arrive on their next `git pull`). Conflicted repositories receive an isolated branch `refs/heads/starter-update-<timestamp>` with an open Pull Request into `main`, ensuring student work is never overwritten.
 - **Audit Records:** Complete execution summaries are stored in the control repo at `syncs/<assignment-id>/<sync-id>.json`.
+
+### 12.11 Pre-Flight Diagnostics, System Health & 1-Click Auto-Fixes
+
+PXL Classroom features an automated diagnostic and self-healing engine (`lib/diagnostics.mjs`) accessible directly from both the Web UI and the CLI.
+
+#### Option A: Web UI (Unified System Health Center)
+
+1. **Organization-Wide Health Check (Dashboard):**
+   - Click the **Activity Pulse icon** (`activity`) to the right of the Organization Selector on `DashboardView`.
+   - The modal automatically verifies GitHub session validity, API rate-limit quota, App installation, permissions drift, `participating-orgs.yml` enrollment, and control repository scaffold integrity.
+2. **Assignment Pre-Flight Troubleshooter (Admin Panel):**
+   - When creating or editing an assignment on `AdminView`, click the **Troubleshoot** button in the header (or click any warning banner).
+   - The troubleshooter executes a 5-tier inspection in dependency order:
+     - **Tier 0:** Auth & Quota.
+     - **Tier 1:** Org & GitHub App Foundation.
+     - **Tier 2:** Control Repository Foundation (scaffold & privacy).
+     - **Tier 3:** Assignment Definition & Starter Template (`is_template: true` on GitHub).
+     - **Tier 4:** Acceptance Broker Infrastructure (`broker-<id>` repository & `.github/workflows/acceptance-trigger.yml`).
+     - **Tier 5:** Student Portal & Pages Edge (`public/assignments.json` & CDN reachability).
+3. **1-Click Self-Healing Repairs:**
+   - **Template not marked as template:** Click **[Mark as Template on GitHub]** to execute an immediate API patch.
+   - **Broker repository missing:** Click **[Create Broker Repository Now]** to dispatch `publish-assignment.yml`.
+   - **Broker repository private:** Click **[Make Broker Public]** to patch repository visibility.
+   - **Pages deployment propagating:** Click **[Deploy to GitHub Pages]** to trigger `deploy-frontend.yml`.
+   - **Enforced roster missing:** Click **[Open Roster Editor]** to navigate directly to the roster editor tab.
+
+#### Option B: CLI Audit Companion
+
+```bash
+# Run read-only organization health audit
+pxl-classroom audit --org PXL-CSMobile
+
+# Run deep per-assignment diagnostic audit
+pxl-classroom audit --org PXL-CSMobile --assignment voorbeeld-project
+
+# Output machine-readable JSON for CI health monitoring
+pxl-classroom audit --org PXL-CSMobile --assignment voorbeeld-project --json
+```
+
+Exit codes:
+- `0` = Clean (all checks OK/Info).
+- `1` = Warnings (non-blocking issues or in-flight deployments).
+- `2` = Failures (action required before student acceptance).

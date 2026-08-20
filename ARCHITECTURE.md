@@ -612,9 +612,17 @@ A single instructor-only tracking issue per participating org, opened in the con
 
 Dedup-keys are stable per `(org, assignment, login, condition)` so repeated nights don't re-spam.
 
-Every state-changing workflow run records: run URL, initiating actor, op type, assignment ID, affected student, start/complete time, outcome, GitHub IDs, error category. Source changes happen through Git commits. Generated records identify the source revision.
+**Unified Diagnostic & Health Engine (`lib/diagnostics.mjs` & `lib/audit.mjs`).** A comprehensive 5-tier diagnostic engine used by the CLI (`pxl-classroom audit`) and the Web UI's unified `SystemHealthModal.vue` on both `DashboardView` (organization-wide health) and `AdminView` (deep assignment pre-flight troubleshoot & auto-fix). Same module, different HTTP carriers (Octokit vs. `ghApi`).
 
-**Audit engine (`lib/audit.mjs`).** A read-only health check used by both the CLI (`pxl-classroom audit`) and the SPA's System Health panel on `DashboardView`. Same module, different HTTP carriers (Octokit vs. `ghApi`). The engine compares the App installation's actual permissions against the canonical sets re-exported from the engine (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`, also consumed by `SetupView.vue`), verifies the control-repo scaffold, checks the org appears in `participating-orgs.yml`, and - given an `--assignment` - samples lockdown demotions and archive branches against the report. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
+The engine evaluates dependencies in strict hierarchical order:
+1. **Tier 0 (Auth & Quota):** Session validity and API rate-limit headroom.
+2. **Tier 1 (Org & App):** App installation, permission drift against canonical sets (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`), and `participating-orgs.yml` enrollment.
+3. **Tier 2 (Control Repo):** Control repository existence, privacy (`private: true`), and canonical scaffold directory integrity.
+4. **Tier 3 (Assignment & Template):** YAML schema validation, starter template accessibility, `is_template: true` verification on GitHub, and enforced roster file presence.
+5. **Tier 4 (Acceptance Broker):** Broker repository existence, public visibility (`private: false`), and `.github/workflows/acceptance-trigger.yml` integrity.
+6. **Tier 5 (Student Edge & Pages):** Control repo `public/assignments.json` compilation, GitHub Pages CDN propagation, and student invitation link readiness.
+
+The Web UI integrates 1-click self-healing automated repairs (`mark_template`, `publish_broker`, `make_broker_public`, `deploy_pages`, `regen_dashboard`, `setup_org`, `navigate_roster`) that execute immediate remediation and automatically re-run diagnostics. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
 
 ---
 
