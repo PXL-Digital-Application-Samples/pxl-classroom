@@ -1,4 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { existsSync } from 'node:fs';
+
+// Auto-load .env.test if present
+if (existsSync('.env.test')) {
+  try {
+    process.loadEnvFile('.env.test');
+  } catch {}
+}
 
 // Configuration from environment or defaults for test run
 const ORG = process.env.TEST_ORG || 'PXL-2TIN-CloudEssentials-2627';

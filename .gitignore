@@ -1,5 +1,6 @@
 .claude/
 node_modules/
+.env*
 test-screenshot*.png
 test-results/
 playwright-report/
