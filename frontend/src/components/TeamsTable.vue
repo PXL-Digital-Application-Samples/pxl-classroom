@@ -198,7 +198,7 @@
       <div class="modal card">
         <header class="modal-head flex justify-between items-center">
           <h3>Create Team - {{ assignment.id }}</h3>
-          <button class="modal-close" @click="showCreateModal = false">×</button>
+          <button class="modal-close" type="button" @click="showCreateModal = false" aria-label="Close">×</button>
         </header>
         <form @submit.prevent="submitCreateTeam" class="modal-body flex flex-col gap-md">
           <div class="form-group">
@@ -255,7 +255,7 @@
       <div class="modal card">
         <header class="modal-head flex justify-between items-center">
           <h3>Manage: {{ managingTeam.team_name }} (<code>{{ managingTeam.team_slug }}</code>)</h3>
-          <button class="modal-close" @click="managingTeam = null">×</button>
+          <button class="modal-close" type="button" @click="managingTeam = null" aria-label="Close">×</button>
         </header>
         <div class="modal-body flex flex-col gap-md">
           <!-- Current Members list -->
@@ -263,7 +263,10 @@
             <label class="section-label">Current Members ({{ manageMembers.length }}/{{ maxTeamSize }})</label>
             <div v-if="manageMembers.length" class="members-manage-list">
               <div v-for="m in manageMembers" :key="m" class="member-manage-row flex justify-between items-center">
-                <span>@{{ m }} <small class="text-muted">{{ resolveMemberTooltip(m) }}</small></span>
+                <div class="flex items-center gap-xs">
+                  <span class="mono font-semibold" style="color: var(--text-primary);">@{{ m }}</span>
+                  <span v-if="resolveMemberDisplayName(m)" class="text-secondary text-xs">({{ resolveMemberDisplayName(m) }})</span>
+                </div>
                 <div class="flex gap-xs">
                   <button class="btn btn-xs btn-danger" type="button" @click="removeMemberFromTeam(m)">
                     Remove
@@ -465,6 +468,14 @@ function resolveMemberTooltip(login) {
     return `${r.full_name || login} (${r.student_number || r.email || ''})`
   }
   return `@${login}`
+}
+
+function resolveMemberDisplayName(login) {
+  const r = (props.roster || []).find((s) => s.github_login?.toLowerCase() === login?.toLowerCase())
+  if (r && r.full_name && r.full_name.toLowerCase() !== login?.toLowerCase()) {
+    return r.student_number ? `${r.full_name} · ${r.student_number}` : r.full_name
+  }
+  return null
 }
 
 function statusBadgeClass(status) {

@@ -310,7 +310,7 @@
         </div>
 
         <!-- Segmented Tab for Group Assignments -->
-        <div v-if="isGroupAssignment" class="tab-pill-selector" style="display: flex; gap: var(--space-sm); margin-bottom: var(--space-md);">
+        <div v-if="isGroupAssignment" class="tab-pill-selector" style="margin-bottom: var(--space-md);">
           <button
             type="button"
             class="tab-pill"
