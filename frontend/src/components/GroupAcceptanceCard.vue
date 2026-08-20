@@ -326,24 +326,105 @@ onUnmounted(() => {
 
 async function loadTeams() {
   loadingTeams.value = true
+  const token = getToken()
+  const brokerRepo = props.assignment.broker_repo || `broker-${props.assignment.id}`
+  const maxTeamCap = maxTeamSize.value || 3
+  const teamsMap = new Map() // slug -> teamObject
+
+  // Helper to upsert team
+  function upsertTeam(slug, name, members = [], maxMembers = maxTeamCap) {
+    if (!slug) return
+    const cleanSlug = slug.toLowerCase().trim()
+    const existing = teamsMap.get(cleanSlug) || {
+      team_slug: cleanSlug,
+      team_name: name || cleanSlug,
+      members: [],
+      max_members: maxMembers || maxTeamCap,
+    }
+    if (name && name !== cleanSlug) existing.team_name = name
+    if (maxMembers) existing.max_members = maxMembers
+    for (const m of members) {
+      if (m && !existing.members.some(em => em.toLowerCase() === m.toLowerCase())) {
+        existing.members.push(m)
+      }
+    }
+    existing.member_count = existing.members.length
+    existing.is_full = existing.members.length >= existing.max_members
+    teamsMap.set(cleanSlug, existing)
+  }
+
+  // 1. Try fetching from Pages CDN static data
   try {
-    const url = `${import.meta.env.BASE_URL}data/${props.org}/teams/${props.assignment.id}.json`
+    const url = `${import.meta.env.BASE_URL}data/${props.org}/teams/${props.assignment.id}.json?_t=${Date.now()}`
     const res = await fetch(url)
     if (res.ok) {
       const data = await res.json()
-      teams.value = data.teams || []
-      
-      // Check if user is already in a team
-      const found = teams.value.find((t) =>
-        (t.members || []).some((m) => m.toLowerCase() === props.user.login.toLowerCase())
-      )
-      if (found) {
-        myCurrentTeam.value = found
+      for (const t of (data.teams || [])) {
+        upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members)
       }
     }
   } catch (e) {
-    console.error('Failed to load teams list:', e)
+    console.warn('Could not load static teams file:', e.message)
   }
+
+  // 2. Try fetching from control repo public data via GitHub API (if token present)
+  if (token) {
+    try {
+      const ctlRes = await ghApi(token, 'GET', `/repos/${props.org}/pxl-classroom-control/contents/public/teams/${props.assignment.id}.json`)
+      if (ctlRes.ok && ctlRes.data?.content) {
+        const raw = atob(ctlRes.data.content.replace(/\n/g, ''))
+        const parsed = JSON.parse(raw)
+        for (const t of (parsed.teams || [])) {
+          upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members)
+        }
+      }
+    } catch {
+      // ignore if student does not have read access to control repo
+    }
+  }
+
+  // 3. Reconcile with live issues on public broker repository (Real-time live fallback)
+  try {
+    const issuesRes = token
+      ? await ghApi(token, 'GET', `/repos/${props.org}/${brokerRepo}/issues?state=all&per_page=100`)
+      : await fetch(`https://api.github.com/repos/${props.org}/${brokerRepo}/issues?state=all&per_page=100`).then(r => r.json().then(data => ({ ok: r.ok, data })))
+    
+    if (issuesRes.ok && Array.isArray(issuesRes.data)) {
+      for (const issue of issuesRes.data) {
+        if (!issue.title || !issue.title.startsWith('team:')) continue
+        try {
+          const bodyData = typeof issue.body === 'string' ? JSON.parse(issue.body) : (issue.body || {})
+          const slug = bodyData.team_slug || issue.title.replace(/^team:/, '').trim()
+          const name = bodyData.team_name || slug
+          const member = bodyData.github_login || issue.user?.login
+          
+          if (slug) {
+            upsertTeam(slug, name, member ? [member] : [], maxTeamCap)
+          }
+        } catch {
+          const slug = issue.title.replace(/^team:/, '').trim()
+          const member = issue.user?.login
+          if (slug) {
+            upsertTeam(slug, slug, member ? [member] : [], maxTeamCap)
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Could not query broker issues for live teams:', e.message)
+  }
+
+  // Final teams array
+  teams.value = Array.from(teamsMap.values())
+
+  // Check if user is already in a team
+  const found = teams.value.find((t) =>
+    (t.members || []).some((m) => m.toLowerCase() === props.user.login.toLowerCase())
+  )
+  if (found) {
+    myCurrentTeam.value = found
+  }
+
   loadingTeams.value = false
 }
 

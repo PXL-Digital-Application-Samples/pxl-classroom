@@ -136,6 +136,34 @@ async function main() {
         console.log(`[ok] Saved assignments.json for ${org}`);
         activeOrgs.push({ login: org });
       }
+
+      // Fetch public/teams/*.json for group assignments
+      try {
+        const teamsListUrl = `https://api.github.com/repos/${org}/pxl-classroom-control/contents/public/teams`;
+        const teamsList = await request(teamsListUrl, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (Array.isArray(teamsList)) {
+          const orgTeamsDir = join(outDir, org, "teams");
+          await mkdir(orgTeamsDir, { recursive: true });
+          for (const item of teamsList) {
+            if (item.type === "file" && item.name.endsWith(".json")) {
+              const fileItem = await request(item.url, {
+                headers: { Authorization: `token ${token}` },
+              });
+              if (fileItem?.content) {
+                const teamBin = Buffer.from(fileItem.content.replace(/\n/g, ""), "base64").toString("utf8");
+                await writeFile(join(orgTeamsDir, item.name), teamBin);
+                console.log(`[ok] Saved teams/${item.name} for ${org}`);
+              }
+            }
+          }
+        }
+      } catch (tErr) {
+        if (tErr.status !== 404) {
+          console.warn(`[warning] Failed to fetch public/teams for ${org}:`, tErr.message);
+        }
+      }
     } catch (err) {
       if (err.status === 404) {
         console.log(`[info] No assignments.json found in control repo for ${org} (or repository does not exist).`);
