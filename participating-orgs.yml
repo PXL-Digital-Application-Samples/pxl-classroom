@@ -10,3 +10,5 @@ orgs:
     budget_owner_login: d-ries
   - login: PXL-2TIN-DevOps-2627
     budget_owner_login: d-ries
+  - login: PXL-CSMobile
+    budget_owner_login: arnobarzan
