@@ -715,7 +715,7 @@
       :is-open="showDiagnosticModal"
       :org="org"
       :assignment-id="form.id"
-      :form-doc="form"
+      :form-doc="buildDoc()"
       @close="showDiagnosticModal = false"
       @fixed="onDiagnosticFixed"
       @navigate-tab="onDiagnosticNavigate"

@@ -279,3 +279,49 @@ test("runDiagnostics - Tier 5: Pages data missing or propagating", async () => {
   assert.equal(pagesCheck.severity, "warn");
   assert.equal(pagesCheck.fixAction.type, "deploy_pages");
 });
+
+test("runDiagnostics - FormDoc with local date strings and template object (user scenario)", async () => {
+  const req = createMockRequest({});
+  const formDoc = {
+    schema_version: 1,
+    id: "voorbeeld-project",
+    title: "Voorbeeld Project",
+    organization: "PXL-CSMobile",
+    template: { owner: "TestOrg", repository: "template-hw1" },
+    repository_name_pattern: "voorbeeld-project-{github_login}",
+    opens_at_local: "2026-08-20T13:39",
+    deadline_at_local: "2026-12-03T14:39",
+    state: "published",
+  };
+
+  const fetchPages = async () => ({ assignments: { "voorbeeld-project": { id: "voorbeeld-project", state: "published" } } });
+
+  const res = await runDiagnostics({
+    request: req,
+    org: "TestOrg",
+    assignmentId: "voorbeeld-project",
+    formDoc,
+    fetchPages,
+  });
+
+  const fieldsCheck = res.checks.find(c => c.id === "assignment-fields");
+  assert.ok(fieldsCheck);
+  assert.equal(fieldsCheck.severity, "ok");
+  assert.ok(!fieldsCheck.message.includes("Missing required fields"));
+});
+
+test("runDiagnostics - Org-wide diagnostic mode without assignmentId", async () => {
+  const req = createMockRequest({});
+  const res = await runDiagnostics({
+    request: req,
+    org: "TestOrg",
+    assignmentId: null,
+    hubOwner: "hub",
+    hubRepo: "repo",
+  });
+
+  assert.equal(res.overall, "ok");
+  const scanCheck = res.checks.find(c => c.id === "assignments-scan");
+  assert.ok(scanCheck);
+  assert.equal(scanCheck.severity, "ok");
+});
