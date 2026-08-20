@@ -501,7 +501,12 @@
           <div v-if="!isNew" class="lifecycle">
             <h4>Lifecycle</h4>
             <div class="lifecycle-actions">
-              <button class="btn btn-with-icon" type="button" @click="publishExisting" :disabled="publishing">
+              <button
+                :class="['btn', 'btn-with-icon', form.state === 'published' ? 'btn-warning' : '']"
+                type="button"
+                @click="handlePublishClick"
+                :disabled="publishing"
+              >
                 <template v-if="publishing">Publishing…</template>
                 <template v-else-if="form.state === 'published'">
                   <Icon name="refresh-cw" :size="14" />
@@ -582,6 +587,51 @@
       </main>
     </div>
     </template>
+
+    <!-- Modal: Republish Broker Confirmation -->
+    <div v-if="showRepublishModal" class="modal-overlay" @click.self="showRepublishModal = false">
+      <div class="modal card republish-modal" role="dialog" aria-modal="true" aria-labelledby="republish-broker-title">
+        <header class="modal-head flex justify-between items-center">
+          <h3 id="republish-broker-title" class="flex items-center gap-sm">
+            <Icon name="refresh-cw" :size="18" />
+            <span>Republish Broker Repository</span>
+          </h3>
+          <button class="modal-close" type="button" @click="showRepublishModal = false" :disabled="publishing" aria-label="Close">×</button>
+        </header>
+
+        <div class="modal-body flex flex-col gap-md">
+          <div class="alert alert-info">
+            <strong>Target Broker:</strong>
+            <code>{{ props.org }}/broker-{{ form.id }}</code>
+          </div>
+
+          <div class="republish-explanation flex flex-col gap-sm">
+            <h4 class="font-semibold text-sm">What will happen:</h4>
+            <ul class="text-sm space-y-xs list-disc pl-md text-secondary">
+              <li>Re-runs the central <code>publish-assignment.yml</code> workflow on GitHub Actions.</li>
+              <li>Ensures the broker repository exists, variables &amp; secrets are configured, and triggers (including issues for group assignments) are enabled.</li>
+            </ul>
+
+            <h4 class="font-semibold text-sm mt-xs">Effect on existing student repositories:</h4>
+            <div class="alert alert-success text-sm">
+              <strong>100% Safe:</strong> Existing student and team repositories will <strong>not</strong> be modified, deleted, or reset. Students who have already accepted will keep all their code, branches, and commit history untouched.
+            </div>
+
+            <p class="text-xs text-muted">
+              Use this if students are having trouble accepting or if the broker repository was missing or misconfigured.
+            </p>
+          </div>
+        </div>
+
+        <footer class="modal-foot flex justify-end gap-sm">
+          <button class="btn" type="button" @click="showRepublishModal = false" :disabled="publishing">Cancel</button>
+          <button class="btn btn-warning btn-with-icon" type="button" @click="confirmRepublish" :disabled="publishing">
+            <Icon name="refresh-cw" :size="14" />
+            <span>{{ publishing ? 'Publishing…' : 'Republish broker now' }}</span>
+          </button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -680,6 +730,7 @@ const editing = ref(null) // current assignment being edited (null = none)
 const manualSlug = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
+const showRepublishModal = ref(false)
 const extending = ref(false)
 const retrying = ref(false)
 const deleting = ref(false)
@@ -1487,6 +1538,21 @@ async function revertToDraftAfterFailedPublish() {
     }
   } catch (e) {
     console.error('Failed to revert state after failed publish:', e)
+  }
+}
+
+function handlePublishClick() {
+  if (form.value.state === 'published') {
+    showRepublishModal.value = true
+  } else {
+    publishExisting()
+  }
+}
+
+async function confirmRepublish() {
+  const ok = await publishExisting()
+  if (ok) {
+    showRepublishModal.value = false
   }
 }
 
@@ -2340,5 +2406,81 @@ details .field { padding: 0 var(--space-sm); }
 }
 .btn-track {
   white-space: nowrap;
+}
+
+/* Modal styles for Republish confirmation */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-md);
+  backdrop-filter: blur(4px);
+}
+.republish-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.republish-modal .modal-head {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-tertiary);
+}
+.republish-modal .modal-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.modal-close:hover {
+  color: var(--text-primary);
+}
+.republish-modal .modal-body {
+  padding: var(--space-lg);
+  overflow-y: auto;
+}
+.republish-modal .modal-foot {
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-tertiary);
+}
+.republish-explanation ul {
+  margin: 0;
+}
+.alert-info {
+  background: rgba(56, 139, 253, 0.1);
+  border: 1px solid rgba(56, 139, 253, 0.4);
+  color: var(--accent-blue, #58a6ff);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md, 6px);
+}
+.alert-success {
+  background: rgba(46, 160, 67, 0.1);
+  border: 1px solid rgba(46, 160, 67, 0.4);
+  color: var(--accent-green, #3fb950);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md, 6px);
 }
 </style>

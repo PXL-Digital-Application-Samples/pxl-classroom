@@ -34,8 +34,6 @@ test("GroupAcceptanceCard.vue validates issue creation response before pending",
 test("AdminView.vue enables Republish broker button on published assignments without disabling", () => {
   const content = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
   assert.ok(content.includes("Republish broker"), "AdminView must offer a Republish broker option");
-  assert.ok(
-    content.includes('@click="publishExisting" :disabled="publishing"'),
-    "Republish button must only be disabled while publishing is in progress, not when form.state === 'published'"
-  );
+  assert.ok(content.includes('@click="handlePublishClick"'), "Republish button must call handlePublishClick");
+  assert.ok(content.includes(':disabled="publishing"'), "Republish button must only be disabled while publishing is in progress");
 });

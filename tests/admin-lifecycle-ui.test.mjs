@@ -1,7 +1,7 @@
 // PXL Classroom - admin-lifecycle-ui.test.mjs
 //
 // Comprehensive unit & integration tests covering AdminView.vue lifecycle
-// controls, initial conditions, button availability, and publish/republish actions.
+// controls, initial conditions, button availability, dialogs, and publish/republish actions.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -35,6 +35,7 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
 
   const publishButtonDisabled = publishing; // Never disabled by formState === 'published'
   const isRepublish = formState === 'published';
+  const buttonVariant = formState === 'published' ? 'btn-warning' : '';
 
   // Other lifecycle buttons
   const canClose = formState !== 'closed' && !saving;
@@ -48,6 +49,7 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
     publishButtonLabel,
     publishButtonDisabled,
     isRepublish,
+    buttonVariant,
     canClose,
     canArchive,
     showRevertToDraft,
@@ -76,7 +78,7 @@ test("Initial condition: New Assignment hides lifecycle section and offers Save 
 // -----------------------------------------------------------------------------
 // 2. Initial Condition: Existing Assignment in Draft (isNew = false, state = 'draft')
 // -----------------------------------------------------------------------------
-test("Initial condition: Existing Draft assignment renders Publish button (enabled)", () => {
+test("Initial condition: Existing Draft assignment renders Publish button (enabled, standard style)", () => {
   const state = computeAdminLifecycleState({
     isNew: false,
     formState: 'draft',
@@ -89,6 +91,7 @@ test("Initial condition: Existing Draft assignment renders Publish button (enabl
   assert.equal(state.publishButtonLabel, 'Publish (create broker, enable nightly)');
   assert.equal(state.publishButtonDisabled, false, "Publish button must be enabled for drafts");
   assert.equal(state.isRepublish, false);
+  assert.equal(state.buttonVariant, '', "Draft publish button uses standard style");
   assert.equal(state.showDeleteDraft, true);
   assert.equal(state.showCopyLink, false);
   assert.equal(state.showRevertToDraft, false);
@@ -97,7 +100,7 @@ test("Initial condition: Existing Draft assignment renders Publish button (enabl
 // -----------------------------------------------------------------------------
 // 3. Initial Condition: Existing Assignment in Published (isNew = false, state = 'published')
 // -----------------------------------------------------------------------------
-test("Initial condition: Published assignment renders Republish broker button (enabled)", () => {
+test("Initial condition: Published assignment renders orange Republish broker button (enabled)", () => {
   const state = computeAdminLifecycleState({
     isNew: false,
     formState: 'published',
@@ -110,6 +113,7 @@ test("Initial condition: Published assignment renders Republish broker button (e
   assert.equal(state.publishButtonLabel, 'Republish broker');
   assert.equal(state.publishButtonDisabled, false, "Republish broker button must be clickable");
   assert.equal(state.isRepublish, true);
+  assert.equal(state.buttonVariant, 'btn-warning', "Republish broker button must be orange (btn-warning)");
   assert.equal(state.showCopyLink, true);
   assert.equal(state.showRevertToDraft, true);
   assert.equal(state.showDeleteDraft, false);
@@ -132,9 +136,9 @@ test("Initial condition: In-flight publishing disables the button with loading l
 });
 
 // -----------------------------------------------------------------------------
-// 5. Template AST / Source Verification in AdminView.vue
+// 5. Template AST & Dialog Verification in AdminView.vue
 // -----------------------------------------------------------------------------
-test("AdminView.vue template strictly adheres to lifecycle condition invariants", () => {
+test("AdminView.vue template strictly adheres to lifecycle condition invariants and confirmation dialog", () => {
   const template = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
 
   // Lifecycle section presence check
@@ -143,10 +147,16 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants"
     "Lifecycle block must be gated on !isNew"
   );
 
-  // Publish / Republish button condition check
+  // Orange styling condition check
   assert.ok(
-    template.includes('<button class="btn btn-with-icon" type="button" @click="publishExisting" :disabled="publishing">'),
-    "Publish button must only be disabled by `publishing` ref, never by form.state === 'published'"
+    template.includes("form.state === 'published' ? 'btn-warning' : ''"),
+    "Button must have orange btn-warning class when published"
+  );
+
+  // Click handler check
+  assert.ok(
+    template.includes('@click="handlePublishClick"'),
+    "Button must call handlePublishClick"
   );
 
   // Published template condition check
@@ -157,5 +167,23 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants"
   assert.ok(
     template.includes("Republish broker"),
     "Must render 'Republish broker' label when published"
+  );
+
+  // Confirmation modal dialog check
+  assert.ok(
+    template.includes('v-if="showRepublishModal"'),
+    "Must render confirmation dialog when showRepublishModal is true"
+  );
+  assert.ok(
+    template.includes("What will happen"),
+    "Dialog must explain what will happen"
+  );
+  assert.ok(
+    template.includes("Effect on existing student repositories"),
+    "Dialog must explicitly explain the effect on existing student repositories"
+  );
+  assert.ok(
+    template.includes("100% Safe") || template.includes("Safe"),
+    "Dialog must assure user that existing repositories are safe and untouched"
   );
 });
