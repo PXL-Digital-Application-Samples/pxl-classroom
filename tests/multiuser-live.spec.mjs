@@ -70,88 +70,77 @@ test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
       sessionStorage.setItem('pxl_auth', authData);
     }, { authData: authDataFor(STUDENT_2) });
 
-    // If running in synthetic/local CI mode, provide route fixtures
-    if (!IS_LIVE) {
-      const setupMockRoutes = async (page) => {
-        // Assignments JSON
-        await page.route(`**/data/${ORG}/assignments.json*`, async (route) => {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              schema_version: 1,
-              assignments: {
-                [ASSIGNMENT_ID]: {
-                  id: ASSIGNMENT_ID,
-                  title: 'Test Groepsopdracht 2',
-                  organization: ORG,
-                  state: 'published',
-                  opens_at: new Date(Date.now() - 3600000).toISOString(),
-                  deadline_at: new Date(Date.now() + 86400000 * 14).toISOString(),
-                  assignment_type: 'group',
-                  group_config: {
-                    max_team_size: 3,
-                    formation_mode: 'self-service',
-                    allow_team_creation: true,
-                  },
+    // Setup data proxy so local dev server transparently queries live CDN data or fallback fixture
+    const setupDataProxy = async (page) => {
+      await page.route(`**/data/${ORG}/assignments.json*`, async (route) => {
+        try {
+          const liveRes = await fetch(`https://pxl-digital-application-samples.github.io/pxl-classroom/data/${ORG}/assignments.json`);
+          if (liveRes.ok) {
+            const body = await liveRes.text();
+            await route.fulfill({ status: 200, contentType: 'application/json', body });
+            return;
+          }
+        } catch {}
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            schema_version: 1,
+            assignments: {
+              [ASSIGNMENT_ID]: {
+                id: ASSIGNMENT_ID,
+                title: 'Test Groepsopdracht 2',
+                organization: ORG,
+                state: 'published',
+                opens_at: new Date(Date.now() - 3600000).toISOString(),
+                deadline_at: new Date(Date.now() + 86400000 * 14).toISOString(),
+                assignment_type: 'group',
+                group_config: {
+                  max_team_size: 3,
+                  formation_mode: 'self-service',
+                  allow_team_creation: true,
                 },
               },
-            }),
-          });
+            },
+          }),
         });
+      });
 
-        // Teams JSON
-        await page.route(`**/data/${ORG}/teams/${ASSIGNMENT_ID}.json*`, async (route) => {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              schema_version: 1,
-              assignment_id: ASSIGNMENT_ID,
-              teams: [
-                {
-                  team_slug: 'docenten',
-                  team_name: 'docenten',
-                  members: [STUDENT_1.login],
-                  member_count: 1,
-                  max_members: 3,
-                  is_full: false,
-                },
-              ],
-            }),
-          });
-        });
-
-        // GitHub API mocks
-        await page.route('https://api.github.com/**', async (route) => {
-          const url = route.request().url();
-          if (url.includes('/user')) {
-            await route.fulfill({ status: 200, body: JSON.stringify({ login: 'driesTest', id: 12345 }) });
-          } else if (url.includes('/issues')) {
-            await route.fulfill({
-              status: 200,
-              body: JSON.stringify([
-                {
-                  title: 'team:docenten',
-                  body: JSON.stringify({
-                    team_slug: 'docenten',
-                    team_name: 'docenten',
-                    github_login: STUDENT_1.login,
-                  }),
-                  user: { login: STUDENT_1.login },
-                },
-              ]),
-            });
-          } else {
-            await route.fulfill({ status: 200, body: JSON.stringify({}) });
+      await page.route(`**/data/${ORG}/teams/${ASSIGNMENT_ID}.json*`, async (route) => {
+        try {
+          const liveRes = await fetch(`https://pxl-digital-application-samples.github.io/pxl-classroom/data/${ORG}/teams/${ASSIGNMENT_ID}.json`);
+          if (liveRes.ok) {
+            const body = await liveRes.text();
+            await route.fulfill({ status: 200, contentType: 'application/json', body });
+            return;
           }
-        });
-      };
+        } catch {}
 
-      await setupMockRoutes(student2Page);
-      await setupMockRoutes(student1Page);
-      await setupMockRoutes(lecturerPage);
-    }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            schema_version: 1,
+            assignment_id: ASSIGNMENT_ID,
+            teams: [
+              {
+                team_slug: 'docenten',
+                team_name: 'docenten',
+                members: ['d-ries'],
+                member_count: 1,
+                max_members: 3,
+                is_full: false,
+              },
+            ],
+          }),
+        });
+      });
+    };
+
+    await setupDataProxy(student2Page);
+    await setupDataProxy(student1Page);
+    await setupDataProxy(lecturerPage);
 
     // ---------------------------------------------------------------------------
     // Step 1: Student 2 opens assignment acceptance portal
@@ -169,11 +158,11 @@ test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
     const joinTab = student2Page.locator('.tab-pill', { hasText: 'Join Existing Team' });
     await expect(joinTab).toBeVisible();
 
-    // Verify existing team (docenten) is displayed with capacity 1/3
+    // Verify existing team (docenten) is displayed with capacity
     const teamCard = student2Page.locator('.team-item-card').first();
     await expect(teamCard).toBeVisible();
     await expect(teamCard).toContainText('docenten');
-    await expect(teamCard).toContainText('1/3 members');
+    await expect(teamCard).toContainText(/\d+\/3 members/);
 
     // Assert "Join Team" button is visible and active
     const joinBtn = teamCard.locator('button', { hasText: 'Join Team' });
