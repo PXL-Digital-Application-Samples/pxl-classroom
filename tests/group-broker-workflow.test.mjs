@@ -30,3 +30,12 @@ test("GroupAcceptanceCard.vue validates issue creation response before pending",
   assert.ok(content.includes("if (!issueRes.ok)"), "GroupAcceptanceCard must check issueRes.ok");
   assert.ok(content.includes("Broker repository"), "GroupAcceptanceCard must give helpful 404 message");
 });
+
+test("AdminView.vue enables Republish broker button on published assignments without disabling", () => {
+  const content = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  assert.ok(content.includes("Republish broker"), "AdminView must offer a Republish broker option");
+  assert.ok(
+    content.includes('@click="publishExisting" :disabled="publishing"'),
+    "Republish button must only be disabled while publishing is in progress, not when form.state === 'published'"
+  );
+});
