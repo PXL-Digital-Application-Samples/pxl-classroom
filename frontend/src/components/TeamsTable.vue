@@ -48,6 +48,7 @@
             <th>Commits</th>
             <th>Status</th>
             <th v-if="isGitHubActionsAutograde">CI Status</th>
+            <th v-if="autogradeEnabled">Score</th>
             <th>Preserved</th>
             <th class="col-actions"><span class="sr-only">Actions</span></th>
           </tr>
@@ -128,12 +129,32 @@
 
             <!-- CI Status column (Autograding) -->
             <td v-if="isGitHubActionsAutograde">
-              <span
+              <button
                 v-if="team.ci_status"
+                type="button"
                 :class="['badge', team.ci_status === 'success' ? 'badge-success' : team.ci_status === 'failure' ? 'badge-error' : 'badge-warning']"
+                @click="openTeamAutogradeModal(team)"
+                title="Click to view team test breakdown"
+                style="cursor: pointer; border: none;"
               >
                 {{ team.ci_status }}
-              </span>
+              </button>
+              <span v-else class="text-muted text-xs">-</span>
+            </td>
+
+            <!-- Score column (Autograding) -->
+            <td v-if="autogradeEnabled">
+              <button
+                v-if="team.earned_points != null || team.score"
+                type="button"
+                class="badge"
+                :class="(team.earned_points != null ? team.earned_points >= (team.total_points || 30) : !String(team.score).includes('0/')) ? 'badge-success' : 'badge-warning'"
+                @click="openTeamAutogradeModal(team)"
+                title="Click to view team test breakdown"
+                style="cursor: pointer; border: none; font-size: 0.75rem;"
+              >
+                {{ team.score || `${team.earned_points}/${team.total_points || 30} pts` }}
+              </button>
               <span v-else class="text-muted text-xs">-</span>
             </td>
 
@@ -285,6 +306,69 @@
         </div>
       </div>
     </div>
+
+    <!-- Modal: Team Autograding Test Breakdown -->
+    <div v-if="activeTeamAutograde" class="modal-overlay" @click.self="closeTeamAutogradeModal">
+      <div class="modal card autograde-modal" role="dialog" aria-modal="true" :aria-label="`Autograding Results for ${activeTeamAutograde.team_name}`" style="max-width: 650px;">
+        <header class="modal-head flex justify-between items-center">
+          <div class="flex items-center gap-sm">
+            <Icon name="check-circle" :size="20" :class="activeTeamAutograde.ci_status === 'success' ? 'text-success' : 'text-danger'" />
+            <h3 style="margin: 0;">
+              Team Autograding: <strong>{{ activeTeamAutograde.team_name }}</strong> (<code>{{ activeTeamAutograde.team_slug }}</code>)
+            </h3>
+          </div>
+          <button class="modal-close" type="button" @click="closeTeamAutogradeModal" aria-label="Close">×</button>
+        </header>
+
+        <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
+          <!-- Summary Banner -->
+          <div class="score-banner flex justify-between items-center p-md" :class="activeTeamAutograde.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-color, #30363d); padding: 12px 16px;">
+            <div>
+              <div class="text-xs text-secondary uppercase font-semibold">Team Score</div>
+              <div class="text-xl font-bold" style="font-size: 1.4rem;">
+                {{ activeTeamAutograde.earned_points != null ? `${activeTeamAutograde.earned_points} / ${activeTeamAutograde.total_points || assignment?.autograde?.points_possible || 100} pts` : (activeTeamAutograde.score || activeTeamAutograde.ci_status || 'Graded') }}
+              </div>
+            </div>
+            <div>
+              <span :class="['badge', activeTeamAutograde.ci_status === 'success' ? 'badge-success' : activeTeamAutograde.ci_status === 'failure' ? 'badge-error' : 'badge-warning']" style="font-size: 0.85rem; padding: 4px 10px;">
+                {{ activeTeamAutograde.ci_status || 'completed' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Team Test Breakdown List -->
+          <div v-if="activeTeamAutograde.tests && activeTeamAutograde.tests.length" class="tests-breakdown-list flex flex-col gap-sm">
+            <h4 style="margin: 0 0 4px 0;">Test Suites</h4>
+            <div v-for="t in activeTeamAutograde.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-color, #30363d); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface, #161b22);">
+              <div class="flex justify-between items-center">
+                <div class="flex items-center gap-xs">
+                  <span :class="['badge', t.passed ? 'badge-success' : 'badge-error']" style="font-size: 0.7rem; padding: 2px 6px;">
+                    {{ t.passed ? 'PASSED' : 'FAILED' }}
+                  </span>
+                  <strong>{{ t.name || t.id }}</strong>
+                </div>
+                <span class="mono font-semibold text-sm">{{ t.earned != null ? t.earned : (t.passed ? t.points : 0) }}/{{ t.points }} pts</span>
+              </div>
+              <div v-if="t.stdout || t.stderr" class="test-logs mt-xs" style="margin-top: 6px;">
+                <pre class="mono text-xs p-xs" style="background: var(--bg-canvas, #0d1117); border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; margin: 0; padding: 8px;">{{ t.stderr || t.stdout }}</pre>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-secondary text-sm">
+            <p v-if="activeTeamAutograde.repo_url" style="margin: 0;">
+              View full test runs and workflow logs on GitHub Actions:
+              <a :href="`${activeTeamAutograde.repo_url}/actions`" target="_blank" rel="noopener" class="link-btn" style="text-decoration: underline;">
+                Open Team GitHub Actions logs →
+              </a>
+            </p>
+          </div>
+        </div>
+
+        <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-color, #30363d);">
+          <button class="btn btn-secondary" type="button" @click="closeTeamAutogradeModal">Close</button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -319,9 +403,21 @@ const newTeamForm = ref({
 
 const maxTeamSize = computed(() => props.assignment?.group_config?.max_team_size || 3)
 
+const autogradeEnabled = computed(() => props.assignment?.autograde?.enabled === true)
+
 const isGitHubActionsAutograde = computed(
-  () => props.assignment?.autograde?.execution_environment === 'github_actions'
+  () => autogradeEnabled.value && props.assignment?.autograde?.execution_environment === 'github_actions'
 )
+
+const activeTeamAutograde = ref(null)
+
+function openTeamAutogradeModal(team) {
+  activeTeamAutograde.value = team
+}
+
+function closeTeamAutogradeModal() {
+  activeTeamAutograde.value = null
+}
 
 const underCapacityCount = computed(() =>
   props.teams.filter((t) => t.under_capacity).length

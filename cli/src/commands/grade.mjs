@@ -232,9 +232,17 @@ export function registerGradeCommand(program) {
       // Sequential dispatch with a worker pool over students (per-test
       // parallelism would race on the same workdir).
       const summary = { graded: [], failed: [] };
+      const teamResultsCache = new Map(); // team_slug -> result
       await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
         let result;
-        if (isGitHubActions) {
+        if (s.team_slug && teamResultsCache.has(s.team_slug)) {
+          const cached = teamResultsCache.get(s.team_slug);
+          result = {
+            ...cached,
+            github_login: s.github_login,
+            graded_at: new Date().toISOString(),
+          };
+        } else if (isGitHubActions) {
           try {
             // s.repo_name is already the full org/repo name.
             const checksReq = await octokit.request(`GET /repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
@@ -285,6 +293,9 @@ export function registerGradeCommand(program) {
                 stderr: ""
               }]
             };
+            if (s.team_slug) {
+              teamResultsCache.set(s.team_slug, result);
+            }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
             summary.failed.push({ login: s.github_login, reason: `checks: ${err.message}` });
@@ -307,6 +318,9 @@ export function registerGradeCommand(program) {
               assignment, runner: opts.runner,
               login: s.github_login, sha: archive.sha, archive, gradedBy,
             });
+            if (s.team_slug) {
+              teamResultsCache.set(s.team_slug, result);
+            }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: grading failed - ${err.message}\n`);
             summary.failed.push({ login: s.github_login, reason: `grading: ${err.message}` });

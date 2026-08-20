@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignments', () => {
-  test('Assignment 1 (GitHub Actions): Displays green success (30/30) vs red failure (20/30) CI badges', async ({ page }) => {
+  test('Assignment 1 (GitHub Actions): Displays score pills, clickable drill-down modal, and test breakdown', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -40,6 +40,11 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               ci_status: 'success',
               earned_points: 30,
               total_points: 30,
+              tests: [
+                { id: 'test-basic', name: 'Basic Stats Calculation', passed: true, points: 10, earned: 10 },
+                { id: 'test-edge', name: 'Edge Cases & Dirty Data', passed: true, points: 10, earned: 10 },
+                { id: 'test-scale', name: 'Scale & Sorting Test', passed: true, points: 10, earned: 10 },
+              ],
             },
             {
               github_login: STUDENT_2.login,
@@ -52,6 +57,11 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               earned_points: 20,
               total_points: 30,
               warnings: ['ci_failed'],
+              tests: [
+                { id: 'test-basic', name: 'Basic Stats Calculation', passed: true, points: 10, earned: 10 },
+                { id: 'test-edge', name: 'Edge Cases & Dirty Data', passed: false, points: 10, earned: 0, stderr: 'AssertionError: None is not 0.0' },
+                { id: 'test-scale', name: 'Scale & Sorting Test', passed: true, points: 10, earned: 10 },
+              ],
             },
           ],
           teams: [
@@ -63,7 +73,9 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               max_members: 3,
               is_full: false,
               ci_status: 'success',
-              score: '30/30',
+              score: '30/30 pts',
+              earned_points: 30,
+              total_points: 30,
             },
             {
               team_slug: 'team-partial-fail',
@@ -73,7 +85,14 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               max_members: 3,
               is_full: false,
               ci_status: 'failure',
-              score: '20/30',
+              score: '20/30 pts',
+              earned_points: 20,
+              total_points: 30,
+              tests: [
+                { id: 'test-basic', name: 'Basic Stats Calculation', passed: true, points: 10, earned: 10 },
+                { id: 'test-edge', name: 'Edge Cases & Dirty Data', passed: false, points: 10, earned: 0, stderr: 'AssertionError: None is not 0.0' },
+                { id: 'test-scale', name: 'Scale & Sorting Test', passed: true, points: 10, earned: 10 },
+              ],
             },
           ],
         },
@@ -82,22 +101,39 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
 
     await page.goto(`/dashboard/${ORG}/group-autograding-actions`);
 
-    // Verify CI Status column header
-    const ciHeader = page.locator('th', { hasText: 'CI Status' });
-    await expect(ciHeader).toBeVisible({ timeout: 10000 });
+    // 1. In Teams View: verify Score and CI Status headers
+    await expect(page.locator('th', { hasText: 'CI Status' })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('th', { hasText: 'Score' })).toBeVisible();
 
-    // Verify Team 1 (Passing Student 1) badge
-    const student1Row = page.locator('tr, .student-row, article', { hasText: STUDENT_1.login });
-    await expect(student1Row.first()).toBeVisible();
-    await expect(student1Row.locator('.badge-success', { hasText: 'success' })).toBeVisible();
+    // 2. Click failing team score to open Team Autograding Modal
+    const teamFailBtn = page.locator('button', { hasText: '20/30 pts' }).first();
+    await expect(teamFailBtn).toBeVisible();
+    await teamFailBtn.click();
 
-    // Verify Team 2 (Failing Student 2) badge
-    const student2Row = page.locator('tr, .student-row, article', { hasText: STUDENT_2.login });
-    await expect(student2Row.first()).toBeVisible();
-    await expect(student2Row.locator('.badge-error', { hasText: 'failure' })).toBeVisible();
+    // 3. Inspect Test Breakdown Modal
+    const autogradeModal = page.locator('.autograde-modal');
+    await expect(autogradeModal).toBeVisible();
+    await expect(autogradeModal).toContainText('Team Autograding');
+    await expect(autogradeModal).toContainText('Team Partial Fail');
+    await expect(autogradeModal).toContainText('AssertionError: None is not 0.0');
+
+    // Close modal
+    await autogradeModal.locator('button', { hasText: 'Close' }).click();
+    await expect(autogradeModal).not.toBeVisible();
+
+    // 4. Switch to Students View
+    const studentsTab = page.locator('.tab-pill', { hasText: /Students View/i });
+    if (await studentsTab.isVisible()) {
+      await studentsTab.click();
+      const studentFailScore = page.locator('.col-score button', { hasText: '20/30 pts' }).first();
+      await expect(studentFailScore).toBeVisible();
+      await studentFailScore.click();
+      await expect(page.locator('.autograde-modal')).toBeVisible();
+      await expect(page.locator('.autograde-modal')).toContainText(STUDENT_2.login);
+    }
   });
 
-  test('Assignment 2 (Docker Runner): Displays sandboxed grading scores across teams', async ({ page }) => {
+  test('Assignment 2 (Docker Runner): Displays sandboxed grading scores and CSV export columns', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -132,6 +168,7 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               submission_status: 'on_time',
               team_slug: 'team-full-pass',
               team_name: 'Team Full Pass',
+              ci_status: 'success',
               earned_points: 50,
               total_points: 50,
             },
@@ -142,6 +179,7 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               submission_status: 'on_time',
               team_slug: 'team-partial-fail',
               team_name: 'Team Partial Fail',
+              ci_status: 'failure',
               earned_points: 25,
               total_points: 50,
             },
@@ -154,6 +192,9 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               member_count: 1,
               max_members: 3,
               is_full: false,
+              score: '50/50 pts',
+              earned_points: 50,
+              total_points: 50,
             },
             {
               team_slug: 'team-partial-fail',
@@ -162,6 +203,9 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
               member_count: 1,
               max_members: 3,
               is_full: false,
+              score: '25/50 pts',
+              earned_points: 25,
+              total_points: 50,
             },
           ],
         },
@@ -174,8 +218,8 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
     const heading = page.locator('.breadcrumb h1');
     await expect(heading).toContainText('group-autograding-docker');
 
-    // Verify both student teams are rendered
-    await expect(page.locator('tr, .student-row, article', { hasText: STUDENT_1.login }).first()).toBeVisible();
-    await expect(page.locator('tr, .student-row, article', { hasText: STUDENT_2.login }).first()).toBeVisible();
+    // Verify both score pills are displayed in the Teams table
+    await expect(page.locator('button', { hasText: '50/50 pts' }).first()).toBeVisible();
+    await expect(page.locator('button', { hasText: '25/50 pts' }).first()).toBeVisible();
   });
 });

@@ -362,6 +362,7 @@
                   <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
                 <th v-if="isGitHubActionsAutograde" class="col-ci">CI Status</th>
+                <th v-if="autogradeEnabled" class="col-score">Score</th>
                 <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
                 <th v-if="hasWarnings" class="col-warnings">Warnings</th>
                 <th v-if="hasSubmitTags" @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
@@ -424,10 +425,31 @@
                   <span v-else class="text-muted">-</span>
                 </td>
                 <td v-if="isGitHubActionsAutograde" class="col-ci">
-                  <span v-if="s.ci_status" :class="['badge', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']">
+                  <button
+                    v-if="s.ci_status"
+                    type="button"
+                    :class="['badge badge-clickable', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']"
+                    @click="openAutogradeModal(s)"
+                    title="Click to view autograding details"
+                    style="cursor: pointer; border: none;"
+                  >
                     {{ s.ci_status }}
-                  </span>
+                  </button>
                   <span v-else class="text-muted">-</span>
+                </td>
+                <td v-if="autogradeEnabled" class="col-score">
+                  <button
+                    v-if="s.earned_points != null"
+                    type="button"
+                    class="badge"
+                    :class="s.earned_points >= (s.total_points || 30) ? 'badge-success' : 'badge-warning'"
+                    @click="openAutogradeModal(s)"
+                    title="Click to view autograding test breakdown"
+                    style="cursor: pointer; border: none; font-size: 0.75rem;"
+                  >
+                    {{ s.earned_points }}/{{ s.total_points || assignment?.autograde?.points_possible || 30 }} pts
+                  </button>
+                  <span v-else class="text-muted text-xs">-</span>
                 </td>
                 <td v-if="feedbackPrEnabled" class="col-feedback-pr">
                   <template v-if="s.feedback_pr_number">
@@ -717,6 +739,69 @@
         </div>
       </div>
 
+      <!-- Modal: Autograding Test Breakdown & Failure Logs -->
+      <div v-if="showAutogradeModal && activeAutogradeItem" class="modal-overlay" @click.self="closeAutogradeModal">
+        <div class="modal card autograde-modal" role="dialog" aria-modal="true" :aria-label="`Autograding Results for ${activeAutogradeItem.github_login || activeAutogradeItem.team_slug}`" style="max-width: 650px;">
+          <header class="modal-head flex justify-between items-center">
+            <div class="flex items-center gap-sm">
+              <Icon name="check-circle" :size="20" :class="activeAutogradeItem.ci_status === 'success' ? 'text-success' : 'text-danger'" />
+              <h3 style="margin: 0;">
+                Autograding: <code>{{ activeAutogradeItem.github_login || activeAutogradeItem.team_slug }}</code>
+              </h3>
+            </div>
+            <button class="modal-close" type="button" @click="closeAutogradeModal" aria-label="Close">×</button>
+          </header>
+
+          <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
+            <!-- Summary Banner -->
+            <div class="score-banner flex justify-between items-center p-md" :class="activeAutogradeItem.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-color, #30363d); padding: 12px 16px;">
+              <div>
+                <div class="text-xs text-secondary uppercase font-semibold">Total Score</div>
+                <div class="text-xl font-bold" style="font-size: 1.4rem;">
+                  {{ activeAutogradeItem.earned_points != null ? `${activeAutogradeItem.earned_points} / ${activeAutogradeItem.total_points || assignment?.autograde?.points_possible || 100} pts` : (activeAutogradeItem.score || activeAutogradeItem.ci_status || 'Graded') }}
+                </div>
+              </div>
+              <div>
+                <span :class="['badge', activeAutogradeItem.ci_status === 'success' ? 'badge-success' : activeAutogradeItem.ci_status === 'failure' ? 'badge-error' : 'badge-warning']" style="font-size: 0.85rem; padding: 4px 10px;">
+                  {{ activeAutogradeItem.ci_status || 'completed' }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Test Breakdown List -->
+            <div v-if="activeAutogradeItem.tests && activeAutogradeItem.tests.length" class="tests-breakdown-list flex flex-col gap-sm">
+              <h4 style="margin: 0 0 4px 0;">Test Suites</h4>
+              <div v-for="t in activeAutogradeItem.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-color, #30363d); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface, #161b22);">
+                <div class="flex justify-between items-center">
+                  <div class="flex items-center gap-xs">
+                    <span :class="['badge', t.passed ? 'badge-success' : 'badge-error']" style="font-size: 0.7rem; padding: 2px 6px;">
+                      {{ t.passed ? 'PASSED' : 'FAILED' }}
+                    </span>
+                    <strong>{{ t.name || t.id }}</strong>
+                  </div>
+                  <span class="mono font-semibold text-sm">{{ t.earned != null ? t.earned : (t.passed ? t.points : 0) }}/{{ t.points }} pts</span>
+                </div>
+                <div v-if="t.stdout || t.stderr" class="test-logs mt-xs" style="margin-top: 6px;">
+                  <pre class="mono text-xs p-xs" style="background: var(--bg-canvas, #0d1117); border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; margin: 0; padding: 8px;">{{ t.stderr || t.stdout }}</pre>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-secondary text-sm">
+              <p v-if="activeAutogradeItem.repo_url" style="margin: 0;">
+                View full workflow logs on GitHub Actions:
+                <a :href="`${activeAutogradeItem.repo_url}/actions`" target="_blank" rel="noopener" class="link-btn" style="text-decoration: underline;">
+                  Open GitHub Actions logs →
+                </a>
+              </p>
+            </div>
+          </div>
+
+          <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-color, #30363d);">
+            <button class="btn btn-secondary" type="button" @click="closeAutogradeModal">Close</button>
+          </footer>
+        </div>
+      </div>
+
       <!-- Starter Code Sync Modal -->
       <StarterSyncModal
         v-if="showStarterSyncModal && assignment"
@@ -916,6 +1001,19 @@ const preservationUncertaintySeconds = computed(() => {
 const showStarterSyncModal = ref(false)
 const openingFeedbackPrs = ref(false)
 const retryingPreservation = ref(false)
+
+const activeAutogradeItem = ref(null)
+const showAutogradeModal = ref(false)
+
+function openAutogradeModal(item) {
+  activeAutogradeItem.value = item
+  showAutogradeModal.value = true
+}
+
+function closeAutogradeModal() {
+  activeAutogradeItem.value = null
+  showAutogradeModal.value = false
+}
 
 async function retryPreservation() {
   const token = getToken()
@@ -1503,6 +1601,8 @@ const CSV_HEADERS = [
   'last_on_time_sha', 'last_on_time_observed_at', 'first_late_sha',
   'first_late_observed_at', 'latest_observed_sha', 'latest_observed_at',
   'commit_count',
+  'ci_status', 'earned_points', 'total_points',
+  'feedback_pr_number', 'feedback_pr_url',
   'uncertainty_interval_seconds', 'tagged_submission_tag',
   'tagged_submission_sha', 'tagged_submission_observed_at',
   'tagged_submission_declared_at', 'lock_down_at', 'preservation_status',
