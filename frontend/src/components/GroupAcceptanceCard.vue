@@ -410,8 +410,20 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
       }),
     })
 
+    if (!issueRes.ok) {
+      const msg = issueRes.data?.message || `HTTP ${issueRes.status}`
+      if (issueRes.status === 404) {
+        throw new Error(`Broker repository "${brokerRepo}" not found. Ask your lecturer to publish the assignment.`)
+      }
+      throw new Error(`Failed to submit team registration (${msg}). Ensure the broker repository exists and issues are enabled.`)
+    }
+
     // Also trigger star as redundant signal
-    await ghApi(token, 'PUT', `/user/starred/${props.org}/${brokerRepo}`)
+    try {
+      await ghApi(token, 'PUT', `/user/starred/${props.org}/${brokerRepo}`)
+    } catch {
+      // non-critical
+    }
 
     acceptState.value = 'pending'
     startPolling(teamSlug)

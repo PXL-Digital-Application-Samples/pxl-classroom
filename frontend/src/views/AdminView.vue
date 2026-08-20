@@ -501,11 +501,11 @@
           <div v-if="!isNew" class="lifecycle">
             <h4>Lifecycle</h4>
             <div class="lifecycle-actions">
-              <button class="btn btn-with-icon" type="button" @click="publishExisting" :disabled="form.state === 'published' || publishing">
+              <button class="btn btn-with-icon" type="button" @click="publishExisting" :disabled="publishing">
                 <template v-if="publishing">Publishing…</template>
                 <template v-else-if="form.state === 'published'">
-                  <Icon name="check" :size="14" />
-                  <span>Already published</span>
+                  <Icon name="refresh-cw" :size="14" />
+                  <span>Republish broker</span>
                 </template>
                 <template v-else>Publish (create broker, enable nightly)</template>
               </button>

@@ -67,13 +67,14 @@ jobs:
         run: |
           BROKER_REPO="broker-${ASSIGNMENT_ID}"
           if gh repo view "${ORG}/${BROKER_REPO}" --json name > /dev/null 2>&1; then
-            echo "Broker repo ${ORG}/${BROKER_REPO} already exists - skipping creation"
+            echo "Broker repo ${ORG}/${BROKER_REPO} already exists - ensuring issues are enabled"
+            gh repo edit "${ORG}/${BROKER_REPO}" --enable-issues
           else
             gh repo create "${ORG}/${BROKER_REPO}" \
               --public \
               --description "Assignment acceptance broker for ${ASSIGNMENT_ID}" \
               --disable-wiki \
-              --disable-issues
+              --enable-issues
             echo "Created broker repo ${ORG}/${BROKER_REPO}"
           fi
 
