@@ -85,13 +85,13 @@
                   'badge',
                   team.under_capacity
                     ? 'badge-warning'
-                    : team.members.length >= (assignment.group_config?.max_team_size || 3)
+                    : team.members.length >= (assignment?.group_config?.max_team_size || 3)
                     ? 'badge-neutral'
                     : 'badge-success'
                 ]"
                 style="font-size: 0.75rem;"
               >
-                {{ team.members ? team.members.length : 0 }}/{{ assignment.group_config?.max_team_size || 3 }}
+                {{ team.members ? team.members.length : 0 }}/{{ assignment?.group_config?.max_team_size || 3 }}
                 <template v-if="team.under_capacity"> (low)</template>
               </span>
             </td>
