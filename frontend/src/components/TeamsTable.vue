@@ -47,6 +47,7 @@
             <th>Repository</th>
             <th>Commits</th>
             <th>Status</th>
+            <th v-if="isGitHubActionsAutograde">CI Status</th>
             <th>Preserved</th>
             <th class="col-actions"><span class="sr-only">Actions</span></th>
           </tr>
@@ -123,6 +124,17 @@
               <span :class="['badge', statusBadgeClass(team.submission_status)]">
                 {{ team.submission_status || 'unknown' }}
               </span>
+            </td>
+
+            <!-- CI Status column (Autograding) -->
+            <td v-if="isGitHubActionsAutograde">
+              <span
+                v-if="team.ci_status"
+                :class="['badge', team.ci_status === 'success' ? 'badge-success' : team.ci_status === 'failure' ? 'badge-error' : 'badge-warning']"
+              >
+                {{ team.ci_status }}
+              </span>
+              <span v-else class="text-muted text-xs">-</span>
             </td>
 
             <!-- Preserved column -->
@@ -305,7 +317,11 @@ const newTeamForm = ref({
   members: [],
 })
 
-const maxTeamSize = computed(() => props.assignment.group_config?.max_team_size || 3)
+const maxTeamSize = computed(() => props.assignment?.group_config?.max_team_size || 3)
+
+const isGitHubActionsAutograde = computed(
+  () => props.assignment?.autograde?.execution_environment === 'github_actions'
+)
 
 const underCapacityCount = computed(() =>
   props.teams.filter((t) => t.under_capacity).length

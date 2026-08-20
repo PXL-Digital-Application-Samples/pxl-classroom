@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { stringify as yamlStringify } from 'yaml';
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -144,6 +145,14 @@ export async function setupStandardMockRoutes(page, {
           return;
         }
       } else if (url.includes('/pxl-classroom-control/contents/assignments/')) {
+        const match = url.match(/\/assignments\/([^/?#]+)\.ya?ml/);
+        const asgnId = match ? match[1] : null;
+        if (asgnId && assignments[asgnId]) {
+          const yamlContent = yamlStringify(assignments[asgnId]);
+          const contentBase64 = Buffer.from(yamlContent).toString('base64');
+          await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+          return;
+        }
         await route.fulfill({ status: 200, body: JSON.stringify([]) });
         return;
       } else if (url.includes('/pxl-classroom-control/contents/assignments.yml') || url.includes('/pxl-classroom-control/contents/roster.yml')) {

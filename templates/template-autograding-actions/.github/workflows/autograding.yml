@@ -1,0 +1,53 @@
+name: GitHub Classroom Autograding
+on: [push]
+
+permissions:
+  checks: write
+  actions: read
+  contents: read
+
+jobs:
+  grade:
+    name: Autograding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Basic Stats Test
+        id: test-basic
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: "Basic Stats Calculation"
+          setup-command: ""
+          command: "python3 -m unittest test_processor.TestDataProcessor.test_basic_stats"
+          timeout: 10
+          max-score: 10
+
+      - name: Edge Case Test
+        id: test-edge-cases
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: "Edge Cases & Dirty Data"
+          setup-command: ""
+          command: "python3 -m unittest test_processor.TestDataProcessor.test_edge_case_empty_null"
+          timeout: 10
+          max-score: 10
+
+      - name: Scale & Sort Test
+        id: test-scaling
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: "Scale & Sorting Test"
+          setup-command: ""
+          command: "python3 -m unittest test_processor.TestDataProcessor.test_scaling_and_sorting"
+          timeout: 10
+          max-score: 10
+
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        env:
+          TEST-BASIC_RESULTS: "${{steps.test-basic.outputs.result}}"
+          TEST-EDGE-CASES_RESULTS: "${{steps.test-edge-cases.outputs.result}}"
+          TEST-SCALING_RESULTS: "${{steps.test-scaling.outputs.result}}"
+        with:
+          runners: test-basic,test-edge-cases,test-scaling
