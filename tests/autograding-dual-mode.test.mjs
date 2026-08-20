@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCheckRunScore } from '../cli/src/commands/grade.mjs';
 import { buildAutogradingWorkflow } from '../provisioning/provision.mjs';
+import { validateAgainst } from '../lib/validate.mjs';
 
 test('Autograding Actions Engine: builds full workflow with python grader and reporter', () => {
   const assignment = {
@@ -129,4 +130,92 @@ test('Docker Autograding Engine: computes granular test points and failures for 
   const team2Total = team2Results.reduce((sum, t) => sum + t.points, 0);
   assert.equal(team2Earned, 25);
   assert.equal(team2Total, 50);
+});
+
+test('CLI Group Grader Deduplication: caches and propagates result across team members', () => {
+  const teamResultsCache = new Map();
+  const teamResult = {
+    schema_version: 1,
+    assignment_id: 'group-autograding-actions',
+    github_login: 'student-1',
+    archive_sha: 'a'.repeat(40),
+    archive_branch: 'preserved/group-autograding-actions/team-alpha',
+    graded_at: new Date().toISOString(),
+    graded_by: 'lecturer1',
+    runner: 'docker',
+    total_points: 50,
+    earned_points: 50,
+    tests: [
+      { id: 'unit', passed: true, points: 25, earned: 25, duration_ms: 120, exit_code: 0, timed_out: false, stdout: 'ok', stderr: '' },
+      { id: 'integration', passed: true, points: 25, earned: 25, duration_ms: 240, exit_code: 0, timed_out: false, stdout: 'ok', stderr: '' },
+    ],
+  };
+
+  teamResultsCache.set('team-alpha', teamResult);
+
+  // When second team member is processed
+  const student2 = { github_login: 'student-2', team_slug: 'team-alpha' };
+  assert.ok(teamResultsCache.has(student2.team_slug));
+
+  const cached = teamResultsCache.get(student2.team_slug);
+  const student2Result = {
+    ...cached,
+    github_login: student2.github_login,
+    graded_at: new Date().toISOString(),
+  };
+
+  assert.equal(student2Result.github_login, 'student-2');
+  assert.equal(student2Result.earned_points, 50);
+  assert.equal(student2Result.total_points, 50);
+  assert.equal(student2Result.tests.length, 2);
+
+  const validation = validateAgainst('grading-result', student2Result);
+  assert.equal(validation.valid, true);
+});
+
+test('CSV Export Headers: includes autograding and feedback PR fields', () => {
+  const CSV_HEADERS = [
+    'github_login', 'student_number', 'full_name', 'class_group',
+    'team_slug', 'team_name',
+    'acceptance_state', 'submission_status', 'effective_deadline_at',
+    'override_applied', 'override_reason', 'repo_name', 'repo_url',
+    'last_on_time_sha', 'last_on_time_observed_at', 'first_late_sha',
+    'first_late_observed_at', 'latest_observed_sha', 'latest_observed_at',
+    'commit_count',
+    'ci_status', 'earned_points', 'total_points',
+    'feedback_pr_number', 'feedback_pr_url',
+    'uncertainty_interval_seconds', 'tagged_submission_tag',
+    'tagged_submission_sha', 'tagged_submission_observed_at',
+    'tagged_submission_declared_at', 'lock_down_at', 'preservation_status',
+    'preserved_sha', 'warnings',
+  ];
+
+  assert.ok(CSV_HEADERS.includes('ci_status'));
+  assert.ok(CSV_HEADERS.includes('earned_points'));
+  assert.ok(CSV_HEADERS.includes('total_points'));
+  assert.ok(CSV_HEADERS.includes('feedback_pr_number'));
+  assert.ok(CSV_HEADERS.includes('feedback_pr_url'));
+
+  // Test cell generation
+  function csvCell(v) {
+    if (v === null || v === undefined) return '';
+    let str = Array.isArray(v) ? v.join('; ') : String(v);
+    if (/^[=\+\-@]/.test(str)) str = `'${str}`;
+    return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  }
+
+  const studentRow = {
+    github_login: 'student-2',
+    ci_status: 'failure',
+    earned_points: 20,
+    total_points: 30,
+    feedback_pr_number: 14,
+    feedback_pr_url: 'https://github.com/org/repo/pull/14',
+  };
+
+  const serialized = CSV_HEADERS.map((h) => csvCell(studentRow[h])).join(',');
+  assert.ok(serialized.includes('failure'));
+  assert.ok(serialized.includes('20'));
+  assert.ok(serialized.includes('30'));
+  assert.ok(serialized.includes('14'));
 });

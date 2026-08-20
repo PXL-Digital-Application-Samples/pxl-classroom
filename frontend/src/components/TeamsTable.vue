@@ -87,7 +87,7 @@
                   'badge',
                   team.under_capacity
                     ? 'badge-warning'
-                    : team.members.length >= (assignment?.group_config?.max_team_size || 3)
+                    : (team.members?.length || 0) >= (assignment?.group_config?.max_team_size || 3)
                     ? 'badge-neutral'
                     : 'badge-success'
                 ]"

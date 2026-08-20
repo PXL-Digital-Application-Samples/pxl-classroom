@@ -157,6 +157,56 @@ export async function setupStandardMockRoutes(page, {
         return;
       } else if (url.includes('/pxl-classroom-control/contents/assignments.yml') || url.includes('/pxl-classroom-control/contents/roster.yml')) {
         await route.fulfill({ status: 200, body: JSON.stringify({ content: '', encoding: 'base64' }) });
+      } else if (url.includes('/actions/workflows/') && url.includes('/dispatches')) {
+        await route.fulfill({ status: 204, body: '' });
+        return;
+      } else if (url.includes('/compare/')) {
+        // Compare API for pre-flight scan
+        const match = url.match(/\/compare\/(.+)\.\.\.(.+)/);
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify({
+            status: 'behind',
+            ahead_by: 0,
+            behind_by: 1,
+            total_commits: 1,
+            files: [],
+          }),
+        });
+        return;
+      } else if (url.includes('/commits/') && !url.includes('/check-runs')) {
+        // Commit detail with changed files
+        const sha = url.split('/commits/')[1]?.split('?')[0] || 'mocksha';
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify({
+            sha,
+            commit: {
+              message: 'docs: update lab instructions in README.md and add validation tests',
+              author: { name: 'Lecturer Alice', date: new Date().toISOString() },
+            },
+            files: [
+              { filename: 'README.md', status: 'modified', additions: 15, deletions: 3 },
+              { filename: 'tests/test_validation.py', status: 'added', additions: 35, deletions: 0 },
+              { filename: 'config.json', status: 'modified', additions: 4, deletions: 1 },
+            ],
+          }),
+        });
+        return;
+      } else if (url.includes('/commits') && !url.includes('/check-runs')) {
+        // Commits list
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify([
+            {
+              sha: 'c0ffee1234567890abcdef1234567890abcdef12',
+              commit: {
+                message: 'docs: update lab instructions in README.md and add validation tests',
+                author: { name: 'Lecturer Alice', date: new Date().toISOString() },
+              },
+            },
+          ]),
+        });
         return;
       }
 

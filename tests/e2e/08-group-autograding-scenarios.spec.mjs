@@ -133,7 +133,7 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
     }
   });
 
-  test('Assignment 2 (Docker Runner): Displays sandboxed grading scores and CSV export columns', async ({ page }) => {
+  test('Assignment 2 (Docker Runner): Displays sandboxed grading scores across teams', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -221,5 +221,60 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
     // Verify both score pills are displayed in the Teams table
     await expect(page.locator('button', { hasText: '50/50 pts' }).first()).toBeVisible();
     await expect(page.locator('button', { hasText: '25/50 pts' }).first()).toBeVisible();
+  });
+
+  test('Edge Case: Non-autograded assignment does not render Score or CI Status columns', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'group-manual-only': {
+          id: 'group-manual-only',
+          title: 'Group Manual Grading Only',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'group',
+          autograde: {
+            enabled: false,
+          },
+          group_config: {
+            max_team_size: 3,
+            formation_mode: 'self-service',
+          },
+        },
+      },
+      reports: {
+        'group-manual-only': {
+          schema_version: 1,
+          generated_at: new Date().toISOString(),
+          assignment_id: 'group-manual-only',
+          students: [
+            {
+              github_login: STUDENT_1.login,
+              acceptance_state: 'accepted',
+              submission_status: 'on_time',
+              team_slug: 'team-manual',
+              team_name: 'Team Manual',
+            },
+          ],
+          teams: [
+            {
+              team_slug: 'team-manual',
+              team_name: 'Team Manual',
+              members: [STUDENT_1.login],
+              member_count: 1,
+              max_members: 3,
+              is_full: false,
+            },
+          ],
+        },
+      },
+    });
+
+    await page.goto(`/dashboard/${ORG}/group-manual-only`);
+
+    // Verify CI Status and Score headers do NOT exist
+    await expect(page.locator('th', { hasText: 'CI Status' })).not.toBeVisible();
+    await expect(page.locator('th', { hasText: 'Score' })).not.toBeVisible();
   });
 });
