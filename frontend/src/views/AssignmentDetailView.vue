@@ -991,11 +991,11 @@ const allPreserved = computed(() =>
 )
 const preservationLockdownTime = computed(() => {
   const s = (report.value?.students || []).find((s) => s.lock_down_at)
-  return s?.lock_down_at || null
+  return s?.lock_down_at || report.value?.lockdown_at || null
 })
 const preservationUncertaintySeconds = computed(() => {
   const s = (report.value?.students || []).find((s) => s.uncertainty_interval_seconds != null)
-  return s?.uncertainty_interval_seconds ?? null
+  return s?.uncertainty_interval_seconds ?? report.value?.uncertainty_seconds ?? null
 })
 
 const showStarterSyncModal = ref(false)

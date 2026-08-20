@@ -155,6 +155,41 @@ export async function setupStandardMockRoutes(page, {
         }
         await route.fulfill({ status: 200, body: JSON.stringify([]) });
         return;
+      } else if (url.includes('/pxl-classroom-control/contents/overrides/')) {
+        const match = url.match(/\/overrides\/([^/?#]+)(?:\/([^/?#]+)\.json)?/);
+        const asgnId = match ? match[1] : null;
+        const login = match ? match[2] : null;
+        if (asgnId === 'lab-extended') {
+          if (login) {
+            const overrideDoc = {
+              schema_version: 1,
+              assignment_id: 'lab-extended',
+              github_login: 'student-extended',
+              overrides: [
+                {
+                  type: 'deadline_extension',
+                  value: new Date(Date.now() + 3600 * 1000 * 48).toISOString(),
+                  reason: 'Approved medical extension (3 days)',
+                  granted_at: new Date().toISOString(),
+                  granted_by: 'lecturer',
+                },
+              ],
+            };
+            const contentBase64 = Buffer.from(JSON.stringify(overrideDoc)).toString('base64');
+            await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+            return;
+          } else {
+            await route.fulfill({
+              status: 200,
+              body: JSON.stringify([
+                { name: 'student-extended.json', path: 'overrides/lab-extended/student-extended.json', type: 'file' },
+              ]),
+            });
+            return;
+          }
+        }
+        await route.fulfill({ status: 200, body: JSON.stringify([]) });
+        return;
       } else if (url.includes('/pxl-classroom-control/contents/assignments.yml') || url.includes('/pxl-classroom-control/contents/roster.yml')) {
         await route.fulfill({ status: 200, body: JSON.stringify({ content: '', encoding: 'base64' }) });
       } else if (url.includes('/actions/workflows/') && url.includes('/dispatches')) {
