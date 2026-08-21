@@ -1116,13 +1116,15 @@ const noSubCount = computed(() => report.value?.students.filter((s) => s.submiss
 const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
 const autogradeEnabled = computed(() => assignment.value?.autograde?.enabled === true)
 const isGitHubActionsAutograde = computed(() => autogradeEnabled.value && assignment.value?.autograde?.execution_environment === 'github_actions')
-const preservedCount = computed(() => (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' && s.preserved_sha).length)
+const preservedCount = computed(() =>
+  (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' || s.preserved_sha).length
+)
 const eligiblePreservationCount = computed(() =>
-  (report.value?.students || []).filter((s) => s.repo_name && s.acceptance_state === 'accepted').length
+  (report.value?.students || []).filter((s) => s.repo_name && s.acceptance_state !== 'rejected' && s.acceptance_state !== 'pending').length
 )
 const unpreservedCount = computed(() =>
   (report.value?.students || []).filter(
-    (s) => s.repo_name && s.acceptance_state === 'accepted' && !(s.preservation_status === 'preserved' && s.preserved_sha)
+    (s) => s.repo_name && s.acceptance_state !== 'rejected' && s.acceptance_state !== 'pending' && s.preservation_status !== 'preserved' && !s.preserved_sha
   ).length
 )
 const allPreserved = computed(() =>
@@ -1201,15 +1203,14 @@ async function executeFreezeNow() {
   if (!token) return
   freezingNow.value = true
   try {
-    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', 'main', {
-      'collection-type': 'deadline',
-      'assignment-id': props.assignmentId,
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', {
+      org: props.org,
     })
     if (res.ok) {
       toast.success('Lockdown and preservation workflow triggered successfully.')
       showFreezeConfirmModal.value = false
     } else {
-      toast.error(`Failed to trigger lockdown: ${res.error || 'Unknown error'}`)
+      toast.error(explainDispatchFailure(res, 'Failed to trigger lockdown'))
     }
   } catch (err) {
     toast.error(`Failed to execute lockdown: ${err.message}`)
@@ -1236,11 +1237,13 @@ async function retryPreservation() {
   if (!token) return
   retryingPreservation.value = true
   try {
-    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', 'main', {})
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', {
+      org: props.org,
+    })
     if (res.ok) {
-      toast.success('Preservation workflow dispatched.')
+      toast.success('Preservation retry workflow triggered successfully.')
     } else {
-      toast.error(`Failed to trigger preservation: ${res.error || 'Unknown error'}`)
+      toast.error(explainDispatchFailure(res, 'Failed to retry preservation'))
     }
   } catch (err) {
     toast.error(`Failed to retry preservation: ${err.message}`)

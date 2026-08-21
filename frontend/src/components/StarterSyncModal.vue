@@ -450,7 +450,7 @@ async function handleDispatchSync() {
       create_issue: String(createIssue.value),
     }
 
-    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'sync-starter-code.yml', 'main', inputs)
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'sync-starter-code.yml', inputs)
     if (!res.ok) {
       throw new Error(`Failed to dispatch sync workflow: ${res.error || 'Unknown error'}`)
     }

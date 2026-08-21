@@ -254,10 +254,22 @@ export async function deleteFile(token, owner, repo, path, message) {
 
 /**
  * Trigger a GitHub Action workflow via workflow_dispatch.
+ * Accepts inputs and ref flexibly (e.g. triggerWorkflow(token, owner, repo, id, inputs) or triggerWorkflow(token, owner, repo, id, 'main', inputs)).
  */
-export async function triggerWorkflow(token, owner, repo, workflowId, inputs = null, ref = 'main') {
+export async function triggerWorkflow(token, owner, repo, workflowId, inputsOrRef = null, possibleInputs = null) {
+  let ref = 'main'
+  let inputs = null
+
+  if (typeof inputsOrRef === 'string') {
+    ref = inputsOrRef
+    inputs = possibleInputs && typeof possibleInputs === 'object' ? possibleInputs : null
+  } else if (inputsOrRef && typeof inputsOrRef === 'object') {
+    inputs = inputsOrRef
+    ref = typeof possibleInputs === 'string' ? possibleInputs : 'main'
+  }
+
   const body = { ref }
-  if (inputs) body.inputs = inputs
+  if (inputs && Object.keys(inputs).length > 0) body.inputs = inputs
   return ghApi(token, 'POST', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, body)
 }
 
