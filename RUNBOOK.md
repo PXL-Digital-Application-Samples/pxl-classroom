@@ -366,6 +366,8 @@ yq -i 'if has("template_owner") then .template.owner = .template_owner | .templa
 2. **Each org owner**, including the org being onboarded: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve. While there, set **Repository access** to **All repositories**.
 3. Re-run **Setup Organization**.
 
+`weekly-usage-report.yml`'s `app-declaration` job catches this drift within a week of it appearing; run `node scripts/check-app-declaration.mjs` locally for the same answer immediately (no token needed).
+
 Step 2 alone never works if step 1 was skipped: an org owner can only approve permissions the App declares. Until then `weekly-usage-report.yml` runs in degraded mode - it mints a token without the billing scope, annotates a warning, and skips the usage report for that org rather than failing every org's matrix leg.
 
 ---
@@ -523,7 +525,7 @@ Whenever the App's permission set widens - for example, adding `organization_adm
 3. Lecturers who were already authenticated keep their previous (narrower) token until it expires (8 h max). Next sign-in mints a token with the new scope.
 4. No control-repo or workflow change needed.
 
-Verify with `gh api /app` - `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` -> PXL Classroom Provisioner.
+Verify with `node scripts/check-app-declaration.mjs` (compares the live App against `MANIFEST_APP_PERMISSIONS`, no token needed) or `gh api /app` - `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` -> PXL Classroom Provisioner.
 
 **Recent re-approval triggers in this project:**
 - `organization_administration: read` - current Enhanced Billing endpoint requirement, used by the weekly usage report. This is an organization permission and is distinct from repository `administration: write`.

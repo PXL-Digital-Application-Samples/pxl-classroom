@@ -19,6 +19,24 @@ permissions:
   contents: read
 
 jobs:
+  # MANIFEST_APP_PERMISSIONS is what the /setup manifest would create the App
+  # with - but a manifest only applies at App *creation*, so widening it never
+  # reaches an App that already exists. That drift is invisible until an
+  # onboarding fails at its billing preflight (RUNBOOK.md section 6.7), which is
+  # exactly how 2026-08-21 went. Check it on the same cadence as the report this
+  # permission exists for. GET /apps/{slug} is public; the token is only for the
+  # higher rate limit.
+  app-declaration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - run: npm ci --omit=dev
+      - name: Compare the live App against the manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-app-declaration.mjs
+
   find-orgs:
     uses: ./.github/workflows/_find-orgs.reusable.yml
     with:

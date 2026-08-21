@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
+import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -67,6 +68,15 @@ export async function setupStandardMockRoutes(page, {
   invitations = [],
   brokerIssues = [],
   roster = null,
+  // What GET /apps/{slug} reports the App declares. Defaults to a healthy App;
+  // drop a key to reproduce an App that predates a manifest permission.
+  appPermissions = { ...MANIFEST_APP_PERMISSIONS },
+  // Left undefined by default so the installation mock keeps the shape every
+  // existing spec was written against.
+  installationPermissions = undefined,
+  // "selected" reproduces an install scoped to a repository list, which cannot
+  // see student repos created after the fact.
+  installationRepositorySelection = undefined,
 } = {}) {
   // Schema route mock
   await page.route('**/schemas/*.schema.json*', async (route) => {
@@ -173,11 +183,18 @@ export async function setupStandardMockRoutes(page, {
       } else {
         await route.fulfill({ status: 200, body: JSON.stringify(invitations) });
       }
+    } else if (url.includes('/apps/pxl-classroom-provisioner')) {
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({ slug: 'pxl-classroom-provisioner', permissions: appPermissions }),
+      });
     } else if (url.includes('/user/installations')) {
       const isLecturerUser = currentUser.login.toLowerCase().includes('lecturer');
       const instList = isLecturerUser ? participatingOrgs.map((o) => ({
         id: 1000 + (typeof o === 'string' ? 1 : 2),
         account: { type: 'Organization', login: typeof o === 'string' ? o : o.login },
+        ...(installationPermissions ? { permissions: installationPermissions } : {}),
+        ...(installationRepositorySelection ? { repository_selection: installationRepositorySelection } : {}),
       })) : [];
       await route.fulfill({
         status: 200,
