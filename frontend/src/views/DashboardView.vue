@@ -2,71 +2,73 @@
   <div class="dashboard-page">
     <header class="dashboard-header">
       <div class="container flex items-center justify-between">
-        <div class="logo flex items-center gap-md">
+        <div class="logo flex items-center gap-sm">
           <router-link to="/" class="logo-link" aria-label="PXL Classroom home">
             <img :src="logoUrl" alt="PXL Classroom" class="header-logo" />
           </router-link>
           <div class="header-titles flex items-center gap-sm">
-            <span class="header-app-title">PXL Classroom</span>
-            <span class="lecturer-badge">Lecturer Dashboard</span>
+            <router-link to="/" class="header-app-title">PXL Classroom</router-link>
+            <span class="header-separator text-muted">/</span>
+
+            <!-- Custom Organization Selector with Styled Status Lights -->
+            <div v-if="orgs.length > 0" class="org-dropdown-container" ref="orgDropdownRef">
+              <button
+                type="button"
+                class="org-dropdown-btn"
+                @click.stop="toggleOrgDropdown"
+                :aria-expanded="orgDropdownOpen"
+                aria-haspopup="listbox"
+                aria-label="Select organization"
+              >
+                <span class="flex items-center gap-sm">
+                  <span
+                    class="status-lamp"
+                    :class="`lamp-${getOrgStatus(selectedOrg)}`"
+                    :title="getOrgStatusTitle(selectedOrg)"
+                  ></span>
+                  <span class="org-label">{{ selectedOrg || 'Select organization…' }}</span>
+                </span>
+                <Icon :name="orgDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="12" class="dropdown-chevron" />
+              </button>
+
+              <div
+                v-if="orgDropdownOpen"
+                class="org-dropdown-menu"
+                role="listbox"
+                aria-label="Organizations"
+                tabindex="-1"
+              >
+                <div
+                  v-for="org in orgs"
+                  :key="org.login"
+                  class="org-dropdown-item"
+                  :class="{ 'is-selected': org.login === selectedOrg }"
+                  role="option"
+                  :aria-selected="org.login === selectedOrg"
+                  @click="selectOrg(org.login)"
+                  @keydown.enter.prevent="selectOrg(org.login)"
+                  @keydown.space.prevent="selectOrg(org.login)"
+                  tabindex="0"
+                >
+                  <span
+                    class="status-lamp"
+                    :class="`lamp-${getOrgStatus(org.login)}`"
+                    :title="getOrgStatusTitle(org.login)"
+                  ></span>
+                  <span class="org-item-text">{{ org.login }}</span>
+                  <Icon v-if="org.login === selectedOrg" name="check" :size="13" class="check-icon" />
+                </div>
+              </div>
+            </div>
+
+            <span class="lecturer-tag text-muted text-xs">Lecturer</span>
           </div>
         </div>
         <div class="header-right flex items-center gap-sm">
-          <!-- Custom Organization Selector with Styled Status Lights -->
-          <div v-if="orgs.length > 0" class="org-dropdown-container" ref="orgDropdownRef">
-            <button
-              type="button"
-              class="org-dropdown-btn"
-              @click.stop="toggleOrgDropdown"
-              :aria-expanded="orgDropdownOpen"
-              aria-haspopup="listbox"
-              aria-label="Select organization"
-            >
-              <span class="flex items-center gap-sm">
-                <span
-                  class="status-lamp"
-                  :class="`lamp-${getOrgStatus(selectedOrg)}`"
-                  :title="getOrgStatusTitle(selectedOrg)"
-                ></span>
-                <span class="org-label">{{ selectedOrg || 'Select organization…' }}</span>
-              </span>
-              <Icon :name="orgDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="14" class="dropdown-chevron" />
-            </button>
-
-            <div
-              v-if="orgDropdownOpen"
-              class="org-dropdown-menu"
-              role="listbox"
-              aria-label="Organizations"
-              tabindex="-1"
-            >
-              <div
-                v-for="org in orgs"
-                :key="org.login"
-                class="org-dropdown-item"
-                :class="{ 'is-selected': org.login === selectedOrg }"
-                role="option"
-                :aria-selected="org.login === selectedOrg"
-                @click="selectOrg(org.login)"
-                @keydown.enter.prevent="selectOrg(org.login)"
-                @keydown.space.prevent="selectOrg(org.login)"
-                tabindex="0"
-              >
-                <span
-                  class="status-lamp"
-                  :class="`lamp-${getOrgStatus(org.login)}`"
-                  :title="getOrgStatusTitle(org.login)"
-                ></span>
-                <span class="org-item-text">{{ org.login }}</span>
-                <Icon v-if="org.login === selectedOrg" name="check" :size="14" class="check-icon" />
-              </div>
-            </div>
-          </div>
-
           <button
             v-if="selectedOrg"
             type="button"
-            class="btn btn-icon health-btn"
+            class="btn btn-ghost btn-icon health-btn"
             @click="showHealthModal = true"
             title="System health check"
             aria-label="System health check"
@@ -79,22 +81,6 @@
     </header>
 
     <main class="container">
-      <!-- Organization Title & Live Status Bar -->
-      <div v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError" class="org-header-bar flex items-center justify-between fade-in">
-        <div class="org-info-group flex items-center gap-md">
-          <h2 class="org-heading">{{ selectedOrg }}</h2>
-          <span class="org-status-pill" :class="`pill-${getOrgStatus(selectedOrg)}`">
-            <span class="status-lamp" :class="`lamp-${getOrgStatus(selectedOrg)}`"></span>
-            <span>{{ getOrgStatusLabel(selectedOrg) }}</span>
-          </span>
-        </div>
-        <div class="org-actions-group flex items-center gap-sm">
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
-            <Icon name="plus" :size="14" />
-            <span>Assignment</span>
-          </router-link>
-        </div>
-      </div>
       <!-- Not authenticated -->
       <div v-if="!user" class="center-card fade-in">
         <h2>Sign in to access the dashboard</h2>
@@ -240,13 +226,23 @@
 
       <!-- Assignment grid -->
       <div v-else class="fade-in">
-        <div class="flex items-center justify-between" style="margin-bottom: var(--space-md);">
+        <div class="section-toolbar flex items-center justify-between">
           <div class="flex items-center gap-md">
-            <h2 style="margin: 0; font-size: 1.25rem;">Assignments</h2>
-            <label v-if="archivedCount > 0" class="flex items-center gap-xs text-sm text-secondary" style="cursor: pointer; user-select: none;">
+            <h2 class="section-title">Assignments</h2>
+            <span v-if="selectedOrg" class="status-indicator" :title="getOrgStatusTitle(selectedOrg)">
+              <span class="status-dot" :class="`dot-${getOrgStatusDot(selectedOrg)}`"></span>
+              <span class="text-secondary text-sm">{{ getOrgStatusLabel(selectedOrg) }}</span>
+            </span>
+            <label v-if="archivedCount > 0" class="archived-toggle flex items-center gap-xs text-sm text-secondary">
               <input type="checkbox" v-model="showArchived" />
               <span>Show archived ({{ archivedCount }})</span>
             </label>
+          </div>
+          <div class="flex items-center gap-sm">
+            <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
+              <Icon name="plus" :size="14" />
+              <span>New assignment</span>
+            </router-link>
           </div>
         </div>
         
@@ -262,10 +258,13 @@
             style="text-decoration: none; color: inherit; display: block;"
           >
             <div class="card-header flex items-center justify-between">
-              <span :class="['badge', stateClass(a.state)]">{{ a.state }}</span>
-              <span class="text-muted text-sm">{{ a.id }}</span>
+              <span class="status-indicator">
+                <span class="status-dot" :class="a.state === 'published' ? 'dot-success' : (a.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
+                <span class="status-text">{{ a.state === 'published' ? 'Accepting' : (a.state === 'closed' ? 'Closed' : a.state) }}</span>
+              </span>
+              <span class="text-muted text-xs mono">{{ a.id }}</span>
             </div>
-            <h3>{{ a.title }}</h3>
+            <h3 class="assignment-card-title">{{ a.title }}</h3>
             <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
             <div class="stats-row">
               <div class="stat">
@@ -372,6 +371,13 @@ function getOrgStatusLabel(orgLogin) {
   if (status === 'inactive') return 'All Assignments Closed'
   if (status === 'empty') return 'No Assignments'
   return 'Loading Status…'
+}
+
+function getOrgStatusDot(orgLogin) {
+  const status = getOrgStatus(orgLogin)
+  if (status === 'active') return 'success'
+  if (status === 'inactive') return 'warning'
+  return 'neutral'
 }
 
 function onOutsideClick(e) {
@@ -654,13 +660,12 @@ function handleLogout() {
 }
 
 .dashboard-header {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  padding: var(--space-md) 0;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-muted);
+  padding: 10px 0;
   position: sticky;
   top: 0;
   z-index: 10;
-  backdrop-filter: blur(10px);
 }
 
 .logo-link {
@@ -675,78 +680,34 @@ function handleLogout() {
 }
 
 .header-app-title {
-  font-size: 1.15rem;
-  font-weight: 700;
+  font-size: 0.95rem;
+  font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.01em;
+  text-decoration: none;
+}
+.header-app-title:hover {
+  text-decoration: none;
+  color: var(--accent-blue);
 }
 
-.lecturer-badge {
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 8px;
-  border-radius: var(--radius-full, 9999px);
-  background: rgba(88, 166, 255, 0.15);
-  color: var(--accent-blue, #58a6ff);
-  border: 1px solid rgba(88, 166, 255, 0.3);
+.header-separator {
+  font-weight: 300;
+  user-select: none;
 }
 
-/* Organization Header Banner */
-.org-header-bar {
-  background: var(--bg-surface, #161b22);
-  border: 1px solid var(--border-default, #30363d);
-  border-radius: var(--radius-lg, 8px);
-  padding: var(--space-md) var(--space-lg);
-  margin-bottom: var(--space-xl);
-}
-
-.org-heading {
-  margin: 0;
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.org-status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
+.lecturer-tag {
+  background: var(--bg-surface-hover);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
   font-weight: 500;
-  padding: 3px 10px;
-  border-radius: var(--radius-full, 9999px);
-  border: 1px solid var(--border-default, #30363d);
-}
-
-.pill-active {
-  background: rgba(46, 160, 67, 0.12);
-  border-color: rgba(46, 160, 67, 0.35);
-  color: var(--accent-green, #3fb950);
-}
-
-.pill-inactive {
-  background: rgba(176, 101, 0, 0.12);
-  border-color: rgba(176, 101, 0, 0.35);
-  color: #d29922;
-}
-
-.pill-empty {
-  background: rgba(110, 118, 129, 0.12);
-  border-color: rgba(110, 118, 129, 0.25);
-  color: var(--text-secondary, #8b949e);
-}
-
-.pill-unknown {
-  background: transparent;
-  color: var(--text-muted);
+  letter-spacing: 0.02em;
 }
 
 /* Custom Dropdown Container & Trigger */
 .org-dropdown-container {
   position: relative;
-  min-width: 220px;
+  min-width: 200px;
 }
 
 .org-dropdown-btn {
@@ -754,26 +715,26 @@ function handleLogout() {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  background: var(--bg-surface, #161b22);
-  border: 1px solid var(--border-default, #30363d);
-  color: var(--text-primary, #c9d1d9);
-  padding: 5px 12px;
-  border-radius: var(--radius-md, 6px);
-  font-size: var(--font-size-sm, 13px);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   width: 100%;
-  min-height: 32px;
-  transition: border-color 0.15s, background-color 0.15s;
+  min-height: 28px;
+  transition: border-color 0.12s, background-color 0.12s;
 }
 
 .org-dropdown-btn:hover {
-  border-color: var(--border-hover, #8b949e);
-  background: var(--bg-surface-hover, #21262d);
+  border-color: #8b949e;
+  background: var(--bg-surface-hover);
 }
 
 .org-dropdown-btn:focus-visible {
-  outline: 2px solid var(--color-accent, #58a6ff);
+  outline: 2px solid var(--accent-blue);
   outline-offset: 1px;
 }
 
@@ -782,11 +743,11 @@ function handleLogout() {
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  min-width: 240px;
-  background: var(--bg-surface, #161b22);
-  border: 1px solid var(--border-default, #30363d);
-  border-radius: var(--radius-md, 6px);
-  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+  min-width: 230px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
   z-index: 100;
   max-height: 280px;
   overflow-y: auto;
@@ -797,81 +758,87 @@ function handleLogout() {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: 7px 10px;
-  border-radius: var(--radius-sm, 4px);
-  font-size: var(--font-size-sm, 13px);
-  color: var(--text-primary, #c9d1d9);
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 0.85rem;
+  color: var(--text-primary);
   cursor: pointer;
-  transition: background-color 0.12s;
+  transition: background-color 0.1s;
 }
 
 .org-dropdown-item:hover,
 .org-dropdown-item:focus-visible {
-  background: var(--bg-surface-hover, #21262d);
+  background: var(--bg-surface-hover);
   outline: none;
 }
 
 .org-dropdown-item.is-selected {
   font-weight: 600;
-  color: var(--color-accent, #58a6ff);
+  color: var(--accent-blue);
 }
 
 .check-icon {
   margin-left: auto;
-  color: var(--color-accent, #58a6ff);
+  color: var(--accent-blue);
 }
 
 .dropdown-chevron {
-  color: var(--text-secondary, #8b949e);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
 /* Status Lamp Indicators */
 .status-lamp {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  min-width: 8px;
-  min-height: 8px;
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+  min-height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
   box-sizing: border-box;
 }
 
-/* Green Light: Active Open Assignment */
 .lamp-active {
-  background-color: #2ea043;
-  box-shadow: 0 0 6px rgba(46, 160, 67, 0.85);
+  background-color: var(--accent-green);
+  box-shadow: 0 0 5px rgba(63, 185, 80, 0.6);
 }
 
-/* Dim Orange Light: Assignments present, none open */
 .lamp-inactive {
-  background-color: #b06500;
+  background-color: var(--accent-yellow);
   opacity: 0.85;
 }
 
-/* Extinguished Light: 0 assignments in org */
 .lamp-empty {
   background-color: transparent;
   border: 1.5px solid #484f58;
   opacity: 0.7;
 }
 
-/* Loading / Unknown */
 .lamp-unknown {
   background-color: #30363d;
   opacity: 0.5;
 }
 
-.avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 2px solid var(--border-default);
+main {
+  padding: var(--space-xl) 0;
 }
 
-main {
-  padding: var(--space-xl) var(--space-lg);
+.section-toolbar {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.section-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.archived-toggle {
+  cursor: pointer;
+  user-select: none;
 }
 
 .center-card {
@@ -887,62 +854,52 @@ main {
 .auth-error {
   color: var(--accent-red);
   border: 1px solid var(--accent-red);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   padding: var(--space-sm) var(--space-md);
-  font-size: 0.9rem;
-}
-
-.device-flow-inline {
-  margin-top: var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-}
-.device-code-big {
-  font-family: var(--font-mono);
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--accent-blue);
-  letter-spacing: 0.1em;
+  font-size: 0.85rem;
 }
 
 .assignment-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--space-lg);
+  gap: var(--space-md);
 }
 
 .assignment-card {
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
 }
 .assignment-card:hover {
-  border-color: var(--accent-blue);
-  box-shadow: var(--shadow-glow);
-  transform: translateY(-2px);
+  border-color: #58a6ff;
+  background: var(--bg-surface-elevated);
 }
 
 .card-header {
   margin-bottom: var(--space-sm);
 }
 
-.assignment-card h3 {
-  font-size: 1.125rem;
+.status-text {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.assignment-card-title {
+  font-size: 1.05rem;
   font-weight: 600;
   margin-bottom: var(--space-xs);
 }
 
 .deadline-text {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
   margin-bottom: var(--space-md);
 }
 
 .stats-row {
   display: flex;
   gap: var(--space-md);
-  padding-top: var(--space-md);
+  padding-top: var(--space-sm);
   border-top: 1px solid var(--border-muted);
 }
 
@@ -950,15 +907,15 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 48px;
+  min-width: 44px;
 }
 
 .stat-value {
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.15rem;
+  font-weight: 600;
 }
 .stat-label {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   color: var(--text-muted);
   letter-spacing: 0.03em;
@@ -969,99 +926,21 @@ main {
 .stat-red { color: var(--accent-red); }
 .stat-orange { color: var(--accent-orange); }
 
-.text-sm { font-size: 0.8rem; }
-.text-secondary { color: var(--text-secondary); }
-.text-muted { color: var(--text-muted); }
-
 .health-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-default);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-.health-btn:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--border-hover, var(--border-default));
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  z-index: 1000;
-  padding: max(24px, 5vh) var(--space-md);
-  overflow-y: auto;
-  backdrop-filter: blur(4px);
-}
-.modal {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  width: 100%;
-  max-width: 620px;
-  max-height: calc(100vh - 10vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  margin: 0 auto;
-}
-.health-modal .modal-head {
-  padding: var(--space-md) var(--space-lg);
-  border-bottom: 1px solid var(--border-default);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--bg-tertiary);
-}
-.health-modal .modal-head h3 {
-  font-size: 1rem;
-  font-weight: 600;
-}
-.health-modal .modal-head code {
-  background: var(--bg-primary);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.85rem;
-}
-.modal-close {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 1.4rem;
-  line-height: 1;
-  padding: 0 var(--space-xs);
-}
-.modal-close:hover {
-  color: var(--text-primary);
-}
-.health-modal .modal-body {
-  padding: var(--space-lg);
-  overflow-y: auto;
+  border-radius: var(--radius-sm);
 }
 
 /* ONBOARDING READINESS CARD */
 .onboarding-readiness-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
   padding: var(--space-xl);
-  max-width: 720px;
+  max-width: 680px;
   margin: var(--space-lg) auto;
-  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
@@ -1073,18 +952,19 @@ main {
 }
 .onboarding-head h2 {
   margin: 0 0 var(--space-xs) 0;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
 }
 .onboarding-head p {
   margin: 0;
+  font-size: 0.88rem;
   line-height: 1.4;
 }
 .onboarding-steps {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  border-top: 1px solid var(--border-default);
-  border-bottom: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-muted);
+  border-bottom: 1px solid var(--border-muted);
   padding: var(--space-lg) 0;
 }
 .onboarding-step {
@@ -1098,26 +978,26 @@ main {
 }
 .onboarding-step .step-body strong {
   display: block;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   margin-bottom: 2px;
 }
 .onboarding-step .step-body p {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--text-secondary);
   line-height: 1.35;
 }
 .onboarding-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
 @media (max-width: 640px) {
   .header-right { flex-direction: column; gap: var(--space-sm); align-items: stretch; }
-  .org-select { min-width: 160px; width: 100%; }
   .health-btn { justify-content: center; }
   .onboarding-actions { flex-direction: column; align-items: stretch; }
+  .section-toolbar { flex-direction: column; align-items: flex-start; gap: var(--space-sm); }
 }
 </style>

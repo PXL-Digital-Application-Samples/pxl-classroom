@@ -1,11 +1,16 @@
 <template>
   <div class="admin-page container fade-in">
-    <header class="admin-header">
-      <router-link :to="{ name: 'dashboard', params: { org } }" class="btn btn-with-icon">
-        <Icon name="arrow-left" :size="14" />
-        <span>Dashboard</span>
-      </router-link>
-      <h2>Admin Panel - {{ org }}</h2>
+    <header class="admin-header flex items-center justify-between">
+      <div class="breadcrumb flex items-center gap-sm">
+        <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
+          <Icon name="arrow-left" :size="14" />
+          <span>Dashboard</span>
+        </router-link>
+        <span class="text-muted">/</span>
+        <span class="text-secondary">{{ org }}</span>
+        <span class="text-muted">/</span>
+        <h1 class="admin-heading">Admin Console</h1>
+      </div>
     </header>
 
     <!-- Not authenticated - never render the editor with data-shaped empty
@@ -29,25 +34,31 @@
     </div>
 
     <template v-else>
-    <nav class="admin-tabs" role="tablist">
+    <nav class="primer-tabs" role="tablist">
       <button
         type="button"
         role="tab"
         :aria-selected="activeTab === 'assignments'"
         :tabindex="activeTab === 'assignments' ? 0 : -1"
-        :class="['tab', { active: activeTab === 'assignments' }]"
+        :class="['primer-tab', { active: activeTab === 'assignments' }]"
         @click="setTab('assignments')"
         @keydown="onTabKeydown"
-      >Assignments</button>
+      >
+        <Icon name="file-text" :size="14" />
+        <span>Assignments</span>
+      </button>
       <button
         type="button"
         role="tab"
         :aria-selected="activeTab === 'roster'"
         :tabindex="activeTab === 'roster' ? 0 : -1"
-        :class="['tab', { active: activeTab === 'roster' }]"
+        :class="['primer-tab', { active: activeTab === 'roster' }]"
         @click="setTab('roster')"
         @keydown="onTabKeydown"
-      >Roster</button>
+      >
+        <Icon name="users" :size="14" />
+        <span>Roster</span>
+      </button>
     </nav>
 
     <!-- v-show (not v-if): unmounting would silently discard an un-committed
@@ -2269,6 +2280,24 @@ watch(
   align-items: center;
   gap: var(--space-md);
   margin-bottom: var(--space-md);
+  padding-bottom: var(--space-xs);
+}
+.back-link {
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+.back-link:hover {
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+.admin-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
 }
 
 .center-card {
@@ -2283,36 +2312,11 @@ watch(
 .auth-error {
   color: var(--accent-red);
   border: 1px solid var(--accent-red);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   padding: var(--space-sm) var(--space-md);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
-
-.admin-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border-default);
-  margin-bottom: var(--space-lg);
-}
-.admin-tabs .tab {
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom: none;
-  padding: var(--space-sm) var(--space-md);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font: inherit;
-  border-radius: 6px 6px 0 0;
-  margin-bottom: -1px;
-}
-.admin-tabs .tab:hover { background: var(--bg-elevated, var(--bg-tertiary)); color: var(--text-primary); }
-.admin-tabs .tab.active {
-  background: var(--bg-secondary);
-  border-color: var(--border-default);
-  border-bottom-color: var(--bg-secondary);
-  color: var(--text-primary);
-}
 
 .admin-layout {
   display: grid;

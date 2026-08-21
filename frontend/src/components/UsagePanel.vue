@@ -28,11 +28,13 @@
             <Icon name="zap" :size="11" class="chip-icon text-muted" />
             API: <strong>{{ rateLimit.remaining.toLocaleString() }}</strong> / {{ rateLimit.limit.toLocaleString() }}
           </span>
-          <span v-if="report && report.over_count > 0" class="status-pill status-pill-warn text-xs">
-            ⚠ {{ report.over_count }} over
+          <span v-if="report && report.over_count > 0" class="status-indicator">
+            <span class="status-dot dot-warning"></span>
+            <span class="text-xs text-warning">{{ report.over_count }} over</span>
           </span>
-          <span v-else-if="report" class="status-pill status-pill-ok text-xs">
-            ✓ Limits OK
+          <span v-else-if="report" class="status-indicator">
+            <span class="status-dot dot-success"></span>
+            <span class="text-xs text-success">Limits OK</span>
           </span>
         </div>
       </div>
@@ -557,8 +559,8 @@ onBeforeUnmount(() => {
 }
 
 .kpi-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-muted);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
   display: flex;

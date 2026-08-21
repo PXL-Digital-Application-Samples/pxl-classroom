@@ -2,24 +2,28 @@
   <div class="detail-page">
     <header class="detail-header">
       <div class="container flex items-center justify-between">
-        <div class="breadcrumb flex items-center gap-md">
+        <div class="breadcrumb flex items-center gap-sm">
           <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
             <Icon name="arrow-left" :size="14" />
             <span>Dashboard</span>
           </router-link>
-          <h1 :title="assignmentId">{{ assignmentId }}</h1>
-          <span v-if="assignment" :class="['badge', assignment.state === 'published' ? 'badge-success' : (assignment.state === 'closed' ? 'badge-warning' : 'badge-neutral')]">
-            {{ assignment.state === 'published' ? 'Accepting' : (assignment.state === 'closed' ? 'Acceptance Closed' : assignment.state) }}
+          <span class="text-muted">/</span>
+          <span class="text-secondary">{{ org }}</span>
+          <span class="text-muted">/</span>
+          <h1 class="assignment-heading" :title="assignmentId">{{ assignmentId }}</h1>
+          <span v-if="assignment" class="status-indicator">
+            <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
+            <span class="text-xs text-secondary">{{ assignment.state === 'published' ? 'Accepting' : (assignment.state === 'closed' ? 'Closed' : assignment.state) }}</span>
           </span>
         </div>
-        <div class="header-right flex items-center gap-md">
+        <div class="header-right flex items-center gap-sm">
           <router-link
             :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"
-            class="btn btn-amber btn-with-icon"
+            class="btn btn-secondary btn-with-icon btn-sm"
             title="Open and edit this assignment in the Admin Panel"
           >
-            <Icon name="edit-3" :size="14" />
-            <span>Admin</span>
+            <Icon name="edit-3" :size="13" />
+            <span>Edit</span>
           </router-link>
           <UserBadge :user="user" @logout="handleLogout" />
         </div>
@@ -268,27 +272,27 @@
               </button>
             </div>
           </div>
-          <div class="flex gap-sm items-center">
-            <button class="btn btn-primary btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive">
-              <span v-if="refreshingLive">Fetching ({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
-              <template v-else>
-                <Icon name="refresh-cw" :size="14" />
-                <span>Refresh</span>
-              </template>
+          <div class="flex gap-xs items-center">
+            <!-- Refresh Button (Neutral Secondary) -->
+            <button class="btn btn-secondary btn-sm btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive" title="Fetch live commit and autograding status">
+              <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': refreshingLive }" />
+              <span v-if="refreshingLive">({{ refreshedStudentsCount }}/{{ totalStudentsToRefresh }})</span>
+              <span v-else>Refresh</span>
             </button>
-            <!-- Consolidated Export & CLI Menu -->
+
+            <!-- Export Dropdown Menu -->
             <div class="dropdown-container" ref="exportDropdownRef">
               <button
-                class="btn btn-with-icon"
+                class="btn btn-secondary btn-sm btn-with-icon"
                 type="button"
                 @click.stop="toggleExportDropdown"
                 :aria-expanded="exportDropdownOpen"
                 aria-haspopup="true"
                 title="Export data and CLI commands"
               >
-                <Icon name="download" :size="14" />
+                <Icon name="download" :size="13" />
                 <span>Export</span>
-                <Icon :name="exportDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="12" />
+                <Icon :name="exportDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
               </button>
 
               <div v-if="exportDropdownOpen" class="export-dropdown-menu fade-in" role="menu">
@@ -339,40 +343,78 @@
                 </button>
               </div>
             </div>
-            <button
-              v-if="feedbackPrEnabled"
-              class="btn btn-secondary btn-with-icon"
-              type="button"
-              @click="openFeedbackPrs"
-              :disabled="openingFeedbackPrs"
-              title="Open Feedback Pull Requests on student repositories with commits"
-            >
-              <Icon name="message-square" :size="14" />
-              <span>{{ openingFeedbackPrs ? 'Opening PRs…' : 'Open Feedback PRs' }}</span>
-            </button>
-            <button
-              v-if="assignment && assignment.template"
-              class="btn btn-secondary btn-with-icon"
-              type="button"
-              @click="showStarterSyncModal = true"
-              title="Sync updated starter code or tests from template repository"
-            >
-              <Icon name="git-pull-request" :size="14" />
-              <span>Sync Starter Code</span>
-            </button>
-            <button
-              v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
-              :class="['btn', 'btn-with-icon', assignment.state === 'published' ? 'btn-danger' : 'btn-success']"
-              type="button"
-              @click="toggleAcceptanceState"
-              :disabled="togglingState"
-              :title="assignment.state === 'published' ? 'Close acceptance to stop new students from registering' : 'Open acceptance to allow students to register'"
-            >
-              <Icon :name="assignment.state === 'published' ? 'lock' : 'unlock'" :size="14" />
-              <span>{{ togglingState ? 'Updating…' : (assignment.state === 'published' ? 'Close acceptance' : 'Open acceptance') }}</span>
-            </button>
-            <button class="btn btn-success btn-with-icon" @click="copyAcceptLink">
-              <Icon name="copy" :size="14" />
+
+            <!-- More Actions Dropdown Menu (Consolidating secondary/maintenance actions) -->
+            <div class="dropdown-container" ref="moreActionsRef">
+              <button
+                class="btn btn-secondary btn-sm btn-with-icon"
+                type="button"
+                @click.stop="toggleMoreActions"
+                :aria-expanded="moreActionsOpen"
+                aria-haspopup="true"
+                title="More assignment management actions"
+              >
+                <Icon name="more-horizontal" :size="14" />
+                <span>More</span>
+                <Icon :name="moreActionsOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
+              </button>
+
+              <div v-if="moreActionsOpen" class="export-dropdown-menu fade-in" role="menu">
+                <button
+                  v-if="assignment && assignment.template"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleSyncStarterCode"
+                >
+                  <Icon name="git-pull-request" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Sync Starter Code</span>
+                    <span class="dropdown-item-sub">Propagate template updates to students</span>
+                  </div>
+                </button>
+
+                <button
+                  v-if="feedbackPrEnabled"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleOpenFeedbackPrs"
+                  :disabled="openingFeedbackPrs"
+                >
+                  <Icon name="message-square" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">{{ openingFeedbackPrs ? 'Opening PRs…' : 'Open Feedback PRs' }}</span>
+                    <span class="dropdown-item-sub">Create review branches on student repos</span>
+                  </div>
+                </button>
+
+                <div v-if="assignment && (assignment.template || feedbackPrEnabled)" class="dropdown-divider"></div>
+
+                <button
+                  v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleToggleAcceptanceState"
+                  :disabled="togglingState"
+                >
+                  <Icon :name="assignment.state === 'published' ? 'lock' : 'unlock'" :size="14" class="dropdown-icon" :class="assignment.state === 'published' ? 'text-danger' : 'text-success'" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title" :class="assignment.state === 'published' ? 'text-danger' : 'text-success'">
+                      {{ togglingState ? 'Updating…' : (assignment.state === 'published' ? 'Close Acceptance' : 'Re-open Acceptance') }}
+                    </span>
+                    <span class="dropdown-item-sub">
+                      {{ assignment.state === 'published' ? 'Prevent new student registrations' : 'Allow new students to join' }}
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Single Standout Primary CTA -->
+            <button class="btn btn-primary btn-sm btn-with-icon" @click="copyAcceptLink" title="Copy student invitation link to clipboard">
+              <Icon name="copy" :size="13" />
               <span>Copy invitation link</span>
             </button>
           </div>
@@ -446,16 +488,22 @@
                   <a :href="`https://github.com/${s.github_login}`" target="_blank" :title="studentTooltip(s)">{{ s.github_login }}</a>
                 </td>
                 <td v-if="isGroupAssignment">
-                  <span v-if="s.team_name || s.team_slug" class="badge badge-neutral" style="font-size: 0.75rem;">
+                  <span v-if="s.team_name || s.team_slug" class="text-sm font-medium">
                     {{ s.team_name || s.team_slug }}
                   </span>
                   <span v-else class="text-muted text-xs">-</span>
                 </td>
                 <td>
-                  <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ s.acceptance_state }}</span>
+                  <span class="status-indicator">
+                    <span class="status-dot" :class="s.acceptance_state === 'accepted' || s.acceptance_state === 'provisioned' ? 'dot-success' : (s.acceptance_state === 'declined' ? 'dot-danger' : 'dot-neutral')"></span>
+                    <span class="text-sm">{{ s.acceptance_state || '-' }}</span>
+                  </span>
                 </td>
                 <td>
-                  <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
+                  <span class="status-indicator">
+                    <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? 'dot-neutral' : 'dot-info'))"></span>
+                    <span class="text-sm">{{ s.submission_status }}</span>
+                  </span>
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
                     ext -> {{ fmt(extensionFor(s.github_login).value) }}
                   </div>
@@ -1555,15 +1603,42 @@ function handleCopyGradeCmd() {
   copyGradeCmd()
 }
 
+// More Actions Dropdown Menu State
+const moreActionsOpen = ref(false)
+const moreActionsRef = ref(null)
+
+function toggleMoreActions() {
+  moreActionsOpen.value = !moreActionsOpen.value
+}
+
+function handleSyncStarterCode() {
+  moreActionsOpen.value = false
+  showStarterSyncModal.value = true
+}
+
+function handleOpenFeedbackPrs() {
+  moreActionsOpen.value = false
+  openFeedbackPrs()
+}
+
+function handleToggleAcceptanceState() {
+  moreActionsOpen.value = false
+  toggleAcceptanceState()
+}
+
 function onDocumentClick(e) {
   if (exportDropdownRef.value && !exportDropdownRef.value.contains(e.target)) {
     exportDropdownOpen.value = false
+  }
+  if (moreActionsRef.value && !moreActionsRef.value.contains(e.target)) {
+    moreActionsOpen.value = false
   }
 }
 
 function onKeydown(e) {
   if (e.key === 'Escape') {
     if (exportDropdownOpen.value) exportDropdownOpen.value = false
+    if (moreActionsOpen.value) moreActionsOpen.value = false
     if (actionStudent.value) closeActions()
     if (showBreakdown.value) showBreakdown.value = false
   }
@@ -2497,23 +2572,25 @@ async function retryAcceptanceFor(student) {
 .detail-page { min-height: 100vh; }
 
 .detail-header {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  padding: var(--space-md) 0;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-muted);
+  padding: 10px 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
-.back-link { font-size: 0.875rem; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
-/* The breadcrumb must shrink inside the header flex row - otherwise a long
-   assignment id forces horizontal page scroll on mobile. */
+.back-link { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--text-secondary); }
+.back-link:hover { color: var(--accent-blue); text-decoration: none; }
 .breadcrumb { min-width: 0; flex: 1; }
 .breadcrumb h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assignment-heading { font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--text-primary); }
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .separator { color: var(--text-muted); }
-.org-name { color: var(--text-secondary); font-size: 0.875rem; text-decoration: none; }
+.org-name { color: var(--text-secondary); font-size: 0.85rem; text-decoration: none; }
 .org-name:hover { color: var(--accent-blue); text-decoration: underline; }
-h1 { font-size: 1.125rem; font-weight: 600; }
 .avatar { width: 24px; height: 24px; border-radius: 50%; }
 
-main { padding: var(--space-xl) var(--space-lg); }
+main { padding: var(--space-xl) 0; }
 
 .center-card {
   max-width: 480px;
@@ -2535,9 +2612,9 @@ main { padding: var(--space-xl) var(--space-lg); }
 .auth-error {
   color: var(--accent-red);
   border: 1px solid var(--accent-red);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   padding: var(--space-sm) var(--space-md);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .summary-row {
@@ -2549,19 +2626,25 @@ main { padding: var(--space-xl) var(--space-lg); }
 .summary-card {
   text-align: center;
   padding: var(--space-md);
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+.summary-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-surface-elevated);
 }
 .summary-value {
   display: block;
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 700;
+  line-height: 1.2;
 }
 .deadline-value {
-  font-size: 1.4rem;
+  font-size: 1.25rem;
   line-height: 1.2;
-  padding: 6px 0;
+  padding: 4px 0;
 }
 .summary-label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   color: var(--text-muted);
   letter-spacing: 0.03em;
@@ -2580,8 +2663,9 @@ main { padding: var(--space-xl) var(--space-lg); }
 
 .table-wrapper {
   overflow-x: auto;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
 }
 
 table {
@@ -2589,29 +2673,33 @@ table {
   border-collapse: collapse;
   font-size: 0.85rem;
 }
-th, td {
-  padding: var(--space-sm) var(--space-md);
+th {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 10px 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+td {
+  padding: 10px 14px;
   text-align: left;
   border-bottom: 1px solid var(--border-muted);
   white-space: nowrap;
 }
 th.col-warnings, td.col-warnings { white-space: normal; min-width: 160px; }
-th {
-  background: var(--bg-tertiary);
-  font-weight: 600;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-}
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--accent-blue); }
 .th-label { display: inline-flex; align-items: center; gap: 4px; }
 .sort-glyph { color: var(--accent-blue); }
 
-tr:hover td { background: rgba(88, 166, 255, 0.04); }
-tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
-tbody tr:nth-child(even):hover td { background: rgba(88, 166, 255, 0.06); }
+tr:hover td { background: var(--bg-surface-hover); }
+tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.015); }
+tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 
 .empty-row {
   text-align: center;

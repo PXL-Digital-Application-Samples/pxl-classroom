@@ -2,10 +2,10 @@
   <div v-if="user" class="user-badge flex items-center gap-sm">
     <img :src="user.avatar_url" :alt="user.login" class="avatar" referrerpolicy="no-referrer" />
     <span class="login-wrap">
-      {{ user.login }}
+      <span class="login-name">{{ user.login }}</span>
       <small v-if="expiryLabel" class="expiry" :title="expiryTitle">{{ expiryLabel }}</small>
     </span>
-    <button class="btn" @click="emit('logout')" aria-label="Sign out">Sign out</button>
+    <button class="btn btn-secondary btn-xs" @click="emit('logout')" aria-label="Sign out">Sign out</button>
   </div>
 </template>
 
@@ -45,14 +45,15 @@ const expiryTitle = computed(() => {
 
 <style scoped>
 .user-badge {
-  font-size: 0.875rem;
+  font-size: 0.82rem;
 }
 .avatar {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  border: 2px solid var(--border-default);
+  border: 1px solid var(--border-default);
 }
-.login-wrap { display: flex; flex-direction: column; line-height: 1.2; }
-.expiry { color: var(--text-muted); font-size: 0.68rem; }
+.login-wrap { display: flex; flex-direction: column; line-height: 1.15; }
+.login-name { font-weight: 500; color: var(--text-primary); }
+.expiry { color: var(--text-muted); font-size: 0.65rem; }
 </style>
