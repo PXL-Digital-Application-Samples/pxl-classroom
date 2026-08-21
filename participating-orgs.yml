@@ -12,3 +12,5 @@ orgs:
     budget_owner_login: d-ries
   - login: PXL-CSMobile
     budget_owner_login: arnobarzan
+  - login: PXL-SNE-Security-Adv
+    budget_owner_login: dhoubrechts
