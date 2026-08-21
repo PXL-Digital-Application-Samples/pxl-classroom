@@ -42,7 +42,7 @@ export const STUDENT_2 = {
 export async function injectAuth(page, user) {
   const authData = JSON.stringify({
     access_token: user.token,
-    user: { login: user.login, name: user.name },
+    user: { login: user.login, name: user.name, email: user.email },
     expires_at: new Date(Date.now() + 86400000).toISOString(),
   });
 
@@ -161,7 +161,7 @@ export async function setupStandardMockRoutes(page, {
     } else if (url.includes('/user')) {
       await route.fulfill({
         status: 200,
-        body: JSON.stringify({ login: currentUser.login, id: 999999, name: currentUser.name }),
+        body: JSON.stringify({ login: currentUser.login, id: 999999, name: currentUser.name, email: currentUser.email }),
       });
     } else if (url.includes('/issues') && method === 'GET') {
       await route.fulfill({
@@ -381,6 +381,17 @@ export async function setupStandardMockRoutes(page, {
         await route.fulfill({ status: 200, body: JSON.stringify(existing) });
       } else if (match?.[2] === 'pxl-classroom-control') {
         await route.fulfill({ status: 200, body: JSON.stringify({ full_name: `${match[1]}/pxl-classroom-control`, name: 'pxl-classroom-control' }) });
+      } else if (match?.[2]?.includes('template')) {
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify({
+            full_name: `${match[1]}/${match[2]}`,
+            name: match[2],
+            is_template: !match[2].includes('non-template'),
+            default_branch: 'main',
+            private: false,
+          }),
+        });
       } else {
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
       }

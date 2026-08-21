@@ -165,6 +165,28 @@
           </div>
         </div>
 
+        <!-- Capacity Alert & 1-Click Bumper Banner (2.D) -->
+        <div v-if="capacityAlert" class="card capacity-banner flex justify-between items-center flex-wrap gap-md" style="margin-bottom: var(--space-md); padding: 12px 16px; border-left: 4px solid var(--accent-amber, #d29922); background: rgba(210, 153, 34, 0.08);">
+          <div class="flex items-center gap-sm">
+            <Icon name="alert-circle" :size="20" class="text-warning" />
+            <div>
+              <div class="font-semibold text-sm">
+                Cohort Capacity Alert: <strong>{{ acceptedStudentsCount }} / {{ assignment.max_acceptances }}</strong> acceptances
+              </div>
+              <div class="text-xs text-secondary">
+                {{ acceptedStudentsCount >= assignment.max_acceptances ? 'Registration cap reached. New student acceptances are currently blocked.' : 'Cohort is approaching maximum student capacity.' }}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-xs flex-wrap">
+            <span class="text-xs text-secondary font-medium">Quick Bump:</span>
+            <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(10)">+10</button>
+            <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(25)">+25</button>
+            <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(50)">+50</button>
+            <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(null)">Remove limit</button>
+          </div>
+        </div>
+
         <!-- Summary cards -->
         <div class="summary-row">
           <div class="summary-card card deadline-card">
@@ -1114,6 +1136,59 @@ const preservationUncertaintySeconds = computed(() => {
   const s = (report.value?.students || []).find((s) => s.uncertainty_interval_seconds != null)
   return s?.uncertainty_interval_seconds ?? report.value?.uncertainty_seconds ?? null
 })
+
+// Capacity Alert & 1-Click Bumper Logic (2.D)
+const acceptedStudentsCount = computed(() =>
+  (report.value?.students || []).filter((s) => s.repo_name || s.acceptance_state === 'accepted' || s.status !== 'no-submission').length
+)
+
+const capacityAlert = computed(() => {
+  const cap = assignment.value?.max_acceptances
+  if (!cap || cap <= 0) return false
+  const count = acceptedStudentsCount.value
+  return count >= cap || count / cap >= 0.9
+})
+
+const bumpingCapacity = ref(false)
+
+async function bumpCapacity(delta) {
+  if (!assignment.value) return
+  bumpingCapacity.value = true
+  try {
+    const token = getToken()
+    const content = await getRepoContent(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`)
+    if (!content) throw new Error('Could not load assignment configuration YAML')
+    const doc = parseYaml(content)
+    let newCap = null
+    if (delta == null) {
+      delete doc.max_acceptances
+    } else {
+      const current = doc.max_acceptances || 0
+      newCap = current + delta
+      doc.max_acceptances = newCap
+    }
+    const updatedYaml = stringifyYaml(doc)
+    const commitMsg = delta == null
+      ? `Remove max_acceptances cap for ${props.assignmentId}`
+      : `Increase max_acceptances by +${delta} (total: ${newCap}) for ${props.assignmentId}`
+    const res = await commitFile(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`, updatedYaml, commitMsg)
+    if (res.ok) {
+      toast.success(delta == null ? 'Registration cap removed' : `Capacity increased to ${newCap} slots`)
+      if (delta == null) {
+        delete assignment.value.max_acceptances
+      } else {
+        assignment.value.max_acceptances = newCap
+      }
+      await loadAll()
+    } else {
+      toast.error(`Failed to update capacity: ${res.data?.message || 'unknown error'}`)
+    }
+  } catch (e) {
+    toast.error(`Error updating capacity: ${e.message}`)
+  } finally {
+    bumpingCapacity.value = false
+  }
+}
 
 const showStarterSyncModal = ref(false)
 const openingFeedbackPrs = ref(false)

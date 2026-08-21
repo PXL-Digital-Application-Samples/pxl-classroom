@@ -353,6 +353,21 @@
                   <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': loadingTemplates }" />
                 </button>
               </div>
+              <!-- Pre-flight Template Validation Badge (2.B) -->
+              <div v-if="templateValidationStatus" class="template-preflight-badge" style="margin-top: var(--space-xs);" role="status">
+                <span v-if="templateValidationStatus.checking" class="badge badge-neutral flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
+                  <span class="spinner sm" style="width: 12px; height: 12px;"></span> Checking template repository…
+                </span>
+                <span v-else-if="templateValidationStatus.valid && templateValidationStatus.isTemplate" class="badge badge-success flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
+                  <Icon name="check-circle" :size="13" /> Valid Template Repository ({{ templateValidationStatus.defaultBranch }} branch{{ templateValidationStatus.isPrivate ? ', private' : '' }})
+                </span>
+                <span v-else-if="templateValidationStatus.valid && !templateValidationStatus.isTemplate" class="badge badge-warning flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
+                  <Icon name="alert-triangle" :size="13" /> Repository exists but is not marked as a GitHub Template
+                </span>
+                <span v-else-if="!templateValidationStatus.valid" class="badge badge-error flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
+                  <Icon name="x-circle" :size="13" /> {{ templateValidationStatus.message || 'Repository not found on GitHub' }}
+                </span>
+              </div>
               <div v-if="touchedFields.template && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
               <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
                 Failed to load templates: {{ templatesError }}.
@@ -766,7 +781,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
-import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns } from '../lib/api.js'
+import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
@@ -1104,10 +1119,58 @@ function handleClickOutside(ev) {
   }
 }
 
+const templateValidationStatus = ref(null)
+let templateValidationTimer = null
+
+async function checkTemplateValidity(templateStr) {
+  if (templateValidationTimer) clearTimeout(templateValidationTimer)
+  if (!templateStr || !templateStr.includes('/')) {
+    templateValidationStatus.value = null
+    return
+  }
+
+  const parts = templateStr.trim().split('/')
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    templateValidationStatus.value = null
+    return
+  }
+
+  const [owner, repo] = parts
+  templateValidationStatus.value = { checking: true }
+
+  templateValidationTimer = setTimeout(async () => {
+    const token = getToken()
+    if (!token) return
+    try {
+      const res = await validateTemplateRepository(token, owner, repo)
+      if (res.ok) {
+        templateValidationStatus.value = {
+          valid: true,
+          isTemplate: res.isTemplate,
+          defaultBranch: res.defaultBranch,
+          isPrivate: res.isPrivate,
+          fullName: res.fullName,
+        }
+      } else {
+        templateValidationStatus.value = {
+          valid: false,
+          message: res.reason === 'not_found' ? `Repository "${owner}/${repo}" not found or private` : res.message,
+        }
+      }
+    } catch (e) {
+      templateValidationStatus.value = {
+        valid: false,
+        message: e.message,
+      }
+    }
+  }, 400)
+}
+
 watch(() => form.value.template, (newVal) => {
   if (newVal !== templateSearchText.value) {
     templateSearchText.value = newVal || ''
   }
+  checkTemplateValidity(newVal)
 })
 
 watch(() => form.value.id, (newId) => {

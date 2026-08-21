@@ -291,12 +291,25 @@
       </div>
       </template>
     </div>
+
+    <!-- Student Diagnostics Modal (1.A) -->
+    <StudentDiagnosticsModal
+      :show="showDiagnosticsModal"
+      :user="user"
+      :assignment="assignment"
+      :org="org"
+      :accept-state="acceptState"
+      :pending-invitation="pendingInvitation"
+      :roster-status="rosterStatus"
+      @close="showDiagnosticsModal = false"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
+import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
 import { getToken, getUser } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
@@ -322,6 +335,10 @@ const repoFullName = ref(null)
 const repoCopied = ref(false)
 const pendingInvitation = ref(null)
 const isSwitching = ref(false)
+
+// Student Diagnostics (1.A)
+const showDiagnosticsModal = ref(false)
+const rosterStatus = ref('enrolled')
 
 const pollInterval = ref(3000)
 const pollCount = ref(0)

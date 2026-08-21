@@ -316,3 +316,28 @@ export async function listOrgTemplates(token, org) {
   const repos = await listOrgRepos(token, org)
   return repos.filter((r) => r.is_template)
 }
+
+/**
+ * Validates whether a given owner/repo exists, is accessible, and is marked as a GitHub template.
+ */
+export async function validateTemplateRepository(token, owner, repo) {
+  if (!owner || !repo) return { ok: false, reason: 'missing_params' }
+  const res = await ghApi(token, 'GET', `/repos/${owner}/${repo}`)
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      reason: res.status === 404 ? 'not_found' : 'forbidden_or_error',
+      message: res.data?.message || `HTTP ${res.status}`,
+    }
+  }
+  const repoData = res.data || {}
+  return {
+    ok: true,
+    isTemplate: !!repoData.is_template,
+    defaultBranch: repoData.default_branch || 'main',
+    isPrivate: !!repoData.private,
+    fullName: repoData.full_name || `${owner}/${repo}`,
+    htmlUrl: repoData.html_url,
+  }
+}

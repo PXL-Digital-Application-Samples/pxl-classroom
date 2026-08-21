@@ -60,6 +60,9 @@ export function initAuth() {
  * Get the current access token (or null if not authenticated).
  */
 export function getToken() {
+  if (!_token) {
+    initAuth()
+  }
   if (_tokenExpiresAt && new Date() > _tokenExpiresAt) {
     clearAuth()
     return null
@@ -71,6 +74,9 @@ export function getToken() {
  * Get the current authenticated user (or null).
  */
 export function getUser() {
+  if (!_user) {
+    initAuth()
+  }
   return _user
 }
 

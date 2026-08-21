@@ -188,6 +188,13 @@
                 Accept your repository invitation
               </a>
             </div>
+
+            <div class="flex justify-center gap-sm mt-md">
+              <button class="btn btn-sm btn-secondary btn-with-icon" type="button" @click="showDiagnosticsModal = true">
+                <Icon name="help-circle" :size="14" />
+                <span>Troubleshoot Access</span>
+              </button>
+            </div>
           </div>
 
           <!-- Repository ready -->
@@ -307,9 +314,15 @@
             <p class="text-secondary">
               If your repository does not appear after accepting, please contact your lecturer.
             </p>
-            <button class="btn" @click="checkAgain" :disabled="checkingAgain">
-              {{ checkingAgain ? 'Checking…' : 'Check again' }}
-            </button>
+            <div class="flex justify-center gap-sm mt-md">
+              <button class="btn btn-secondary" @click="checkAgain" :disabled="checkingAgain">
+                {{ checkingAgain ? 'Checking…' : 'Check again' }}
+              </button>
+              <button class="btn btn-secondary btn-with-icon" type="button" @click="showDiagnosticsModal = true">
+                <Icon name="help-circle" :size="14" />
+                <span>Troubleshoot Access</span>
+              </button>
+            </div>
           </div>
 
           <!-- Error state -->
@@ -317,13 +330,29 @@
             <Icon name="x-circle" :size="48" class="status-icon status-icon-error" />
             <h2>Something went wrong</h2>
             <p class="text-secondary">{{ acceptError }}</p>
-            <button class="btn btn-primary" @click="retry">Try again</button>
+            <div class="flex justify-center gap-sm mt-md">
+              <button class="btn btn-primary" @click="retry">Try again</button>
+              <button class="btn btn-secondary btn-with-icon" type="button" @click="showDiagnosticsModal = true">
+                <Icon name="help-circle" :size="14" />
+                <span>Troubleshoot Access</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </main>
 
-    <!-- removed footer to avoid confusing students -->
+    <!-- Student Diagnostics Modal (1.A) -->
+    <StudentDiagnosticsModal
+      :show="showDiagnosticsModal"
+      :user="user"
+      :assignment="assignment"
+      :org="org"
+      :accept-state="acceptState"
+      :pending-invitation="pendingInvitation"
+      :roster-status="rosterStatus"
+      @close="showDiagnosticsModal = false"
+    />
   </div>
 </template>
 
@@ -332,6 +361,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import UserBadge from '../components/UserBadge.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import GroupAcceptanceCard from '../components/GroupAcceptanceCard.vue'
+import StudentDiagnosticsModal from '../components/StudentDiagnosticsModal.vue'
 import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
@@ -357,6 +387,32 @@ const repoUrl = ref(null)
 const repoFullName = ref(null)
 const pendingInvitation = ref(null)
 const repoCopied = ref(false)
+
+// Student Diagnostics & Account Checker State (1.A)
+const showDiagnosticsModal = ref(false)
+const rosterStatus = ref('enrolled') // 'enrolled' | 'missing' | 'unknown'
+
+async function checkRosterStatus() {
+  if (!user.value || assignment.value?.roster_mode === 'open') {
+    rosterStatus.value = 'enrolled'
+    return
+  }
+  try {
+    const token = getToken()
+    const content = await getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml')
+    if (content) {
+      const { parse: parseYaml } = await import('yaml')
+      const parsed = parseYaml(content)
+      const onRoster = (parsed?.students || []).some(
+        (s) => s.github_login?.toLowerCase() === user.value.login.toLowerCase() ||
+               (s.email && user.value.email && s.email.toLowerCase() === user.value.email.toLowerCase())
+      )
+      rosterStatus.value = onRoster ? 'enrolled' : 'missing'
+    }
+  } catch {
+    rosterStatus.value = 'enrolled'
+  }
+}
 
 // Latest submit/ tag observed on the student's repo. Parsed from the GitHub
 // matching-refs response. null when no tag exists.
@@ -476,7 +532,7 @@ async function loadAssignment(isRetry = false) {
         stopNotFoundPolling()
         if (isAuthenticated()) {
           user.value = getUser()
-          await checkExistingState()
+          await Promise.all([checkExistingState(), checkRosterStatus()])
         }
       }
     }
