@@ -56,9 +56,12 @@ export async function injectAuth(page, user) {
  */
 export async function setupStandardMockRoutes(page, {
   org = ORG,
+  participatingOrgs = [{ login: ORG, name: ORG }],
   assignments = {},
+  allOrgAssignments = {},
   teams = {},
   reports = {},
+  usageReports = {},
   currentUser = STUDENT_2,
   userRepos = [],
   invitations = [],
@@ -84,6 +87,20 @@ export async function setupStandardMockRoutes(page, {
     }
     await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not found' }) });
   });
+
+  // Multi-org index.json
+  await page.route(`**/data/index.json*`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 1,
+        generated_at: new Date().toISOString(),
+        orgs: participatingOrgs,
+      }),
+    });
+  });
+
   // In-memory dynamic files committed during the test session
   const dynamicFiles = new Map();
   if (roster) {
@@ -91,15 +108,20 @@ export async function setupStandardMockRoutes(page, {
     dynamicFiles.set('students/roster.yml', yamlContent);
   }
 
-  // Assignments JSON
-  await page.route(`**/data/${org}/assignments.json*`, async (route) => {
+  // Assignments JSON per org
+  await page.route(`**/data/*/assignments.json*`, async (route) => {
+    const url = route.request().url();
+    const match = url.match(/data\/([^/?#]+)\/assignments\.json/);
+    const requestedOrg = match ? match[1] : org;
+
+    const orgAssignmentMap = allOrgAssignments[requestedOrg] || (requestedOrg === org ? assignments : {});
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         schema_version: 1,
         generated_at: new Date().toISOString(),
-        assignments,
+        assignments: orgAssignmentMap,
       }),
     });
   });
@@ -151,6 +173,24 @@ export async function setupStandardMockRoutes(page, {
       } else {
         await route.fulfill({ status: 200, body: JSON.stringify(invitations) });
       }
+    } else if (url.includes('/user/installations')) {
+      const isLecturerUser = currentUser.login.toLowerCase().includes('lecturer');
+      const instList = isLecturerUser ? participatingOrgs.map((o) => ({
+        id: 1000 + (typeof o === 'string' ? 1 : 2),
+        account: { type: 'Organization', login: typeof o === 'string' ? o : o.login },
+      })) : [];
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          total_count: instList.length,
+          installations: instList,
+        }),
+      });
+    } else if (url.includes('/user/repos')) {
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify(userRepos),
+      });
     } else if (url.includes('/user/starred/')) {
       if (method === 'PUT' || method === 'DELETE') {
         await route.fulfill({ status: 204, body: '' });
@@ -162,6 +202,11 @@ export async function setupStandardMockRoutes(page, {
       await route.fulfill({
         status: 200,
         body: JSON.stringify({ login: currentUser.login, id: 999999, name: currentUser.name, email: currentUser.email }),
+      });
+    } else if (url.includes('/issues') && url.includes('/comments') && method === 'POST') {
+      await route.fulfill({
+        status: 201,
+        body: JSON.stringify({ id: 201, body: 'Comment posted' }),
       });
     } else if (url.includes('/issues') && method === 'GET') {
       await route.fulfill({
@@ -191,6 +236,24 @@ export async function setupStandardMockRoutes(page, {
             commit: { sha: 'commit_sha_123', message: 'Committed by test' },
           }),
         });
+        return;
+      }
+
+      if (url.includes('/pxl-classroom-control/contents/reports/usage-latest.json')) {
+        const orgMatch = url.match(/\/repos\/([^/]+)\/pxl-classroom-control/);
+        const targetOrg = orgMatch ? orgMatch[1] : org;
+        const usageData = usageReports[targetOrg] || {
+          schema_version: 1,
+          week_start: '2026-08-17',
+          week_end: '2026-08-23',
+          generated_at: new Date().toISOString(),
+          over_count: 0,
+          items: [
+            { repo: 'lab-cloud-storage', sku: 'actions_minutes', used: 120, limit: 2000, over: false },
+          ],
+        };
+        const contentBase64 = Buffer.from(JSON.stringify(usageData)).toString('base64');
+        await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
         return;
       }
 
