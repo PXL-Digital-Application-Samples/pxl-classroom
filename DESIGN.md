@@ -146,6 +146,33 @@ re-resolves every token — and themes native scrollbars, form controls and auto
 An absent `data-theme` attribute means dark, which is why a first-time visitor keeps the
 appearance the app has always had and why a missing theme script cannot cause a light flash.
 
+### Runtime
+
+`frontend/src/lib/theme.js` owns the mode; `main.js` calls `initTheme()` at boot.
+
+| Export | |
+| :--- | :--- |
+| `themeMode` | the user's choice — `'dark' \| 'light' \| 'system'` |
+| `resolvedTheme` | what is actually on screen — `'dark' \| 'light'` |
+| `setThemeMode(m)` | validate, persist, apply (invalid input is ignored) |
+| `cycleThemeMode()` | `dark → light → system → dark` |
+
+Preference is stored in `localStorage` under **`pxl_theme`**, wrapped in `try`/`catch`
+(Safari private mode and blocked storage must not break boot). A plain visit never writes a
+preference — only an explicit choice or a `?theme=` override does.
+
+**`?theme=dark|light|system`** forces and persists a mode. Useful for reviewing a screen in
+the other theme, and for sharing a link that opens that way.
+
+**The inline boot script in `index.html` duplicates the storage key and mode list on purpose** —
+it must run before the module graph loads, or a light-mode user flashes dark on every load. It
+sits *after* the SPA shim so a deep link redirected through `404.html` has its `?theme=` restored
+before the script reads it. `tests/theme-tokens.test.mjs` asserts the two copies stay in sync.
+
+There is deliberately **no global colour `transition`** on the theme swap — it janks the
+data-dense tables. `<meta name="color-scheme" content="dark light">` covers the browser's
+first canvas fill before `style.css` lands.
+
 **Rules — non-negotiable, enforced by `tests/theme-tokens.test.mjs`:**
 
 1. **No colour literal outside `:root`.** No hex, no `rgb()`/`rgba()`, no named colours in any

@@ -112,6 +112,79 @@ test("Theme rule 3: every var(--token) reference resolves to a defined token", a
   );
 });
 
+test("Theme runtime: index.html boots the theme before first paint", async () => {
+  const html = await readFile(join(process.cwd(), "frontend", "index.html"), "utf8");
+
+  assert.match(
+    html,
+    /<meta name="color-scheme" content="dark light"\s*\/?>/,
+    "index.html must declare <meta name=\"color-scheme\" content=\"dark light\"> so the " +
+      "browser's first canvas fill matches the default theme before style.css lands",
+  );
+
+  const bootIndex = html.indexOf("html.dataset.theme");
+  const shimIndex = html.indexOf("spa-github-pages");
+  const appIndex = html.indexOf("/src/main.js");
+
+  assert.ok(bootIndex !== -1, "index.html must inline a theme boot script setting dataset.theme");
+  assert.ok(
+    shimIndex !== -1 && bootIndex > shimIndex,
+    "the theme boot script must run AFTER the SPA shim, so a deep link redirected " +
+      "through 404.html has its ?theme= restored before the boot script reads it",
+  );
+  assert.ok(
+    bootIndex < appIndex,
+    "the theme boot script must run BEFORE the app module, or a light-mode user " +
+      "flashes dark on every load",
+  );
+});
+
+test("Theme runtime: the inline boot script and lib/theme.js agree", async () => {
+  const html = await readFile(join(process.cwd(), "frontend", "index.html"), "utf8");
+  const themeJs = await readFile(join(FRONTEND_SRC, "lib", "theme.js"), "utf8");
+
+  const storageKey = themeJs.match(/export const STORAGE_KEY = '([^']+)'/)?.[1];
+  assert.ok(storageKey, "lib/theme.js must export STORAGE_KEY");
+  assert.ok(
+    html.includes(`'${storageKey}'`),
+    `The inline boot script must read/write the same storage key as lib/theme.js ` +
+      `('${storageKey}'). They are duplicated on purpose - the boot script runs ` +
+      `before the module graph - so they must be updated together.`,
+  );
+
+  const modes = themeJs
+    .match(/export const THEME_MODES = \[([^\]]+)\]/)?.[1]
+    .match(/'([a-z]+)'/g)
+    ?.map((m) => m.replaceAll("'", ""));
+  assert.deepEqual(
+    modes,
+    ["dark", "light", "system"],
+    "lib/theme.js must export THEME_MODES as ['dark', 'light', 'system']",
+  );
+
+  const bootModes = html
+    .match(/var VALID = \[([^\]]+)\]/)?.[1]
+    .match(/'([a-z]+)'/g)
+    ?.map((m) => m.replaceAll("'", ""));
+  assert.deepEqual(
+    bootModes,
+    modes,
+    "The inline boot script's VALID list must match THEME_MODES in lib/theme.js",
+  );
+
+  assert.match(
+    themeJs,
+    /export const DEFAULT_MODE = 'dark'/,
+    "DEFAULT_MODE must be 'dark' - dark is the default theme, and the boot script " +
+      "falls back to 'dark' when storage is unreadable",
+  );
+  assert.ok(
+    /=== -1 \? stored : 'dark'|: 'dark'\)/.test(html) && html.includes("dataset.theme = 'dark'"),
+    "The inline boot script must fall back to 'dark' both for an invalid stored " +
+      "value and when localStorage throws",
+  );
+});
+
 test("Theme rule 1: no colour literals outside the :root token block", { todo: true }, async () => {
   const offenders = [];
   const styleCssBody = await readStyleCssBody();
