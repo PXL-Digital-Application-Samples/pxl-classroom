@@ -47,6 +47,11 @@ const routes = [
     component: () => import('../views/SetupView.vue'),
   },
   {
+    path: '/sandbox',
+    name: 'sandbox',
+    component: () => import('../views/SandboxView.vue'),
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('../views/NotFoundView.vue'),
@@ -91,6 +96,9 @@ router.afterEach((to) => {
       break
     case 'setup':
       page = 'App setup'
+      break
+    case 'sandbox':
+      page = 'Component Sandbox'
       break
     case 'not-found':
       page = 'Page not found'

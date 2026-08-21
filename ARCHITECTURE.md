@@ -465,6 +465,7 @@ The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `
 | `/dashboard/:org/usage` | `UsageView` | Lecturer - per-org weekly usage report |
 | `/usage` | `UsageOverviewView` | Lecturer - cross-org usage aggregate |
 | `/setup` | `SetupView` | Admin - App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
+| `/sandbox` | `SandboxView` | Developer / Designer - offline component gallery and design system workbench with mock fixtures |
 
 A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pages.
 
@@ -626,7 +627,7 @@ Dedup-keys are stable per `(org, assignment, login, condition)` so repeated nigh
 
 The engine evaluates dependencies in strict hierarchical order:
 1. **Tier 0 (Auth & Quota):** Session validity and API rate-limit headroom.
-2. **Tier 1 (Org & App):** App installation, permission drift against canonical sets (`EXPECTED_APP_PERMISSIONS` and `MANIFEST_APP_PERMISSIONS`), and `participating-orgs.yml` enrollment.
+2. **Tier 1 (Org & App):** the App's own declaration (`GET /apps/pxl-classroom-provisioner`, unauthenticated) against `MANIFEST_APP_PERMISSIONS` **before** installation drift against `EXPECTED_APP_PERMISSIONS` - an App that predates a manifest permission can never have it approved, and attributing that to the installation sends org owners to approve something that isn't on offer; then `repository_selection` (must be `all` outside the hub's own deliberately scoped installation) and `participating-orgs.yml` enrollment.
 3. **Tier 2 (Control Repo):** Control repository existence, privacy (`private: true`), and canonical scaffold directory integrity.
 4. **Tier 3 (Assignment & Template):** YAML schema validation, starter template accessibility, `is_template: true` verification on GitHub, and enforced roster file presence.
 5. **Tier 4 (Acceptance Broker):** Broker repository existence, public visibility (`private: false`), and `.github/workflows/acceptance-trigger.yml` integrity.
@@ -693,7 +694,7 @@ If no threshold is configured for a SKU anywhere, that SKU's usage is recorded b
 
 On-demand runs are dispatch-and-watch operations. The SPA sends a unique `request_id`, the workflow includes it in `run-name`, and the watcher polls that exact Actions run every five seconds. Report JSON is reloaded only after completion. Failure, cancellation, timeout, or a successful run with unchanged `generated_at` terminates the watcher with a direct run link; stale JSON is never treated as a still-running audit.
 
-**Permission and health invariant.** The Enhanced Billing endpoint requires `organization_administration: read`. It is carried by the App manifest, so new installations approve it automatically. Existing installations must approve the one-time permission update. System Health checks both installation metadata and a live Enhanced Billing request, while `setup-org.yml` performs the same live preflight before creating organization state. See `RUNBOOK.md` §10.6.
+**Permission and health invariant.** The Enhanced Billing endpoint requires `organization_administration: read`. The App manifest carries it, so Apps *created* from the manifest have it and their installations approve it on install. An App created before the manifest gained the permission does **not** have it, and no installation can be granted what the App does not declare - the App owner widens the App first, then each org owner approves. System Health checks both installation metadata and a live Enhanced Billing request, and `setup-org.yml` performs the same live preflight before creating organization state, failing with that two-step remediation. `weekly-usage-report.yml` instead degrades: minting a token with an ungranted permission is a 422 at mint time (it never reaches the script's 403/404 skip), so the leg re-mints without the billing scope, warns, and skips that org's report rather than failing sibling legs. See `RUNBOOK.md` §6.7 and §10.6.
 
 **Budget owner.** `participating-orgs.yml` now requires `budget_owner_login` (GitHub login, used for @-mention). Optional `budget_owner_email` is informational only - GitHub emails are sent via the @-mention notification.
 

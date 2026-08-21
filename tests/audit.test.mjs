@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runAudit, EXPECTED_APP_PERMISSIONS, permissionMeetsRequirement } from "../lib/audit.mjs";
+import {
+  runAudit,
+  EXPECTED_APP_PERMISSIONS,
+  MANIFEST_APP_PERMISSIONS,
+  permissionMeetsRequirement,
+} from "../lib/audit.mjs";
 
 test("EXPECTED_APP_PERMISSIONS shape", () => {
   assert.equal(typeof EXPECTED_APP_PERMISSIONS, "object");
@@ -26,6 +31,9 @@ test("permission comparison accepts stronger levels", () => {
 function createMockRequest({
   installStatus = 200,
   permissions = { ...EXPECTED_APP_PERMISSIONS },
+  declaredPermissions = { ...MANIFEST_APP_PERMISSIONS },
+  appStatus = 200,
+  repositorySelection = "all",
   repoStatus = 200,
   isPrivate = true,
   missingPaths = [],
@@ -33,8 +41,15 @@ function createMockRequest({
   orgsYaml = "orgs:\n  - login: TestOrg\n    budget_owner_login: admin"
 }) {
   return async (method, path) => {
+    if (path === "/apps/pxl-classroom-provisioner") {
+      return { status: appStatus, ok: appStatus === 200, data: { permissions: declaredPermissions } };
+    }
     if (path === `/orgs/TestOrg/installation`) {
-      return { status: installStatus, ok: installStatus === 200, data: { id: 123, permissions } };
+      return {
+        status: installStatus,
+        ok: installStatus === 200,
+        data: { id: 123, permissions, repository_selection: repositorySelection },
+      };
     }
     if (path === `/repos/TestOrg/pxl-classroom-control`) {
       return { status: repoStatus, ok: repoStatus === 200, data: { private: isPrivate } };
@@ -56,7 +71,7 @@ test("runAudit - happy path", async () => {
   const req = createMockRequest({});
   const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
   assert.equal(res.overall, "ok");
-  assert.equal(res.checks.length, 4);
+  assert.equal(res.checks.length, 6);
   assert.equal(res.checks.every(c => c.severity === "ok"), true);
 });
 
@@ -67,6 +82,71 @@ test("runAudit - missing perm", async () => {
   const check = res.checks.find(c => c.id === "app-permissions");
   assert.equal(check.severity, "fail");
   assert.ok(check.message.includes("Permission drift: actions=read (want write)"));
+});
+
+// The failure that cost two hours on 2026-08-21: the App itself never declared
+// organization_administration, so every org read as installation drift and the
+// remediation pointed at org owners who were powerless to act.
+test("runAudit - permission the App never declared is attributed to the App", async () => {
+  const declared = { ...MANIFEST_APP_PERMISSIONS };
+  delete declared.organization_administration;
+  const installed = { ...EXPECTED_APP_PERMISSIONS };
+  delete installed.organization_administration;
+
+  const req = createMockRequest({ declaredPermissions: declared, permissions: installed });
+  const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
+
+  const declaration = res.checks.find((c) => c.id === "app-declaration");
+  assert.equal(declaration.severity, "fail");
+  assert.ok(declaration.message.includes("organization_administration=missing (want read)"));
+  assert.equal(declaration.detail.missing.length, 1);
+
+  const perms = res.checks.find((c) => c.id === "app-permissions");
+  assert.equal(perms.severity, "fail");
+  assert.ok(perms.message.includes("Blocked upstream"));
+  assert.equal(perms.detail.drift[0].upstream, true);
+  assert.equal(res.overall, "fail");
+});
+
+test("runAudit - drift the App does declare stays an org-owner re-approval", async () => {
+  const req = createMockRequest({ permissions: { ...EXPECTED_APP_PERMISSIONS, actions: "read" } });
+  const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
+
+  assert.equal(res.checks.find((c) => c.id === "app-declaration").severity, "ok");
+  const perms = res.checks.find((c) => c.id === "app-permissions");
+  assert.ok(perms.message.includes("Re-approve the App"));
+  assert.equal(perms.message.includes("Blocked upstream"), false);
+  assert.equal(perms.detail.drift[0].upstream, false);
+});
+
+test("runAudit - unreadable /apps degrades to info, never a false alarm", async () => {
+  const req = createMockRequest({ appStatus: 503 });
+  const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
+
+  const declaration = res.checks.find((c) => c.id === "app-declaration");
+  assert.equal(declaration.severity, "info");
+  assert.equal(res.overall, "info");
+  // With no declaration to compare against, drift must not be blamed upstream.
+  assert.equal(res.checks.find((c) => c.id === "app-permissions").severity, "ok");
+});
+
+// "Only select repositories" installs cleanly and then 404s on every student
+// repo, because provisioned repos do not exist when the selection is made.
+test("runAudit - selected-repositories installation fails", async () => {
+  const req = createMockRequest({ repositorySelection: "selected" });
+  const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
+
+  const access = res.checks.find((c) => c.id === "app-repository-access");
+  assert.equal(access.severity, "fail");
+  assert.equal(access.detail.repository_selection, "selected");
+  assert.ok(access.message.includes("All repositories"));
+});
+
+test("runAudit - the hub's own scoped installation is exempt", async () => {
+  const req = createMockRequest({ repositorySelection: "selected" });
+  const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "testorg", hubRepo: "repo" });
+
+  assert.equal(res.checks.find((c) => c.id === "app-repository-access").severity, "ok");
 });
 
 test("runAudit - missing scaffold", async () => {

@@ -103,3 +103,13 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
   <span>No submission</span>
 </span>
 ```
+
+---
+
+## 5. Visual Sandbox & Interactive Testing
+
+An offline interactive workbench is available at the route **`/sandbox`**. It allows developers to:
+- Inspect all tonal surface swatches, border contrast, and typography scales.
+- Interact with button hierarchies, sizes, and spinner states.
+- Test `.status-indicator` + `.status-dot` variants in data tables.
+- Launch `StarterSyncModal`, `SystemHealthModal`, and `TeamsTable` with realistic, deterministic mock data fixtures without requiring live GitHub API credentials.

@@ -1,13 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
-import { EXPECTED_APP_PERMISSIONS } from "../lib/audit.mjs";
+import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS } from "../lib/audit.mjs";
 
 function createMockRequest({
   userStatus = 200,
   rateLimitRemaining = 4500,
   installStatus = 200,
   permissions = { ...EXPECTED_APP_PERMISSIONS },
+  declaredPermissions = { ...MANIFEST_APP_PERMISSIONS },
+  appStatus = 200,
+  repositorySelection = "all",
   billingStatus = 200,
   orgsYamlStatus = 200,
   orgsYaml = "orgs:\n  - login: TestOrg\n    budget_owner_login: admin",
@@ -35,13 +38,21 @@ function createMockRequest({
     }
 
     // Tier 1
+    if (path === "/apps/pxl-classroom-provisioner") {
+      return { status: appStatus, ok: appStatus === 200, data: { permissions: declaredPermissions } };
+    }
     if (path === "/user/installations") {
       return {
         status: installStatus,
         ok: installStatus === 200,
         data: {
           installations: [
-            { id: 999, account: { login: "TestOrg" }, permissions },
+            {
+              id: 999,
+              account: { login: "TestOrg" },
+              permissions,
+              repository_selection: repositorySelection,
+            },
           ],
         },
       };
@@ -339,4 +350,68 @@ test("runDiagnostics - Org-wide diagnostic mode without assignmentId", async () 
   const scanCheck = res.checks.find(c => c.id === "assignments-scan");
   assert.ok(scanCheck);
   assert.equal(scanCheck.severity, "ok");
+});
+
+// --- App-level preconditions (2026-08-21 onboarding incident) ----------------
+
+function findCheck(res, id) {
+  return res.checks.find((c) => c.id === id);
+}
+
+test("diagnostics - App declaration is checked before installation drift", async () => {
+  const declared = { ...MANIFEST_APP_PERMISSIONS };
+  delete declared.organization_administration;
+  const installed = { ...EXPECTED_APP_PERMISSIONS };
+  delete installed.organization_administration;
+
+  const res = await runDiagnostics({
+    request: createMockRequest({ declaredPermissions: declared, permissions: installed }),
+    org: "TestOrg",
+    hubOwner: "hub",
+    hubRepo: "repo",
+  });
+
+  const declaration = findCheck(res, "app-declaration");
+  assert.equal(declaration.severity, "fail");
+  assert.ok(declaration.message.includes("organization_administration"));
+  assert.equal(declaration.fixAction.url, "https://github.com/settings/apps/pxl-classroom-provisioner/permissions");
+
+  // The org-level check must not send an org owner to approve something the
+  // App does not offer.
+  const perms = findCheck(res, "app-permissions");
+  assert.ok(perms.message.includes("Blocked upstream"));
+});
+
+test("diagnostics - a fully declared App reports the declaration ok", async () => {
+  const res = await runDiagnostics({
+    request: createMockRequest({}),
+    org: "TestOrg",
+    hubOwner: "hub",
+    hubRepo: "repo",
+  });
+  assert.equal(findCheck(res, "app-declaration").severity, "ok");
+  assert.equal(findCheck(res, "app-repository-access").severity, "ok");
+});
+
+test("diagnostics - selected-repositories installation is flagged", async () => {
+  const res = await runDiagnostics({
+    request: createMockRequest({ repositorySelection: "selected" }),
+    org: "TestOrg",
+    hubOwner: "hub",
+    hubRepo: "repo",
+  });
+  const access = findCheck(res, "app-repository-access");
+  assert.equal(access.severity, "fail");
+  assert.equal(access.detail.repository_selection, "selected");
+});
+
+test("diagnostics - unreadable /apps adds no check and no false alarm", async () => {
+  const res = await runDiagnostics({
+    request: createMockRequest({ appStatus: 503 }),
+    org: "TestOrg",
+    hubOwner: "hub",
+    hubRepo: "repo",
+  });
+  assert.equal(findCheck(res, "app-declaration"), undefined);
+  assert.equal(findCheck(res, "app-permissions").severity, "ok");
 });

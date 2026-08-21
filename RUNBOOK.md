@@ -120,7 +120,15 @@ Done by a system administrator together with the organization owner.
 3. Scope: **All repositories** (the App needs Administration RW across the org to provision student repos and manage permissions).
 4. Confirm installation.
 
-The manifest already includes Organization **Administration: Read**, so a newly installed organization receives the billing permission in the normal installation approval. No separate Plan permission is required.
+Repository access **must** be "All repositories" - "Only select repositories" makes provisioning fail once students accept.
+
+The manifest at `/setup` declares Organization **Administration: Read**, but the manifest only applies at App *creation*. If the App predates that manifest entry it does not hold the permission, and no installation - however fresh - can receive it. Confirm before onboarding:
+
+```bash
+gh api apps/pxl-classroom-provisioner --jq .permissions
+```
+
+If `organization_administration` is absent, the App owner must add it first (§10.6); otherwise Setup Organization fails at its billing preflight (§6.7).
 
 ### 2.2 Run Setup Organization
 
@@ -350,6 +358,16 @@ To migrate these assignments, use `yq` in your control repository:
 yq -i 'if has("template_owner") then .template.owner = .template_owner | .template.repository = .template_repo | del(.template_owner, .template_repo) else . end' assignments/*.yml
 ```
 
+### 6.7 Setup Organization fails: "The permissions requested are not granted to this installation"
+
+`setup-org.yml` mints a token scoped to `organization_administration: read` before it creates any org state. A 422 at that step means the permission is missing - it is **not** about repository access or org membership. Fix in order:
+
+1. **App owner** (owner of `PXL-Digital-Application-Samples`): `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions` -> **Organization permissions** -> **Administration: Read-only** -> **Save changes**. Verify with `gh api apps/pxl-classroom-provisioner --jq .permissions` (`organization_administration: read` must appear).
+2. **Each org owner**, including the org being onboarded: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve. While there, set **Repository access** to **All repositories**.
+3. Re-run **Setup Organization**.
+
+Step 2 alone never works if step 1 was skipped: an org owner can only approve permissions the App declares. Until then `weekly-usage-report.yml` runs in degraded mode - it mints a token without the billing scope, annotates a warning, and skips the usage report for that org rather than failing every org's matrix leg.
+
 ---
 
 ## 7. Manual workflow triggers (lecturer-runnable)
@@ -500,8 +518,8 @@ The SPA adds a correlation ID to each dispatch and watches that exact Actions ru
 
 Whenever the App's permission set widens - for example, adding `organization_administration: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA - every already-installed org needs to opt back in.
 
-1. Update the manifest in `frontend/src/views/SetupView.vue` (or directly in the App's GitHub settings if it already exists).
-2. Each org owner: open the org's installed-apps page (`github.com/organizations/<org>/settings/installations`) -> PXL Classroom Provisioner -> click **Review request** and approve the new permissions.
+1. Update the manifest in `frontend/src/views/SetupView.vue` **and** widen the live App at `github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions`. The manifest only applies at App creation; editing it does nothing to an App that already exists. Verify with `gh api apps/pxl-classroom-provisioner --jq .permissions` before telling anyone to approve.
+2. Each org owner: open the org's installed-apps page (`github.com/organizations/<org>/settings/installations`) -> PXL Classroom Provisioner -> click **Review request** and approve the new permissions. There is no request to review until step 1 lands.
 3. Lecturers who were already authenticated keep their previous (narrower) token until it expires (8 h max). Next sign-in mints a token with the new scope.
 4. No control-repo or workflow change needed.
 
@@ -515,6 +533,7 @@ Verify with `gh api /app` - `permissions` should reflect the new set. Lecturers 
 
 Run periodically, especially after touching workflows or App settings.
 
+- [ ] `pxl-classroom audit --org <org>` is clean - it now covers the two rows below automatically (App declaration and repository access).
 - [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `issues: write`, `metadata: read`, `organization_administration: read`, `pull_requests: write`, `secrets: write`, `workflows: write`) plus account `starring: write`.
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.

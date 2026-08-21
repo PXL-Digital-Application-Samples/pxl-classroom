@@ -139,3 +139,18 @@ test("UI E2E Contract: AssignmentDetailView exports 1-Primary CTA and grouped Mo
     "Detail view must manage exportDropdownOpen dropdown state",
   );
 });
+
+test("Sandbox E2E: /sandbox route is registered and SandboxView renders offline mock components", async () => {
+  const routerPath = join(FRONTEND_SRC, "router", "index.js");
+  const routerContent = await readFile(routerPath, "utf8");
+  assert.ok(routerContent.includes("path: '/sandbox'"), "Router must register /sandbox route");
+
+  const sandboxViewPath = join(FRONTEND_SRC, "views", "SandboxView.vue");
+  const sandboxContent = await readFile(sandboxViewPath, "utf8");
+
+  assert.ok(sandboxContent.includes("StarterSyncModal"), "Sandbox must import StarterSyncModal");
+  assert.ok(sandboxContent.includes("SystemHealthModal"), "Sandbox must import SystemHealthModal");
+  assert.ok(sandboxContent.includes("TeamsTable"), "Sandbox must import TeamsTable");
+  assert.ok(sandboxContent.includes("primer-tabs"), "Sandbox must utilize Primer tabs");
+});
+
