@@ -165,18 +165,7 @@
             <a :href="`${runbookUrl}#2-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener">RUNBOOK §2</a>.
           </p>
         </template>
-        <template v-else-if="dashState === 'no-dashboard'">
-          <h2>No dashboard data yet</h2>
-          <p class="text-secondary">
-            The control repo exists, but <code>reports/dashboard.json</code> hasn't been generated yet.
-            It appears when an assignment is published (and refreshes nightly).
-            <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
-            </span>
-          </p>
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
-        </template>
-        <template v-else>
+        <template v-else-if="dashState === 'onboarding'">
           <div class="onboarding-readiness-card">
             <div class="onboarding-head">
               <Icon name="award" :size="24" class="text-blue" />
@@ -213,16 +202,39 @@
             </div>
 
             <div class="onboarding-actions">
-              <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
+              <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
                 <Icon name="plus" :size="14" />
                 <span>Create Your First Assignment</span>
               </router-link>
-              <button class="btn btn-with-icon" type="button" @click="showDiagnosticModal = true">
+              <button class="btn btn-with-icon" type="button" @click="showHealthModal = true">
                 <Icon name="activity" :size="14" />
                 <span>Check System Health</span>
               </button>
             </div>
           </div>
+        </template>
+        <template v-else-if="dashState === 'no-dashboard'">
+          <h2>No dashboard data yet</h2>
+          <p class="text-secondary">
+            The control repo exists, but <code>reports/dashboard.json</code> hasn't been generated yet.
+            It appears when an assignment is published (and refreshes nightly).
+            <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
+              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
+            </span>
+          </p>
+          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+        </template>
+        <template v-else>
+          <h2>No active assignments right now</h2>
+          <p class="text-secondary">
+            <span v-if="draftCount > 0">
+              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel.
+            </span>
+            <span v-else>
+              Assignments in this organization are closed or archived.
+            </span>
+          </p>
+          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
         </template>
       </div>
 
@@ -523,9 +535,7 @@ async function loadDashboard(org) {
         reportData = JSON.parse(content)
       }
     } catch (e) {
-      if (e.status === 404) {
-        dashState.value = 'no-dashboard'
-      }
+      // dashboard.json not found or parse failed
     }
 
     if (reportData?.assignments && Object.keys(reportData.assignments).length > 0) {
@@ -540,6 +550,9 @@ async function loadDashboard(org) {
         })
 
       assignments.value = displayList
+      const drafts = Object.values(reportData.assignments).filter(a => a.state === 'draft')
+      draftCount.value = drafts.length
+
       const now = new Date()
       const hasActive = assignments.value.some((a) => {
         if (a.state !== 'published') return false
@@ -547,7 +560,7 @@ async function loadDashboard(org) {
         if (a.deadline_at && now > new Date(a.deadline_at)) return false
         return true
       })
-      dashState.value = assignments.value.length === 0 ? 'empty' : ''
+      dashState.value = assignments.value.length === 0 ? (draftCount.value > 0 ? 'no-dashboard' : 'empty') : ''
       orgStatusMap.value.set(org.toLowerCase(), hasActive ? 'active' : (assignments.value.length > 0 ? 'inactive' : 'empty'))
       return
     }
@@ -561,8 +574,29 @@ async function loadDashboard(org) {
         return
       }
     }
-    dashState.value = 'no-dashboard'
-    orgStatusMap.value.set(org.toLowerCase(), 'empty')
+
+    // Check if ANY assignment has been created in assignments/ folder
+    let assignmentFiles = []
+    try {
+      assignmentFiles = await listRepoDir(token, org, config.controlRepo, 'assignments')
+    } catch (e) {
+      assignmentFiles = []
+    }
+    const ymls = (assignmentFiles || []).filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
+
+    if (ymls.length === 0) {
+      // Zero assignments created in this organization!
+      // This is the beginning lecturer state - show the onboarding readiness card!
+      dashState.value = 'onboarding'
+      orgStatusMap.value.set(org.toLowerCase(), 'empty')
+      return
+    } else {
+      // Assignments HAVE been created in this organization (e.g. drafts or awaiting dashboard.json generation)
+      draftCount.value = ymls.length
+      dashState.value = 'no-dashboard'
+      orgStatusMap.value.set(org.toLowerCase(), 'empty')
+      return
+    }
   } catch (e) {
     console.error('Failed to load dashboard:', e)
     if (e instanceof SyntaxError) {
