@@ -125,6 +125,16 @@
                 <span>Archive Repo</span>
               </a>
               <button
+                class="btn btn-sm btn-danger btn-with-icon"
+                type="button"
+                @click="showFreezeConfirmModal = true"
+                :disabled="freezingNow"
+                title="Immediately lock down student repositories and snapshot commits into the archive"
+              >
+                <Icon name="lock" :size="13" />
+                <span>{{ freezingNow ? 'Freezing…' : 'Freeze & Preserve Now' }}</span>
+              </button>
+              <button
                 v-if="unpreservedCount > 0"
                 class="btn btn-sm btn-primary btn-with-icon"
                 type="button"
@@ -163,27 +173,27 @@
             </span>
             <span class="summary-label">Deadline{{ deadlineAbs ? ` · ${deadlineAbs}` : '' }}</span>
           </div>
-          <div class="summary-card card">
+          <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = ''" title="Show all students">
             <span class="summary-value">{{ report.students.length }}</span>
             <span class="summary-label">Students</span>
           </div>
-          <div class="summary-card card">
+          <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'on-time'" title="Filter on-time submissions">
             <span class="summary-value stat-green">{{ onTimeCount }}</span>
             <span class="summary-label">On-time</span>
           </div>
-          <div class="summary-card card">
+          <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'late'" title="Filter late submissions">
             <span class="summary-value stat-yellow">{{ lateCount }}</span>
             <span class="summary-label">Late</span>
           </div>
-          <div class="summary-card card">
+          <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'no-submission'" title="Filter unstarted / no submissions">
             <span class="summary-value stat-red">{{ noSubCount }}</span>
             <span class="summary-label">No submission</span>
           </div>
         </div>
 
         <!-- Actions bar -->
-        <div class="actions-bar flex items-center justify-between">
-          <div class="flex items-center gap-md">
+        <div class="actions-bar flex items-center justify-between flex-wrap gap-sm">
+          <div class="flex items-center gap-md flex-wrap">
             <input
               v-model="search"
               type="search"
@@ -191,13 +201,50 @@
               class="search-input"
               aria-label="Search students"
             />
-            <select v-model="statusFilter" aria-label="Filter by status">
-              <option value="">All statuses</option>
-              <option value="on-time">On-time</option>
-              <option value="late">Late</option>
-              <option value="no-submission">No submission</option>
-              <option value="unknown">Unknown</option>
-            </select>
+            <!-- Quick Filter Status Chips -->
+            <div class="tab-pill-selector quick-filter-pills" role="tablist" aria-label="Status Quick Filters">
+              <button
+                type="button"
+                class="tab-pill"
+                :class="{ active: statusFilter === '' }"
+                @click="statusFilter = ''"
+              >
+                All ({{ report.students.length }})
+              </button>
+              <button
+                type="button"
+                class="tab-pill"
+                :class="{ active: statusFilter === 'on-time' }"
+                @click="statusFilter = 'on-time'"
+              >
+                On-time ({{ onTimeCount }})
+              </button>
+              <button
+                type="button"
+                class="tab-pill"
+                :class="{ active: statusFilter === 'late' }"
+                @click="statusFilter = 'late'"
+              >
+                Late ({{ lateCount }})
+              </button>
+              <button
+                type="button"
+                class="tab-pill"
+                :class="{ active: statusFilter === 'no-submission' }"
+                @click="statusFilter = 'no-submission'"
+              >
+                No sub ({{ noSubCount }})
+              </button>
+              <button
+                v-if="deadlinePassed && preservedCount > 0"
+                type="button"
+                class="tab-pill"
+                :class="{ active: statusFilter === 'preserved' }"
+                @click="statusFilter = 'preserved'"
+              >
+                Preserved ({{ preservedCount }})
+              </button>
+            </div>
           </div>
           <div class="flex gap-sm items-center">
             <button class="btn btn-primary btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive">
@@ -811,6 +858,76 @@
         @close="showStarterSyncModal = false"
         @synced="loadData"
       />
+
+      <!-- Modal: Freeze & Preserve Consequences Confirmation -->
+      <div v-if="showFreezeConfirmModal" class="modal-overlay" @click.self="showFreezeConfirmModal = false">
+        <div class="modal card modal-consequences" role="dialog" aria-modal="true" aria-label="Confirm Immediate Freeze and Lockdown" style="max-width: 560px;">
+          <header class="modal-head flex justify-between items-center" style="border-bottom: 1px solid var(--border-color, #30363d); padding: 14px 18px;">
+            <div class="flex items-center gap-xs">
+              <Icon name="alert-triangle" :size="18" class="stat-yellow" />
+              <h3 style="margin: 0; font-size: 1.05rem;">Confirm Immediate Freeze &amp; Lockdown</h3>
+            </div>
+            <button class="modal-close" type="button" @click="showFreezeConfirmModal = false" aria-label="Close">×</button>
+          </header>
+          <div class="modal-body flex flex-col gap-md" style="padding: 16px 18px;">
+            <div class="card" style="background: rgba(210, 153, 34, 0.1); border: 1px solid rgba(210, 153, 34, 0.3); padding: 12px; border-radius: 6px;">
+              <p class="text-sm font-semibold" style="margin-bottom: 4px; color: var(--accent-yellow, #d29922);">
+                ⚠️ Immediate Submissions Lockdown
+              </p>
+              <p class="text-xs text-secondary" style="margin: 0;">
+                You are initiating an administrative freeze for assignment <strong>{{ assignment?.id }}</strong> across all {{ eligiblePreservationCount }} student repositories.
+              </p>
+            </div>
+
+            <div class="consequences-list flex flex-col gap-sm text-sm">
+              <div class="consequence-item flex gap-sm items-start">
+                <Icon name="lock" :size="16" class="stat-red" style="margin-top: 2px; flex-shrink: 0;" />
+                <div>
+                  <strong>Demotes Student Permissions to Read-Only:</strong>
+                  <p class="text-xs text-secondary" style="margin: 2px 0 0 0;">
+                    All students and team members will be demoted from Admin/Write to Read (<code>pull</code>). They will not be able to push new commits.
+                  </p>
+                </div>
+              </div>
+
+              <div class="consequence-item flex gap-sm items-start">
+                <Icon name="archive" :size="16" class="stat-green" style="margin-top: 2px; flex-shrink: 0;" />
+                <div>
+                  <strong>Snapshots Immutable Archive Commits:</strong>
+                  <p class="text-xs text-secondary" style="margin: 2px 0 0 0;">
+                    The current <code>HEAD</code> commit of each student repository is cloned and committed into the private organization archive (<code>pxl-classroom-archive</code>) as the authoritative grading snapshot.
+                  </p>
+                </div>
+              </div>
+
+              <div class="consequence-item flex gap-sm items-start">
+                <Icon name="clock" :size="16" class="stat-blue" style="margin-top: 2px; flex-shrink: 0;" />
+                <div>
+                  <strong>Locks Deadline Classification:</strong>
+                  <p class="text-xs text-secondary" style="margin: 2px 0 0 0;">
+                    The lockdown timestamp is recorded. Any future commits pushed after this moment will require an explicit lecturer deadline extension to count toward grading.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <footer class="modal-foot flex justify-end gap-sm" style="padding-top: 14px; border-top: 1px solid var(--border-color, #30363d); margin-top: 6px;">
+              <button class="btn btn-secondary" type="button" @click="showFreezeConfirmModal = false">
+                Cancel
+              </button>
+              <button
+                class="btn btn-danger btn-with-icon"
+                type="button"
+                :disabled="freezingNow"
+                @click="executeFreezeNow"
+              >
+                <Icon name="lock" :size="14" />
+                <span>{{ freezingNow ? 'Executing Lockdown…' : 'Confirm Freeze &amp; Lockdown' }}</span>
+              </button>
+            </footer>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -1001,6 +1118,30 @@ const preservationUncertaintySeconds = computed(() => {
 const showStarterSyncModal = ref(false)
 const openingFeedbackPrs = ref(false)
 const retryingPreservation = ref(false)
+const showFreezeConfirmModal = ref(false)
+const freezingNow = ref(false)
+
+async function executeFreezeNow() {
+  const token = getToken()
+  if (!token) return
+  freezingNow.value = true
+  try {
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'daily-activity.yml', 'main', {
+      'collection-type': 'deadline',
+      'assignment-id': props.assignmentId,
+    })
+    if (res.ok) {
+      toast.success('Lockdown and preservation workflow triggered successfully.')
+      showFreezeConfirmModal.value = false
+    } else {
+      toast.error(`Failed to trigger lockdown: ${res.error || 'Unknown error'}`)
+    }
+  } catch (err) {
+    toast.error(`Failed to execute lockdown: ${err.message}`)
+  } finally {
+    freezingNow.value = false
+  }
+}
 
 const activeAutogradeItem = ref(null)
 const showAutogradeModal = ref(false)
@@ -1282,7 +1423,11 @@ const filteredStudents = computed(() => {
     })
   }
   if (statusFilter.value) {
-    list = list.filter((s) => s.submission_status === statusFilter.value)
+    if (statusFilter.value === 'preserved') {
+      list = list.filter((s) => s.preservation_status === 'preserved' && s.preserved_sha)
+    } else {
+      list = list.filter((s) => s.submission_status === statusFilter.value)
+    }
   }
   list = [...list].sort((a, b) => {
     let av = a[sortKey.value]

@@ -33,6 +33,31 @@
         </div>
       </div>
 
+      <!-- Team Submission Status & Deadline Countdown Card -->
+      <div class="team-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-color, #30363d); border-radius: 8px; text-align: left;">
+        <div class="flex justify-between items-center flex-wrap gap-xs">
+          <div class="flex items-center gap-xs">
+            <span class="text-xs font-semibold text-secondary">Team Submission:</span>
+            <span :class="['badge', teamSubmissionStatus === 'on-time' ? 'badge-success' : teamSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']">
+              {{ teamSubmissionStatus === 'on-time' ? 'Submitted on-time' : teamSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
+            </span>
+          </div>
+
+          <div v-if="deadlineCountdown" class="deadline-countdown flex items-center gap-xs text-xs">
+            <Icon name="clock" :size="14" :class="isPastDeadline ? 'stat-red' : 'stat-blue'" />
+            <span :class="isPastDeadline ? 'stat-red font-semibold' : 'text-secondary'">
+              {{ deadlineCountdown }}
+            </span>
+          </div>
+        </div>
+
+        <div v-if="teamLatestCommit" class="latest-commit-info text-xs text-muted flex items-center gap-xs">
+          <span>Latest team commit:</span>
+          <code class="mono">{{ teamLatestCommit.sha.slice(0, 7) }}</code>
+          <span v-if="teamLatestCommit.date">· {{ teamLatestCommit.date }}</span>
+        </div>
+      </div>
+
       <div class="team-actions" style="margin-top: var(--space-md); border-top: 1px solid var(--border-default); padding-top: var(--space-sm);">
         <button class="btn btn-secondary btn-sm" @click="startSwitchTeam" :disabled="accepting">
           Switch to another team
@@ -446,6 +471,58 @@ async function loadTeams() {
   loadingTeams.value = false
 }
 
+const teamLatestCommit = ref(null)
+
+const isPastDeadline = computed(() => {
+  if (!props.assignment?.deadline_at) return false
+  return new Date() > new Date(props.assignment.deadline_at)
+})
+
+const deadlineCountdown = computed(() => {
+  if (!props.assignment?.deadline_at) return null
+  const now = new Date()
+  const deadline = new Date(props.assignment.deadline_at)
+  const diffMs = deadline - now
+  if (diffMs <= 0) {
+    return `Deadline passed (${deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`
+  }
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays > 0) {
+    return `Closes in ${diffDays}d ${diffHours % 24}h`
+  }
+  if (diffHours > 0) {
+    return `Closes in ${diffHours}h ${diffMins % 60}m`
+  }
+  return `Closes in ${diffMins}m`
+})
+
+const teamSubmissionStatus = computed(() => {
+  if (!teamLatestCommit.value) return 'no-submission'
+  if (!props.assignment?.deadline_at) return 'on-time'
+  const commitTime = new Date(teamLatestCommit.value.date)
+  return commitTime <= new Date(props.assignment.deadline_at) ? 'on-time' : 'late'
+})
+
+async function refreshTeamSubmissionMeta(org, repoName) {
+  const token = getToken()
+  if (!token) return
+  try {
+    const res = await ghApi(token, 'GET', `/repos/${org}/${repoName}/commits?per_page=1`)
+    if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
+      const c = res.data[0]
+      teamLatestCommit.value = {
+        sha: c.sha,
+        date: c.commit?.author?.date || c.commit?.committer?.date,
+        message: c.commit?.message,
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch team latest commit:', e)
+  }
+}
+
 async function checkExistingState() {
   const token = getToken()
   if (!token) return
@@ -461,6 +538,7 @@ async function checkExistingState() {
       repoUrl.value = repo.data.html_url
       repoFullName.value = repo.data.full_name
       acceptState.value = 'provisioned'
+      await refreshTeamSubmissionMeta(props.org, expectedName)
       return
     }
 

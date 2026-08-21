@@ -1,15 +1,54 @@
 <template>
   <div class="teams-table-component">
     <!-- Filter bar & Toolbar -->
-    <div class="table-toolbar flex justify-between items-center gap-md">
-      <div class="search-input-wrapper">
-        <Icon name="search" :size="16" class="search-icon" />
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Filter teams or members…"
-          class="form-control table-search"
-        />
+    <div class="table-toolbar flex justify-between items-center gap-md flex-wrap">
+      <div class="flex items-center gap-md flex-wrap">
+        <div class="search-input-wrapper">
+          <Icon name="search" :size="16" class="search-icon" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Filter teams or members…"
+            class="form-control table-search"
+            aria-label="Filter teams or members"
+          />
+        </div>
+
+        <!-- Quick Filter Status Chips for Teams -->
+        <div class="tab-pill-selector team-quick-filters" role="tablist" aria-label="Team Status Quick Filters">
+          <button
+            type="button"
+            class="tab-pill"
+            :class="{ active: teamStatusFilter === '' }"
+            @click="teamStatusFilter = ''"
+          >
+            All ({{ teams.length }})
+          </button>
+          <button
+            type="button"
+            class="tab-pill"
+            :class="{ active: teamStatusFilter === 'on-time' }"
+            @click="teamStatusFilter = 'on-time'"
+          >
+            On-time ({{ onTimeTeamsCount }})
+          </button>
+          <button
+            type="button"
+            class="tab-pill"
+            :class="{ active: teamStatusFilter === 'late' }"
+            @click="teamStatusFilter = 'late'"
+          >
+            Late ({{ lateTeamsCount }})
+          </button>
+          <button
+            type="button"
+            class="tab-pill"
+            :class="{ active: teamStatusFilter === 'under-capacity' }"
+            @click="teamStatusFilter = 'under-capacity'"
+          >
+            Under-capacity ({{ underCapacityCount }})
+          </button>
+        </div>
       </div>
 
       <div class="toolbar-actions flex items-center gap-sm">
@@ -20,9 +59,6 @@
 
         <div class="toolbar-stats text-secondary text-sm">
           <span>Showing <strong>{{ filteredTeams.length }}</strong> of <strong>{{ teams.length }}</strong> team(s)</span>
-          <span v-if="underCapacityCount > 0" class="badge badge-warning" style="margin-left: 8px;">
-            {{ underCapacityCount }} under-capacity
-          </span>
         </div>
       </div>
     </div>
@@ -393,6 +429,7 @@ const props = defineProps({
 const emit = defineEmits(['refresh'])
 
 const searchQuery = ref('')
+const teamStatusFilter = ref('')
 const showCreateModal = ref(false)
 const managingTeam = ref(null)
 const manageMembers = ref([])
@@ -426,6 +463,14 @@ const underCapacityCount = computed(() =>
   props.teams.filter((t) => t.under_capacity).length
 )
 
+const onTimeTeamsCount = computed(() =>
+  props.teams.filter((t) => t.submission_status === 'on-time').length
+)
+
+const lateTeamsCount = computed(() =>
+  props.teams.filter((t) => t.submission_status === 'late').length
+)
+
 const computedNewSlug = computed(() => {
   if (!newTeamForm.value.name) return ''
   return newTeamForm.value.name
@@ -452,14 +497,24 @@ const unassignedStudents = computed(() =>
 )
 
 const filteredTeams = computed(() => {
+  let list = props.teams
   const q = searchQuery.value.toLowerCase().trim()
-  if (!q) return props.teams
-  return props.teams.filter(
-    (t) =>
-      t.team_name?.toLowerCase().includes(q) ||
-      t.team_slug?.toLowerCase().includes(q) ||
-      (t.members || []).some((m) => m.toLowerCase().includes(q))
-  )
+  if (q) {
+    list = list.filter(
+      (t) =>
+        t.team_name?.toLowerCase().includes(q) ||
+        t.team_slug?.toLowerCase().includes(q) ||
+        (t.members || []).some((m) => m.toLowerCase().includes(q))
+    )
+  }
+  if (teamStatusFilter.value) {
+    if (teamStatusFilter.value === 'under-capacity') {
+      list = list.filter((t) => t.under_capacity)
+    } else {
+      list = list.filter((t) => t.submission_status === teamStatusFilter.value)
+    }
+  }
+  return list
 })
 
 function resolveMemberTooltip(login) {

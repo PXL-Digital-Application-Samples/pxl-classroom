@@ -210,6 +210,42 @@
             </div>
             <p class="text-secondary">You have administrator access. Clone it and start working!</p>
 
+            <!-- Student Submission Status & Deadline Countdown Card -->
+            <div class="student-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-color, #30363d); border-radius: 8px; text-align: left;">
+              <!-- Active Extension Announcement -->
+              <div v-if="studentOverride" class="override-alert-banner flex items-center gap-xs" style="background: rgba(46, 160, 67, 0.15); border: 1px solid rgba(46, 160, 67, 0.3); border-radius: 6px; padding: 8px 12px;">
+                <Icon name="check-circle" :size="16" class="stat-green" />
+                <span class="text-xs font-semibold text-primary">
+                  🎉 Deadline Extended to {{ new Date(studentOverride.value).toLocaleString() }} ({{ studentOverride.reason || 'Approved extension' }})
+                </span>
+              </div>
+
+              <!-- Status & Countdown Row -->
+              <div class="flex justify-between items-center flex-wrap gap-xs">
+                <div class="flex items-center gap-xs">
+                  <span class="text-xs font-semibold text-secondary">Submission Status:</span>
+                  <span :class="['badge', studentSubmissionStatus === 'on-time' ? 'badge-success' : studentSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']">
+                    {{ studentSubmissionStatus === 'on-time' ? 'Submitted on-time' : studentSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
+                  </span>
+                </div>
+
+                <!-- Countdown Timer -->
+                <div v-if="deadlineCountdown" class="deadline-countdown flex items-center gap-xs text-xs">
+                  <Icon name="clock" :size="14" :class="isPastDeadline ? 'stat-red' : 'stat-blue'" />
+                  <span :class="isPastDeadline ? 'stat-red font-semibold' : 'text-secondary'">
+                    {{ deadlineCountdown }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Latest commit line if present -->
+              <div v-if="studentLatestCommit" class="latest-commit-info text-xs text-muted flex items-center gap-xs">
+                <span>Latest commit:</span>
+                <code class="mono">{{ studentLatestCommit.sha.slice(0, 7) }}</code>
+                <span v-if="studentLatestCommit.date">· {{ studentLatestCommit.date }}</span>
+              </div>
+            </div>
+
             <!-- Tagged-submission indicator. Shown only when a tag exists: tagging is
                  optional (ARCHITECTURE.md §11.1a) and an untagged repo is not a gap. -->
             <div v-if="latestSubmitTag" class="submit-tag-banner" role="status">
@@ -300,7 +336,7 @@ import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi } from '../lib/api.js'
+import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
@@ -491,6 +527,73 @@ async function refreshSubmitTag(org, repoName) {
   }
 }
 
+const studentLatestCommit = ref(null)
+const studentOverride = ref(null)
+
+const effectiveDeadline = computed(() => {
+  if (studentOverride.value?.value) {
+    return new Date(studentOverride.value.value)
+  }
+  return assignment.value?.deadline_at ? new Date(assignment.value.deadline_at) : null
+})
+
+const deadlineCountdown = computed(() => {
+  if (!effectiveDeadline.value) return null
+  const diffMs = effectiveDeadline.value - now.value
+  if (diffMs <= 0) {
+    return `Deadline passed (${effectiveDeadline.value.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`
+  }
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays > 0) {
+    return `Closes in ${diffDays}d ${diffHours % 24}h`
+  }
+  if (diffHours > 0) {
+    return `Closes in ${diffHours}h ${diffMins % 60}m`
+  }
+  return `Closes in ${diffMins}m`
+})
+
+const studentSubmissionStatus = computed(() => {
+  if (!studentLatestCommit.value) return 'no-submission'
+  if (!effectiveDeadline.value) return 'on-time'
+  const commitTime = new Date(studentLatestCommit.value.date)
+  return commitTime <= effectiveDeadline.value ? 'on-time' : 'late'
+})
+
+async function refreshStudentSubmissionMeta(org, repoName) {
+  const token = getToken()
+  if (!token) return
+  try {
+    const res = await ghApi(token, 'GET', `/repos/${org}/${repoName}/commits?per_page=1`)
+    if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
+      const c = res.data[0]
+      studentLatestCommit.value = {
+        sha: c.sha,
+        date: c.commit?.author?.date || c.commit?.committer?.date,
+        message: c.commit?.message,
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch latest commit:', e)
+  }
+
+  // Load student override if exists
+  try {
+    const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${props.assignmentId}/${user.value.login}.json`)
+    if (overrideFile) {
+      const parsed = JSON.parse(overrideFile)
+      const ext = (parsed.overrides || []).find((o) => o.type === 'deadline_extension')
+      if (ext) {
+        studentOverride.value = ext
+      }
+    }
+  } catch {
+    // optional override
+  }
+}
+
 // Check if the user already has a repo for this assignment
 async function checkExistingState() {
   const token = getToken()
@@ -507,6 +610,7 @@ async function checkExistingState() {
     repoFullName.value = repo.data.full_name
     acceptState.value = 'provisioned'
     await refreshSubmitTag(org, expectedName)
+    await refreshStudentSubmissionMeta(org, expectedName)
     return
   }
 

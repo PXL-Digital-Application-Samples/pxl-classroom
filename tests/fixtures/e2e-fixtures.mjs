@@ -221,9 +221,27 @@ export async function setupStandardMockRoutes(page, {
               author: { name: 'Lecturer Alice', date: new Date().toISOString() },
             },
             files: [
-              { filename: 'README.md', status: 'modified', additions: 15, deletions: 3 },
-              { filename: 'tests/test_validation.py', status: 'added', additions: 35, deletions: 0 },
-              { filename: 'config.json', status: 'modified', additions: 4, deletions: 1 },
+              {
+                filename: 'README.md',
+                status: 'modified',
+                additions: 15,
+                deletions: 3,
+                patch: '@@ -10,7 +10,12 @@\n-Old instructions from 2025\n+Updated Assignment Guidelines for 2026\n+Ensure all tests in tests/ pass before deadline',
+              },
+              {
+                filename: 'tests/test_validation.py',
+                status: 'added',
+                additions: 35,
+                deletions: 0,
+                patch: '@@ -0,0 +1,35 @@\n+import unittest\n+class TestValidation(unittest.TestCase):\n+    def test_run(self):\n+        self.assertTrue(True)',
+              },
+              {
+                filename: 'config.json',
+                status: 'modified',
+                additions: 4,
+                deletions: 1,
+                patch: '@@ -1,4 +1,7 @@\n-{\n-  "env": "dev"\n-}\n+{\n+  "env": "prod",\n+  "strict": true\n+}',
+              },
             ],
           }),
         });

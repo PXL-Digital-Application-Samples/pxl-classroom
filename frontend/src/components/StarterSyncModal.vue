@@ -1,6 +1,6 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal card modal-wide" role="dialog" aria-modal="true" aria-labelledby="starter-sync-title">
+    <div class="modal card modal-wide starter-sync-modal" role="dialog" aria-modal="true" aria-labelledby="starter-sync-title">
       <header class="modal-head flex justify-between items-center">
         <div>
           <h3 id="starter-sync-title">Sync Starter Code: <code>{{ assignment.id }}</code></h3>
@@ -52,22 +52,40 @@
                 </div>
               </div>
 
-              <div class="file-list-scrollable">
-                <label
+              <div class="file-list-scrollable flex flex-col gap-xs">
+                <div
                   v-for="file in templateFiles"
                   :key="file.filename"
-                  class="file-row flex items-center justify-between"
+                  class="file-row-box card"
                   :class="{ selected: file.selected }"
+                  style="padding: 6px 10px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-color, #30363d);"
                 >
-                  <div class="flex items-center gap-sm">
-                    <input type="checkbox" v-model="file.selected" @change="onFilesChanged" />
-                    <code class="file-path">{{ file.filename }}</code>
+                  <div class="file-row flex items-center justify-between">
+                    <label class="flex items-center gap-sm" style="cursor: pointer; margin: 0;">
+                      <input type="checkbox" v-model="file.selected" @change="onFilesChanged" />
+                      <code class="file-path">{{ file.filename }}</code>
+                    </label>
+                    <div class="flex items-center gap-sm">
+                      <span class="file-diff-stat text-xs mono">
+                        <span v-if="file.additions" class="stat-green">+{{ file.additions }}</span>
+                        <span v-if="file.deletions" class="stat-red">-{{ file.deletions }}</span>
+                      </span>
+                      <button
+                        v-if="file.patch"
+                        type="button"
+                        class="btn btn-xs btn-secondary diff-toggle-btn"
+                        @click="toggleFileDiff(file.filename)"
+                      >
+                        {{ expandedDiffs[file.filename] ? 'Hide Diff' : 'View Diff' }}
+                      </button>
+                    </div>
                   </div>
-                  <span class="file-diff-stat text-xs mono">
-                    <span v-if="file.additions" class="stat-green">+{{ file.additions }}</span>
-                    <span v-if="file.deletions" class="stat-red">-{{ file.deletions }}</span>
-                  </span>
-                </label>
+
+                  <!-- Diff Patch View -->
+                  <div v-if="expandedDiffs[file.filename]" class="diff-patch-view-container" style="margin-top: 8px;">
+                    <pre class="diff-patch-pre mono text-xs" style="background: var(--bg-canvas, #0d1117); border-radius: 4px; max-height: 200px; overflow-y: auto; margin: 0; padding: 8px; line-height: 1.4;"><template v-for="(line, idx) in formatPatchLines(file.patch)" :key="idx"><span :style="line.type === 'diff-line-add' ? 'color: #3fb950; display: block; background: rgba(46,160,67,0.15);' : line.type === 'diff-line-del' ? 'color: #f85149; display: block; background: rgba(248,81,73,0.15);' : line.type === 'diff-line-hunk' ? 'color: #58a6ff; display: block;' : 'color: #8b949e; display: block;'">{{ line.text }}</span></template></pre>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -266,6 +284,28 @@ function formatRelativeDate(isoStr) {
   }
 }
 
+const expandedDiffs = ref({})
+
+function toggleFileDiff(filename) {
+  expandedDiffs.value[filename] = !expandedDiffs.value[filename]
+}
+
+function formatPatchLines(patch) {
+  if (!patch) return [{ text: 'No diff patch available for this file.', type: 'diff-line-ctx' }]
+  return patch.split('\n').map((line) => {
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      return { text: line, type: 'diff-line-add' }
+    }
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      return { text: line, type: 'diff-line-del' }
+    }
+    if (line.startsWith('@@')) {
+      return { text: line, type: 'diff-line-hunk' }
+    }
+    return { text: line, type: 'diff-line-ctx' }
+  })
+}
+
 function selectAllFiles(val) {
   for (const f of templateFiles.value) {
     f.selected = val
@@ -309,10 +349,11 @@ async function fetchTemplateData() {
         status: f.status,
         additions: f.additions,
         deletions: f.deletions,
+        patch: f.patch || null,
         selected: true,
       }))
     } else {
-      templateFiles.value = [{ filename: 'All template files', selected: true, additions: 0, deletions: 0 }]
+      templateFiles.value = [{ filename: 'All template files', selected: true, additions: 0, deletions: 0, patch: null }]
     }
 
     // 3. Trigger initial scan
