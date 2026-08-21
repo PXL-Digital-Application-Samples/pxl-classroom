@@ -497,14 +497,6 @@ onMounted(() => {
   border-radius: var(--radius-md);
   margin-top: var(--space-sm);
 }
-.auth-error {
-  color: var(--accent-red);
-  border: 1px solid var(--accent-red);
-  border-radius: var(--radius-md);
-  padding: var(--space-sm) var(--space-md);
-  font-size: 0.85rem;
-  background: rgba(248, 81, 73, 0.05);
-}
 .text-success { color: var(--accent-green); }
 .text-danger { color: var(--accent-red); }
 .text-warning { color: var(--accent-yellow); }

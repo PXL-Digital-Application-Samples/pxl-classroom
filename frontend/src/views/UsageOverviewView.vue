@@ -13,22 +13,10 @@
     </AppHeader>
 
     <main class="container">
-      <div v-if="!user" class="center-card fade-in">
-        <h2>Sign in to view usage</h2>
-        <p class="text-secondary" style="margin-bottom: var(--space-md);">
-          Sign in with an organization administrator account.
-          Sessions last 8 hours. If you were signed in earlier, it has expired.
-        </p>
-        <p v-if="authError" class="auth-error" role="alert">{{ authError }}. Try signing in again.</p>
-        <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
-          <template v-if="authLoading">
-            <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
-            Waiting…
-          </template>
-          <template v-else>Sign in with GitHub</template>
-        </button>
-        <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
-      </div>
+      <AuthCard v-if="!user" title="Sign in to view usage" @authenticated="onAuthenticated">
+        Sign in with an organization administrator account.
+        Sessions last 8 hours. If you were signed in earlier, it has expired.
+      </AuthCard>
 
       <div v-else-if="loading" class="center-card fade-in">
         <div class="spinner-lg spinner"></div>
@@ -142,8 +130,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
+import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
-import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import logoUrl from '../assets/logo.png'
 
 const SortIcon = (props) => h(Icon, {
@@ -152,7 +140,7 @@ const SortIcon = (props) => h(Icon, {
   class: props.dir ? 'sort-glyph sort-glyph-active' : 'sort-glyph',
 })
 SortIcon.props = ['dir']
-import { isAuthenticated, getUser, getToken, clearAuth, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
+import { isAuthenticated, getUser, getToken, clearAuth } from '../lib/auth.js'
 import {
   createWorkflowRequestId,
   getRepoContent,
@@ -165,9 +153,6 @@ import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 
 const user = ref(getUser())
-const authLoading = ref(false)
-const authError = ref(null)
-const deviceFlow = ref(null)
 const loading = ref(false)
 const orgsLoadError = ref(null)
 const rows = ref([])
@@ -188,7 +173,6 @@ const newestGeneratedAt = ref(null)
 const triggering = ref(false)
 const runWatching = ref(false)
 const pollCount = ref(0)
-let pollAbort = null
 let runPollInterval = null
 let activeRequestId = null
 
@@ -284,35 +268,11 @@ async function loadAll() {
   }
 }
 
-async function startLogin() {
-  authError.value = null
-  if (!config.clientId) {
-    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
-    return
-  }
-  authLoading.value = true
-  try {
-    const flow = await startDeviceFlow(config.clientId)
-    deviceFlow.value = flow
-    pollAbort = new AbortController()
-    const result = await pollDeviceFlow(config.clientId, flow.device_code, flow.interval, pollAbort.signal)
-    user.value = result.user
-    deviceFlow.value = null
-    await loadAll()
-  } catch (e) {
-    // Sign-in failures render inside the auth card - never silently.
-    if (e.message !== 'Cancelled') authError.value = e.message
-    deviceFlow.value = null
-  } finally {
-    authLoading.value = false
-  }
+async function onAuthenticated(authedUser) {
+  user.value = authedUser
+  await loadAll()
 }
 
-function cancelLogin() {
-  if (pollAbort) pollAbort.abort()
-  deviceFlow.value = null
-  authLoading.value = false
-}
 
 function handleLogout() {
   clearAuth()
@@ -434,11 +394,4 @@ onBeforeUnmount(() => {
 .inline-spinner { display: inline-flex; align-items: center; gap: var(--space-sm); color: var(--text-secondary); }
 .inline-spinner .spinner { width: 18px; height: 18px; border-width: 2px; }
 .run-watching { display: flex; flex-direction: column; gap: var(--space-sm); align-items: center; }
-.auth-error {
-  color: var(--accent-red);
-  border: 1px solid var(--accent-red);
-  border-radius: var(--radius-md);
-  padding: var(--space-sm) var(--space-md);
-  font-size: 0.9rem;
-}
 </style>

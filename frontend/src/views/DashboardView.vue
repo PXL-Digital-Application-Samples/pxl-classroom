@@ -79,20 +79,9 @@
 
     <main class="container">
       <!-- Not authenticated -->
-      <div v-if="!user" class="center-card fade-in">
-        <h2>Sign in to access the dashboard</h2>
-        <p class="text-secondary">Sign in with a GitHub account that owns an organization with PXL Classroom installed.</p>
-        <p v-if="authError" class="auth-error" role="alert">{{ authError }} - try signing in again.</p>
-        <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
-          <template v-if="authLoading">
-            <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
-            Waiting…
-          </template>
-          <template v-else>Sign in with GitHub</template>
-        </button>
-
-        <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
-      </div>
+      <AuthCard v-if="!user" title="Sign in to access the dashboard" @authenticated="onAuthenticated">
+        Sign in with a GitHub account that owns an organization with PXL Classroom installed.
+      </AuthCard>
 
       <!-- Loading -->
       <div v-else-if="loadingData" class="center-card fade-in">
@@ -307,13 +296,13 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { parse as parseYaml } from 'yaml'
 import AppHeader from '../components/AppHeader.vue'
+import AuthCard from '../components/AuthCard.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
-import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
-import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
+import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getRepoContent, getRepo, listRepoDir } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 
@@ -329,11 +318,7 @@ const orgs = ref([])
 const selectedOrg = ref(props.org || '')
 const assignments = ref([])
 const loadingData = ref(false)
-const authLoading = ref(false)
-const authError = ref(null)
-const deviceFlow = ref(null)
 const showHealthModal = ref(false)
-let pollAbort = null
 
 // Custom Dropdown State & Status Lights
 const orgDropdownOpen = ref(false)
@@ -612,34 +597,11 @@ async function loadDashboard(org) {
   }
 }
 
-async function startLogin() {
-  authError.value = null
-  if (!config.clientId) {
-    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
-    return
-  }
-  authLoading.value = true
-  try {
-    const flow = await startDeviceFlow(config.clientId)
-    deviceFlow.value = flow
-    pollAbort = new AbortController()
-    const result = await pollDeviceFlow(config.clientId, flow.device_code, flow.interval, pollAbort.signal)
-    user.value = result.user
-    deviceFlow.value = null
-    await loadOrgs()
-  } catch (e) {
-    // Sign-in failures render inside the auth card - never silently.
-    if (e.message !== 'Cancelled') authError.value = e.message
-    deviceFlow.value = null
-  }
-  authLoading.value = false
+async function onAuthenticated(authedUser) {
+  user.value = authedUser
+  await loadOrgs()
 }
 
-function cancelLogin() {
-  if (pollAbort) pollAbort.abort()
-  deviceFlow.value = null
-  authLoading.value = false
-}
 
 function handleLogout() {
   clearAuth()
@@ -815,23 +777,7 @@ main {
   user-select: none;
 }
 
-.center-card {
-  max-width: 480px;
-  margin: var(--space-2xl) auto;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-}
 
-.auth-error {
-  color: var(--accent-red);
-  border: 1px solid var(--accent-red);
-  border-radius: var(--radius-sm);
-  padding: var(--space-sm) var(--space-md);
-  font-size: 0.85rem;
-}
 
 .assignment-grid {
   display: grid;

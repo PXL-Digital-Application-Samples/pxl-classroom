@@ -31,23 +31,11 @@
 
     <main class="container">
       <!-- Not authenticated - never show data-shaped empty states signed out -->
-      <div v-if="!user" class="center-card fade-in">
-        <h2>Sign in to view this assignment</h2>
-        <p class="text-secondary">
-          Sign in with a GitHub account that owns <strong>{{ org }}</strong> to load the
-          report for <code>{{ assignmentId }}</code>. Sessions last 8 hours. If you were
-          signed in earlier, it has expired.
-        </p>
-        <p v-if="authError" class="auth-error" role="alert">{{ authError }}. Try signing in again.</p>
-        <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
-          <template v-if="authLoading">
-            <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
-            Waiting…
-          </template>
-          <template v-else>Sign in with GitHub</template>
-        </button>
-        <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
-      </div>
+      <AuthCard v-if="!user" title="Sign in to view this assignment" @authenticated="onAuthenticated">
+        Sign in with a GitHub account that owns <strong>{{ org }}</strong> to load the
+        report for <code>{{ assignmentId }}</code>. Sessions last 8 hours. If you were
+        signed in earlier, it has expired.
+      </AuthCard>
 
       <!-- Loading -->
       <div v-else-if="loading" class="center-card fade-in">
@@ -1005,6 +993,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
+import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
@@ -1016,13 +1005,12 @@ const SortIcon = (props) => props.dir
   : null
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
-import { getToken, getUser, clearAuth, isAuthenticated, startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
+import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getRepo, getWorkflowRuns } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
-import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const REFRESH_CONCURRENCY = 6
@@ -1653,39 +1641,13 @@ onMounted(async () => {
 
 // Device-flow sign-in for deep links opened without a session. Failures
 // render inside the auth card (authError), never a misleading empty state.
-const authLoading = ref(false)
-const authError = ref(null)
-const deviceFlow = ref(null)
-let pollAbort = null
 
-async function startLogin() {
-  authError.value = null
-  if (!config.clientId) {
-    authError.value = 'GitHub App Client ID is not configured. Set VITE_GITHUB_CLIENT_ID.'
-    return
-  }
-  authLoading.value = true
-  try {
-    const flow = await startDeviceFlow(config.clientId)
-    deviceFlow.value = flow
-    pollAbort = new AbortController()
-    const result = await pollDeviceFlow(config.clientId, flow.device_code, flow.interval, pollAbort.signal)
-    user.value = result.user
-    deviceFlow.value = null
-    loading.value = true
-    await loadAll()
-  } catch (e) {
-    if (e.message !== 'Cancelled') authError.value = e.message
-    deviceFlow.value = null
-  }
-  authLoading.value = false
+async function onAuthenticated(authedUser) {
+  user.value = authedUser
+  loading.value = true
+  await loadAll()
 }
 
-function cancelLogin() {
-  if (pollAbort) pollAbort.abort()
-  deviceFlow.value = null
-  authLoading.value = false
-}
 
 async function loadAll() {
   const token = getToken()
@@ -2583,15 +2545,6 @@ async function retryAcceptanceFor(student) {
 
 main { padding: var(--space-xl) 0; }
 
-.center-card {
-  max-width: 480px;
-  margin: var(--space-2xl) auto;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-}
 
 .daily-watch {
   display: flex;
@@ -2600,13 +2553,6 @@ main { padding: var(--space-xl) 0; }
   justify-content: center;
 }
 
-.auth-error {
-  color: var(--accent-red);
-  border: 1px solid var(--accent-red);
-  border-radius: var(--radius-sm);
-  padding: var(--space-sm) var(--space-md);
-  font-size: 0.85rem;
-}
 
 .summary-row {
   display: grid;

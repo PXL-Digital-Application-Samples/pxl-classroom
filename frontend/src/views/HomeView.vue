@@ -25,7 +25,7 @@
           <div v-if="!deviceFlow" class="actions flex flex-col items-center gap-md">
             <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
               <template v-if="authLoading">
-                <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+                <span class="spinner spinner-sm"></span>
                 Waiting…
               </template>
               <template v-else>
@@ -485,6 +485,11 @@ function handleLogout() {
 </script>
 
 <style scoped>
+/* .center-card is now global at 480px; this card holds a paste-a-link form and
+   needs the room it had when the class was only defined locally. */
+.empty-assignments {
+  max-width: 620px;
+}
 .home-page {
   min-height: 100vh;
   display: flex;
@@ -601,14 +606,6 @@ h1 {
   margin: 0;
 }
 
-.center-card {
-  text-align: center;
-  padding: var(--space-2xl);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-}
 
 .status-icon {
   color: var(--text-secondary);

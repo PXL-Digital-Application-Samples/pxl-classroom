@@ -184,7 +184,57 @@ first canvas fill before `style.css` lands.
 4. **Every colour token must use `light-dark()`.** Theme-invariant tokens (`--text-on-emphasis`)
    live in the marked invariant block and are the only exemption.
 
-## 6. Visual Sandbox & Interactive Testing
+## 6. Application Chrome
+
+### `AppHeader.vue` — the one app bar
+
+Every route renders exactly one `<AppHeader>`. Two shapes:
+
+* **Brand** (default slot content): logo + "PXL Classroom", both linking home.
+* **Breadcrumb** (`#left` slot): `.app-header-crumbs` with a `.back-link`, `.app-header-sep`
+  separators and an `.app-header-heading`.
+
+Views add buttons via `#actions`; the rail then always appends `<ThemeToggle>` and, when a
+`user` prop is passed, `<UserBadge>`. Props: `user`, `contained` (wrap in `.container`),
+`sticky`.
+
+> **`AppHeader.vue` has no `<style scoped>` block, and must not gain one.** Slot content is
+> compiled in the *parent's* scope and carries the parent's `data-v-*` attribute, so a scoped
+> rule here can never reach the breadcrumbs and actions views pass in. The `.app-header-*`
+> vocabulary lives in `style.css`. `tests/scoped-style-leakage.test.mjs` enforces this.
+
+### `AuthCard.vue` — the one sign-in surface
+
+```html
+<AuthCard v-if="!user" title="Sign in to view usage" @authenticated="onAuthenticated">
+  Sign in with a GitHub account that owns <strong>{{ org }}</strong>.
+</AuthCard>
+```
+
+AuthCard owns the whole device flow — button, spinner, `DeviceFlowCard`, cancellation, and
+aborting the poll on unmount — and emits `authenticated(user)`. The view supplies only the
+title, the description (default slot) and what to load afterwards:
+
+```js
+async function onAuthenticated(authedUser) {
+  user.value = authedUser
+  await loadReport()
+}
+```
+
+Rules:
+* Sign-in failures render **inside** the card (`.auth-error`), never as a page-level error state.
+* Every authenticated view shows an AuthCard when there is no session — never a data-shaped
+  empty state such as "No assignments yet".
+* `.center-card`, `.auth-error` and `.spinner-sm` are **global**. They were previously
+  redeclared in per-view scoped blocks, which left `/usage` and `/dashboard/:org/usage`
+  rendering their sign-in, loading and empty states completely unstyled.
+
+**Exception:** `HomeView`'s signed-out hero keeps a bespoke sign-in. It is a landing hero —
+logo, product name, tagline — not a card, and forcing it into AuthCard would flatten that
+design. It is the only remaining copy of the device-flow handler.
+
+## 7. Visual Sandbox & Interactive Testing
 
 An offline interactive workbench is available at the route **`/sandbox`**. It allows developers to:
 - Inspect all tonal surface swatches, border contrast, and typography scales.

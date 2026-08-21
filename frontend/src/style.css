@@ -539,6 +539,33 @@ a:hover {
   border-color: var(--border-default);
 }
 
+/* Centred single-column card used for sign-in, loading, empty and error
+   states. Global, not scoped: it was previously defined in five separate view
+   <style scoped> blocks while SEVEN views used it, so the sign-in, loading and
+   empty states on /usage and /dashboard/:org/usage rendered completely
+   unstyled - full-bleed and left-aligned. Views needing a different width
+   override it locally (their scoped rule wins on specificity). */
+.center-card {
+  max-width: 480px;
+  margin: var(--space-2xl) auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+/* Sign-in failures render inside the auth card, never as a page-level error
+   state. Was duplicated across seven views with drifted radius and font-size. */
+.auth-error {
+  color: var(--accent-red);
+  background: var(--tint-danger-subtle);
+  border: 1px solid var(--tint-danger-emphasis);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.85rem;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -762,6 +789,14 @@ select:focus {
   width: 36px;
   height: 36px;
   border-width: 3px;
+}
+/* Inline spinner for button labels. Replaces the inline
+   style="width:18px;height:18px;border-width:2px" that was repeated verbatim
+   in six sign-in buttons. */
+.spinner-sm {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
 }
 
 @keyframes fadeIn {
