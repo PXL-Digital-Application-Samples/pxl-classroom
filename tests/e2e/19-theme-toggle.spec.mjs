@@ -1,0 +1,160 @@
+import { test, expect } from '@playwright/test';
+import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+
+// Guards DESIGN.md §5 in a real browser. The static tests in
+// tests/theme-tokens.test.mjs check the source shape; these check what a user
+// actually gets - which theme resolves, whether it survives a reload, and
+// whether the toggle is reachable at all.
+
+const DARK_CANVAS = 'rgb(13, 17, 23)';   // --bg-canvas dark  (#0d1117)
+const LIGHT_CANVAS = 'rgb(246, 248, 250)'; // --bg-canvas light (#f6f8fa)
+
+const canvas = (page) =>
+  page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+const dataTheme = (page) =>
+  page.evaluate(() => document.documentElement.dataset.theme);
+const stored = (page) =>
+  page.evaluate(() => localStorage.getItem('pxl_theme'));
+
+test.describe('19 - Theme toggle', () => {
+  test('First visit follows the OS: dark machine gets dark, light machine gets light', async ({ browser }) => {
+    for (const [scheme, expected] of [['dark', DARK_CANVAS], ['light', LIGHT_CANVAS]]) {
+      const context = await browser.newContext({ colorScheme: scheme });
+      const page = await context.newPage();
+      await setupStandardMockRoutes(page);
+      await page.goto('/');
+
+      expect(await dataTheme(page)).toBe('system');
+      expect(await canvas(page)).toBe(expected);
+      // A plain visit must not manufacture a preference the user never expressed,
+      // or 'system' could never follow a later OS change.
+      expect(await stored(page)).toBeNull();
+
+      await context.close();
+    }
+  });
+
+  test('Toggle cycles system -> dark -> light and persists every step', async ({ browser }) => {
+    // A light OS makes the "explicit dark pins against the OS" step meaningful.
+    const context = await browser.newContext({ colorScheme: 'light' });
+    const page = await context.newPage();
+    await setupStandardMockRoutes(page);
+    await page.goto('/');
+
+    const toggle = page.locator('.theme-toggle');
+    await expect(toggle).toBeVisible();
+    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+
+    await toggle.click();
+    expect(await dataTheme(page)).toBe('dark');
+    expect(await stored(page)).toBe('dark');
+    // An explicit choice must win over the OS.
+    expect(await canvas(page)).toBe(DARK_CANVAS);
+
+    await toggle.click();
+    expect(await dataTheme(page)).toBe('light');
+    expect(await stored(page)).toBe('light');
+    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+
+    await toggle.click();
+    expect(await dataTheme(page)).toBe('system');
+    expect(await stored(page)).toBe('system');
+
+    await context.close();
+  });
+
+  test('An explicit choice survives a reload with no flash of the other theme', async ({ browser }) => {
+    // OS is dark, so a stored 'light' can only come from the boot script.
+    const context = await browser.newContext({ colorScheme: 'dark' });
+    const page = await context.newPage();
+    await setupStandardMockRoutes(page);
+    await page.goto('/');
+    await page.locator('.theme-toggle').click(); // system -> dark
+    await page.locator('.theme-toggle').click(); // dark -> light
+    expect(await stored(page)).toBe('light');
+
+    // Capture the attribute as early as the document exists: if the inline
+    // <head> script did not set it before first paint, a light-mode user would
+    // flash dark on every load.
+    const earlyTheme = [];
+    page.on('domcontentloaded', async () => {
+      earlyTheme.push(await dataTheme(page).catch(() => null));
+    });
+
+    await page.reload();
+    expect(await dataTheme(page)).toBe('light');
+    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+    expect(earlyTheme.filter(Boolean)).not.toContain('dark');
+
+    await context.close();
+  });
+
+  test('?theme= overrides and persists', async ({ browser }) => {
+    const context = await browser.newContext({ colorScheme: 'dark' });
+    const page = await context.newPage();
+    await setupStandardMockRoutes(page);
+
+    await page.goto('/?theme=light');
+    expect(await dataTheme(page)).toBe('light');
+    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+    expect(await stored(page)).toBe('light');
+
+    // The override is persisted, so a plain URL keeps it.
+    await page.goto('/');
+    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+
+    // An unrecognised value must not be applied or stored.
+    await page.goto('/?theme=chartreuse');
+    expect(await dataTheme(page)).toBe('light');
+    expect(await stored(page)).toBe('light');
+
+    await context.close();
+  });
+
+  test('The toggle is present on every route, signed in and signed out', async ({ browser }) => {
+    const context = await browser.newContext({ colorScheme: 'dark' });
+
+    const signedOut = await context.newPage();
+    await setupStandardMockRoutes(signedOut);
+    for (const route of ['/', '/setup', '/sandbox']) {
+      await signedOut.goto(route);
+      await expect(signedOut.locator('.theme-toggle'), `no toggle on ${route}`).toBeVisible();
+    }
+    await signedOut.close();
+
+    const signedIn = await context.newPage();
+    await injectAuth(signedIn, STUDENT_1);
+    await setupStandardMockRoutes(signedIn, { currentUser: STUDENT_1 });
+    for (const route of [`/dashboard/${ORG}`, `/dashboard/${ORG}/admin`, `/dashboard/${ORG}/usage`, '/usage']) {
+      await signedIn.goto(route);
+      await expect(signedIn.locator('.theme-toggle'), `no toggle on ${route}`).toBeVisible();
+    }
+    await signedIn.close();
+
+    await context.close();
+  });
+
+  test('The sign-in card is a centred 480px card on the Usage routes', async ({ browser }) => {
+    // Regression: .center-card was declared in five view <style scoped> blocks
+    // while seven views used it, so these two rendered full-bleed and
+    // left-aligned. Vue scoped styles do not leak.
+    const context = await browser.newContext({ colorScheme: 'dark' });
+    const page = await context.newPage();
+    await setupStandardMockRoutes(page);
+
+    for (const route of [`/dashboard/${ORG}/usage`, '/usage']) {
+      await page.goto(route);
+      const card = page.locator('.center-card').first();
+      await expect(card).toBeVisible();
+      const box = await card.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { display: cs.display, maxWidth: cs.maxWidth, textAlign: cs.textAlign };
+      });
+      expect(box, `unstyled sign-in card on ${route}`).toEqual({
+        display: 'flex', maxWidth: '480px', textAlign: 'center',
+      });
+    }
+
+    await context.close();
+  });
+});

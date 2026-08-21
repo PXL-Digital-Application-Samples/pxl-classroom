@@ -65,3 +65,45 @@ test("every .vue file under frontend/src has useRoute imported when referencing 
 
   assert.deepEqual(errors, [], `Found routing variable mismatches:\n${errors.join("\n")}`);
 });
+
+// Vue resolves an unknown template handler to undefined and only warns at
+// RUNTIME, on render - so a dead @event binding ships silently. AdminView
+// gained `@logout="handleLogout"` when it adopted AppHeader but never defined
+// the handler, leaving a Sign out button that did nothing.
+test("every @event handler referenced in a template is defined in the component", () => {
+  const vueFiles = findFiles(join(root, "frontend", "src"), (p) => p.endsWith(".vue"));
+  const offenders = [];
+
+  for (const file of vueFiles) {
+    const src = readFileSync(file, "utf8");
+    const styleAt = src.search(/<style\b/);
+    const scriptAt = src.search(/<script\b/);
+    if (scriptAt === -1) continue;
+
+    const template = src.slice(0, scriptAt);
+    const script = src.slice(scriptAt, styleAt === -1 ? undefined : styleAt);
+    const rel = file.slice(root.length + 1).split("\\").join("/");
+
+    // Only bare identifiers: `@click="doThing"`. Inline expressions
+    // (`@click="x = 1"`, `foo()`, `$emit(...)`) are the compiler's problem.
+    for (const m of template.matchAll(/(?:@|v-on:)[\w.:-]+="([A-Za-z_$][\w$]*)"/g)) {
+      const handler = m[1];
+      const declared = new RegExp(
+        "(?:function\\s+" + handler + "\\b" +
+        "|(?:const|let|var)\\s+" + handler + "\\b" +
+        "|\\b" + handler + "\\s*,?\\s*\\}?\\s*from\\s+['\"]" +
+        "|import\\s+" + handler + "\\b" +
+        "|[{,]\\s*" + handler + "\\s*[,}])",
+      );
+      if (!declared.test(script)) offenders.push(`${rel}  @event="${handler}"`);
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "These templates bind an event to an identifier the script never defines. " +
+      "Vue resolves it to undefined and warns only when the component renders, " +
+      "so the control silently does nothing.",
+  );
+});

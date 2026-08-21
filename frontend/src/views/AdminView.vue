@@ -784,7 +784,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { config } from '../lib/config.js'
-import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
@@ -804,6 +804,13 @@ const route = useRoute()
 // Device-flow sign-in for deep links opened without a session. Failures
 // render inside the auth card (authError), never a misleading empty state.
 const user = ref(getUser())
+
+function handleLogout() {
+  clearAuth()
+  user.value = null
+  assignments.value = []
+  templates.value = []
+}
 
 async function onAuthenticated(authedUser) {
   user.value = authedUser

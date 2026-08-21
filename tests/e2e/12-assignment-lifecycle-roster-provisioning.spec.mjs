@@ -16,7 +16,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
     });
 
     await page.goto(`/dashboard/${ORG}/admin`);
-    await expect(page.locator('.admin-header .admin-heading')).toBeVisible();
+    await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible();
 
     // Click "+ New assignment"
     await page.locator('.new-btn').click();

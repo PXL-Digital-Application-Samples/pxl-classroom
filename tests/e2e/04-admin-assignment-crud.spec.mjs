@@ -10,7 +10,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     });
 
     await page.goto(`/dashboard/${ORG}/admin`);
-    const adminHeader = page.locator('.admin-header .admin-heading');
+    const adminHeader = page.locator('.app-header-crumbs .app-header-heading');
     await expect(adminHeader).toBeVisible({ timeout: 10000 });
 
     // Click "+ New assignment"

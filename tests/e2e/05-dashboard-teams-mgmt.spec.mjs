@@ -51,7 +51,7 @@ test.describe('05 - Lecturer Dashboard & Team Management', () => {
     await page.goto(`/dashboard/${ORG}/group-hw`);
 
     // Verify detail header
-    const heading = page.locator('.breadcrumb h1');
+    const heading = page.locator('.app-header-crumbs h1');
     await expect(heading).toContainText('group-hw');
 
     // Switch to Teams tab if present

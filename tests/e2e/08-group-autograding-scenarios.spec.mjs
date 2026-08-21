@@ -215,7 +215,7 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
     await page.goto(`/dashboard/${ORG}/group-autograding-docker`);
 
     // Verify detail view loads
-    const heading = page.locator('.breadcrumb h1');
+    const heading = page.locator('.app-header-crumbs h1');
     await expect(heading).toContainText('group-autograding-docker');
 
     // Verify both score pills are displayed in the Teams table

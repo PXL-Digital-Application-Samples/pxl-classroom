@@ -71,7 +71,7 @@ test.describe('06b - App-level permission attribution', () => {
     });
 
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('.health-btn').click();
+    await page.locator('button[aria-label="System health check"]').click();
     const tier1 = await openTier1(page);
 
     const declaration = row(tier1, 'GitHub App Declaration');
@@ -95,7 +95,7 @@ test.describe('06b - App-level permission attribution', () => {
     });
 
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('.health-btn').click();
+    await page.locator('button[aria-label="System health check"]').click();
 
     const tier1 = await openTier1(page);
     await expect(row(tier1, 'GitHub App Declaration')).toHaveClass(/check-ok/);
@@ -111,7 +111,7 @@ test.describe('06b - App-level permission attribution', () => {
     });
 
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('.health-btn').click();
+    await page.locator('button[aria-label="System health check"]').click();
 
     const tier1 = await openTier1(page);
     const access = row(tier1, 'App Repository Access');
