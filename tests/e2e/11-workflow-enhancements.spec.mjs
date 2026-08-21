@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupStandardMockRoutes, injectAuth, LECTURER } from '../fixtures/e2e-fixtures.mjs';
+import { setupStandardMockRoutes, injectAuth, LECTURER, openStarterSyncModal } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 const STUDENT_EXTENDED = { login: 'student-extended', name: 'Eve Extended', token: 'mock_extended_token' };
@@ -317,7 +317,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await page.goto(`/dashboard/${ORG}/lab-sync-diff`);
 
     // 1. Open Starter Code Sync Modal
-    await page.locator('button', { hasText: /Sync Starter Code/i }).click();
+    await openStarterSyncModal(page);
     const modal = page.locator('.starter-sync-modal');
     await expect(modal).toBeVisible();
 
@@ -674,7 +674,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await page.goto(`/dashboard/${ORG}/lab-sync-multi-diff`);
 
     // 1. Open Starter Code Sync Modal
-    await page.locator('button', { hasText: /Sync Starter Code/i }).click();
+    await openStarterSyncModal(page);
     const modal = page.locator('.starter-sync-modal');
     await expect(modal).toBeVisible();
 

@@ -127,7 +127,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     // 2. Verify Assignment Grid is shown
     const card = page.locator('.assignment-card', { hasText: 'Active Kubernetes Lab' });
     await expect(card).toBeVisible();
-    await expect(card.locator('.badge')).toContainText('published');
+    await expect(card.locator('.status-indicator')).toContainText('Accepting');
     await expect(card.locator('.stat-value', { hasText: '12' })).toBeVisible();
   });
 

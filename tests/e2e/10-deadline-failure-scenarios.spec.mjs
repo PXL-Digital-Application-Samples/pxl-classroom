@@ -163,20 +163,20 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
 
     // 1. On-time student badge
     const ontimeRow = page.locator('tr', { hasText: 'student-ontime' });
-    await expect(ontimeRow.locator('.badge-success')).toContainText('on-time');
+    await expect(ontimeRow.locator('.status-indicator:has(.dot-success)', { hasText: 'on-time' })).toBeVisible();
 
     // 2. Late student badge
     const lateRow = page.locator('tr', { hasText: 'student-late' });
-    await expect(lateRow.locator('.badge-warning')).toContainText('late');
+    await expect(lateRow.locator('.status-indicator:has(.dot-warning)', { hasText: 'late' })).toBeVisible();
 
     // 3. Unstarted student badge (1 commit)
     const unstartedRow = page.locator('tr', { hasText: 'student-unstarted' });
-    await expect(unstartedRow.locator('.badge', { hasText: 'no-submission' })).toBeVisible();
+    await expect(unstartedRow.locator('.status-indicator', { hasText: 'no-submission' })).toBeVisible();
 
     // 4. Roster ghost student badge (not accepted)
     const ghostRow = page.locator('tr', { hasText: 'student-ghost' });
-    await expect(ghostRow.locator('.badge', { hasText: 'no-submission' })).toBeVisible();
-    await expect(ghostRow.locator('.badge', { hasText: /not[-_ ]accepted/i })).toBeVisible();
+    await expect(ghostRow.locator('.status-indicator', { hasText: 'no-submission' })).toBeVisible();
+    await expect(ghostRow.locator('.status-indicator', { hasText: /not[-_ ]accepted/i })).toBeVisible();
   });
 
   test('Scenario 4 (Deadline Overrides): Reclassifies post-deadline push to on-time when extension is granted', async ({ page }) => {
@@ -221,7 +221,7 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     await page.goto(`/dashboard/${ORG}/lab-extended`);
 
     const studentRow = page.locator('tr', { hasText: 'student-extended' });
-    await expect(studentRow.locator('.badge-success')).toContainText('on-time');
+    await expect(studentRow.locator('.status-indicator:has(.dot-success)', { hasText: 'on-time' })).toBeVisible();
     // Verify extension note is visible
     await expect(studentRow.locator('.ext-note')).toContainText('ext ->');
   });
@@ -367,15 +367,15 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     // In Teams View:
     // Team Alpha has 1/3 members with warning badge
     const alphaRow = page.locator('tr', { hasText: 'team-alpha' });
-    await expect(alphaRow.locator('.badge-warning')).toContainText('1/3 (low)');
+    await expect(alphaRow.locator('.status-indicator:has(.dot-warning)', { hasText: '1/3 (low)' })).toBeVisible();
 
     // Team Beta is marked Late
     const betaRow = page.locator('tr', { hasText: 'team-beta' });
-    await expect(betaRow.locator('.badge-warning', { hasText: 'late' })).toBeVisible();
+    await expect(betaRow.locator('.status-indicator:has(.dot-warning)', { hasText: 'late' })).toBeVisible();
 
     // Switch to Students View and verify propagation
     await page.locator('.tab-pill', { hasText: 'Students View' }).click();
     const betaStudentRow = page.locator('tr', { hasText: 'student-beta1' });
-    await expect(betaStudentRow.locator('.badge-warning', { hasText: 'late' })).toBeVisible();
+    await expect(betaStudentRow.locator('.status-indicator:has(.dot-warning)', { hasText: 'late' })).toBeVisible();
   });
 });

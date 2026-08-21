@@ -1,3 +1,4 @@
+import { expect } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
@@ -530,4 +531,21 @@ export async function setupStandardMockRoutes(page, {
       await route.fulfill({ status: 200, body: JSON.stringify({}) });
     }
   });
+}
+
+// The Primer overhaul moved secondary and maintenance actions out of the header
+// toolbar into the "More" dropdown, so they are menu items rather than buttons.
+// Check aria-expanded before clicking: a blind toggle closes an open menu.
+export async function openMoreActionsMenu(page) {
+  const trigger = page.locator('button[aria-haspopup="true"]:has(span:text-is("More"))');
+  await expect(trigger).toBeVisible({ timeout: 10000 });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') {
+    await trigger.click();
+  }
+  await expect(page.locator('[role="menu"]').first()).toBeVisible();
+}
+
+export async function openStarterSyncModal(page) {
+  await openMoreActionsMenu(page);
+  await page.locator('[role="menuitem"]:has-text("Sync Starter Code")').click();
 }

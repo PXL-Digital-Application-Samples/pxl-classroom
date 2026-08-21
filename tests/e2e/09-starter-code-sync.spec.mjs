@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, openStarterSyncModal } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('09 - Starter Code Update & Synchronization Flows', () => {
   test('Scenario 1 (Updating Existing File): Sync README.md instructions with pre-flight scan and auto-merge', async ({ page }) => {
@@ -46,10 +46,8 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
 
     await page.goto(`/dashboard/${ORG}/lab-python-sync`);
 
-    // 1. Click "Sync Starter Code" button in header toolbar
-    const syncBtn = page.locator('button', { hasText: 'Sync Starter Code' });
-    await expect(syncBtn).toBeVisible({ timeout: 10000 });
-    await syncBtn.click();
+    // 1. Open "Sync Starter Code" from the More actions dropdown
+    await openStarterSyncModal(page);
 
     // 2. Starter Sync Modal opens
     const modal = page.locator('.modal.card.modal-wide');
@@ -117,7 +115,7 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
     await page.goto(`/dashboard/${ORG}/lab-python-selective`);
 
     // Open Sync Modal
-    await page.locator('button', { hasText: 'Sync Starter Code' }).click();
+    await openStarterSyncModal(page);
     const modal = page.locator('.modal.card.modal-wide');
     await expect(modal).toBeVisible();
 
@@ -186,7 +184,7 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/lab-config-conflict`);
-    await page.locator('button', { hasText: 'Sync Starter Code' }).click();
+    await openStarterSyncModal(page);
 
     const modal = page.locator('.modal.card.modal-wide');
     await expect(modal).toBeVisible();
@@ -251,7 +249,7 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/group-starter-sync`);
-    await page.locator('button', { hasText: 'Sync Starter Code' }).click();
+    await openStarterSyncModal(page);
 
     const modal = page.locator('.modal.card.modal-wide');
     await expect(modal).toBeVisible();
