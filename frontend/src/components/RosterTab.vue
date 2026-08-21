@@ -320,6 +320,7 @@ async function commitRoster() {
 }
 
 watch(() => props.org, () => loadExisting())
+watch(csvText, () => parseAndValidate())
 
 onMounted(loadExisting)
 

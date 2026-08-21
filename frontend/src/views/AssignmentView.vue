@@ -135,11 +135,11 @@
                 This assignment has reached its registration limit. Please contact your lecturer.
               </p>
             </div>
-            <div v-else-if="assignment && assignment.opens_at && new Date() < new Date(assignment.opens_at)" class="text-center">
+            <div v-else-if="assignment && (assignment.state === 'draft' || (assignment.opens_at && new Date() < new Date(assignment.opens_at)))" class="text-center">
               <Icon name="clock" :size="48" class="status-icon" />
               <h2>Assignment not open yet</h2>
               <p class="text-secondary">
-                Opens {{ formatDate(assignment.opens_at, assignment.timezone) }}
+                {{ assignment.state === 'draft' ? 'This assignment is currently in draft mode.' : `Opens ${formatDate(assignment.opens_at, assignment.timezone)}` }}
               </p>
             </div>
             <div v-else>

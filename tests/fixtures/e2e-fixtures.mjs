@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
 
 // Auto-load .env.test if present
@@ -62,7 +63,34 @@ export async function setupStandardMockRoutes(page, {
   userRepos = [],
   invitations = [],
   brokerIssues = [],
+  roster = null,
 } = {}) {
+  // Schema route mock
+  await page.route('**/schemas/*.schema.json*', async (route) => {
+    const url = route.request().url();
+    const match = url.match(/schemas\/([^/?#]+\.schema\.json)/);
+    const schemaFile = match ? match[1] : null;
+    if (schemaFile) {
+      const filePath = join(process.cwd(), 'schemas', schemaFile);
+      if (existsSync(filePath)) {
+        const content = readFileSync(filePath, 'utf8');
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: content,
+        });
+        return;
+      }
+    }
+    await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not found' }) });
+  });
+  // In-memory dynamic files committed during the test session
+  const dynamicFiles = new Map();
+  if (roster) {
+    const yamlContent = typeof roster === 'string' ? roster : yamlStringify({ students: roster });
+    dynamicFiles.set('students/roster.yml', yamlContent);
+  }
+
   // Assignments JSON
   await page.route(`**/data/${org}/assignments.json*`, async (route) => {
     await route.fulfill({
@@ -118,7 +146,18 @@ export async function setupStandardMockRoutes(page, {
     const method = route.request().method();
 
     if (url.includes('repository_invitations') || url.includes('/invitations')) {
-      await route.fulfill({ status: 200, body: JSON.stringify(invitations) });
+      if (method === 'PATCH' || method === 'DELETE') {
+        await route.fulfill({ status: 204, body: '' });
+      } else {
+        await route.fulfill({ status: 200, body: JSON.stringify(invitations) });
+      }
+    } else if (url.includes('/user/starred/')) {
+      if (method === 'PUT' || method === 'DELETE') {
+        await route.fulfill({ status: 204, body: '' });
+      } else if (method === 'GET') {
+        // Return 204 if starred, 404 otherwise
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+      }
     } else if (url.includes('/user')) {
       await route.fulfill({
         status: 200,
@@ -135,6 +174,26 @@ export async function setupStandardMockRoutes(page, {
         body: JSON.stringify({ id: 101, number: 1, state: 'open' }),
       });
     } else if (url.includes('/repos/')) {
+      if (method === 'PUT' && url.includes('/contents/')) {
+        const match = url.match(/\/contents\/(.+)$/);
+        const path = match ? decodeURIComponent(match[1]) : 'file';
+        try {
+          const postData = route.request().postDataJSON();
+          if (postData?.content) {
+            const decoded = Buffer.from(postData.content, 'base64').toString('utf8');
+            dynamicFiles.set(path, decoded);
+          }
+        } catch {}
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify({
+            content: { name: path, path, sha: 'commit_sha_123' },
+            commit: { sha: 'commit_sha_123', message: 'Committed by test' },
+          }),
+        });
+        return;
+      }
+
       if (url.includes('/pxl-classroom-control/contents/reports/')) {
         const match = url.match(/\/reports\/([^/?#]+)\.json/);
         const asgnId = match ? match[1] : null;
@@ -144,16 +203,49 @@ export async function setupStandardMockRoutes(page, {
           await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
           return;
         }
-      } else if (url.includes('/pxl-classroom-control/contents/assignments/')) {
-        const match = url.match(/\/assignments\/([^/?#]+)\.ya?ml/);
-        const asgnId = match ? match[1] : null;
-        if (asgnId && assignments[asgnId]) {
-          const yamlContent = yamlStringify(assignments[asgnId]);
-          const contentBase64 = Buffer.from(yamlContent).toString('base64');
-          await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+      } else if (url.includes('/pxl-classroom-control/contents/students/roster.yml') || url.includes('/pxl-classroom-control/contents/students/roster.yaml')) {
+        const dynamicRoster = dynamicFiles.get('students/roster.yml') || dynamicFiles.get('students/roster.yaml');
+        if (dynamicRoster) {
+          const contentBase64 = Buffer.from(dynamicRoster).toString('base64');
+          await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: 'roster_sha_1' }) });
           return;
         }
-        await route.fulfill({ status: 200, body: JSON.stringify([]) });
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      } else if (url.includes('/pxl-classroom-control/contents/assignments')) {
+        const match = url.match(/\/assignments\/([^/?#]+)\.ya?ml/);
+        const asgnId = match ? match[1] : null;
+        if (asgnId) {
+          const dynamicContent = dynamicFiles.get(`assignments/${asgnId}.yml`) || dynamicFiles.get(`assignments/${asgnId}.yaml`);
+          if (dynamicContent) {
+            const contentBase64 = Buffer.from(dynamicContent).toString('base64');
+            await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+            return;
+          }
+          if (assignments[asgnId]) {
+            const yamlContent = yamlStringify(assignments[asgnId]);
+            const contentBase64 = Buffer.from(yamlContent).toString('base64');
+            await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+            return;
+          }
+          await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+          return;
+        }
+
+        // Directory listing for assignments/
+        const fileList = [];
+        for (const id of Object.keys(assignments)) {
+          fileList.push({ name: `${id}.yml`, path: `assignments/${id}.yml`, type: 'file' });
+        }
+        for (const [path] of dynamicFiles.entries()) {
+          if (path.startsWith('assignments/') && path.endsWith('.yml')) {
+            const fname = path.replace('assignments/', '');
+            if (!fileList.some((f) => f.name === fname)) {
+              fileList.push({ name: fname, path, type: 'file' });
+            }
+          }
+        }
+        await route.fulfill({ status: 200, body: JSON.stringify(fileList) });
         return;
       } else if (url.includes('/pxl-classroom-control/contents/overrides/')) {
         const match = url.match(/\/overrides\/([^/?#]+)(?:\/([^/?#]+)\.json)?/);
@@ -287,6 +379,8 @@ export async function setupStandardMockRoutes(page, {
       const existing = userRepos.find((r) => r.full_name === targetRepo || r.name === match?.[2]);
       if (existing) {
         await route.fulfill({ status: 200, body: JSON.stringify(existing) });
+      } else if (match?.[2] === 'pxl-classroom-control') {
+        await route.fulfill({ status: 200, body: JSON.stringify({ full_name: `${match[1]}/pxl-classroom-control`, name: 'pxl-classroom-control' }) });
       } else {
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
       }
