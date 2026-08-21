@@ -118,19 +118,9 @@
 
             <!-- Capacity column -->
             <td>
-              <span
-                :class="[
-                  'badge',
-                  team.under_capacity
-                    ? 'badge-warning'
-                    : (team.members?.length || 0) >= (assignment?.group_config?.max_team_size || 3)
-                    ? 'badge-neutral'
-                    : 'badge-success'
-                ]"
-                style="font-size: 0.75rem;"
-              >
-                {{ team.members ? team.members.length : 0 }}/{{ assignment?.group_config?.max_team_size || 3 }}
-                <template v-if="team.under_capacity"> (low)</template>
+              <span class="status-indicator">
+                <span class="status-dot" :class="team.under_capacity ? 'dot-warning' : ((team.members?.length || 0) >= (assignment?.group_config?.max_team_size || 3) ? 'dot-neutral' : 'dot-success')"></span>
+                <span class="mono text-xs">{{ team.members ? team.members.length : 0 }}/{{ assignment?.group_config?.max_team_size || 3 }}<template v-if="team.under_capacity"> (low)</template></span>
               </span>
             </td>
 
@@ -141,25 +131,26 @@
                 :href="team.repo_url"
                 target="_blank"
                 rel="noopener"
-                class="repo-link"
+                class="repo-link mono"
               >
                 {{ team.repo_name ? team.repo_name.split('/').pop() : team.team_slug }}
               </a>
-              <span v-else class="text-muted text-xs">Not created</span>
+              <span v-else class="text-muted text-xs">-</span>
             </td>
 
             <!-- Commits column -->
             <td>
-              <span v-if="team.commit_count != null" class="commit-count-badge">
-                {{ team.commit_count }} commit{{ team.commit_count === 1 ? '' : 's' }}
+              <span v-if="team.commit_count != null" class="mono text-xs">
+                {{ team.commit_count }}
               </span>
               <span v-else class="text-muted text-xs">-</span>
             </td>
 
             <!-- Submission Status column -->
             <td>
-              <span :class="['badge', statusBadgeClass(team.submission_status)]">
-                {{ team.submission_status || 'unknown' }}
+              <span class="status-indicator">
+                <span class="status-dot" :class="team.submission_status === 'on-time' ? 'dot-success' : (team.submission_status === 'late' ? 'dot-warning' : 'dot-neutral')"></span>
+                <span class="text-sm">{{ team.submission_status || 'unknown' }}</span>
               </span>
             </td>
 

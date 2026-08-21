@@ -2940,7 +2940,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .dropdown-icon {
   margin-top: 2px;
   flex-shrink: 0;
-  color: var(--color-accent, #58a6ff);
+  color: var(--accent-blue);
 }
 
 .dropdown-item-text {
@@ -2975,7 +2975,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 0 5px;
   background: var(--bg-tertiary);
   border-radius: 999px;
-  color: var(--color-accent, #58a6ff);
+  color: var(--accent-blue);
 }
 
 .preservation-banner {

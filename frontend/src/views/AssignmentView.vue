@@ -61,9 +61,12 @@
       <!-- Assignment loaded -->
       <div v-else class="assignment-content fade-in">
         <div class="assignment-card card">
-          <div class="assignment-meta">
-            <span :class="['badge', stateBadgeClass]">{{ assignment.state }}</span>
-            <span v-if="assignment.acceptance_mode && assignment.acceptance_mode !== 'self-service'" class="badge badge-info">{{ assignment.acceptance_mode }}</span>
+          <div class="assignment-meta flex items-center gap-sm">
+            <span class="status-indicator">
+              <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
+              <span class="text-sm font-medium">{{ assignment.state === 'published' ? 'Accepting Submissions' : (assignment.state === 'closed' ? 'Acceptance Closed' : assignment.state) }}</span>
+            </span>
+            <span v-if="assignment.acceptance_mode && assignment.acceptance_mode !== 'self-service'" class="text-xs text-muted">({{ assignment.acceptance_mode }})</span>
           </div>
 
           <h1 class="assignment-title">{{ assignment.title }}</h1>

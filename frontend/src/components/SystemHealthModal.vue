@@ -42,7 +42,10 @@
                 <span class="tier-title">{{ tier.label }}</span>
                 <span v-if="tier.subtitle" class="tier-subtitle">{{ tier.subtitle }}</span>
               </div>
-              <span class="badge" :class="badgeClass(tier.severity)">{{ tier.severity.toUpperCase() }}</span>
+              <span class="status-indicator">
+                <span class="status-dot" :class="tier.severity === 'ok' ? 'dot-success' : (tier.severity === 'warn' ? 'dot-warning' : 'dot-danger')"></span>
+                <span class="text-xs font-semibold">{{ tier.severity === 'ok' ? 'Healthy' : (tier.severity === 'warn' ? 'Warning' : 'Action Required') }}</span>
+              </span>
               <Icon :name="expandedTiers[tier.id] ? 'chevron-up' : 'chevron-down'" :size="14" class="tier-toggle" />
             </div>
 
@@ -53,8 +56,9 @@
                   <div class="check-content">
                     <div class="check-header-row">
                       <strong class="check-label">{{ c.label }}</strong>
-                      <span v-if="c.severity !== 'ok'" class="check-status-tag" :class="`tag-${c.severity}`">
-                        {{ c.severity }}
+                      <span v-if="c.severity !== 'ok'" class="status-indicator">
+                        <span class="status-dot" :class="c.severity === 'warn' ? 'dot-warning' : 'dot-danger'"></span>
+                        <span class="text-xs font-medium" :class="c.severity === 'warn' ? 'text-warning' : 'text-danger'">{{ c.severity === 'warn' ? 'Warning' : 'Error' }}</span>
                       </span>
                     </div>
                     <p class="check-msg">{{ c.message }}</p>
@@ -409,9 +413,9 @@ function overallSummary(sev) {
   gap: var(--space-sm);
 }
 .tier-card {
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  background: var(--bg-primary);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
   overflow: hidden;
 }
 .tier-header {
@@ -421,11 +425,11 @@ function overallSummary(sev) {
   gap: var(--space-sm);
   cursor: pointer;
   user-select: none;
-  background: var(--bg-secondary);
-  transition: background 0.15s ease;
+  background: var(--bg-surface-hover);
+  transition: background var(--transition-fast);
 }
 .tier-header:hover {
-  background: var(--bg-tertiary);
+  background: #282e37;
 }
 .tier-glyph {
   flex-shrink: 0;

@@ -523,6 +523,16 @@ The `cli/` workspace ships a `pxl-classroom` command - an alternate UX for the S
 
 The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (accepts an Octokit-style request fn or a plain `{ fetch, token }`), so the CLI, workflow scripts, and the SPA can share it without dependency lock-in.
 
+### 10.6 Design System & Visual Architecture
+
+The frontend follows a developer-centric, human-crafted aesthetic inspired by **GitHub Primer**. It strictly eliminates generic AI template tropes (e.g. 1px border cages around all nested components, competing multi-color action buttons, bulky uppercase badge capsules) in favor of high-density ergonomics:
+
+- **Tonal Surface Hierarchy:** The UI separates sections through background luminance shifts rather than thick border cages: Canvas (`--bg-canvas: #0d1117`), Surface (`--bg-surface: #161b22`), Surface Elevated (`--bg-surface-elevated: #1c2128`), and Hover States (`--bg-surface-hover: #21262d`). Borders are muted (`--border-muted: #21262d`) and reserved for structural dividers.
+- **Strict 1-Primary-Button Rule:** Each viewport features strictly one solid primary CTA (`.btn-primary`), while standard toolbar actions use neutral secondary buttons (`.btn-secondary`), and maintenance/destructive options reside in clean dropdown menus (`··· More ▾`).
+- **Status Indicator System:** Replaces heavy pill badges with subtle, glowing status dots (`.status-indicator` + `.status-dot` with `.dot-success`, `.dot-warning`, `.dot-danger`, `.dot-neutral`) and clean mixed-case labels (`● On-time`, `● Accepting`, `● Provisioned`).
+- **Primer Underline Tabs:** Navigation between view modes and sub-sections uses underline tabs (`.primer-tabs` / `.primer-tab`) with an active accent border.
+- **Canonical Guidelines:** See [`DESIGN.md`](DESIGN.md) in the repository root for the full token reference and styling rules.
+
 ---
 
 ## 11. Deadlines, evidence, lock-down, preservation

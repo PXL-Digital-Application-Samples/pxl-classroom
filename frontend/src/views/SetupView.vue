@@ -110,13 +110,13 @@
             </div>
 
             <ul class="check-list" style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-xs);">
-              <li v-for="c in verifyChecks.permissions" :key="c.name" class="check-item flex items-center justify-between" style="padding: 8px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; font-size: 0.85rem;">
-                <span style="font-family: var(--font-mono); color: var(--text-primary);">{{ c.name }}</span>
-                <span class="flex items-center gap-xs">
+              <li v-for="c in verifyChecks.permissions" :key="c.name" class="check-item flex items-center justify-between" style="padding: 8px 12px; background: var(--bg-surface-hover); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); font-size: 0.85rem;">
+                <span class="mono" style="color: var(--text-primary);">{{ c.name }}</span>
+                <span class="status-indicator">
+                  <span class="status-dot" :class="c.ok ? 'dot-success' : 'dot-danger'"></span>
                   <span :class="c.ok ? 'text-success' : 'text-danger'" style="font-weight: 500;">
                     {{ c.actual }} <span v-if="!c.ok">(want {{ c.expected }})</span>
                   </span>
-                  <Icon :name="c.ok ? 'check' : 'x'" :size="14" :class="c.ok ? 'text-success' : 'text-danger'" />
                 </span>
               </li>
             </ul>

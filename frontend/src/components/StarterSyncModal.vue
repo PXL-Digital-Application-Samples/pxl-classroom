@@ -122,19 +122,28 @@
           <div v-else class="preflight-summary-grid">
             <div class="preflight-card clean">
               <span class="preflight-count stat-green">{{ scanResults.autoMerged.length }}</span>
-              <span class="preflight-label">Clean Auto-Merge</span>
+              <span class="status-indicator" style="margin-top: 4px;">
+                <span class="status-dot dot-success"></span>
+                <strong class="preflight-label">Clean Auto-Merge</strong>
+              </span>
               <span class="preflight-desc">Merges cleanly to main (Zero student action required)</span>
             </div>
 
             <div class="preflight-card conflict">
               <span class="preflight-count stat-yellow">{{ scanResults.conflicts.length }}</span>
-              <span class="preflight-label">Safe Pull Requests</span>
+              <span class="status-indicator" style="margin-top: 4px;">
+                <span class="status-dot dot-warning"></span>
+                <strong class="preflight-label">Safe Pull Requests</strong>
+              </span>
               <span class="preflight-desc">Conflicting edits detected; opens PR to protect student code</span>
             </div>
 
             <div class="preflight-card skipped">
               <span class="preflight-count text-muted">{{ scanResults.skipped.length }}</span>
-              <span class="preflight-label">Up to Date / Skipped</span>
+              <span class="status-indicator" style="margin-top: 4px;">
+                <span class="status-dot dot-neutral"></span>
+                <strong class="preflight-label">Up to Date / Skipped</strong>
+              </span>
               <span class="preflight-desc">Already at target SHA or repository unprovisioned</span>
             </div>
           </div>
@@ -485,10 +494,10 @@ onMounted(() => {
 }
 
 .sync-section {
-  padding: var(--space-md, 16px);
-  background: var(--color-bg-subtle, #161b22);
-  border: 1px solid var(--color-border-default, #30363d);
-  border-radius: var(--radius-md, 6px);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
 }
 
 .section-title {
@@ -498,53 +507,54 @@ onMounted(() => {
 }
 
 .commit-summary-box {
-  padding: var(--space-xs, 6px) var(--space-sm, 10px);
-  background: var(--color-bg-default, #0d1117);
-  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
 }
 
 .file-selector-box {
-  margin-top: var(--space-xs, 4px);
+  margin-top: var(--space-xs);
 }
 
 .file-list-scrollable {
   max-height: 140px;
   overflow-y: auto;
-  border: 1px solid var(--color-border-muted, #21262d);
-  border-radius: var(--radius-sm, 4px);
-  padding: var(--space-xs, 4px);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs);
+  background: var(--bg-canvas);
 }
 
 .file-row {
   padding: 4px 8px;
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   margin-bottom: 2px;
 }
 
 .file-row:hover {
-  background: var(--color-bg-hover, #21262d);
+  background: var(--bg-surface-hover);
 }
 
 .file-row.selected {
-  background: rgba(56, 139, 253, 0.08);
+  background: rgba(88, 166, 255, 0.08);
 }
 
 .preflight-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-sm, 10px);
-  margin-top: var(--space-sm, 8px);
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
 }
 
 .preflight-card {
   display: flex;
-  flex-col: column;
   flex-direction: column;
-  padding: var(--space-sm, 10px);
-  background: var(--color-bg-default, #0d1117);
-  border: 1px solid var(--color-border-muted, #21262d);
-  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-sm);
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
 }
 
 .preflight-count {
@@ -556,31 +566,30 @@ onMounted(() => {
 .preflight-label {
   font-size: 0.8rem;
   font-weight: 600;
-  margin-top: 2px;
 }
 
 .preflight-desc {
   font-size: 0.72rem;
-  color: var(--color-text-secondary, #8b949e);
+  color: var(--text-muted);
   margin-top: 4px;
 }
 
 .progress-bar-container {
   height: 6px;
-  background: var(--color-bg-default, #0d1117);
+  background: var(--bg-canvas);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .progress-bar-fill {
   height: 100%;
-  background: var(--color-accent, #58a6ff);
+  background: var(--accent-blue);
   transition: width 0.2s ease;
 }
 
 .dispatch-banner {
-  padding: var(--space-sm, 10px);
-  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
   display: flex;
   justify-content: space-between;
@@ -588,15 +597,15 @@ onMounted(() => {
 }
 
 .dispatch-banner.success {
-  background: rgba(46, 160, 67, 0.15);
-  border: 1px solid var(--color-success, #2ea043);
-  color: var(--color-success, #2ea043);
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
 }
 
 .dispatch-banner.error {
-  background: rgba(248, 81, 73, 0.15);
-  border: 1px solid var(--color-danger, #f85149);
-  color: var(--color-danger, #f85149);
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid var(--accent-red);
+  color: var(--accent-red);
 }
 
 .workflow-link {
@@ -608,7 +617,7 @@ onMounted(() => {
 .btn-link {
   background: none;
   border: none;
-  color: var(--color-accent, #58a6ff);
+  color: var(--accent-blue);
   cursor: pointer;
   padding: 0;
 }

@@ -8,7 +8,7 @@ GitHub-native assignment distribution and submission reporting for higher educat
 
 Target platform: GitHub Team for Education (no GitHub Enterprise required).
 
-Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) | [ARCHITECTURE.md](ARCHITECTURE.md) | [RUNBOOK.md](RUNBOOK.md)
+Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) | [ARCHITECTURE.md](ARCHITECTURE.md) | [RUNBOOK.md](RUNBOOK.md) | [DESIGN.md](DESIGN.md)
 
 ---
 

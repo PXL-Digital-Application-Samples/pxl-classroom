@@ -640,7 +640,7 @@ onBeforeUnmount(() => {
 }
 
 .filter-search-input:focus {
-  outline: 2px solid var(--color-accent, #58a6ff);
+  outline: 2px solid var(--accent-blue);
   border-color: transparent;
 }
 
