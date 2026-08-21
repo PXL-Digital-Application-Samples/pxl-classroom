@@ -219,6 +219,38 @@ export async function setupStandardMockRoutes(page, {
         body: JSON.stringify({ id: 101, number: 1, state: 'open' }),
       });
     } else if (url.includes('/repos/')) {
+      if (method === 'DELETE' && url.includes('/contents/')) {
+        const match = url.match(/\/contents\/(.+)$/);
+        const path = match ? decodeURIComponent(match[1]) : 'file';
+        dynamicFiles.delete(path);
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify({
+            content: null,
+            commit: { sha: 'delete_sha_123', message: 'Deleted by test' },
+          }),
+        });
+        return;
+      }
+
+      if (url.includes('/collaborators/')) {
+        if (method === 'PUT') {
+          await route.fulfill({ status: 201, body: JSON.stringify({ id: 101, permissions: 'admin' }) });
+          return;
+        } else if (method === 'DELETE') {
+          await route.fulfill({ status: 204, body: '' });
+          return;
+        }
+      } else if (url.includes('/invitations')) {
+        if (method === 'GET') {
+          await route.fulfill({ status: 200, body: JSON.stringify([{ id: 888, invitee: { login: 'student-dev1' } }]) });
+          return;
+        } else if (method === 'DELETE') {
+          await route.fulfill({ status: 204, body: '' });
+          return;
+        }
+      }
+
       if (method === 'PUT' && url.includes('/contents/')) {
         const match = url.match(/\/contents\/(.+)$/);
         const path = match ? decodeURIComponent(match[1]) : 'file';
@@ -274,6 +306,25 @@ export async function setupStandardMockRoutes(page, {
           return;
         }
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      } else if (url.includes('/pxl-classroom-control/contents/teams/')) {
+        const match = url.match(/\/contents\/teams\/([^/?#]+)\/([^/?#]+)\.json/);
+        const asgnId = match ? match[1] : null;
+        const slug = match ? match[2] : null;
+        const dynamicContent = dynamicFiles.get(`teams/${asgnId}/${slug}.json`);
+        if (dynamicContent) {
+          const contentBase64 = Buffer.from(dynamicContent).toString('base64');
+          await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: 'team_sha_123' }) });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify({
+            content: Buffer.from(JSON.stringify({ team_slug: slug, members: [] })).toString('base64'),
+            encoding: 'base64',
+            sha: 'team_sha_123',
+          }),
+        });
         return;
       } else if (url.includes('/pxl-classroom-control/contents/assignments')) {
         const match = url.match(/\/assignments\/([^/?#]+)\.ya?ml/);

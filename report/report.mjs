@@ -146,13 +146,27 @@ async function main() {
     const repo = repoByLogin.get(login);
     const observations = observationsByLogin.get(login) || [];
     const override = overrideByLogin.get(login);
+    const studentTeam = teamByMemberLogin.get(login.toLowerCase()) || (acceptance?.team_slug ? teamBySlug.get(acceptance.team_slug) : null);
 
     // Determine submission status from observations.
-    // Apply lecturer override on deadline if one exists for this student
-    // (P0-7). The effective deadline is what classifies on-time vs late.
-    const effectiveDeadline = override?.deadline_at
+    // Apply lecturer override on deadline if one exists for this student (P0-7).
+    // In group assignments, propagate the most generous extension among team members
+    // so the entire team repository is evaluated consistently.
+    let effectiveDeadline = override?.deadline_at
       ? new Date(override.deadline_at)
       : deadlineAt;
+
+    if (studentTeam && Array.isArray(studentTeam.members)) {
+      for (const m of studentTeam.members) {
+        const teamMemberOverride = overrideByLogin.get(m.toLowerCase()) || overrideByLogin.get(m);
+        if (teamMemberOverride?.deadline_at) {
+          const overrideDate = new Date(teamMemberOverride.deadline_at);
+          if (!effectiveDeadline || overrideDate > effectiveDeadline) {
+            effectiveDeadline = overrideDate;
+          }
+        }
+      }
+    }
 
     let lastOnTimeSha = null;
     let lastOnTimeObservedAt = null;

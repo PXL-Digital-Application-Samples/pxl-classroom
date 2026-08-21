@@ -82,6 +82,32 @@ export async function starRepo(token, owner, repo) {
 }
 
 /**
+ * Add a collaborator to a repository with specific permission (e.g. admin, pull, push).
+ */
+export async function addCollaborator(token, owner, repo, username, permission = 'admin') {
+  return ghApi(token, 'PUT', `/repos/${owner}/${repo}/collaborators/${username}`, { permission })
+}
+
+/**
+ * Remove a collaborator from a repository and cancel any pending invitations.
+ */
+export async function removeCollaborator(token, owner, repo, username) {
+  const res = await ghApi(token, 'DELETE', `/repos/${owner}/${repo}/collaborators/${username}`)
+  try {
+    const invRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/invitations`)
+    if (invRes.ok && Array.isArray(invRes.data)) {
+      const pending = invRes.data.find((inv) => inv.invitee?.login?.toLowerCase() === username.toLowerCase())
+      if (pending) {
+        await ghApi(token, 'DELETE', `/repos/${owner}/${repo}/invitations/${pending.id}`)
+      }
+    }
+  } catch {
+    // non-critical
+  }
+  return res
+}
+
+/**
  * Unstar a repository. Used by the retry path so that a subsequent star
  * re-fires the broker's watch:started event.
  */

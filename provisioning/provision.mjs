@@ -287,11 +287,25 @@ async function main() {
     if (!(add.status === 201 || add.status === 204)) await fail("fail:grant", `grant HTTP ${add.status} ${add.data?.message ?? ""}`);
     log("grant", { ok: true, note: add.status === 201 ? `invitation created (${cfg.permission})` : `already a collaborator (${cfg.permission})` });
 
-    // 5.1 If student switched teams, remove collaborator access from the previous repository
+    // 5.1 If student switched teams, remove collaborator access and cancel pending invitations on previous repository
     if (cfg.previousRepo && cfg.previousRepo !== cfg.targetRepo) {
       const prevRepoName = cfg.previousRepo.split("/").pop();
       const remove = await gh("DELETE", `/repos/${cfg.org}/${prevRepoName}/collaborators/${cfg.studentLogin}`);
       log("remove-old-collab", { ok: remove.ok || remove.status === 404, note: `removed from ${prevRepoName} (HTTP ${remove.status})` });
+
+      // Also clean up any pending invitations for this student on the old repo
+      try {
+        const invRes = await gh("GET", `/repos/${cfg.org}/${prevRepoName}/invitations`);
+        if (invRes.ok && Array.isArray(invRes.data)) {
+          const pendingInv = invRes.data.find((inv) => inv.invitee?.login?.toLowerCase() === cfg.studentLogin.toLowerCase());
+          if (pendingInv) {
+            const cancelRes = await gh("DELETE", `/repos/${cfg.org}/${prevRepoName}/invitations/${pendingInv.id}`);
+            log("cancel-old-invitation", { ok: cancelRes.ok || cancelRes.status === 404, note: `cancelled invitation #${pendingInv.id} on ${prevRepoName}` });
+          }
+        }
+      } catch (e) {
+        log("cancel-old-invitation", { ok: false, note: `non-critical invitation check error: ${e.message}` });
+      }
     }
   }
 

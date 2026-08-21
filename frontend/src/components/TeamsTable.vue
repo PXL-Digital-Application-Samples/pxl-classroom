@@ -215,14 +215,25 @@
 
             <!-- Actions column -->
             <td class="col-actions">
-              <button
-                class="btn btn-sm btn-secondary"
-                type="button"
-                @click="openManageTeamModal(team)"
-                title="Manage team members"
-              >
-                Manage
-              </button>
+              <div class="flex gap-xs justify-end items-center">
+                <button
+                  class="btn btn-sm btn-secondary"
+                  type="button"
+                  @click="openManageTeamModal(team)"
+                  title="Manage team members"
+                >
+                  Manage
+                </button>
+                <button
+                  v-if="!team.members || team.members.length === 0"
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  @click="deleteVacantTeam(team)"
+                  title="Delete vacant team"
+                >
+                  Delete
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -336,11 +347,22 @@
             </div>
           </div>
 
-          <footer class="modal-foot flex justify-end gap-sm">
-            <button class="btn btn-secondary" type="button" @click="managingTeam = null">Close</button>
-            <button class="btn btn-success" type="button" :disabled="saving" @click="saveTeamMembers">
-              {{ saving ? 'Saving…' : 'Save Changes' }}
+          <footer class="modal-foot flex justify-between items-center gap-sm">
+            <button
+              v-if="manageMembers.length === 0"
+              class="btn btn-danger btn-sm"
+              type="button"
+              :disabled="saving"
+              @click="deleteVacantTeam(managingTeam)"
+            >
+              Delete Vacant Team
             </button>
+            <div class="flex gap-sm" style="margin-left: auto;">
+              <button class="btn btn-secondary" type="button" @click="managingTeam = null">Close</button>
+              <button class="btn btn-success" type="button" :disabled="saving" @click="saveTeamMembers">
+                {{ saving ? 'Saving…' : 'Save Changes' }}
+              </button>
+            </div>
           </footer>
         </div>
       </div>
@@ -415,7 +437,7 @@
 import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import { getToken } from '../lib/auth.js'
-import { commitFile } from '../lib/api.js'
+import { commitFile, deleteFile, addCollaborator, removeCollaborator } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 
@@ -614,15 +636,38 @@ async function saveTeamMembers() {
   try {
     const token = getToken()
     const slug = managingTeam.value.team_slug
+    const oldMembers = managingTeam.value.members || []
+    const newMembers = manageMembers.value || []
+
+    // Determine added and removed members
+    const removed = oldMembers.filter((m) => !newMembers.some((nm) => nm.toLowerCase() === m.toLowerCase()))
+    const added = newMembers.filter((m) => !oldMembers.some((om) => om.toLowerCase() === m.toLowerCase()))
+
+    const repoName = managingTeam.value.repo_name ? managingTeam.value.repo_name.split('/').pop() : null
+
+    // Sync live GitHub collaborators if repo exists
+    if (token && repoName) {
+      for (const m of removed) {
+        await removeCollaborator(token, props.org, repoName, m).catch((e) =>
+          console.warn(`Failed to remove collaborator ${m}:`, e)
+        )
+      }
+      for (const m of added) {
+        await addCollaborator(token, props.org, repoName, m, 'admin').catch((e) =>
+          console.warn(`Failed to add collaborator ${m}:`, e)
+        )
+      }
+    }
+
     const teamDoc = {
       schema_version: 1,
       assignment_id: props.assignment.id,
       team_slug: slug,
       team_name: managingTeam.value.team_name,
-      members: manageMembers.value,
+      members: newMembers,
       max_members: maxTeamSize.value,
       created_at: managingTeam.value.created_at || new Date().toISOString(),
-      vacant: manageMembers.value.length === 0,
+      vacant: newMembers.length === 0,
       repo_name: managingTeam.value.repo_name,
       repo_id: managingTeam.value.repo_id,
       repo_url: managingTeam.value.repo_url,
@@ -646,6 +691,42 @@ async function saveTeamMembers() {
     }
   } catch (e) {
     toast.error(`Error saving team: ${e.message}`)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function deleteVacantTeam(team) {
+  if (!team) return
+  if (team.members && team.members.length > 0) {
+    toast.error('Cannot delete team with active members. Remove all members first.')
+    return
+  }
+  if (!window.confirm(`Delete vacant team "${team.team_name || team.team_slug}"? This removes teams/${props.assignment.id}/${team.team_slug}.json from the control repo.`)) {
+    return
+  }
+  saving.value = true
+  try {
+    const token = getToken()
+    const path = `teams/${props.assignment.id}/${team.team_slug}.json`
+    const res = await deleteFile(
+      token,
+      props.org,
+      config.controlRepo,
+      path,
+      `Delete vacant team ${team.team_slug} (${props.assignment.id})`
+    )
+    if (res.ok) {
+      toast.success(`Team "${team.team_name || team.team_slug}" deleted successfully.`)
+      if (managingTeam.value?.team_slug === team.team_slug) {
+        managingTeam.value = null
+      }
+      emit('refresh')
+    } else {
+      toast.error(`Could not delete team: HTTP ${res.status}`)
+    }
+  } catch (e) {
+    toast.error(`Error deleting team: ${e.message}`)
   } finally {
     saving.value = false
   }
