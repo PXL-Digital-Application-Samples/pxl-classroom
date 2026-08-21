@@ -1,17 +1,21 @@
 <template>
-  <div class="admin-page container fade-in">
-    <header class="admin-header flex items-center justify-between">
-      <div class="breadcrumb flex items-center gap-sm">
-        <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
-          <Icon name="arrow-left" :size="14" />
-          <span>Dashboard</span>
-        </router-link>
-        <span class="text-muted">/</span>
-        <span class="text-secondary">{{ org }}</span>
-        <span class="text-muted">/</span>
-        <h1 class="admin-heading">Admin Console</h1>
-      </div>
-    </header>
+  <div class="admin-view fade-in">
+    <AppHeader :user="user" @logout="handleLogout">
+      <template #left>
+        <div class="app-header-crumbs flex items-center gap-sm">
+          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
+            <Icon name="arrow-left" :size="14" />
+            <span>Dashboard</span>
+          </router-link>
+          <span class="app-header-sep">/</span>
+          <span class="text-secondary">{{ org }}</span>
+          <span class="app-header-sep">/</span>
+          <h1 class="app-header-heading">Admin Console</h1>
+        </div>
+      </template>
+    </AppHeader>
+
+    <div class="admin-page container">
 
     <!-- Not authenticated - never render the editor with data-shaped empty
          states signed out ("No assignments yet" on a full course reads as
@@ -784,6 +788,7 @@
       @fixed="onDiagnosticFixed"
       @navigate-tab="onDiagnosticNavigate"
     />
+    </div>
   </div>
 </template>
 
@@ -798,6 +803,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
+import AppHeader from '../components/AppHeader.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import Icon from '../components/Icon.vue'
@@ -2275,13 +2281,6 @@ watch(
   padding-bottom: var(--space-2xl);
   max-width: 1400px;
 }
-.admin-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  margin-bottom: var(--space-md);
-  padding-bottom: var(--space-xs);
-}
 .back-link {
   font-size: 0.85rem;
   display: inline-flex;
@@ -2292,12 +2291,6 @@ watch(
 .back-link:hover {
   color: var(--accent-blue);
   text-decoration: none;
-}
-.admin-heading {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
 }
 
 .center-card {

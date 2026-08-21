@@ -1,34 +1,33 @@
 <template>
   <div class="detail-page">
-    <header class="detail-header">
-      <div class="container flex items-center justify-between">
-        <div class="breadcrumb flex items-center gap-sm">
+    <AppHeader :user="user" @logout="handleLogout">
+      <template #left>
+        <div class="app-header-crumbs flex items-center gap-sm">
           <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
             <Icon name="arrow-left" :size="14" />
             <span>Dashboard</span>
           </router-link>
-          <span class="text-muted">/</span>
+          <span class="app-header-sep">/</span>
           <span class="text-secondary">{{ org }}</span>
-          <span class="text-muted">/</span>
-          <h1 class="assignment-heading" :title="assignmentId">{{ assignmentId }}</h1>
+          <span class="app-header-sep">/</span>
+          <h1 class="app-header-heading" :title="assignmentId">{{ assignmentId }}</h1>
           <span v-if="assignment" class="status-indicator">
             <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
             <span class="text-xs text-secondary">{{ assignment.state === 'published' ? 'Accepting' : (assignment.state === 'closed' ? 'Closed' : assignment.state) }}</span>
           </span>
         </div>
-        <div class="header-right flex items-center gap-sm">
-          <router-link
-            :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"
-            class="btn btn-secondary btn-with-icon btn-sm"
-            title="Open and edit this assignment in the Admin Panel"
-          >
-            <Icon name="edit-3" :size="13" />
-            <span>Edit</span>
-          </router-link>
-          <UserBadge :user="user" @logout="handleLogout" />
-        </div>
-      </div>
-    </header>
+      </template>
+      <template #actions>
+        <router-link
+          :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"
+          class="btn btn-secondary btn-with-icon btn-sm"
+          title="Open and edit this assignment in the Admin Panel"
+        >
+          <Icon name="edit-3" :size="13" />
+          <span>Edit</span>
+        </router-link>
+      </template>
+    </AppHeader>
 
     <main class="container">
       <!-- Not authenticated - never show data-shaped empty states signed out -->
@@ -1005,7 +1004,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { h } from 'vue'
-import UserBadge from '../components/UserBadge.vue'
+import AppHeader from '../components/AppHeader.vue'
 import Icon from '../components/Icon.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
@@ -2571,14 +2570,6 @@ async function retryAcceptanceFor(student) {
 <style scoped>
 .detail-page { min-height: 100vh; }
 
-.detail-header {
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-muted);
-  padding: 10px 0;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
 .back-link { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--text-secondary); }
 .back-link:hover { color: var(--accent-blue); text-decoration: none; }
 .breadcrumb { min-width: 0; flex: 1; }

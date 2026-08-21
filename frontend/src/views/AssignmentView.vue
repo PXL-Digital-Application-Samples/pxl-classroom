@@ -1,14 +1,6 @@
 <template>
   <div class="assignment-page">
-    <header class="assignment-header">
-      <div class="container">
-        <div class="logo flex items-center gap-sm">
-          <img :src="logoUrl" alt="PXL Classroom" class="header-logo" />
-          <span>PXL Classroom</span>
-        </div>
-        <UserBadge :user="user" @logout="handleLogout" />
-      </div>
-    </header>
+    <AppHeader :user="user" :sticky="false" @logout="handleLogout" />
 
     <main class="container">
       <!-- Loading state -->
@@ -361,12 +353,11 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import UserBadge from '../components/UserBadge.vue'
+import AppHeader from '../components/AppHeader.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import GroupAcceptanceCard from '../components/GroupAcceptanceCard.vue'
 import StudentDiagnosticsModal from '../components/StudentDiagnosticsModal.vue'
 import Icon from '../components/Icon.vue'
-import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
@@ -909,11 +900,6 @@ function retry() {
   flex-direction: column;
 }
 
-.assignment-header {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  padding: var(--space-md) 0;
-}
 .assignment-header .container {
   display: flex;
   justify-content: space-between;

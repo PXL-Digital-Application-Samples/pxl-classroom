@@ -1,16 +1,17 @@
 <template>
-  <div class="sandbox-view container fade-in">
-    <!-- Header -->
-    <header class="sandbox-header flex justify-between items-center flex-wrap gap-md">
-      <div>
-        <div class="breadcrumb flex items-center gap-xs text-sm text-secondary">
-          <router-link to="/" class="breadcrumb-link">Home</router-link>
-          <span>/</span>
-          <span class="breadcrumb-current text-primary font-medium">Design System Sandbox</span>
+  <div class="sandbox-page fade-in">
+    <AppHeader>
+      <template #left>
+        <div class="app-header-crumbs flex items-center gap-sm">
+          <router-link to="/" class="back-link">
+            <Icon name="arrow-left" :size="14" />
+            <span>Home</span>
+          </router-link>
+          <span class="app-header-sep">/</span>
+          <h1 class="app-header-heading">Component Gallery &amp; Design System</h1>
         </div>
-        <h1 class="page-title" style="margin-top: 4px;">Component Gallery &amp; Design System</h1>
-      </div>
-      <div class="flex items-center gap-sm">
+      </template>
+      <template #actions>
         <button class="btn btn-secondary btn-sm btn-with-icon" @click="dispatchSampleToasts">
           <Icon name="bell" :size="14" />
           <span>Fire Sample Toasts</span>
@@ -19,8 +20,10 @@
           <Icon name="arrow-right" :size="14" />
           <span>Go to Dashboard</span>
         </router-link>
-      </div>
-    </header>
+      </template>
+    </AppHeader>
+
+    <div class="sandbox-view container">
 
     <!-- Navigation Tabs -->
     <nav class="primer-tabs" role="tablist" aria-label="Sandbox Sections">
@@ -355,12 +358,14 @@
       :assignmentId="'lab-processes'"
       @close="showHealthModal = false"
     />
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import Icon from '../components/Icon.vue'
+import AppHeader from '../components/AppHeader.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'

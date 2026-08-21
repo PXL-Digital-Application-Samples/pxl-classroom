@@ -1,14 +1,13 @@
 <template>
   <div class="dashboard-page">
-    <header class="dashboard-header">
-      <div class="container flex items-center justify-between">
-        <div class="logo flex items-center gap-sm">
-          <router-link to="/" class="logo-link" aria-label="PXL Classroom home">
-            <img :src="logoUrl" alt="PXL Classroom" class="header-logo" />
-          </router-link>
-          <div class="header-titles flex items-center gap-sm">
-            <router-link to="/" class="header-app-title">PXL Classroom</router-link>
-            <span class="header-separator text-muted">/</span>
+    <AppHeader :user="user" @logout="handleLogout">
+      <template #left>
+        <router-link to="/" class="app-header-logo-link" aria-label="PXL Classroom home">
+          <img :src="logoUrl" alt="" class="header-logo" />
+        </router-link>
+        <div class="header-titles flex items-center gap-sm">
+            <router-link to="/" class="app-header-title">PXL Classroom</router-link>
+            <span class="app-header-sep">/</span>
 
             <!-- Custom Organization Selector with Styled Status Lights -->
             <div v-if="orgs.length > 0" class="org-dropdown-container" ref="orgDropdownRef">
@@ -62,23 +61,21 @@
             </div>
 
             <span class="lecturer-tag text-muted text-xs">Lecturer</span>
-          </div>
         </div>
-        <div class="header-right flex items-center gap-sm">
-          <button
-            v-if="selectedOrg"
-            type="button"
-            class="btn btn-ghost btn-icon health-btn"
-            @click="showHealthModal = true"
-            title="System health check"
-            aria-label="System health check"
-          >
-            <Icon name="activity" :size="16" />
-          </button>
-          <UserBadge :user="user" @logout="handleLogout" />
-        </div>
-      </div>
-    </header>
+      </template>
+      <template #actions>
+        <button
+          v-if="selectedOrg"
+          type="button"
+          class="btn btn-ghost btn-icon"
+          @click="showHealthModal = true"
+          title="System health check"
+          aria-label="System health check"
+        >
+          <Icon name="activity" :size="16" />
+        </button>
+      </template>
+    </AppHeader>
 
     <main class="container">
       <!-- Not authenticated -->
@@ -309,7 +306,7 @@
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { parse as parseYaml } from 'yaml'
-import UserBadge from '../components/UserBadge.vue'
+import AppHeader from '../components/AppHeader.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
@@ -659,19 +656,7 @@ function handleLogout() {
   min-height: 100vh;
 }
 
-.dashboard-header {
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-muted);
-  padding: 10px 0;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
 
-.logo-link {
-  color: var(--accent-blue);
-  display: flex;
-}
 
 .header-titles {
   display: flex;
@@ -679,22 +664,11 @@ function handleLogout() {
   gap: var(--space-sm);
 }
 
-.header-app-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-  text-decoration: none;
-}
 .header-app-title:hover {
   text-decoration: none;
   color: var(--accent-blue);
 }
 
-.header-separator {
-  font-weight: 300;
-  user-select: none;
-}
 
 .lecturer-tag {
   background: var(--bg-surface-hover);
@@ -926,12 +900,6 @@ main {
 .stat-red { color: var(--accent-red); }
 .stat-orange { color: var(--accent-orange); }
 
-.health-btn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-}
 
 /* ONBOARDING READINESS CARD */
 .onboarding-readiness-card {

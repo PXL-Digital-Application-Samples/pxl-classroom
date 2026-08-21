@@ -1,20 +1,13 @@
 <template>
   <div class="home-page">
     <!-- TOP HEADER -->
-    <header class="home-header">
-      <div class="container flex items-center justify-between">
-        <div class="logo flex items-center gap-sm">
-          <img :src="logoUrl" alt="PXL Classroom" class="header-logo" />
-          <span class="brand-title">PXL Classroom</span>
-        </div>
-        <div class="header-right flex items-center gap-sm">
-          <router-link v-if="isLecturer" :to="lecturerDashboardTarget" class="btn btn-sm btn-primary">
-            Lecturer Dashboard
-          </router-link>
-          <UserBadge :user="user" @logout="handleLogout" />
-        </div>
-      </div>
-    </header>
+    <AppHeader :user="user" :sticky="false" @logout="handleLogout">
+      <template #actions>
+        <router-link v-if="isLecturer" :to="lecturerDashboardTarget" class="btn btn-sm btn-primary">
+          Lecturer Dashboard
+        </router-link>
+      </template>
+    </AppHeader>
 
     <!-- 1. SIGNED-OUT STATE -->
     <div v-if="!user" class="signed-out-section fade-in">
@@ -208,7 +201,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import UserBadge from '../components/UserBadge.vue'
+import AppHeader from '../components/AppHeader.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
@@ -498,11 +491,6 @@ function handleLogout() {
   flex-direction: column;
 }
 
-.home-header {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  padding: var(--space-sm) 0;
-}
 
 .brand-title {
   font-weight: 700;

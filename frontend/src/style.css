@@ -280,6 +280,16 @@ a:hover {
   font-size: 0.95rem;
 }
 
+/* Square icon-only button (DESIGN.md §3.3). Fixed box so a header rail does not
+   reflow when the glyph inside changes. */
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
 /* Primary CTA — Reserved for 1 main action per view */
 .btn-primary {
   background: var(--accent-blue-emphasis);
@@ -601,6 +611,85 @@ a:hover {
 .modal-close:hover {
   background: var(--bg-surface-hover);
   color: var(--text-primary);
+}
+
+/* ==========================================================================
+   App Header (components/AppHeader.vue)
+   Global, not scoped: views pass breadcrumbs and actions through <slot>s, and
+   slot content is compiled in the PARENT's scope - a scoped rule in AppHeader
+   would never reach it. This vocabulary is shared across all nine views.
+   ========================================================================== */
+.app-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-muted);
+  padding: 10px 0;
+}
+.app-header.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.app-header-bare {
+  padding: 0 var(--space-lg);
+}
+
+/* The left side collapses before the right rail does, so the theme toggle and
+   user badge stay reachable when a breadcrumb runs long. */
+.app-header-left {
+  min-width: 0;
+  overflow: hidden;
+}
+.app-header-right {
+  flex-shrink: 0;
+}
+
+.app-header-logo-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.app-header-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.app-header-title:hover {
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+
+/* A view's own page heading sitting inside the bar (e.g. "Usage - <org>"). */
+.app-header-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Breadcrumb variant: back-link / org / page. */
+.app-header-crumbs {
+  min-width: 0;
+}
+.app-header-crumbs .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.app-header-crumbs .back-link:hover {
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+.app-header-sep {
+  color: var(--text-muted);
 }
 
 /* Logos */

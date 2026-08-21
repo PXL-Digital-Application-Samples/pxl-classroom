@@ -1,12 +1,19 @@
 <template>
-  <div class="setup-page container fade-in">
-    <header class="setup-header">
-      <router-link to="/" class="btn btn-with-icon">
-        <Icon name="arrow-left" :size="14" />
-        <span>Home</span>
-      </router-link>
-      <h2>Central GitHub App setup</h2>
-    </header>
+  <div class="setup-view fade-in">
+    <AppHeader>
+      <template #left>
+        <div class="app-header-crumbs flex items-center gap-sm">
+          <router-link to="/" class="back-link">
+            <Icon name="arrow-left" :size="14" />
+            <span>Home</span>
+          </router-link>
+          <span class="app-header-sep">/</span>
+          <h1 class="app-header-heading">Central GitHub App setup</h1>
+        </div>
+      </template>
+    </AppHeader>
+
+    <div class="setup-page container">
 
     <!-- Conversion result: GitHub redirected back with ?code= -->
     <div v-if="converting" class="card setup-card">
@@ -172,6 +179,7 @@
         <p class="text-secondary">Full procedure: <a :href="`${runbookUrl}#12-create-the-central-github-app`" target="_blank" rel="noopener">RUNBOOK §1.2-§1.4</a>.</p>
       </details>
     </div>
+    </div>
   </div>
 </template>
 
@@ -179,6 +187,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from '../components/Icon.vue'
+import AppHeader from '../components/AppHeader.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
@@ -407,12 +416,6 @@ onMounted(() => {
   padding-top: var(--space-xl);
   padding-bottom: var(--space-2xl);
   max-width: 720px;
-}
-.setup-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  margin-bottom: var(--space-lg);
 }
 .setup-header h2 { margin: 0; }
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }

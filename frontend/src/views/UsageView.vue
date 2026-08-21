@@ -1,20 +1,17 @@
 <template>
   <div class="usage-page">
-    <header class="dashboard-header">
-      <div class="container flex items-center justify-between">
-        <div class="logo flex items-center gap-sm">
-          <router-link to="/" class="logo-link" aria-label="PXL Classroom home">
-            <img :src="logoUrl" alt="PXL Classroom" class="header-logo" />
-          </router-link>
-          <h1>Usage - {{ org }}</h1>
-        </div>
-        <div class="header-right flex items-center gap-md">
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="btn">Back to dashboard</router-link>
-          <router-link to="/usage" class="btn">All orgs</router-link>
-          <UserBadge :user="user" @logout="handleLogout" />
-        </div>
-      </div>
-    </header>
+    <AppHeader :user="user" @logout="handleLogout">
+      <template #left>
+        <router-link to="/" class="app-header-logo-link" aria-label="PXL Classroom home">
+          <img :src="logoUrl" alt="" class="header-logo" />
+        </router-link>
+        <h1 class="app-header-heading">Usage - {{ org }}</h1>
+      </template>
+      <template #actions>
+        <router-link :to="{ name: 'dashboard', params: { org } }" class="btn btn-secondary btn-sm">Back to dashboard</router-link>
+        <router-link to="/usage" class="btn btn-secondary btn-sm">All orgs</router-link>
+      </template>
+    </AppHeader>
 
     <main class="container">
       <div v-if="!user" class="center-card fade-in">
@@ -137,7 +134,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
-import UserBadge from '../components/UserBadge.vue'
+import AppHeader from '../components/AppHeader.vue'
 import Icon from '../components/Icon.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import logoUrl from '../assets/logo.png'
