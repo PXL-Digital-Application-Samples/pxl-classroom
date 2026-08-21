@@ -21,6 +21,9 @@ function createMockRequest(overrides = {}) {
         },
       };
     }
+    if (path.startsWith("/organizations/PXL-CSMobile/settings/billing/usage?")) {
+      return { status: 200, ok: true, data: { usageItems: [] } };
+    }
     if (path === "/repos/hub/repo/contents/participating-orgs.yml?ref=participating-orgs") {
       const yaml = "orgs:\n  - login: PXL-CSMobile\n    budget_owner_login: admin";
       return { status: 200, ok: true, data: { content: Buffer.from(yaml).toString("base64") } };

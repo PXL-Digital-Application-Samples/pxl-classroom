@@ -8,6 +8,7 @@ function createMockRequest({
   rateLimitRemaining = 4500,
   installStatus = 200,
   permissions = { ...EXPECTED_APP_PERMISSIONS },
+  billingStatus = 200,
   orgsYamlStatus = 200,
   orgsYaml = "orgs:\n  - login: TestOrg\n    budget_owner_login: admin",
   controlRepoStatus = 200,
@@ -44,6 +45,9 @@ function createMockRequest({
           ],
         },
       };
+    }
+    if (path.startsWith("/organizations/TestOrg/settings/billing/usage?")) {
+      return { status: billingStatus, ok: billingStatus === 200, data: billingStatus === 200 ? { usageItems: [] } : { message: "Forbidden" } };
     }
     if (path === "/repos/hub/repo/contents/participating-orgs.yml?ref=participating-orgs") {
       if (orgsYamlStatus !== 200) return { status: orgsYamlStatus, ok: false };
@@ -151,6 +155,17 @@ test("runDiagnostics - Tier 1: App permissions drift detected", async () => {
   assert.ok(permCheck);
   assert.equal(permCheck.severity, "fail");
   assert.ok(permCheck.message.includes("administration=read"));
+});
+
+test("runDiagnostics - Tier 1: billing endpoint failure is detected even when permission metadata is healthy", async () => {
+  const req = createMockRequest({ billingStatus: 403 });
+  const res = await runDiagnostics({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
+
+  const billingCheck = res.checks.find(c => c.id === "billing-usage-access");
+  assert.ok(billingCheck);
+  assert.equal(billingCheck.severity, "fail");
+  assert.match(billingCheck.message, /HTTP 403/);
+  assert.equal(billingCheck.fixAction.label, "Review App Installation");
 });
 
 test("runDiagnostics - Tier 1: Missing from participating-orgs.yml", async () => {

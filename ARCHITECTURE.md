@@ -89,7 +89,7 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 | Repository: Pull Requests | Read/Write | Yes | Feedback PR orchestration |
 | Repository: Secrets | Read/Write | Yes | Setting Actions secrets during provisioning |
 | Repository: Workflows | Read/Write | Yes | Provisioning Actions workflows in student repositories |
-| Organization: Plan | Read | No (Manual) | Enhanced Billing endpoint used by the weekly usage report |
+| Organization: Administration | Read | Yes | Enhanced Billing endpoint used by the weekly usage report |
 | Account: Starring | Read/Write | No (Manual) | The browser-side device-flow token (stars broker on accept) |
 | Account: Email addresses | Read | No (Optional) | Reading verified student email during acceptance/login |
 
@@ -472,7 +472,7 @@ A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pag
 
 GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** - device flow is a public-client flow.
 
-The App needs the following permissions. Eight repository permissions are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Two permissions are **not in the manifest** and must be added manually on the App settings page after creation (see RUNBOOK §1.2).
+The App needs the following permissions. Eight repository permissions and Organization Administration are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Account Starring is added manually on the App settings page after creation (see RUNBOOK §1.2).
 
 | Permission | In manifest? | Why |
 |---|---|---|
@@ -484,7 +484,7 @@ The App needs the following permissions. Eight repository permissions are declar
 | `pull_requests: write` | Yes | Open & manage Feedback PRs on student repositories. |
 | `secrets: write` | Yes | Set per-broker / per-control-repo Actions secrets during provisioning. |
 | `workflows: write` | Yes | Provision Actions workflows in student repositories. |
-| `organization_plan: read` | No (manual) | Enhanced Billing endpoint used by the weekly usage report. |
+| `organization_administration: read` | Yes | Enhanced Billing endpoint used by the weekly usage report. Distinct from repository `administration`. |
 | `starring: write` (account) | No (manual) | Students star the broker to trigger acceptance. User-level permission. |
 | `email addresses: read` (account) | No (optional) | Read student verified primary email upon acceptance/login. |
 
@@ -668,7 +668,7 @@ The system tracks GitHub usage per repo per SKU and warns when anything crosses 
 
 **Sunday 22:00 UTC**, `weekly-usage-report.yml` fires. Per participating org (matrix):
 
-1. Mint App token with `Organization plan: read` permission.
+1. Mint a least-privilege App token with `Organization Administration: read` plus the repository permissions needed to write and notify.
 2. Fetch `organizations/{id}/settings/billing/usage` for the previous 7 days.
 3. Group by `(repositoryName, sku)`, sum quantity.
 4. Resolve threshold per (repo, SKU) via three-tier lookup.
@@ -686,12 +686,14 @@ The system tracks GitHub usage per repo per SKU and warns when anything crosses 
 
 If no threshold is configured for a SKU anywhere, that SKU's usage is recorded but never flagged.
 
-**Frontend.** Two views read the latest report from each control repo at runtime with the lecturer's own token:
+**Frontend.** The embedded dashboard panel and two dedicated views read the latest report from control repos at runtime with the lecturer's own token:
 
 - `/dashboard/<org>/usage` - per-org table, sortable, over-threshold rows highlighted red.
 - `/usage` - cross-org view, iterates the lecturer's App installations, aggregates every repo/SKU pair, filterable by "over only".
 
-**Permission cost.** The Enhanced Billing endpoint requires the App to have `Organization plan: read`. After this permission is added to the App, each participating org owner sees a one-time re-approval prompt on next visit to the installation page. See `RUNBOOK.md` §10.6.
+On-demand runs are dispatch-and-watch operations. The SPA sends a unique `request_id`, the workflow includes it in `run-name`, and the watcher polls that exact Actions run every five seconds. Report JSON is reloaded only after completion. Failure, cancellation, timeout, or a successful run with unchanged `generated_at` terminates the watcher with a direct run link; stale JSON is never treated as a still-running audit.
+
+**Permission and health invariant.** The Enhanced Billing endpoint requires `organization_administration: read`. It is carried by the App manifest, so new installations approve it automatically. Existing installations must approve the one-time permission update. System Health checks both installation metadata and a live Enhanced Billing request, while `setup-org.yml` performs the same live preflight before creating organization state. See `RUNBOOK.md` §10.6.
 
 **Budget owner.** `participating-orgs.yml` now requires `budget_owner_login` (GitHub login, used for @-mention). Optional `budget_owner_email` is informational only - GitHub emails are sent via the @-mention notification.
 

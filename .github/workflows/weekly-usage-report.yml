@@ -1,4 +1,5 @@
 name: Weekly Usage Report
+run-name: Weekly Usage Report (${{ inputs.org || 'all organizations' }}) [${{ inputs.request_id || github.run_id }}]
 
 on:
   schedule:
@@ -7,6 +8,10 @@ on:
     inputs:
       org:
         description: Target org (omit = all participating)
+        required: false
+        type: string
+      request_id:
+        description: Correlation ID used by the SPA watcher
         required: false
         type: string
 
@@ -45,6 +50,10 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.org }}
+          permission-contents: write
+          permission-issues: write
+          permission-metadata: read
+          permission-organization-administration: read
 
       - name: Checkout control repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

@@ -35,6 +35,7 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 1. In a browser, open the Pages site at `https://<pages-host>/pxl-classroom/setup` (e.g. `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`).
 2. Enter the owning **organization** (recommended - leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
    - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Workflows RW**.
+   - Organization: **Administration R** (Enhanced Billing usage reports).
    - Device Flow: enabled.
    - Callback URLs: pre-filled for your Pages domain.
 3. Confirm on GitHub's page.
@@ -42,8 +43,7 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
    > **App Name Uniqueness & 34-Character Limit:** GitHub App names must be **globally unique across GitHub.com** and **at most 34 characters long**. The manifest automatically generates a scoped name (e.g. `PXL Classroom (<org>)` or `PXL (<org>)`). If GitHub reports "Name already taken", adjust the name in the text field to any unique name up to 34 characters (e.g. `PXL Provisioner 2627` or `PXL (<org>)`) and click **Create GitHub App for <org>**.
 
    GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** - store them per §1.3 immediately. (If the exchange fails - the code is single-use and expires after one hour - the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
-4. Additional permissions are **not in the manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
-   - Organization: **Plan: Read** - required for the weekly usage report (Enhanced Billing endpoint, see §10).
+4. Account permissions are **not in the installation manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
    - Account: **Starring RW** - required so students can star the broker to trigger acceptance.
    - Account: **Email addresses: Read** (optional) - allows reading verified student emails during acceptance/login.
 
@@ -120,6 +120,8 @@ Done by a system administrator together with the organization owner.
 3. Scope: **All repositories** (the App needs Administration RW across the org to provision student repos and manage permissions).
 4. Confirm installation.
 
+The manifest already includes Organization **Administration: Read**, so a newly installed organization receives the billing permission in the normal installation approval. No separate Plan permission is required.
+
 ### 2.2 Run Setup Organization
 
 In `pxl-classroom` -> Actions -> **Setup Organization** -> Run workflow:
@@ -130,7 +132,8 @@ In `pxl-classroom` -> Actions -> **Setup Organization** -> Run workflow:
 
 The workflow:
 
-- Mints a token for the new org's App installation.
+- Mints a least-privilege token and probes the Enhanced Billing Usage API. Onboarding stops with an actionable error if Organization Administration has not been approved or Enhanced Billing is unavailable.
+- Mints the full provisioning token for the new org's App installation.
 - Creates `<org>/pxl-classroom-control` (private) if it doesn't already exist.
 - Pushes an initial scaffold (`assignments/`, `acceptances/`, `repositories/`, `observations/`, `lockdowns/`, `reports/`, `public/`).
 - Adds the org to `participating-orgs.yml` on the `participating-orgs` branch.
@@ -319,7 +322,7 @@ Retries stop after 3 attempts (`finalize_attempts` in `lockdowns/<id>/lockdown-r
 gh workflow run daily-activity.yml
 ```
 - **`1. Collect` -> `fail:no-repos`.** An assignment nobody accepted. No longer fails the run; if you still see it, the hub is on an older commit.
-- **Weekly usage 403 `Resource not accessible by integration`.** The manual `organization_plan: read` permission is not granted/accepted for that org (§10.6). The report now skips that org instead of failing.
+- **Weekly usage 403 `Resource not accessible by integration`.** Organization `organization_administration: read` is missing/unapproved, or Enhanced Billing is unavailable (§10.6). The report skips that org; System Health reports the permission drift and probes the live billing endpoint.
 
 ### 6.4 The nightly workflow is disabled and a student needs the dashboard updated
 
@@ -491,9 +494,11 @@ Need a fresh report mid-week:
 - From the SPA: the Usage pages (`/dashboard/<org>/usage` and `/usage`) have a **Generate report now** button while empty and a **Regenerate now** button once a report exists.
 - Or Actions -> **Weekly Usage Report** -> Run workflow (optionally scope to one `org` input).
 
+The SPA adds a correlation ID to each dispatch and watches that exact Actions run every five seconds. It reads the report only after the run completes, stops immediately on failure/cancellation, and reports a completed run that produced no new report as a billing-access error instead of polling stale JSON for 5-10 minutes.
+
 ### 10.6 If you change App permissions (re-approval flow)
 
-Whenever the App's permission set widens - for example, adding `organization_plan: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA - every already-installed org needs to opt back in.
+Whenever the App's permission set widens - for example, adding `organization_administration: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA - every already-installed org needs to opt back in.
 
 1. Update the manifest in `frontend/src/views/SetupView.vue` (or directly in the App's GitHub settings if it already exists).
 2. Each org owner: open the org's installed-apps page (`github.com/organizations/<org>/settings/installations`) -> PXL Classroom Provisioner -> click **Review request** and approve the new permissions.
@@ -503,14 +508,14 @@ Whenever the App's permission set widens - for example, adding `organization_pla
 Verify with `gh api /app` - `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` -> PXL Classroom Provisioner.
 
 **Recent re-approval triggers in this project:**
-- `organization_plan: read` - Enhanced Billing endpoint, used by the weekly usage report.
+- `organization_administration: read` - current Enhanced Billing endpoint requirement, used by the weekly usage report. This is an organization permission and is distinct from repository `administration: write`.
 - `actions: write` - `workflow_dispatch` from the Admin UI / Usage view. Without it the SPA's "Generate now", "Publish", and "Retry acceptance" buttons return 403 (`Resource not accessible by integration`).
 
 ## 11. Verification checklist (after major changes)
 
 Run periodically, especially after touching workflows or App settings.
 
-- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `issues: write`, `metadata: read`, `pull_requests: write`, `secrets: write`, `workflows: write`) **plus** the manually-added perms (`organization_plan: read`, `starring: write`).
+- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `issues: write`, `metadata: read`, `organization_administration: read`, `pull_requests: write`, `secrets: write`, `workflows: write`) plus account `starring: write`.
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
@@ -519,7 +524,7 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `git grep corsproxy.io` in `frontend/src/` returns no matches.
 - [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).
 - [ ] Each participating org has `budget_owner_login` set in `participating-orgs.yml`.
-- [ ] App permissions include `organization_plan: read` (required for the weekly usage report).
+- [ ] App permissions include `organization_administration: read` and System Health reports **Enhanced Billing Usage API** healthy.
 - [ ] App permissions include `actions: write` (required for `workflow_dispatch` from the Admin UI / Usage view).
 - [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
 - [ ] Cold-load `https://<pages-host>/pxl-classroom/<org>/a/<sample-id>` lands on AssignmentView.

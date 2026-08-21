@@ -60,10 +60,10 @@ for (let d = new Date(WEEK_START + "T00:00:00Z"); d <= new Date(WEEK_END + "T23:
 }
 
 const allItems = [];
-// `organization_plan: read` is granted by hand in the App's settings (see
-// RUNBOOK §2) and an org owner may simply not have accepted it yet. That is a
-// configuration gap, not a broken run: report it and exit cleanly rather than
-// failing the weekly workflow every Sunday.
+// Enhanced Billing requires `organization_administration: read`. An existing
+// installation may not have accepted that permission update yet, or the org
+// may not have Enhanced Billing. Skip that org rather than failing unrelated
+// matrix legs; System Health probes this endpoint and reports the exact gap.
 for (const ym of monthsToFetch) {
   const [year, month] = ym.split("-");
   let items;
@@ -77,8 +77,8 @@ for (const ym of monthsToFetch) {
     if (/\b(403|404)\b/.test(err.message)) {
       console.error(
         `[skip] ${ORG}: billing usage unavailable (${err.message.slice(0, 120)}).\n` +
-        `       Grant the App the manual "Organization plan: read" permission and ` +
-        `have an org owner accept it - RUNBOOK §2. Skipping the usage report.`,
+        `       Grant the App "Organization Administration: read", have an org owner ` +
+        `approve the update, and verify Enhanced Billing access - RUNBOOK §10.6. Skipping the usage report.`,
       );
       process.exit(0);
     }

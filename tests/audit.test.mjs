@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runAudit, EXPECTED_APP_PERMISSIONS } from "../lib/audit.mjs";
+import { runAudit, EXPECTED_APP_PERMISSIONS, permissionMeetsRequirement } from "../lib/audit.mjs";
 
 test("EXPECTED_APP_PERMISSIONS shape", () => {
   assert.equal(typeof EXPECTED_APP_PERMISSIONS, "object");
@@ -9,10 +9,18 @@ test("EXPECTED_APP_PERMISSIONS shape", () => {
   assert.equal(EXPECTED_APP_PERMISSIONS.contents, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.issues, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.metadata, "read");
+  assert.equal(EXPECTED_APP_PERMISSIONS.organization_administration, "read");
   assert.equal(EXPECTED_APP_PERMISSIONS.pull_requests, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.secrets, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.workflows, "write");
-  assert.equal(EXPECTED_APP_PERMISSIONS.organization_plan, "read");
+  assert.equal(EXPECTED_APP_PERMISSIONS.organization_plan, undefined);
+});
+
+test("permission comparison accepts stronger levels", () => {
+  assert.equal(permissionMeetsRequirement("write", "read"), true);
+  assert.equal(permissionMeetsRequirement("admin", "write"), true);
+  assert.equal(permissionMeetsRequirement("read", "write"), false);
+  assert.equal(permissionMeetsRequirement(undefined, "read"), false);
 });
 
 function createMockRequest({

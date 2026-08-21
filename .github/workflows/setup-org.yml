@@ -30,6 +30,27 @@ jobs:
       - name: Checkout main codebase
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Verify App can access organization billing
+        id: billing_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.target_org }}
+          permission-organization-administration: read
+
+      - name: Probe Enhanced Billing Usage API
+        env:
+          GH_TOKEN: ${{ steps.billing_token.outputs.token }}
+          TARGET_ORG: ${{ inputs.target_org }}
+        run: |
+          YEAR=$(date -u +%Y)
+          MONTH=$(date -u +%-m)
+          if ! gh api "/organizations/${TARGET_ORG}/settings/billing/usage?year=${YEAR}&month=${MONTH}" >/dev/null; then
+            echo "::error::Billing usage is inaccessible. The App needs Organization Administration: read, the org must approve that permission, and Enhanced Billing must be available."
+            exit 1
+          fi
+
       - name: Generate App token
         id: generate_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0

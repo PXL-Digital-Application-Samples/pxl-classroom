@@ -42,9 +42,8 @@
           </ul>
         </li>
         <li>
-          On the App settings page, add the two permissions the manifest cannot carry:
+          On the App settings page, add the account permission the manifest cannot carry:
           <ul>
-            <li>Organization -> <strong>Plan: Read-only</strong> (weekly usage report)</li>
             <li>Account -> <strong>Starring: Read and write</strong> (students star the broker to accept)</li>
           </ul>
         </li>
@@ -56,7 +55,7 @@
       <div class="verify-section">
         <h4>Verify App installation & permissions</h4>
         <p class="text-secondary" style="font-size: 0.9rem; margin-bottom: var(--space-md);">
-          Once you have installed the App on your organization, you can verify that the App is correctly installed and has all the required permissions (including manually added ones like <code>organization_plan: read</code>).
+          Once installed, verify both the declared permissions and live access to the Enhanced Billing Usage API.
         </p>
 
         <!-- Not authenticated with the new App -->
@@ -146,7 +145,7 @@
     <div v-else class="card setup-card">
       <p class="text-secondary">
         One click registers the <strong>PXL Classroom Provisioner</strong> GitHub App from a manifest,
-        with the repository permissions pre-filled ({{ permissionSummary }}) and device flow enabled.
+        with the repository and organization permissions pre-filled ({{ permissionSummary }}) and device flow enabled.
         GitHub sends you back here afterwards to collect the App ID, Client ID, and private key.
       </p>
 
@@ -168,7 +167,7 @@
         <ol class="steps">
           <li>GitHub shows a confirmation page - click <strong>Create GitHub App for …</strong>.</li>
           <li>You are redirected back here; this page exchanges the one-time code and shows the App ID, Client ID, and private key.</li>
-          <li>You store the three hub secrets (<code>PXL_APP_CLIENT_ID</code>, <code>PXL_APP_PRIVATE_KEY</code>, <code>VITE_GITHUB_CLIENT_ID</code>), add the two manual permissions (Organization <strong>Plan: Read</strong>, Account <strong>Starring: Read and write</strong>), and re-run <code>deploy-frontend.yml</code>.</li>
+          <li>You store the three hub secrets (<code>PXL_APP_CLIENT_ID</code>, <code>PXL_APP_PRIVATE_KEY</code>, <code>VITE_GITHUB_CLIENT_ID</code>), add Account <strong>Starring: Read and write</strong>, and re-run <code>deploy-frontend.yml</code>.</li>
         </ol>
         <p class="text-secondary">Full procedure: <a :href="`${runbookUrl}#12-create-the-central-github-app`" target="_blank" rel="noopener">RUNBOOK §1.2-§1.4</a>.</p>
       </details>
@@ -184,7 +183,11 @@ import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { ghApi } from '../lib/api.js'
-import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS } from '../../../lib/audit.mjs'
+import {
+  EXPECTED_APP_PERMISSIONS,
+  MANIFEST_APP_PERMISSIONS,
+  permissionMeetsRequirement,
+} from '../../../lib/audit.mjs'
 
 const route = useRoute()
 
@@ -344,15 +347,32 @@ async function runPermissionCheck() {
     const installation = res.data
     const actual = installation.permissions || {}
     
-    // Check expected permissions (both manifest and manual permissions)
+    // Check expected installation permissions.
     const list = []
     for (const [perm, expected] of Object.entries(EXPECTED_APP_PERMISSIONS)) {
       const got = actual[perm]
       list.push({
-        name: perm === 'organization_plan' ? 'organization_plan (Plan: Read-only)' : perm,
+        name: perm === 'organization_administration'
+          ? 'organization_administration (Organization Administration)'
+          : perm,
         expected,
         actual: got ?? 'missing',
-        ok: got === expected
+        ok: permissionMeetsRequirement(got, expected)
+      })
+    }
+
+    if (permissionMeetsRequirement(actual.organization_administration, 'read')) {
+      const now = new Date()
+      const billing = await ghApi(
+        verifyToken.value,
+        'GET',
+        `/organizations/${encodeURIComponent(verifyOrg.value)}/settings/billing/usage?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`
+      )
+      list.push({
+        name: 'Enhanced Billing Usage API',
+        expected: 'accessible',
+        actual: billing.ok ? 'accessible' : `HTTP ${billing.status}`,
+        ok: billing.ok,
       })
     }
 

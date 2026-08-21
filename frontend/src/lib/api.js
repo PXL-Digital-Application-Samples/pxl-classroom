@@ -280,6 +280,32 @@ export async function getWorkflowRuns(token, owner, repo, workflowId) {
   return ghApi(token, 'GET', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`)
 }
 
+export function createWorkflowRequestId(prefix = 'request') {
+  const unique = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `${prefix}-${unique}`
+}
+
+/**
+ * Locate the workflow_dispatch run whose run-name contains a request ID.
+ * workflow_dispatch returns 204 without a run ID, so callers add the ID as a
+ * workflow input and the workflow exposes it in `run-name` for correlation.
+ */
+export async function getWorkflowRunByRequestId(token, owner, repo, workflowId, requestId) {
+  const res = await ghApi(
+    token,
+    'GET',
+    `/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs?event=workflow_dispatch&per_page=20`
+  )
+  if (!res.ok) return res
+  const runs = Array.isArray(res.data?.workflow_runs) ? res.data.workflow_runs : []
+  return {
+    ...res,
+    run: runs.find((run) => String(run.display_title || '').includes(`[${requestId}]`)) || null,
+  }
+}
+
 /**
  * Format a workflow_dispatch failure for the toast. Prefers GitHub's own
  * message because 403/404 almost never means "user has no access" - for a

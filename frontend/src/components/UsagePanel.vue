@@ -67,7 +67,7 @@
           </button>
           <div v-else class="inline-spinner text-xs text-secondary">
             <div class="spinner" style="width: 12px; height: 12px; border-width: 2px;"></div>
-            <span>Auditing… ({{ pollCount }}×)</span>
+            <span>Auditing…</span>
           </div>
         </div>
       </div>
@@ -221,7 +221,14 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
 import Icon from './Icon.vue'
 import { getToken } from '../lib/auth.js'
-import { getRepoContent, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
+import {
+  createWorkflowRequestId,
+  getRepoContent,
+  getWorkflowRunByRequestId,
+  triggerWorkflow,
+  explainDispatchFailure,
+  ghApi,
+} from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
@@ -256,6 +263,7 @@ const runWatching = ref(false)
 const pollCount = ref(0)
 const rateLimit = ref(null)
 let runPollInterval = null
+let activeRequestId = null
 
 const orgTotals = computed(() => {
   if (!report.value?.items) return { actionsMinutes: 0, storageGbHours: 0, codespacesHours: 0 }
@@ -386,11 +394,16 @@ async function generateNow() {
   if (!token || !props.org) return
   triggering.value = true
   try {
-    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'weekly-usage-report.yml', { org: props.org })
+    const requestId = createWorkflowRequestId('usage')
+    const baseline = report.value?.generated_at || null
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'weekly-usage-report.yml', {
+      org: props.org,
+      request_id: requestId,
+    })
     if (res.ok || res.status === 204) {
       toast.success('Audit workflow dispatched - waiting for report…')
       runWatching.value = true
-      startRunPoll()
+      startRunPoll(requestId, baseline)
     } else {
       toast.error(explainDispatchFailure(res, 'Trigger failed'))
     }
@@ -401,31 +414,68 @@ async function generateNow() {
   }
 }
 
-function startRunPoll() {
+function startRunPoll(requestId, baseline) {
   stopRunPoll()
   pollCount.value = 0
-  const baseline = report.value?.generated_at || null
-  const maxPolls = 20 // 20 × 15s = 5 minutes
-  runPollInterval = setInterval(async () => {
+  activeRequestId = requestId
+  const deadline = Date.now() + 4 * 60_000
+
+  const poll = async () => {
+    if (activeRequestId !== requestId) return
     pollCount.value++
-    await loadReport()
-    if (report.value && report.value.generated_at !== baseline) {
-      toast.success('Usage report updated!')
+    const res = await getWorkflowRunByRequestId(
+      getToken(),
+      config.hubOwner,
+      config.hubRepo,
+      'weekly-usage-report.yml',
+      requestId
+    )
+    if (!res.ok) {
+      toast.error(`Could not watch the audit workflow (HTTP ${res.status}).`)
       runWatching.value = false
       stopRunPoll()
-    } else if (pollCount.value >= maxPolls) {
-      toast.info('Workflow is still running. Refresh in a minute to see latest report.')
-      runWatching.value = false
-      stopRunPoll()
+      return
     }
-  }, 15_000)
+
+    const run = res.run
+    if (run?.status === 'completed') {
+      await loadReport()
+      runWatching.value = false
+      stopRunPoll()
+      if (run.conclusion !== 'success') {
+        toast.error(`Usage audit ${run.conclusion || 'failed'}.`, {
+          link: { href: run.html_url, text: 'Open workflow run' },
+        })
+      } else if (report.value && report.value.generated_at !== baseline) {
+        toast.success('Usage report updated!')
+      } else {
+        toast.error('Audit completed but produced no new report. Open System Health to diagnose billing access.', {
+          link: { href: run.html_url, text: 'Open workflow run' },
+        })
+      }
+      return
+    }
+
+    if (Date.now() >= deadline) {
+      toast.error('Audit watcher timed out after 4 minutes.', run?.html_url
+        ? { link: { href: run.html_url, text: 'Open workflow run' } }
+        : undefined)
+      runWatching.value = false
+      stopRunPoll()
+      return
+    }
+    runPollInterval = setTimeout(poll, 5_000)
+  }
+
+  runPollInterval = setTimeout(poll, 1_500)
 }
 
 function stopRunPoll() {
   if (runPollInterval) {
-    clearInterval(runPollInterval)
+    clearTimeout(runPollInterval)
     runPollInterval = null
   }
+  activeRequestId = null
 }
 
 onMounted(async () => {
