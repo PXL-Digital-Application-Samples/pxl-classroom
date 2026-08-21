@@ -19,10 +19,12 @@
    from @primer/primitives' light theme. Enforced by tests/theme-tokens.test.mjs.
    ========================================================================== */
 :root {
-  /* Default theme is DARK. The switch rules below are what the toggle drives;
-     `light dark` (system) is opt-in, never the default, so a first-time
-     visitor keeps the appearance the app has always had. */
-  color-scheme: dark;
+  /* Default follows the OS. `light dark` lets the browser resolve light-dark()
+     from prefers-color-scheme, so a first-time visitor gets whichever theme
+     their machine is set to. The switch rules below are the explicit override
+     the toggle drives; an absent data-theme attribute means "follow the OS",
+     which is also the no-JS behaviour. */
+  color-scheme: light dark;
 
   /* ---- Surfaces & canvas -------------------------------------------------
      The light ramp is INVERTED relative to dark: canvas is the grey and cards

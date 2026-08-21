@@ -126,25 +126,28 @@ and `--ring-focus`. Writing `box-shadow: light-dark(0 4px 12px …, …)` is inv
 
 ---
 
-## 5. Theming (dark default / light / system)
+## 5. Theming (system default / light / dark)
 
 The SPA is dual-theme. Both themes come from **one** token block in `frontend/src/style.css`;
 there is no second palette to keep in sync.
 
 ```css
 :root {
-  color-scheme: dark;                              /* dark is the DEFAULT */
+  color-scheme: light dark;                        /* DEFAULT: follow the OS */
   --bg-canvas: light-dark(#f6f8fa, #0d1117);
 }
 :root[data-theme="light"]  { color-scheme: light; }
 :root[data-theme="dark"]   { color-scheme: dark; }
-:root[data-theme="system"] { color-scheme: light dark; }   /* opt-in, never default */
+:root[data-theme="system"] { color-scheme: light dark; }
 ```
 
 `light-dark()` resolves against the **computed `color-scheme`**, so flipping that single property
 re-resolves every token — and themes native scrollbars, form controls and autofill for free.
-An absent `data-theme` attribute means dark, which is why a first-time visitor keeps the
-appearance the app has always had and why a missing theme script cannot cause a light flash.
+
+An absent `data-theme` attribute means **follow the OS**, which is both the default and the
+no-JS behaviour: a first-time visitor gets whichever theme their machine is set to, and the
+page is still correct if the boot script never runs. An explicit `light` or `dark` pins the
+theme regardless of the OS.
 
 ### Runtime
 
@@ -157,9 +160,12 @@ appearance the app has always had and why a missing theme script cannot cause a 
 | `setThemeMode(m)` | validate, persist, apply (invalid input is ignored) |
 | `cycleThemeMode()` | `dark → light → system → dark` |
 
-Preference is stored in `localStorage` under **`pxl_theme`**, wrapped in `try`/`catch`
-(Safari private mode and blocked storage must not break boot). A plain visit never writes a
-preference — only an explicit choice or a `?theme=` override does.
+**Every toggle persists.** `setThemeMode()` writes to `localStorage` under **`pxl_theme`**,
+wrapped in `try`/`catch` (Safari private mode and blocked storage must not break boot), and
+`cycleThemeMode()` routes through it. A plain visit never writes a preference — only an
+explicit choice or a `?theme=` override does. That distinction matters: if a first load stored
+the resolved theme, it would silently pin whatever the OS happened to be and `system` could
+never follow a later OS change.
 
 **`?theme=dark|light|system`** forces and persists a mode. Useful for reviewing a screen in
 the other theme, and for sharing a link that opens that way.

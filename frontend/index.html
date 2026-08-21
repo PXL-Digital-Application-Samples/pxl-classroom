@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="PXL Classroom - GitHub-native assignment distribution and submission reporting" />
     <!-- Covers the browser's very first canvas fill, before style.css lands.
-         Dark first because dark is the default theme. -->
-    <meta name="color-scheme" content="dark light" />
+         Both listed, OS order, because the default follows the OS. -->
+    <meta name="color-scheme" content="light dark" />
     <title>PXL Classroom</title>
     <!-- Inter, loaded non-blocking: the print-media trick defers the CSS off
          the critical path; style.css's system-ui fallback covers the gap. -->
@@ -47,10 +47,11 @@
           var override = VALID.indexOf(requested) !== -1 ? requested : null;
           var stored = localStorage.getItem('pxl_theme');
           if (override) localStorage.setItem('pxl_theme', override);
-          html.dataset.theme = override || (VALID.indexOf(stored) !== -1 ? stored : 'dark');
+          html.dataset.theme = override || (VALID.indexOf(stored) !== -1 ? stored : 'system');
         } catch (e) {
-          // Storage blocked or URL unparseable - the CSS default is dark anyway.
-          html.dataset.theme = 'dark';
+          // Storage blocked or URL unparseable - the CSS default already
+          // follows the OS, so 'system' is the safe landing spot.
+          html.dataset.theme = 'system';
         }
       }());
     </script>

@@ -15,9 +15,9 @@ import { computed, ref } from 'vue'
 export const STORAGE_KEY = 'pxl_theme'
 export const THEME_MODES = ['dark', 'light', 'system']
 
-// Dark is the default, so a first-time visitor keeps the appearance the app has
-// always had. `system` is opt-in and never inferred.
-export const DEFAULT_MODE = 'dark'
+// Follow the OS by default: a first-time visitor gets whichever theme their
+// machine is set to. An explicit 'dark' or 'light' pins it regardless.
+export const DEFAULT_MODE = 'system'
 
 const mode = ref(DEFAULT_MODE)
 const systemPrefersLight = ref(false)

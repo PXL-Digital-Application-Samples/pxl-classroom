@@ -61,9 +61,9 @@ test("Theme: style.css declares the light-dark() token block and the theme switc
   const { block } = await readTokenBlock();
 
   assert.ok(
-    /:root\s*{[^}]*color-scheme:\s*dark/s.test(block),
-    "':root' must set 'color-scheme: dark' — dark is the default theme, so an absent " +
-      "data-theme attribute keeps the appearance the app has always had",
+    /:root\s*{[^}]*color-scheme:\s*light dark/s.test(block),
+    "':root' must set 'color-scheme: light dark' — the default follows the OS, so " +
+      "an absent data-theme attribute resolves light-dark() from prefers-color-scheme",
   );
 
   for (const [attr, scheme] of [["light", "light"], ["dark", "dark"], ["system", "light dark"]]) {
@@ -73,6 +73,30 @@ test("Theme: style.css declares the light-dark() token block and the theme switc
       `style.css must map [data-theme="${attr}"] to 'color-scheme: ${scheme}'`,
     );
   }
+});
+
+test("Theme runtime: an explicit choice is always persisted", async () => {
+  const themeJs = await readFile(join(FRONTEND_SRC, "lib", "theme.js"), "utf8");
+
+  const setter = themeJs.match(/export function setThemeMode\([\s\S]*?\n\}/)?.[0];
+  assert.ok(setter, "lib/theme.js must export setThemeMode");
+  assert.ok(
+    setter.includes("persistMode("),
+    "setThemeMode must persist: toggling is the user expressing a preference, and " +
+      "it has to survive a reload. cycleThemeMode() routes through setThemeMode, so " +
+      "this covers the toggle too.",
+  );
+
+  const init = themeJs.match(/export function initTheme\([\s\S]*?\n\}/)?.[0];
+  assert.ok(init, "lib/theme.js must export initTheme");
+  assert.match(
+    init,
+    /if \(query\) persistMode\(query\)/,
+    "initTheme must persist ONLY a ?theme= override. A plain visit must not " +
+      "manufacture a stored preference the user never expressed - otherwise the " +
+      "first page load would silently pin whatever the OS happened to be, and the " +
+      "'system' default could never follow a later OS change.",
+  );
 });
 
 test("Theme rule 4: every colour token uses light-dark()", async () => {
@@ -130,9 +154,9 @@ test("Theme runtime: index.html boots the theme before first paint", async () =>
 
   assert.match(
     html,
-    /<meta name="color-scheme" content="dark light"\s*\/?>/,
-    "index.html must declare <meta name=\"color-scheme\" content=\"dark light\"> so the " +
-      "browser's first canvas fill matches the default theme before style.css lands",
+    /<meta name="color-scheme" content="light dark"\s*\/?>/,
+    "index.html must declare <meta name=\"color-scheme\" content=\"light dark\"> so the " +
+      "browser's first canvas fill follows the OS before style.css lands",
   );
 
   const bootIndex = html.indexOf("html.dataset.theme");
@@ -187,13 +211,13 @@ test("Theme runtime: the inline boot script and lib/theme.js agree", async () =>
 
   assert.match(
     themeJs,
-    /export const DEFAULT_MODE = 'dark'/,
-    "DEFAULT_MODE must be 'dark' - dark is the default theme, and the boot script " +
-      "falls back to 'dark' when storage is unreadable",
+    /export const DEFAULT_MODE = 'system'/,
+    "DEFAULT_MODE must be 'system' - the default follows the OS, and the boot " +
+      "script falls back to 'system' when storage is unreadable",
   );
   assert.ok(
-    /=== -1 \? stored : 'dark'|: 'dark'\)/.test(html) && html.includes("dataset.theme = 'dark'"),
-    "The inline boot script must fall back to 'dark' both for an invalid stored " +
+    html.includes(": 'system'") && html.includes("dataset.theme = 'system'"),
+    "The inline boot script must fall back to 'system' both for an invalid stored " +
       "value and when localStorage throws",
   );
 });
