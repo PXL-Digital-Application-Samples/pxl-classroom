@@ -50,7 +50,7 @@ import { toasts, dismissToast, pauseToast, resumeToast } from '../lib/toast.js'
   border-radius: 8px;
   color: white;
   font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px var(--shadow-color-sm);
 }
 .toast-message { flex: 1; }
 .toast-close {
@@ -65,9 +65,9 @@ import { toasts, dismissToast, pauseToast, resumeToast } from '../lib/toast.js'
   flex-shrink: 0;
 }
 .toast-close:hover { opacity: 1; }
-.toast-success { background: var(--accent-green, #238636); }
-.toast-error { background: var(--accent-red, #da3633); }
-.toast-info { background: var(--accent-blue, #1f6feb); }
+.toast-success { background: var(--accent-green); }
+.toast-error { background: var(--accent-red); }
+.toast-info { background: var(--accent-blue); }
 
 .toast-enter-active,
 .toast-leave-active {

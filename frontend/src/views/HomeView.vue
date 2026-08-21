@@ -522,14 +522,14 @@ function handleLogout() {
   transform: translate(-50%, -50%);
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(88, 166, 255, 0.08) 0%, transparent 70%);
+  background: radial-gradient(circle, var(--tint-accent-subtle) 0%, transparent 70%);
   pointer-events: none;
 }
 
 .hero-icon {
   color: var(--accent-blue);
   margin-bottom: var(--space-md);
-  filter: drop-shadow(0 0 20px rgba(88, 166, 255, 0.3));
+  filter: drop-shadow(0 0 20px var(--tint-accent-emphasis));
 }
 
 h1 {
@@ -583,7 +583,7 @@ h1 {
 .jump-input:focus {
   outline: none;
   border-color: var(--accent-blue);
-  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+  box-shadow: 0 0 0 2px var(--tint-accent-muted);
 }
 
 .student-portal {

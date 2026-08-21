@@ -177,22 +177,22 @@
             <div v-else-if="publishWatch === 'watching' || (brokerExists === true && pagesLive === false)" class="published-info-card is-warning">
               <div class="published-header">
                 <div class="spinner sm"></div>
-                <h4 style="color: var(--accent-yellow, #d29922);">Publishing &amp; Deploying in Progress</h4>
+                <h4 style="color: var(--accent-yellow);">Publishing &amp; Deploying in Progress</h4>
                 <span class="badge badge-warning" style="margin-left: auto; font-size: 0.75rem;">Propagating (~1-2 min)</span>
               </div>
               <p class="published-desc">
                 GitHub Actions is setting up the student acceptance broker and publishing the web portal. You can safely stay on this page or navigate away — setup will finish automatically in the background.
               </p>
               <div class="deploy-steps-row" style="display: flex; gap: var(--space-md); margin: var(--space-xs) 0; font-size: 0.85rem; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 4px; color: var(--accent-green, #3fb950);">
+                <div style="display: flex; align-items: center; gap: 4px; color: var(--accent-green);">
                   <Icon name="check-circle" :size="14" />
                   <span>1. Setup Workflow Launched</span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: brokerExists ? 'var(--accent-green, #3fb950)' : 'var(--accent-yellow, #d29922)' }">
+                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: brokerExists ? 'var(--accent-green)' : 'var(--accent-yellow)' }">
                   <Icon :name="brokerExists ? 'check-circle' : 'refresh-cw'" :size="14" :class="{ 'spin-animation': !brokerExists }" />
                   <span>2. Acceptance Broker (<code>broker-{{ form.id }}</code>) {{ brokerExists ? 'Created' : 'Creating…' }}</span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: pagesLive ? 'var(--accent-green, #3fb950)' : 'var(--accent-yellow, #d29922)' }">
+                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: pagesLive ? 'var(--accent-green)' : 'var(--accent-yellow)' }">
                   <Icon :name="pagesLive ? 'check-circle' : 'refresh-cw'" :size="14" :class="{ 'spin-animation': !pagesLive }" />
                   <span>3. Student Web Portal {{ pagesLive ? 'Live' : 'Deploying (~1 min)…' }}</span>
                 </div>
@@ -216,7 +216,7 @@
             <div v-else-if="publishWatch === 'timeout'" class="published-info-card is-warning">
               <div class="published-header">
                 <Icon name="clock" :size="16" class="text-yellow" />
-                <h4 style="color: var(--accent-yellow, #d29922);">Publishing Taking Longer than Usual</h4>
+                <h4 style="color: var(--accent-yellow);">Publishing Taking Longer than Usual</h4>
                 <span class="badge badge-warning" style="margin-left: auto; font-size: 0.75rem;">Queue Delay</span>
               </div>
               <p class="published-desc">
@@ -247,7 +247,7 @@
             <div v-else-if="brokerExists === false" class="published-info-card is-error">
               <div class="published-header">
                 <Icon name="alert-triangle" :size="16" class="text-danger" />
-                <h4 style="color: var(--accent-red, #f85149);">Publish Incomplete: Student Acceptance Broker Missing</h4>
+                <h4 style="color: var(--accent-red);">Publish Incomplete: Student Acceptance Broker Missing</h4>
                 <span class="badge badge-danger" style="margin-left: auto; font-size: 0.75rem;">Action Required</span>
               </div>
               <p class="published-desc text-danger">
@@ -2314,10 +2314,10 @@ watch(
   font-size: 0.75rem;
   text-transform: lowercase;
 }
-.badge-draft { background: rgba(139,148,158,0.2); color: #adbac7; }
-.badge-published { background: rgba(46,160,67,0.2); color: #56d364; }
-.badge-closed { background: rgba(187,128,9,0.2); color: #e3b341; }
-.badge-archived { background: rgba(139,148,158,0.1); color: #768390; }
+.badge-draft { background: var(--tint-neutral-muted); color: var(--text-secondary); }
+.badge-published { background: var(--tint-success-muted); color: var(--accent-green-bright); }
+.badge-closed { background: var(--tint-attention-muted); color: var(--accent-yellow-bright); }
+.badge-archived { background: var(--tint-neutral-subtle); color: var(--text-muted); }
 
 /* EDITOR */
 .editor-pane {
@@ -2412,7 +2412,7 @@ details .field { padding: 0 var(--space-sm); }
 }
 
 .validation-errors {
-  background: rgba(248,81,73,0.08);
+  background: var(--tint-danger-subtle);
   border: 1px solid var(--accent-red);
   border-radius: 6px;
   padding: var(--space-md);
@@ -2438,7 +2438,7 @@ details .field { padding: 0 var(--space-sm); }
 .lifecycle-section { margin-bottom: var(--space-sm); }
 .autograde-banner small {
   display: block;
-  background: rgba(88,166,255,0.08);
+  background: var(--tint-accent-subtle);
   border-left: 3px solid var(--accent-blue);
   padding: var(--space-sm) var(--space-md);
   color: var(--text-secondary);
@@ -2464,7 +2464,7 @@ details .field { padding: 0 var(--space-sm); }
 .test-row textarea { font-family: var(--font-mono); font-size: 0.85rem; min-height: 34px; }
 
 .btn-danger { border-color: var(--accent-red); color: var(--accent-red); }
-.btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
+.btn-danger:hover { background: var(--tint-danger-subtle); }
 
 .publish-watch {
   display: flex;
@@ -2506,7 +2506,7 @@ details .field { padding: 0 var(--space-sm); }
   max-height: 200px;
   overflow-y: auto;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px var(--shadow-color-sm);
   margin-top: 4px;
 }
 .combobox-item {
@@ -2565,8 +2565,8 @@ details .field { padding: 0 var(--space-sm); }
 
 /* PUBLISHED INFO CARD */
 .published-info-card {
-  background: rgba(63, 185, 80, 0.08);
-  border: 1px solid rgba(63, 185, 80, 0.25);
+  background: var(--tint-success-subtle);
+  border: 1px solid var(--tint-success-muted);
   border-radius: 8px;
   padding: var(--space-md);
   margin-bottom: var(--space-md);
@@ -2575,12 +2575,12 @@ details .field { padding: 0 var(--space-sm); }
   gap: var(--space-sm);
 }
 .published-info-card.is-warning {
-  background: rgba(210, 153, 34, 0.08);
-  border-color: rgba(210, 153, 34, 0.35);
+  background: var(--tint-attention-subtle);
+  border-color: var(--tint-attention-emphasis);
 }
 .published-info-card.is-error {
-  background: rgba(248, 81, 73, 0.08);
-  border-color: rgba(248, 81, 73, 0.35);
+  background: var(--tint-danger-subtle);
+  border-color: var(--tint-danger-emphasis);
 }
 .published-header {
   display: flex;
@@ -2641,7 +2641,7 @@ details .field { padding: 0 var(--space-sm); }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--bg-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -2654,7 +2654,7 @@ details .field { padding: 0 var(--space-sm); }
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 20px 45px var(--shadow-color-modal), 0 0 0 1px var(--border-subtle);
   width: 100%;
   max-width: 560px;
   max-height: calc(100vh - 10vh);
@@ -2701,16 +2701,16 @@ details .field { padding: 0 var(--space-sm); }
   margin: 0;
 }
 .alert-info {
-  background: rgba(56, 139, 253, 0.1);
-  border: 1px solid rgba(56, 139, 253, 0.4);
-  color: var(--accent-blue, #58a6ff);
+  background: var(--tint-accent-subtle);
+  border: 1px solid var(--tint-accent-emphasis);
+  color: var(--accent-blue);
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-md, 6px);
 }
 .alert-success {
-  background: rgba(46, 160, 67, 0.1);
-  border: 1px solid rgba(46, 160, 67, 0.4);
-  color: var(--accent-green, #3fb950);
+  background: var(--tint-success-subtle);
+  border: 1px solid var(--tint-success-emphasis);
+  color: var(--accent-green);
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-md, 6px);
 }

@@ -6,14 +6,14 @@ import { join, relative } from "node:path";
 // Guards DESIGN.md §5. The SPA is dual-theme via light-dark(); the token block
 // in style.css is the ONLY place a colour literal may appear. See DESIGN.md §2.
 //
-// Rules 3 and 4 are live. Rules 1 and 2 (the literal sweep) are `todo` until the
-// Phase 4 sweep lands — they report the remaining count instead of blocking.
+// All four rules are live. Rules 1 and 2 became enforceable once the literal
+// sweep landed; the codebase now holds zero colour literals outside :root.
 
 const FRONTEND_SRC = join(process.cwd(), "frontend", "src");
 const STYLE_CSS = join(FRONTEND_SRC, "style.css");
 
 // Tokens deliberately identical in both themes (DESIGN.md §5 rule 4 exemption).
-const THEME_INVARIANT_TOKENS = new Set(["--text-on-emphasis"]);
+const THEME_INVARIANT_TOKENS = new Set(["--text-on-emphasis", "--border-on-emphasis"]);
 
 const COLOUR_LITERAL = /#[0-9a-fA-F]{3,8}\b|rgba?\(\s*\d/;
 
@@ -42,6 +42,19 @@ async function readTokenBlock() {
 async function readStyleCssBody() {
   const { css, block } = await readTokenBlock();
   return css.replace(block, "");
+}
+
+/**
+ * Blank out comments. The rule governs what is STYLED, not what is written
+ * about styling - documentation legitimately quotes hex values, and a comment
+ * cannot colour anything. Newlines are preserved so line numbers stay true.
+ */
+function stripComments(src) {
+  const blank = (m) => m.replace(/[^\r\n]/g, " ");
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/<!--[\s\S]*?-->/g, blank)
+    .replace(/(^|[^:'"\\])\/\/[^\r\n]*/g, (m, prefix) => prefix + blank(m.slice(prefix.length)));
 }
 
 test("Theme: style.css declares the light-dark() token block and the theme switch", async () => {
@@ -185,14 +198,14 @@ test("Theme runtime: the inline boot script and lib/theme.js agree", async () =>
   );
 });
 
-test("Theme rule 1: no colour literals outside the :root token block", { todo: true }, async () => {
+test("Theme rule 1: no colour literals outside the :root token block", async () => {
   const offenders = [];
   const styleCssBody = await readStyleCssBody();
 
   for (const file of await getSourceFiles()) {
     const rel = relative(process.cwd(), file);
-    const src = file === STYLE_CSS ? styleCssBody : await readFile(file, "utf8");
-    src.split("\n").forEach((line, i) => {
+    const raw = file === STYLE_CSS ? styleCssBody : await readFile(file, "utf8");
+    stripComments(raw).split("\n").forEach((line, i) => {
       // var(--x, #fallback) is rule 2's problem, not rule 1's — strip it first.
       const stripped = line.replace(
         /var\(--[a-zA-Z0-9-]+,\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\))/g,
@@ -205,14 +218,14 @@ test("Theme rule 1: no colour literals outside the :root token block", { todo: t
   assert.deepEqual(offenders, [], `${offenders.length} colour literals still outside :root`);
 });
 
-test("Theme rule 2: no var(--token, <literal>) colour fallbacks", { todo: true }, async () => {
+test("Theme rule 2: no var(--token, <literal>) colour fallbacks", async () => {
   const offenders = [];
   const styleCssBody = await readStyleCssBody();
 
   for (const file of await getSourceFiles()) {
     const rel = relative(process.cwd(), file);
-    const src = file === STYLE_CSS ? styleCssBody : await readFile(file, "utf8");
-    src.split("\n").forEach((line, i) => {
+    const raw = file === STYLE_CSS ? styleCssBody : await readFile(file, "utf8");
+    stripComments(raw).split("\n").forEach((line, i) => {
       const hits = line.match(
         /var\(--[a-zA-Z0-9-]+,\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\))/g,
       );

@@ -665,7 +665,7 @@ function handleLogout() {
 }
 
 .org-dropdown-btn:hover {
-  border-color: #8b949e;
+  border-color: var(--text-muted);
   background: var(--bg-surface-hover);
 }
 
@@ -737,7 +737,7 @@ function handleLogout() {
 
 .lamp-active {
   background-color: var(--accent-green);
-  box-shadow: 0 0 5px rgba(63, 185, 80, 0.6);
+  box-shadow: 0 0 5px var(--tint-success-emphasis);
 }
 
 .lamp-inactive {
@@ -747,12 +747,12 @@ function handleLogout() {
 
 .lamp-empty {
   background-color: transparent;
-  border: 1.5px solid #484f58;
+  border: 1.5px solid var(--border-strong);
   opacity: 0.7;
 }
 
 .lamp-unknown {
-  background-color: #30363d;
+  background-color: var(--border-default);
   opacity: 0.5;
 }
 
@@ -790,7 +790,7 @@ main {
   transition: border-color var(--transition-fast), background-color var(--transition-fast);
 }
 .assignment-card:hover {
-  border-color: #58a6ff;
+  border-color: var(--accent-blue);
   background: var(--bg-surface-elevated);
 }
 

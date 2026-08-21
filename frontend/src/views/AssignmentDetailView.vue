@@ -157,7 +157,7 @@
         </div>
 
         <!-- Capacity Alert & 1-Click Bumper Banner (2.D) -->
-        <div v-if="capacityAlert" class="card capacity-banner flex justify-between items-center flex-wrap gap-md" style="margin-bottom: var(--space-md); padding: 12px 16px; border-left: 4px solid var(--accent-yellow, #d29922); background: rgba(210, 153, 34, 0.08);">
+        <div v-if="capacityAlert" class="card capacity-banner flex justify-between items-center flex-wrap gap-md" style="margin-bottom: var(--space-md); padding: 12px 16px; border-left: 4px solid var(--accent-yellow); background: var(--tint-attention-subtle);">
           <div class="flex items-center gap-sm">
             <Icon name="alert-circle" :size="20" class="text-warning" />
             <div>
@@ -501,7 +501,7 @@
                       rel="noopener"
                       class="mono text-xs"
                       :title="`Preserved in archive repository at SHA ${s.preserved_sha}`"
-                      style="display: inline-flex; align-items: center; gap: 3px; color: var(--text-secondary, #8b949e); text-decoration: underline;"
+                      style="display: inline-flex; align-items: center; gap: 3px; color: var(--text-secondary); text-decoration: underline;"
                     >
                       <Icon name="archive" :size="11" />
                       <span>archive ({{ s.preserved_sha.slice(0, 7) }})</span>
@@ -858,7 +858,7 @@
 
           <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
             <!-- Summary Banner -->
-            <div class="score-banner flex justify-between items-center p-md" :class="activeAutogradeItem.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-default, #30363d); padding: 12px 16px;">
+            <div class="score-banner flex justify-between items-center p-md" :class="activeAutogradeItem.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-default); padding: 12px 16px;">
               <div>
                 <div class="text-xs text-secondary uppercase font-semibold">Total Score</div>
                 <div class="text-xl font-bold" style="font-size: 1.4rem;">
@@ -875,7 +875,7 @@
             <!-- Test Breakdown List -->
             <div v-if="activeAutogradeItem.tests && activeAutogradeItem.tests.length" class="tests-breakdown-list flex flex-col gap-sm">
               <h4 style="margin: 0 0 4px 0;">Test Suites</h4>
-              <div v-for="t in activeAutogradeItem.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-default, #30363d); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface, #161b22);">
+              <div v-for="t in activeAutogradeItem.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-default); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface);">
                 <div class="flex justify-between items-center">
                   <div class="flex items-center gap-xs">
                     <span :class="['badge', t.passed ? 'badge-success' : 'badge-error']" style="font-size: 0.7rem; padding: 2px 6px;">
@@ -886,7 +886,7 @@
                   <span class="mono font-semibold text-sm">{{ t.earned != null ? t.earned : (t.passed ? t.points : 0) }}/{{ t.points }} pts</span>
                 </div>
                 <div v-if="t.stdout || t.stderr" class="test-logs mt-xs" style="margin-top: 6px;">
-                  <pre class="mono text-xs p-xs" style="background: var(--bg-canvas, #0d1117); border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; margin: 0; padding: 8px;">{{ t.stderr || t.stdout }}</pre>
+                  <pre class="mono text-xs p-xs" style="background: var(--bg-canvas); border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; margin: 0; padding: 8px;">{{ t.stderr || t.stdout }}</pre>
                 </div>
               </div>
             </div>
@@ -900,7 +900,7 @@
             </div>
           </div>
 
-          <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-default, #30363d);">
+          <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-default);">
             <button class="btn btn-secondary" type="button" @click="closeAutogradeModal">Close</button>
           </footer>
         </div>
@@ -919,7 +919,7 @@
       <!-- Modal: Freeze & Preserve Consequences Confirmation -->
       <div v-if="showFreezeConfirmModal" class="modal-overlay" @click.self="showFreezeConfirmModal = false">
         <div class="modal card modal-consequences" role="dialog" aria-modal="true" aria-label="Confirm Immediate Freeze and Lockdown" style="max-width: 560px;">
-          <header class="modal-head flex justify-between items-center" style="border-bottom: 1px solid var(--border-default, #30363d); padding: 14px 18px;">
+          <header class="modal-head flex justify-between items-center" style="border-bottom: 1px solid var(--border-default); padding: 14px 18px;">
             <div class="flex items-center gap-xs">
               <Icon name="alert-triangle" :size="18" class="stat-yellow" />
               <h3 style="margin: 0; font-size: 1.05rem;">Confirm Immediate Freeze &amp; Lockdown</h3>
@@ -927,8 +927,8 @@
             <button class="modal-close" type="button" @click="showFreezeConfirmModal = false" aria-label="Close">×</button>
           </header>
           <div class="modal-body flex flex-col gap-md" style="padding: 16px 18px;">
-            <div class="card" style="background: rgba(210, 153, 34, 0.1); border: 1px solid rgba(210, 153, 34, 0.3); padding: 12px; border-radius: 6px;">
-              <p class="text-sm font-semibold" style="margin-bottom: 4px; color: var(--accent-yellow, #d29922);">
+            <div class="card" style="background: var(--tint-attention-subtle); border: 1px solid var(--tint-attention-emphasis); padding: 12px; border-radius: 6px;">
+              <p class="text-sm font-semibold" style="margin-bottom: 4px; color: var(--accent-yellow);">
                 ⚠️ Immediate Submissions Lockdown
               </p>
               <p class="text-xs text-secondary" style="margin: 0;">
@@ -968,7 +968,7 @@
               </div>
             </div>
 
-            <footer class="modal-foot flex justify-end gap-sm" style="padding-top: 14px; border-top: 1px solid var(--border-default, #30363d); margin-top: 6px;">
+            <footer class="modal-foot flex justify-end gap-sm" style="padding-top: 14px; border-top: 1px solid var(--border-default); margin-top: 6px;">
               <button class="btn btn-secondary" type="button" @click="showFreezeConfirmModal = false">
                 Cancel
               </button>
@@ -2635,7 +2635,7 @@ th.sortable:hover { color: var(--accent-blue); }
 .sort-glyph { color: var(--accent-blue); }
 
 tr:hover td { background: var(--bg-surface-hover); }
-tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.015); }
+tbody tr:nth-child(even) td { background: var(--table-stripe); }
 tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 
 .empty-row {
@@ -2680,7 +2680,7 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 .autograde-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
 .text-xs { font-size: 0.75rem; }
 .autograde-banner {
-  background: rgba(88,166,255,0.08);
+  background: var(--tint-accent-subtle);
   border-left: 3px solid var(--accent-blue);
   padding: var(--space-sm) var(--space-md);
   border-radius: 4px;
@@ -2691,7 +2691,7 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 .autograde-failed {
   margin-top: var(--space-md);
   padding: var(--space-sm) var(--space-md);
-  background: rgba(248,81,73,0.08);
+  background: var(--tint-danger-subtle);
   border-left: 3px solid var(--accent-red);
   border-radius: 4px;
   font-size: 0.85rem;
@@ -2767,7 +2767,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--bg-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -2838,10 +2838,10 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   left: 0;
   z-index: 100;
   min-width: 270px;
-  background: var(--bg-surface, #161b22);
+  background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md, 6px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--shadow-color-lg);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -2865,7 +2865,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 .export-dropdown-item:hover:not(:disabled) {
-  background: var(--bg-tertiary, #21262d);
+  background: var(--bg-tertiary);
 }
 
 .export-dropdown-item.disabled-item,
@@ -2917,8 +2917,8 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .preservation-banner {
   padding: var(--space-md, 16px);
-  background: var(--bg-secondary, #161b22);
-  border: 1px solid var(--border-default, #30363d);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md, 6px);
   margin-bottom: var(--space-md, 16px);
 }
@@ -2961,8 +2961,8 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 .safety-box {
-  background: var(--bg-tertiary, #21262d);
-  border: 1px solid var(--border-default, #30363d);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm, 4px);
   padding: var(--space-sm, 12px) var(--space-md, 16px);
   margin: var(--space-md, 16px) 0;
@@ -2972,7 +2972,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 0.88rem;
   font-weight: 600;
   margin: 0 0 var(--space-xs, 6px) 0;
-  color: var(--text-primary, #c9d1d9);
+  color: var(--text-primary);
 }
 
 .safety-list {
@@ -2980,7 +2980,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding-left: var(--space-md, 18px);
   font-size: 0.84rem;
   line-height: 1.5;
-  color: var(--text-secondary, #8b949e);
+  color: var(--text-secondary);
 }
 
 .safety-list li + li {
@@ -3000,30 +3000,30 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   align-items: center;
   text-align: center;
   padding: var(--space-sm, 8px);
-  background: var(--bg-secondary, #161b22);
-  border: 1px solid var(--border-default, #30363d);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm, 4px);
 }
 
 .cohort-summary-val {
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--text-primary, #c9d1d9);
+  color: var(--text-primary);
 }
 
 .cohort-summary-lbl {
   font-size: 0.72rem;
-  color: var(--text-secondary, #8b949e);
+  color: var(--text-secondary);
   margin-top: 2px;
 }
 
 .empty-eligible-notice {
   padding: var(--space-sm, 8px) var(--space-md, 12px);
-  background: var(--bg-secondary, #161b22);
-  border: 1px dashed var(--border-default, #30363d);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-default);
   border-radius: var(--radius-sm, 4px);
   font-size: 0.84rem;
-  color: var(--text-secondary, #8b949e);
+  color: var(--text-secondary);
   text-align: center;
   margin-top: var(--space-sm, 8px);
 }
@@ -3033,8 +3033,8 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   justify-content: flex-end;
   gap: var(--space-sm, 8px);
   padding: var(--space-md, 16px);
-  border-top: 1px solid var(--border-default, #30363d);
-  background: var(--bg-secondary, #161b22);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
 }
 
 @media (max-width: 768px) {

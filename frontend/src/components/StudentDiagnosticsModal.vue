@@ -14,7 +14,7 @@
         <div
           v-if="diagnosticsSummary.hasIssue"
           class="diag-banner flex items-center gap-sm p-sm"
-          style="background: rgba(248, 81, 73, 0.12); border-left: 4px solid var(--accent-red, #f85149); border-radius: 4px;"
+          style="background: var(--tint-danger-subtle); border-left: 4px solid var(--accent-red); border-radius: 4px;"
         >
           <Icon name="alert-circle" :size="20" class="stat-red" />
           <div class="text-sm">
@@ -25,7 +25,7 @@
         <div
           v-else
           class="diag-banner flex items-center gap-sm p-sm"
-          style="background: rgba(46, 160, 67, 0.12); border-left: 4px solid var(--accent-green, #2ea043); border-radius: 4px;"
+          style="background: var(--tint-success-subtle); border-left: 4px solid var(--accent-green); border-radius: 4px;"
         >
           <Icon name="check-circle" :size="20" class="stat-green" />
           <div class="text-sm">
@@ -317,12 +317,12 @@ function copyReport() {
 }
 .check-item {
   padding: 8px 12px;
-  background: var(--bg-primary, #0d1117);
-  border: 1px solid var(--border-default, #30363d);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
 }
-.stat-green { color: var(--accent-green, #2ea043); }
-.stat-yellow { color: var(--accent-yellow, #d29922); }
-.stat-red { color: var(--accent-red, #f85149); }
-.stat-blue { color: var(--accent-blue, #58a6ff); }
+.stat-green { color: var(--accent-green); }
+.stat-yellow { color: var(--accent-yellow); }
+.stat-red { color: var(--accent-red); }
+.stat-blue { color: var(--accent-blue); }
 </style>

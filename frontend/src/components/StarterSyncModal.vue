@@ -58,7 +58,7 @@
                   :key="file.filename"
                   class="file-row-box card"
                   :class="{ selected: file.selected }"
-                  style="padding: 6px 10px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-default, #30363d);"
+                  style="padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-default);"
                 >
                   <div class="file-row flex items-center justify-between">
                     <label class="flex items-center gap-sm" style="cursor: pointer; margin: 0;">
@@ -83,7 +83,7 @@
 
                   <!-- Diff Patch View -->
                   <div v-if="expandedDiffs[file.filename]" class="diff-patch-view-container" style="margin-top: 8px;">
-                    <pre class="diff-patch-pre mono text-xs" style="background: var(--bg-canvas, #0d1117); border-radius: 4px; max-height: 200px; overflow-y: auto; margin: 0; padding: 8px; line-height: 1.4;"><template v-for="(line, idx) in formatPatchLines(file.patch)" :key="idx"><span :style="line.type === 'diff-line-add' ? 'color: #3fb950; display: block; background: rgba(46,160,67,0.15);' : line.type === 'diff-line-del' ? 'color: #f85149; display: block; background: rgba(248,81,73,0.15);' : line.type === 'diff-line-hunk' ? 'color: #58a6ff; display: block;' : 'color: #8b949e; display: block;'">{{ line.text }}</span></template></pre>
+                    <pre class="diff-patch-pre mono text-xs" style="background: var(--bg-canvas); border-radius: 4px; max-height: 200px; overflow-y: auto; margin: 0; padding: 8px; line-height: 1.4;"><template v-for="(line, idx) in formatPatchLines(file.patch)" :key="idx"><span :style="line.type === 'diff-line-add' ? 'color: var(--accent-green); display: block; background: var(--tint-success-muted);' : line.type === 'diff-line-del' ? 'color: var(--accent-red); display: block; background: var(--tint-danger-muted);' : line.type === 'diff-line-hunk' ? 'color: var(--accent-blue); display: block;' : 'color: var(--text-muted); display: block;'">{{ line.text }}</span></template></pre>
                   </div>
                 </div>
               </div>
@@ -538,7 +538,7 @@ onMounted(() => {
 }
 
 .file-row.selected {
-  background: rgba(88, 166, 255, 0.08);
+  background: var(--tint-accent-subtle);
 }
 
 .preflight-summary-grid {
@@ -597,13 +597,13 @@ onMounted(() => {
 }
 
 .dispatch-banner.success {
-  background: rgba(63, 185, 80, 0.12);
+  background: var(--tint-success-subtle);
   border: 1px solid var(--accent-green);
   color: var(--accent-green);
 }
 
 .dispatch-banner.error {
-  background: rgba(248, 81, 73, 0.12);
+  background: var(--tint-danger-subtle);
   border: 1px solid var(--accent-red);
   color: var(--accent-red);
 }

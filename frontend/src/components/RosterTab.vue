@@ -660,8 +660,8 @@ defineExpose({
 
 .diff-info {
   padding: var(--space-sm) var(--space-md);
-  background: rgba(46,160,67,0.08);
-  border-left: 3px solid #56d364;
+  background: var(--tint-success-subtle);
+  border-left: 3px solid var(--accent-green-bright);
   border-radius: 4px;
   margin-bottom: var(--space-md);
 }
@@ -674,9 +674,9 @@ defineExpose({
   font-size: 0.85rem;
   font-family: var(--font-mono);
 }
-.diff-badge.added   { background: rgba(46,160,67,0.15);  color: #56d364; }
-.diff-badge.updated { background: rgba(187,128,9,0.15);  color: #e3b341; }
-.diff-badge.removed { background: rgba(248,81,73,0.15);  color: var(--accent-red); }
+.diff-badge.added   { background: var(--tint-success-muted);  color: var(--accent-green-bright); }
+.diff-badge.updated { background: var(--tint-attention-muted);  color: var(--accent-yellow-bright); }
+.diff-badge.removed { background: var(--tint-danger-muted);  color: var(--accent-red); }
 
 .diff-pane details { border: 1px solid var(--border-default); border-radius: 6px; padding: var(--space-sm); margin-bottom: var(--space-sm); }
 .diff-pane summary { cursor: pointer; font-weight: 600; padding: var(--space-xs); }
@@ -688,7 +688,7 @@ defineExpose({
 .diff-empty { padding: var(--space-md); color: var(--text-secondary); text-align: center; }
 
 .validation-errors {
-  background: rgba(248,81,73,0.08);
+  background: var(--tint-danger-subtle);
   border: 1px solid var(--accent-red);
   border-radius: 6px;
   padding: var(--space-sm) var(--space-md);
@@ -718,14 +718,14 @@ defineExpose({
 }
 .chip-btn.active {
   background: var(--accent-blue);
-  color: #fff;
+  color: var(--text-on-emphasis);
   border-color: var(--accent-blue);
 }
 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--bg-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -737,7 +737,7 @@ defineExpose({
   border: 1px solid var(--border-default);
   border-radius: 8px;
   width: 90%;
-  box-shadow: var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.5));
+  box-shadow: var(--shadow-lg, 0 10px 25px var(--shadow-color-modal));
 }
 .modal-head {
   padding: var(--space-md);

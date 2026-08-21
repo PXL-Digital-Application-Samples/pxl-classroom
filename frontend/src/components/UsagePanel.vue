@@ -498,7 +498,7 @@ onBeforeUnmount(() => {
 .usage-panel {
   margin-top: var(--space-xl);
   border: 1px solid var(--border-default);
-  background: var(--bg-surface, #161b22);
+  background: var(--bg-surface);
   border-radius: var(--radius-md, 6px);
   padding: var(--space-md);
   transition: all 0.2s ease;
@@ -592,7 +592,7 @@ onBeforeUnmount(() => {
 }
 
 .usage-error {
-  background: rgba(248, 81, 73, 0.1);
+  background: var(--tint-danger-subtle);
   border: 1px solid var(--accent-red);
   color: var(--accent-red);
   padding: var(--space-xs) var(--space-sm);
@@ -659,15 +659,15 @@ onBeforeUnmount(() => {
 }
 
 .status-pill-ok {
-  background: rgba(46, 160, 67, 0.15);
+  background: var(--tint-success-muted);
   color: var(--accent-green);
-  border: 1px solid rgba(46, 160, 67, 0.3);
+  border: 1px solid var(--tint-success-emphasis);
 }
 
 .status-pill-warn {
-  background: rgba(248, 81, 73, 0.15);
+  background: var(--tint-danger-muted);
   color: var(--accent-red);
-  border: 1px solid rgba(248, 81, 73, 0.3);
+  border: 1px solid var(--tint-danger-emphasis);
 }
 
 /* Toolbar */
@@ -750,7 +750,7 @@ onBeforeUnmount(() => {
 }
 
 .usage-table tr.over-threshold {
-  background: rgba(248, 81, 73, 0.08);
+  background: var(--tint-danger-subtle);
 }
 
 .usage-table tr.over-threshold td {

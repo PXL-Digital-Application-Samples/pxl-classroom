@@ -77,7 +77,7 @@
     <!-- TAB 1: DESIGN TOKENS & SURFACES -->
     <section v-if="currentTab === 'tokens'" class="sandbox-section flex flex-col gap-lg">
       <div class="card">
-        <h3 class="section-title">1. Tonal Surface Hierarchy (Dark Theme)</h3>
+        <h3 class="section-title">1. Tonal Surface Hierarchy ({{ themeLabel }})</h3>
         <p class="text-secondary text-sm mb-md">
           Sections are separated by luminance layers rather than heavy border outlines.
         </p>
@@ -85,25 +85,25 @@
         <div class="surface-grid">
           <div class="surface-tile canvas-tile">
             <span class="surface-label">Canvas Background</span>
-            <code class="mono">--bg-canvas: #0d1117</code>
+            <code class="mono">--bg-canvas: {{ resolved('--bg-canvas') }}</code>
             <span class="surface-desc">Root viewport &amp; code blocks</span>
           </div>
 
           <div class="surface-tile surface-base-tile">
             <span class="surface-label">Surface Level</span>
-            <code class="mono">--bg-surface: #161b22</code>
+            <code class="mono">--bg-surface: {{ resolved('--bg-surface') }}</code>
             <span class="surface-desc">Cards, content panels, tables</span>
           </div>
 
           <div class="surface-tile surface-elevated-tile">
             <span class="surface-label">Elevated Surface</span>
-            <code class="mono">--bg-surface-elevated: #1c2128</code>
+            <code class="mono">--bg-surface-elevated: {{ resolved('--bg-surface-elevated') }}</code>
             <span class="surface-desc">Modals, dropdown menus, flyouts</span>
           </div>
 
           <div class="surface-tile surface-hover-tile">
             <span class="surface-label">Hover &amp; Interactive</span>
-            <code class="mono">--bg-surface-hover: #21262d</code>
+            <code class="mono">--bg-surface-hover: {{ resolved('--bg-surface-hover') }}</code>
             <span class="surface-desc">Button hovers, table row highlights</span>
           </div>
         </div>
@@ -116,42 +116,48 @@
             <div class="chip-swatch" style="background: var(--accent-blue);"></div>
             <div class="chip-info">
               <strong class="text-sm">Accent Blue</strong>
-              <code class="mono text-xs">#58a6ff</code>
+              <code class="mono text-xs">--accent-blue</code>
+              <code class="mono text-xs text-muted">{{ resolved('--accent-blue') }}</code>
             </div>
           </div>
           <div class="color-chip">
             <div class="chip-swatch" style="background: var(--accent-green);"></div>
             <div class="chip-info">
               <strong class="text-sm">Success Green</strong>
-              <code class="mono text-xs">#3fb950</code>
+              <code class="mono text-xs">--accent-green</code>
+              <code class="mono text-xs text-muted">{{ resolved('--accent-green') }}</code>
             </div>
           </div>
           <div class="color-chip">
             <div class="chip-swatch" style="background: var(--accent-yellow);"></div>
             <div class="chip-info">
               <strong class="text-sm">Warning Yellow</strong>
-              <code class="mono text-xs">#d29922</code>
+              <code class="mono text-xs">--accent-yellow</code>
+              <code class="mono text-xs text-muted">{{ resolved('--accent-yellow') }}</code>
             </div>
           </div>
           <div class="color-chip">
             <div class="chip-swatch" style="background: var(--accent-red);"></div>
             <div class="chip-info">
               <strong class="text-sm">Danger Red</strong>
-              <code class="mono text-xs">#f85149</code>
+              <code class="mono text-xs">--accent-red</code>
+              <code class="mono text-xs text-muted">{{ resolved('--accent-red') }}</code>
             </div>
           </div>
           <div class="color-chip">
             <div class="chip-swatch" style="background: var(--border-default);"></div>
             <div class="chip-info">
               <strong class="text-sm">Border Default</strong>
-              <code class="mono text-xs">#30363d</code>
+              <code class="mono text-xs">--border-default</code>
+              <code class="mono text-xs text-muted">{{ resolved('--border-default') }}</code>
             </div>
           </div>
           <div class="color-chip">
             <div class="chip-swatch" style="background: var(--border-muted);"></div>
             <div class="chip-info">
               <strong class="text-sm">Border Muted</strong>
-              <code class="mono text-xs">#21262d</code>
+              <code class="mono text-xs">--border-muted</code>
+              <code class="mono text-xs text-muted">{{ resolved('--border-muted') }}</code>
             </div>
           </div>
         </div>
@@ -363,13 +369,55 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import AppHeader from '../components/AppHeader.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import { toast } from '../lib/toast.js'
+import { resolvedTheme } from '../lib/theme.js'
+
+// This page documents the palette, so it must never state a value that the
+// palette does not actually produce - it used to hardcode "#0d1117" as body
+// text and drifted the moment a token changed. Tokens are declared as
+// light-dark(), and getPropertyValue() returns that whole expression
+// unresolved, so the only way to read the USED colour is to paint it and read
+// it back.
+const tokenValues = ref({})
+
+function readToken(name) {
+  const probe = document.createElement('span')
+  probe.style.cssText = 'position:absolute;visibility:hidden'
+  probe.style.color = `var(${name})`
+  document.body.appendChild(probe)
+  const rgb = getComputedStyle(probe).color
+  probe.remove()
+  const parts = rgb.match(/[\d.]+/g)
+  if (!parts || parts.length < 3) return rgb
+  const hex = parts.slice(0, 3)
+    .map((n) => Number(n).toString(16).padStart(2, '0'))
+    .join('')
+  const alpha = parts.length > 3 && Number(parts[3]) < 1 ? ` / ${Math.round(Number(parts[3]) * 100)}%` : ''
+  return `#${hex}${alpha}`
+}
+
+const DOCUMENTED_TOKENS = [
+  '--bg-canvas', '--bg-surface', '--bg-surface-elevated', '--bg-surface-hover',
+  '--accent-blue', '--accent-green', '--accent-yellow', '--accent-red',
+  '--border-default', '--border-muted',
+]
+
+function refreshTokens() {
+  tokenValues.value = Object.fromEntries(DOCUMENTED_TOKENS.map((t) => [t, readToken(t)]))
+}
+
+const resolved = (name) => tokenValues.value[name] ?? '…'
+const themeLabel = computed(() => (resolvedTheme.value === 'light' ? 'Light Theme' : 'Dark Theme'))
+
+onMounted(refreshTokens)
+// The toggle only flips an attribute on <html>; nothing re-renders on its own.
+watch(resolvedTheme, refreshTokens)
 
 const currentTab = ref('tokens')
 const showStarterSyncModal = ref(false)
@@ -537,7 +585,7 @@ const mockTeams = [
   height: 24px;
   border-radius: 4px;
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-subtle);
 }
 
 .chip-info {

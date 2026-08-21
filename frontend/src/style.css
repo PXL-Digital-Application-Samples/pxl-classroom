@@ -34,6 +34,12 @@
   --bg-surface-hover:    light-dark(#f3f4f6, #21262d);
   --bg-inset:            light-dark(#f6f8fa, #0d1117);
 
+  /* Neutral button ramp. .btn rests on --bg-surface-hover, so these continue it:
+     light goes progressively darker, dark keeps the existing lighter-then-back
+     steps the design already used. */
+  --bg-btn-hover:  light-dark(#eef0f3, #30363d);
+  --bg-btn-active: light-dark(#e4e8ec, #282e33);
+
   /* Legacy aliases — identical values, retained so the Phase 4 sweep can be
      mechanical. Prefer the semantic names above in new code. */
   --bg-primary:   var(--bg-canvas);
@@ -54,6 +60,8 @@
   --border-muted:   light-dark(#d1d9e0b3, #21262d);
   --border-subtle:  light-dark(rgba(31, 35, 40, 0.08), rgba(240, 246, 252, 0.1));
   --border-strong:  light-dark(#8c959f, #484f58);
+  /* Border on an interactive control being hovered. */
+  --border-emphasis: light-dark(#8c959f, #8b949e);
 
   /* ---- Typography ---- */
   --text-primary:   light-dark(#1f2328, #e6edf3);
@@ -146,6 +154,11 @@
      Deliberately identical in both themes: white on a saturated emphasis fill.
      Exempt from the "every colour token must use light-dark()" guard. */
   --text-on-emphasis: #ffffff;
+  /* Inner border on a saturated fill (primary/success/danger buttons). It must
+     stay a white wash in BOTH themes - those buttons keep their saturated
+     background in light mode, so --border-subtle (a DARK border in light) would
+     read as a dirty outline on blue. */
+  --border-on-emphasis: rgba(255, 255, 255, 0.15);
 
   /* ---- Spacing ---- */
   --space-2xs: 2px;
@@ -220,7 +233,7 @@ a {
   transition: color var(--transition-fast);
 }
 a:hover {
-  color: #79c0ff;
+  color: var(--accent-blue-bright);
   text-decoration: underline;
 }
 
@@ -247,12 +260,12 @@ a:hover {
   user-select: none;
 }
 .btn:hover:not(:disabled) {
-  background: #30363d;
-  border-color: #8b949e;
-  color: #f0f6fc;
+  background: var(--bg-btn-hover);
+  border-color: var(--border-emphasis);
+  color: var(--text-bright);
 }
 .btn:active:not(:disabled) {
-  background: #282e33;
+  background: var(--bg-btn-active);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -293,14 +306,14 @@ a:hover {
 /* Primary CTA — Reserved for 1 main action per view */
 .btn-primary {
   background: var(--accent-blue-emphasis);
-  border-color: rgba(240, 246, 252, 0.1);
-  color: #ffffff;
+  border-color: var(--border-on-emphasis);
+  color: var(--text-on-emphasis);
   font-weight: 600;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #388bfd;
-  border-color: rgba(240, 246, 252, 0.2);
-  color: #ffffff;
+  background: var(--accent-blue-hover);
+  border-color: var(--border-on-emphasis);
+  color: var(--text-on-emphasis);
 }
 
 /* Secondary / Default Neutral Button */
@@ -310,9 +323,9 @@ a:hover {
   color: var(--text-secondary);
 }
 .btn-secondary:hover:not(:disabled) {
-  background: #30363d;
-  border-color: #8b949e;
-  color: #ffffff;
+  background: var(--bg-btn-hover);
+  border-color: var(--border-emphasis);
+  color: var(--text-bright);
 }
 
 /* Ghost / Icon Button */
@@ -322,40 +335,40 @@ a:hover {
   color: var(--text-secondary);
 }
 .btn-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--overlay-muted);
   border-color: transparent;
   color: var(--text-primary);
 }
 
 .btn-success {
   background: var(--accent-green-emphasis);
-  border-color: rgba(240, 246, 252, 0.1);
-  color: #ffffff;
+  border-color: var(--border-on-emphasis);
+  color: var(--text-on-emphasis);
 }
 .btn-success:hover:not(:disabled) {
-  background: #2ea043;
-  color: #ffffff;
+  background: var(--accent-green-hover);
+  color: var(--text-on-emphasis);
 }
 
 .btn-danger {
   background: var(--accent-red-emphasis);
-  border-color: rgba(240, 246, 252, 0.1);
-  color: #ffffff;
+  border-color: var(--border-on-emphasis);
+  color: var(--text-on-emphasis);
 }
 .btn-danger:hover:not(:disabled) {
-  background: #f85149;
-  color: #ffffff;
+  background: var(--accent-red);
+  color: var(--text-on-emphasis);
 }
 
 .btn-danger-outline {
   background: transparent;
-  border-color: rgba(248, 81, 73, 0.4);
+  border-color: var(--tint-danger-emphasis);
   color: var(--accent-red);
 }
 .btn-danger-outline:hover:not(:disabled) {
-  background: rgba(248, 81, 73, 0.12);
+  background: var(--tint-danger-subtle);
   border-color: var(--accent-red);
-  color: #ff7b72;
+  color: var(--accent-red-bright);
 }
 
 .btn-link {
@@ -368,7 +381,7 @@ a:hover {
   text-decoration: underline;
 }
 .btn-link:hover {
-  color: #79c0ff;
+  color: var(--accent-blue-bright);
 }
 
 /* ==========================================================================
@@ -409,7 +422,7 @@ a:hover {
 .primer-tab.active {
   color: var(--text-primary);
   font-weight: 600;
-  border-bottom-color: var(--accent-orange, #f78166);
+  border-bottom-color: var(--accent-orange);
 }
 
 /* Segmented Control / Quick Filter Pills */
@@ -439,7 +452,7 @@ a:hover {
 
 .tab-pill:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--overlay-subtle);
 }
 
 .tab-pill.active {
@@ -470,19 +483,19 @@ a:hover {
 }
 .status-dot.dot-success {
   background: var(--accent-green);
-  box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
+  box-shadow: 0 0 6px var(--tint-success-emphasis);
 }
 .status-dot.dot-warning {
   background: var(--accent-yellow);
-  box-shadow: 0 0 6px rgba(210, 153, 34, 0.4);
+  box-shadow: 0 0 6px var(--tint-attention-emphasis);
 }
 .status-dot.dot-danger {
   background: var(--accent-red);
-  box-shadow: 0 0 6px rgba(248, 81, 73, 0.4);
+  box-shadow: 0 0 6px var(--tint-danger-emphasis);
 }
 .status-dot.dot-info {
   background: var(--accent-blue);
-  box-shadow: 0 0 6px rgba(88, 166, 255, 0.4);
+  box-shadow: 0 0 6px var(--tint-accent-emphasis);
 }
 .status-dot.dot-neutral {
   background: var(--text-muted);
@@ -500,27 +513,27 @@ a:hover {
   letter-spacing: 0.02em;
 }
 .badge-success {
-  background: rgba(63, 185, 80, 0.12);
+  background: var(--tint-success-subtle);
   color: var(--accent-green);
-  border: 1px solid rgba(63, 185, 80, 0.25);
+  border: 1px solid var(--tint-success-muted);
 }
 .badge-warning {
-  background: rgba(210, 153, 34, 0.12);
+  background: var(--tint-attention-subtle);
   color: var(--accent-yellow);
-  border: 1px solid rgba(210, 153, 34, 0.25);
+  border: 1px solid var(--tint-attention-muted);
 }
 .badge-error {
-  background: rgba(248, 81, 73, 0.12);
+  background: var(--tint-danger-subtle);
   color: var(--accent-red);
-  border: 1px solid rgba(248, 81, 73, 0.25);
+  border: 1px solid var(--tint-danger-muted);
 }
 .badge-info {
-  background: rgba(88, 166, 255, 0.12);
+  background: var(--tint-accent-subtle);
   color: var(--accent-blue);
-  border: 1px solid rgba(88, 166, 255, 0.25);
+  border: 1px solid var(--tint-accent-muted);
 }
 .badge-neutral {
-  background: rgba(110, 118, 129, 0.12);
+  background: var(--tint-neutral-subtle);
   color: var(--text-secondary);
   border: 1px solid var(--border-muted);
 }
@@ -569,7 +582,7 @@ a:hover {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(1, 4, 9, 0.75);
+  background: var(--bg-scrim);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -753,7 +766,7 @@ input:focus,
 select:focus {
   border-color: var(--accent-blue);
   outline: none;
-  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+  box-shadow: var(--ring-focus);
 }
 
 /* Layout Utilities */

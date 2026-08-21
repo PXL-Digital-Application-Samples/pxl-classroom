@@ -382,7 +382,7 @@ onBeforeUnmount(() => {
 .sort-glyph-active { color: var(--accent-blue); }
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .usage-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.usage-table tr.over-threshold { background: rgba(248, 81, 73, 0.1); }
+.usage-table tr.over-threshold { background: var(--tint-danger-subtle); }
 .usage-table tr.over-threshold td { color: var(--accent-red); }
 .badge { font-size: 0.75rem; padding: 2px 8px; background: var(--bg-secondary); border-radius: 4px; }
 .text-danger { color: var(--accent-red); }
