@@ -58,7 +58,7 @@
                   :key="file.filename"
                   class="file-row-box card"
                   :class="{ selected: file.selected }"
-                  style="padding: 6px 10px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-color, #30363d);"
+                  style="padding: 6px 10px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-default, #30363d);"
                 >
                   <div class="file-row flex items-center justify-between">
                     <label class="flex items-center gap-sm" style="cursor: pointer; margin: 0;">

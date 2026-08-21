@@ -8,7 +8,7 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
 
 1. **Avoid the "1px Box Prison":**
    * Do not wrap every nested container in a 1px solid border.
-   * Separate sections using **tonal surface shifts** (Canvas `#0d1117` vs Surface `#161b22`) and purposeful whitespace (16–24px padding).
+   * Separate sections using **tonal surface shifts** (`--bg-canvas` vs `--bg-surface`) and purposeful whitespace (16–24px padding).
    * Reserve borders for structural dividers (such as sticky headers, navigation borders, or data table rows).
 
 2. **Strict 1-Primary-Button Rule:**
@@ -28,20 +28,40 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
 
 ## 2. Design Tokens
 
+Every token is declared once in `frontend/src/style.css` as `light-dark(<light>, <dark>)`.
+**`:root` is the only place in the codebase where a colour literal may appear** — see §5.
+
 ### Surfaces & Layers
-| Token | Hex / Value | Usage |
-| :--- | :--- | :--- |
-| `--bg-canvas` | `#0d1117` | Base application background |
-| `--bg-surface` | `#161b22` | Cards, panels, sticky header, table headers |
-| `--bg-surface-elevated` | `#1c2128` | Dropdown menus, modal sheets |
-| `--bg-surface-hover` | `#21262d` | Button backgrounds, table row hover, list item hover |
+The light ramp is **inverted** relative to dark: canvas is the grey and cards are white, so
+`--bg-surface` reads as raised above `--bg-canvas` in *both* themes and principle §1.1 holds
+without re-adding borders.
+
+| Token | Light | Dark | Usage |
+| :--- | :--- | :--- | :--- |
+| `--bg-canvas` | `#f6f8fa` | `#0d1117` | Base application background |
+| `--bg-surface` | `#ffffff` | `#161b22` | Cards, panels, sticky header, table headers |
+| `--bg-surface-elevated` | `#ffffff` | `#1c2128` | Dropdown menus, modal sheets (light separates by shadow, not tone) |
+| `--bg-surface-hover` | `#f3f4f6` | `#21262d` | Button faces, table row hover, list item hover |
+| `--bg-inset` | `#f6f8fa` | `#0d1117` | `<pre>` blocks, recessed wells |
 
 ### Borders
-| Token | Hex / Value | Usage |
-| :--- | :--- | :--- |
-| `--border-default` | `#30363d` | Prominent dividers, input borders, active controls |
-| `--border-muted` | `#21262d` | Table row dividers, card subtle outlines, tab borders |
-| `--border-subtle` | `rgba(240, 246, 252, 0.1)` | Button inner borders |
+| Token | Light | Dark | Usage |
+| :--- | :--- | :--- | :--- |
+| `--border-default` | `#d1d9e0` | `#30363d` | Prominent dividers, input borders, active controls |
+| `--border-muted` | `#d1d9e0b3` | `#21262d` | Table row dividers, card subtle outlines, tab borders |
+| `--border-subtle` | `rgba(31,35,40,.08)` | `rgba(240,246,252,.1)` | Button inner borders |
+| `--border-strong` | `#8c959f` | `#484f58` | Emphasised outlines |
+
+### Tints
+Status washes. Five hues × three steps — `subtle` (background), `muted` (filled chip),
+`emphasis` (borders, rings, dot glows), as `--tint-{success,attention,danger,accent,neutral}-{step}`.
+Dark is an alpha wash over the dark canvas; **light uses Primer's solid muted colours** —
+a 10% wash tuned for `#0d1117` reads as nothing on white. Never hand-roll an `rgba()` status tint.
+
+### Shadows
+`light-dark()` returns a `<color>`, so it **cannot** wrap a whole `box-shadow`. Only the colour is
+themed (`--shadow-color-{sm,md,lg,modal}`); geometry is shared via `--shadow-{sm,md,lg,modal}`
+and `--ring-focus`. Writing `box-shadow: light-dark(0 4px 12px …, …)` is invalid CSS.
 
 ### Typography & Radii
 * **Font Family:** `Inter`, system-ui, -apple-system, sans-serif
@@ -106,7 +126,38 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
 
 ---
 
-## 5. Visual Sandbox & Interactive Testing
+## 5. Theming (dark default / light / system)
+
+The SPA is dual-theme. Both themes come from **one** token block in `frontend/src/style.css`;
+there is no second palette to keep in sync.
+
+```css
+:root {
+  color-scheme: dark;                              /* dark is the DEFAULT */
+  --bg-canvas: light-dark(#f6f8fa, #0d1117);
+}
+:root[data-theme="light"]  { color-scheme: light; }
+:root[data-theme="dark"]   { color-scheme: dark; }
+:root[data-theme="system"] { color-scheme: light dark; }   /* opt-in, never default */
+```
+
+`light-dark()` resolves against the **computed `color-scheme`**, so flipping that single property
+re-resolves every token — and themes native scrollbars, form controls and autofill for free.
+An absent `data-theme` attribute means dark, which is why a first-time visitor keeps the
+appearance the app has always had and why a missing theme script cannot cause a light flash.
+
+**Rules — non-negotiable, enforced by `tests/theme-tokens.test.mjs`:**
+
+1. **No colour literal outside `:root`.** No hex, no `rgb()`/`rgba()`, no named colours in any
+   component `<style>` block or inline `style=` attribute. `transparent` / `currentColor` are fine.
+2. **No `var(--token, #fallback)` fallbacks.** A fallback is a hardcoded colour that silently
+   pins one theme, and it hides the typo in rule 3.
+3. **Every `var(--token)` must resolve** to a token defined in `:root`. Undefined tokens fail
+   *silently* in CSS — `--border-color` and `--accent-amber` shipped broken for exactly this reason.
+4. **Every colour token must use `light-dark()`.** Theme-invariant tokens (`--text-on-emphasis`)
+   live in the marked invariant block and are the only exemption.
+
+## 6. Visual Sandbox & Interactive Testing
 
 An offline interactive workbench is available at the route **`/sandbox`**. It allows developers to:
 - Inspect all tonal surface swatches, border contrast, and typography scales.

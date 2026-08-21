@@ -170,7 +170,7 @@
         </div>
 
         <!-- Capacity Alert & 1-Click Bumper Banner (2.D) -->
-        <div v-if="capacityAlert" class="card capacity-banner flex justify-between items-center flex-wrap gap-md" style="margin-bottom: var(--space-md); padding: 12px 16px; border-left: 4px solid var(--accent-amber, #d29922); background: rgba(210, 153, 34, 0.08);">
+        <div v-if="capacityAlert" class="card capacity-banner flex justify-between items-center flex-wrap gap-md" style="margin-bottom: var(--space-md); padding: 12px 16px; border-left: 4px solid var(--accent-yellow, #d29922); background: rgba(210, 153, 34, 0.08);">
           <div class="flex items-center gap-sm">
             <Icon name="alert-circle" :size="20" class="text-warning" />
             <div>
@@ -871,7 +871,7 @@
 
           <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
             <!-- Summary Banner -->
-            <div class="score-banner flex justify-between items-center p-md" :class="activeAutogradeItem.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-color, #30363d); padding: 12px 16px;">
+            <div class="score-banner flex justify-between items-center p-md" :class="activeAutogradeItem.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-default, #30363d); padding: 12px 16px;">
               <div>
                 <div class="text-xs text-secondary uppercase font-semibold">Total Score</div>
                 <div class="text-xl font-bold" style="font-size: 1.4rem;">
@@ -888,7 +888,7 @@
             <!-- Test Breakdown List -->
             <div v-if="activeAutogradeItem.tests && activeAutogradeItem.tests.length" class="tests-breakdown-list flex flex-col gap-sm">
               <h4 style="margin: 0 0 4px 0;">Test Suites</h4>
-              <div v-for="t in activeAutogradeItem.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-color, #30363d); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface, #161b22);">
+              <div v-for="t in activeAutogradeItem.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-default, #30363d); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface, #161b22);">
                 <div class="flex justify-between items-center">
                   <div class="flex items-center gap-xs">
                     <span :class="['badge', t.passed ? 'badge-success' : 'badge-error']" style="font-size: 0.7rem; padding: 2px 6px;">
@@ -913,7 +913,7 @@
             </div>
           </div>
 
-          <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-color, #30363d);">
+          <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-default, #30363d);">
             <button class="btn btn-secondary" type="button" @click="closeAutogradeModal">Close</button>
           </footer>
         </div>
@@ -932,7 +932,7 @@
       <!-- Modal: Freeze & Preserve Consequences Confirmation -->
       <div v-if="showFreezeConfirmModal" class="modal-overlay" @click.self="showFreezeConfirmModal = false">
         <div class="modal card modal-consequences" role="dialog" aria-modal="true" aria-label="Confirm Immediate Freeze and Lockdown" style="max-width: 560px;">
-          <header class="modal-head flex justify-between items-center" style="border-bottom: 1px solid var(--border-color, #30363d); padding: 14px 18px;">
+          <header class="modal-head flex justify-between items-center" style="border-bottom: 1px solid var(--border-default, #30363d); padding: 14px 18px;">
             <div class="flex items-center gap-xs">
               <Icon name="alert-triangle" :size="18" class="stat-yellow" />
               <h3 style="margin: 0; font-size: 1.05rem;">Confirm Immediate Freeze &amp; Lockdown</h3>
@@ -981,7 +981,7 @@
               </div>
             </div>
 
-            <footer class="modal-foot flex justify-end gap-sm" style="padding-top: 14px; border-top: 1px solid var(--border-color, #30363d); margin-top: 6px;">
+            <footer class="modal-foot flex justify-end gap-sm" style="padding-top: 14px; border-top: 1px solid var(--border-default, #30363d); margin-top: 6px;">
               <button class="btn btn-secondary" type="button" @click="showFreezeConfirmModal = false">
                 Cancel
               </button>

@@ -221,7 +221,7 @@
             <p class="text-secondary">You have administrator access. Clone it and start working!</p>
 
             <!-- Student Submission Status & Deadline Countdown Card -->
-            <div class="student-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-color, #30363d); border-radius: 8px; text-align: left;">
+            <div class="student-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-default, #30363d); border-radius: 8px; text-align: left;">
               <!-- Active Extension Announcement -->
               <div v-if="studentOverride" class="override-alert-banner flex items-center gap-xs" style="background: rgba(46, 160, 67, 0.15); border: 1px solid rgba(46, 160, 67, 0.3); border-radius: 6px; padding: 8px 12px;">
                 <Icon name="check-circle" :size="16" class="stat-green" />
@@ -1106,7 +1106,7 @@ main {
   gap: var(--space-sm);
   margin-top: var(--space-md);
   padding: var(--space-md);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   max-width: 480px;
 }

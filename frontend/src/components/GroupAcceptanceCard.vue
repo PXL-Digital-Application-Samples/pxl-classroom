@@ -34,7 +34,7 @@
       </div>
 
       <!-- Team Submission Status & Deadline Countdown Card -->
-      <div class="team-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-color, #30363d); border-radius: 8px; text-align: left;">
+      <div class="team-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-default, #30363d); border-radius: 8px; text-align: left;">
         <!-- Active Extension Announcement -->
         <div v-if="teamOverride" class="override-alert-banner flex items-center gap-xs" style="background: rgba(46, 160, 67, 0.15); border: 1px solid rgba(46, 160, 67, 0.3); border-radius: 6px; padding: 8px 12px;">
           <Icon name="check-circle" :size="16" class="stat-green" />
@@ -775,14 +775,14 @@ function copyRepoUrl() {
 }
 
 .tab-pill:hover {
-  background: var(--bg-hover);
+  background: var(--bg-surface-hover);
   color: var(--text-primary);
 }
 
 .tab-pill.active {
-  background: var(--bg-active);
+  background: var(--bg-surface-hover);
   border-color: var(--border-muted);
-  color: var(--accent-primary, #58a6ff);
+  color: var(--accent-blue);
 }
 
 .search-box {
@@ -818,7 +818,7 @@ function copyRepoUrl() {
 }
 
 .team-item-card:hover:not(.is-full) {
-  border-color: var(--accent-primary, #58a6ff);
+  border-color: var(--accent-blue);
 }
 
 .team-item-card.is-full {
@@ -880,8 +880,8 @@ function copyRepoUrl() {
 }
 
 .member-chip.is-me {
-  border-color: var(--accent-primary, #58a6ff);
-  color: var(--accent-primary, #58a6ff);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
 }
 
 .create-team-form {

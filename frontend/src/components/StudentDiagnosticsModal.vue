@@ -322,7 +322,7 @@ function copyReport() {
   border-radius: 6px;
 }
 .stat-green { color: var(--accent-green, #2ea043); }
-.stat-yellow { color: var(--accent-amber, #d29922); }
+.stat-yellow { color: var(--accent-yellow, #d29922); }
 .stat-red { color: var(--accent-red, #f85149); }
 .stat-blue { color: var(--accent-blue, #58a6ff); }
 </style>

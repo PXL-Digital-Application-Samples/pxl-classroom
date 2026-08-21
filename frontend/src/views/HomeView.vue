@@ -648,7 +648,7 @@ h1 {
 
 .my-assignment-card:hover {
   border-color: var(--accent-blue);
-  box-shadow: var(--shadow-glow);
+  box-shadow: var(--ring-focus);
 }
 
 .org-badge {

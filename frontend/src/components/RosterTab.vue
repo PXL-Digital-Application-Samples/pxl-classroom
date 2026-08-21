@@ -621,7 +621,7 @@ defineExpose({
 }
 .input-pane.dragging {
   border-color: var(--accent-blue);
-  box-shadow: var(--shadow-glow);
+  box-shadow: var(--ring-focus);
 }
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-md); }

@@ -374,7 +374,7 @@
 
         <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
           <!-- Summary Banner -->
-          <div class="score-banner flex justify-between items-center p-md" :class="activeTeamAutograde.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-color, #30363d); padding: 12px 16px;">
+          <div class="score-banner flex justify-between items-center p-md" :class="activeTeamAutograde.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-default, #30363d); padding: 12px 16px;">
             <div>
               <div class="text-xs text-secondary uppercase font-semibold">Team Score</div>
               <div class="text-xl font-bold" style="font-size: 1.4rem;">
@@ -391,7 +391,7 @@
           <!-- Team Test Breakdown List -->
           <div v-if="activeTeamAutograde.tests && activeTeamAutograde.tests.length" class="tests-breakdown-list flex flex-col gap-sm">
             <h4 style="margin: 0 0 4px 0;">Test Suites</h4>
-            <div v-for="t in activeTeamAutograde.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-color, #30363d); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface, #161b22);">
+            <div v-for="t in activeTeamAutograde.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-default, #30363d); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface, #161b22);">
               <div class="flex justify-between items-center">
                 <div class="flex items-center gap-xs">
                   <span :class="['badge', t.passed ? 'badge-success' : 'badge-error']" style="font-size: 0.7rem; padding: 2px 6px;">
@@ -416,7 +416,7 @@
           </div>
         </div>
 
-        <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-color, #30363d);">
+        <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-default, #30363d);">
           <button class="btn btn-secondary" type="button" @click="closeTeamAutogradeModal">Close</button>
         </footer>
       </div>

@@ -2358,9 +2358,9 @@ watch(
   color: inherit;
   display: block;
 }
-.assignment-list li a:hover { background: var(--bg-elevated, var(--bg-tertiary)); }
+.assignment-list li a:hover { background: var(--bg-surface-elevated); }
 .assignment-list li.active a {
-  background: var(--bg-elevated, var(--bg-tertiary));
+  background: var(--bg-surface-elevated);
   border-color: var(--accent-blue);
 }
 .assignment-list .title { font-weight: 600; }
@@ -2579,7 +2579,7 @@ details .field { padding: 0 var(--space-sm); }
   font-size: 0.95rem;
 }
 .combobox-item:hover, .combobox-item.active {
-  background: var(--bg-elevated, var(--bg-tertiary));
+  background: var(--bg-surface-elevated);
   color: var(--text-primary);
 }
 .combobox-item.no-matches {

@@ -1,6 +1,7 @@
 /* PXL Classroom — Global Styles
- * Dark theme with GitHub Primer-inspired palette.
- * Human-crafted, high-density developer ergonomics. */
+ * Dual-theme (dark default / light / system) GitHub Primer-inspired palette.
+ * Human-crafted, high-density developer ergonomics.
+ * See DESIGN.md §2 for the token tables and §5 for theming rules. */
 
 *,
 *::before,
@@ -10,46 +11,143 @@
   padding: 0;
 }
 
+/* ==========================================================================
+   THEME TOKENS — the only place in the codebase a colour literal may appear.
+   Every colour is declared once as light-dark(<light>, <dark>) and resolves
+   against the computed `color-scheme` of :root (see the switch block below).
+   Dark values are byte-identical to the pre-theme palette; light values come
+   from @primer/primitives' light theme. Enforced by tests/theme-tokens.test.mjs.
+   ========================================================================== */
 :root {
-  /* Surfaces & Canvas */
-  --bg-primary: #0d1117;
-  --bg-canvas: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-surface: #161b22;
-  --bg-tertiary: #1c2128;
-  --bg-surface-elevated: #1c2128;
-  --bg-surface-hover: #21262d;
-  --bg-overlay: rgba(13, 17, 23, 0.85);
+  /* Default theme is DARK. The switch rules below are what the toggle drives;
+     `light dark` (system) is opt-in, never the default, so a first-time
+     visitor keeps the appearance the app has always had. */
+  color-scheme: dark;
 
-  /* Borders — soft & muted to prevent 1px wireframe cage */
-  --border-default: #30363d;
-  --border-muted: #21262d;
-  --border-subtle: rgba(240, 246, 252, 0.1);
+  /* ---- Surfaces & canvas -------------------------------------------------
+     The light ramp is INVERTED relative to dark: canvas is the grey and cards
+     are white, so `--bg-surface` keeps reading as raised above `--bg-canvas`
+     in both themes and DESIGN.md §1's "tonal shifts, not 1px borders" holds. */
+  --bg-canvas:           light-dark(#f6f8fa, #0d1117);
+  --bg-surface:          light-dark(#ffffff, #161b22);
+  --bg-surface-elevated: light-dark(#ffffff, #1c2128);
+  --bg-surface-hover:    light-dark(#f3f4f6, #21262d);
+  --bg-inset:            light-dark(#f6f8fa, #0d1117);
 
-  /* Typography */
-  --text-primary: #e6edf3;
-  --text-secondary: #c9d1d9;
-  --text-muted: #8b949e;
+  /* Legacy aliases — identical values, retained so the Phase 4 sweep can be
+     mechanical. Prefer the semantic names above in new code. */
+  --bg-primary:   var(--bg-canvas);
+  --bg-secondary: var(--bg-surface);
+  --bg-tertiary:  var(--bg-surface-elevated);
 
-  /* GitHub Primer Accents */
-  --accent-blue: #58a6ff;
-  --accent-blue-emphasis: #1f6feb;
-  --accent-green: #3fb950;
-  --accent-green-emphasis: #238636;
-  --accent-yellow: #d29922;
-  --accent-yellow-emphasis: #9e6a03;
-  --accent-red: #f85149;
-  --accent-red-emphasis: #da3633;
-  --accent-purple: #bc8cff;
-  --accent-orange: #f0883e;
+  /* Scrims & overlays */
+  --bg-overlay: light-dark(rgba(31, 35, 40, 0.50), rgba(13, 17, 23, 0.85));
+  --bg-scrim:   light-dark(rgba(31, 35, 40, 0.50), rgba(1, 4, 9, 0.75));
 
-  /* Status Colors */
-  --status-success: #3fb950;
-  --status-warning: #d29922;
-  --status-error: #f85149;
-  --status-info: #58a6ff;
+  /* Neutral washes for hover states that sit on top of an unknown surface */
+  --overlay-subtle: light-dark(rgba(31, 35, 40, 0.04), rgba(255, 255, 255, 0.05));
+  --overlay-muted:  light-dark(rgba(31, 35, 40, 0.07), rgba(255, 255, 255, 0.08));
+  --table-stripe:   light-dark(rgba(31, 35, 40, 0.025), rgba(255, 255, 255, 0.015));
 
-  /* Spacing */
+  /* ---- Borders — soft & muted to prevent a 1px wireframe cage ---- */
+  --border-default: light-dark(#d1d9e0, #30363d);
+  --border-muted:   light-dark(#d1d9e0b3, #21262d);
+  --border-subtle:  light-dark(rgba(31, 35, 40, 0.08), rgba(240, 246, 252, 0.1));
+  --border-strong:  light-dark(#8c959f, #484f58);
+
+  /* ---- Typography ---- */
+  --text-primary:   light-dark(#1f2328, #e6edf3);
+  --text-secondary: light-dark(#424a53, #c9d1d9);
+  --text-muted:     light-dark(#59636e, #8b949e);
+  --text-bright:    light-dark(#1f2328, #f0f6fc);
+
+  /* ---- Accents ----
+     Dark-mode brights (#58a6ff, #3fb950) fail contrast on a white surface, so
+     the light column uses Primer's darker accent ramp rather than the same hue. */
+  --accent-blue:            light-dark(#0969da, #58a6ff);
+  --accent-blue-emphasis:   light-dark(#0969da, #1f6feb);
+  --accent-blue-hover:      light-dark(#0860ca, #388bfd);
+  --accent-blue-bright:     light-dark(#0550ae, #79c0ff);
+
+  --accent-green:           light-dark(#1a7f37, #3fb950);
+  --accent-green-emphasis:  light-dark(#1f883d, #238636);
+  --accent-green-hover:     light-dark(#1a7f37, #2ea043);
+  --accent-green-bright:    light-dark(#116329, #56d364);
+
+  --accent-yellow:          light-dark(#9a6700, #d29922);
+  --accent-yellow-emphasis: light-dark(#bf8700, #9e6a03);
+  --accent-yellow-bright:   light-dark(#7d4e00, #e3b341);
+
+  --accent-red:             light-dark(#d1242f, #f85149);
+  --accent-red-emphasis:    light-dark(#cf222e, #da3633);
+  --accent-red-bright:      light-dark(#a40e26, #ff7b72);
+
+  --accent-purple:          light-dark(#8250df, #bc8cff);
+  --accent-orange:          light-dark(#bc4c00, #f0883e);
+  --accent-neutral:         light-dark(#59636e, #8b949e);
+
+  /* ---- Status aliases ---- */
+  --status-success: var(--accent-green);
+  --status-warning: var(--accent-yellow);
+  --status-error:   var(--accent-red);
+  --status-info:    var(--accent-blue);
+
+  /* ---- Tints ----
+     Collapses 62 distinct rgba() literals into 5 hues x 3 steps. Dark stays an
+     alpha wash over the dark canvas; light uses Primer's SOLID muted colours —
+     a 10% wash tuned for #0d1117 reads as nothing on white.
+       subtle   = background wash        (was 0.05-0.12)
+       muted    = filled chip / tag      (was 0.15-0.25)
+       emphasis = borders, rings, glows  (was 0.30-0.40) */
+  --tint-success-subtle:    light-dark(#dafbe1, rgba(63, 185, 80, 0.10));
+  --tint-success-muted:     light-dark(#aceebb, rgba(63, 185, 80, 0.18));
+  --tint-success-emphasis:  light-dark(rgba(26, 127, 55, 0.40), rgba(63, 185, 80, 0.40));
+
+  --tint-attention-subtle:   light-dark(#fff8c5, rgba(210, 153, 34, 0.10));
+  --tint-attention-muted:    light-dark(#f8e3a1, rgba(210, 153, 34, 0.18));
+  --tint-attention-emphasis: light-dark(rgba(154, 103, 0, 0.40), rgba(210, 153, 34, 0.40));
+
+  --tint-danger-subtle:     light-dark(#ffebe9, rgba(248, 81, 73, 0.10));
+  --tint-danger-muted:      light-dark(#ffcecb, rgba(248, 81, 73, 0.18));
+  --tint-danger-emphasis:   light-dark(rgba(209, 36, 47, 0.40), rgba(248, 81, 73, 0.40));
+
+  --tint-accent-subtle:     light-dark(#ddf4ff, rgba(88, 166, 255, 0.10));
+  --tint-accent-muted:      light-dark(#b6e3ff, rgba(88, 166, 255, 0.18));
+  --tint-accent-emphasis:   light-dark(rgba(9, 105, 218, 0.40), rgba(88, 166, 255, 0.40));
+
+  --tint-neutral-subtle:    light-dark(#eaeef2, rgba(139, 148, 158, 0.10));
+  --tint-neutral-muted:     light-dark(#d0d7de, rgba(139, 148, 158, 0.18));
+  --tint-neutral-emphasis:  light-dark(rgba(89, 99, 110, 0.40), rgba(139, 148, 158, 0.40));
+
+  /* ---- Shadows ----
+     light-dark() returns a <color>, so it CANNOT wrap a whole box-shadow.
+     Only the colour is themed; the geometry is shared. Never write
+     `box-shadow: light-dark(0 4px 12px ..., ...)` — it is invalid CSS. */
+  --shadow-color-sm:    light-dark(rgba(31, 35, 40, 0.06), rgba(0, 0, 0, 0.25));
+  --shadow-color-md:    light-dark(rgba(31, 35, 40, 0.10), rgba(0, 0, 0, 0.35));
+  --shadow-color-lg:    light-dark(rgba(31, 35, 40, 0.14), rgba(0, 0, 0, 0.50));
+  --shadow-color-modal: light-dark(rgba(31, 35, 40, 0.20), rgba(0, 0, 0, 0.50));
+
+  --shadow-sm:    0 1px 2px var(--shadow-color-sm);
+  --shadow-md:    0 4px 12px var(--shadow-color-md);
+  --shadow-lg:    0 8px 24px var(--shadow-color-lg);
+  --shadow-modal: 0 20px 45px var(--shadow-color-modal);
+  --ring-focus:   0 0 0 2px var(--tint-accent-muted);
+
+  /* ---- Gradients ----
+     Built from tokens, so they follow the theme without a light-dark() of
+     their own. (light-dark() does accept a whole gradient as its <image>
+     form, but composing from tokens keeps one source of truth per colour.) */
+  --gradient-brand:     linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+  --gradient-title:     linear-gradient(135deg, var(--text-primary) 0%, var(--accent-blue) 100%);
+  --gradient-hero-glow: radial-gradient(circle, var(--tint-accent-subtle) 0%, transparent 70%);
+
+  /* ---- Theme-invariant ----
+     Deliberately identical in both themes: white on a saturated emphasis fill.
+     Exempt from the "every colour token must use light-dark()" guard. */
+  --text-on-emphasis: #ffffff;
+
+  /* ---- Spacing ---- */
   --space-2xs: 2px;
   --space-xs: 4px;
   --space-sm: 8px;
@@ -58,31 +156,37 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Border Radius — tight & consistent */
+  /* ---- Border radius — tight & consistent ---- */
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-
-  /* Fonts */
+  /* ---- Fonts ---- */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', SFMono-Regular, Consolas, monospace;
 
-  /* Transitions */
+  /* ---- Transitions ---- */
   --transition-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Theme switch. lib/theme.js writes data-theme on <html>; an absent attribute
+   means dark. light-dark() reads the *computed* color-scheme, so flipping this
+   one property re-resolves every token above — and it simultaneously themes
+   native scrollbars, form controls and autofill for free. */
+:root[data-theme="light"]  { color-scheme: light; }
+:root[data-theme="dark"]   { color-scheme: dark; }
+:root[data-theme="system"] { color-scheme: light dark; }
 
 html {
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Paint the canvas on <html> too, so rubber-band overscroll and the area
+     above a short page follow the theme instead of flashing the UA default. */
+  background: var(--bg-canvas);
 }
 
 body {
