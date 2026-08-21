@@ -134,11 +134,11 @@
     </div>
 
     <!-- State: Not Open Yet -->
-    <div v-else-if="assignment && assignment.opens_at && new Date() < new Date(assignment.opens_at)" class="text-center py-lg">
+    <div v-else-if="assignment && (assignment.state === 'draft' || (assignment.opens_at && new Date() < new Date(assignment.opens_at)))" class="text-center py-lg">
       <Icon name="clock" :size="48" class="status-icon" />
       <h2>Assignment not open yet</h2>
       <p class="text-secondary">
-        Opens {{ assignment.opens_at }}
+        {{ assignment.state === 'draft' ? 'This assignment is currently in draft mode.' : `Opens ${assignment.opens_at}` }}
       </p>
     </div>
 
