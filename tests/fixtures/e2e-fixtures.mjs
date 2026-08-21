@@ -247,6 +247,25 @@ export async function setupStandardMockRoutes(page, {
         });
         return;
       } else if (url.includes('/commits') && !url.includes('/check-runs')) {
+        if (url.includes('lab-unstarted')) {
+          await route.fulfill({ status: 200, body: JSON.stringify([]) });
+          return;
+        }
+        if (url.includes('lab-late-student')) {
+          await route.fulfill({
+            status: 200,
+            body: JSON.stringify([
+              {
+                sha: 'deadbeef99999999999999999999999999999999',
+                commit: {
+                  message: 'feat: submitted late work',
+                  author: { name: 'Late Student', date: new Date(Date.now() - 3600 * 1000 * 2).toISOString() },
+                },
+              },
+            ]),
+          });
+          return;
+        }
         // Commits list
         await route.fulfill({
           status: 200,
@@ -255,7 +274,7 @@ export async function setupStandardMockRoutes(page, {
               sha: 'c0ffee1234567890abcdef1234567890abcdef12',
               commit: {
                 message: 'docs: update lab instructions in README.md and add validation tests',
-                author: { name: 'Lecturer Alice', date: new Date().toISOString() },
+                author: { name: 'Lecturer Alice', date: new Date(Date.now() - 3600 * 1000 * 48).toISOString() },
               },
             },
           ]),

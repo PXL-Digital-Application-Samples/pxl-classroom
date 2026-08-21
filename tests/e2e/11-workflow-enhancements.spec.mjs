@@ -342,4 +342,370 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(diffToggle).toContainText('View Diff');
     await expect(diffContainer).not.toBeVisible();
   });
+
+  test('Scenario 6 (Interactive Summary Cards & Combined Search Filtering): Clicking summary cards and typing in search narrows cohort table', async ({ page }) => {
+    const pastDeadline = new Date(Date.now() - 3600 * 1000 * 24).toISOString();
+
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'lab-summary-filter': {
+          id: 'lab-summary-filter',
+          title: 'Summary Filter Lab',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'individual',
+          deadline_at: pastDeadline,
+        },
+      },
+      reports: {
+        'lab-summary-filter': {
+          schema_version: 1,
+          generated_at: new Date().toISOString(),
+          assignment_id: 'lab-summary-filter',
+          students: [
+            {
+              github_login: 'student-ontime',
+              name: 'Alice OnTime',
+              acceptance_state: 'accepted',
+              submission_status: 'on-time',
+              preservation_status: 'preserved',
+              commit_count: 4,
+              repo_name: `${ORG}/lab-summary-filter-student-ontime`,
+            },
+            {
+              github_login: 'student-late',
+              name: 'Bob Late',
+              acceptance_state: 'accepted',
+              submission_status: 'late',
+              commit_count: 7,
+              repo_name: `${ORG}/lab-summary-filter-student-late`,
+            },
+            {
+              github_login: 'student-nosub',
+              name: 'Charlie NoSub',
+              acceptance_state: 'accepted',
+              submission_status: 'no-submission',
+              commit_count: 1,
+              repo_name: `${ORG}/lab-summary-filter-student-nosub`,
+            },
+          ],
+        },
+      },
+    });
+
+    await page.goto(`/dashboard/${ORG}/lab-summary-filter`);
+
+    // 1. Click 'Late' summary counter card
+    const lateCard = page.locator('.summary-card', { hasText: 'Late' });
+    await expect(lateCard).toBeVisible();
+    await lateCard.click();
+
+    // Verify only late student is shown
+    await expect(page.locator('tr', { hasText: 'student-late' })).toBeVisible();
+    await expect(page.locator('tr', { hasText: 'student-ontime' })).not.toBeVisible();
+    await expect(page.locator('tr', { hasText: 'student-nosub' })).not.toBeVisible();
+    await expect(page.locator('.table-footer')).toContainText('1 of 3 students shown');
+
+    // 2. Click 'On-time' summary card
+    const ontimeCard = page.locator('.summary-card', { hasText: 'On-time' });
+    await ontimeCard.click();
+    await expect(page.locator('tr', { hasText: 'student-ontime' })).toBeVisible();
+    await expect(page.locator('tr', { hasText: 'student-late' })).not.toBeVisible();
+
+    // 3. Reset via 'Students' summary card
+    const allCard = page.locator('.summary-card', { hasText: 'Students' });
+    await allCard.click();
+    await expect(page.locator('tr', { hasText: 'student-ontime' })).toBeVisible();
+    await expect(page.locator('tr', { hasText: 'student-late' })).toBeVisible();
+    await expect(page.locator('tr', { hasText: 'student-nosub' })).toBeVisible();
+
+    // 4. Test Search filter combined with status
+    const searchInput = page.locator('input.search-input');
+    await searchInput.fill('Charlie');
+    await expect(page.locator('tr', { hasText: 'student-nosub' })).toBeVisible();
+    await expect(page.locator('tr', { hasText: 'student-ontime' })).not.toBeVisible();
+    await expect(page.locator('tr', { hasText: 'student-late' })).not.toBeVisible();
+  });
+
+  test('Scenario 7 (Student View - Unextended Late Submission): Displays warning badge and deadline passed countdown without override banner', async ({ page }) => {
+    const pastDeadline = new Date(Date.now() - 3600 * 1000 * 24).toISOString();
+    const STUDENT_LATE = { login: 'student-late', name: 'Bob Late', token: 'mock_late_token' };
+
+    await injectAuth(page, STUDENT_LATE);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_LATE,
+      userRepos: [
+        {
+          name: 'lab-late-student-student-late',
+          full_name: `${ORG}/lab-late-student-student-late`,
+          html_url: `https://github.com/${ORG}/lab-late-student-student-late`,
+        },
+      ],
+      assignments: {
+        'lab-late-student': {
+          id: 'lab-late-student',
+          title: 'Late Student Lab',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'individual',
+          deadline_at: pastDeadline,
+        },
+      },
+    });
+
+    await page.goto(`/${ORG}/a/lab-late-student`);
+
+    // Verify Provisioned State
+    await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
+
+    const statusCard = page.locator('.student-status-card');
+    await expect(statusCard).toBeVisible();
+
+    // Verify late badge
+    await expect(statusCard.locator('.badge-warning')).toContainText('Submitted late');
+
+    // Verify deadline passed countdown text
+    await expect(statusCard.locator('.deadline-countdown')).toContainText('Deadline passed');
+
+    // Verify latest commit SHA is displayed
+    await expect(statusCard.locator('.latest-commit-info')).toContainText('deadbee');
+
+    // Verify NO extension override alert is present
+    await expect(statusCard.locator('.override-alert-banner')).not.toBeVisible();
+  });
+
+  test('Scenario 8 (Student View - No Commits Pushed with Active Countdown): Displays neutral badge and active countdown', async ({ page }) => {
+    const futureDeadline = new Date(Date.now() + 3600 * 1000 * 48).toISOString();
+    const STUDENT_UNSTARTED = { login: 'student-unstarted', name: 'Charlie Unstarted', token: 'mock_unstarted_token' };
+
+    await injectAuth(page, STUDENT_UNSTARTED);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_UNSTARTED,
+      userRepos: [
+        {
+          name: 'lab-unstarted-student-unstarted',
+          full_name: `${ORG}/lab-unstarted-student-unstarted`,
+          html_url: `https://github.com/${ORG}/lab-unstarted-student-unstarted`,
+        },
+      ],
+      assignments: {
+        'lab-unstarted': {
+          id: 'lab-unstarted',
+          title: 'Unstarted Lab',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'individual',
+          deadline_at: futureDeadline,
+        },
+      },
+    });
+
+    await page.goto(`/${ORG}/a/lab-unstarted`);
+
+    // Verify Provisioned State
+    await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
+
+    const statusCard = page.locator('.student-status-card');
+    await expect(statusCard).toBeVisible();
+
+    // Verify 'No commits pushed' badge
+    await expect(statusCard.locator('.badge-neutral')).toContainText('No commits pushed');
+
+    // Verify active countdown timer indicates days remaining
+    await expect(statusCard.locator('.deadline-countdown')).toContainText(/Closes in \d+d/i);
+
+    // Verify no latest commit info is rendered
+    await expect(statusCard.locator('.latest-commit-info')).not.toBeVisible();
+  });
+
+  test('Scenario 9 (Group Assignment - Team Submission Status in Student View): Renders team status, team commit, and deadline countdown in GroupAcceptanceCard', async ({ page }) => {
+    const futureDeadline = new Date(Date.now() + 3600 * 1000 * 24).toISOString();
+    const STUDENT_MEMBER = { login: 'student-alice', name: 'Alice TeamLead', token: 'mock_alice_token' };
+
+    await injectAuth(page, STUDENT_MEMBER);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_MEMBER,
+      userRepos: [
+        {
+          name: 'group-status-lab-team-alpha',
+          full_name: `${ORG}/group-status-lab-team-alpha`,
+          html_url: `https://github.com/${ORG}/group-status-lab-team-alpha`,
+        },
+      ],
+      assignments: {
+        'group-status-lab': {
+          id: 'group-status-lab',
+          title: 'Group Status Lab',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'group',
+          deadline_at: futureDeadline,
+          group_config: { max_team_size: 3 },
+        },
+      },
+      teams: {
+        'group-status-lab': [
+          {
+            team_slug: 'team-alpha',
+            team_name: 'Team Alpha',
+            members: ['student-alice', 'student-bob'],
+            is_full: false,
+            member_count: 2,
+            max_members: 3,
+          },
+        ],
+      },
+    });
+
+    await page.goto(`/${ORG}/a/group-status-lab`);
+
+    // Verify Team Provisioned State
+    await expect(page.locator('h2', { hasText: 'Your team repository is ready!' })).toBeVisible();
+
+    // Verify Team Submission Status Card
+    const teamStatusCard = page.locator('.team-status-card');
+    await expect(teamStatusCard).toBeVisible();
+
+    // Verify on-time badge
+    await expect(teamStatusCard.locator('.badge-success')).toContainText('Submitted on-time');
+
+    // Verify countdown timer
+    await expect(teamStatusCard.locator('.deadline-countdown')).toContainText(/Closes in \d+d|Closes in \d+h/i);
+
+    // Verify latest team commit SHA
+    await expect(teamStatusCard.locator('.latest-commit-info')).toContainText('c0ffee1');
+  });
+
+  test('Scenario 10 (Freeze Consequences Modal Dismissal Flows): Modal can be safely dismissed via Cancel button, close X, and backdrop without triggering lockdown', async ({ page }) => {
+    const pastDeadline = new Date(Date.now() - 3600 * 1000 * 24).toISOString();
+
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'lab-freeze-dismiss': {
+          id: 'lab-freeze-dismiss',
+          title: 'Freeze Dismiss Test',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'individual',
+          deadline_at: pastDeadline,
+        },
+      },
+      reports: {
+        'lab-freeze-dismiss': {
+          schema_version: 1,
+          generated_at: new Date().toISOString(),
+          assignment_id: 'lab-freeze-dismiss',
+          students: [
+            {
+              github_login: 'student-1',
+              name: 'Student 1',
+              acceptance_state: 'accepted',
+              submission_status: 'on-time',
+              repo_name: `${ORG}/lab-freeze-dismiss-student-1`,
+            },
+          ],
+        },
+      },
+    });
+
+    await page.goto(`/dashboard/${ORG}/lab-freeze-dismiss`);
+
+    const freezeBtn = page.locator('button', { hasText: 'Freeze & Preserve Now' });
+    const modal = page.locator('.modal-consequences');
+
+    // 1. Open and Dismiss via 'Cancel' button
+    await freezeBtn.click();
+    await expect(modal).toBeVisible();
+    await modal.locator('button', { hasText: 'Cancel' }).click();
+    await expect(modal).not.toBeVisible();
+
+    // 2. Open and Dismiss via '×' close button
+    await freezeBtn.click();
+    await expect(modal).toBeVisible();
+    await modal.locator('.modal-close').click();
+    await expect(modal).not.toBeVisible();
+
+    // 3. Open and Dismiss via backdrop overlay click
+    await freezeBtn.click();
+    await expect(modal).toBeVisible();
+    await page.locator('.modal-overlay').click({ position: { x: 5, y: 5 } });
+    await expect(modal).not.toBeVisible();
+
+    // Verify no trigger toast was triggered during any dismissal
+    await expect(page.locator('.toast', { hasText: /Lockdown and preservation workflow triggered/i })).not.toBeVisible();
+  });
+
+  test('Scenario 11 (Starter Sync Multi-File Diff Preview & Selection Interactivity): Supports simultaneous diff views, patch inspection, and file toggling', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'lab-sync-multi-diff': {
+          id: 'lab-sync-multi-diff',
+          title: 'Starter Sync Multi Diff Test',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'individual',
+          template: { owner: ORG, repository: 'template-multi-diff' },
+        },
+      },
+      reports: {
+        'lab-sync-multi-diff': {
+          schema_version: 1,
+          generated_at: new Date().toISOString(),
+          assignment_id: 'lab-sync-multi-diff',
+          students: [
+            {
+              github_login: 'student-1',
+              name: 'Student 1',
+              acceptance_state: 'accepted',
+              submission_status: 'on-time',
+              repo_name: `${ORG}/lab-sync-multi-diff-student-1`,
+            },
+          ],
+        },
+      },
+    });
+
+    await page.goto(`/dashboard/${ORG}/lab-sync-multi-diff`);
+
+    // 1. Open Starter Code Sync Modal
+    await page.locator('button', { hasText: /Sync Starter Code/i }).click();
+    const modal = page.locator('.starter-sync-modal');
+    await expect(modal).toBeVisible();
+
+    // 2. Expand Diff for tests/test_validation.py
+    const testRow = modal.locator('.file-row-box', { hasText: 'tests/test_validation.py' });
+    await expect(testRow).toBeVisible();
+    await testRow.locator('.diff-toggle-btn').click();
+    await expect(testRow.locator('.diff-patch-view-container')).toContainText('+import unittest');
+    await expect(testRow.locator('.diff-patch-view-container')).toContainText('+class TestValidation');
+
+    // 3. Expand Diff for config.json simultaneously
+    const configRow = modal.locator('.file-row-box', { hasText: 'config.json' });
+    await expect(configRow).toBeVisible();
+    await configRow.locator('.diff-toggle-btn').click();
+    await expect(configRow.locator('.diff-patch-view-container')).toContainText('- "env": "dev"');
+    await expect(configRow.locator('.diff-patch-view-container')).toContainText('+ "env": "prod"');
+
+    // Both diffs are open
+    await expect(testRow.locator('.diff-patch-view-container')).toBeVisible();
+    await expect(configRow.locator('.diff-patch-view-container')).toBeVisible();
+
+    // 4. Test Select / Deselect All
+    await modal.getByRole('button', { name: 'Deselect all', exact: true }).click();
+    await expect(modal.locator('.file-row-box input[type="checkbox"]:checked')).toHaveCount(0);
+
+    await modal.getByRole('button', { name: 'Select all', exact: true }).click();
+    await expect(modal.locator('.file-row-box input[type="checkbox"]:checked')).toHaveCount(3);
+
+    // 5. Hide Diff on config.json while keeping test_validation.py open
+    await configRow.locator('.diff-toggle-btn').click();
+    await expect(configRow.locator('.diff-patch-view-container')).not.toBeVisible();
+    await expect(testRow.locator('.diff-patch-view-container')).toBeVisible();
+  });
 });

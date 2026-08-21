@@ -1408,7 +1408,7 @@ const filteredStudents = computed(() => {
     list = list.filter((s) => {
       const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
       const profile = userProfilesByLogin.value.get(s.github_login?.toLowerCase())
-      const fullName = (s.full_name || roster?.full_name || profile?.name || (!isBot(s.author_name) ? s.author_name : '') || '').toLowerCase()
+      const fullName = (s.name || s.full_name || roster?.name || roster?.full_name || profile?.name || (!isBot(s.author_name) ? s.author_name : '') || '').toLowerCase()
       const email = (s.email || roster?.email || s.author_email || profile?.email || '').toLowerCase()
       const studentNr = (s.student_number || roster?.student_number || '').toLowerCase()
       const classGroup = (s.class_group || roster?.class_group || '').toLowerCase()
