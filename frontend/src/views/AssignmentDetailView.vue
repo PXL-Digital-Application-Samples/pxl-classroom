@@ -383,7 +383,7 @@
           :assignment="assignment"
           :org="org"
           :roster="roster"
-          @refresh="loadData"
+          @refresh="loadAll"
         />
 
         <!-- Student table (desktop) -->
@@ -856,7 +856,7 @@
         :org="org"
         :students="report?.students || []"
         @close="showStarterSyncModal = false"
-        @synced="loadData"
+        @synced="loadAll"
       />
 
       <!-- Modal: Freeze & Preserve Consequences Confirmation -->
@@ -1278,6 +1278,7 @@ const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'gith
 // extensions are visible (and inspectable before granting again).
 const overridesByLogin = ref(new Map())
 const rosterByLogin = ref(new Map())
+const roster = computed(() => Array.from(rosterByLogin.value.values()))
 const userProfilesByLogin = ref(new Map())
 const profileCache = new Map()
 

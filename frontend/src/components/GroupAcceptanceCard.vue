@@ -35,6 +35,14 @@
 
       <!-- Team Submission Status & Deadline Countdown Card -->
       <div class="team-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface, #161b22); border: 1px solid var(--border-color, #30363d); border-radius: 8px; text-align: left;">
+        <!-- Active Extension Announcement -->
+        <div v-if="teamOverride" class="override-alert-banner flex items-center gap-xs" style="background: rgba(46, 160, 67, 0.15); border: 1px solid rgba(46, 160, 67, 0.3); border-radius: 6px; padding: 8px 12px;">
+          <Icon name="check-circle" :size="16" class="stat-green" />
+          <span class="text-xs font-semibold text-primary">
+            🎉 Deadline Extended to {{ new Date(teamOverride.value).toLocaleString() }} ({{ teamOverride.reason || 'Approved extension' }})
+          </span>
+        </div>
+
         <div class="flex justify-between items-center flex-wrap gap-xs">
           <div class="flex items-center gap-xs">
             <span class="text-xs font-semibold text-secondary">Team Submission:</span>
@@ -290,7 +298,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
 import { getToken, getUser } from '../lib/auth.js'
-import { getRepo, getInvitations, acceptInvitation, ghApi } from '../lib/api.js'
+import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
 
 const props = defineProps({
@@ -472,16 +480,24 @@ async function loadTeams() {
 }
 
 const teamLatestCommit = ref(null)
+const teamOverride = ref(null)
+
+const effectiveDeadline = computed(() => {
+  if (teamOverride.value?.value) {
+    return new Date(teamOverride.value.value)
+  }
+  return props.assignment?.deadline_at ? new Date(props.assignment.deadline_at) : null
+})
 
 const isPastDeadline = computed(() => {
-  if (!props.assignment?.deadline_at) return false
-  return new Date() > new Date(props.assignment.deadline_at)
+  if (!effectiveDeadline.value) return false
+  return new Date() > effectiveDeadline.value
 })
 
 const deadlineCountdown = computed(() => {
-  if (!props.assignment?.deadline_at) return null
+  if (!effectiveDeadline.value) return null
   const now = new Date()
-  const deadline = new Date(props.assignment.deadline_at)
+  const deadline = effectiveDeadline.value
   const diffMs = deadline - now
   if (diffMs <= 0) {
     return `Deadline passed (${deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`
@@ -500,9 +516,9 @@ const deadlineCountdown = computed(() => {
 
 const teamSubmissionStatus = computed(() => {
   if (!teamLatestCommit.value) return 'no-submission'
-  if (!props.assignment?.deadline_at) return 'on-time'
+  if (!effectiveDeadline.value) return 'on-time'
   const commitTime = new Date(teamLatestCommit.value.date)
-  return commitTime <= new Date(props.assignment.deadline_at) ? 'on-time' : 'late'
+  return commitTime <= effectiveDeadline.value ? 'on-time' : 'late'
 })
 
 async function refreshTeamSubmissionMeta(org, repoName) {
@@ -520,6 +536,20 @@ async function refreshTeamSubmissionMeta(org, repoName) {
     }
   } catch (e) {
     console.error('Failed to fetch team latest commit:', e)
+  }
+
+  // Load student or team override if exists
+  try {
+    const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${props.assignment.id}/${props.user.login}.json`)
+    if (overrideFile) {
+      const parsed = JSON.parse(overrideFile)
+      const ext = (parsed.overrides || []).find((o) => o.type === 'deadline_extension')
+      if (ext) {
+        teamOverride.value = ext
+      }
+    }
+  } catch {
+    // optional override
   }
 }
 
