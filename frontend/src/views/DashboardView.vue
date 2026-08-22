@@ -798,11 +798,6 @@ main {
   margin-bottom: var(--space-sm);
 }
 
-.status-text {
-  font-size: 0.78rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
 
 .assignment-card-title {
   font-size: 1.05rem;

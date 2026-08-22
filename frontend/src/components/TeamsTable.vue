@@ -409,7 +409,7 @@
           <div v-else class="text-secondary text-sm">
             <p v-if="activeTeamAutograde.repo_url" style="margin: 0;">
               View full test runs and workflow logs on GitHub Actions:
-              <a :href="`${activeTeamAutograde.repo_url}/actions`" target="_blank" rel="noopener" class="link-btn" style="text-decoration: underline;">
+              <a :href="`${activeTeamAutograde.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link" style="text-decoration: underline;">
                 Open Team GitHub Actions logs →
               </a>
             </p>

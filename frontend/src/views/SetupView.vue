@@ -116,7 +116,7 @@
             </div>
 
             <ul class="check-list" style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-xs);">
-              <li v-for="c in verifyChecks.permissions" :key="c.name" class="check-item flex items-center justify-between" style="padding: 8px 12px; background: var(--bg-surface-hover); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); font-size: 0.85rem;">
+              <li v-for="c in verifyChecks.permissions" :key="c.name" class="flex items-center justify-between" style="padding: 8px 12px; background: var(--bg-surface-hover); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); font-size: 0.85rem;">
                 <span class="mono" style="color: var(--text-primary);">{{ c.name }}</span>
                 <span class="status-indicator">
                   <span class="status-dot" :class="c.ok ? 'dot-success' : 'dot-danger'"></span>

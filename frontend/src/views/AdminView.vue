@@ -672,7 +672,7 @@
             <div v-else-if="publishWatch === 'ready'" class="publish-watch publish-ready">
               <Icon name="check-circle" :size="15" />
               <span>Assignment is live. The invitation link works now.</span>
-              <button class="link-btn" type="button" @click="copyAcceptLink">Copy invitation link</button>
+              <button class="btn-link" type="button" @click="copyAcceptLink">Copy invitation link</button>
             </div>
             <div v-else-if="publishWatch === 'timeout'" class="publish-watch">
               <span class="text-warning">
@@ -2481,15 +2481,6 @@ details .field { padding: 0 var(--space-sm); }
   font-size: 0.9rem;
 }
 .publish-ready { color: var(--accent-green); }
-.link-btn {
-  background: none;
-  border: none;
-  color: var(--accent-blue);
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-  text-decoration: underline;
-}
 
 /* COMBOBOX */
 .combobox-wrapper {
@@ -2599,9 +2590,6 @@ details .field { padding: 0 var(--space-sm); }
   color: var(--accent-green);
   font-size: 1.05rem;
   font-weight: 600;
-}
-.text-green {
-  color: var(--accent-green);
 }
 .published-desc {
   font-size: 0.9rem;

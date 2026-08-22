@@ -773,9 +773,6 @@ onBeforeUnmount(() => {
   color: var(--accent-red);
 }
 
-.text-center {
-  text-align: center;
-}
 
 .inline-spinner {
   display: inline-flex;

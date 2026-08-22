@@ -21,7 +21,7 @@
           <input type="file" accept=".csv,text/csv" @change="onFileChange" />
           <small>
             Required columns: <code>student_number</code>, <code>full_name</code>. Optional: <code>email</code>, <code>class_group</code>, <code>github_login</code>, <code>github_id</code>, <code>active</code>, <code>team_slug</code>, <code>team_name</code>.
-            <button class="link-btn" type="button" @click="downloadSampleCsv">Download sample CSV</button>
+            <button class="btn-link" type="button" @click="downloadSampleCsv">Download sample CSV</button>
           </small>
         </div>
 
@@ -647,16 +647,6 @@ defineExpose({
 .existing-summary p { margin: 0; }
 .text-secondary { color: var(--text-secondary); }
 
-.link-btn {
-  background: none;
-  border: none;
-  color: var(--accent-blue);
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-  font-size: 0.8rem;
-  text-decoration: underline;
-}
 
 .diff-info {
   padding: var(--space-sm) var(--space-md);
@@ -752,15 +742,6 @@ defineExpose({
 }
 .modal-close:hover {
   color: var(--text-primary);
-}
-.form-control {
-  width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 0.9rem;
 }
 .mono {
   font-family: var(--font-mono);

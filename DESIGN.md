@@ -240,7 +240,36 @@ Rules:
 logo, product name, tagline — not a card, and forcing it into AuthCard would flatten that
 design. It is the only remaining copy of the device-flow handler.
 
-## 7. Visual Sandbox & Interactive Testing
+## 7. Shared Component Vocabulary
+
+Vue `<style scoped>` **does not leak**. A class declared in one component's scoped
+block and used by another renders completely unstyled there — no build error, no
+console warning. That shipped 86 times before it was swept, and separately broke
+`.center-card`, `.dashboard-header`, `.sandbox-header` and `.auth-error`.
+
+**Rule: if more than one component uses a class, it belongs in `style.css`.**
+Anything passed into a `<slot>` counts, because slot content is compiled in the
+*parent's* scope (§6). `tests/scoped-style-leakage.test.mjs` enforces this.
+
+Global vocabulary now includes:
+
+| Group | Classes |
+| :--- | :--- |
+| Layout | `.center-card`, `.empty-state`, `.loading-state`, `.app-header-*` |
+| Forms | `.field` (+ `label`, `small`), `.form-control`, `.form-hint`, `.req` |
+| Status text | `.status-icon` (+ `-success`, `-warn`, `-error`, `-pulse`), `.status-text` |
+| Stat colours | `.stat-green`, `.stat-yellow`, `.stat-red`, `.stat-blue` |
+| Utilities | `.text-center`, `.text-green`, `.text-yellow`, `.text-blue`, `.spinner-sm`, `.btn-icon` |
+| Components | `.repo-link`, `.repo-link-card`, `.progress-bar` (+ `-fill`), `.diag-banner` |
+
+Where several components had **diverged** on a class, the global rule is the
+shared base and each owner keeps its scoped override — which still wins on the
+`[data-v-*]` specificity, so no existing view shifted.
+
+**Use `.btn-link`, never `.link-btn`.** The latter was a scoped re-implementation
+of the §3 text-button in three components; it is gone.
+
+## 8. Visual Sandbox & Interactive Testing
 
 An offline interactive workbench is available at the route **`/sandbox`**. It allows developers to:
 - Inspect all tonal surface swatches, border contrast, and typography scales.

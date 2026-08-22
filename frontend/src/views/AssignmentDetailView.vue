@@ -599,7 +599,7 @@
               <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
                 <td :colspan="tableColumnCount" class="empty-row">
                   No students match the current filters.
-                  <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
+                  <button class="btn-link" type="button" @click="clearFilters">Clear filters</button>
                 </td>
               </tr>
             </tbody>
@@ -610,7 +610,7 @@
         <div class="card-list mobile-only">
           <div v-if="report.students.length > 0 && filteredStudents.length === 0" class="empty-row">
             No students match the current filters.
-            <button class="link-btn" type="button" @click="clearFilters">Clear filters</button>
+            <button class="btn-link" type="button" @click="clearFilters">Clear filters</button>
           </div>
           <article v-for="s in filteredStudents" :key="s.github_login" class="student-card">
             <header class="student-card-head" style="display: flex; align-items: center; justify-content: space-between;">
@@ -690,7 +690,7 @@
             <template v-if="isGitHubActionsAutograde">
               Sync reads CI check-run summaries and point scores directly from GitHub Actions.
             </template>
-            <button v-if="!isGitHubActionsAutograde" class="link-btn" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
+            <button v-if="!isGitHubActionsAutograde" class="btn-link" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
             <button v-else class="btn btn-primary" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
               {{ syncingGrades ? `Syncing (${syncedGradesCount}/${totalGradesToSync})` : 'Sync CI results from GitHub' }}
             </button>
@@ -893,7 +893,7 @@
             <div v-else class="text-secondary text-sm">
               <p v-if="activeAutogradeItem.repo_url" style="margin: 0;">
                 View full workflow logs on GitHub Actions:
-                <a :href="`${activeAutogradeItem.repo_url}/actions`" target="_blank" rel="noopener" class="link-btn" style="text-decoration: underline;">
+                <a :href="`${activeAutogradeItem.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link" style="text-decoration: underline;">
                   Open GitHub Actions logs →
                 </a>
               </p>
@@ -2644,16 +2644,6 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
   color: var(--text-secondary);
   white-space: normal;
 }
-.link-btn {
-  background: none;
-  border: none;
-  color: var(--accent-blue);
-  cursor: pointer;
-  padding: 0;
-  margin-left: var(--space-sm);
-  font: inherit;
-}
-.link-btn:hover { text-decoration: underline; }
 
 .sha { font-size: 0.8rem; }
 .text-muted { color: var(--text-muted); }
@@ -2711,7 +2701,6 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 0.78rem;
   color: var(--text-muted);
 }
-.col-actions { width: 1%; text-align: right; }
 .row-action {
   background: none;
   border: 1px solid transparent;

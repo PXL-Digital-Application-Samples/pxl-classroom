@@ -22,7 +22,7 @@
             {{ authError }} - try signing in again.
           </p>
 
-          <div v-if="!deviceFlow" class="actions flex flex-col items-center gap-md">
+          <div v-if="!deviceFlow" class="flex flex-col items-center gap-md">
             <button class="btn btn-primary btn-lg" @click="startLogin" :disabled="authLoading">
               <template v-if="authLoading">
                 <span class="spinner spinner-sm"></span>

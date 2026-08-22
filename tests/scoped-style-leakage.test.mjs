@@ -17,6 +17,9 @@ import { basename, join, relative } from "node:path";
 //
 // Shared vocabulary belongs in style.css. Anything a component passes into a
 // <slot> is compiled in the PARENT's scope, so it must be global too.
+//
+// The 86-instance backlog this suite started with is cleared, so the full scan
+// is enforced rather than `todo`. It cannot regrow silently.
 
 const FRONTEND_SRC = join(process.cwd(), "frontend", "src");
 
@@ -92,8 +95,7 @@ test("Scoped styles: shared layout vocabulary is declared globally", async () =>
   );
 });
 
-test("Scoped styles: no class is used by a component that cannot see its definition",
-  { todo: true }, async () => {
+test("Scoped styles: no class is used by a component that cannot see its definition", async () => {
   const globalCss = await readFile(join(FRONTEND_SRC, "style.css"), "utf8");
   const globalClasses = classesDeclared(globalCss);
 

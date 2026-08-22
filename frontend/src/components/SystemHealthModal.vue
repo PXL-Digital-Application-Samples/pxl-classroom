@@ -431,13 +431,6 @@ function overallSummary(sev) {
 }
 
 /* BANNER */
-.diag-banner {
-  padding: var(--space-md);
-  border-radius: 8px;
-  display: flex;
-  gap: var(--space-md);
-  align-items: flex-start;
-}
 .banner-ok {
   background: var(--tint-success-subtle);
   border: 1px solid var(--tint-success-emphasis);
@@ -593,16 +586,5 @@ function overallSummary(sev) {
   font-size: 0.8rem;
   color: var(--text-secondary);
   font-weight: 500;
-}
-.text-yellow { color: var(--accent-yellow); }
-.text-blue { color: var(--accent-blue); }
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-2xl);
-  text-align: center;
-  color: var(--text-secondary);
 }
 </style>

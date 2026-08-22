@@ -901,12 +901,6 @@ function copyRepoUrl() {
   font-size: 1rem;
 }
 
-.form-hint {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
 
 .alert-warn {
   background: var(--tint-attention-muted);

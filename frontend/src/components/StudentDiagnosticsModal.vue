@@ -321,8 +321,4 @@ function copyReport() {
   border: 1px solid var(--border-default);
   border-radius: 6px;
 }
-.stat-green { color: var(--accent-green); }
-.stat-yellow { color: var(--accent-yellow); }
-.stat-red { color: var(--accent-red); }
-.stat-blue { color: var(--accent-blue); }
 </style>

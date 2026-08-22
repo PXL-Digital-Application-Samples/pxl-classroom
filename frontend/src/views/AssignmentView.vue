@@ -52,7 +52,7 @@
 
       <!-- Assignment loaded -->
       <div v-else class="assignment-content fade-in">
-        <div class="assignment-card card">
+        <div class="card">
           <div class="assignment-meta flex items-center gap-sm">
             <span class="status-indicator">
               <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
@@ -897,16 +897,7 @@ main {
   color: var(--text-secondary);
   margin-bottom: var(--space-sm);
 }
-.status-icon-success { color: var(--accent-green); }
-.status-icon-warn { color: var(--accent-yellow); }
 .status-icon-error { color: var(--accent-red); }
-.status-icon-pulse {
-  animation: pulse-icon 1.6s ease-in-out infinite;
-}
-@keyframes pulse-icon {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
 .btn-with-icon {
   display: inline-flex;
   align-items: center;
@@ -1017,25 +1008,8 @@ main {
   gap: var(--space-sm);
 }
 
-.pending-state, .provisioned-state, .invited-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-}
 
 /* Surfaced mid-poll once waiting stops being the likely explanation. */
-.invitation-hint {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-  margin-top: var(--space-md);
-  padding: var(--space-md);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  max-width: 480px;
-}
 
 .progress-bar {
   width: 100%;
