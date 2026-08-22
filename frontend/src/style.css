@@ -676,10 +676,15 @@ a:hover {
 }
 
 /* The left side collapses before the right rail does, so the theme toggle and
-   user badge stay reachable when a breadcrumb runs long. */
+   user badge stay reachable when a breadcrumb runs long.
+   `min-width: 0` is what allows that shrink - a flex item defaults to
+   min-width: auto and refuses to go below its content. Truncation is then
+   done by .app-header-heading's own text-overflow, NOT by clipping here:
+   `overflow: hidden` on this container also clips absolutely positioned
+   descendants, which silently hid the dashboard's org dropdown (it opens
+   BELOW the header at top: calc(100% + 4px)). */
 .app-header-left {
   min-width: 0;
-  overflow: hidden;
 }
 .app-header-right {
   flex-shrink: 0;
