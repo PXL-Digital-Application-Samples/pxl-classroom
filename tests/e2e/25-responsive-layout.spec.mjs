@@ -16,7 +16,10 @@ import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/
 // Neither is visible at desktop width, which is why nothing caught them.
 
 const WIDTHS = [1280, 900, 700, 560, 480, 390, 360];
-const MIN_GUTTER = 16;
+// The gutter is fluid (--gutter: clamp(12px, 1.6vw, 24px)), so the floor is the
+// clamp minimum, not the desktop value. Asserting 24 here would pin the
+// desktop number and fail every narrow width by design.
+const MIN_GUTTER = 12;
 
 /** Leftmost gutter of the page's own content, and any sideways overflow. */
 const MEASURE = () => {
@@ -76,6 +79,34 @@ test.describe('25 - Responsive layout', () => {
       }
     });
   }
+
+  test('The gutter scales with the window instead of sitting at the desktop value', async ({ page }) => {
+    // Reported live: a fixed 24px gutter is fine full-screen but reads as wasted
+    // space in a window snapped to half a desktop screen - which is still
+    // "desktop" to any breakpoint, so a step at 640px never reached it.
+    // --gutter is clamp(12px, 1.6vw, 24px); this asserts the ramp exists.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+
+    const gutterAt = async (width) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/dashboard/${ORG}`);
+      await page.waitForTimeout(600);
+      return page.evaluate(() => {
+        const main = document.querySelector('main.container');
+        return main ? parseFloat(getComputedStyle(main).paddingLeft) : NaN;
+      });
+    };
+
+    const wide = await gutterAt(1920);
+    const half = await gutterAt(960);
+    const phone = await gutterAt(390);
+
+    expect(wide, 'a wide window should get the full desktop gutter').toBeGreaterThanOrEqual(24);
+    expect(half, 'a half-screen window should get less than the desktop gutter').toBeLessThan(wide - 4);
+    expect(phone, 'a phone should get less again').toBeLessThan(half);
+    expect(phone, 'but never zero - flush-left content was the original bug').toBeGreaterThanOrEqual(MIN_GUTTER);
+  });
 
   test('The header itself never forces a horizontal scrollbar', async ({ page }) => {
     // A long org name plus the brand, separator and "Lecturer" tag exceeded a

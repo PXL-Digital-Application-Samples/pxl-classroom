@@ -84,6 +84,25 @@ and `--ring-focus`. Writing `box-shadow: light-dark(0 4px 12px …, …)` is inv
   * Cards & Modals: `8px`–`10px` (`--radius-md` / `--radius-lg`)
   * Full circular: strictly for user avatars and status dots (`50%`)
 
+### Page gutter
+
+`--gutter: clamp(12px, 1.6vw, var(--space-lg))` is the space between the viewport
+edge and page content. **`.container` and `.app-header-bare` are its only
+consumers** - they share it so the app bar's brand lines up with the content
+below it. Do not hard-code a horizontal page padding beside them.
+
+It is fluid rather than a breakpoint step on purpose: a window snapped to half a
+desktop screen is still "desktop" to any max-width query, but the full 24px reads
+as wasted space there. The ramp is ~24px full-screen, ~15px at a 960px
+half-screen, 12px on a phone - and never 0, which is the bug it replaced.
+
+> **Do not set `padding` (the shorthand) on a `main` that also carries
+> `.container`.** Inside a `<style scoped>` block `main` is an *element* selector,
+> so it carries the component's `[data-v-*]` attribute and out-specifies
+> `.container` (0,1,1 vs 0,1,0) - `padding: X 0` silently wipes the gutter at
+> every width. Use `padding-top` / `padding-bottom`. `tests/e2e/25-responsive-layout.spec.mjs`
+> enforces both this and the ramp.
+
 ---
 
 ## 3. Button Hierarchy Reference
