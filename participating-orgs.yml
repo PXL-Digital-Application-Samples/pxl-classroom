@@ -16,3 +16,5 @@ orgs:
     budget_owner_login: dhoubrechts
   - login: PXLCloudAndAutomation
     budget_owner_login: tomcoolpxl
+  - login: PXLAutomation
+    budget_owner_login: tomcoolpxl
