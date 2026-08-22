@@ -86,4 +86,55 @@ test.describe('23 - Lecturer onboarding', () => {
     await expect(page.locator('.setup-required-card')).toBeVisible();
     expect(await countPrimaries(), 'no-control-repo state').toHaveLength(1);
   });
+
+  test('With hub write, setup is one click - no Actions tab, no typing', async ({ page }) => {
+    // The friction this removes: find the hub repo, open Actions, pick the
+    // workflow, choose a branch, type your own org name into target_org.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+    await noControlRepo(page);
+    await page.route('https://api.github.com/repos/PXL-Digital-Application-Samples/pxl-classroom', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ name: 'pxl-classroom', permissions: { push: true } }) }));
+
+    await page.goto(`/dashboard/${ORG}`);
+    const card = page.locator('.setup-required-card');
+    await expect(card).toBeVisible();
+
+    // A button that dispatches, not a link that sends them to GitHub to fill a form.
+    const run = card.getByRole('button', { name: new RegExp(`Set up ${ORG}`, 'i') });
+    await expect(run).toBeVisible();
+    await expect(card).not.toContainText(/target_org/i);
+    await expect(card).not.toContainText(/a hub admin runs/i);
+
+    // Clicking it dispatches setup-org.yml with the inputs the workflow declares.
+    let dispatched = null;
+    await page.route('**/actions/workflows/setup-org.yml/dispatches', async (route) => {
+      dispatched = JSON.parse(route.request().postData() || '{}');
+      await route.fulfill({ status: 204, body: '' });
+    });
+    await run.click();
+    await expect.poll(() => dispatched, { timeout: 10000 }).not.toBeNull();
+
+    expect(Object.keys(dispatched.inputs).sort(),
+      'setup-org.yml declares target_org and budget_owner_login, both required')
+      .toEqual(['budget_owner_login', 'target_org']);
+    expect(dispatched.inputs.target_org).toBe(ORG);
+    expect(dispatched.inputs.budget_owner_login).toBeTruthy();
+  });
+
+  test('Without hub write, it says who can act instead of offering a dead button', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+    await noControlRepo(page);
+    await page.route('https://api.github.com/repos/PXL-Digital-Application-Samples/pxl-classroom', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ name: 'pxl-classroom', permissions: { push: false } }) }));
+
+    await page.goto(`/dashboard/${ORG}`);
+    const card = page.locator('.setup-required-card');
+    await expect(card).toContainText(/a hub admin runs/i);
+    // No self-serve button - dispatching would only 403 (RUNBOOK §2.4).
+    await expect(card.getByRole('button', { name: /Set up/i })).toHaveCount(0);
+  });
 });

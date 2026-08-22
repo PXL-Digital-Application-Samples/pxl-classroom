@@ -183,8 +183,8 @@
                 <div class="step-body">
                   <strong>Create the course control repository</strong>
                   <p v-if="hubWritable">
-                    Run <strong>Setup Organization</strong> with <code>target_org</code> set to
-                    <code>{{ selectedOrg }}</code>. It takes about a minute, then reload this page.
+                    One click below creates it. Takes about a minute - this page
+                    updates by itself when it is done.
                   </p>
                   <p v-else>
                     A hub admin runs <strong>Setup Organization</strong> for
@@ -196,16 +196,29 @@
             </div>
 
             <div class="onboarding-actions">
+              <!-- If they can dispatch it, do it FOR them: no hub repo to find,
+                   no Actions tab, no branch to pick, no org name to type. -->
+              <button
+                v-if="hubWritable"
+                class="btn btn-primary btn-with-icon"
+                type="button"
+                :disabled="settingUp"
+                @click="runSetupOrg"
+              >
+                <Icon name="zap" :size="14" :class="{ 'spin-icon': settingUp }" />
+                <span>{{ settingUp ? 'Setting up…' : `Set up ${selectedOrg}` }}</span>
+              </button>
               <a
+                v-else
                 :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/setup-org.yml`"
                 target="_blank"
                 rel="noopener"
                 class="btn btn-primary btn-with-icon"
               >
                 <Icon name="external-link" :size="14" />
-                <span>{{ hubWritable ? 'Run Setup Organization' : 'Open Setup Organization' }}</span>
+                <span>Open Setup Organization</span>
               </a>
-              <button class="btn btn-with-icon" type="button" @click="loadDashboard">
+              <button class="btn btn-with-icon" type="button" :disabled="settingUp" @click="loadDashboard">
                 <Icon name="refresh-cw" :size="14" />
                 <span>Recheck</span>
               </button>
@@ -378,7 +391,8 @@ import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getInstallations, getRepoContent, getRepo, listRepoDir } from '../lib/api.js'
+import { getInstallations, getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
+import { toast } from '../lib/toast.js'
 import { APP_INSTALL_URL } from '../../../lib/audit.mjs'
 import { formatDate } from '../lib/format.js'
 
@@ -481,6 +495,55 @@ async function loadOrgStatuses(orgList) {
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
 const dashState = ref('')
 const hubWritable = ref(false)
+const settingUp = ref(false)
+
+// The whole point of the button: a beginner should not have to find the hub
+// repo, open Actions, pick the workflow, choose a branch and type their own org
+// name into a form field. Dispatch it for them, then watch for the outcome we
+// actually care about - the control repository existing - and advance by
+// itself. Never fire-and-forget (CLAUDE.md).
+const SETUP_POLL_MS = 5000
+const SETUP_TIMEOUT_MS = 4 * 60 * 1000
+
+async function runSetupOrg() {
+  const token = getToken()
+  const org = selectedOrg.value
+  if (!token || !org || settingUp.value) return
+
+  settingUp.value = true
+  try {
+    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'setup-org.yml', {
+      target_org: org,
+      budget_owner_login: user.value?.login || '',
+    })
+    if (!res.ok && res.status !== 204) {
+      toast.error(explainDispatchFailure(res, 'Could not start Setup Organization'))
+      settingUp.value = false
+      return
+    }
+    toast.success(`Setting up ${org}. This takes about a minute.`)
+
+    const deadline = Date.now() + SETUP_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, SETUP_POLL_MS))
+      const repo = await getRepo(token, org, config.controlRepo)
+      if (repo.ok) {
+        toast.success(`${org} is ready.`)
+        await loadDashboard()
+        return
+      }
+    }
+    toast.error(
+      `Setup Organization is taking longer than expected for ${org}. ` +
+        'Check the run in the hub repository, then use Recheck.',
+      { link: { href: `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/setup-org.yml`, text: 'View run' } }
+    )
+  } catch (e) {
+    toast.error(`Could not start Setup Organization: ${e.message}`)
+  } finally {
+    settingUp.value = false
+  }
+}
 const dashError = ref(null)
 
 const draftCount = ref(0)

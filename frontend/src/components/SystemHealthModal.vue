@@ -100,7 +100,7 @@
 
 <script setup>
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
-import { getToken, startDeviceFlow } from '../lib/auth.js'
+import { getToken, getUser, startDeviceFlow } from '../lib/auth.js'
 import { ghApi, triggerWorkflow } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
@@ -276,8 +276,14 @@ async function executeFix(c) {
         toast.error(`Publish workflow dispatch failed (HTTP ${res.status}).`)
       }
     } else if (fix.type === 'setup_org') {
+      // setup-org.yml declares target_org and budget_owner_login, both
+      // required. This used to send `org`, which GitHub rejects as an
+      // undeclared input - the fix could never have worked. The signed-in
+      // lecturer is the org owner, so they are the default budget owner
+      // (RUNBOOK §2.5); a hub admin can change it in participating-orgs.yml.
       const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'setup-org.yml', {
-        org: props.org,
+        target_org: props.org,
+        budget_owner_login: getUser()?.login || '',
       })
       if (res.ok || res.status === 204) {
         toast.success('Setup Organization workflow triggered! Initializing scaffold…')
