@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { getToken, startDeviceFlow } from '../lib/auth.js'
 import { ghApi, triggerWorkflow } from '../lib/api.js'
 import { config } from '../lib/config.js'
@@ -121,21 +121,52 @@ const report = ref(null)
 const fixingId = ref(null)
 const expandedTiers = reactive({})
 
+// A diagnostic pass is a fan-out of GitHub REST calls, not a workflow dispatch -
+// nothing server-side to cancel. Two passes in flight at once therefore cost
+// API quota for nothing AND race to write report.value, where the loser can be
+// the one whose answer is still correct. `runGeneration` makes the newest pass
+// authoritative: an older one that finishes late discards its result.
+let runGeneration = 0
+// executeFix schedules a re-check a few seconds out. Several fixes in a row
+// would otherwise queue several timers, each firing its own pass.
+let pendingRecheck = null
+
+function scheduleRecheck(delayMs) {
+  if (pendingRecheck) clearTimeout(pendingRecheck)
+  pendingRecheck = setTimeout(() => {
+    pendingRecheck = null
+    // The modal may have been closed while this was pending; a pass into a
+    // closed modal is pure waste.
+    if (props.isOpen) run()
+  }, delayMs)
+}
+
 onMounted(() => {
   if (props.isOpen) run()
 })
 
+onUnmounted(() => {
+  if (pendingRecheck) clearTimeout(pendingRecheck)
+})
+
 watch(() => props.isOpen, (open) => {
-  if (open) run()
+  // Reopening is the same question against the same target, so an in-flight
+  // pass will populate the modal - starting another just stacks redundant API
+  // calls. Without this, open/close/open/close fires one pass per open.
+  if (open && !running.value) run()
 })
 
 watch(() => [props.org, props.assignmentId], () => {
+  // A changed target is NOT redundant: any in-flight pass is now answering
+  // about the previous org, so this must start regardless of `running` and
+  // supersede it.
   if (props.isOpen) run()
 })
 
 async function run() {
   const token = getToken()
   if (!token) return
+  const generation = ++runGeneration
   running.value = true
   try {
     const request = async (method, path, body = null) => {
@@ -160,6 +191,11 @@ async function run() {
       fetchPages,
     })
 
+    // Superseded by a newer pass (the org or assignment changed while this one
+    // was in flight). Its answer is about the previous target - drop it rather
+    // than overwrite fresher data.
+    if (generation !== runGeneration) return
+
     report.value = res
 
     // Auto-expand all tiers that have warnings or errors, collapse fully ok tiers
@@ -169,9 +205,12 @@ async function run() {
       }
     }
   } catch (e) {
+    if (generation !== runGeneration) return
     toast.error(`Diagnostic execution failed: ${e.message}`)
   } finally {
-    running.value = false
+    // Only the newest pass owns the spinner; an older one clearing it would
+    // re-enable the refresh button while work is still in flight.
+    if (generation === runGeneration) running.value = false
   }
 }
 
@@ -212,7 +251,7 @@ async function executeFix(c) {
       if (res.ok || res.status === 204) {
         toast.success('Publish workflow triggered! Setting up broker on GitHub Actions…')
         emit('fixed', { type: fix.type })
-        setTimeout(run, 4000)
+        scheduleRecheck(4000)
       } else {
         toast.error(`Publish workflow dispatch failed (HTTP ${res.status}).`)
       }
@@ -223,7 +262,7 @@ async function executeFix(c) {
       if (res.ok || res.status === 204) {
         toast.success('Setup Organization workflow triggered! Initializing scaffold…')
         emit('fixed', { type: fix.type })
-        setTimeout(run, 5000)
+        scheduleRecheck(5000)
       } else {
         toast.error(`Setup workflow dispatch failed (HTTP ${res.status}).`)
       }
@@ -232,7 +271,7 @@ async function executeFix(c) {
       if (res.ok || res.status === 204) {
         toast.success('Pages deployment triggered!')
         emit('fixed', { type: fix.type })
-        setTimeout(run, 5000)
+        scheduleRecheck(5000)
       } else {
         toast.error(`Deploy workflow dispatch failed (HTTP ${res.status}).`)
       }
@@ -243,7 +282,7 @@ async function executeFix(c) {
       if (res.ok || res.status === 204) {
         toast.success('Dashboard data regeneration triggered!')
         emit('fixed', { type: fix.type })
-        setTimeout(run, 4000)
+        scheduleRecheck(4000)
       } else {
         toast.error(`Dashboard workflow dispatch failed (HTTP ${res.status}).`)
       }
