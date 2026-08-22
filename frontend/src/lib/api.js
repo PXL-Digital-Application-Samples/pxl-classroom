@@ -4,6 +4,7 @@
 // user's own token - never a privileged credential.
 
 import { clearAuth } from './auth.js'
+import { READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 import { toast } from './toast.js'
 
 const API_BASE = 'https://api.github.com'
@@ -25,11 +26,31 @@ function handleSessionExpiry() {
   setTimeout(() => window.location.reload(), 1800)
 }
 
+export { READ_TIMEOUT_MS }
+
 /**
  * Make an authenticated GitHub API call.
+ *
+ * TIMEOUTS APPLY TO READS ONLY.
+ *
+ * Aborting a fetch stops us waiting; it does NOT cancel the request at GitHub.
+ * A timed-out write therefore leaves us unable to say whether it took effect,
+ * and reporting failure for a call that actually succeeded is worse than
+ * waiting: retrying can create a second commit, a second PR, or - via
+ * triggerWorkflow - a second Actions run, which the minimal-minutes design
+ * exists to avoid. Reads have no such hazard; repeating one is free.
+ *
+ * A write may opt in with `options.timeoutMs`, but only where the endpoint is
+ * genuinely idempotent, and the caller has to say so deliberately.
+ *
+ * @param {object} [options]
+ * @param {number} [options.timeoutMs] override; 0 waits indefinitely
+ * @param {AbortSignal} [options.signal] caller cancellation
  */
-export async function ghApi(token, method, path, body = null) {
-  const res = await fetch(`${API_BASE}${path}`, {
+export async function ghApi(token, method, path, body = null, options = {}) {
+  const timeoutMs = options.timeoutMs ?? (method === 'GET' ? READ_TIMEOUT_MS : 0)
+
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -39,7 +60,7 @@ export async function ghApi(token, method, path, body = null) {
     },
     body: body ? JSON.stringify(body) : undefined,
     ...(method === 'GET' ? { cache: 'no-store' } : {}),
-  })
+  }, { timeoutMs, signal: options.signal })
 
   if (res.status === 401 && token) handleSessionExpiry()
 
@@ -343,13 +364,13 @@ export async function listOrgRepos(token, org, prefix = '') {
   const out = []
   let url = `/orgs/${org}/repos?per_page=100&sort=full_name`
   while (url) {
-    const res = await fetch(`${API_BASE}${url}`, {
+    const res = await fetchWithTimeout(`${API_BASE}${url}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
-    })
+    }, { timeoutMs: READ_TIMEOUT_MS })
     if (!res.ok) break
     const data = await res.json()
     if (Array.isArray(data)) out.push(...data)

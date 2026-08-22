@@ -120,3 +120,52 @@ test.describe('20 - System Health audit concurrency', () => {
     await expect(page.locator('.diagnostic-modal .head-title code')).toContainText(ORG);
   });
 });
+
+test.describe('20b - Read timeouts', () => {
+  test('A stalled GitHub read is bounded and reported, not left hanging', async ({ page }) => {
+    // The whole point is measuring a slow path, so it needs more than the
+    // 60s default before Playwright kills it.
+    test.setTimeout(300000);
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+
+    // Black-hole every GitHub call: never respond, never reject. ghApi used to
+    // be a bare fetch() with no AbortSignal, so this stranded the modal behind
+    // a spinner with no way out but a reload.
+    await page.route('https://api.github.com/**', async () => {
+      await new Promise(() => {});
+    });
+
+    await page.goto(`/dashboard/${ORG}`);
+    const started = Date.now();
+    await page.locator(HEALTH_BTN).click();
+    await expect(page.locator('.diagnostic-modal')).toBeVisible();
+
+    // runDiagnostics turns a thrown request into a failed CHECK rather than
+    // letting it escape, so the timeout surfaces inside the report - which is
+    // the better surface than a toast.
+    // The pass must finish and hand the control back.
+    await expect(page.locator('.modal-head .btn')).toBeEnabled({ timeout: 120000 });
+    const elapsed = Date.now() - started;
+
+    // And it must say what went wrong. runDiagnostics turns a thrown request
+    // into a failed CHECK rather than letting it escape, so the failure lands
+    // inside the report - a better surface than a toast.
+    // It must name the real problem. A stalled network reaching tier 0 used to
+    // be reported as "session is invalid or expired - sign in again", sending
+    // the lecturer to re-authenticate a session that was never at fault.
+    const msgs = (await page.locator('.check-msg').allTextContents()).join(' ');
+    expect(msgs, 'the report must blame the network, not the session').toMatch(/could not reach github/i);
+    expect(msgs, 'must not tell the user to sign in again for a network fault')
+      .not.toMatch(/sign in again/i);
+
+    // runDiagnostics awaits ~17 checks in sequence, so a per-request bound alone
+    // would still cost 17 x 10s here. The pass budget is what keeps this near
+    // 30s instead of minutes.
+    expect(
+      elapsed,
+      `a fully stalled network took ${Math.round(elapsed / 1000)}s to report`,
+    ).toBeLessThan(60000);
+    console.log(`  [stalled-network] reported in ${Math.round(elapsed / 1000)}s`);
+  });
+});

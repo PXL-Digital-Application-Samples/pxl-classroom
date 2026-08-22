@@ -21,6 +21,8 @@
 // Student tokens carry only Account/Starring scope (8h lifetime, instant
 // revoke at github.com/settings/applications). Lecturer tokens additionally
 // permit reading the org's control repo. See ARCHITECTURE.md §10.2.
+import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
+
 let CORS_PROXY = import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url='
 if (CORS_PROXY.endsWith('?')) CORS_PROXY += 'url='
 else if (!CORS_PROXY.endsWith('?url=')) throw new Error('VITE_CORS_PROXY_URL must end with ? or ?url=')
@@ -109,17 +111,23 @@ export function clearAuth() {
  * Start the device flow. Returns { device_code, user_code, verification_uri, interval }.
  * @param {string} clientId - GitHub App client ID
  */
+// Minting a device code is a single quick round trip.
+const DEVICE_CODE_TIMEOUT_MS = 10000
+
 export async function startDeviceFlow(clientId, scope = 'user:email') {
   const body = { client_id: clientId }
   if (scope) body.scope = scope
-  const res = await fetch(GITHUB_DEVICE_CODE_URL, {
+  // A POST, but a safe one to bound: it only mints a device code, and a code
+  // we never showed the user simply expires unused. Left unbounded, a stalled
+  // request means a spinner and no code to type - nothing the user can act on.
+  const res = await fetchWithTimeout(GITHUB_DEVICE_CODE_URL, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-  })
+  }, { timeoutMs: DEVICE_CODE_TIMEOUT_MS })
 
   if (!res.ok) {
     throw new Error(`Device code request failed: HTTP ${res.status}`)
@@ -136,6 +144,10 @@ export async function startDeviceFlow(clientId, scope = 'user:email') {
  * @param {number} interval - Polling interval in seconds
  * @param {AbortSignal} signal - Optional abort signal
  */
+// One poll tick. Shorter than a read because the loop retries anyway, and a
+// tick that outlives its own interval is already stalled.
+const POLL_TIMEOUT_MS = 8000
+
 export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal = null) {
   let pollInterval = interval
 
@@ -144,18 +156,32 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
 
     await new Promise((resolve) => setTimeout(resolve, pollInterval * 1000))
 
-    const res = await fetch(GITHUB_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: clientId,
-        device_code: deviceCode,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      }),
-    })
+    // The one POST it is safe to time out: polling IS the retry, so a stalled
+    // tick costs nothing and the next one asks the same question. Before this,
+    // a hung request stranded sign-in forever - `signal` was only checked at
+    // the top of the loop and was never attached to the request, so Cancel did
+    // nothing until the fetch resolved on its own.
+    let res
+    try {
+      res = await fetchWithTimeout(GITHUB_TOKEN_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          device_code: deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        }),
+      }, { timeoutMs: POLL_TIMEOUT_MS, signal })
+    } catch (err) {
+      if (signal?.aborted) throw new Error('Cancelled')
+      // A slow tick is not a failed sign-in - the user may still be on the
+      // GitHub authorization page. Try again on the next interval.
+      if (err instanceof HttpTimeoutError) continue
+      throw err
+    }
 
     const data = await res.json()
 
@@ -210,23 +236,23 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
  * Fetch the authenticated user's profile and verified email.
  */
 async function fetchUser(token) {
-  const res = await fetch(`${GITHUB_API_BASE}/user`, {
+  const res = await fetchWithTimeout(`${GITHUB_API_BASE}/user`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
     },
-  })
+  }, { timeoutMs: READ_TIMEOUT_MS })
   if (!res.ok) throw new Error(`Failed to fetch user: HTTP ${res.status}`)
   const data = await res.json()
 
   let email = data.email || null
   try {
-    const emailsRes = await fetch(`${GITHUB_API_BASE}/user/emails`, {
+    const emailsRes = await fetchWithTimeout(`${GITHUB_API_BASE}/user/emails`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
       },
-    })
+    }, { timeoutMs: READ_TIMEOUT_MS })
     if (emailsRes.ok) {
       const emails = await emailsRes.json()
       if (Array.isArray(emails)) {

@@ -126,6 +126,10 @@ const expandedTiers = reactive({})
 // API quota for nothing AND race to write report.value, where the loser can be
 // the one whose answer is still correct. `runGeneration` makes the newest pass
 // authoritative: an older one that finishes late discards its result.
+// Ceiling for one whole pass. A healthy pass finishes in well under a second;
+// this only bites when the network is failing.
+const PASS_BUDGET_MS = 30000
+
 let runGeneration = 0
 // executeFix schedules a re-check a few seconds out. Several fixes in a row
 // would otherwise queue several timers, each firing its own pass.
@@ -168,9 +172,24 @@ async function run() {
   if (!token) return
   const generation = ++runGeneration
   running.value = true
+
+  // runDiagnostics awaits its ~17 checks strictly in sequence, so a per-request
+  // timeout alone still lets a dead network cost 17 x READ_TIMEOUT_MS before the
+  // modal says anything. One budget for the whole pass caps that: once it blows,
+  // every remaining check fails instantly instead of waiting its own turn.
+  const budget = new AbortController()
+  const budgetTimer = setTimeout(() => budget.abort(), PASS_BUDGET_MS)
+
   try {
     const request = async (method, path, body = null) => {
-      const r = await ghApi(token, method, path, body)
+      if (budget.signal.aborted) {
+        return {
+          status: 504,
+          ok: false,
+          data: { message: 'Diagnostics timed out - GitHub did not respond in time.' },
+        }
+      }
+      const r = await ghApi(token, method, path, body, { signal: budget.signal })
       return { status: r.status, ok: r.ok, data: r.data }
     }
 
@@ -208,6 +227,7 @@ async function run() {
     if (generation !== runGeneration) return
     toast.error(`Diagnostic execution failed: ${e.message}`)
   } finally {
+    clearTimeout(budgetTimer)
     // Only the newest pass owns the spinner; an older one clearing it would
     // re-enable the refresh button while work is still in flight.
     if (generation === runGeneration) running.value = false

@@ -7,17 +7,25 @@ import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const authJsPath = join(here, "..", "frontend", "src", "lib", "auth.js");
+const libDir = join(here, "..", "frontend", "src", "lib");
+const authJsPath = join(libDir, "auth.js");
+
+// auth.js imports these; they have to land in the temp dir alongside it or the
+// import fails before the CORS assertions this file cares about ever run.
+const AUTH_LOCAL_DEPS = ["http.js"];
 
 async function loadAuthMod(envVars) {
   const code = readFileSync(authJsPath, "utf8");
   // Replace import.meta.env with process.env for Node compatibility
   const modified = code.replace(/import\.meta\.env/g, "process.env");
-  
+
   const tmp = mkdtempSync(join(tmpdir(), "pxl-cors-test-"));
   const tmpFile = join(tmp, "auth.mjs");
   writeFileSync(tmpFile, modified);
-  
+  for (const dep of AUTH_LOCAL_DEPS) {
+    writeFileSync(join(tmp, dep), readFileSync(join(libDir, dep), "utf8"));
+  }
+
   const oldEnv = { ...process.env };
   Object.assign(process.env, envVars);
   
