@@ -152,13 +152,24 @@
         </p>
       </div>
 
-      <!-- Pre-Assigned Formation Mode Flow -->
-      <div v-if="isPreAssignedMode" class="preassigned-flow text-center py-md">
-        <div v-if="myCurrentTeam" class="card" style="padding: var(--space-lg); background: var(--bg-secondary);">
+      <!-- The group you are already in: pre-assigned, or carried over from an
+           earlier assignment. One click confirms it; switching stays open
+           unless the lecturer pre-assigned the groups. -->
+      <div v-if="myCurrentTeam && !showAlternatives" class="preassigned-flow text-center py-md">
+        <div class="card" style="padding: var(--space-lg); background: var(--bg-secondary);">
           <Icon name="users" :size="40" class="status-icon" />
-          <h3>Pre-Assigned Team: {{ myCurrentTeam.team_name }}</h3>
+          <h3>{{ myGroupHeading }}</h3>
           <p class="text-secondary">
-            You are pre-assigned to team <code>{{ myCurrentTeam.team_slug }}</code>.
+            <template v-if="seededFromLabel">
+              Carried over from <strong>{{ seededFromLabel }}</strong> — you are in
+              <code>{{ myCurrentTeam.team_slug }}</code>.
+            </template>
+            <template v-else-if="isPreAssignedMode">
+              You are pre-assigned to team <code>{{ myCurrentTeam.team_slug }}</code>.
+            </template>
+            <template v-else>
+              You are already listed in <code>{{ myCurrentTeam.team_slug }}</code>.
+            </template>
           </p>
           <div v-if="myCurrentTeam.members && myCurrentTeam.members.length" class="member-chips" style="justify-content: center; margin-bottom: var(--space-md);">
             <span v-for="m in myCurrentTeam.members" :key="m" class="member-chip" :class="{ 'is-me': m.toLowerCase() === user.login.toLowerCase() }">
@@ -168,8 +179,17 @@
           <button class="btn btn-primary btn-lg" :disabled="accepting" @click="confirmJoinTeam(myCurrentTeam)">
             {{ accepting ? 'Joining…' : 'Accept & Join Team' }}
           </button>
+          <div v-if="canChooseAnother" class="alt-group-action">
+            <button class="btn btn-link" type="button" :disabled="accepting" @click="showAlternatives = true">
+              Choose a different group
+            </button>
+          </div>
         </div>
-        <div v-else class="card text-center" style="padding: var(--space-lg); background: var(--bg-secondary);">
+      </div>
+
+      <!-- Pre-assigned, unassigned, and the lecturer has not opened the fallback -->
+      <div v-else-if="isPreAssignedMode && !unassignedFallbackOpen" class="preassigned-flow text-center py-md">
+        <div class="card text-center" style="padding: var(--space-lg); background: var(--bg-secondary);">
           <Icon name="alert-circle" :size="40" class="status-icon status-icon-warn" />
           <h3>No Pre-Assigned Team</h3>
           <p class="text-secondary">
@@ -181,6 +201,11 @@
 
       <!-- Self-Service Flow (Join or Create Team) -->
       <template v-else>
+        <div v-if="myCurrentTeam && showAlternatives" class="back-to-group">
+          <button class="btn btn-link" type="button" @click="showAlternatives = false">
+            ← Back to my group ({{ myCurrentTeam.team_name }})
+          </button>
+        </div>
         <!-- Mode Selector -->
         <div class="tab-pill-selector">
           <button 
@@ -244,12 +269,12 @@
               </div>
             </div>
             <div class="team-action-btn">
-              <button 
-                class="btn btn-primary btn-sm" 
-                :disabled="team.is_full || accepting" 
+              <button
+                class="btn btn-primary btn-sm"
+                :disabled="(team.is_full && !isMyTeam(team)) || accepting"
                 @click="confirmJoinTeam(team)"
               >
-                {{ team.is_full ? 'Full' : 'Join Team' }}
+                {{ isMyTeam(team) ? 'My group' : team.is_full ? 'Full' : 'Join Team' }}
               </button>
             </div>
           </div>
@@ -335,6 +360,8 @@ const repoFullName = ref(null)
 const repoCopied = ref(false)
 const pendingInvitation = ref(null)
 const isSwitching = ref(false)
+// Set when the student explicitly asks to leave their carried-over group.
+const showAlternatives = ref(false)
 
 // Student Diagnostics (1.A)
 const showDiagnosticsModal = ref(false)
@@ -345,6 +372,31 @@ const pollCount = ref(0)
 let pollTimer = null
 
 const isPreAssignedMode = computed(() => props.assignment.group_config?.formation_mode === 'pre-assigned')
+const unassignedFallbackOpen = computed(
+  () => props.assignment.group_config?.unassigned_fallback === 'self-service'
+)
+// Pre-assigned groups are the lecturer's: accept.mjs rejects a student-initiated
+// switch, so offering one here would only produce a confusing failure.
+const canChooseAnother = computed(() => !isPreAssignedMode.value)
+const seededFromLabel = computed(() => {
+  const from = myCurrentTeam.value?.seeded_from
+  if (!from) return ''
+  return from.assignment_title || from.assignment_id || ''
+})
+const myGroupHeading = computed(() => {
+  if (!myCurrentTeam.value) return ''
+  if (isPreAssignedMode.value && !seededFromLabel.value) {
+    return `Pre-Assigned Team: ${myCurrentTeam.value.team_name}`
+  }
+  return `Your group: ${myCurrentTeam.value.team_name}`
+})
+
+function isMyTeam(team) {
+  return (
+    !!team &&
+    (team.members || []).some((m) => m.toLowerCase() === props.user.login.toLowerCase())
+  )
+}
 const maxTeamSize = computed(() => props.assignment.group_config?.max_team_size || 3)
 const allowTeamCreation = computed(() => props.assignment.group_config?.allow_team_creation !== false)
 
@@ -400,7 +452,7 @@ async function loadTeams() {
   const teamsMap = new Map() // slug -> teamObject
 
   // Helper to upsert team
-  function upsertTeam(slug, name, members = [], maxMembers = maxTeamCap) {
+  function upsertTeam(slug, name, members = [], maxMembers = maxTeamCap, seededFrom = null) {
     if (!slug) return
     const cleanSlug = slug.toLowerCase().trim()
     const existing = teamsMap.get(cleanSlug) || {
@@ -411,6 +463,7 @@ async function loadTeams() {
     }
     if (name && name !== cleanSlug) existing.team_name = name
     if (maxMembers) existing.max_members = maxMembers
+    if (seededFrom && !existing.seeded_from) existing.seeded_from = seededFrom
     for (const m of members) {
       if (m && !existing.members.some(em => em.toLowerCase() === m.toLowerCase())) {
         existing.members.push(m)
@@ -428,7 +481,7 @@ async function loadTeams() {
     if (res.ok) {
       const data = await res.json()
       for (const t of (data.teams || [])) {
-        upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members)
+        upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members, t.seeded_from)
       }
     }
   } catch (e) {
@@ -443,7 +496,7 @@ async function loadTeams() {
         const raw = atob(ctlRes.data.content.replace(/\n/g, ''))
         const parsed = JSON.parse(raw)
         for (const t of (parsed.teams || [])) {
-          upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members)
+          upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members, t.seeded_from)
         }
       }
     } catch {
@@ -723,6 +776,7 @@ async function handleAcceptInvitation() {
 
 function startSwitchTeam() {
   isSwitching.value = true
+  showAlternatives.value = true
   acceptState.value = 'ready'
 }
 
@@ -742,6 +796,14 @@ function copyRepoUrl() {
 </script>
 
 <style scoped>
+.alt-group-action {
+  margin-top: var(--space-sm);
+}
+
+.back-to-group {
+  margin-bottom: var(--space-sm);
+}
+
 .group-acceptance-card {
   padding: var(--space-xl);
   display: flex;

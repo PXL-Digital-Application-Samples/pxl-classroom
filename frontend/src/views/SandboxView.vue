@@ -331,6 +331,11 @@
             <Icon name="activity" :size="14" />
             <span>Launch System Health Modal</span>
           </button>
+
+          <button class="btn btn-secondary btn-with-icon" @click="showSeedTeamsModal = true">
+            <Icon name="users" :size="14" />
+            <span>Launch Seed Teams Modal</span>
+          </button>
         </div>
       </div>
     </section>
@@ -350,6 +355,14 @@
     </section>
 
     <!-- LAUNCHED MODALS -->
+    <SeedTeamsModal
+      v-if="showSeedTeamsModal"
+      :org="'PXL-Digital'"
+      :assignment="mockGroupAssignment"
+      :assignments="mockSeedSources"
+      @close="showSeedTeamsModal = false"
+    />
+
     <StarterSyncModal
       v-if="showStarterSyncModal"
       :assignment="mockAssignment"
@@ -374,6 +387,7 @@ import Icon from '../components/Icon.vue'
 import AppHeader from '../components/AppHeader.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
+import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import { toast } from '../lib/toast.js'
 import { resolvedTheme } from '../lib/theme.js'
@@ -422,6 +436,7 @@ watch(resolvedTheme, refreshTokens)
 const currentTab = ref('tokens')
 const showStarterSyncModal = ref(false)
 const showHealthModal = ref(false)
+const showSeedTeamsModal = ref(false)
 
 // Sample Toasts Dispatcher
 function dispatchSampleToasts() {
@@ -446,6 +461,7 @@ const mockGroupAssignment = {
   id: 'project-web-fullstack',
   title: 'Fullstack Group Project',
   assignment_type: 'group',
+  repository_name_pattern: 'project-web-fullstack-{team_slug}',
   group_config: {
     max_team_size: 4,
     min_team_size: 2,
@@ -454,6 +470,18 @@ const mockGroupAssignment = {
   opens_at: '2026-09-01T08:00:00Z',
   deadline_at: '2026-10-31T23:59:59Z',
 }
+
+// Offline: the modal reads the control repo, which the sandbox has no token
+// for, so this only exercises the source picker and its empty/error states.
+const mockSeedSources = [
+  {
+    id: 'project-api-design',
+    title: 'API Design Group Project',
+    assignment_type: 'group',
+    repository_name_pattern: 'project-api-design-{team_slug}',
+    deadline_at: '2026-05-31T23:59:59Z',
+  },
+]
 
 const mockStudents = [
   { github_login: 'alice-pxl', repo_name: 'PXL-Digital/lab-processes-alice-pxl', status: 'accepted' },

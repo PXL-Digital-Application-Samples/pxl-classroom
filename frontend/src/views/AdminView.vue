@@ -436,6 +436,50 @@
                 </label>
                 <small>When enabled, students can create custom new teams or join open teams. When unchecked, students can only join existing teams created by the lecturer.</small>
               </div>
+
+              <div v-if="form.group_config.formation_mode === 'pre-assigned'" class="field checkbox">
+                <label>
+                  <input
+                    type="checkbox"
+                    v-model="form.group_config.unassigned_fallback"
+                    true-value="self-service"
+                    false-value="block"
+                  />
+                  Let students with no assigned team form their own
+                </label>
+                <small>
+                  Without this, a student who is in no team sees “contact your instructor” and cannot
+                  accept at all — which is where late enrollers, Erasmus arrivals and anyone whose
+                  partners dropped out get stuck.
+                </small>
+              </div>
+
+              <div class="field">
+                <label>Starting teams</label>
+                <div class="flex items-center gap-sm flex-wrap">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm btn-with-icon"
+                    :disabled="isNew || hasUnsavedEdits()"
+                    @click="showSeedModal = true"
+                  >
+                    <Icon name="users" :size="13" />
+                    <span>Seed teams from…</span>
+                  </button>
+                  <span v-if="isNew" class="text-muted text-xs">
+                    Save this assignment first — teams are stored under its ID.
+                  </span>
+                  <span v-else-if="hasUnsavedEdits()" class="text-muted text-xs">
+                    Save your changes first — seeding reads this assignment's team size and
+                    repository pattern.
+                  </span>
+                </div>
+                <small>
+                  Carry the groups from an earlier group assignment (or the roster’s team columns)
+                  into this one, so students confirm the group they already work in instead of
+                  forming a new one. Review the result in the assignment’s Teams tab before publishing.
+                </small>
+              </div>
             </div>
           </fieldset>
 
@@ -766,6 +810,16 @@
       </div>
     </div>
 
+    <!-- SEED TEAMS FROM AN EXISTING GROUPING -->
+    <SeedTeamsModal
+      v-if="showSeedModal && !isNew"
+      :org="org"
+      :assignment="buildDoc()"
+      :assignments="assignments"
+      @close="showSeedModal = false"
+      @seeded="onTeamsSeeded"
+    />
+
     <!-- UNIFIED SYSTEM HEALTH & DIAGNOSTIC MODAL -->
     <SystemHealthModal
       :is-open="showDiagnosticModal"
@@ -794,6 +848,7 @@ import RosterTab from '../components/RosterTab.vue'
 import AuthCard from '../components/AuthCard.vue'
 import AppHeader from '../components/AppHeader.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
+import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import Icon from '../components/Icon.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -860,6 +915,7 @@ const saving = ref(false)
 const publishing = ref(false)
 const showRepublishModal = ref(false)
 const showDiagnosticModal = ref(false)
+const showSeedModal = ref(false)
 const extending = ref(false)
 const retrying = ref(false)
 const deleting = ref(false)
@@ -873,6 +929,10 @@ let publishPollTimer = null
 const liveCheckLoading = ref(false)
 const brokerExists = ref(null) // null = unchecked, true = exists, false = missing
 const pagesLive = ref(null)    // null = unchecked, true = live, false = not live
+
+function onTeamsSeeded({ teams }) {
+  toast.success(`${teams} team(s) are ready. Open the assignment's Teams tab to review them before publishing.`)
+}
 
 function onDiagnosticFixed({ type }) {
   if (type === 'publish_broker' || type === 'deploy_pages') {
@@ -1242,6 +1302,9 @@ function emptyForm() {
       min_team_size: 2,
       formation_mode: 'self-service',
       allow_team_creation: true,
+      // New assignments default to letting an unassigned student self-enrol;
+      // hand-written YAML without the key keeps the stricter historical 'block'.
+      unassigned_fallback: 'self-service',
     },
   }
 }
@@ -1493,6 +1556,7 @@ function editAssignment(a) {
       min_team_size: a.group_config?.min_team_size || 2,
       formation_mode: a.group_config?.formation_mode || 'self-service',
       allow_team_creation: a.group_config?.allow_team_creation !== false,
+      unassigned_fallback: a.group_config?.unassigned_fallback === 'self-service' ? 'self-service' : 'block',
     },
   }
   templateSearchText.value = form.value.template || ''
@@ -1593,6 +1657,12 @@ function buildDoc(state = null) {
             ...(form.value.group_config?.min_team_size ? { min_team_size: Number(form.value.group_config.min_team_size) } : {}),
             formation_mode: form.value.group_config?.formation_mode || 'self-service',
             allow_team_creation: form.value.group_config?.allow_team_creation !== false,
+            ...(form.value.group_config?.formation_mode === 'pre-assigned'
+              ? {
+                  unassigned_fallback:
+                    form.value.group_config?.unassigned_fallback === 'self-service' ? 'self-service' : 'block',
+                }
+              : {}),
           },
         }
       : {}),

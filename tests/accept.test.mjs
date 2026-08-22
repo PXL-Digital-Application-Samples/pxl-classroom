@@ -35,6 +35,14 @@ function runAccept(envOverrides = {}, setupData = null) {
       mkdirSync(join(dir, "assignments"), { recursive: true });
       writeFileSync(join(dir, "assignments", `${envOverrides.ASSIGNMENT_ID || "test-asgn"}.yml`), setupData.assignmentYaml);
     }
+    if (setupData.teams) {
+      for (const [assignmentId, slugs] of Object.entries(setupData.teams)) {
+        mkdirSync(join(dir, "teams", assignmentId), { recursive: true });
+        for (const [slug, doc] of Object.entries(slugs)) {
+          writeFileSync(join(dir, "teams", assignmentId, `${slug}.json`), JSON.stringify(doc));
+        }
+      }
+    }
     if (setupData.acceptances) {
       for (const [assignmentId, logins] of Object.entries(setupData.acceptances)) {
         mkdirSync(join(dir, "acceptances", assignmentId), { recursive: true });
@@ -679,4 +687,200 @@ template:
   );
   assert.equal(res.status, 1);
   assert.equal(res.outputs.outcome, "rejected:no-assigned-team");
+});
+
+// ---------------------------------------------------------------------------
+// Seeded teams: membership carried over from an earlier group assignment.
+// A seeded manifest IS the pre-assignment; the roster columns are the fallback.
+// ---------------------------------------------------------------------------
+
+const SEEDED_ALPHA = {
+  schema_version: 1,
+  assignment_id: "test-asgn",
+  team_slug: "alpha",
+  team_name: "Alpha Team",
+  members: ["alice", "bob"],
+  max_members: 3,
+  seeded_from: { source: "assignment", assignment_id: "prev-asgn", seeded_at: "2026-09-01T10:00:00Z" },
+};
+
+function preAssignedYaml(extra = "") {
+  return `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  formation_mode: pre-assigned
+  max_team_size: 3${extra}
+template:
+  owner: TestOrg
+  repository: tpl`;
+}
+
+function selfServiceYaml() {
+  return `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  formation_mode: self-service
+  max_team_size: 3
+template:
+  owner: TestOrg
+  repository: tpl`;
+}
+
+test("seeded team - pre-assigned member accepts with no team in the payload", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
+    { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(res.outputs.team_slug, "alpha");
+  assert.equal(res.outputs.team_name, "Alpha Team");
+  assert.equal(res.outputs.target_repo, "asgn-alpha");
+});
+
+test("seeded team - a second member of the same team accepts into the same repo", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "102" },
+    { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.target_repo, "asgn-alpha");
+  const team = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "alpha.json"), "utf8"));
+  assert.deepEqual(team.members, ["alice", "bob"]);
+});
+
+test("seeded team - pre-assigned student cannot join a different team", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "beta" },
+    { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:team-not-assigned");
+});
+
+test("seeded team - pre-assigned student cannot create a team via team_name either", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "My Own Team" },
+    { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:team-not-assigned");
+});
+
+test("seeded team - requesting your own team is idempotent, not a switch", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "alpha" },
+    { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.previous_repo, "");
+  const team = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "alpha.json"), "utf8"));
+  assert.deepEqual(team.members, ["alice", "bob"]);
+});
+
+test("unassigned fallback - block (the default) still rejects", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "105", TEAM_NAME: "Latecomers" },
+    { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:no-assigned-team");
+});
+
+test("unassigned fallback - self-service lets a late enroller form their own team", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "105", TEAM_NAME: "Latecomers" },
+    {
+      assignmentYaml: preAssignedYaml("\n  unassigned_fallback: self-service"),
+      teams: { "test-asgn": { alpha: SEEDED_ALPHA } },
+    }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.team_slug, "latecomers");
+  const team = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "latecomers.json"), "utf8"));
+  assert.deepEqual(team.members, ["dave"]);
+});
+
+test("unassigned fallback - self-service still requires the student to name a team", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "105" },
+    {
+      assignmentYaml: preAssignedYaml("\n  unassigned_fallback: self-service"),
+      teams: { "test-asgn": { alpha: SEEDED_ALPHA } },
+    }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:no-team");
+});
+
+test("unassigned fallback - an assigned student is unaffected by the fallback", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "beta" },
+    {
+      assignmentYaml: preAssignedYaml("\n  unassigned_fallback: self-service"),
+      teams: { "test-asgn": { alpha: SEEDED_ALPHA } },
+    }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:team-not-assigned");
+});
+
+test("seeded team - a non-member cannot exceed the seeded team's capacity", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "103", TEAM_SLUG: "alpha" },
+    {
+      assignmentYaml: `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  max_team_size: 2
+template:
+  owner: TestOrg
+  repository: tpl`,
+      teams: { "test-asgn": { alpha: { ...SEEDED_ALPHA, max_members: 2 } } },
+    }
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.outputs.outcome, "rejected:team-full");
+});
+
+test("self-service - a seeded team is the default when the payload names none", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.team_slug, "alpha");
+});
+
+test("self-service - a student may switch away from their seeded team", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Fresh Start" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.team_slug, "fresh-start");
+  assert.equal(res.outputs.previous_repo, "asgn-alpha");
+  const alpha = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "alpha.json"), "utf8"));
+  assert.deepEqual(alpha.members, ["bob"]);
+  assert.notEqual(alpha.vacant, true);
+});
+
+test("roster pre-assignment still resolves when no team file exists yet", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
+    {
+      assignmentYaml: preAssignedYaml(),
+      roster: {
+        schema_version: 2,
+        students: [
+          { student_number: "1", full_name: "Alice", github_login: "alice", teams: { "test-asgn": "exam-pair-4" } },
+        ],
+      },
+    }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.team_slug, "exam-pair-4");
 });

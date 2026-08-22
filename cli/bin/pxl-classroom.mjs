@@ -11,6 +11,7 @@ import { registerFeedbackCommand } from "../src/commands/feedback.mjs";
 import { registerDownloadCommand } from "../src/commands/download.mjs";
 import { registerGradeCommand } from "../src/commands/grade.mjs";
 import { registerSyncStarterCommand } from "../src/commands/sync-starter.mjs";
+import { registerTeamsCommand } from "../src/commands/teams.mjs";
 
 const program = new Command();
 
@@ -34,6 +35,7 @@ registerFeedbackCommand(program, context);
 registerDownloadCommand(program, context);
 registerGradeCommand(program, context);
 registerSyncStarterCommand(program, context);
+registerTeamsCommand(program, context);
 
 program.parseAsync(process.argv).catch((err) => {
   if (err?.code === "ABORT") {

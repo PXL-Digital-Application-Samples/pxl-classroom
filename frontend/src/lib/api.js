@@ -6,6 +6,7 @@
 import { clearAuth } from './auth.js'
 import { READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 import { toast } from './toast.js'
+import { commitWithRebase } from '../../../lib/gittree.mjs'
 
 const API_BASE = 'https://api.github.com'
 
@@ -288,6 +289,54 @@ export async function commitFile(token, owner, repo, path, contentStr, message) 
   if (sha) body.sha = sha
 
   return ghApi(token, 'PUT', `/repos/${owner}/${repo}/contents/${path}`, body)
+}
+
+/**
+ * Commit several files in a SINGLE commit via the Git Data API.
+ *
+ * Seeding 33 teams through commitFile() would be 33 commits and 66 writes
+ * against a ~80/min secondary rate limit; this is one commit and one history
+ * entry the lecturer can revert in one click.
+ */
+export async function commitFiles(token, owner, repo, changes, message, { branch = 'main', signal } = {}) {
+  try {
+    const res = await commitWithRebase({ token, owner, repo, branch, message, changes, signal })
+    return { ok: true, commitSha: res.commitSha, attempts: res.attempts }
+  } catch (e) {
+    if (e?.status === 401) handleSessionExpiry()
+    return { ok: false, status: e?.status ?? 0, error: e?.message || 'commit failed' }
+  }
+}
+
+/**
+ * Read every team manifest of an assignment from the control repo.
+ * The manifests are authoritative; reports/<id>.json is a derived snapshot.
+ */
+export async function listTeams(token, org, controlRepo, assignmentId, { concurrency = 6 } = {}) {
+  let files = []
+  try {
+    files = await listRepoDir(token, org, controlRepo, `teams/${assignmentId}`)
+  } catch (e) {
+    if (e.status === 404) return []
+    throw e
+  }
+  const jsons = files.filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+  const out = []
+  let cursor = 0
+  async function worker() {
+    while (cursor < jsons.length) {
+      const f = jsons[cursor++]
+      try {
+        const text = await getRepoContent(token, org, controlRepo, f.path)
+        if (text) out.push(JSON.parse(text))
+      } catch {
+        // A single unreadable manifest must not sink the whole read - the
+        // caller surfaces the count so a short list is visible, not silent.
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, jsons.length || 1) }, worker))
+  return out.sort((a, b) => String(a.team_slug).localeCompare(String(b.team_slug)))
 }
 
 /**

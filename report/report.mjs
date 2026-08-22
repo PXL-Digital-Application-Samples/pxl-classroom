@@ -392,6 +392,7 @@ async function main() {
       preservation_status: firstMember?.preservation_status || null,
       preserved_sha: firstMember?.preserved_sha || null,
       under_capacity: underCapacity,
+      ...(t.seeded_from ? { seeded_from: t.seeded_from } : {}),
       warnings,
     };
   });

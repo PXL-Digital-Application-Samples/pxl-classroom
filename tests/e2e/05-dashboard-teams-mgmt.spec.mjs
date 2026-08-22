@@ -55,7 +55,8 @@ test.describe('05 - Lecturer Dashboard & Team Management', () => {
     await expect(heading).toContainText('group-hw');
 
     // Switch to Teams tab if present
-    const teamsTab = page.locator('button, .tab-item', { hasText: /Teams/i });
+    // Precise: the toolbar's "Seed teams" button also matches a loose /Teams/i.
+    const teamsTab = page.locator('.tab-pill', { hasText: /Teams View/i });
     if (await teamsTab.isVisible()) {
       await teamsTab.click();
     }
@@ -112,7 +113,8 @@ test.describe('05 - Lecturer Dashboard & Team Management', () => {
 
     await page.goto(`/dashboard/${ORG}/group-manage`);
 
-    const teamsTab = page.locator('button, .tab-item', { hasText: /Teams/i });
+    // Precise: the toolbar's "Seed teams" button also matches a loose /Teams/i.
+    const teamsTab = page.locator('.tab-pill', { hasText: /Teams View/i });
     if (await teamsTab.isVisible()) {
       await teamsTab.click();
     }

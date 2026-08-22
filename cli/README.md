@@ -54,6 +54,34 @@ pxl-classroom auth logout   # wipe the cached token (config preserved)
 
 Set `PXL_APP_CLIENT_ID` in your shell to skip the `--client-id` flag.
 
+## Carrying groups forward (`teams`)
+
+Group membership is stored per assignment, so a second group assignment would
+otherwise make students re-form the same teams. `teams seed` copies an existing
+grouping into a target assignment; students then confirm the group they already
+work in with one click.
+
+```bash
+pxl-classroom teams sources --org PXLAutomation
+pxl-classroom teams seed --org PXLAutomation   --from linux-processes-2026 --to linux-networking-2026 --dry-run
+```
+
+`--dry-run` prints the plan and writes nothing. Drop it to apply: every team
+lands in one commit and `regenerate-dashboard.yml` is dispatched so the teams
+become visible to students (`--no-publish` skips that, and they stay hidden).
+
+- `--from-roster` uses the roster's `team_slug` / `team_name` columns instead of
+  a previous assignment - the bootstrap case, before any group assignment exists.
+- `--yes` applies without prompting when the plan has warnings. Without a TTY and
+  without `--yes`, a plan with warnings exits non-zero rather than guessing.
+- Exit code 2 means the plan was refused outright: a team larger than the target's
+  maximum team size, a repository name pattern shared with the source (which would
+  hand students the previous assignment's repositories), or a pattern with no
+  `{team_slug}`.
+
+`pxl-classroom teams list --assignment <id>` prints the manifests, marking which
+teams were seeded and from where.
+
 ## Configuration
 
 | Location | Purpose |

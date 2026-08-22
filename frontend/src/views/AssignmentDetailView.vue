@@ -434,6 +434,7 @@
           :assignment="assignment"
           :org="org"
           :roster="roster"
+          :students="report.students || []"
           @refresh="loadAll"
         />
 
@@ -1649,6 +1650,80 @@ async function onAuthenticated(authedUser) {
 }
 
 
+// teams/<id>/<slug>.json is the authoritative membership; reports/<id>.json is a
+// snapshot the nightly or a dashboard regeneration writes. Two cases would
+// otherwise show an empty Teams tab: a grouping seeded seconds ago (the
+// regeneration is still running) and any team on a DRAFT assignment, which
+// never gets an interim report at all - so "seed, review, then publish" would
+// have had nothing to review.
+async function mergeTeamManifests(token) {
+  if (assignment.value?.assignment_type !== 'group') return
+
+  let files = []
+  try {
+    files = await listRepoDir(token, props.org, config.controlRepo, `teams/${props.assignmentId}`)
+  } catch (e) {
+    if (e.status !== 404) console.warn('Could not list team manifests:', e.message)
+    return
+  }
+  const manifests = files
+    .filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+    .map((f) => ({ slug: f.name.replace(/\.json$/, ''), path: f.path }))
+  if (manifests.length === 0) return
+
+  if (!report.value && assignment.value?.state === 'draft') {
+    // A draft has no acceptances by definition, so an empty student list is the
+    // truth rather than a data-shaped stand-in for a missing report.
+    report.value = {
+      schema_version: 1,
+      assignment_id: props.assignmentId,
+      assignment_title: assignment.value?.title || props.assignmentId,
+      org: props.org,
+      generated_at: null,
+      students: [],
+      teams: [],
+    }
+  }
+  if (!report.value) return
+
+  const known = new Set((report.value.teams || []).map((t) => String(t.team_slug).toLowerCase()))
+  const missing = manifests.filter((m) => !known.has(m.slug.toLowerCase()))
+  if (missing.length === 0) return
+
+  const minSize = Number(assignment.value?.group_config?.min_team_size) || 0
+  const docs = await Promise.all(
+    missing.map(async (m) => {
+      try {
+        const text = await getRepoContent(token, props.org, config.controlRepo, m.path)
+        return text ? JSON.parse(text) : null
+      } catch {
+        return null
+      }
+    })
+  )
+
+  const extra = docs
+    .filter((d) => d && d.team_slug && d.vacant !== true)
+    .map((d) => ({
+      team_slug: d.team_slug,
+      team_name: d.team_name || d.team_slug,
+      members: d.members || [],
+      repo_name: d.repo_name || null,
+      repo_url: d.repo_url || null,
+      submission_status: 'no-submission',
+      commit_count: null,
+      under_capacity: minSize > 0 && (d.members || []).length < minSize,
+      ...(d.seeded_from ? { seeded_from: d.seeded_from } : {}),
+      warnings: [],
+    }))
+
+  if (extra.length) {
+    report.value.teams = [...(report.value.teams || []), ...extra].sort((a, b) =>
+      String(a.team_slug).localeCompare(String(b.team_slug))
+    )
+  }
+}
+
 async function loadAll() {
   const token = getToken()
   if (!token) { loading.value = false; return }
@@ -1679,6 +1754,8 @@ async function loadAll() {
         console.warn('Failed to parse roster:', e)
       }
     }
+
+    await mergeTeamManifests(token)
 
     if (report.value && assignment.value?.feedback_pr === true) {
       await mergeRepoRecordsIntoReport(token)

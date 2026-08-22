@@ -69,6 +69,14 @@ export async function setupStandardMockRoutes(page, {
   invitations = [],
   brokerIssues = [],
   roster = null,
+  // Team manifests as they exist in the CONTROL repo (teams/<id>/<slug>.json),
+  // as opposed to `teams`, which is the generated public Pages payload.
+  controlTeams = {},
+  // Caller-owned sinks. The fixture pushes one entry per Git Data API commit
+  // ({ message, files: [{ path, content }] }) and per workflow_dispatch
+  // ({ workflow, inputs }), so a spec can assert what was actually written.
+  gitCommits = [],
+  workflowDispatches = [],
   // What GET /apps/{slug} reports the App declares. Defaults to a healthy App;
   // drop a key to reproduce an App that predates a manifest permission.
   appPermissions = { ...MANIFEST_APP_PERMISSIONS },
@@ -114,6 +122,13 @@ export async function setupStandardMockRoutes(page, {
 
   // In-memory dynamic files committed during the test session
   const dynamicFiles = new Map();
+  const gitBlobs = new Map();
+  let pendingTree = [];
+  for (const [asgnId, list] of Object.entries(controlTeams)) {
+    for (const team of list) {
+      dynamicFiles.set(`teams/${asgnId}/${team.team_slug}.json`, JSON.stringify(team, null, 2));
+    }
+  }
   if (roster) {
     const yamlContent = typeof roster === 'string' ? roster : yamlStringify({ students: roster });
     dynamicFiles.set('students/roster.yml', yamlContent);
@@ -251,6 +266,55 @@ export async function setupStandardMockRoutes(page, {
         return;
       }
 
+      // Git Data API - what commitFiles()/lib/gittree.mjs drives. Blob content
+      // is remembered so the tree POST can record the real file bodies, and the
+      // written paths land in dynamicFiles so a later contents GET sees them.
+      if (url.includes('/git/')) {
+        // gittree encodes the ref, so the URL carries /git/ref/heads%2Fmain
+        if (method === 'GET' && url.includes('/git/ref/')) {
+          await route.fulfill({ status: 200, body: JSON.stringify({ object: { sha: 'parent_commit_sha' } }) });
+          return;
+        }
+        if (method === 'GET' && /\/git\/commits\//.test(url)) {
+          await route.fulfill({
+            status: 200,
+            body: JSON.stringify({ sha: 'parent_commit_sha', tree: { sha: 'parent_tree_sha' } }),
+          });
+          return;
+        }
+        if (method === 'POST' && url.includes('/git/blobs')) {
+          const body = route.request().postDataJSON();
+          const sha = `blob_${gitBlobs.size + 1}`;
+          gitBlobs.set(sha, Buffer.from(body.content || '', 'base64').toString('utf8'));
+          await route.fulfill({ status: 201, body: JSON.stringify({ sha }) });
+          return;
+        }
+        if (method === 'POST' && url.includes('/git/trees')) {
+          const body = route.request().postDataJSON();
+          pendingTree = (body.tree || []).map((entry) => ({
+            path: entry.path,
+            content: entry.sha === null ? null : gitBlobs.get(entry.sha) ?? null,
+          }));
+          for (const f of pendingTree) {
+            if (f.content === null) dynamicFiles.delete(f.path);
+            else dynamicFiles.set(f.path, f.content);
+          }
+          await route.fulfill({ status: 201, body: JSON.stringify({ sha: 'new_tree_sha' }) });
+          return;
+        }
+        if (method === 'POST' && url.includes('/git/commits')) {
+          const body = route.request().postDataJSON();
+          gitCommits.push({ message: body.message, files: pendingTree });
+          pendingTree = [];
+          await route.fulfill({ status: 201, body: JSON.stringify({ sha: 'new_commit_sha' }) });
+          return;
+        }
+        if (method === 'PATCH' && url.includes('/git/refs/')) {
+          await route.fulfill({ status: 200, body: JSON.stringify({ object: { sha: 'new_commit_sha' } }) });
+          return;
+        }
+      }
+
       if (url.includes('/collaborators/')) {
         if (method === 'PUT') {
           await route.fulfill({ status: 201, body: JSON.stringify({ id: 101, permissions: 'admin' }) });
@@ -324,6 +388,17 @@ export async function setupStandardMockRoutes(page, {
           return;
         }
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      } else if (/\/pxl-classroom-control\/contents\/teams\/[^/?#]+(\?|$)/.test(url)) {
+        // Directory listing for teams/<assignment-id>
+        const dirMatch = url.match(/\/contents\/teams\/([^/?#]+)/);
+        const asgnId = dirMatch ? dirMatch[1] : null;
+        const entries = [];
+        for (const [path] of dynamicFiles.entries()) {
+          if (!path.startsWith(`teams/${asgnId}/`) || !path.endsWith('.json')) continue;
+          entries.push({ name: path.split('/').pop(), path, type: 'file' });
+        }
+        await route.fulfill({ status: 200, body: JSON.stringify(entries) });
         return;
       } else if (url.includes('/pxl-classroom-control/contents/teams/')) {
         const match = url.match(/\/contents\/teams\/([^/?#]+)\/([^/?#]+)\.json/);
@@ -417,6 +492,10 @@ export async function setupStandardMockRoutes(page, {
       } else if (url.includes('/pxl-classroom-control/contents/assignments.yml') || url.includes('/pxl-classroom-control/contents/roster.yml')) {
         await route.fulfill({ status: 200, body: JSON.stringify({ content: '', encoding: 'base64' }) });
       } else if (url.includes('/actions/workflows/') && url.includes('/dispatches')) {
+        const wf = url.match(/\/workflows\/([^/]+)\/dispatches/);
+        let inputs = null;
+        try { inputs = route.request().postDataJSON()?.inputs ?? null; } catch {}
+        workflowDispatches.push({ workflow: wf ? decodeURIComponent(wf[1]) : null, inputs });
         await route.fulfill({ status: 204, body: '' });
         return;
       } else if (url.includes('/compare/')) {

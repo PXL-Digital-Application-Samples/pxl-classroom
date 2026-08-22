@@ -58,3 +58,60 @@ export async function listRepoRecords(octokit, { org, assignmentId }) {
   }
   return records;
 }
+
+export async function listTeams(octokit, { org, assignmentId }) {
+  let files = [];
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: `teams/${assignmentId}`,
+    });
+    files = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    if (e.status === 404) return [];
+    throw e;
+  }
+  const teams = [];
+  for (const f of files) {
+    if (f.type !== "file" || !f.name.endsWith(".json")) continue;
+    const r = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: f.path,
+    });
+    teams.push(JSON.parse(Buffer.from(r.data.content, "base64").toString("utf8")));
+  }
+  return teams.sort((a, b) => String(a.team_slug).localeCompare(String(b.team_slug)));
+}
+
+export async function getRoster(octokit, { org }) {
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: "students/roster.yml",
+    });
+    return yamlParse(Buffer.from(res.data.content, "base64").toString("utf8"));
+  } catch (e) {
+    if (e.status === 404) return null;
+    throw e;
+  }
+}
+
+export async function listAssignments(octokit, { org }) {
+  let files = [];
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: "assignments",
+    });
+    files = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    if (e.status === 404) return [];
+    throw e;
+  }
+  const docs = [];
+  for (const f of files) {
+    if (f.type !== "file" || !f.name.endsWith(".yml")) continue;
+    const r = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: f.path,
+    });
+    const doc = yamlParse(Buffer.from(r.data.content, "base64").toString("utf8"));
+    docs.push({ ...doc, id: doc.id || f.name.replace(/\.yml$/, "") });
+  }
+  return docs;
+}

@@ -245,6 +245,42 @@ Done by a lecturer.
 
 5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
+### 4.2b Reuse the groups from an earlier group assignment
+
+Students should not have to re-form the same teams for every group assignment. Seeding copies an existing grouping into the new assignment; each student then confirms their group with one click instead of picking a team.
+
+1. Create and **save** the new group assignment first - teams are stored under its ID, and the seed reads its team size and repository pattern, so the button stays disabled while the form has unsaved edits.
+2. Open the assignment's **Teams** tab (or the group section of the editor) and click **Seed teams**.
+3. Pick a source:
+   - **A previous group assignment** - the normal choice. It carries the *final* membership, including switches and dropouts, so always seed from the most recent grouping rather than from the first one.
+   - **The roster's team columns** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster tab's CSV import (§12.4) first.
+4. Review the plan. It lists every team and its members before anything is written, and refuses outright if:
+   - a team is larger than the new assignment's maximum team size (raise the maximum or split the team - members are never dropped silently);
+   - the new assignment shares a repository name pattern with the source. **Fix this one before anything else**: both assignments would resolve to the same repository names, and provisioning would hand students the previous assignment's locked-down repository instead of a fresh one;
+   - the pattern has no `{team_slug}`.
+5. Warnings do not block. Expect them for students who left the roster, teams below the minimum size, and teams students have already formed in the new assignment (those are kept untouched - seeding never overwrites real membership).
+6. Applying writes every team in one commit and dispatches `regenerate-dashboard.yml`, which is what makes the teams visible to students. Nothing is published while the assignment is still a draft, so seed, review in the Teams tab, adjust, and publish.
+
+Afterwards the Teams tab shows a "carried over from …" line, and members with no acceptance yet are dimmed with a per-team "N not accepted yet" count. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
+
+Headless equivalent:
+
+```bash
+pxl-classroom teams seed --org <org> --from <previous-assignment-id> --to <new-assignment-id> --dry-run
+```
+
+Drop `--dry-run` to apply. `--from-roster` uses the roster columns instead; `--yes` skips the confirmation prompt when the plan has warnings; `--no-publish` skips the dashboard regeneration (the teams then stay invisible to students until it runs).
+
+**Students with no carried-over group** - late enrollers, Erasmus arrivals, anyone whose partners all dropped out - depend on the assignment's formation mode:
+
+| Formation mode | Unassigned student sees |
+|---|---|
+| Self-service (default) | The normal join/create tabs. Nothing to configure. |
+| Pre-assigned, "Let students with no assigned team form their own" **off** | "No Pre-Assigned Team - contact your instructor". You add them from the Teams tab. |
+| Pre-assigned, that box **on** | The join/create tabs, exactly like self-service. |
+
+Under self-service, a carried-over group is a strong default rather than a lock: the student can still use **Choose a different group**. Under pre-assigned, they cannot, and a request naming another team is rejected server-side.
+
 ### 4.3 Publish
 
 In the editor -> click **Save & publish** (on an existing draft, the Lifecycle section's **Publish (create broker, enable nightly)** does the same). The panel watches for the broker repo and confirms when the accept link is live.

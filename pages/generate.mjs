@@ -111,6 +111,21 @@ async function main() {
                 member_count: (tdata.members || []).length,
                 max_members: maxMem,
                 is_full: (tdata.members || []).length >= maxMem,
+                // Provenance only - the source assignment's id and title are
+                // already public. Never the lecturer login or the seed time.
+                ...(tdata.seeded_from
+                  ? {
+                      seeded_from: {
+                        source: tdata.seeded_from.source,
+                        ...(tdata.seeded_from.assignment_id
+                          ? { assignment_id: tdata.seeded_from.assignment_id }
+                          : {}),
+                        ...(tdata.seeded_from.assignment_title
+                          ? { assignment_title: tdata.seeded_from.assignment_title }
+                          : {}),
+                      },
+                    }
+                  : {}),
               });
             }
           } catch {}

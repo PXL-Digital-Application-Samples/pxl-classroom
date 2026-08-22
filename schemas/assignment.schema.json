@@ -19,10 +19,20 @@
     {
       "$comment": "Open enrollment removes the roster gate, leaving max_acceptances as the only limit on who can claim a repo. It is therefore mandatory whenever roster_mode is open.",
       "if": {
-        "properties": { "roster_mode": { "const": "open" } },
-        "required": ["roster_mode"]
+        "properties": {
+          "roster_mode": {
+            "const": "open"
+          }
+        },
+        "required": [
+          "roster_mode"
+        ]
       },
-      "then": { "required": ["max_acceptances"] }
+      "then": {
+        "required": [
+          "max_acceptances"
+        ]
+      }
     }
   ],
   "properties": {
@@ -53,7 +63,10 @@
     "template": {
       "type": "object",
       "description": "Source template repository used to create student repos.",
-      "required": ["owner", "repository"],
+      "required": [
+        "owner",
+        "repository"
+      ],
       "additionalProperties": false,
       "properties": {
         "owner": {
@@ -74,14 +87,19 @@
     },
     "assignment_type": {
       "type": "string",
-      "enum": ["individual", "group"],
+      "enum": [
+        "individual",
+        "group"
+      ],
       "default": "individual",
       "description": "Whether this is an individual student assignment or a group assignment."
     },
     "group_config": {
       "type": "object",
       "description": "Configuration for group assignments when assignment_type is 'group'.",
-      "required": ["max_team_size"],
+      "required": [
+        "max_team_size"
+      ],
       "additionalProperties": false,
       "properties": {
         "max_team_size": {
@@ -98,7 +116,10 @@
         },
         "formation_mode": {
           "type": "string",
-          "enum": ["self-service", "pre-assigned"],
+          "enum": [
+            "self-service",
+            "pre-assigned"
+          ],
           "default": "self-service",
           "description": "How teams are formed: self-service (students pick/create) or pre-assigned (from roster)."
         },
@@ -111,6 +132,15 @@
           "type": "string",
           "pattern": "^[a-z0-9-]*$",
           "description": "Optional prefix automatically added to new team names."
+        },
+        "unassigned_fallback": {
+          "type": "string",
+          "enum": [
+            "block",
+            "self-service"
+          ],
+          "default": "block",
+          "description": "Only meaningful when formation_mode is 'pre-assigned'. 'block' (default) rejects a student who has no assigned team; 'self-service' lets them join or create a team instead, so late enrollers are not stuck waiting for the lecturer."
         }
       }
     },
@@ -141,31 +171,51 @@
     },
     "student_permission": {
       "type": "string",
-      "enum": ["pull", "triage", "push", "maintain", "admin"],
+      "enum": [
+        "pull",
+        "triage",
+        "push",
+        "maintain",
+        "admin"
+      ],
       "default": "admin",
       "description": "Permission level granted to the student on their repository."
     },
     "acceptance_mode": {
       "type": "string",
-      "enum": ["self-service", "pre-provisioned"],
+      "enum": [
+        "self-service",
+        "pre-provisioned"
+      ],
       "default": "self-service",
       "description": "How student repos are created: self-service (star event) or pre-provisioned."
     },
     "roster_mode": {
       "type": "string",
-      "enum": ["enforced", "open"],
+      "enum": [
+        "enforced",
+        "open"
+      ],
       "default": "enforced",
       "description": "Who may accept. 'enforced' (default) requires the student's login in students/roster.yml. 'open' allows any GitHub account within the opens_at..deadline_at window and below max_acceptances; the lecturer reconciles logins to students afterward."
     },
     "late_policy": {
       "type": "string",
-      "enum": ["report", "block"],
+      "enum": [
+        "report",
+        "block"
+      ],
       "default": "report",
       "description": "What happens on late submissions: report only, or block pushes."
     },
     "state": {
       "type": "string",
-      "enum": ["draft", "published", "closed", "archived"],
+      "enum": [
+        "draft",
+        "published",
+        "closed",
+        "archived"
+      ],
       "default": "draft",
       "description": "Lifecycle state of the assignment."
     },
@@ -193,7 +243,10 @@
     "autograde": {
       "type": "object",
       "description": "Optional autograder configuration. Tests can be executed on the lecturer's machine or on GitHub Actions.",
-      "required": ["enabled", "tests"],
+      "required": [
+        "enabled",
+        "tests"
+      ],
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -203,13 +256,19 @@
         },
         "execution_environment": {
           "type": "string",
-          "enum": ["lecturer_local", "github_actions"],
+          "enum": [
+            "lecturer_local",
+            "github_actions"
+          ],
           "default": "lecturer_local",
           "description": "Where the tests are executed."
         },
         "visibility": {
           "type": "string",
-          "enum": ["public", "private"],
+          "enum": [
+            "public",
+            "private"
+          ],
           "default": "private",
           "description": "If 'private' and execution_environment is github_actions, uses a reusable workflow to hide tests in the control repo."
         },
@@ -218,7 +277,11 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["id", "type", "points"],
+            "required": [
+              "id",
+              "type",
+              "points"
+            ],
             "additionalProperties": false,
             "properties": {
               "id": {
@@ -228,7 +291,11 @@
               },
               "type": {
                 "type": "string",
-                "enum": ["run", "io", "python"],
+                "enum": [
+                  "run",
+                  "io",
+                  "python"
+                ],
                 "description": "Test taxonomy. `run` executes a shell command; `io` runs a command with stdin and compares stdout; `python` runs a Python script."
               },
               "command": {

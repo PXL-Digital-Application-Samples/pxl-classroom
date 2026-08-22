@@ -153,41 +153,17 @@ async function main() {
   let isFirstMember = true;
 
   if (isGroup) {
-    // If no team_slug provided, attempt to resolve pre-assigned team from roster
-    if (!teamSlug && roster) {
-      const rosterStudent = (roster.students || []).find(
-        (s) => s.github_login?.toLowerCase() === login.toLowerCase()
-      );
-      if (rosterStudent) {
-        const preassigned = rosterStudent.teams?.[assignmentId] || rosterStudent.team_slug;
-        if (preassigned) {
-          teamSlug = preassigned;
-          teamName = rosterStudent.team_name || teamSlug;
-          log("roster-team", { ok: true, note: `resolved pre-assigned team ${teamSlug} from roster` });
-        }
-      }
-    }
-
-    if (!teamSlug && teamName) {
-      teamSlug = teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    }
-    if (!teamSlug) {
-      if (assignment.group_config?.formation_mode === "pre-assigned") {
-        await fail("rejected:no-assigned-team", `student @${login} has no pre-assigned team in the roster`);
-      }
-      await fail("rejected:no-team", "team_slug or team_name is required for group assignments");
-    }
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(teamSlug)) {
-      await fail("rejected:invalid-team-slug", `team_slug "${teamSlug}" is not a valid slug`);
-    }
-
     const teamsDir = join(dataDir, "teams", assignmentId);
     await mkdir(teamsDir, { recursive: true });
 
+    // Which team already lists this student? Scanned before anything else,
+    // because a manifest that names them - a team seeded from last assignment,
+    // one a lecturer created, or one they joined earlier - is the strongest
+    // statement of where they belong.
     let oldTeam = null;
     let oldTeamFile = null;
     if (existsSync(teamsDir)) {
-      const teamFiles = (await readdir(teamsDir)).filter((f) => f.endsWith(".json"));
+      const teamFiles = (await readdir(teamsDir)).filter((f) => f.endsWith(".json")).sort();
       for (const tf of teamFiles) {
         try {
           const tdata = JSON.parse(await readFile(join(teamsDir, tf), "utf-8"));
@@ -198,6 +174,69 @@ async function main() {
           }
         } catch {}
       }
+    }
+
+    // Pre-assignment resolution: team manifest first, roster columns second.
+    let assignedSlug = oldTeam?.team_slug || null;
+    let assignedName = oldTeam?.team_name || null;
+    if (!assignedSlug && roster) {
+      const rosterStudent = (roster.students || []).find(
+        (s) => s.github_login?.toLowerCase() === login.toLowerCase()
+      );
+      const preassigned = rosterStudent?.teams?.[assignmentId] || rosterStudent?.team_slug;
+      if (preassigned) {
+        assignedSlug = preassigned;
+        assignedName = rosterStudent.team_name || preassigned;
+      }
+    }
+
+    const formationMode =
+      assignment.group_config?.formation_mode === "pre-assigned" ? "pre-assigned" : "self-service";
+    const unassignedFallback =
+      assignment.group_config?.unassigned_fallback === "self-service" ? "self-service" : "block";
+
+    if (formationMode === "pre-assigned" && assignedSlug) {
+      // The grouping is the lecturer's. A payload naming a different team is a
+      // stale tab or a hand-crafted request, never a legitimate switch - honour
+      // the assignment rather than silently redirecting, so the student is told.
+      const requested = teamSlug || slugify(teamName);
+      if (requested && requested.toLowerCase() !== assignedSlug.toLowerCase()) {
+        await fail(
+          "rejected:team-not-assigned",
+          `@${login} is assigned to team "${assignedSlug}"; teams are pre-assigned for this assignment and students cannot change them`
+        );
+      }
+      teamSlug = assignedSlug;
+      teamName = assignedName || assignedSlug;
+    } else if (formationMode === "pre-assigned" && unassignedFallback === "block") {
+      await fail("rejected:no-assigned-team", `student @${login} has no pre-assigned team in the roster`);
+    } else if (!teamSlug && !teamName && assignedSlug) {
+      // Self-service (or pre-assigned falling back): the assigned team is the
+      // default only when the student named none. Naming a different one is a
+      // switch, and switching stays open until the deadline.
+      teamSlug = assignedSlug;
+      teamName = assignedName || assignedSlug;
+    }
+
+    if (assignedSlug && teamSlug === assignedSlug) {
+      log("assigned-team", { ok: true, note: `resolved assigned team ${assignedSlug}` });
+    }
+
+    if (formationMode === "pre-assigned" && !assignedSlug) {
+      log("unassigned-fallback", {
+        ok: true,
+        note: `@${login} has no pre-assigned team - unassigned_fallback: self-service`,
+      });
+    }
+
+    if (!teamSlug && teamName) {
+      teamSlug = slugify(teamName);
+    }
+    if (!teamSlug) {
+      await fail("rejected:no-team", "team_slug or team_name is required for group assignments");
+    }
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(teamSlug)) {
+      await fail("rejected:invalid-team-slug", `team_slug "${teamSlug}" is not a valid slug`);
     }
 
     const teamFile = join(teamsDir, `${teamSlug}.json`);
@@ -338,6 +377,13 @@ async function main() {
       `| time | ${now.toISOString()} |\n`
   );
   log("done", { ok: true, note: "accepted" });
+}
+
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function deriveRepoName(pattern, teamSlugOrLogin, login) {

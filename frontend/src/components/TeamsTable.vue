@@ -52,6 +52,10 @@
       </div>
 
       <div class="toolbar-actions flex items-center gap-sm">
+        <button class="btn btn-sm btn-secondary btn-with-icon" @click="showSeedModal = true" title="Carry an existing grouping into this assignment">
+          <Icon name="users" :size="14" />
+          <span>Seed teams</span>
+        </button>
         <button class="btn btn-sm btn-primary btn-with-icon" @click="openCreateTeamModal">
           <Icon name="plus" :size="14" />
           <span>Create Team</span>
@@ -63,13 +67,39 @@
       </div>
     </div>
 
+    <!-- Provenance: one line for the whole table, not a badge on every row -->
+    <p v-if="seededSummary" class="seeded-note">
+      <Icon name="users" :size="13" />
+      <span>{{ seededSummary }}</span>
+    </p>
+    <p v-if="assignment?.state === 'draft' && teams.length" class="seeded-note">
+      <Icon name="eye-off" :size="13" />
+      <span>Draft — students cannot see these teams until the assignment is published.</span>
+    </p>
+
     <!-- Empty state -->
     <div v-if="filteredTeams.length === 0" class="empty-state card text-center py-xl">
       <Icon name="users" :size="40" class="status-icon" />
-      <p class="text-secondary">No teams match your search filter.</p>
-      <button class="btn btn-secondary btn-sm" style="margin-top: 8px;" @click="openCreateTeamModal">
-        Create a new team
-      </button>
+      <template v-if="teams.length === 0">
+        <p class="text-secondary">
+          No teams yet. Students form their own when they accept — or start from the groups they
+          already worked in.
+        </p>
+        <div class="flex gap-sm justify-center" style="margin-top: 8px;">
+          <button class="btn btn-secondary btn-sm" @click="showSeedModal = true">
+            Seed teams from a previous assignment
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="openCreateTeamModal">
+            Create a team
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <p class="text-secondary">No teams match your search filter.</p>
+        <button class="btn btn-secondary btn-sm" style="margin-top: 8px;" @click="openCreateTeamModal">
+          Create a new team
+        </button>
+      </template>
     </div>
 
     <!-- Teams Table -->
@@ -107,12 +137,17 @@
                     v-for="m in team.members"
                     :key="m"
                     class="member-pill"
-                    :title="resolveMemberTooltip(m)"
+                    :class="{ 'member-pending': !hasAccepted(m) }"
+                    :title="memberTitle(m)"
                   >
                     @{{ m }}
                   </span>
                 </div>
                 <span v-else class="text-muted text-xs">No members (vacant)</span>
+                <span v-if="pendingCount(team)" class="status-indicator member-pending-note">
+                  <span class="status-dot dot-warning"></span>
+                  <span>{{ pendingCount(team) }} not accepted yet</span>
+                </span>
               </div>
             </td>
 
@@ -359,6 +394,16 @@
       </div>
     </div>
 
+    <!-- Modal: Seed teams from an existing grouping -->
+    <SeedTeamsModal
+      v-if="showSeedModal"
+      :org="org"
+      :assignment="assignment"
+      :assignments="assignments"
+      @close="showSeedModal = false"
+      @seeded="emit('refresh')"
+    />
+
     <!-- Modal: Team Autograding Test Breakdown -->
     <div v-if="activeTeamAutograde" class="modal-overlay" @click.self="closeTeamAutogradeModal">
       <div class="modal card autograde-modal" role="dialog" aria-modal="true" :aria-label="`Autograding Results for ${activeTeamAutograde.team_name}`" style="max-width: 650px;">
@@ -427,8 +472,9 @@
 <script setup>
 import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
+import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
-import { commitFile, deleteFile, addCollaborator, removeCollaborator } from '../lib/api.js'
+import { commitFile, deleteFile, addCollaborator, removeCollaborator, triggerWorkflow } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 
@@ -437,12 +483,18 @@ const props = defineProps({
   assignment: { type: Object, required: true },
   org: { type: String, required: true },
   roster: { type: Array, default: () => [] },
+  // Report students - used to tell a seeded member apart from one who has
+  // actually accepted. Seeding grants nothing; only acceptance provisions.
+  students: { type: Array, default: () => [] },
+  // Other assignments in the org, offered as seeding sources.
+  assignments: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['refresh'])
 
 const searchQuery = ref('')
 const teamStatusFilter = ref('')
+const showSeedModal = ref(false)
 const showCreateModal = ref(false)
 const managingTeam = ref(null)
 const manageMembers = ref([])
@@ -471,6 +523,47 @@ function openTeamAutogradeModal(team) {
 function closeTeamAutogradeModal() {
   activeTeamAutograde.value = null
 }
+
+const acceptedLogins = computed(() => {
+  const set = new Set()
+  for (const s of props.students || []) {
+    if (!s.github_login) continue
+    // A student row exists for anyone on the roster; only an acceptance record
+    // (or a provisioned repo) means they actually joined.
+    if (s.acceptance_state === 'not-accepted' && !s.repo_url) continue
+    set.add(s.github_login.toLowerCase())
+  }
+  return set
+})
+
+function hasAccepted(login) {
+  if (!(props.students || []).length) return true
+  return acceptedLogins.value.has(String(login).toLowerCase())
+}
+
+function memberTitle(login) {
+  const base = resolveMemberTooltip(login)
+  return hasAccepted(login) ? base : `${base} - has not accepted yet, so has no repository access`
+}
+
+function pendingCount(team) {
+  if (!(props.students || []).length) return 0
+  return (team.members || []).filter((m) => !hasAccepted(m)).length
+}
+
+const seededSummary = computed(() => {
+  const seeded = props.teams.filter((t) => t.seeded_from)
+  if (seeded.length === 0) return ''
+  const titles = [
+    ...new Set(
+      seeded.map(
+        (t) => t.seeded_from.assignment_title || t.seeded_from.assignment_id || 'the roster'
+      )
+    ),
+  ]
+  const from = titles.length === 1 ? titles[0] : `${titles.length} sources`
+  return `${seeded.length} of ${props.teams.length} team(s) carried over from ${from}. Students confirm the group when they accept.`
+})
 
 const underCapacityCount = computed(() =>
   props.teams.filter((t) => t.under_capacity).length
@@ -581,6 +674,21 @@ function addMemberToTeam(login) {
   }
 }
 
+// Students never read the control repo - they read the generated public teams
+// file. A lecturer edit that skips this is invisible to them until the next
+// nightly run, which is exactly how lecturer-created teams used to vanish.
+async function republishTeams(token) {
+  try {
+    await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'regenerate-dashboard.yml', {
+      org: props.org,
+    })
+  } catch (e) {
+    toast.error(
+      `Team saved, but publishing it to students failed: ${e.message}. Use Regenerate dashboard from the assignment page.`
+    )
+  }
+}
+
 async function submitCreateTeam() {
   const slug = computedNewSlug.value
   if (!slug) return
@@ -608,6 +716,7 @@ async function submitCreateTeam() {
       `Create team ${slug} for ${props.assignment.id}`
     )
     if (res.ok) {
+      await republishTeams(token)
       toast.success(`Team "${newTeamForm.value.name}" created successfully.`)
       showCreateModal.value = false
       emit('refresh')
@@ -674,6 +783,7 @@ async function saveTeamMembers() {
       `Update members for team ${slug} (${props.assignment.id})`
     )
     if (res.ok) {
+      await republishTeams(token)
       toast.success(`Team "${managingTeam.value.team_name}" updated successfully.`)
       managingTeam.value = null
       emit('refresh')
@@ -708,6 +818,7 @@ async function deleteVacantTeam(team) {
       `Delete vacant team ${team.team_slug} (${props.assignment.id})`
     )
     if (res.ok) {
+      await republishTeams(token)
       toast.success(`Team "${team.team_name || team.team_slug}" deleted successfully.`)
       if (managingTeam.value?.team_slug === team.team_slug) {
         managingTeam.value = null
@@ -787,6 +898,27 @@ async function deleteVacantTeam(team) {
   padding: 1px 6px;
   border-radius: 4px;
   color: var(--text-secondary);
+}
+
+/* Seeded but not yet accepted: dimmed rather than badged, because a whole
+   cohort of "pending" pills would drown the members column (DESIGN.md §1.3). */
+.member-pill.member-pending {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+
+.member-pending-note {
+  margin-top: 4px;
+  font-size: 0.7rem;
+}
+
+.seeded-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 .commit-count-badge {

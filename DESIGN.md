@@ -315,4 +315,4 @@ An offline interactive workbench is available at the route **`/sandbox`**. It al
 - Inspect all tonal surface swatches, border contrast, and typography scales.
 - Interact with button hierarchies, sizes, and spinner states.
 - Test `.status-indicator` + `.status-dot` variants in data tables.
-- Launch `StarterSyncModal`, `SystemHealthModal`, and `TeamsTable` with realistic, deterministic mock data fixtures without requiring live GitHub API credentials.
+- Launch `StarterSyncModal`, `SystemHealthModal`, `SeedTeamsModal`, and `TeamsTable` with realistic, deterministic mock data fixtures without requiring live GitHub API credentials.

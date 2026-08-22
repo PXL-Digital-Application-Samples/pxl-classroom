@@ -229,6 +229,21 @@ Assignments can be polymorphic: `assignment_type: "individual"` (default) or `"g
 - **Sequential Concurrency:** `acceptance-handler.yml` sets concurrency group `accept-${org}-${assignment_id}-${team_slug || login}` to serialize concurrent joins and team creation, strictly guarding team capacity without distributed locks.
 - **Team Switching:** Students can switch teams prior to the deadline. On switch, `accept.mjs` revokes old team membership and marks 0-member teams as `vacant: true`; `provision.mjs` revokes collaborator access on the previous repository and grants access on the new team repository.
 - **Preservation & Reporting:** Lockdown demotes all team members to `pull`; preserve archives the submission to `refs/heads/preserved/<id>/<team-slug>`; `report.mjs` computes both a top-level `teams` array and student-level `team_slug`/`team_name` fields.
+- **Unassigned fallback:** `group_config.unassigned_fallback` (`block` | `self-service`, default `block`) decides what happens to a student with no assigned team under `formation_mode: pre-assigned`. `block` is the historical behaviour - the acceptance is rejected `rejected:no-assigned-team` and the SPA tells the student to contact their instructor. `self-service` lets them join or create a team instead, which is what keeps late enrollers and students whose partners dropped out from being stuck behind a lecturer action.
+- **Pre-assignment is enforced server-side.** Under `pre-assigned`, `accept.mjs` resolves the student's team from (1) a team manifest that already lists them, then (2) the roster's `teams[<assignment-id>]` / `team_slug` columns. A payload naming a *different* team is rejected `rejected:team-not-assigned` rather than silently redirected. Under `self-service` the resolved team is only a default: naming another team is a switch, and switching stays open until the deadline.
+
+#### 5.8.1 Carrying groups forward between assignments
+
+Team membership is per assignment by design, so a second group assignment would otherwise make students re-form the same groups. **Seeding** copies an existing grouping into a target assignment as real `teams/<id>/<team-slug>.json` manifests, which the student then confirms in one click.
+
+- **Sources:** an earlier group assignment's team manifests (the common case - they reflect every switch and dropout), or the roster's `team_slug` / `team_name` columns (the bootstrap case, before any group assignment exists). The roster is never written to; each assignment owns its own membership.
+- **Planner:** `lib/seed-teams.mjs` is pure and shared by the SPA (`SeedTeamsModal.vue`) and the CLI (`pxl-classroom teams seed`). It returns `{ok, errors, warnings, teams, changes}`; `ok: false` means nothing may be written.
+- **Blocking errors:** the target is not a group assignment; its `repository_name_pattern` has no `{team_slug}`; a source team exceeds the target's `max_team_size` (refused, never truncated); the source has no populated teams; or **target and source share a `repository_name_pattern`** - provisioning is idempotent on repository *existence*, so a colliding pattern would hand students the previous assignment's already-locked-down repository instead of a new one.
+- **Warnings (non-blocking):** carried-over students missing from the roster, teams below `min_team_size`, a cohort larger than `max_acceptances`, target teams that already have members (kept, never overwritten), and members already in another target team (dropped from the seeded team).
+- **Two invariants:** a login appears in at most **one** team file per assignment (`accept.mjs` finds "my team" by scanning the directory and taking the first match), and a target team that students already joined is never overwritten.
+- **Provenance:** seeded manifests carry `seeded_from` (`source`, `assignment_id`, `assignment_title`, `seeded_at`, `seeded_by`). `pages/generate.mjs` publishes only `source` / `assignment_id` / `assignment_title`, which the student card renders as "Carried over from <assignment>".
+- **Writes:** all team files land in **one** commit via `lib/gittree.mjs` (33 teams through the Contents API would be 33 commits against a ~80 writes/min secondary limit), followed by a `regenerate-dashboard.yml` dispatch - students read the generated public teams file, never the control repo, so a seed that skips the regeneration is invisible to them.
+- **Seeding is not enrolment.** A seeded team owns no repository until a member accepts; the first accepter generates it from the template and the rest are added as collaborators when they accept. The lecturer's Teams tab dims members with no acceptance record and counts them per team.
 
 ---
 
@@ -520,7 +535,7 @@ The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated P
 
 ### 10.5 CLI companion
 
-The `cli/` workspace ships a `pxl-classroom` command - an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, install audits, feedback-PR orchestration, bulk submission download, autograding runs). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
+The `cli/` workspace ships a `pxl-classroom` command - an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, install audits, feedback-PR orchestration, bulk submission download, autograding runs, carrying groups forward with `teams seed`). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
 
 The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (accepts an Octokit-style request fn or a plain `{ fetch, token }`), so the CLI, workflow scripts, and the SPA can share it without dependency lock-in.
 
