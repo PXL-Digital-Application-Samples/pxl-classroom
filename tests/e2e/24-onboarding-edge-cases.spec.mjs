@@ -159,4 +159,61 @@ test.describe('24 - Onboarding edge cases', () => {
     expect(calls, 'pagination must be bounded').toBeLessThanOrEqual(50);
     expect(calls, 'and must actually have paginated').toBeGreaterThan(1);
   });
+
+  test('Returning from GitHub surfaces the new org without a manual reload', async ({ page }) => {
+    // Found in live testing. The refetch was gated on the view "could change",
+    // which excluded the normal case - a lecturer on a HEALTHY dashboard adding
+    // a second org - so coming back from GitHub did nothing and they had to
+    // work out that a reload was needed. The gate was an optimisation that
+    // broke the feature it was optimising.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+
+    let installs = [{ id: 1, account: { login: ORG, type: 'Organization' } }];
+    await page.route('https://api.github.com/user/installations**', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ total_count: installs.length, installations: installs }) }));
+
+    await page.goto(`/dashboard/${ORG}`);
+    await expect(page.locator('.org-dropdown-btn')).toBeVisible();
+
+    // Installed elsewhere, in another tab.
+    installs = [...installs, { id: 2, account: { login: 'Newly-Connected-Org', type: 'Organization' } }];
+
+    // Came back to this one.
+    await page.evaluate(() => {
+      const flip = (v) => {
+        Object.defineProperty(document, 'visibilityState', { value: v, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      flip('hidden'); flip('visible');
+    });
+
+    await expect
+      .poll(async () => {
+        await page.locator('.org-dropdown-btn').click();
+        const t = await page.locator('.org-dropdown-menu').textContent();
+        await page.keyboard.press('Escape');
+        return /Newly-Connected-Org/.test(t || '');
+      }, { timeout: 15000 })
+      .toBe(true);
+  });
+
+  test('After clicking Connect, there is a standing way back', async ({ page }) => {
+    // GitHub's installation page has no route back to the app, so "install
+    // finished, now what?" needs an answer inside this UI.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+    await page.goto(`/dashboard/${ORG}`);
+
+    await expect(page.locator('.connect-pending')).toHaveCount(0);
+    await page.locator('.org-dropdown-btn').click();
+    // Suppress the real navigation; we only care about the state it leaves behind.
+    await page.locator('.org-connect-item').evaluate((el) => { el.removeAttribute('href'); el.click(); });
+
+    const banner = page.locator('.connect-pending');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText(/Finished installing on GitHub/i);
+    await expect(banner.getByRole('button', { name: /Check now/i })).toBeVisible();
+  });
 });

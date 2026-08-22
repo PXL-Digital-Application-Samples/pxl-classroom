@@ -66,7 +66,7 @@
                   class="org-dropdown-item org-connect-item"
                   role="option"
                   aria-selected="false"
-                  @click="orgDropdownOpen = false"
+                  @click="onConnectClicked"
                 >
                   <Icon name="plus" :size="13" />
                   <span class="org-item-text">Connect an organization</span>
@@ -93,6 +93,22 @@
     </AppHeader>
 
     <main class="container">
+      <!-- GitHub's installation page has no route back here, so returning
+           lecturers were left guessing. This stays until an org appears. -->
+      <div v-if="connectPending && user" class="connect-pending card flex items-center justify-between gap-md">
+        <div class="flex items-center gap-sm">
+          <Icon name="info" :size="16" class="text-blue" />
+          <span class="text-sm">Finished installing on GitHub?</span>
+        </div>
+        <div class="flex items-center gap-sm">
+          <button class="btn btn-sm btn-with-icon" type="button" @click="refreshOrgsNow">
+            <Icon name="refresh-cw" :size="13" />
+            <span>Check now</span>
+          </button>
+          <button class="btn btn-sm btn-ghost" type="button" @click="connectPending = false">Dismiss</button>
+        </div>
+      </div>
+
       <!-- Not authenticated -->
       <AuthCard v-if="!user" title="Sign in to access the dashboard" @authenticated="onAuthenticated">
         Sign in with a GitHub account that owns an organization with PXL Classroom installed.
@@ -130,7 +146,7 @@
         <p class="text-secondary">
           <strong>{{ user.login }}</strong> has no organization with PXL Classroom installed.
         </p>
-        <a :href="appInstallUrl" target="_blank" rel="noopener" class="btn btn-primary btn-with-icon">
+        <a :href="appInstallUrl" target="_blank" rel="noopener" class="btn btn-primary btn-with-icon" @click="onConnectClicked">
           <Icon name="plus" :size="14" />
           <span>Connect an organization</span>
         </a>
@@ -514,6 +530,25 @@ async function loadOrgStatuses(orgList) {
 const dashState = ref('')
 const hubWritable = ref(false)
 const settingUp = ref(false)
+// Set when the lecturer leaves for GitHub's installation page, cleared as soon
+// as an org appears. Without it, "install finished, now what?" has no answer
+// in this UI at all.
+const connectPending = ref(false)
+function onConnectClicked() {
+  connectPending.value = true
+  orgDropdownOpen.value = false
+}
+async function refreshOrgsNow() {
+  const before = orgs.value.length
+  lastOrgRefresh = Date.now()
+  await loadOrgs()
+  if (orgs.value.length > before) {
+    connectPending.value = false
+    toast.success('Organization connected.')
+  } else {
+    toast.info('No new organization yet. Finish installing on GitHub, then try again.')
+  }
+}
 
 // Reaching this view by URL does not imply the App is on that org - the org
 // switcher only lists installations, but /dashboard/<anything> is routable.
@@ -630,23 +665,34 @@ const appInstallUrl = APP_INSTALL_URL
 // stale page wondering whether it worked. Only refetches when the answer could
 // have changed - a signed-in lecturer with the dashboard in front of them.
 let lastOrgRefresh = 0
-const ORG_REFRESH_MIN_GAP_MS = 10000
+const ORG_REFRESH_MIN_GAP_MS = 3000
 
 async function refreshOrgsOnReturn() {
   if (document.visibilityState !== 'visible') return
   if (!isAuthenticated()) return
-  // Only when a newly installed org would actually change what is on screen.
-  // Refetching on every tab switch is wasted quota and re-runs org selection
-  // for a lecturer who is simply alt-tabbing.
-  const couldChange =
-    orgs.value.length === 0 || dashState.value === 'no-control-repo' || !orgIsInstalled.value
-  if (!couldChange) return
+  // Deliberately unconditional. An earlier version only refetched when the
+  // current view "could change", which excluded the normal case - a lecturer
+  // on a healthy dashboard adding a SECOND org - so returning from GitHub did
+  // nothing and the new org only appeared after a manual reload. One request
+  // on tab focus is cheap; being stranded is not.
   if (Date.now() - lastOrgRefresh < ORG_REFRESH_MIN_GAP_MS) return
   lastOrgRefresh = Date.now()
+  const before = orgs.value.length
   await loadOrgs()
+  if (orgs.value.length > before) {
+    connectPending.value = false
+    toast.success('Organization connected.')
+  }
 }
 
 onMounted(async () => {
+  // GitHub appends ?installation_id=N&setup_action=install when the App's
+  // Setup URL points back here. Treat that as "just connected" and clear the
+  // params so a reload does not repeat it.
+  if (route.query.setup_action === 'install') {
+    connectPending.value = true
+    router.replace({ query: { ...route.query, setup_action: undefined, installation_id: undefined } })
+  }
   window.addEventListener('click', onOutsideClick)
   window.addEventListener('keydown', onGlobalKeydown)
   document.addEventListener('visibilitychange', refreshOrgsOnReturn)
@@ -881,6 +927,13 @@ function handleLogout() {
 }
 
 /* Custom Dropdown Container & Trigger */
+.connect-pending {
+  padding: var(--space-sm) var(--space-md);
+  margin-top: var(--space-md);
+  border-color: var(--tint-accent-emphasis);
+  background: var(--tint-accent-subtle);
+}
+
 .org-dropdown-divider {
   height: 1px;
   background: var(--border-muted);
