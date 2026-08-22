@@ -3,7 +3,7 @@
     <!-- TOP HEADER -->
     <AppHeader :user="user" :sticky="false" @logout="handleLogout">
       <template #actions>
-        <router-link v-if="isLecturer" :to="lecturerDashboardTarget" class="btn btn-sm btn-primary">
+        <router-link v-if="isLecturer" :to="lecturerDashboardTarget" class="btn btn-sm btn-secondary">
           Lecturer Dashboard
         </router-link>
       </template>
@@ -59,7 +59,7 @@
               placeholder="e.g. pxl-digital-app-samples/a/linux-processes or full URL"
               aria-label="Direct assignment link or ID"
             />
-            <button type="submit" class="btn btn-primary" :disabled="!jumpInput.trim()">
+            <button type="submit" class="btn btn-secondary" :disabled="!jumpInput.trim()">
               <span>Go to assignment</span>
               <Icon name="arrow-right" :size="14" />
             </button>
@@ -181,7 +181,7 @@
                 :href="a.repoUrl"
                 target="_blank"
                 rel="noopener"
-                class="btn btn-sm btn-primary btn-with-icon"
+                class="btn btn-sm btn-secondary btn-with-icon"
               >
                 <span>Open on GitHub</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

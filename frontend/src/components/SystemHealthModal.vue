@@ -548,15 +548,6 @@ function overallSummary(sev) {
   font-size: 0.85rem;
   color: var(--text-primary);
 }
-.check-status-tag {
-  font-size: 0.7rem;
-  padding: 1px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.tag-warn { background: var(--tint-attention-muted); color: var(--accent-yellow); }
-.tag-fail { background: var(--tint-danger-muted); color: var(--accent-red); }
 
 .check-msg {
   margin: 2px 0 0 0;

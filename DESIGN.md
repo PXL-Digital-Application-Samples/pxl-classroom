@@ -11,12 +11,13 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * Separate sections using **tonal surface shifts** (`--bg-canvas` vs `--bg-surface`) and purposeful whitespace (16–24px padding).
    * Reserve borders for structural dividers (such as sticky headers, navigation borders, or data table rows).
 
-2. **Strict 1-Primary-Button Rule:**
+2. **Strict 1-Primary-Button Rule:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
    * **Only ONE** solid primary button (`.btn-primary`) per view or major screen section (e.g., `+ New assignment` on Dashboard, `Copy invitation link` on Detail view).
    * Standard toolbar actions (`Refresh`, `Export`, `Sync`) must use neutral secondary styling (`.btn-secondary`).
    * Destructive actions (`Close acceptance`, `Freeze`) belong in a `··· More` overflow dropdown or use subtle danger outlines until confirmed in a modal dialog.
+   * A **modal counts as its own view**. An action repeated per row or per card is never primary - one card per assignment meant one primary button per assignment before this was caught.
 
-3. **Status Dots over Bulky Pill Capsules:**
+3. **Status Dots over Bulky Pill Capsules:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
    * In data tables, student cards, and metric rows, prefer `.status-indicator` with a glowing `.status-dot` and clean mixed-case text (`● On-time`, `● Provisioned`, `● Accepting`).
    * Avoid uppercase heavy 9999px pill badges (`[ NO-SUBMISSION ]`) which add visual noise when repeated hundreds of times.
 

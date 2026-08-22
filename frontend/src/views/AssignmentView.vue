@@ -1020,7 +1020,7 @@ main {
 }
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+  background: var(--gradient-brand);
   border-radius: var(--radius-full);
   animation: progress 2s ease-in-out infinite;
 }
