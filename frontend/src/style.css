@@ -980,16 +980,23 @@ select:focus {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
 }
+/* Base is deliberately modest: two of the three consumers put this in a table
+   cell, where the hero styling below read as oversized. Callers add .mono
+   themselves; size and weight inherit from the surrounding context. */
 .repo-link {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  gap: var(--space-xs);
+  color: var(--accent-blue);
+}
+.repo-link:hover { color: var(--accent-blue-bright); }
+/* Hero treatment, scoped to the card both hero usages already wrap in. */
+.repo-link-card .repo-link {
   gap: var(--space-sm);
   font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 600;
-  color: var(--accent-blue);
 }
-.repo-link:hover { color: var(--accent-blue-bright); }
 
 /* Colour only - the margin AssignmentView adds is view-specific spacing. */
 .status-icon { color: var(--text-secondary); }

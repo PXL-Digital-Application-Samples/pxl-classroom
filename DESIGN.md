@@ -6,10 +6,12 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
 
 ## 1. Core Visual Principles
 
-1. **Avoid the "1px Box Prison":**
+1. **Avoid the "1px Box Prison":**  *(a box is a border on all four sides; a single-side border is a divider and is fine)*
    * Do not wrap every nested container in a 1px solid border.
    * Separate sections using **tonal surface shifts** (`--bg-canvas` vs `--bg-surface`) and purposeful whitespace (16–24px padding).
    * Reserve borders for structural dividers (such as sticky headers, navigation borders, or data table rows).
+   * Concretely: **never nest three boxes**. A modal that outlines its own edge, its cards, and a control inside those cards is the prison. Give the inner levels a tonal step instead.
+   * Check the tone actually differs in **both** themes before removing a border. `--bg-surface` and `--bg-surface-elevated` are both `#ffffff` in light (§2), so an "elevated" panel on a white modal has a contrast ratio of exactly 1.000. `--bg-inset` is the recessed step that differs in both.
 
 2. **Strict 1-Primary-Button Rule:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
    * **Only ONE** solid primary button (`.btn-primary`) per view or major screen section (e.g., `+ New assignment` on Dashboard, `Copy invitation link` on Detail view).

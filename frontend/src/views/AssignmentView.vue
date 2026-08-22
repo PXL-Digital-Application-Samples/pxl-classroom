@@ -1061,18 +1061,6 @@ main {
   font-size: 0.8rem;
 }
 
-.repo-link {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-family: var(--font-mono);
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--accent-blue);
-}
-.repo-link:hover {
-  color: var(--accent-blue-bright);
-}
 
 @media (max-width: 640px) {
   .assignment-dates {

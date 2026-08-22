@@ -1,6 +1,6 @@
 <template>
   <div v-if="isOpen" class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal-card diagnostic-modal">
+    <div class="diagnostic-modal">
       <!-- HEADER -->
       <div class="modal-head">
         <div class="head-title">
@@ -464,10 +464,17 @@ function overallSummary(sev) {
   flex-direction: column;
   gap: var(--space-sm);
 }
+/* No border: DESIGN.md §1.1 separates this by tone plus the 16px gap
+   .modal-body already provides. It used to be the middle ring of
+   modal > tier > fix-action.
+   --bg-inset, NOT --bg-surface-elevated: in light mode `elevated` and
+   `surface` are both #ffffff (§2 - light separates overlays by shadow, not
+   tone), so an elevated tier card on a white modal had a contrast ratio of
+   exactly 1.000 and disappeared. Inset is a recessed well and differs from
+   the modal in both themes. */
 .tier-card {
-  border: 1px solid var(--border-muted);
   border-radius: var(--radius-sm);
-  background: var(--bg-surface-elevated);
+  background: var(--bg-inset);
   overflow: hidden;
 }
 .tier-header {
@@ -561,8 +568,7 @@ function overallSummary(sev) {
   margin-top: 4px;
   margin-left: 22px;
   padding: var(--space-xs) var(--space-sm);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
+  background: var(--bg-surface-hover);
   border-radius: 6px;
   display: flex;
   align-items: center;
