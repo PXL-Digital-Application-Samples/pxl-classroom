@@ -182,8 +182,14 @@ export async function getInstallations(token) {
   const merged = []
   let path = '/user/installations?per_page=100'
   let last = null
+  const seen = new Set()
+  // 100 per page; nobody is in 5000 installations. The cap exists so a
+  // malformed or self-referential Link header cannot spin forever.
+  const MAX_PAGES = 50
 
-  while (path) {
+  for (let page = 0; path && page < MAX_PAGES; page++) {
+    if (seen.has(path)) break
+    seen.add(path)
     const res = await ghApi(token, 'GET', path)
     if (!res.ok) return res
     last = res

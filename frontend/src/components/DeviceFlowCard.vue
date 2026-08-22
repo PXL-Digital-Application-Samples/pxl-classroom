@@ -63,7 +63,13 @@ function copyAndOpen() {
   const win = window.open(verificationUrl.value, '_blank', 'noopener,noreferrer')
   if (!win) toast.info('Allow pop-ups, or open the GitHub link manually.')
 
-  if (!code || !navigator.clipboard) return
+  if (!code) return
+  if (!navigator.clipboard) {
+    // Insecure context or an old browser. The code is on screen and
+    // user-select:all, so say so rather than failing silently.
+    toast.info('Copy the code above manually, then paste it on GitHub.')
+    return
+  }
   navigator.clipboard.writeText(code).then(
     () => {
       copied.value = true

@@ -170,11 +170,19 @@
             </div>
 
             <div class="onboarding-steps">
-              <div class="onboarding-step is-complete">
-                <div class="step-icon"><Icon name="check-circle" :size="16" class="text-green" /></div>
+              <div class="onboarding-step" :class="{ 'is-complete': orgIsInstalled }">
+                <div class="step-icon">
+                  <Icon v-if="orgIsInstalled" name="check-circle" :size="16" class="text-green" />
+                  <Icon v-else name="alert-triangle" :size="16" class="text-yellow" />
+                </div>
                 <div class="step-body">
-                  <strong>PXL Classroom is installed on {{ selectedOrg }}</strong>
-                  <p>That is why this organization appears in your switcher.</p>
+                  <strong v-if="orgIsInstalled">PXL Classroom is installed on {{ selectedOrg }}</strong>
+                  <strong v-else>PXL Classroom is not installed on {{ selectedOrg }} yet</strong>
+                  <p v-if="orgIsInstalled">That is why this organization appears in your switcher.</p>
+                  <p v-else>
+                    Install it first - the step below cannot run until it is.
+                    <a :href="appInstallUrl" target="_blank" rel="noopener">Install PXL Classroom</a>.
+                  </p>
                 </div>
               </div>
 
@@ -199,7 +207,7 @@
               <!-- If they can dispatch it, do it FOR them: no hub repo to find,
                    no Actions tab, no branch to pick, no org name to type. -->
               <button
-                v-if="hubWritable"
+                v-if="hubWritable && orgIsInstalled"
                 class="btn btn-primary btn-with-icon"
                 type="button"
                 :disabled="settingUp"
@@ -209,7 +217,7 @@
                 <span>{{ settingUp ? 'Setting up…' : `Set up ${selectedOrg}` }}</span>
               </button>
               <a
-                v-else
+                v-else-if="orgIsInstalled"
                 :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/setup-org.yml`"
                 target="_blank"
                 rel="noopener"
@@ -218,7 +226,17 @@
                 <Icon name="external-link" :size="14" />
                 <span>Open Setup Organization</span>
               </a>
-              <button class="btn btn-with-icon" type="button" :disabled="settingUp" @click="loadDashboard">
+              <a
+                v-else
+                :href="appInstallUrl"
+                target="_blank"
+                rel="noopener"
+                class="btn btn-primary btn-with-icon"
+              >
+                <Icon name="plus" :size="14" />
+                <span>Install PXL Classroom</span>
+              </a>
+              <button class="btn btn-with-icon" type="button" :disabled="settingUp" @click="loadDashboard()">
                 <Icon name="refresh-cw" :size="14" />
                 <span>Recheck</span>
               </button>
@@ -497,6 +515,20 @@ const dashState = ref('')
 const hubWritable = ref(false)
 const settingUp = ref(false)
 
+// Reaching this view by URL does not imply the App is on that org - the org
+// switcher only lists installations, but /dashboard/<anything> is routable.
+const orgIsInstalled = computed(() =>
+  orgs.value.some((o) => o.login?.toLowerCase() === selectedOrg.value?.toLowerCase())
+)
+// Bumped on org switch and on unmount, so a poll in flight can tell that its
+// answer is no longer wanted. Same reason SystemHealthModal carries one.
+let setupGeneration = 0
+// selectedOrg is initialised from the route param and then possibly CORRECTED
+// by loadOrgs() when that org has no installation - so two loads can be in
+// flight for different orgs. Without this, the slower one wins and the
+// dashboard shows the abandoned org's state.
+let dashGeneration = 0
+
 // The whole point of the button: a beginner should not have to find the hub
 // repo, open Actions, pick the workflow, choose a branch and type their own org
 // name into a form field. Dispatch it for them, then watch for the outcome we
@@ -510,11 +542,21 @@ async function runSetupOrg() {
   const org = selectedOrg.value
   if (!token || !org || settingUp.value) return
 
+  // FIX 5: the workflow declares this required. Dispatching an empty string
+  // would register a blank budget owner in participating-orgs.yml, and the
+  // weekly usage report @-mentions that login.
+  const budgetOwner = user.value?.login
+  if (!budgetOwner) {
+    toast.error('Could not determine your GitHub login. Sign in again, then retry.')
+    return
+  }
+
+  const generation = ++setupGeneration
   settingUp.value = true
   try {
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'setup-org.yml', {
       target_org: org,
-      budget_owner_login: user.value?.login || '',
+      budget_owner_login: budgetOwner,
     })
     if (!res.ok && res.status !== 204) {
       toast.error(explainDispatchFailure(res, 'Could not start Setup Organization'))
@@ -526,22 +568,28 @@ async function runSetupOrg() {
     const deadline = Date.now() + SETUP_TIMEOUT_MS
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, SETUP_POLL_MS))
+      // Superseded: the lecturer switched org or left. Stop silently rather
+      // than reloading a dashboard they are not on and toasting about an org
+      // they are no longer looking at.
+      if (generation !== setupGeneration) return
       const repo = await getRepo(token, org, config.controlRepo)
+      if (generation !== setupGeneration) return
       if (repo.ok) {
         toast.success(`${org} is ready.`)
-        await loadDashboard()
+        await loadDashboard(org)
         return
       }
     }
+    if (generation !== setupGeneration) return
     toast.error(
       `Setup Organization is taking longer than expected for ${org}. ` +
         'Check the run in the hub repository, then use Recheck.',
       { link: { href: `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/setup-org.yml`, text: 'View run' } }
     )
   } catch (e) {
-    toast.error(`Could not start Setup Organization: ${e.message}`)
+    if (generation === setupGeneration) toast.error(`Could not start Setup Organization: ${e.message}`)
   } finally {
-    settingUp.value = false
+    if (generation === setupGeneration) settingUp.value = false
   }
 }
 const dashError = ref(null)
@@ -581,9 +629,20 @@ const appInstallUrl = APP_INSTALL_URL
 // focus makes the new org simply appear, instead of leaving the lecturer on a
 // stale page wondering whether it worked. Only refetches when the answer could
 // have changed - a signed-in lecturer with the dashboard in front of them.
+let lastOrgRefresh = 0
+const ORG_REFRESH_MIN_GAP_MS = 10000
+
 async function refreshOrgsOnReturn() {
   if (document.visibilityState !== 'visible') return
   if (!isAuthenticated()) return
+  // Only when a newly installed org would actually change what is on screen.
+  // Refetching on every tab switch is wasted quota and re-runs org selection
+  // for a lecturer who is simply alt-tabbing.
+  const couldChange =
+    orgs.value.length === 0 || dashState.value === 'no-control-repo' || !orgIsInstalled.value
+  if (!couldChange) return
+  if (Date.now() - lastOrgRefresh < ORG_REFRESH_MIN_GAP_MS) return
+  lastOrgRefresh = Date.now()
   await loadOrgs()
 }
 
@@ -601,6 +660,7 @@ onUnmounted(() => {
   window.removeEventListener('click', onOutsideClick)
   window.removeEventListener('keydown', onGlobalKeydown)
   document.removeEventListener('visibilitychange', refreshOrgsOnReturn)
+  setupGeneration++
 })
 
 const LAST_ORG_KEY = 'pxl_last_selected_org'
@@ -609,6 +669,7 @@ const LAST_ORG_KEY = 'pxl_last_selected_org'
 // triggers loadDashboard even when selectedOrg is already set from the URL
 // param at init (re-assigning the same value doesn't fire a normal watcher).
 watch(selectedOrg, async (org) => {
+  setupGeneration++
   if (org) {
     try { localStorage.setItem(LAST_ORG_KEY, org) } catch { /* ignore */ }
     if (route.params.org !== org) {
@@ -659,11 +720,21 @@ async function loadOrgs() {
   }
 }
 
-async function loadDashboard(org) {
+async function loadDashboard(orgArg) {
+  // Callers include @click handlers, which pass a PointerEvent as the first
+  // argument, and runSetupOrg, which passes nothing. Anything that is not a
+  // non-empty string means "whichever org is selected".
+  const org = typeof orgArg === 'string' && orgArg ? orgArg : selectedOrg.value
+  if (!org) { loadingData.value = false; return }
+
+  const generation = ++dashGeneration
+  const superseded = () => generation !== dashGeneration
+
   loadingData.value = true
   assignments.value = []
   dashState.value = ''
   draftCount.value = 0
+  hubWritable.value = false
 
   const token = getToken()
   if (!token) { loadingData.value = false; return }
@@ -703,6 +774,7 @@ async function loadDashboard(org) {
         if (a.deadline_at && now > new Date(a.deadline_at)) return false
         return true
       })
+      if (superseded()) return
       dashState.value = assignments.value.length === 0 ? (draftCount.value > 0 ? 'no-dashboard' : 'empty') : ''
       orgStatusMap.value.set(org.toLowerCase(), hasActive ? 'active' : (assignments.value.length > 0 ? 'inactive' : 'empty'))
       return
@@ -712,6 +784,7 @@ async function loadDashboard(org) {
     const repoRes = await getRepo(token, org, config.controlRepo)
     if (!repoRes.ok) {
       if (repoRes.status === 404) {
+        if (superseded()) return
         dashState.value = 'no-control-repo'
         orgStatusMap.value.set(org.toLowerCase(), 'empty')
         // Setup Organization is a workflow_dispatch on the HUB, which needs
@@ -740,12 +813,14 @@ async function loadDashboard(org) {
     if (ymls.length === 0) {
       // Zero assignments created in this organization!
       // This is the beginning lecturer state - show the onboarding readiness card!
+      if (superseded()) return
       dashState.value = 'onboarding'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return
     } else {
       // Assignments HAVE been created in this organization (e.g. drafts or awaiting dashboard.json generation)
       draftCount.value = ymls.length
+      if (superseded()) return
       dashState.value = 'no-dashboard'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return
