@@ -147,13 +147,16 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
 
     await page.goto(`/dashboard/PXL-Unonboarded-Org`);
 
-    // 1. Verify Onboarding Readiness Card is NOT shown
-    const onboardingCard = page.locator('.onboarding-readiness-card');
-    await expect(onboardingCard).not.toBeVisible();
+    // 1. The "create your first assignment" readiness card must NOT appear -
+    //    the org is not ready for that yet.
+    await expect(page.locator('.onboarding-readiness-card')).not.toBeVisible();
 
-    // 2. Verify unonboarded notice is shown
-    await expect(page.locator('h2', { hasText: /PXL-Unonboarded-Org isn't onboarded yet/i })).toBeVisible();
-    await expect(page.locator('text=There is no PXL-Unonboarded-Org/pxl-classroom-control repository')).toBeVisible();
+    // 2. Instead the setup card explains the one remaining step. This used to
+    //    be a dead end reading "isn't onboarded yet - see RUNBOOK §2".
+    const setupCard = page.locator('.setup-required-card');
+    await expect(setupCard).toBeVisible();
+    await expect(setupCard).toContainText(/needs its control repository/i);
+    await expect(page.getByRole('link', { name: /Setup Organization/i })).toBeVisible();
   });
 
   test('Scenario 5 (Dynamic Org Switch): Toggles Onboarding Panel cleanly when switching between empty and active orgs', async ({ page }) => {

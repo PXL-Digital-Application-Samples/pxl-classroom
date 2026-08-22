@@ -115,6 +115,12 @@ Done by a system administrator together with the organization owner.
 
 ### 2.1 Install the central GitHub App on the new org
 
+> [!TIP]
+> A lecturer does not need this section to get started. Signing in to the SPA gives
+> them **Connect an organization** - in the org switcher, and on the dashboard when
+> they have no orgs yet - which opens GitHub's own installation picker. The SPA then
+> walks them through what is left. This section is the reference for what that flow does.
+
 1. Organization owner: Open the installation page for the central **PXL Classroom Provisioner** App (e.g. `https://github.com/apps/pxl-classroom-provisioner` or through the App settings -> **Install App**).
 2. Choose the target organization (e.g. `PXL-2TIN-DevOps-2627`).
 3. Scope: **All repositories** (the App needs Administration RW across the org to provision student repos and manage permissions).

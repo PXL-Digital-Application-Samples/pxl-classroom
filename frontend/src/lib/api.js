@@ -169,9 +169,33 @@ export async function acceptInvitation(token, invitationId) {
 
 /**
  * Get the user's App installations (to find orgs where the App is installed).
+ *
+ * Paginated, and it must be: the default per_page is 30, and this endpoint
+ * silently returns only the first page. An org past the cut-off simply stops
+ * appearing in the org switcher - no error, no empty state, it is just gone.
+ * PXL onboards course orgs per academic year, so 30 is a matter of time.
+ *
+ * The response is an OBJECT ({ total_count, installations }), not a bare array,
+ * so pages are merged on the inner list rather than concatenated wholesale.
  */
 export async function getInstallations(token) {
-  return ghApi(token, 'GET', '/user/installations')
+  const merged = []
+  let path = '/user/installations?per_page=100'
+  let last = null
+
+  while (path) {
+    const res = await ghApi(token, 'GET', path)
+    if (!res.ok) return res
+    last = res
+    merged.push(...(res.data?.installations || []))
+
+    const link = res.headers?.get?.('link') || ''
+    const next = link.split(',').find((p) => /rel="next"/.test(p))
+    const m = next && next.match(/<([^>]+)>/)
+    path = m ? m[1].replace('https://api.github.com', '') : null
+  }
+
+  return { ...last, data: { total_count: merged.length, installations: merged } }
 }
 
 /**

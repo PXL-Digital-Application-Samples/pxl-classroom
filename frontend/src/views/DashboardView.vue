@@ -10,7 +10,7 @@
             <span class="app-header-sep">/</span>
 
             <!-- Custom Organization Selector with Styled Status Lights -->
-            <div v-if="orgs.length > 0" class="org-dropdown-container" ref="orgDropdownRef">
+            <div class="org-dropdown-container" ref="orgDropdownRef">
               <button
                 type="button"
                 class="org-dropdown-btn"
@@ -57,6 +57,21 @@
                   <span class="org-item-text">{{ org.login }}</span>
                   <Icon v-if="org.login === selectedOrg" name="check" :size="13" class="check-icon" />
                 </div>
+
+                <div class="org-dropdown-divider" role="separator"></div>
+                <a
+                  :href="appInstallUrl"
+                  target="_blank"
+                  rel="noopener"
+                  class="org-dropdown-item org-connect-item"
+                  role="option"
+                  aria-selected="false"
+                  @click="orgDropdownOpen = false"
+                >
+                  <Icon name="plus" :size="13" />
+                  <span class="org-item-text">Connect an organization</span>
+                  <Icon name="external-link" :size="12" class="check-icon" />
+                </a>
               </div>
             </div>
 
@@ -106,18 +121,27 @@
       </div>
 
       <!-- No installation visible to this account (Student or unconfigured lecturer) -->
+      <!-- Two audiences land here: a lecturer whose org is not connected yet,
+           and an actual student who followed a stray link. Name both paths
+           instead of asserting which one they are - and give the lecturer an
+           action rather than a RUNBOOK link. -->
       <div v-else-if="orgsLoaded && orgs.length === 0" class="center-card fade-in">
-        <h2>Student Account Detected</h2>
+        <h2>No course organizations yet</h2>
         <p class="text-secondary">
-          Your account (<strong>{{ user.login }}</strong>) does not administer any course organizations.
-          If you are enrolled in a course, view your accepted repositories in the Student Portal.
+          <strong>{{ user.login }}</strong> has no organization with PXL Classroom installed.
         </p>
-        <router-link to="/" class="btn btn-primary" style="margin-top: var(--space-xs);">
-          Go to My Assignments
-        </router-link>
-        <p class="text-muted text-xs" style="margin-top: var(--space-lg); line-height: 1.4;">
-          If you are a lecturer, ensure the PXL Classroom App is installed on your organization — see
-          <a :href="`${runbookUrl}#21-install-the-app-on-the-new-org`" target="_blank" rel="noopener">RUNBOOK §2.1</a>.
+        <a :href="appInstallUrl" target="_blank" rel="noopener" class="btn btn-primary btn-with-icon">
+          <Icon name="plus" :size="14" />
+          <span>Connect an organization</span>
+        </a>
+        <p class="text-muted text-xs" style="max-width: 420px; line-height: 1.5;">
+          GitHub will ask which organization to install it on - you will only see
+          the ones you can install on. Come back here afterwards; it appears
+          automatically.
+        </p>
+        <p class="text-secondary text-sm" style="margin-top: var(--space-md);">
+          Enrolled in a course instead?
+          <router-link to="/">View your assignments</router-link>.
         </p>
       </div>
 
@@ -130,12 +154,63 @@
       <!-- No assignments - say WHY, each cause has a different remedy -->
       <div v-else-if="assignments.length === 0" class="center-card fade-in">
         <template v-if="dashState === 'no-control-repo'">
-          <h2>{{ selectedOrg }} isn't onboarded yet</h2>
-          <p class="text-secondary">
-            There is no <code>{{ selectedOrg }}/pxl-classroom-control</code> repository (or you can't see it).
-            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow - see
-            <a :href="`${runbookUrl}#2-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener">RUNBOOK §2</a>.
-          </p>
+          <!-- Was a dead end pointing at RUNBOOK §2. The org is already in the
+               switcher, so the App IS installed - only the control repo is
+               missing, and whether the lecturer can create it themselves
+               depends on their hub access. -->
+          <div class="setup-required-card">
+            <div class="onboarding-head">
+              <Icon name="zap" :size="24" class="text-blue" />
+              <div>
+                <h2>Almost there - {{ selectedOrg }} needs its control repository</h2>
+                <p class="text-secondary">
+                  One more step before you can create assignments. This runs once per organization.
+                </p>
+              </div>
+            </div>
+
+            <div class="onboarding-steps">
+              <div class="onboarding-step is-complete">
+                <div class="step-icon"><Icon name="check-circle" :size="16" class="text-green" /></div>
+                <div class="step-body">
+                  <strong>PXL Classroom is installed on {{ selectedOrg }}</strong>
+                  <p>That is why this organization appears in your switcher.</p>
+                </div>
+              </div>
+
+              <div class="onboarding-step">
+                <div class="step-icon"><Icon name="inbox" :size="16" class="text-yellow" /></div>
+                <div class="step-body">
+                  <strong>Create the course control repository</strong>
+                  <p v-if="hubWritable">
+                    Run <strong>Setup Organization</strong> with <code>target_org</code> set to
+                    <code>{{ selectedOrg }}</code>. It takes about a minute, then reload this page.
+                  </p>
+                  <p v-else>
+                    A hub admin runs <strong>Setup Organization</strong> for
+                    <code>{{ selectedOrg }}</code> - you do not have write access to the hub
+                    repository, so this one has to be run for you. It takes about a minute.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="onboarding-actions">
+              <a
+                :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/setup-org.yml`"
+                target="_blank"
+                rel="noopener"
+                class="btn btn-primary btn-with-icon"
+              >
+                <Icon name="external-link" :size="14" />
+                <span>{{ hubWritable ? 'Run Setup Organization' : 'Open Setup Organization' }}</span>
+              </a>
+              <button class="btn btn-with-icon" type="button" @click="loadDashboard">
+                <Icon name="refresh-cw" :size="14" />
+                <span>Recheck</span>
+              </button>
+            </div>
+          </div>
         </template>
         <template v-else-if="dashState === 'onboarding'">
           <div class="onboarding-readiness-card">
@@ -304,6 +379,7 @@ import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getRepoContent, getRepo, listRepoDir } from '../lib/api.js'
+import { APP_INSTALL_URL } from '../../../lib/audit.mjs'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -404,6 +480,7 @@ async function loadOrgStatuses(orgList) {
 
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
 const dashState = ref('')
+const hubWritable = ref(false)
 const dashError = ref(null)
 
 const draftCount = ref(0)
@@ -434,9 +511,23 @@ function onGlobalKeydown(e) {
   }
 }
 
+const appInstallUrl = APP_INSTALL_URL
+
+// "Connect an organization" opens github.com in a new tab, so the install
+// completes somewhere this app cannot observe. Re-checking when the tab regains
+// focus makes the new org simply appear, instead of leaving the lecturer on a
+// stale page wondering whether it worked. Only refetches when the answer could
+// have changed - a signed-in lecturer with the dashboard in front of them.
+async function refreshOrgsOnReturn() {
+  if (document.visibilityState !== 'visible') return
+  if (!isAuthenticated()) return
+  await loadOrgs()
+}
+
 onMounted(async () => {
   window.addEventListener('click', onOutsideClick)
   window.addEventListener('keydown', onGlobalKeydown)
+  document.addEventListener('visibilitychange', refreshOrgsOnReturn)
   if (isAuthenticated()) {
     user.value = getUser()
     await loadOrgs()
@@ -446,6 +537,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('click', onOutsideClick)
   window.removeEventListener('keydown', onGlobalKeydown)
+  document.removeEventListener('visibilitychange', refreshOrgsOnReturn)
 })
 
 const LAST_ORG_KEY = 'pxl_last_selected_org'
@@ -559,6 +651,16 @@ async function loadDashboard(org) {
       if (repoRes.status === 404) {
         dashState.value = 'no-control-repo'
         orgStatusMap.value.set(org.toLowerCase(), 'empty')
+        // Setup Organization is a workflow_dispatch on the HUB, which needs
+        // write there (RUNBOOK §2.4). A lecturer who has just been made an org
+        // owner usually does not have it yet, so find out before offering a
+        // button that would only 403.
+        try {
+          const hub = await getRepo(token, config.hubOwner, config.hubRepo)
+          hubWritable.value = Boolean(hub.ok && hub.data?.permissions?.push)
+        } catch {
+          hubWritable.value = false
+        }
         return
       }
     }
@@ -641,6 +743,21 @@ function handleLogout() {
 }
 
 /* Custom Dropdown Container & Trigger */
+.org-dropdown-divider {
+  height: 1px;
+  background: var(--border-muted);
+  margin: var(--space-xs) 0;
+}
+/* Distinguished from the org rows: this one leaves the app. */
+.org-connect-item {
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-weight: 500;
+}
+.org-connect-item:hover {
+  text-decoration: none;
+}
+
 .org-dropdown-container {
   position: relative;
   min-width: 200px;
@@ -843,7 +960,8 @@ main {
 
 
 /* ONBOARDING READINESS CARD */
-.onboarding-readiness-card {
+.onboarding-readiness-card,
+.setup-required-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-muted);
   border-radius: var(--radius-md);
