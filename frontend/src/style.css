@@ -691,6 +691,14 @@ a:hover {
 }
 .app-header-right {
   flex-shrink: 0;
+  min-width: 0;
+}
+
+/* Below this the actions cannot fit beside a long org name, so the bar wraps
+   onto a second row rather than forcing the page to scroll sideways. */
+@media (max-width: 560px) {
+  .app-header-bar { flex-wrap: wrap; }
+  .app-header-right { flex-shrink: 1; flex-wrap: wrap; justify-content: flex-end; }
 }
 
 .app-header-logo-link {
@@ -784,16 +792,53 @@ select:focus {
   max-width: 1240px;
   margin: 0 auto;
   padding: 0 var(--space-lg);
+  /* Without this a wide child (a data table) can stretch the container past the
+     viewport instead of scrolling inside its own wrapper. */
+  min-width: 0;
 }
 
+/* Wide content scrolls inside itself. Applies wherever a view wraps a table. */
+.table-wrapper {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+/* These are written throughout the markup as if they exist. Twenty of them did
+   not, so every `class="… flex-wrap"` was inert and rows that were meant to
+   wrap overflowed the viewport instead - which is what made narrow windows
+   scroll sideways and content sit flush against the left edge. */
 .flex { display: flex; }
 .flex-col { flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-shrink-0 { flex-shrink: 0; }
 .items-center { align-items: center; }
+.items-start { align-items: flex-start; }
 .justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.justify-end { justify-content: flex-end; }
+.w-full { width: 100%; }
+
 .gap-xs { gap: var(--space-xs); }
 .gap-sm { gap: var(--space-sm); }
 .gap-md { gap: var(--space-md); }
 .gap-lg { gap: var(--space-lg); }
+
+.p-xs { padding: var(--space-xs); }
+.p-sm { padding: var(--space-sm); }
+.p-md { padding: var(--space-md); }
+.pl-md { padding-left: var(--space-md); }
+.pt-sm { padding-top: var(--space-sm); }
+.py-md { padding-top: var(--space-md); padding-bottom: var(--space-md); }
+.py-lg { padding-top: var(--space-lg); padding-bottom: var(--space-lg); }
+.py-xl { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
+
+.mt-xs { margin-top: var(--space-xs); }
+.mt-md { margin-top: var(--space-md); }
+.mb-xs { margin-bottom: var(--space-xs); }
+.mb-sm { margin-bottom: var(--space-sm); }
+.mb-md { margin-bottom: var(--space-md); }
+.mb-lg { margin-bottom: var(--space-lg); }
 
 /* Spinners & Animations */
 @keyframes spin {

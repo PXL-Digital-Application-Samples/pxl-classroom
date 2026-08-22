@@ -2543,7 +2543,9 @@ async function retryAcceptanceFor(student) {
 .org-name:hover { color: var(--accent-blue); text-decoration: underline; }
 .avatar { width: 24px; height: 24px; border-radius: 50%; }
 
-main { padding: var(--space-xl) 0; }
+/* padding-top/bottom, NOT the shorthand - see DashboardView: the shorthand
+   out-specifies .container and removes its horizontal padding. */
+main { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
 
 
 .daily-watch {

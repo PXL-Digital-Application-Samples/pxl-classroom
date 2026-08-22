@@ -907,6 +907,7 @@ function handleLogout() {
 
 
 .header-titles {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -951,10 +952,19 @@ function handleLogout() {
 
 .org-dropdown-container {
   position: relative;
-  min-width: 200px;
+  /* No hard floor: this sits in the header, so a fixed min-width forces the
+     whole bar wider than a narrow viewport. The org name truncates instead. */
+  min-width: 0;
+  max-width: 240px;
 }
 
+.org-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .org-dropdown-btn {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1064,8 +1074,13 @@ function handleLogout() {
   opacity: 0.5;
 }
 
+/* padding-top/bottom, NOT the shorthand: `main` here is a scoped element
+   selector and out-specifies .container, so `padding: X 0` silently wiped
+   the horizontal padding and content sat flush to the viewport edge on
+   anything narrower than the 1240px max-width. */
 main {
-  padding: var(--space-xl) 0;
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
 }
 
 .section-toolbar {
@@ -1213,9 +1228,17 @@ main {
 }
 
 @media (max-width: 640px) {
+  /* Decorative first: the tag says nothing the dashboard does not, and the
+     wordmark duplicates the logo, which still links home. */
+  .lecturer-tag { display: none; }
   .header-right { flex-direction: column; gap: var(--space-sm); align-items: stretch; }
   .health-btn { justify-content: center; }
   .onboarding-actions { flex-direction: column; align-items: stretch; }
+}
+
+@media (max-width: 520px) {
+  .header-titles .app-header-title,
+  .header-titles .app-header-sep { display: none; }
   .section-toolbar { flex-direction: column; align-items: flex-start; gap: var(--space-sm); }
 }
 </style>
