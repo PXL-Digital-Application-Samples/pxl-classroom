@@ -12,28 +12,26 @@ test.describe('06 - System Health & Diagnostics Modal', () => {
 
     await page.goto(`/dashboard/${ORG}`);
 
-    // Click System Health button in navbar or header
-    const healthBtn = page.locator('button', { hasText: /System Health|Diagnostics/i });
-    if (await healthBtn.isVisible()) {
-      await healthBtn.click();
+    // The System Health button is icon-only - aria-label is the only handle.
+    await page.locator('button[aria-label="System health check"]').click();
 
-      // Assert modal is visible
-      const modal = page.locator('.diagnostics-modal-backdrop, .modal-backdrop');
-      await expect(modal).toBeVisible();
+    const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');
+    await expect(overlay).toBeVisible();
 
-      // Check top-anchored positioning
-      const backdrop = page.locator('.diagnostics-modal-backdrop');
-      if (await backdrop.isVisible()) {
-        const style = await backdrop.evaluate((el) => window.getComputedStyle(el).alignItems);
-        expect(style).toBe('flex-start');
-      }
+    // Top-anchored: SystemHealthModal's scoped .modal-overlay must beat the
+    // global centred one in style.css, or a long tier list overflows the fold.
+    const alignItems = await overlay.evaluate((el) => window.getComputedStyle(el).alignItems);
+    expect(alignItems).toBe('flex-start');
 
-      // Check verdict banner
-      const verdict = page.locator('.verdict-banner, .health-verdict');
-      if (await verdict.isVisible()) {
-        await expect(verdict).toBeVisible();
-      }
-    }
+    // Verdict banner - rendered only once the diagnostic pass has a report.
+    const banner = overlay.locator('.diag-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveClass(/banner-(ok|warn|fail)/);
+    await expect(banner.locator('.banner-text h4')).not.toBeEmpty();
+
+    // Ordered dependency tiers (ARCHITECTURE.md: Auth -> Org -> Control repo -> ...).
+    await expect(overlay.locator('.tier-card').first()).toBeVisible();
+    expect(await overlay.locator('.tier-card').count()).toBeGreaterThan(1);
   });
 });
 
