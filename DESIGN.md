@@ -41,7 +41,7 @@ without re-adding borders.
 
 | Token | Light | Dark | Usage |
 | :--- | :--- | :--- | :--- |
-| `--bg-canvas` | `#f6f8fa` | `#0d1117` | Base application background |
+| `--bg-canvas` | `#eaeef2` | `#0d1117` | Base application background |
 | `--bg-surface` | `#ffffff` | `#161b22` | Cards, panels, sticky header, table headers |
 | `--bg-surface-elevated` | `#ffffff` | `#1c2128` | Dropdown menus, modal sheets (light separates by shadow, not tone) |
 | `--bg-surface-hover` | `#f3f4f6` | `#21262d` | Button faces, table row hover, list item hover |
@@ -61,7 +61,17 @@ Status washes. Five hues × three steps — `subtle` (background), `muted` (fill
 Dark is an alpha wash over the dark canvas; **light uses Primer's solid muted colours** —
 a 10% wash tuned for `#0d1117` reads as nothing on white. Never hand-roll an `rgba()` status tint.
 
+**Tints are fills, not overlays.** Because the light values are opaque, painting
+one *over* content covers it — a `--tint-accent-subtle` hero glow washed the
+landing-page title out completely. Use `--glow-accent` for anything drawn on top.
+
 ### Shadows
+In light mode the overlay tokens are the *only* separation an overlay gets:
+`--bg-surface` and `--bg-surface-elevated` are both `#ffffff`, so a menu on a
+card has a tonal contrast of exactly **1.000** and the shadow does all the work.
+Light shadows are therefore deliberately strong (`rgba(140,149,159,.30–.40)`),
+not the faint values a dark-first palette suggests.
+
 `light-dark()` returns a `<color>`, so it **cannot** wrap a whole `box-shadow`. Only the colour is
 themed (`--shadow-color-{sm,md,lg,modal}`); geometry is shared via `--shadow-{sm,md,lg,modal}`
 and `--ring-focus`. Writing `box-shadow: light-dark(0 4px 12px …, …)` is invalid CSS.

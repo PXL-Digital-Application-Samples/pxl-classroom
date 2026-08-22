@@ -516,14 +516,21 @@ function handleLogout() {
 }
 
 .hero-glow {
+  /* Positioned elements paint above static siblings, so without this the glow
+     covers .container - i.e. the title it is meant to sit behind. */
+  z-index: 0;
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, var(--tint-accent-subtle) 0%, transparent 70%);
+  background: var(--gradient-hero-glow);
   pointer-events: none;
+}
+.hero > .container {
+  position: relative;
+  z-index: 1;
 }
 
 .hero-icon {
@@ -537,7 +544,7 @@ h1 {
   font-weight: 700;
   letter-spacing: -0.02em;
   margin-bottom: var(--space-xs);
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-blue) 100%);
+  background: var(--gradient-title);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

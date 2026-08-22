@@ -6,8 +6,24 @@ import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes } from '../fixtures
 // actually gets - which theme resolves, whether it survives a reload, and
 // whether the toggle is reachable at all.
 
-const DARK_CANVAS = 'rgb(13, 17, 23)';   // --bg-canvas dark  (#0d1117)
-const LIGHT_CANVAS = 'rgb(246, 248, 250)'; // --bg-canvas light (#f6f8fa)
+// Read from the palette rather than hardcoded, so a deliberate --bg-canvas
+// change does not fail these tests for the wrong reason. What matters here is
+// WHICH theme resolved, not the exact hex - tests/theme-tokens.test.mjs owns
+// the token values themselves.
+async function canvasFor(page, theme) {
+  return page.evaluate((t) => {
+    const root = document.documentElement;
+    const prev = root.dataset.theme;
+    root.dataset.theme = t;
+    const probe = document.createElement('div');
+    probe.style.background = 'var(--bg-canvas)';
+    document.body.appendChild(probe);
+    const v = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    if (prev === undefined) delete root.dataset.theme; else root.dataset.theme = prev;
+    return v;
+  }, theme);
+}
 
 const canvas = (page) =>
   page.evaluate(() => getComputedStyle(document.body).backgroundColor);
@@ -18,14 +34,14 @@ const stored = (page) =>
 
 test.describe('19 - Theme toggle', () => {
   test('First visit follows the OS: dark machine gets dark, light machine gets light', async ({ browser }) => {
-    for (const [scheme, expected] of [['dark', DARK_CANVAS], ['light', LIGHT_CANVAS]]) {
+    for (const [scheme, expected] of [['dark', 'dark'], ['light', 'light']]) {
       const context = await browser.newContext({ colorScheme: scheme });
       const page = await context.newPage();
       await setupStandardMockRoutes(page);
       await page.goto('/');
 
       expect(await dataTheme(page)).toBe('system');
-      expect(await canvas(page)).toBe(expected);
+      expect(await canvas(page)).toBe(await canvasFor(page, expected));
       // A plain visit must not manufacture a preference the user never expressed,
       // or 'system' could never follow a later OS change.
       expect(await stored(page)).toBeNull();
@@ -43,18 +59,18 @@ test.describe('19 - Theme toggle', () => {
 
     const toggle = page.locator('.theme-toggle');
     await expect(toggle).toBeVisible();
-    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+    expect(await canvas(page)).toBe(await canvasFor(page, 'light'));
 
     await toggle.click();
     expect(await dataTheme(page)).toBe('dark');
     expect(await stored(page)).toBe('dark');
     // An explicit choice must win over the OS.
-    expect(await canvas(page)).toBe(DARK_CANVAS);
+    expect(await canvas(page)).toBe(await canvasFor(page, 'dark'));
 
     await toggle.click();
     expect(await dataTheme(page)).toBe('light');
     expect(await stored(page)).toBe('light');
-    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+    expect(await canvas(page)).toBe(await canvasFor(page, 'light'));
 
     await toggle.click();
     expect(await dataTheme(page)).toBe('system');
@@ -83,7 +99,7 @@ test.describe('19 - Theme toggle', () => {
 
     await page.reload();
     expect(await dataTheme(page)).toBe('light');
-    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+    expect(await canvas(page)).toBe(await canvasFor(page, 'light'));
     expect(earlyTheme.filter(Boolean)).not.toContain('dark');
 
     await context.close();
@@ -96,12 +112,12 @@ test.describe('19 - Theme toggle', () => {
 
     await page.goto('/?theme=light');
     expect(await dataTheme(page)).toBe('light');
-    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+    expect(await canvas(page)).toBe(await canvasFor(page, 'light'));
     expect(await stored(page)).toBe('light');
 
     // The override is persisted, so a plain URL keeps it.
     await page.goto('/');
-    expect(await canvas(page)).toBe(LIGHT_CANVAS);
+    expect(await canvas(page)).toBe(await canvasFor(page, 'light'));
 
     // An unrecognised value must not be applied or stored.
     await page.goto('/?theme=chartreuse');
