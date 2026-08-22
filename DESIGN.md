@@ -139,7 +139,7 @@ and `--ring-focus`. Writing `box-shadow: light-dark(0 4px 12px …, …)` is inv
 
 ---
 
-## 5. Theming (system default / light / dark)
+## 5. Theming (light / dark, seeded from the OS)
 
 The SPA is dual-theme. Both themes come from **one** token block in `frontend/src/style.css`;
 there is no second palette to keep in sync.
@@ -168,10 +168,18 @@ theme regardless of the OS.
 
 | Export | |
 | :--- | :--- |
-| `themeMode` | the user's choice — `'dark' \| 'light' \| 'system'` |
+| `themeMode` | the stored choice — `'dark' \| 'light' \| 'system'` |
 | `resolvedTheme` | what is actually on screen — `'dark' \| 'light'` |
 | `setThemeMode(m)` | validate, persist, apply (invalid input is ignored) |
-| `cycleThemeMode()` | `dark → light → system → dark` |
+| `toggleTheme()` | flips `resolvedTheme`; only ever produces `dark` or `light` |
+
+**The toggle has two states, not three.** `system` is the *implicit* state of a
+visitor who has never touched it — they get their OS theme and the control shows
+whichever theme resolved. The first press stores an explicit `dark` or `light`,
+and the app never returns to `system`: following the OS after someone has stated
+a preference would silently override them. Hence two exported lists —
+`THEME_MODES` (`dark`/`light`, what the toggle emits) and `STORABLE_MODES`
+(plus `system`, what may be stored or arrive via `?theme=`).
 
 **Every toggle persists.** `setThemeMode()` writes to `localStorage` under **`pxl_theme`**,
 wrapped in `try`/`catch` (Safari private mode and blocked storage must not break boot), and

@@ -83,7 +83,7 @@ test("Theme runtime: an explicit choice is always persisted", async () => {
   assert.ok(
     setter.includes("persistMode("),
     "setThemeMode must persist: toggling is the user expressing a preference, and " +
-      "it has to survive a reload. cycleThemeMode() routes through setThemeMode, so " +
+      "it has to survive a reload. toggleTheme() routes through setThemeMode, so " +
       "this covers the toggle too.",
   );
 
@@ -195,8 +195,19 @@ test("Theme runtime: the inline boot script and lib/theme.js agree", async () =>
     ?.map((m) => m.replaceAll("'", ""));
   assert.deepEqual(
     modes,
-    ["dark", "light", "system"],
-    "lib/theme.js must export THEME_MODES as ['dark', 'light', 'system']",
+    ["dark", "light"],
+    "THEME_MODES is what the TOGGLE can produce. 'system' must not be in it - " +
+      "it is the implicit state of a visitor who has never used the toggle, not " +
+      "a state they can cycle back into.",
+  );
+
+  const storable = themeJs
+    .match(/export const STORABLE_MODES = \[([^\]]+)\]/)?.[1];
+  assert.ok(
+    storable && storable.includes("THEME_MODES") && storable.includes("'system'"),
+    "STORABLE_MODES must extend THEME_MODES with 'system' - a stored preference " +
+      "or a ?theme= override may legitimately be 'system' even though the toggle " +
+      "never emits it.",
   );
 
   const bootModes = html
@@ -205,8 +216,9 @@ test("Theme runtime: the inline boot script and lib/theme.js agree", async () =>
     ?.map((m) => m.replaceAll("'", ""));
   assert.deepEqual(
     bootModes,
-    modes,
-    "The inline boot script's VALID list must match THEME_MODES in lib/theme.js",
+    [...modes, "system"],
+    "The boot script validates STORED values, so its VALID list must match " +
+      "STORABLE_MODES (THEME_MODES + 'system'), not the narrower toggle list.",
   );
 
   assert.match(

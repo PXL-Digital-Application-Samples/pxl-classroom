@@ -50,7 +50,7 @@ test.describe('19 - Theme toggle', () => {
     }
   });
 
-  test('Toggle cycles system -> dark -> light and persists every step', async ({ browser }) => {
+  test('Toggle flips dark/light only, and never returns to system', async ({ browser }) => {
     // A light OS makes the "explicit dark pins against the OS" step meaningful.
     const context = await browser.newContext({ colorScheme: 'light' });
     const page = await context.newPage();
@@ -59,22 +59,30 @@ test.describe('19 - Theme toggle', () => {
 
     const toggle = page.locator('.theme-toggle');
     await expect(toggle).toBeVisible();
+
+    // First visit: implicitly following the OS, nothing stored yet.
+    expect(await dataTheme(page)).toBe('system');
+    expect(await stored(page)).toBeNull();
     expect(await canvas(page)).toBe(await canvasFor(page, 'light'));
 
+    // One press leaves 'system' behind for good.
     await toggle.click();
     expect(await dataTheme(page)).toBe('dark');
     expect(await stored(page)).toBe('dark');
     // An explicit choice must win over the OS.
     expect(await canvas(page)).toBe(await canvasFor(page, 'dark'));
 
-    await toggle.click();
-    expect(await dataTheme(page)).toBe('light');
-    expect(await stored(page)).toBe('light');
-    expect(await canvas(page)).toBe(await canvasFor(page, 'light'));
-
-    await toggle.click();
-    expect(await dataTheme(page)).toBe('system');
-    expect(await stored(page)).toBe('system');
+    // From here it is a two-state flip. Eight presses must never land on
+    // 'system' again - it is a starting condition, not a cycle stop.
+    const seen = new Set();
+    for (let i = 0; i < 8; i++) {
+      await toggle.click();
+      const t = await dataTheme(page);
+      seen.add(t);
+      expect(await stored(page), 'every press persists').toBe(t);
+    }
+    expect([...seen].sort(), 'the toggle must only ever produce dark or light')
+      .toEqual(['dark', 'light']);
 
     await context.close();
   });
@@ -85,8 +93,8 @@ test.describe('19 - Theme toggle', () => {
     const page = await context.newPage();
     await setupStandardMockRoutes(page);
     await page.goto('/');
-    await page.locator('.theme-toggle').click(); // system -> dark
-    await page.locator('.theme-toggle').click(); // dark -> light
+    // One press: the OS resolves dark, so the flip lands on light immediately.
+    await page.locator('.theme-toggle').click();
     expect(await stored(page)).toBe('light');
 
     // Capture the attribute as early as the document exists: if the inline

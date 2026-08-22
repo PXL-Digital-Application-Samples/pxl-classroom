@@ -40,6 +40,8 @@
       // purpose - this has to run before the module graph loads.
       // tests/theme-tokens.test.mjs asserts the two stay in sync.
       (function () {
+        // Mirrors STORABLE_MODES in src/lib/theme.js - what may be stored or
+        // arrive via ?theme=. Wider than the toggle, which only emits dark/light.
         var VALID = ['dark', 'light', 'system'];
         var html = document.documentElement;
         try {

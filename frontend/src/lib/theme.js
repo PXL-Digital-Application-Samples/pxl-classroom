@@ -13,7 +13,16 @@
 import { computed, ref } from 'vue'
 
 export const STORAGE_KEY = 'pxl_theme'
-export const THEME_MODES = ['dark', 'light', 'system']
+
+// What the toggle can produce. 'system' is deliberately NOT here: it is the
+// implicit state of a visitor who has never touched the toggle, not a state
+// they can cycle back into. Once someone expresses a preference, the app holds
+// it - following the OS from then on would silently override their choice.
+export const THEME_MODES = ['dark', 'light']
+
+// Everything that may legitimately be STORED or arrive via ?theme=, which
+// includes the first-visit 'system'.
+export const STORABLE_MODES = [...THEME_MODES, 'system']
 
 // Follow the OS by default: a first-time visitor gets whichever theme their
 // machine is set to. An explicit 'dark' or 'light' pins it regardless.
@@ -35,7 +44,7 @@ export const resolvedTheme = computed(() =>
 )
 
 function isValidMode(value) {
-  return THEME_MODES.includes(value)
+  return STORABLE_MODES.includes(value)
 }
 
 function readStoredMode() {
@@ -84,9 +93,16 @@ export function setThemeMode(value) {
   applyMode(value)
 }
 
-/** Toggle order: dark -> light -> system -> dark. */
-export function cycleThemeMode() {
-  const next = THEME_MODES[(THEME_MODES.indexOf(mode.value) + 1) % THEME_MODES.length]
+/**
+ * Flip to the opposite of what is currently on screen.
+ *
+ * Keyed off `resolvedTheme`, not `mode`: on a first visit `mode` is 'system'
+ * and the only sensible next state is the opposite of what the visitor can
+ * actually see. That also means the first press always leaves 'system' behind,
+ * which is the point - it is a starting condition, not a cycle stop.
+ */
+export function toggleTheme() {
+  const next = resolvedTheme.value === 'dark' ? 'light' : 'dark'
   setThemeMode(next)
   return next
 }

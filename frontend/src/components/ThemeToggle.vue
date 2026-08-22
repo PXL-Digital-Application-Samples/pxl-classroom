@@ -2,9 +2,9 @@
   <button
     type="button"
     class="btn btn-ghost btn-icon theme-toggle"
-    :title="`Theme: ${current.label}. Click for ${next.label.toLowerCase()}.`"
-    :aria-label="`Theme: ${current.label}. Activate for ${next.label.toLowerCase()}.`"
-    @click="cycleThemeMode()"
+    :title="`${current.label} theme. Switch to ${next.label.toLowerCase()}.`"
+    :aria-label="`${current.label} theme. Activate to switch to ${next.label.toLowerCase()}.`"
+    @click="toggleTheme()"
   >
     <Icon :name="current.icon" :size="16" />
     <span class="sr-only">{{ current.label }}</span>
@@ -12,24 +12,22 @@
 </template>
 <!-- Sizing comes from the global .btn-icon (DESIGN.md §3.3). -->
 
-
 <script setup>
 import { computed } from 'vue'
 import Icon from './Icon.vue'
-import { THEME_MODES, cycleThemeMode, themeMode } from '../lib/theme.js'
+import { resolvedTheme, toggleTheme } from '../lib/theme.js'
 
 // Ghost/icon button per DESIGN.md §3 - a utility, never competing with the
 // view's single primary CTA.
-const MODE_META = {
+//
+// Keyed off `resolvedTheme` (what is on screen) rather than the stored mode,
+// so a first-time visitor still sees a plain dark/light control. 'system' is
+// how they arrived, not something they should have to reason about.
+const META = {
   dark: { icon: 'moon', label: 'Dark' },
   light: { icon: 'sun', label: 'Light' },
-  system: { icon: 'monitor', label: 'System' },
 }
 
-const current = computed(() => MODE_META[themeMode.value] ?? MODE_META.dark)
-
-const next = computed(() => {
-  const order = THEME_MODES.indexOf(themeMode.value)
-  return MODE_META[THEME_MODES[(order + 1) % THEME_MODES.length]] ?? MODE_META.light
-})
+const current = computed(() => META[resolvedTheme.value] ?? META.dark)
+const next = computed(() => (resolvedTheme.value === 'dark' ? META.light : META.dark))
 </script>
