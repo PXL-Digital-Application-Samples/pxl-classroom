@@ -56,27 +56,52 @@ const verificationUrl = computed(
 
 const copied = ref(false)
 
+/**
+ * Copy synchronously, using a throwaway textarea.
+ *
+ * This runs BEFORE window.open on purpose. execCommand is deprecated but it is
+ * synchronous, so it completes while the document still has focus and returns a
+ * real answer immediately - navigator.clipboard.writeText is a promise whose
+ * permission check fails the moment focus moves to the new tab.
+ */
+function copySync(text) {
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0'
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return ok
+  } catch {
+    return false
+  }
+}
+
 function copyAndOpen() {
   const code = props.flow?.user_code
-  // Open first, inside the click gesture - a popup blocker will reject
-  // window.open if the clipboard promise resolves first and breaks the chain.
+  if (!code) return
+
+  // ORDER IS THE WHOLE FIX. window.open moves focus to the new tab, and
+  // clipboard writes are rejected on an unfocused document - so opening first
+  // left the clipboard empty every time, with the UI still reporting success.
+  let ok = copySync(code)
+  if (!ok && navigator.clipboard?.writeText) {
+    // Still worth a try on browsers without execCommand; also a promise, so it
+    // is started here while focus is ours rather than after the tab opens.
+    navigator.clipboard.writeText(code).then(() => { copied.value = true }, () => {})
+    ok = true
+  }
+
+  copied.value = ok
+  if (ok) setTimeout(() => { copied.value = false }, 6000)
+  else toast.info('Could not copy automatically - select the code above and copy it.')
+
   const win = window.open(verificationUrl.value, '_blank', 'noopener,noreferrer')
   if (!win) toast.info('Allow pop-ups, or open the GitHub link manually.')
-
-  if (!code) return
-  if (!navigator.clipboard) {
-    // Insecure context or an old browser. The code is on screen and
-    // user-select:all, so say so rather than failing silently.
-    toast.info('Copy the code above manually, then paste it on GitHub.')
-    return
-  }
-  navigator.clipboard.writeText(code).then(
-    () => {
-      copied.value = true
-      setTimeout(() => { copied.value = false }, 4000)
-    },
-    () => toast.error('Could not copy the code - type it manually.')
-  )
 }
 </script>
 
