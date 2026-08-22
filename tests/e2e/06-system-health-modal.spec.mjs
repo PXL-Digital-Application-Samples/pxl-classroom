@@ -24,8 +24,13 @@ test.describe('06 - System Health & Diagnostics Modal', () => {
     expect(alignItems).toBe('flex-start');
 
     // Verdict banner - rendered only once the diagnostic pass has a report.
+    // That pass awaits 17 checks strictly in sequence, so this is the one wait
+    // in the file gated on real work rather than a render. Mocks answer
+    // instantly, but on a loaded runner the 5s default is the plausible flake;
+    // 15s is still far below the modal's own 30s pass budget, so a genuine
+    // hang still fails here rather than timing out the whole test.
     const banner = overlay.locator('.diag-banner');
-    await expect(banner).toBeVisible();
+    await expect(banner).toBeVisible({ timeout: 15000 });
     await expect(banner).toHaveClass(/banner-(ok|warn|fail)/);
     await expect(banner.locator('.banner-text h4')).not.toBeEmpty();
 
