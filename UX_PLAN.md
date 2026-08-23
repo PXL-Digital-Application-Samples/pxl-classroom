@@ -164,6 +164,15 @@ gone as well, at the cost of the Actions access this whole change exists to keep
 `evaluate` and nothing is date-aware, so the ruleset is created **disabled** at
 provisioning and flipped at the deadline. That is what Phase 1 is.
 
+**Verified live (§10 risk 2).** The App pushes through an active ruleset when it
+is in `bypass_actors` as `actor_type: "Integration"`; an org owner reading the
+same ruleset gets `current_user_can_bypass: "never"` and is rejected with
+`GH013`. The flip is one `PUT` with a partial body:
+
+```
+PUT /repos/{org}/{repo}/rulesets/{id}   -f enforcement=active
+```
+
 ##### Open decision: organization-level or repository-level
 
 | | Permission needed | Student (repo admin) can remove it? |
@@ -779,12 +788,27 @@ Each workstream is one commit, with its tests, per the repo's convention.
    `lib/effective-deadline.mjs` is now the single implementation and
    `lockdown.mjs` defers an extended student instead of demoting them.
    ARCHITECTURE §6.2.2.
-2. **Whether a GitHub App can manage rulesets at all (§3.2.2).** Repository
-   rulesets need `administration: write`, which the App has — but that has not
-   been exercised against a real repository. Confirm before building on it, and
-   confirm that a ruleset with the App in `bypass_actors` still lets preservation
-   push. If it does not, Phase 3 has to run before Phase 1, which unpicks the
-   whole ordering.
+2. ~~**Whether a GitHub App can manage rulesets at all (§3.2.2).**~~ **Confirmed
+   live, 23 Aug 2026** — throwaway repo in `PXL-Systems-Expert`, run
+   [32659354771](https://github.com/PXL-Digital-Application-Samples/pxl-classroom/actions/runs/32659354771).
+   Four answers, all the way the plan needs them:
+
+   * **The App pushes through an active ruleset.** `bypass_actors` with
+     `actor_id: 4051936, actor_type: "Integration", bypass_mode: "always"` is
+     accepted and honoured: `remote: Bypassed rule violations for
+     refs/heads/main` and the ref updated, against `update` +
+     `non_fast_forward` + `deletion` at `enforcement: active`. **Phase 3 does
+     not have to precede Phase 1; the stop-first ordering in §3.2.1 holds.**
+   * **Nobody else does.** Reading the same ruleset as an **org owner** returns
+     `current_user_can_bypass: "never"`; reading it as the App returns
+     `"always"`. A push as that org owner was rejected with `GH013 ... Cannot
+     update this protected ref`. A student is repo admin, strictly weaker than
+     an org owner, so §3.2.2's central claim stands.
+   * **The App flips enforcement itself**, `disabled` ↔ `active`, in one
+     `PUT /repos/{o}/{r}/rulesets/{id}` taking ~0.5 s. That call *is* Phase 1.
+   * **The update accepts a partial body** — `-f enforcement=active` alone, no
+     need to resend rules or bypass actors. So the flip cannot accidentally
+     rewrite the lock's definition.
 3. **`until` filters on a date GitHub does not document (§3.2.4).** The REST docs
    say only *"Only commits before this date will be returned"* and never state
    whether that is the author or the committer date. `git log --until` uses the
