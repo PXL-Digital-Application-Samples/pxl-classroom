@@ -38,10 +38,17 @@ Confirmed before planning:
 
 | Question | Decision |
 |---|---|
-| Late policy | **Implement `block` properly** — see §3 for what that can and cannot mean. |
+| Late policy | **Implement `block` properly.** Settled in discussion as *enforcement at the deadline* rather than reconstruction afterwards — a ruleset flipped by a converging sentinel, stop-first. §3.2. |
 | Template wall | **Link out only.** No repository creation on the lecturer's behalf. |
 | Autograding | **Dedicated modal**, entered from a one-line summary in the form. |
 | Published assignment | **Cohort-first**, settings behind a disclosure. Routing unchanged. |
+
+Two constraints came out of the same discussion and shape §3.2 throughout:
+
+* **Stopping access is the only time-critical step.** Everything else — recording,
+  preserving, reporting — happens after, when nothing can change any more.
+* **Students must keep their Actions, secrets and runners.** That is the course's
+  subject matter, so removing push access must not remove it.
 
 ---
 
@@ -50,8 +57,17 @@ Confirmed before planning:
 **Fixes:** UX2 (roster default), UX9 (draft count), UX11 (python mismatch),
 UX13 (late policy), UX14 (acceptance mode).
 
-This lands first. It is small, it is mechanical, and until it is done every other
-improvement sits on top of a form whose defaults are wrong.
+It splits into two halves that share a theme but not a commit:
+
+* **The mechanical half** — §3.1, §3.3–§3.5. Small, reviewable in one pass, and
+  it lands first because every other workstream sits on top of a form whose
+  defaults are currently wrong.
+* **The enforcement half** — §3.2. The largest change in the plan. It restructures
+  `lockdown.mjs`, adds a new trigger mechanism, and has its own five-step sequence
+  (§3.2.9). Nothing else in the plan waits on it.
+
+§3.2.5 also contains a **live bug found while planning it** — deadline extensions
+do not work — which should ship before either half.
 
 ### 3.1 `roster_mode` defaults to `enforced`
 
@@ -68,117 +84,207 @@ already says *"Anyone with the link can claim a repo."*
 **Test:** `tests/admin-lifecycle-ui.test.mjs` — a new assignment's `buildDoc()`
 carries `roster_mode: 'enforced'`; the `open` path still requires a cap.
 
-### 3.2 `late_policy: block` — implemented, and honestly labelled
+### 3.2 `late_policy: block` — enforced at the deadline, not reconstructed after it
 
-**This is the one that needs the most care, because the literal reading is not
-achievable and shipping a half-version would repeat the original mistake.**
+**This is the largest single change in the plan and it restructures
+`lockdown.mjs` rather than patching it.** The reasoning below is the design
+conversation that produced it, kept because every discarded option was discarded
+for a reason someone will otherwise re-litigate.
 
-Blocking a push *as it happens* needs something running at the deadline instant.
-The options are a per-assignment scheduled workflow (control repos hold no
-workflows — ARCHITECTURE §2), a push-triggered workflow in every student repo
-(event-driven triggers, removed in Wave 8), or a tighter cron on the hub.
+The goal is not a report that says a student was late. It is that at a review the
+next morning, the code on screen is the code that existed at the deadline, and
+there is nothing to argue about.
 
-**The objection to the tighter cron is not cost.** The hub is a public
-repository, so standard-runner Actions there are free with no minute cap —
-ARCHITECTURE §6.5 already says exactly this, and the minimal-minutes constraint
-in §6 is about the *per-org* minutes that `execution_environment: github_actions`
-autograding consumes inside private student repositories. An hourly
-`daily-activity.yml` would bill **zero** additional minutes, in the hub and in
-every org.
+#### 3.2.1 Stop first, record afterwards
 
-The objection is that GitHub's `schedule` event cannot carry an enforcement
-promise. Its documented behaviour:
+Today `lockdown.mjs` loops over students and, **per student**, reads the repo,
+reads `HEAD`, writes an observation, and *then* demotes. For a 200-student cohort
+that means student 1 is frozen at T+0s and student 200 minutes later, because the
+demotion is a write against an ~80/min secondary limit. Two consequences nobody
+would choose: **students at the end of the list get extra time**, and the snapshot
+is not a consistent cut — student 1's `HEAD` is read minutes before student 200's.
 
-| Limit | Consequence for "blocking" |
+The order inverts:
+
+| Phase | What | When | Cost |
+|---|---|---|---|
+| **1 — STOP** | Flip one ruleset to `active` | At the deadline, to the second | 1 API call, sub-second, whole cohort at once |
+| **2 — RECORD** | Repo object, `pushed_at`, `HEAD`, commit count, tags, observations | After. Unhurried. | N calls, no longer racing anything |
+| **3 — PRESERVE** | Push to `pxl-classroom-archive` | After | existing `preserve.mjs` |
+| **4 — DEMOTE** *(optional)* | Collaborator → `pull` | After | off by default, see 3.2.2 |
+
+Phase 1 is the only time-critical step, and it is one call.
+
+Four things fall out for free:
+
+* **The snapshot is a consistent cut.** Every `HEAD` is read after all writes
+  stopped.
+* **`until` demotes to a fallback.** If access stopped *at* the deadline, `HEAD`
+  **is** the deadline state — no commit-date filtering, so the forgeability
+  question disappears in the normal case (§3.2.4).
+* **Freeze-on-retry stops being load-bearing.** CLAUDE.md documents it as
+  critical — *"re-reading `HEAD` would swap an on-time submission for a late
+  commit"*. With stop-first that hazard is gone by construction. The freeze stays
+  as belt-and-braces, not as the thing holding the design together.
+* **A failed recording pass is safely re-runnable**, because the repositories are
+  frozen and produce the same answer.
+
+#### 3.2.2 A ruleset, not a demotion
+
+Demoting to `pull` does not just remove push. It removes **everything**: Actions,
+secrets, environments, runners, settings. On a course whose subject *is* those
+things, it confiscates the subject matter at the deadline.
+
+A repository ruleset takes only what is needed:
+
+| Rule | Blocks |
 |---|---|
-| Shortest interval is **5 minutes** | The window can only narrow, never close. |
-| Delayed under load — *"High load times include the start of every hour"* | 5–30 min routinely, longer at peak. Deadlines are set on the hour. |
-| **"If the load is sufficiently high, some queued jobs may be dropped"** | On a busy evening the deadline job does not run at all. |
-| Public-repo scheduled workflows auto-disable after 60 days without repository activity | A dormant term silently switches enforcement off. |
+| `update` | pushing to the submission ref |
+| `non_fast_forward` | force-push — closes the history-rewriting hole |
+| `deletion` | deleting the branch |
 
-The third row is disqualifying. A control named *block* that silently does not
-run on a busy evening is the same class of defect this workstream exists to
-remove (C4) — it would just fail rarely, which is worse, because nobody would
-notice until a dispute.
+with the Provisioner App in `bypass_actors` so preservation still works.
 
-A tighter cron therefore stays available as a way to **narrow the read-only
-window** if that is wanted later — at no cost, and with no promise attached to
-it. It is not a way to implement `block`.
-
-#### 3.2.1 The full option set, including the ones that change the project
-
-Nothing above is fixed by architecture; the constraint is GitHub. Refusing a push
-needs the org-level App to demote the student, because a student holds **admin**
-on their own repository (ARCHITECTURE §4.1) and can undo anything set at repo
-level. So the only real question is *what fires the demotion, and when*.
-
-GitHub offers exactly two ways to make something happen at a time: `schedule`, or
-a caller. That gives five candidates, and two are dead:
-
-| | Approach | Verdict |
+| | Demote to `pull` (today) | Ruleset (proposed) |
 |---|---|---|
-| **A** | **Deadline-anchored submission SHA.** No trigger at all — lockdown picks the last commit ≤ deadline. | **Take.** Always correct, zero minutes, cannot fail to run. Does not refuse the push. |
-| **B** | **A "Lock down now" action the lecturer presses.** Precise to the second, free, reliable, and honest about who decides — ARCHITECTURE §12 already argues for exactly this over a scheduled trigger. | **Take.** See below: the primitive is 80 % built and does not currently work. |
-| **C** | **Tighter hub cron.** Free (public repo). Narrows the automatic window from ≤24 h to ≤1 h + drift. | **Optional.** Composes with A. Carries no promise, so it must never be described as blocking. |
-| **D** | **Enforcement inside the student repository** — branch protection, a `push` workflow, a required check. | **Dead.** The student has admin and can remove it. A `push` workflow also cannot refuse a push, only react to one, and reverting a student's commit is not something to build. |
-| **E** | **Take admin away from students** so repo-level protection holds. | **Dead for this course.** Admin is deliberate — it is what lets the course teach Actions, secrets, environments and runners (ARCHITECTURE §4.1). This is a curriculum decision, not a technical one, and it still needs a trigger. |
+| Blocks pushes | yes | yes |
+| Student keeps Actions / secrets / runners | **no** | **yes** |
+| Blocks force-push before lockdown | no | yes |
+| API calls to lock a cohort | one per student | **one** |
+| Deadline extension for one student | impossible today (§3.2.5) | remove one repo from the target list |
+| Student can delete the repository | no | **yes** — see below |
 
-An external scheduler calling `workflow_dispatch` is not listed: it means hosting
-something and storing a hub credential in it, which is out on both counts.
+The last row is the trade. A ruleset leaves them admin, so they could delete the
+repository outright. Phase ordering answers it: by the time that matters,
+Phase 3 has pushed a copy to `pxl-classroom-archive`, which they cannot touch.
+Phase 4 remains available as a per-assignment switch for anyone who wants admin
+gone as well, at the cost of the Actions access this whole change exists to keep.
 
-**B is a smaller change than it looks, and the gap is real.** *Freeze & Preserve
-Now* (`AssignmentDetailView.vue:1238`) dispatches `daily-activity.yml` for the
-org — and `find-finalizable.mjs` only queues assignments whose deadline has
-**already passed**. So pressing it before the deadline does nothing for that
-assignment, and *Close (stop accepting)* only changes `state`. **There is no way
-to lock repositories right now.** That is the missing primitive, and it is what a
-lecturer running a timed exam actually needs.
+**Rulesets have no time conditions.** `enforcement` is `disabled` / `active` /
+`evaluate` and nothing is date-aware, so the ruleset is created **disabled** at
+provisioning and flipped at the deadline. That is what Phase 1 is.
 
-What B requires: a `finalize-now.yml` (or a `force` input on the existing path)
-that runs `collect → lockdown → preserve → report` for **one named assignment**,
-ignoring the deadline check, behind the same `provisioning` environment and
-`[bot]`-actor guard as the other admin workflows. The button already exists; it
-needs a target and a confirmation naming the consequence.
+##### Open decision: organization-level or repository-level
 
-**Recommended combination: A + B.** A makes late work not count, automatically and
-without depending on anything firing. B lets a lecturer close a cohort at a chosen
-instant with real enforcement. Together they cover both readings of "block", and
-neither of them promises something the system cannot deliver. C stays on the shelf.
-
----
-
-What *is* available, at zero additional Actions minutes and with no dependence on
-a cron firing on time, is the thing a lecturer almost always means by "late work
-is blocked": **late work does not count.**
-
-| | `report` (today's behaviour) | `block` (new) |
+| | Permission needed | Student (repo admin) can remove it? |
 |---|---|---|
-| Submission SHA | `HEAD` of the branch at lockdown | last commit **at or before `deadline_at`** |
-| A commit pushed after the deadline | becomes part of the submission, flagged late | recorded as `first_late_sha`, excluded from the submission |
-| Student pushed *only* after the deadline | that commit is the submission | no submission |
-| Repo access after the deadline | read-only at the next nightly run (`lock_down_enabled`) | unchanged |
+| **Repository** ruleset | `administration: write` — **the App already has this** | **Yes** |
+| **Organization** ruleset | `organization_administration: write` — the App has **read** (`lib/audit.mjs:40`) | **No** |
 
-**Change:** `lockdown/lockdown.mjs:179`. Today:
+Organization-level is the version that actually holds, and it also targets
+repositories by **name pattern**, so `<assignment-id>-*` covers a cohort in one
+object. Its cost is an App permission bump: change the declaration in the App's
+settings, then **every installed org must approve** the new permission, and until
+they do the feature has to degrade to today's behaviour there. System Health
+already has the machinery to surface exactly this kind of drift (Tier 1).
 
-```js
-const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits/${branch}`);
-snapshotSha = commitRes.ok ? commitRes.data.sha : null;
+Repository-level works today with no permission change and a student *can* delete
+it — but deleting a ruleset is a deliberate, visible act in their own repository
+settings. *"You committed at 22:31"* is arguable; *"you disabled the deadline
+enforcement on your repository"* is not.
+
+**Recommendation:** build against repository rulesets first, because it ships
+without a permission rollout and is testable immediately; structure the code so
+the scope is one function (`applySubmissionLock(scope)`), and move to
+organization rulesets once the permission is approved.
+
+#### 3.2.3 The trigger: a converging sentinel
+
+Phase 1 must happen *at* the deadline. GitHub offers no date-aware primitive, so
+something has to be running. The shape that works, and the limits that decide it:
+
+* **A job can run 6 hours** (GitHub-hosted). So a sentinel must start within 6h of
+  the deadline.
+* **Team plan allows 60 concurrent jobs.** A sentinel holds a slot while it waits.
+* The hub is **public**, so runner time is **free regardless of duration**
+  (ARCHITECTURE §6.5).
+
+`cron` cannot be rescheduled dynamically, and it does not need to be. A fixed
+**4-hourly** outer cron gives at least two chances to arm a sentinel before any
+deadline, with margin inside the 6h job limit, plus a fallback pass afterwards.
+
+**Cron drift stops affecting precision.** It decides only whether the sentinel
+*arms in time*, never when it acts. A firing scheduled for 16:00 that lands at
+16:25 still sees a 20:00 deadline 3h35m out, still arms, and still acts at
+20:00:00.
+
+**The sentinel polls; it does not sleep.** A job idling for four hours is
+defensible-but-grey under GitHub's acceptable use, and the useful work happens to
+be exactly what the design was missing:
+
+```
+every 5 minutes until the deadline:
+  GET /orgs/{org}/repos?sort=pushed&direction=desc&per_page=100
+  → pushed_at for 100 student repos, one call
+  record it; re-read the assignment so a live extension moves the target
+at the deadline:
+  PUT the ruleset to enforcement: active      ← Phase 1
+  dispatch the finalize path                  ← Phases 2-4
 ```
 
-Under `block`, ask for the last commit within the window instead:
+* ~36 iterations × ~3 calls ≈ **108 calls** for a 200-student cohort over three
+  hours. Polling each repo individually would be 200 × 36 = 7,200 against a
+  5,000/hr limit — that is the trap, and `sort=pushed` avoids it.
+* `pushed_at` is **GitHub's own server-side timestamp**, which a student cannot
+  set. A five-minute push timeline through the critical window is what ends the
+  *"I committed before the deadline"* conversation: *"at 21:55 your last push was
+  21:12; at 22:05 it was 22:31."*
+* Re-reading the assignment each iteration means an extension granted at 21:00 is
+  honoured at 22:00 without anything being restarted.
+
+**Concurrency:** one sentinel per `(org, deadline instant)`, not per assignment,
+so three assignments sharing a 22:00 deadline share one job. Cap the number armed
+per firing and let the rest fall through to the ordinary pass.
+
+**Every failure degrades to today's behaviour:**
+
+| Failure | Result |
+|---|---|
+| Cron delayed 30 min | Sentinel arms with less margin. Accuracy unaffected. |
+| Cron firing dropped | Next firing (≤4h) catches it; if that is after the deadline, an immediate lock. |
+| Sentinel job killed mid-poll | Same — the next firing locks immediately. |
+| Two sentinels overlap | Both flip the ruleset. Idempotent. |
+
+Nothing gets *worse* than the current nightly, which is the property that makes
+this safe to ship incrementally.
+
+#### 3.2.4 When the sentinel did not run: the `until` fallback
+
+If Phase 1 happened at the deadline, `HEAD` **is** the submission and nothing
+further is needed. When it did not — a dropped run, an assignment published after
+the last firing, a sentinel that died — lockdown falls back to reconstructing the
+deadline state:
 
 ```
-GET /repos/{org}/{repo}/commits?sha={branch}&until={deadline_at}&per_page=1
+GET /repos/{org}/{repo}/commits?sha={branch}&until={effective_deadline}&per_page=1
 ```
 
-taking `[0].sha`, and `null` when the list is empty. Everything downstream —
-freezing on retry, preservation, reporting — is unchanged, because it all keys off
-`snapshot_sha`.
+taking `[0].sha`, and `null` when the list is empty (see 3.2.7).
 
-#### 3.2.2 It needs the *effective* deadline — which nothing outside the report has
+Two things to know about this path, and they belong in the UI rather than only in
+the code:
 
-`until` has to be the deadline **for that student**, not the assignment's, or
-`block` discards exactly the work a deadline extension was granted to allow.
+1. **It filters on a date the student controls.** GitHub's REST docs say only
+   *"Only commits before this date will be returned"* and never state whether that
+   is the author or the committer date; `git log --until` uses the committer date
+   and the API appears to match, but **this must be confirmed against a real
+   repository before shipping**, because a rebased commit carries both and the
+   choice decides which commit is picked. Either way it is client-supplied, so the
+   fallback is *not* tamper-proof and must never be described as such.
+2. **The nightly observation record does not rescue it.** Observations are ~20
+   hours apart, so *"this commit was not in the last pre-deadline observation"*
+   flags every commit made on the final day. It cannot distinguish 21:50 from a
+   backdated 22:30. Only the sentinel's five-minute `pushed_at` timeline can, and
+   only when the sentinel ran.
+
+So the fallback gets the right code in the ordinary case and carries an honest
+caveat in the adversarial one. The sentinel is what makes the adversarial case
+answerable.
+
+#### 3.2.5 It needs the *effective* deadline — which nothing outside the report has
+
+Every deadline comparison above has to be the deadline **for that student**, or
+the change discards exactly the work an extension was granted to allow.
 
 That calculation already exists, once, in `report/report.mjs:155` — assignment
 deadline, overridden per student from `overrides/<id>/<login>.json`, and for a
@@ -191,81 +297,103 @@ extra days and:
 
 * `find-finalizable.mjs` queues the assignment the night its own deadline passes,
   because it compares against `assignment.deadline_at`;
-* `lockdown.mjs` demotes **every** student to `pull`, including the extended one,
-  because it has no per-student notion of a deadline;
+* `lockdown.mjs` demotes **every** student to `pull`, including the extended one;
 * `report.mjs` then faithfully reports that student's extension as active and
   their work as on-time — work they were locked out of doing.
 
-So the report is willing to count work the system prevented. This is not caused
-by `block`; `block` just makes it impossible to ignore, because it puts the same
-`effectiveDeadline` on the critical path.
+The report is willing to count work the system prevented. This is a live bug
+independent of everything above, and **it should ship on its own, first.**
 
 **The fix is one shared module.** `lib/effective-deadline.mjs` exports
 `effectiveDeadlineFor(assignment, login, { overrides, team })`, extracted verbatim
-from `report.mjs` so behaviour cannot fork, and consumed by:
+from `report.mjs` so behaviour cannot fork, consumed by:
 
 | Consumer | Uses it to decide |
 |---|---|
 | `report.mjs` | on-time vs late (existing behaviour, now imported) |
-| `lockdown.mjs` | the `until` window **and** whether to demote this student yet |
-| `find-finalizable.mjs` | whether the assignment is finalizable, i.e. every student's effective deadline has passed |
+| `lockdown.mjs` | whether this student is locked yet, and the `until` window |
+| `find-finalizable.mjs` | whether every student's effective deadline has passed |
+| the sentinel | which instant to wake for, re-read each poll |
 
-A student whose extension is still running is skipped by lockdown and keeps write
-access; the assignment re-queues on a later night and finalizes them then. The
-`finalize_attempts` ceiling must not count those nights as attempts.
+A student whose extension is still running is excluded from the ruleset's targets
+and keeps write access; the assignment re-queues later and finalizes them then.
+The `finalize_attempts` ceiling must not count those nights as attempts.
 
-#### 3.2.3 "No submission" is an outcome, not an error
+#### 3.2.6 "No submission" is an outcome, not an error
 
 Under `block`, a student who only pushed after the deadline has **no**
-`snapshot_sha`. `preserve.mjs:225` treats that as `errorCount++`, which makes the
-run's outcome `partial` — so one slacker turns the nightly amber for the whole
-cohort. That is the same "an empty population is not a failure" principle CLAUDE.md
-already applies to zero *records*, at the wrong granularity: it needs to apply to
-zero *submissions* too.
+`snapshot_sha`. `preserve.mjs:225` treats that as `errorCount++`, so the run's
+outcome becomes `partial` — one slacker turns the nightly amber for the whole
+cohort. That is CLAUDE.md's *"an empty population is not a failure"* at the wrong
+granularity: it covers zero *records*, not zero *submissions*.
 
 `preserve` gains a third bucket — preserved / **no submission** / failed — and only
-the last one counts toward `errorCount`. The report already distinguishes them; the
+the last counts toward `errorCount`. The report already distinguishes them; the
 workflow outcome does not.
 
-**Two caveats that must be written into the UI, not just the code:**
+#### 3.2.7 The control, and what it now honestly says
 
-1. **`until` filters on committer date, which a student can forge.** This is the
-   same forgeability CLAUDE.md already calls out for live status checks. The
-   mitigation is that `collect` observes nightly, so a commit that *appeared*
-   after the deadline is visible in the observation record regardless of the date
-   it claims. The report already carries both; `block` must not be described as
-   tamper-proof.
-2. **A per-student deadline extension moves the window.** `until` uses the
-   effective deadline for that student, from `overrides/`, not the assignment's.
-   Getting this wrong silently voids every extension granted.
-
-**Control:** the `<select>` moves out of *Advanced* and into *Guardrails*, beside
-lockdown, because it is a policy decision and not a tuning knob. Reworded away
-from mechanism:
+The `<select>` moves out of *Advanced* into *Guardrails*, beside lockdown, because
+it is a policy decision rather than a tuning knob:
 
 > **Late work**
-> ( ) Counts — the submission is whatever is in the repo at lockdown; late
->     commits are flagged in the report.
-> (•) Does not count — the submission is the last commit before the deadline.
->     Later commits are recorded but ignored.
+> ( ) **Counts** — the repository stays open after the deadline. Late commits are
+>     part of the submission and flagged in the report.
+> (•) **Does not count** — the submission branch is locked at the deadline.
+>     Students keep their repository, their Actions and their secrets; they
+>     cannot push to the submission branch.
 >
-> Either way the repository goes read-only at the next nightly run after the
-> deadline. Neither setting refuses a push as it happens.
+> Locking happens at the deadline itself when the system is running, and within a
+> few hours otherwise. Where it was late, the submission falls back to the last
+> commit dated before the deadline.
 
-**Schema:** unchanged — the enum already has both values.
+**Schema:** unchanged; the enum already has both values.
 
-**Default:** stays `report` in the schema. `emptyForm()` currently writes
-`'block'`, i.e. the form has been defaulting to the value that did nothing; it
-changes to `'report'` so the default is the conservative one and a lecturer
-opts *in* to discarding work.
+**Default:** `report`. `emptyForm()` currently writes `'block'` — the form has
+been defaulting to the value that did nothing — so it changes to `'report'` and a
+lecturer opts *in* to discarding work.
+
+#### 3.2.8 What this means for `lockdown.mjs`
+
+The file is restructured, not patched. Today one loop does snapshot-and-demote per
+student; it becomes:
+
+* `applySubmissionLock({ org, assignmentId, scope })` — Phase 1, idempotent, one
+  call, callable from the sentinel and from a lecturer-pressed button
+* `recordCohortState(...)` — Phase 2, the existing snapshot logic minus the
+  demotion, now reading `pushed_at` from the repo object it **already fetches**
+  (`lockdown.mjs:158`) at no extra cost
+* the demotion becomes Phase 4 behind a per-assignment switch
+
+The lockdown record gains `locked_at` (when Phase 1 actually fired), `pushed_at`
+per student, and `lock_method` (`ruleset` | `demotion` | `none`), so the report
+can say which guarantee applied.
 
 **Tests:**
-* `tests/lockdown-late-policy.test.mjs` (new) — a repo with an on-time commit and
-  a later one: `report` snapshots the late SHA, `block` snapshots the earlier one;
-  a repo whose only commit is late yields no submission under `block`; an
-  extension moves the window; the frozen-on-retry rule still wins over both.
-* `tests/lockdown-retry.test.mjs` — unchanged and must stay green.
 
+* `tests/effective-deadline.test.mjs` (new) — the extracted function against
+  assignment-only, per-student override, group-latest-member, and malformed
+  override records. **Ships first, on its own.**
+* `tests/lockdown-phases.test.mjs` (new) — Phase 1 precedes any read; a failed
+  Phase 2 is safely re-runnable; the lock is one call regardless of cohort size;
+  an extended student is excluded from the target list.
+* `tests/lockdown-late-policy.test.mjs` (new) — the `until` fallback picks the
+  pre-deadline commit; an only-late repo yields no submission; an extension moves
+  the window; freeze-on-retry still wins.
+* `tests/lockdown-retry.test.mjs` — unchanged, must stay green.
+* `tests/e2e/32-deadline-lock.spec.mjs` (new) — the lecturer-facing half: the
+  control's wording, the "lock now" action, and the report showing `lock_method`.
+
+#### 3.2.9 Sequencing within WS1
+
+1. `lib/effective-deadline.mjs` + the three consumers. **Independent bug fix,
+   ships alone.**
+2. `lockdown.mjs` phase split, still demoting. No behaviour change, all tests green.
+3. Repository rulesets behind `late_policy: block`, demotion as the fallback.
+4. The sentinel, arming from the existing cron at 4-hourly.
+5. Organization rulesets, once the App permission is approved.
+
+Each step is useful on its own and none of them requires the next.
 ### 3.3 `acceptance_mode` — control removed, field kept
 
 One enum value, so no decision to make (C1). Remove the `<select>` from
@@ -628,18 +756,30 @@ that would have caught all three of these.
 ## 9. Sequencing
 
 ```
-WS1  truthful controls        ─────────►  (independent, lands first)
-WS3  first-run wall            ────────►  (independent)
+WS0  effective deadline       ──►               (a live bug; ships alone, first)
+WS1  truthful controls         ────────►        (small half: 3.1, 3.3-3.5)
+WS1b deadline enforcement      ───────────────────────►  (3.2; five steps of its own)
+WS3  first-run wall            ────────►        (independent)
 WS2  share surface             ────────────────►  (WS5 consumes the component)
 WS4  autograde modal           ────────────────►  (WS5 shows its summary line)
 WS5  cohort-first published                    ─────────►  (needs WS2 + WS4)
-WS6  orphan routes             ────────►  (independent)
+WS6  orphan routes             ────────►        (independent)
 ```
 
-**WS1 first, and separately.** It is the only workstream that changes what the
-system *does* rather than where a control sits, and it should be reviewable on its
-own. It also has to precede WS5, because the cohort panel reads `roster_mode` and
-`late_policy` to describe the assignment accurately.
+**WS0 — `lib/effective-deadline.mjs` — first, and entirely on its own.** It is not
+a UX change at all: deadline extensions do not currently work (§3.2.5), and the
+report claims they do. Everything in §3.2 depends on it, but it is worth shipping
+before any of this for its own sake.
+
+**WS1 splits.** The mechanical half — roster default, acceptance mode, python
+runners, draft count — is small and reviewable in one pass. The deadline
+enforcement half (§3.2) is the largest change in the plan, restructures
+`lockdown.mjs`, and has its own five-step sequence in §3.2.9. They share a theme,
+not a commit.
+
+**WS1's small half must precede WS5**, because the cohort panel reads
+`roster_mode` and `late_policy` to describe the assignment accurately. The
+enforcement half does not block anything else.
 
 **WS2 and WS4 before WS5.** WS5's layout is mostly composition of things those two
 produce; doing it first would mean building the same blocks twice.
@@ -652,34 +792,37 @@ Each workstream is one commit, with its tests, per the repo's convention.
 
 ## 10. Risks and things to check live
 
-1. **`until` and forged committer dates (WS1).** `block` can be side-stepped by a
-   student who back-dates a commit. The nightly observation record still shows when
-   it appeared, so the evidence exists — but the UI must not describe `block` as
-   tamper-proof, and the report should surface the discrepancy where it has both
-   facts. Worth deciding whether that becomes a flag in the report before `block`
-   ships.
-2. **Deadline extensions are already broken (WS1, §3.2.2).** `lockdown.mjs` and
+1. **Deadline extensions are already broken (WS0, §3.2.5).** `lockdown.mjs` and
    `find-finalizable.mjs` never read `overrides/`, so an extended student is
    demoted to `pull` at the assignment's own deadline while `report.mjs` reports
-   their extension as active. Found while planning `block`, but it is a live bug
-   independent of it and should probably ship on its own, ahead of everything
-   here. The shared `effectiveDeadlineFor` is the fix for both.
-3. **`until` filters on a date GitHub does not document (WS1).** The REST docs say
-   only *"Only commits before this date will be returned"* — they do not state
-   whether that is the author date or the committer date. `git log --until` uses
-   the committer date and GitHub's listing behaves the same way, but this needs
-   confirming against a real repository before shipping, because a rebased or
-   cherry-picked commit carries two different dates and the choice decides which
-   commit is picked. Both are client-supplied, so it changes nothing about
-   forgeability.
-4. **`AdminView.vue` is 2,900 lines and this plan touches most of it.** WS2, WS4
+   their extension as active. Found while planning `block`; it is a live bug
+   independent of it and should ship first.
+2. **Whether a GitHub App can manage rulesets at all (§3.2.2).** Repository
+   rulesets need `administration: write`, which the App has — but that has not
+   been exercised against a real repository. Confirm before building on it, and
+   confirm that a ruleset with the App in `bypass_actors` still lets preservation
+   push. If it does not, Phase 3 has to run before Phase 1, which unpicks the
+   whole ordering.
+3. **`until` filters on a date GitHub does not document (§3.2.4).** The REST docs
+   say only *"Only commits before this date will be returned"* and never state
+   whether that is the author or the committer date. `git log --until` uses the
+   committer date and the API appears to match, but a rebased commit carries both
+   and the choice decides which one is picked, so it needs confirming against a
+   real repository. Both are client-supplied, so it changes nothing about
+   forgeability — this is the fallback path, not the guarantee.
+4. **A long-lived sentinel job is new operational surface (§3.2.3).** It holds a
+   runner slot for hours, and while a *polling* job is doing real work — unlike an
+   idle `sleep` — nothing like it exists in this system today. Watch the
+   concurrency budget on Team (60 jobs) the first term it runs, and cap how many
+   arm per firing.
+5. **`AdminView.vue` is 2,900 lines and this plan touches most of it.** WS2, WS4
    and WS5 should each extract as they go — `InvitationShare.vue`, `AutogradeModal.vue`,
    and a `PublishedCohortPanel.vue` — rather than growing the file further. Extracted
    classes used by more than one component go to `style.css` (DESIGN.md §7).
-5. **The undeclared-class backlog** (`tests/fixtures/undeclared-classes.backlog.json`,
+6. **The undeclared-class backlog** (`tests/fixtures/undeclared-classes.backlog.json`,
    98 entries) overlaps several of the components being touched. Any class a
    rewritten component stops using must leave that file, or the guard fails.
-6. **Nothing here has been tried against a live org.** The template-empty state, the
+7. **Nothing here has been tried against a live org.** The template-empty state, the
    roster count and the cohort numbers all assume responses I have only seen from
    fixtures.
 
