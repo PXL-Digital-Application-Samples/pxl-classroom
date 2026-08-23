@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
+import { ensureSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -197,21 +198,49 @@ function planTargets(assignment, records, overrides, now = new Date()) {
 }
 
 // --- Phase 1: STOP -----------------------------------------------------------
+/** Phase 4, and the fallback for a ruleset that could not be applied. */
+async function demote(t) {
+  let allLocked = true;
+  let permAfter = "read";
+  for (const m of t.members) {
+    const res = await gh("PUT", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}`, { permission: "pull" });
+    if (!(res.status === 204 || res.status === 201)) {
+      log(`demote ${m}`, { ok: false, note: `HTTP ${res.status}` });
+      allLocked = false;
+      continue;
+    }
+    const verify = await gh("GET", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}/permission`);
+    const userPerm = verify.ok ? verify.data.permission : `error-${verify.status}`;
+    if (userPerm !== "read") {
+      allLocked = false;
+      permAfter = userPerm;
+    }
+  }
+  return { locked: allLocked, permissionAfter: permAfter };
+}
+
 /**
  * Stop writes to the submission ref for every target. This is the only
  * time-critical phase, and the only one that must happen *at* the deadline.
  *
- * `method` decides how:
+ * `method` decides how, and it is the only place in the file that knows:
+ *
+ *   "ruleset"  - flip a repository ruleset to `enforcement: active`. Blocks
+ *                push, force-push and deletion of the submission ref and takes
+ *                nothing else: the student keeps their Actions, secrets,
+ *                environments and runners, which on this course is the subject
+ *                matter. Falls back to a demotion per repository when the
+ *                ruleset cannot be applied, so a failure degrades to the old
+ *                behaviour rather than to no lock at all.
  *   "demotion" - collaborator -> pull, one call per member, verified after.
- *                Takes everything, not just push: Actions, secrets,
- *                environments, runners, settings.
+ *                Takes everything, not just push.
  *   "none"     - nothing is stopped. The recording phases still run, so the
  *                report still reflects reality; it just carries no guarantee.
  *
- * Idempotent either way: re-running re-locks anyone who regained write access.
+ * Idempotent in every mode: re-running re-locks anyone who regained access.
  * Returns per-target outcomes plus the instant the phase fired.
  */
-async function applySubmissionLock({ targets, method, priorByLogin }) {
+async function applySubmissionLock({ targets, method, submissionRef, appId, priorByLogin }) {
   const lockedAt = new Date().toISOString();
   const byRepo = new Map();
 
@@ -222,33 +251,34 @@ async function applySubmissionLock({ targets, method, priorByLogin }) {
     const lockdownAt = priorRec?.snapshot_sha ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
 
     if (method === "none") {
-      byRepo.set(t, { locked: false, permissionAfter: null, lockdownAt: null, skipped: true });
+      byRepo.set(t, { locked: false, permissionAfter: null, lockdownAt: null, method: "none" });
       continue;
     }
 
-    let allLocked = true;
-    let permAfter = "read";
     try {
-      for (const m of t.members) {
-        const demote = await gh("PUT", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}`, { permission: "pull" });
-        if (!(demote.status === 204 || demote.status === 201)) {
-          log(`stop ${m}`, { ok: false, note: `demote HTTP ${demote.status}` });
-          allLocked = false;
+      if (method === "ruleset") {
+        const res = await ensureSubmissionLock(gh, {
+          org: cfg.org,
+          repo: t.repoName,
+          submissionRef,
+          appId,
+          enforcement: "active",
+        });
+        if (res.ok) {
+          log(`stop ${t.displayKey}`, { ok: true, note: `ruleset ${res.action} on ${submissionRef}` });
+          byRepo.set(t, { locked: true, permissionAfter: null, lockdownAt, method: "ruleset", rulesetId: res.rulesetId });
           continue;
         }
-        const verify = await gh("GET", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}/permission`);
-        const userPerm = verify.ok ? verify.data.permission : `error-${verify.status}`;
-        if (userPerm !== "read") {
-          allLocked = false;
-          permAfter = userPerm;
-        }
+        // Degrade to the old behaviour rather than to no lock at all.
+        log(`stop ${t.displayKey}`, { ok: false, note: `ruleset failed (${res.reason}) - falling back to demotion` });
       }
+
+      const out = await demote(t);
+      byRepo.set(t, { ...out, lockdownAt, method: "demotion" });
     } catch (e) {
       log(`stop ${t.displayKey}`, { ok: false, note: e.message });
-      allLocked = false;
-      permAfter = "exception";
+      byRepo.set(t, { locked: false, permissionAfter: "exception", lockdownAt, method });
     }
-    byRepo.set(t, { locked: allLocked, permissionAfter: permAfter, lockdownAt });
   }
 
   log("phase 1 - stop", {
@@ -268,7 +298,32 @@ async function applySubmissionLock({ targets, method, priorByLogin }) {
  * it is the one piece of evidence in the record that survives an argument about
  * commit dates.
  */
-async function recordCohortState({ targets, submissionRef, priorByLogin, prior }) {
+/**
+ * The submission when writes were NOT stopped at the deadline: the last commit
+ * whose committer date is at or before it.
+ *
+ * Confirmed against a live repository (UX_PLAN §10 risk 3): `until` filters on
+ * the **committer** date alone. A commit authored before the deadline but
+ * committed after it is excluded; one authored after but committed before is
+ * returned. That matches `git log --until`.
+ *
+ * Both dates are client-supplied - the confirmation itself was produced by
+ * setting `GIT_COMMITTER_DATE` - so this reconstructs the deadline state
+ * honestly in the ordinary case and is **not** tamper-proof in the adversarial
+ * one. Only a lock that fired at the deadline is.
+ *
+ * An empty list is not an error: it means everything on this branch was
+ * committed after the deadline, so under `block` there is no submission.
+ */
+async function submissionAsOf({ repoName, branch, deadline }) {
+  const q = `sha=${encodeURIComponent(branch)}&until=${encodeURIComponent(deadline)}&per_page=1`;
+  const res = await gh("GET", `/repos/${cfg.org}/${repoName}/commits?${q}`);
+  if (!res.ok) return { ok: false, sha: null, reason: `commits?until HTTP ${res.status}` };
+  const sha = Array.isArray(res.data) && res.data.length ? res.data[0].sha : null;
+  return { ok: true, sha, reason: null };
+}
+
+async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor }) {
   const byRepo = new Map();
 
   for (const t of targets) {
@@ -287,7 +342,11 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior }
       // down, or a late commit would replace their on-time submission.
       const priorRec = priorByLogin.get(t.login);
       const frozen = !!priorRec?.snapshot_sha;
+      const pushedAt = repoRes.data.pushed_at ?? null;
       let snapshotSha;
+      let reconstructed = false;
+      let noSubmission = false;
+
       if (frozen) {
         snapshotSha = priorRec.snapshot_sha;
         log(`record ${t.login}`, {
@@ -295,8 +354,38 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior }
           note: `snapshot frozen from attempt #${prior?.finalize_attempts ?? 1} (${snapshotSha.slice(0, 12)})`,
         });
       } else {
-        const commitRes = await gh("GET", `/repos/${cfg.org}/${t.repoName}/commits/${branch}`);
-        snapshotSha = commitRes.ok ? commitRes.data.sha : null;
+        // If the lock fired at the deadline, HEAD *is* the deadline state and
+        // nothing further is needed. Without a sentinel it fires at the
+        // nightly, hours later, so anything pushed in between is on HEAD and
+        // has to be filtered out - but only when a push actually happened
+        // after the deadline. `pushed_at` is GitHub's own timestamp and it is
+        // already in hand, so the usual case costs no extra call.
+        const deadline = deadlineFor?.(t) ?? null;
+        const pushedLate = deadline && pushedAt && new Date(pushedAt) > new Date(deadline);
+
+        if (pushedLate) {
+          const asOf = await submissionAsOf({ repoName: t.repoName, branch, deadline });
+          if (asOf.ok) {
+            snapshotSha = asOf.sha;
+            reconstructed = true;
+            noSubmission = asOf.sha === null;
+            log(`record ${t.login}`, {
+              ok: true,
+              note: asOf.sha
+                ? `pushed at ${pushedAt}, after the deadline - submission reconstructed as of ${deadline} (${asOf.sha.slice(0, 12)})`
+                : `pushed at ${pushedAt}; nothing on ${branch} was committed before ${deadline} - no submission`,
+            });
+          } else {
+            // Falling back to HEAD here would silently record post-deadline
+            // work as the submission. Better to record nothing and say why.
+            log(`record ${t.login}`, { ok: false, note: asOf.reason });
+            byRepo.set(t, { ok: false, reason: asOf.reason });
+            continue;
+          }
+        } else {
+          const commitRes = await gh("GET", `/repos/${cfg.org}/${t.repoName}/commits/${branch}`);
+          snapshotSha = commitRes.ok ? commitRes.data.sha : null;
+        }
       }
 
       // Write the final observation (only for a fresh snapshot - re-recording a
@@ -329,7 +418,9 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior }
         branch,
         snapshotSha,
         frozen,
-        pushedAt: repoRes.data.pushed_at ?? null,
+        reconstructed,
+        noSubmission,
+        pushedAt,
       });
     } catch (e) {
       log(`record ${t.login || t.rec.team_slug}`, { ok: false, note: e.message });
@@ -391,17 +482,78 @@ async function main() {
   }
 
   // --- Phase 1: STOP ---------------------------------------------------------
-  // "demotion" is the only method implemented today; it is what the record's
-  // lock_method reports, so a report can say which guarantee applied.
-  const lockMethod = targets.length ? "demotion" : "none";
-  const lock = await applySubmissionLock({ targets, method: lockMethod, priorByLogin });
+  //
+  // Two independent per-assignment decisions, and neither used to be read at
+  // all - lockdown demoted every student on every assignment regardless:
+  //
+  //   late_policy: "block"     stop writes to the submission ref at the
+  //                            deadline. A ruleset does that and leaves the
+  //                            student their Actions, secrets and runners.
+  //   lock_down_enabled: true  take admin away as well (Phase 4). Independent,
+  //                            because "they cannot push any more" and "they
+  //                            cannot re-run a workflow any more" are different
+  //                            decisions with different costs.
+  //
+  // `lock_down_enabled` defaults to TRUE for an assignment that does not carry
+  // it. That is deliberate: every assignment created before this shipped was
+  // demoted at the deadline, and inferring "no lock" from a missing field would
+  // silently stop freezing live cohorts.
+  const blockLate = assignment.late_policy === "block";
+  const demoteToo = assignment.lock_down_enabled ?? true;
+  log("policy", { ok: true, note: `late_policy=${assignment.late_policy ?? "report"} lock_down_enabled=${demoteToo}` });
+
+  // A ruleset the App cannot bypass would lock the system out of the repository
+  // too, and there is no way back except deleting it - so an unresolvable App id
+  // means demotion, not a ruleset.
+  let appId = null;
+  if (blockLate && targets.length) {
+    appId = await resolveAppId(gh, { appId: process.env.PXL_APP_ID });
+    if (!appId) log("app-id", { ok: false, note: "could not resolve the App id - the lock falls back to demotion" });
+  }
+
+  let lockMethod = "none";
+  if (targets.length) {
+    if (blockLate) lockMethod = appId ? "ruleset" : "demotion";
+    else if (demoteToo) lockMethod = "demotion";
+  }
+
+  const lock = await applySubmissionLock({
+    targets, method: lockMethod, submissionRef, appId, priorByLogin,
+  });
 
   // --- Phase 2: RECORD -------------------------------------------------------
-  const recorded = await recordCohortState({ targets, submissionRef, priorByLogin, prior });
+  //
+  // The deadline to reconstruct against is the student's own, so an extension
+  // that has already run out still widens their window to the granted instant
+  // rather than the assignment's.
+  const deadlineFor = (t) =>
+    effectiveDeadlineFor(assignment, t.login, { overrides, team: { members: t.members } })
+      .deadline?.toISOString() ?? null;
+  const recorded = await recordCohortState({
+    targets, submissionRef, priorByLogin, prior,
+    // Only `block` discards late work. Under `report` a late commit is part of
+    // the submission and the report flags it - filtering it out here would
+    // discard exactly what the policy says to keep.
+    deadlineFor: blockLate ? deadlineFor : null,
+  });
+
+  // --- Phase 4: DEMOTE -------------------------------------------------------
+  // Only when phase 1 did not already do it. Runs after the recording, so the
+  // snapshot is taken while the student still has whatever access they had.
+  const demoted = new Set();
+  if (demoteToo && lock.method === "ruleset") {
+    for (const t of targets) {
+      const out = await demote(t);
+      if (out.locked) demoted.add(t);
+      else log(`demote ${t.displayKey}`, { ok: false, note: `permission after=${out.permissionAfter}` });
+    }
+    log("phase 4 - demote", { ok: true, note: `${demoted.size}/${targets.length} demoted to pull` });
+  }
 
   // --- Assemble the record ---------------------------------------------------
   let lockedCount = 0;
   let errorCount = 0;
+  let noSubmissionCount = 0;
   let maxUncertainty = 0;
   const rows = [];
   const lockdownResults = [];
@@ -459,7 +611,18 @@ async function main() {
         // Unlike a commit date, a student cannot set it.
         pushed_at: state.pushedAt,
         lockdown_at: lockdownAt,
-        lock_method: lock.method,
+        // What actually stopped this repository, which is not always what the
+        // run set out to do: a ruleset that could not be applied degrades to a
+        // demotion for that repository alone.
+        lock_method: stop.method,
+        // The submission was rebuilt with ?until= rather than read off HEAD,
+        // because a push landed after the deadline. Committer-date based, and
+        // that date is client-supplied - see submissionAsOf().
+        reconstructed: state.reconstructed || undefined,
+        // Under `block`, nothing on the branch was committed before the
+        // deadline. An outcome, not an error - preserve skips it as such.
+        no_submission: state.noSubmission || undefined,
+        demoted: demoted.has(t) || undefined,
         permission_after: stop.permissionAfter,
         verified: stop.locked,
         uncertainty_seconds: uncertaintySec,
@@ -467,13 +630,15 @@ async function main() {
     }
 
     const sha12 = (state.snapshotSha || "-").slice(0, 12);
-    if (stop.locked) {
-      lockedCount++;
-      log(`lockdown ${t.displayKey}`, { ok: true, note: `${state.branch}@${sha12} -> pull (${uncertaintySec ?? "?"}s)` });
-      rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | [OK] locked |`);
+    const how = stop.method === "ruleset" ? "ruleset" : stop.method === "demotion" ? "pull" : "not locked";
+    if (state.noSubmission) noSubmissionCount++;
+    if (stop.locked || lock.method === "none") {
+      if (stop.locked) lockedCount++;
+      log(`lockdown ${t.displayKey}`, { ok: true, note: `${state.branch}@${sha12} -> ${how} (${uncertaintySec ?? "?"}s)` });
+      rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | ${state.noSubmission ? "no submission" : `[OK] ${how}`} |`);
     } else {
       errorCount++;
-      log(`lockdown ${t.displayKey}`, { ok: false, note: `permission after=${stop.permissionAfter}, expected read` });
+      log(`lockdown ${t.displayKey}`, { ok: false, note: `not locked (${stop.method}), permission after=${stop.permissionAfter}` });
       rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | perm=${stop.permissionAfter} |`);
     }
   }
@@ -496,8 +661,12 @@ async function main() {
     // applied rather than implying one.
     locked_at: lock.lockedAt,
     lock_method: lock.method,
+    late_policy: assignment.late_policy ?? "report",
     locked_count: lockedCount,
     error_count: errorCount,
+    // Students whose branch held nothing committed before their deadline. Under
+    // `block` that is an outcome, not a failure.
+    no_submission_count: noSubmissionCount,
     // Students left alone because a granted extension is still running. They
     // carry `deferred_until` in `results`; find-finalizable.mjs re-queues the
     // assignment once that instant passes.
@@ -515,6 +684,7 @@ async function main() {
   await setOutput("locked_count", lockedCount);
   await setOutput("error_count", errorCount);
   await setOutput("deferred_count", deferrals.length);
+  await setOutput("no_submission_count", noSubmissionCount);
   await setOutput("lock_method", lock.method);
   await setOutput("uncertainty_seconds", maxUncertainty);
   await setOutput("outcome", outcome);
@@ -524,9 +694,10 @@ async function main() {
     rows.join("\n") + "\n\n" +
     `**${lockedCount}** locked, **${errorCount}** errors` +
     (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
+    (noSubmissionCount ? `, **${noSubmissionCount}** with no submission before the deadline` : "") +
     `. Max uncertainty: **${maxUncertainty}s**.\n`
   );
-  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
+  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${noSubmissionCount} no-submission, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 

@@ -197,6 +197,29 @@ without a permission rollout and is testable immediately; structure the code so
 the scope is one function (`applySubmissionLock(scope)`), and move to
 organization rulesets once the permission is approved.
 
+**Shipped, with one deviation.** `lib/submission-lock.mjs` owns the ruleset and
+`applySubmissionLock({ method: "ruleset" })` applies it. The deviation is *when*:
+the plan said create it **disabled at provisioning** and flip it at the deadline,
+and it is instead created-or-flipped at lockdown. At repository scope that is the
+same number of calls at the deadline either way — the "one call" row in the table
+above is an **organization** ruleset property, not a repository one — and every
+repo provisioned before this shipped needs the create path regardless, so
+pre-creating would have been a second code path in the burst-sensitive
+provisioning flow for no saving. It becomes one call at step 5, where the object
+is created once for the whole org.
+
+Two failure paths, both degrading to demotion rather than to no lock: an
+unresolvable App id (a ruleset the App cannot bypass locks the system out with no
+way back) and a per-repository ruleset call that fails. `lock_method` on each
+result says which actually applied.
+
+`late_policy` turned out to have a sibling: **`lock_down_enabled` was dead in
+exactly the same way** — a Guardrails checkbox promising "demote admin -> pull at
+the deadline" that no code read, on a system that demoted everyone regardless. It
+is Phase 4's switch now, and it defaults to `true` when the field is absent,
+because every assignment created before this shipped *was* demoted and inferring
+"no lock" from a missing field would silently stop freezing live cohorts.
+
 #### 3.2.3 The trigger: a converging sentinel
 
 Phase 1 must happen *at* the deadline. GitHub offers no date-aware primitive, so
@@ -257,7 +280,7 @@ per firing and let the rest fall through to the ordinary pass.
 Nothing gets *worse* than the current nightly, which is the property that makes
 this safe to ship incrementally.
 
-#### 3.2.4 When the sentinel did not run: the `until` fallback
+#### 3.2.4 When the sentinel did not run: the `until` fallback — **shipped**
 
 If Phase 1 happened at the deadline, `HEAD` **is** the submission and nothing
 further is needed. When it did not — a dropped run, an assignment published after
@@ -320,27 +343,47 @@ granularity: it covers zero *records*, not zero *submissions*.
 the last counts toward `errorCount`. The report already distinguishes them; the
 workflow outcome does not.
 
-#### 3.2.7 The control, and what it now honestly says
+**Shipped.** `lockdown.mjs` marks the result `no_submission: true` when the
+`until` query comes back empty, `preserve.mjs` skips it as an outcome, and a
+missing `snapshot_sha` *without* that flag is still an error — the exemption must
+not widen into "no submission is always fine". `no_submission_count` is an output
+of both actions. There is a fourth bucket beside it now, **deferred**, for a
+student whose extension is still running (§3.2.5).
 
-The `<select>` moves out of *Advanced* into *Guardrails*, beside lockdown, because
-it is a policy decision rather than a tuning knob:
+#### 3.2.7 The control, and what it now honestly says — **shipped**
+
+The `<select>` moved out of *Advanced* into *Guardrails*, beside lockdown, because
+it is a policy decision rather than a tuning knob. What shipped, with the copy
+corrected to what the system actually does today — there is no sentinel yet, so
+claiming the lock fires "at the deadline itself" would have re-created C4:
 
 > **Late work**
-> ( ) **Counts** — the repository stays open after the deadline. Late commits are
->     part of the submission and flagged in the report.
-> (•) **Does not count** — the submission branch is locked at the deadline.
->     Students keep their repository, their Actions and their secrets; they
->     cannot push to the submission branch.
+> (•) **Counts** — late commits are part of the submission and flagged in the
+>     report. The submission branch is not locked.
+> ( ) **Does not count** — the submission branch is locked at the deadline.
+>     Students keep their repository, their Actions, their secrets and their
+>     runners; they simply cannot push to it.
 >
-> Locking happens at the deadline itself when the system is running, and within a
-> few hours otherwise. Where it was late, the submission falls back to the last
-> commit dated before the deadline.
+> *(under "Does not count")* Locking happens on the first nightly run after the
+> deadline. Anything pushed in between is filtered out — the submission falls back
+> to the last commit *committed* before the deadline. That date comes from the
+> student's own machine, so treat it as the ordinary case rather than as proof.
+>
+> ☐ **Also take admin away at the deadline (demote to read-only)**
+> *Not needed to stop late pushes — the branch lock above already does that, and
+> leaves students their Actions, secrets and runners. Tick this only if they
+> should lose those too.*
 
 **Schema:** unchanged; the enum already has both values.
 
-**Default:** `report`. `emptyForm()` currently writes `'block'` — the form has
-been defaulting to the value that did nothing — so it changes to `'report'` and a
-lecturer opts *in* to discarding work.
+**Default:** `report`, and picking "Does not count" unticks the demotion — it
+takes exactly what the branch lock exists to preserve. Ticking it back on is a
+deliberate choice.
+
+That last sentence of the hint is the one to keep when this section is deleted:
+the fallback is committer-date based and the committer date is client-supplied
+(§10 risk 3 confirmed both halves live). Saying so in the form is the difference
+between a tool and a tool you have to verify.
 
 #### 3.2.8 What this means for `lockdown.mjs` — **phase split shipped**
 
@@ -383,7 +426,10 @@ cannot call it yet without a control-repo checkout. That is step 3's problem.
 1. ~~`lib/effective-deadline.mjs` + the three consumers.~~ **Shipped** — see
    §3.2.5.
 2. ~~`lockdown.mjs` phase split, still demoting.~~ **Shipped** — see §3.2.8.
-3. Repository rulesets behind `late_policy: block`, demotion as the fallback.
+3. ~~Repository rulesets behind `late_policy: block`, demotion as the fallback.~~
+   **Shipped** — §3.2.2, §3.2.4, §3.2.6 and §3.2.7 together, because `block`
+   without the `until` fallback would record post-deadline work as the
+   submission, and without the honest control it would re-create C4.
 4. The sentinel, arming from the existing cron at 4-hourly.
 5. Organization rulesets, once the App permission is approved.
 

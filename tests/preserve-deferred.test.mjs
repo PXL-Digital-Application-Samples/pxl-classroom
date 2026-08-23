@@ -113,3 +113,36 @@ test("a missing snapshot with no deferral is still an error", async () => {
     assert.match(res.outputs, /outcome=fail:all-errors/);
   });
 });
+
+// --- no submission (UX_PLAN §3.2.6) ------------------------------------------
+//
+// Under `late_policy: block` a student who only pushed after the deadline has
+// nothing to preserve. One slacker used to make the run `partial` and turn the
+// nightly amber for the whole cohort - CLAUDE.md's "an empty population is not a
+// failure" one level down: it covered zero records, not zero submissions.
+
+const noSubmission = {
+  github_login: "carol",
+  repo_name: "TestOrg/exam-carol",
+  snapshot_sha: null,
+  no_submission: true,
+};
+
+test("a student with no submission before the deadline is not an error", async () => {
+  await withStubApi(async (api) => {
+    const res = await runPreserve(makeControlDir([noSubmission]), api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.outputs, /error_count=0/);
+    assert.match(res.outputs, /no_submission_count=1/);
+    assert.match(res.outputs, /outcome=preserved/);
+  });
+});
+
+test("one no-submission does not drag a whole cohort's run to partial", async () => {
+  await withStubApi(async (api) => {
+    const dir = makeControlDir([noSubmission, { ...noSubmission, github_login: "dave" }]);
+    const res = await runPreserve(dir, api);
+    assert.match(res.outputs, /outcome=preserved/);
+    assert.match(res.outputs, /no_submission_count=2/);
+  });
+});

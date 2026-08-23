@@ -709,7 +709,46 @@ At nightly finalize, the App stops writes to the whole cohort's submission refs 
 
 It used to read a student's `HEAD` and then demote them, per student. In a 200-student cohort that froze student 1 at T+0s and student 200 minutes later, because the demotion is a write against an ~80/min secondary limit - so students at the end of the list got extra time, and the snapshot was not a consistent cut. Three properties follow from the inversion: every `HEAD` is read after all writes stopped, phase 2 is safely re-runnable because the repositories cannot move, and freeze-on-retry stops being the thing holding the design together (it stays as belt and braces).
 
-`method` is the one place that knows *how* writes stop. Today it is `"demotion"` - N calls, and it takes Actions, secrets, environments and runners along with push. The record carries `locked_at` (when phase 1 fired), `lock_method`, and `pushed_at` per student - GitHub's own server-side timestamp, read off the repository object phase 2 fetches anyway, and the one field in the record a student cannot set. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
+`method` is the one place that knows *how* writes stop. The record carries `locked_at` (when phase 1 fired), `lock_method`, and `pushed_at` per student - GitHub's own server-side timestamp, read off the repository object phase 2 fetches anyway, and the one field in the record a student cannot set.
+
+#### 11.2.1 `late_policy` and `lock_down_enabled` are two decisions
+
+Neither field used to be read by any code. `late_policy: block` promised to refuse late pushes and did nothing; `lock_down_enabled` promised a demotion that happened anyway, on every assignment. Both are wired now, and they are independent, because *"they cannot push any more"* and *"they cannot re-run a workflow any more"* have different costs:
+
+| `late_policy` | `lock_down_enabled` | Phase 1 | Phase 4 |
+|---|---|---|---|
+| `report` (default for new) | `false` | none | none |
+| `report` | `true` (default when absent) | none | demote |
+| `block` | `false` | ruleset | none |
+| `block` | `true` | ruleset | demote |
+
+**`lock_down_enabled` defaults to `true` when the field is absent.** Every assignment created before this shipped was demoted at the deadline, and inferring "no lock" from a missing field would silently stop freezing live cohorts.
+
+**The lock is a repository ruleset** (`lib/submission-lock.mjs`, one ruleset named `pxl-classroom-deadline` per student repo) with `update`, `non_fast_forward` and `deletion` on the submission ref, and the Provisioner App in `bypass_actors` as `actor_type: "Integration"`. Demoting to `pull` does not just remove push - it removes Actions, secrets, environments, runners and settings, which on a course whose subject *is* those things confiscates the subject matter at the deadline. The ruleset takes only the ref.
+
+Confirmed against a live repository before it shipped: the App pushes straight through an `active` ruleset when it is in `bypass_actors` (`remote: Bypassed rule violations`), while an **organization owner** reading the same ruleset gets `current_user_can_bypass: "never"` and is rejected with `GH013`. A student is repo admin, strictly weaker than an org owner. Rulesets have no time conditions, so the lock is flipped, not scheduled - one `PUT` with a partial body, which cannot rewrite the rules or the bypass list while turning it on.
+
+Two failure paths, both degrading to the old behaviour rather than to no lock: an unresolvable App id (a ruleset the App cannot bypass would lock the system out with no way back) and a ruleset call that fails, per repository. `lock_method` on each result says which actually applied.
+
+The trade the ruleset makes is that the student stays repo admin and could delete the repository outright. Phase ordering answers it: by the time that matters, preservation has pushed a copy to `pxl-classroom-archive`, which they cannot touch. `lock_down_enabled` remains available for anyone who wants admin gone as well.
+
+#### 11.2.2 Reconstructing the deadline state
+
+Until a sentinel arms at the deadline itself, phase 1 fires on the first nightly run after it - so under `block` anything pushed in between is on `HEAD` and must not become the submission. Phase 2 filters it out:
+
+```
+GET /repos/{org}/{repo}/commits?sha={branch}&until={effective deadline}&per_page=1
+```
+
+taking `[0].sha`, and `null` when the list is empty. Three things about this path:
+
+- **It only runs when it has to.** `pushed_at` is already in hand from the repository object, so a repo whose last push was before the deadline reads `HEAD` and costs no extra call.
+- **`until` is the committer date alone.** Confirmed live: a commit authored before the deadline but committed after it is excluded; one authored after but committed before is returned - matching `git log --until`. `GIT_COMMITTER_DATE` is client-supplied, so this reconstructs the deadline state honestly in the ordinary case and is **not** tamper-proof in the adversarial one. The UI says so.
+- **The window is the student's own deadline** (§6.2.2), so an extension that has run out still widens it to the granted instant.
+
+An empty result is `no_submission`, not an error: under `block` a student who only pushed after the deadline has nothing to preserve, and counting that as a failure turned the whole cohort's nightly amber for one person. `preserve.mjs` has a third bucket - preserved / no submission / failed - and only the last counts toward `error_count`.
+
+Under `report` none of this runs: a late commit *is* part of the submission, and filtering it out would discard exactly what the policy says to keep. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
 
 Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). Reports continue to flag any observed late activity regardless of lock-down.
 

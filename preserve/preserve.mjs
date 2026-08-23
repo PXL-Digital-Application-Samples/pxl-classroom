@@ -140,6 +140,7 @@ async function main() {
 
   let preservedCount = 0;
   let errorCount = 0;
+  let noSubmissionCount = 0;
   const rows = [];
 
   for (const rec of results) {
@@ -156,6 +157,18 @@ async function main() {
     if (!sourceSha && rec.deferred_until) {
       log(`preserve ${login}`, { ok: true, note: `deferred - extension runs to ${rec.deferred_until}` });
       rows.push(`| ${login} | - | deferred to ${rec.deferred_until} |`);
+      continue;
+    }
+
+    // Under `late_policy: block`, a student who only pushed after the deadline
+    // has nothing to preserve. That is the policy working, not a failure - one
+    // slacker used to turn the run `partial` and the nightly amber for the
+    // whole cohort. CLAUDE.md's "an empty population is not a failure" one
+    // level down: it covered zero records, not zero submissions.
+    if (!sourceSha && rec.no_submission) {
+      noSubmissionCount++;
+      log(`preserve ${login}`, { ok: true, note: "no submission before the deadline - nothing to preserve" });
+      rows.push(`| ${login} | - | no submission |`);
       continue;
     }
 
@@ -246,14 +259,17 @@ async function main() {
   const outcome = errorCount === 0 ? "preserved" : preservedCount > 0 ? "partial" : "fail:all-errors";
   await setOutput("outcome", outcome);
   await setOutput("preserved_count", preservedCount);
+  await setOutput("no_submission_count", noSubmissionCount);
   await setOutput("error_count", errorCount);
   await summary(
     `### Preserve: \`${outcome}\`\n\n` +
     `| student | SHA | status |\n|---|---|---|\n` +
     rows.join("\n") + "\n\n" +
-    `**${preservedCount}** preserved, **${errorCount}** errors.\n`
+    `**${preservedCount}** preserved` +
+    (noSubmissionCount ? `, **${noSubmissionCount}** with no submission` : "") +
+    `, **${errorCount}** errors.\n`
   );
-  log("done", { ok: errorCount === 0, note: `${outcome} (${preservedCount} preserved, ${errorCount} err)` });
+  log("done", { ok: errorCount === 0, note: `${outcome} (${preservedCount} preserved, ${noSubmissionCount} no-submission, ${errorCount} err)` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 

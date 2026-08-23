@@ -443,6 +443,29 @@ gh api -X PUT repos/<org>/<repo>/collaborators/<login> -f permission=push
 
 Then delete `lockdowns/<id>/lockdown-record.json`'s entry for that student, or the next finalize will re-lock them at the frozen snapshot. Grant extensions before the deadline wherever possible.
 
+### 6.2b Deciding what happens to late work
+
+Two independent switches in **Guardrails**, and until August 2026 neither did anything - `late_policy: block` never refused a push and `lock_down_enabled` never decided anything, because lockdown demoted every student on every assignment.
+
+| Setting | At the deadline |
+|---|---|
+| **Late work: Counts** (default for new assignments) | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
+| **Late work: Does not count** | The submission branch is locked with a repository ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. |
+| **Also take admin away** | The student is demoted to read-only, losing Actions and secrets too. Defaults **on** for assignments that predate this change, and comes **off** when you pick "Does not count" (the branch lock already stops pushes). |
+
+Two things to tell students honestly:
+
+- **The lock fires on the first nightly run after the deadline, not at the deadline itself.** Anything pushed in between is filtered out - the submission falls back to the last commit *committed* before the deadline. That date comes from the student's own machine (`GIT_COMMITTER_DATE`), so it reconstructs the ordinary case correctly and is not evidence in a dispute.
+- **A student who only pushed after the deadline has no submission.** That shows in the run as a no-submission, not an error, and does not fail the cohort's nightly.
+
+Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Does not count" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor. To unlock a repository, delete its `pxl-classroom-deadline` ruleset:
+
+```bash
+gh api repos/<org>/<repo>/rulesets --jq '.[] | select(.name=="pxl-classroom-deadline") | .id'
+```
+
+then `gh api -X DELETE repos/<org>/<repo>/rulesets/<id>`.
+
 ### 6.3 Student says "I clicked Accept but nothing happened"
 
 Possible causes:

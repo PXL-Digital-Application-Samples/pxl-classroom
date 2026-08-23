@@ -24,6 +24,11 @@ outputs:
   preserved_count:
     description: Number of students preserved
     value: ${{ steps.run.outputs.preserved_count }}
+  no_submission_count:
+    description: >-
+      Students with nothing committed before their deadline under
+      late_policy block. An outcome, not an error.
+    value: ${{ steps.run.outputs.no_submission_count }}
   error_count:
     description: Number of errors during preservation
     value: ${{ steps.run.outputs.error_count }}

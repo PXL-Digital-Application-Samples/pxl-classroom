@@ -542,11 +542,45 @@
               </small>
               <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
+            <div class="field">
+              <label>Late work</label>
+              <div class="radio-group" style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+                <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer;">
+                  <input type="radio" v-model="form.late_policy" value="report" @change="onLatePolicyChange" />
+                  <span>
+                    <strong>Counts</strong> - late commits are part of the submission and flagged in the
+                    report. The submission branch is not locked.
+                  </span>
+                </label>
+                <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer;">
+                  <input type="radio" v-model="form.late_policy" value="block" @change="onLatePolicyChange" />
+                  <span>
+                    <strong>Does not count</strong> - the submission branch is locked at the deadline.
+                    Students keep their repository, their Actions, their secrets and their runners;
+                    they simply cannot push to it.
+                  </span>
+                </label>
+              </div>
+              <small v-if="form.late_policy === 'block'">
+                Locking happens on the first nightly run after the deadline. Anything pushed in between is
+                filtered out - the submission falls back to the last commit <em>committed</em> before the
+                deadline. That date comes from the student's own machine, so treat it as the ordinary case
+                rather than as proof.
+              </small>
+            </div>
             <div class="field checkbox">
               <label>
                 <input type="checkbox" v-model="form.lock_down_enabled" />
-                Lock down student repos at the deadline (demote admin -> pull)
+                Also take admin away at the deadline (demote to read-only)
               </label>
+              <small v-if="form.late_policy === 'block'">
+                Not needed to stop late pushes - the branch lock above already does that, and leaves
+                students their Actions, secrets and runners. Tick this only if they should lose those too.
+              </small>
+              <small v-else>
+                Students are demoted to read-only on the first nightly run after the deadline.
+                Untick to leave their repositories open.
+              </small>
             </div>
             <div class="field checkbox">
               <label>
@@ -622,13 +656,6 @@
           <!-- ADVANCED -->
           <details class="advanced">
             <summary>Advanced</summary>
-            <div class="field">
-              <label>Late policy</label>
-              <select v-model="form.late_policy">
-                <option value="block">block: refuse late pushes</option>
-                <option value="report">report: observe and report late activity</option>
-              </select>
-            </div>
             <div class="field">
               <label>Student permission</label>
               <select v-model="form.student_permission">
@@ -1348,7 +1375,10 @@ function emptyForm() {
     student_permission: 'admin',
     acceptance_mode: 'self-service',
     roster_mode: 'open',
-    late_policy: 'block',
+    // `block` discards work. Now that it actually does something, defaulting to
+    // it would silently start throwing away students' late commits on every new
+    // assignment - so a lecturer opts in.
+    late_policy: 'report',
     state: 'draft',
     max_acceptances: 50,
     lock_down_enabled: true,
@@ -1426,6 +1456,15 @@ function autoSyncSlug() {
         : `${form.value.id}-{github_login}`
     }
   }
+}
+
+// Choosing "Does not count" locks the submission branch with a ruleset, which
+// stops pushes and leaves Actions, secrets and runners alone. Demoting on top of
+// that takes exactly what the branch lock exists to preserve, so the checkbox
+// comes off - once, and visibly. Ticking it again is a deliberate choice and
+// sticks.
+function onLatePolicyChange() {
+  if (form.value.late_policy === 'block') form.value.lock_down_enabled = false
 }
 
 function onAssignmentTypeChange() {

@@ -37,8 +37,13 @@ outputs:
       still running. Neither locked nor failed.
     value: ${{ steps.run.outputs.deferred_count }}
   lock_method:
-    description: How writes were stopped - demotion | none
+    description: How writes were stopped - ruleset | demotion | none
     value: ${{ steps.run.outputs.lock_method }}
+  no_submission_count:
+    description: >-
+      Students with nothing committed before their deadline under
+      late_policy block. An outcome, not an error.
+    value: ${{ steps.run.outputs.no_submission_count }}
   uncertainty_seconds:
     description: Maximum uncertainty interval (lockdown_at - deadline_at) across all repos
     value: ${{ steps.run.outputs.uncertainty_seconds }}
