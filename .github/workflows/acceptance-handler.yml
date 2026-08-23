@@ -7,8 +7,12 @@ permissions:
   contents: read
   actions: write # dispatches regenerate-dashboard.yml
 
+# team_hint is the broker's title-derived team slug. It is a CONCURRENCY KEY
+# ONLY - it serializes joins to one team, which is what guards team capacity
+# without a distributed lock (ARCHITECTURE §5.8). The authoritative team comes
+# from the `team` step below, which re-reads the issue in this repository.
 concurrency:
-  group: accept-${{ github.event.client_payload.org }}-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.team_slug || github.event.client_payload.github_login }}
+  group: accept-${{ github.event.client_payload.org }}-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.team_hint || github.event.client_payload.github_login }}
   cancel-in-progress: false
 
 jobs:
@@ -29,6 +33,18 @@ jobs:
           repository: ${{ github.event.client_payload.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
           path: control
+      # The broker is public and holds App credentials, so it forwards only the
+      # issue number. The untrusted body is read and validated here instead.
+      - name: Read team payload from broker issue
+        id: team
+        env:
+          BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+          ORG: ${{ github.event.client_payload.org }}
+          EXPECTED_LOGIN: ${{ github.event.client_payload.github_login }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: node scripts/read-team-payload.mjs
+
       - uses: ./acceptance
         id: accept
         with:
@@ -37,6 +53,9 @@ jobs:
           org: ${{ github.event.client_payload.org }}
           control-repo: pxl-classroom-control
           data-dir: control
+          team-slug: ${{ steps.team.outputs.team_slug }}
+          team-name: ${{ steps.team.outputs.team_name }}
+          team-action: ${{ steps.team.outputs.team_action }}
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning
         id: prov
@@ -75,19 +94,25 @@ jobs:
           LOGIN: ${{ steps.accept.outputs.github_login }}
           TEAM_SLUG: ${{ steps.accept.outputs.team_slug }}
           OUTCOME: ${{ steps.prov.outputs.outcome }}
+          ORG: ${{ github.event.client_payload.org }}
+          TARGET_REPO: ${{ steps.accept.outputs.target_repo }}
+          REPO_ID: ${{ steps.prov.outputs.repo-id }}
+          REPO_URL: ${{ steps.prov.outputs.repo-url }}
+          BASELINE_SHA: ${{ steps.prov.outputs.baseline-sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -e
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             node scripts/write-repository-record.mjs \
               --assignment-id "$ASSIGNMENT_ID" \
               --login "$LOGIN" \
-              --org "${{ github.event.client_payload.org }}" \
-              --target-repo "${{ steps.accept.outputs.target_repo }}" \
+              --org "$ORG" \
+              --target-repo "$TARGET_REPO" \
               --team-slug "$TEAM_SLUG" \
-              --repo-id "${{ steps.prov.outputs.repo-id }}" \
-              --repo-url "${{ steps.prov.outputs.repo-url }}" \
-              --baseline-sha "${{ steps.prov.outputs.baseline-sha }}" \
-              --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --repo-id "$REPO_ID" \
+              --repo-url "$REPO_URL" \
+              --baseline-sha "$BASELINE_SHA" \
+              --run-url "$RUN_URL" \
               --data-dir control
             git -C control add "repositories/" "teams/"
           fi
@@ -110,10 +135,12 @@ jobs:
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ORG: ${{ github.event.client_payload.org }}
         with:
           script: |
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner, repo: context.repo.repo,
               workflow_id: 'regenerate-dashboard.yml', ref: 'main',
-              inputs: { org: '${{ github.event.client_payload.org }}' },
+              inputs: { org: process.env.ORG },
             });

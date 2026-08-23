@@ -8,7 +8,14 @@
 # To do this, it mints an installation token for the PXL Classroom Provisioner App.
 # The App installation is scoped explicitly to the PXL-Digital-Application-Samples org
 # and the pxl-classroom repository ONLY. Therefore, a compromised broker workflow can
-# only dispatch events to pxl-classroom. Bounded blast radius.
+# only dispatch events to pxl-classroom.
+#
+# NO ATTACKER-CONTROLLED TEXT MAY REACH A SHELL HERE. The App private key is a repo
+# secret on this public repository, and any GitHub account can open an issue on it.
+# An issue body interpolated into `run:` was arbitrary code execution against that
+# key. Every value below is passed through `env:` - never `${{ }}` inside a script -
+# and the only event data forwarded is the issue NUMBER. The hub reads the body
+# itself (scripts/read-team-payload.mjs) where it can validate it safely.
 #
 # Secrets required:
 #   PXL_APP_CLIENT_ID      - Provisioning App Client ID (Iv… string)
@@ -42,36 +49,50 @@ jobs:
       - name: Validate actor
         id: validate
         shell: bash
+        env:
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.event.sender.id }}
         run: |
-          [[ -n "${{ github.actor }}" && -n "${{ github.event.sender.id }}" ]] \
+          [[ -n "$ACTOR" && -n "$ACTOR_ID" ]] \
             || { echo "::error::Missing actor"; exit 1; }
-          echo "actor=${{ github.actor }}"       >> "$GITHUB_OUTPUT"
-          echo "actor_id=${{ github.event.sender.id }}" >> "$GITHUB_OUTPUT"
+          # Charset-pin both before they leave this job. GitHub sets them, but a
+          # value that reached a later shell unvalidated is how this file broke once.
+          [[ "$ACTOR" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] \
+            || { echo "::error::Actor is not a valid GitHub login"; exit 1; }
+          [[ "$ACTOR_ID" =~ ^[0-9]+$ ]] \
+            || { echo "::error::Actor id is not numeric"; exit 1; }
+          {
+            echo "actor=$ACTOR"
+            echo "actor_id=$ACTOR_ID"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Parse team payload
-        id: payload
+      - name: Resolve issue number and concurrency hint
+        id: issue
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          # Read through env, never interpolated into this script. A bash regex
+          # match against an env var cannot break out of the script the way a
+          # substituted `${{ }}` value can.
+          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
-          TEAM_SLUG=""
-          TEAM_NAME=""
-          TEAM_ACTION=""
-          if [ "${{ github.event_name }}" = "issues" ]; then
-            BODY="${{ github.event.issue.body }}"
-            if [ -n "$BODY" ]; then
-              TEAM_SLUG=$(echo "$BODY" | jq -r '.team_slug // empty' 2>/dev/null || true)
-              TEAM_NAME=$(echo "$BODY" | jq -r '.team_name // empty' 2>/dev/null || true)
-              TEAM_ACTION=$(echo "$BODY" | jq -r '.team_action // empty' 2>/dev/null || true)
-            fi
-            if [ -z "$TEAM_SLUG" ]; then
-              TITLE="${{ github.event.issue.title }}"
-              if [[ "$TITLE" =~ ^team:(.+) ]]; then
-                TEAM_SLUG="${BASH_REMATCH[1]}"
-              fi
+          NUMBER=""
+          HINT=""
+          if [ "$EVENT_NAME" = "issues" ] && [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            NUMBER="$ISSUE_NUMBER"
+            # Concurrency hint ONLY. The hub re-reads the issue and derives the
+            # authoritative team from it; this exists so the hub's concurrency
+            # group can serialize joins to one team, which is what guards team
+            # capacity without a distributed lock (ARCHITECTURE §5.8).
+            if [[ "$ISSUE_TITLE" =~ ^team:([a-z0-9][a-z0-9-]{0,63})$ ]]; then
+              HINT="${BASH_REMATCH[1]}"
             fi
           fi
-          echo "team_slug=$TEAM_SLUG" >> "$GITHUB_OUTPUT"
-          echo "team_name=$TEAM_NAME" >> "$GITHUB_OUTPUT"
-          echo "team_action=$TEAM_ACTION" >> "$GITHUB_OUTPUT"
+          {
+            echo "number=$NUMBER"
+            echo "team_hint=$HINT"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Mint dispatcher token
         id: token
@@ -86,24 +107,30 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          CONTROL_ORG: ${{ vars.CONTROL_ORG }}
+          ASSIGNMENT_ID: ${{ vars.ASSIGNMENT_ID }}
+          ACTOR: ${{ steps.validate.outputs.actor }}
+          ACTOR_ID: ${{ steps.validate.outputs.actor_id }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          TEAM_HINT: ${{ steps.issue.outputs.team_hint }}
+          BROKER_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           ARGS=(
             "/repos/PXL-Digital-Application-Samples/pxl-classroom/dispatches"
             -f "event_type=acceptance"
-            -f "client_payload[org]=${{ vars.CONTROL_ORG }}"
-            -f "client_payload[assignment_id]=${{ vars.ASSIGNMENT_ID }}"
-            -f "client_payload[github_login]=${{ steps.validate.outputs.actor }}"
-            -f "client_payload[github_id]=${{ steps.validate.outputs.actor_id }}"
-            -f "client_payload[workflow_run_url]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f "client_payload[org]=$CONTROL_ORG"
+            -f "client_payload[assignment_id]=$ASSIGNMENT_ID"
+            -f "client_payload[github_login]=$ACTOR"
+            -f "client_payload[github_id]=$ACTOR_ID"
+            -f "client_payload[broker_repo]=$BROKER_REPO"
+            -f "client_payload[workflow_run_url]=$RUN_URL"
           )
-          if [ -n "${{ steps.payload.outputs.team_slug }}" ]; then
-            ARGS+=(-f "client_payload[team_slug]=${{ steps.payload.outputs.team_slug }}")
+          if [ -n "$ISSUE_NUMBER" ]; then
+            ARGS+=(-f "client_payload[issue_number]=$ISSUE_NUMBER")
           fi
-          if [ -n "${{ steps.payload.outputs.team_name }}" ]; then
-            ARGS+=(-f "client_payload[team_name]=${{ steps.payload.outputs.team_name }}")
-          fi
-          if [ -n "${{ steps.payload.outputs.team_action }}" ]; then
-            ARGS+=(-f "client_payload[team_action]=${{ steps.payload.outputs.team_action }}")
+          if [ -n "$TEAM_HINT" ]; then
+            ARGS+=(-f "client_payload[team_hint]=$TEAM_HINT")
           fi
           gh api --method POST "${ARGS[@]}"
 
@@ -112,6 +139,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          # No checkout in this job, so gh has no git remote to infer the repo from.
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
         run: |
-          gh issue close "${{ github.event.issue.number }}" --reason "completed" || true
-          gh issue lock "${{ github.event.issue.number }}" --reason "resolved" || true
+          [ -n "$ISSUE_NUMBER" ] || exit 0
+          gh issue close "$ISSUE_NUMBER" --reason "completed" || true
+          gh issue lock "$ISSUE_NUMBER" --reason "resolved" || true

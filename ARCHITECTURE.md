@@ -95,7 +95,7 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 
 The App is installed:
 
-- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. The broker mints a token for this installation to dispatch into the hub. A compromised broker workflow can only dispatch events to the hub - bounded blast radius.
+- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. The broker mints a token for this installation to dispatch into the hub. That token can only dispatch events to the hub; the App private key the broker holds to mint it is not similarly bounded, which is what §4.3.1 exists to protect.
 - On each participating org (`PXLAutomation`, `PXLCloudAndAutomation`, etc.), **scoped to all repositories**. The hub mints per-org tokens at workflow runtime for provisioning, collection, lock-down, preservation, and archive operations against the target org.
 
 The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see RUNBOOK §1.2).
@@ -117,7 +117,21 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 
 ### 4.3 Bounded blast radius
 
-- **Public broker compromise.** A broker workflow can only mint a token for the `pxl-classroom`-scoped App installation. That token can dispatch into the hub but cannot touch any per-org repository.
+- **Public broker compromise.** A broker workflow mints a token for the `pxl-classroom`-scoped App installation. That *token* can dispatch into the hub but cannot touch any per-org repository. The *private key* on the broker is not so bounded - it is the App's own key, and it can mint an installation token for any org the App is installed on. The blast radius is therefore only as small as the broker workflow's resistance to being made to run attacker code, which is why §4.3.1 is a hard rule rather than a style preference.
+
+#### 4.3.1 No attacker-controlled text may reach a shell on a broker
+
+A broker repository is public, carries `PXL_APP_PRIVATE_KEY` as a repo secret, and has issues enabled so the SPA can post group-acceptance payloads. Any GitHub account can therefore fire its workflow.
+
+Group assignments introduced `BODY="${{ github.event.issue.body }}"` into a `run:` block there. `${{ }}` is substituted into the script *text* before the shell sees it, so an issue body of `"; <command>; echo "` executed arbitrary commands in a job that goes on to mint an App token - reachable by anyone, against every participating org.
+
+Three invariants close it, enforced by `tests/broker-injection.test.mjs`:
+
+- **No workflow interpolates `github.event.*` or `client_payload` into any `run:` or `github-script` body.** Values reach scripts through `env:`, where they are never substituted into script text. This is checked repo-wide, not just on the broker.
+- **The broker never reads the issue body.** It forwards the issue *number* and its own repository; `scripts/read-team-payload.mjs` runs in the hub, fetches the issue with the hub's token, and validates it (`lib/team-payload.mjs`). `acceptance/action.yml` has no `client_payload` fallback for the team inputs, so no unvalidated value can reach `accept.mjs` by any path.
+- **The broker reads the issue title only through `env:`, and only to match `^team:<slug>$`.** The hub's concurrency group is evaluated at dispatch time, before the body can be read, so the broker must supply the slug for it. That value is a **concurrency key only** (`client_payload.team_hint`); the authoritative team comes from the hub's own read. Sequential concurrency per team is what guards team capacity without a distributed lock (§5.8), so it cannot simply be dropped.
+
+Team names are also stripped of control characters before use: outputs are written as `name=value` lines to `GITHUB_OUTPUT`, so an embedded newline would forge outputs downstream.
 - **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern; see RUNBOOK §9.
 - **Per-org control-repo compromise.** Restricted to that single org's data.
 - **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.
@@ -373,6 +387,9 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 8. acceptance-handler.yml in the hub:
    a. Mints App token for inputs.org
    b. Checks out <org>/pxl-classroom-control
+   b2. For a group assignment, runs scripts/read-team-payload.mjs - fetches the
+      broker issue by number and validates the team payload here rather than
+      on the public broker (§4.3.1)
    c. Runs ./acceptance - validates payload, checks roster registration (unless
       roster_mode: open), checks opens_at..deadline_at, checks max_acceptances,
       writes acceptances/<id>/<login>.json

@@ -42,17 +42,20 @@ inputs:
     required: false
     default: 'false'
   team-slug:
-    description: Team slug for group assignments
+    description: >-
+      Validated team slug for group assignments. No client_payload fallback:
+      the dispatch payload is attacker-reachable, so the caller must pass a
+      value it has validated itself (scripts/read-team-payload.mjs).
     required: false
-    default: ${{ github.event.client_payload.team_slug }}
+    default: ''
   team-name:
-    description: Team display name for group assignments
+    description: Validated team display name for group assignments.
     required: false
-    default: ${{ github.event.client_payload.team_name }}
+    default: ''
   team-action:
-    description: Team action (join, create, switch)
+    description: Validated team action (join, create, switch).
     required: false
-    default: ${{ github.event.client_payload.team_action }}
+    default: ''
 
 outputs:
   assignment_id:
