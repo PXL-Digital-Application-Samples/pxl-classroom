@@ -32,7 +32,18 @@ const STUDENT_2 = {
   token: process.env.TEST_STUDENT2_TOKEN || 'mock_student2_token',
 };
 
+// This suite drives three browser contexts against REAL GitHub tokens, read from
+// a gitignored .env.test. CI has no credentials by design, so without them the
+// suite skips rather than failing - a red CI run that only means "no secrets
+// here" teaches people to ignore red CI runs.
+const HAS_LIVE_CREDENTIALS =
+  LECTURER.token !== 'mock_lecturer_token' &&
+  STUDENT_1.token !== 'mock_student1_token' &&
+  STUDENT_2.token !== 'mock_student2_token';
+
 test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
+  test.skip(!HAS_LIVE_CREDENTIALS, 'Live test: set real tokens in .env.test to run it');
+
   test('Lecturer, Student 1, and Student 2 interact concurrently on group assignment', async ({ browser }) => {
     // ---------------------------------------------------------------------------
     // Context 1: Lecturer
