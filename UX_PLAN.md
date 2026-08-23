@@ -273,13 +273,12 @@ taking `[0].sha`, and `null` when the list is empty (see 3.2.7).
 Two things to know about this path, and they belong in the UI rather than only in
 the code:
 
-1. **It filters on a date the student controls.** GitHub's REST docs say only
-   *"Only commits before this date will be returned"* and never state whether that
-   is the author or the committer date; `git log --until` uses the committer date
-   and the API appears to match, but **this must be confirmed against a real
-   repository before shipping**, because a rebased commit carries both and the
-   choice decides which commit is picked. Either way it is client-supplied, so the
-   fallback is *not* tamper-proof and must never be described as such.
+1. **It filters on a date the student controls.** Confirmed live (§10 risk 3):
+   `until` is the **committer date** alone — a commit authored before the deadline
+   but committed after it is *excluded*, and one authored after but committed
+   before is *returned*. That matches `git log --until`. But `GIT_COMMITTER_DATE`
+   is client-supplied, so the fallback is *not* tamper-proof and must never be
+   described as such.
 2. **The nightly observation record does not rescue it.** Observations are ~20
    hours apart, so *"this commit was not in the last pre-deadline observation"*
    flags every commit made on the final day. It cannot distinguish 21:50 from a
@@ -814,13 +813,23 @@ Each workstream is one commit, with its tests, per the repo's convention.
    * **The update accepts a partial body** — `-f enforcement=active` alone, no
      need to resend rules or bypass actors. So the flip cannot accidentally
      rewrite the lock's definition.
-3. **`until` filters on a date GitHub does not document (§3.2.4).** The REST docs
-   say only *"Only commits before this date will be returned"* and never state
-   whether that is the author or the committer date. `git log --until` uses the
-   committer date and the API appears to match, but a rebased commit carries both
-   and the choice decides which one is picked, so it needs confirming against a
-   real repository. Both are client-supplied, so it changes nothing about
-   forgeability — this is the fallback path, not the guarantee.
+3. ~~**`until` filters on a date GitHub does not document (§3.2.4).**~~
+   **Confirmed live, 23 Aug 2026** — throwaway repo, three commits with author
+   and committer dates deliberately split around a 22:00 deadline:
+
+   | commit | author | committer | `?until=22:00` |
+   |---|---|---|---|
+   | B | 21:00 (before) | 23:30 (after) | **excluded** |
+   | D | 23:50 (after) | 21:30 (before) | **returned** |
+
+   So `until` is the **committer date** alone, matching `git log --until`. `[0]`
+   of the filtered list is the newest ancestor of the tip passing the filter,
+   which is exactly the commit §3.2.4 wants.
+
+   The spike also *is* the demonstration that this path is not tamper-proof: both
+   dates were set with `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE`, which any student
+   can do. The fallback picks the right commit in the ordinary case and must never
+   be described as a guarantee.
 4. **A long-lived sentinel job is new operational surface (§3.2.3).** It holds a
    runner slot for hours, and while a *polling* job is doing real work — unlike an
    idle `sleep` — nothing like it exists in this system today. Watch the
