@@ -14,7 +14,7 @@ import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
-import { parse } from "yaml";
+import { parse, stringify as stringifyYaml } from "yaml";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -113,119 +113,110 @@ async function setupFeedbackBaseline(repo) {
   return sha;
 }
 
+// Built as an object and serialised by the YAML library, never by string
+// concatenation.
+//
+// The previous version pasted lecturer-authored test config straight into a
+// YAML template: `command: "${t.command}"`. A command containing a double quote
+// - `grep "needle" file` - closed the string early and produced a workflow that
+// does not parse, in EVERY student repository, discovered by the student when
+// their grading run goes red. A colon in an id did the same to `- name:`. There
+// is no escaping to get right if nothing is concatenated.
 export function buildAutogradingWorkflow(assignment, org) {
+  const shell = {
+    name: "Autograding",
+    on: { push: { branches: ["main"] } },
+    concurrency: { group: "autograde-${{ github.ref }}", "cancel-in-progress": true },
+  };
+
   const isPublic = assignment?.autograde?.visibility === "public";
   if (!isPublic) {
-    return `name: Autograding
-on:
-  push:
-    branches:
-      - main
-
-concurrency:
-  group: autograde-\${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  grade:
-    uses: ${org}/pxl-classroom-control/.github/workflows/grade.yml@main
-`;
+    return stringifyYaml({
+      ...shell,
+      jobs: { grade: { uses: `${org}/pxl-classroom-control/.github/workflows/grade.yml@main` } },
+    });
   }
 
   const tests = assignment?.autograde?.tests || [];
   if (tests.length === 0) {
-    return `name: Autograding
-on:
-  push:
-    branches:
-      - main
-
-concurrency:
-  group: autograde-\${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  grade:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - run: npm test
-`;
+    return stringifyYaml({
+      ...shell,
+      jobs: {
+        grade: {
+          "runs-on": "ubuntu-latest",
+          "timeout-minutes": 10,
+          steps: [{ uses: "actions/checkout@v4" }, { run: "npm test" }],
+        },
+      },
+    });
   }
 
-  const steps = [
-    `      - name: Checkout code\n        uses: actions/checkout@v4`
-  ];
+  const steps = [{ name: "Checkout code", uses: "actions/checkout@v4" }];
   const runnerIds = [];
-  const envVars = [];
+  const env = {};
 
   for (const t of tests) {
-    const runnerId = (t.id || "test").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    const runnerId = String(t.id || "test").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
     runnerIds.push(runnerId);
-    const envKey = `${runnerId.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_RESULTS`;
-    envVars.push(`          ${envKey}: "\${{ steps.${runnerId}.outputs.result }}"`);
+    // Two ids differing only by `-` vs `_` collapsed onto one env key, so one
+    // test's results silently replaced the other's in the reporter. Suffix the
+    // collisions rather than losing a result.
+    let envKey = `${runnerId.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_RESULTS`;
+    for (let n = 2; envKey in env; n++) envKey = `${envKey.replace(/_RESULTS$/, "")}_${n}_RESULTS`;
+    env[envKey] = `\${{ steps.${runnerId}.outputs.result }}`;
 
+    const common = { name: String(t.id ?? "test"), id: runnerId };
     if (t.type === "io") {
-      steps.push(`      - name: ${t.id}
-        id: ${runnerId}
-        uses: classroom-resources/autograding-io-grader@v1
-        with:
-          test-name: "${t.id}"
-          command: "${t.command || ""}"
-          input: "${(t.stdin || "").replace(/\n/g, "\\n")}"
-          expected-output: "${(t.expected_stdout || "").replace(/\n/g, "\\n")}"
-          comparison-method: "included"
-          timeout: ${t.timeout_s || 10}
-          max-score: ${t.points || 1}`);
+      steps.push({
+        ...common,
+        uses: "classroom-resources/autograding-io-grader@v1",
+        with: {
+          "test-name": String(t.id ?? "test"),
+          command: t.command || "",
+          input: t.stdin || "",
+          "expected-output": t.expected_stdout || "",
+          "comparison-method": "included",
+          timeout: t.timeout_s || 10,
+          "max-score": t.points || 1,
+        },
+      });
     } else if (t.type === "python") {
-      steps.push(`      - name: ${t.id}
-        id: ${runnerId}
-        uses: classroom-resources/autograding-python-grader@v1
-        with:
-          test-name: "${t.id}"
-          setup-command: "${t.setup_command || "pip install pytest"}"
-          command: "${t.command || "pytest"}"
-          timeout: ${t.timeout_s || 10}
-          max-score: ${t.points || 1}`);
+      steps.push({
+        ...common,
+        uses: "classroom-resources/autograding-python-grader@v1",
+        with: {
+          "test-name": String(t.id ?? "test"),
+          "setup-command": t.setup_command || "pip install pytest",
+          command: t.command || "pytest",
+          timeout: t.timeout_s || 10,
+          "max-score": t.points || 1,
+        },
+      });
     } else {
-      // default: run
-      steps.push(`      - name: ${t.id}
-        id: ${runnerId}
-        uses: classroom-resources/autograding-command-grader@v1
-        with:
-          test-name: "${t.id}"
-          command: "${t.command || "exit 0"}"
-          timeout: ${t.timeout_s || 10}
-          max-score: ${t.points || 1}`);
+      steps.push({
+        ...common,
+        uses: "classroom-resources/autograding-command-grader@v1",
+        with: {
+          "test-name": String(t.id ?? "test"),
+          command: t.command || "exit 0",
+          timeout: t.timeout_s || 10,
+          "max-score": t.points || 1,
+        },
+      });
     }
   }
 
-  // Reporter step
-  steps.push(`      - name: Autograding Reporter
-        uses: classroom-resources/autograding-grading-reporter@v1
-        env:
-${envVars.join("\n")}
-        with:
-          runners: ${runnerIds.join(",")}`);
+  steps.push({
+    name: "Autograding Reporter",
+    uses: "classroom-resources/autograding-grading-reporter@v1",
+    env,
+    with: { runners: runnerIds.join(",") },
+  });
 
-  return `name: Autograding
-on:
-  push:
-    branches:
-      - main
-
-concurrency:
-  group: autograde-\${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  grade:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-${steps.join("\n\n")}
-`;
+  return stringifyYaml({
+    ...shell,
+    jobs: { grade: { "runs-on": "ubuntu-latest", "timeout-minutes": 10, steps } },
+  });
 }
 
 async function injectAutogradingWorkflow(assignment) {

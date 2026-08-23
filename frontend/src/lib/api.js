@@ -216,6 +216,31 @@ export async function getRepoContent(token, owner, repo, path) {
       return null
     }
   }
+
+  // Above 1 MB the Contents API answers 200 with `content: ""` and
+  // `encoding: "none"` rather than an error, so this returned null and every
+  // caller read that as "file not found" - a large reports/dashboard.json or a
+  // roster for a big cohort would have looked absent instead of failing. The
+  // raw media type has no such limit below 100 MB.
+  if (res.data && res.data.encoding === 'none') {
+    const raw = await fetchWithTimeout(
+      `${API_BASE}/repos/${owner}/${repo}/contents/${path}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.raw',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        cache: 'no-store',
+      },
+      { timeoutMs: READ_TIMEOUT_MS },
+    )
+    if (raw.ok) return raw.text()
+    const e = new Error(`${path} is too large for the contents API, and the raw read failed (HTTP ${raw.status})`)
+    e.status = raw.status
+    throw e
+  }
+
   return null
 }
 

@@ -74,10 +74,18 @@ async function main() {
         try {
           const assignment = await loadYaml(path.join(assignmentsDir, file));
           if (!assignment || !assignment.deadline_at) continue;
-          
+
+          // Only an assignment students could actually have accepted into.
+          // A draft with a past deadline - a template someone started and left,
+          // or one reverted after the fact - has no repositories, no lockdown
+          // record, and therefore looked "not-finalized" forever. It queued a
+          // four-step finalize matrix leg on a system whose whole point is
+          // billing zero minutes when idle.
+          if (assignment.state !== 'published' && assignment.state !== 'closed') continue;
+
           const deadline = new Date(assignment.deadline_at).getTime();
           const now = Date.now();
-          
+
           if (deadline <= now) {
             const reason = finalizeReason(controlDir, lockdownsDir, id);
             if (reason) {

@@ -285,7 +285,17 @@ async function main() {
         await writeFile(teamFile, JSON.stringify(teamData, null, 2) + "\n");
       }
       teamName = teamData.team_name || teamName || teamSlug;
-      isFirstMember = teamData.members.length === 1;
+      // Members, not acceptances, was the wrong question. A lecturer-seeded
+      // team is listed with all of its members before anybody has accepted, so
+      // the FIRST student through this door saw members.length === 3 and was
+      // told they were not the first - and a team of one that was seeded and
+      // then joined by somebody else got `true` twice.
+      //
+      // Nothing consumes the output today (provisioning is idempotent on repo
+      // existence, which is why this never showed up), so it is advisory - but
+      // it is declared on the action, and a wrong advisory value is a trap for
+      // whoever wires it up next.
+      isFirstMember = await isFirstAcceptanceInTeam(dataDir, assignmentId, teamData.members, login);
     } else {
       if (assignment.group_config?.allow_team_creation === false) {
         await reject("rejected:team-creation-disabled", "creating new teams is disabled for this assignment");
@@ -354,12 +364,26 @@ async function main() {
 
   // 8. Record acceptance
   await mkdir(acceptDir, { recursive: true });
+  // A team switch falls through the idempotency check above (it has work to do),
+  // so it reaches here with an existing record - and rewriting accepted_at with
+  // `now` moved a student's acceptance time forward every time they changed
+  // team. That timestamp is what says whether they accepted before the
+  // deadline, so it is the original or nothing.
+  let acceptedAt = now.toISOString();
+  if (existsSync(acceptFile)) {
+    try {
+      const prior = JSON.parse(await readFile(acceptFile, "utf-8"));
+      if (typeof prior.accepted_at === "string" && prior.accepted_at) acceptedAt = prior.accepted_at;
+    } catch {
+      // Unreadable prior record - `now` is the best we have.
+    }
+  }
   const record = {
     schema_version: 1,
     assignment_id: assignmentId,
     github_login: login,
     github_id: Number(githubId),
-    accepted_at: now.toISOString(),
+    accepted_at: acceptedAt,
     star_event_ref: workflowRunUrl || null,
     status: "accepted",
     ...(isGroup ? { team_slug: teamSlug, team_name: teamName } : {}),
@@ -391,6 +415,20 @@ async function main() {
       `| time | ${now.toISOString()} |\n`
   );
   log("done", { ok: true, note: "accepted" });
+}
+
+// True when nobody in this team has an acceptance record yet - i.e. this
+// acceptance is the one that brings the team into existence, and the one
+// provisioning will create the repository for.
+async function isFirstAcceptanceInTeam(dataDir, assignmentId, members, login) {
+  const acceptDir = join(dataDir, "acceptances", assignmentId);
+  if (!existsSync(acceptDir)) return true;
+  const me = login.toLowerCase();
+  for (const member of members || []) {
+    if (String(member).toLowerCase() === me) continue;
+    if (existsSync(join(acceptDir, `${member}.json`))) return false;
+  }
+  return true;
 }
 
 function slugify(value) {

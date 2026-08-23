@@ -89,10 +89,15 @@ jobs:
         env:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
         run: |
-          FILE="control/assignments/${ASSIGNMENT_ID}.yml"
           STATE=""
-          if [ -f "$FILE" ]; then
-            STATE=$(grep -m1 '^state:' "$FILE" | awk '{print $2}' || true)
+          YML="control/assignments/${ASSIGNMENT_ID}.yml"
+          JSON="control/assignments/${ASSIGNMENT_ID}.json"
+          if [ -f "$YML" ]; then
+            STATE=$(grep -m1 '^state:' "$YML" | awk '{print $2}' || true)
+          elif [ -f "$JSON" ]; then
+            # Same reason the revert handles both: a JSON assignment recorded no
+            # prior state, so the revert had nothing to restore it to.
+            STATE=$(node -p "require('./$JSON').state || ''" 2>/dev/null || true)
           fi
           echo "state=${STATE}" >> "$GITHUB_OUTPUT"
           echo "Prior state: ${STATE:-<unknown>}"
@@ -154,7 +159,12 @@ jobs:
           cd "$TMPDIR"
           git init -q
           git symbolic-ref HEAD refs/heads/main
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${BROKER_REPO}.git"
+          # The token goes in a header, not the URL: `git remote add` with
+          # credentials embedded writes them into .git/config and quotes them
+          # back in every error message git prints, on a public repository's
+          # run log.
+          git config http.https://github.com/.extraheader             "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git remote add origin "https://github.com/${ORG}/${BROKER_REPO}.git"
 
           # Continue the broker's existing history rather than force-pushing a
           # fresh root commit over it. Force-push is rejected outright by an org
@@ -242,10 +252,20 @@ jobs:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           PRIOR_STATE: ${{ steps.prior.outputs.state }}
         run: |
-          FILE="assignments/${ASSIGNMENT_ID}.yml"
-          [ -f "control/$FILE" ] || exit 0
+          set -e
           TARGET="${PRIOR_STATE:-draft}"
-          sed -i "s/^state:.*/state: ${TARGET}/" "control/$FILE"
+          # Both shapes. `[ -f "$FILE.yml" ] || exit 0` meant a JSON assignment
+          # was never reverted - which leaves exactly the stranded
+          # `state: published` with no working invitation that this step exists
+          # to prevent.
+          FILE="assignments/${ASSIGNMENT_ID}.yml"
+          if [ -f "control/$FILE" ]; then
+            sed -i "s/^state:.*/state: ${TARGET}/" "control/$FILE"
+          else
+            FILE="assignments/${ASSIGNMENT_ID}.json"
+            [ -f "control/$FILE" ] || exit 0
+            node scripts/update-json-field.mjs --schema assignment "control/$FILE" "state" "$TARGET"
+          fi
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           git -C control add "$FILE"

@@ -58,14 +58,41 @@ function validate() {
 }
 
 // --- Git helpers (execSync, authenticated via token) -------------------------
+// The credential never appears in an argument, a log line, or an error message.
+//
+// This used to build `https://x-access-token:<token>@github.com/...` into the
+// command string and then `console.log` it - on the hub, which is a PUBLIC
+// repository whose run logs anyone can read. Actions masks values registered
+// with core.setSecret, and create-github-app-token does register the minted
+// token, so it rendered as `***`. That is one line of defence for a credential
+// that mints installation tokens for every participating org, and it only holds
+// as long as nobody changes how the token is obtained.
+//
+// http.extraheader keeps it in the process environment instead. execSync's
+// error message quotes the command, so a failed push now quotes a plain URL.
+function gitEnv() {
+  const basic = Buffer.from(`x-access-token:${cfg.token}`).toString("base64");
+  return {
+    ...process.env,
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: `http.${new URL(cfg.serverUrl).origin}/.extraheader`,
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`,
+  };
+}
+
 function git(args, opts = {}) {
   const cmd = `git ${args}`;
   console.log(`$ ${cmd}`);
-  return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], ...opts }).trim();
+  return execSync(cmd, {
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    ...opts,
+    env: { ...gitEnv(), ...(opts.env || {}) },
+  }).trim();
 }
 
-function authedUrl(repo) {
-  return `https://x-access-token:${cfg.token}@${new URL(cfg.serverUrl).host}/${cfg.org}/${repo}.git`;
+function repoUrl(repo) {
+  return `${new URL(cfg.serverUrl).origin}/${cfg.org}/${repo}.git`;
 }
 
 // --- Main --------------------------------------------------------------------
@@ -134,8 +161,8 @@ async function main() {
     let verified = false;
 
     try {
-      const srcUrl = authedUrl(sourceRepo);
-      const arcUrl = authedUrl(cfg.archiveRepo);
+      const srcUrl = repoUrl(sourceRepo);
+      const arcUrl = repoUrl(cfg.archiveRepo);
       const cloneDir = join(workDir, "src");
 
       await mkdir(cloneDir);
