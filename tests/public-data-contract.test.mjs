@@ -113,6 +113,38 @@ test("generate.mjs publishes roster_mode on the invitation card, defaulting to e
   assert.equal(scan.status, 0, `privacy scanner blocked roster_mode: ${scan.stdout}${scan.stderr}`);
 });
 
+// An assignment with no cap has no cap. `accept.mjs` gates on
+// `if (maxAcceptances && ...)`, so absent means unlimited there - while the
+// card published `?? 150` and `AssignmentView` read `?? 150`, which showed
+// "Registration cap reached" to a student the server would have provisioned.
+test("an assignment with no cap is published with no cap, not with a number nobody set", () => {
+  const run = (capLine) => {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-gen-cap-"));
+    const assignmentsDir = join(dir, "assignments");
+    mkdirSync(assignmentsDir);
+    const token = mintToken("PXLAutomation", "test-valid");
+    // valid-assignment.yml ships WITH a cap, so strip it to reach the branch.
+    const base = readFileSync(fix("valid-assignment.yml"), "utf8")
+      .split("\n")
+      .filter((l) => !l.startsWith("max_acceptances:"))
+      .join("\n");
+    writeFileSync(
+      join(assignmentsDir, "test-valid.yml"),
+      `${base}${capLine}\ninvite_token: ${token}\ninvite_nonce: 0badc0de\n`
+    );
+    const outDir = join(dir, "public");
+    const res = spawnSync("node", [generator], {
+      env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir },
+      encoding: "utf8",
+    });
+    assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+    return JSON.parse(readFileSync(join(outDir, "i", `${inviteFileFor(token)}.json`), "utf8")).assignment;
+  };
+
+  assert.equal(run("").max_acceptances, null, "absent must publish as null, never as a default");
+  assert.equal(run("\nmax_acceptances: 25\n").max_acceptances, 25, "a real cap still travels");
+});
+
 test("the org-wide index carries no acceptance detail, only what the portal matches on", () => {
   // Anyone can fetch this file. It exists solely so a signed-in student can map
   // their own repositories to an assignment - students cannot read the control

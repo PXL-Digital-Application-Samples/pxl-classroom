@@ -286,6 +286,36 @@ test("a python test's script reaches the generated workflow, through env and not
   );
 });
 
+test("a script survives the round trip whatever is in it", () => {
+  // `printf '%s' "$PXL_SCRIPT"` is chosen over echo/heredoc for these: a `%s`
+  // or a backslash in the source would be reinterpreted by a format string, a
+  // `$VAR` would be expanded by an unquoted expansion, and `EOF` on its own
+  // line would end a heredoc early. The YAML library handles the quoting; the
+  // shell never sees the text at all.
+  const nasty = [
+    ["a percent format", "print('%s and %d' % ('x', 1))\n"],
+    ["backslashes", "print('a\\\\tb')\nimport re\nre.compile(r'\\\\d+')\n"],
+    ["a shell variable", "print('$PATH and $PXL_SCRIPT and ${HOME}')\n"],
+    ["a heredoc terminator", "print('EOF')\nEOF = 1\n"],
+    ["a lone trailing newline", "assert True"],
+    ["quotes of every kind", `print("she said \\"hi\\"", 'and \\'bye\\'')\n`],
+    ["a colon and a hash", "d = {'k: v': 1}  # comment: here\n"],
+    ["unicode", "print('café ✓ 日本語')\n"],
+  ];
+
+  for (const [what, script] of nasty) {
+    const doc = parse(
+      buildAutogradingWorkflow(
+        { id: "lab", autograde: { visibility: "public", tests: [{ id: "py", type: "python", script, points: 1 }] } },
+        "PXLAutomation"
+      )
+    );
+    const [, write] = doc.jobs.grade.steps;
+    assert.equal(write.env.PXL_SCRIPT, script, `${what} must round-trip byte for byte`);
+    assert.ok(!write.run.includes(script.trim().split("\n")[0]), `${what} must not reach the run text`);
+  }
+});
+
 test("the CLI runners and the Actions generator agree that `script` is the authoritative field", () => {
   const generator = readFileSync(join(root, "provisioning", "provision.mjs"), "utf8");
   // Bounded at the next `} else {` - the branch after this one is the command

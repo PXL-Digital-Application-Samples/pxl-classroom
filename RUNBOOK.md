@@ -315,7 +315,7 @@ Done by a lecturer.
 | Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
 | Who may accept | **`enforced` by default** - only logins in `students/roster.yml` (import them on the **Roster** tab; an empty roster means nobody can accept). Switch to `open` only for a cohort you do not know up front, e.g. an exam - it removes the roster gate entirely and then requires a cap (§12.4). |
-| Max acceptances | guardrail: cap on accepted students (default 150; leave empty for no cap; 0 is rejected) |
+| Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open` (§12.4). |
 | Lock down student repos at the deadline | default on |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §12.7) |
 | Enable autograding | optional - test editor + execution environment picker (see §12.9) |

@@ -277,7 +277,7 @@ roster_mode: enforced                 # enforced|open - who may accept (§15).
                                       # open requires max_acceptances.
 late_policy: report                   # report|block
 state: published                      # draft|published|closed|archived
-max_acceptances: 150
+max_acceptances: 50                   # optional; absent means NO cap
 lock_down_enabled: true
 
 # Written by publish-assignment.yml, never by hand. The token is a capability:
@@ -647,7 +647,7 @@ A regression guard test (`tests/cors.test.mjs`) fails CI if `auth.js` ever direc
 
 ### 10.3 Data sources
 
-- **Acceptance card:** static Pages JSON at `/data/<org>/i/<sha256(invite_token)>.json`, one file per invitation, with a group assignment's teams file beside it as `<sha256>.teams.json`. Fetching it requires the link (§4.3.3). `pages/generate.mjs` writes these into each control repo's `public/`, and `scripts/fetch-pages-data.mjs` gathers them into the SPA at build time.
+- **Acceptance card:** static Pages JSON at `/data/<org>/i/<sha256(invite_token)>.json`, one file per invitation, with a group assignment's teams file beside it as `<sha256>.teams.json`. Fetching it requires the link (§4.3.3). `pages/generate.mjs` writes these into each control repo's `public/`, and `scripts/fetch-pages-data.mjs` gathers them into the SPA at build time. **The card reports the assignment's own guardrails and never substitutes a default for one that is absent**: `max_acceptances` is published as `null` when the assignment has no cap, because `accept.mjs` gates on `if (maxAcceptances && ...)` and therefore enforces nothing. Both the generator and `AssignmentView` used `?? 150`, so an uncapped assignment showed "Registration cap reached" to student 151 while the server would have provisioned them.
 - **Portal index:** `/data/<org>/assignments.json`, reduced to the fields the student portal needs to match a signed-in student's own repositories against an assignment. It carries nothing that would let an outsider size up or reach one.
 - **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch - not N per-student calls. When that file is absent (a newly onboarded org, before the first publish or nightly), the view falls back to listing `assignments/` - and **counts drafts by reading each YAML's own `state`**, not by counting files. It counted files, so a lecturer who had just published two assignments was told they had two drafts and to *"publish to track them here"*; what is missing on that branch is the report, not the publish. The listing carries names only, so each file is fetched (6-way pool, fallback path only) and anything unreadable or unparseable is left out of the count rather than assumed to be a draft. With nothing in draft the copy says what is actually pending instead.
 - **Student status:** the student's own token reads `/repos/<org>/<expected-name>` and `/user/repository_invitations` - never the control repo.

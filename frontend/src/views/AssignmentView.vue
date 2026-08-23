@@ -108,7 +108,10 @@
                 New registrations for this assignment are currently closed.
               </p>
             </div>
-            <div v-else-if="assignment && assignment.accepted_count >= (assignment.max_acceptances ?? 150)" class="text-center">
+            <!-- An absent cap is no cap: accept.mjs enforces the limit only
+                 when the field is set, so a default here would refuse an
+                 acceptance the server would have granted. -->
+            <div v-else-if="assignment && assignment.max_acceptances && assignment.accepted_count >= assignment.max_acceptances" class="text-center">
               <h2>Registration cap reached</h2>
               <p class="text-secondary">
                 This assignment has reached its registration limit. Please contact your lecturer.

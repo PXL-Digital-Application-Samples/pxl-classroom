@@ -133,7 +133,11 @@ async function main() {
       repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,
       // The broker repo name is public (the broker is a public repo)
       broker_repo: def.state === "published" ? `broker-${def.id}` : null,
-      max_acceptances: def.max_acceptances ?? 150,
+      // No cap means NO cap. `accept.mjs` reads `if (maxAcceptances && ...)`,
+      // so an absent value is unlimited there - publishing `?? 150` invented a
+      // limit the assignment does not have, and `AssignmentView` then refused
+      // student 151 an acceptance the server would have granted.
+      max_acceptances: def.max_acceptances ?? null,
       accepted_count: acceptedCount,
       assignment_type: def.assignment_type || "individual",
       group_config: def.assignment_type === "group" ? (def.group_config || null) : undefined,

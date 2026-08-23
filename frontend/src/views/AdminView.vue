@@ -1663,7 +1663,12 @@ function editAssignment(a) {
     roster_mode: a.roster_mode === 'open' ? 'open' : 'enforced',
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
-    max_acceptances: a.max_acceptances ?? 50,
+    // 50 is the default for a NEW assignment (emptyForm), not a value to
+    // invent for an existing one. buildDoc rebuilds the whole document, so
+    // `?? 50` here silently capped an uncapped assignment the first time
+    // anyone opened it to change the title. Empty means no cap, and buildDoc
+    // omits the field.
+    max_acceptances: a.max_acceptances ?? '',
     lock_down_enabled: a.lock_down_enabled ?? true,
     invite_token: a.invite_token || '',
     invite_nonce: a.invite_nonce || '',
