@@ -21,6 +21,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # eslint.config.mjs exists because undeclared identifiers keep shipping:
+      # the template compiler never sees a <script setup> body, Vite bundles it
+      # happily, and the unit suite does not execute components. It caught none
+      # of them because it was never wired in here - `isStarred` shipped as the
+      # fourth. no-undef is the point of the config; this is what enforces it.
+      - name: Lint
+        run: npx eslint . --max-warnings 0
+
       - name: Run unit tests
         run: node --test tests/*.test.mjs cli/tests/*.test.mjs
 

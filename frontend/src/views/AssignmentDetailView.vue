@@ -1395,7 +1395,6 @@ const overridesByLogin = ref(new Map())
 const rosterByLogin = ref(new Map())
 const roster = computed(() => Array.from(rosterByLogin.value.values()))
 const userProfilesByLogin = ref(new Map())
-const profileCache = new Map()
 
 
 function isBot(str) {

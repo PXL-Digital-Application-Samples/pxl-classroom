@@ -667,14 +667,32 @@ async function checkExistingState() {
     }
   }
 
-  // Check if already starred the broker
+  // Did they already accept in a tab they closed? Acceptance is an issue on the
+  // broker now, not a star, so that is what "in progress" looks like. The
+  // broker closes and locks it once dispatched, hence state=all.
+  //
+  // Only a RECENT issue counts: a failed attempt from weeks ago would otherwise
+  // put every returning student straight into a three-minute poll. We only get
+  // here when there is no repo and no invitation, so an old issue means an
+  // acceptance that never completed - they should be offered Accept again.
   const brokerRepo = assignment.value.broker_repo || `broker-${resolvedId.value}`
-  const starred = await isStarred(token, org, brokerRepo)
-  if (starred) {
-    // Already starred - provisioning might be in progress
-    acceptState.value = 'pending'
-    startPolling()
-    return
+  const mine = await ghApi(
+    token, 'GET',
+    `/repos/${org}/${brokerRepo}/issues?creator=${encodeURIComponent(user.value.login)}&state=all&per_page=5`,
+  )
+  if (mine.ok && Array.isArray(mine.data)) {
+    const cutoff = Date.now() - 15 * 60 * 1000
+    const inFlight = mine.data.some(
+      (issue) =>
+        typeof issue.title === 'string' &&
+        issue.title.startsWith('pxl-accept:') &&
+        new Date(issue.created_at).getTime() > cutoff,
+    )
+    if (inFlight) {
+      acceptState.value = 'pending'
+      startPolling()
+      return
+    }
   }
 
   acceptState.value = 'ready'
@@ -694,11 +712,9 @@ function handleLogout() {
   acceptState.value = 'ready'
 }
 
-// Accept assignment (star the broker)
-// If the user is already starring the broker (e.g. from a previous attempt that
-// failed), PUT /user/starred returns 204 but does NOT fire watch:started. So we
-// first unstar, then re-star - guaranteeing a fresh watch:started event that
-// re-triggers the central acceptance-handler.
+// Accept assignment by opening the invitation issue on the broker.
+// Reopening is safe: the acceptance script returns already-accepted and
+// provisioning returns reused, so the student lands on the same repository.
 async function acceptAssignment() {
   accepting.value = true
   acceptError.value = null
