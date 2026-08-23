@@ -220,7 +220,25 @@ is Phase 4's switch now, and it defaults to `true` when the field is absent,
 because every assignment created before this shipped *was* demoted and inferring
 "no lock" from a missing field would silently stop freezing live cohorts.
 
-#### 3.2.3 The trigger: a converging sentinel
+#### 3.2.3 The trigger: a converging sentinel — **shipped disabled**
+
+> Landed as `deadline-sentinel.yml` + `scripts/find-armable.mjs` +
+> `scripts/deadline-sentinel.mjs`, with `STOP_ONLY=1` on `lockdown.mjs` as the
+> stop. Three departures from the sketch below, each for a reason:
+>
+> * **The arm window is 4.5h, not 6h.** It only has to exceed the 4-hourly cron
+>   interval; the rest is margin against the job limit.
+> * **The sentinel does not flip the ruleset itself.** It waits and records; the
+>   workflow then runs lockdown's Phase 1. One implementation of "stop writes",
+>   which the sentinel cannot drift from.
+> * **It re-reads the assignment deadline, not the overrides.** A per-student
+>   extension is handled where it already is — `planTargets` excludes anyone
+>   still extended at the moment of the flip — so re-reading `overrides/` every
+>   poll would buy nothing and cost a call per student.
+>
+> `STOP_ONLY` writes **no** lockdown record. `find-finalizable.mjs` reads that
+> record's existence as evidence a finalize happened, and one with empty
+> `results` would strand the assignment forever.
 
 Phase 1 must happen *at* the deadline. GitHub offers no date-aware primitive, so
 something has to be running. The shape that works, and the limits that decide it:
@@ -430,7 +448,11 @@ cannot call it yet without a control-repo checkout. That is step 3's problem.
    **Shipped** — §3.2.2, §3.2.4, §3.2.6 and §3.2.7 together, because `block`
    without the `until` fallback would record post-deadline work as the
    submission, and without the honest control it would re-create C4.
-4. The sentinel, arming from the existing cron at 4-hourly.
+4. ~~The sentinel, arming from the existing cron at 4-hourly.~~ **Shipped
+   disabled** — §3.2.3. It has its own 4-hourly cron rather than riding
+   `daily-activity.yml`'s (which is `0 0 * * *` and disables itself when idle),
+   and `publish-assignment.yml` enables it beside the nightly. Turn it on with
+   `gh workflow enable deadline-sentinel.yml`; RUNBOOK §7.1.
 5. Organization rulesets, once the App permission is approved.
 
 Each step is useful on its own and none of them requires the next.
@@ -880,7 +902,10 @@ Each workstream is one commit, with its tests, per the repo's convention.
    runner slot for hours, and while a *polling* job is doing real work — unlike an
    idle `sleep` — nothing like it exists in this system today. Watch the
    concurrency budget on Team (60 jobs) the first term it runs, and cap how many
-   arm per firing.
+   arm per firing. **Still open, deliberately:** it shipped **disabled**, the cap
+   is in (`MAX_SENTINELS`, default 8, and what it drops is logged), and
+   `publish-assignment.yml` enables it — so the first time it runs for real is a
+   decision, not a side effect. RUNBOOK §7.1.
 5. **`AdminView.vue` is 2,900 lines and this plan touches most of it.** WS2, WS4
    and WS5 should each extract as they go — `InvitationShare.vue`, `AutogradeModal.vue`,
    and a `PublishedCohortPanel.vue` — rather than growing the file further. Extracted

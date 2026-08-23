@@ -43,6 +43,11 @@ const cfg = {
   org: env("ORG"),
   assignmentId: env("ASSIGNMENT_ID"),
   dataDir: env("DATA_DIR"),
+  // Phase 1 and nothing else - what the deadline sentinel runs at the instant
+  // itself. It must NOT write a lockdown record: find-finalizable.mjs treats the
+  // record's existence as evidence a finalize happened, and one with no results
+  // would strand the assignment unfinalized forever.
+  stopOnly: env("STOP_ONLY", "0") === "1",
   apiBase: env("GITHUB_API_URL", "https://api.github.com"),
   runUrl: `${env("GITHUB_SERVER_URL", "https://github.com")}/${env("GITHUB_REPOSITORY", "_")}` +
           `/actions/runs/${env("GITHUB_RUN_ID", "0")}`,
@@ -520,6 +525,27 @@ async function main() {
   const lock = await applySubmissionLock({
     targets, method: lockMethod, submissionRef, appId, priorByLogin,
   });
+
+  // Stop-only: the sentinel's job is the instant, not the bookkeeping. The
+  // ordinary finalize follows minutes later and does phases 2-4 unhurried,
+  // against repositories that can no longer move - and applySubmissionLock is
+  // idempotent, so it will report the lock `unchanged` rather than redo it.
+  if (cfg.stopOnly) {
+    const stopped = [...lock.byRepo.values()].filter((s) => s.locked).length;
+    await setOutput("locked_count", stopped);
+    await setOutput("error_count", targets.length - stopped);
+    await setOutput("deferred_count", deferrals.length);
+    await setOutput("lock_method", lock.method);
+    await setOutput("outcome", "stopped");
+    await summary(
+      `### Deadline stop: \`${lock.method}\` at ${lock.lockedAt}\n\n` +
+      `**${stopped}/${targets.length}** repositories stopped` +
+      (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
+      `. No record written - the finalize run does phases 2-4.\n`
+    );
+    log("stop-only", { ok: true, note: `${stopped}/${targets.length} stopped; no lockdown record written` });
+    process.exit(0);
+  }
 
   // --- Phase 2: RECORD -------------------------------------------------------
   //

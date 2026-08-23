@@ -748,7 +748,34 @@ taking `[0].sha`, and `null` when the list is empty. Three things about this pat
 
 An empty result is `no_submission`, not an error: under `block` a student who only pushed after the deadline has nothing to preserve, and counting that as a failure turned the whole cohort's nightly amber for one person. `preserve.mjs` has a third bucket - preserved / no submission / failed - and only the last counts toward `error_count`.
 
-Under `report` none of this runs: a late commit *is* part of the submission, and filtering it out would discard exactly what the policy says to keep. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
+Under `report` none of this runs: a late commit *is* part of the submission, and filtering it out would discard exactly what the policy says to keep.
+
+#### 11.2.3 The deadline sentinel
+
+`deadline-sentinel.yml` closes the gap between the deadline and the nightly. A repository ruleset has no time conditions and `cron` cannot be rescheduled dynamically, so something has to be *running* at the instant. A fixed **4-hourly** cron arms a sentinel for every deadline within a **4.5 h** window; the sentinel waits, and when the instant arrives it runs lockdown's Phase 1 (`STOP_ONLY=1`) and dispatches the ordinary finalize.
+
+Two numbers decide the shape: a GitHub-hosted job runs for at most 6 hours, and the cron fires every 4. The window sits between them - wider than the interval so every deadline gets a firing that can reach it, narrower than the job limit with margin. **Cron drift therefore decides only whether a sentinel arms in time, never when it acts:** a 16:00 firing that lands at 16:25 still sees a 20:00 deadline 3h35m out, still arms, and still acts at 20:00:00.
+
+Sentinels are keyed on **(org, deadline instant)**, not on assignment, so three assignments sharing 22:00 share one job. `find-armable.mjs` caps how many one firing may arm (default 8, `MAX_SENTINELS`) and logs what it dropped rather than truncating silently.
+
+**It polls; it does not sleep.** One `GET /orgs/{org}/repos?sort=pushed&direction=desc&per_page=100` returns `pushed_at` for a hundred repositories - polling each repo individually would be 200 × 36 = 7,200 requests against a 5,000/hr limit, which is the trap `sort=pushed` avoids. About three calls an iteration, ~36 iterations over three hours. The timeline lands in `lockdowns/<id>/sentinel-<key>.json`.
+
+That timeline is the point. `pushed_at` is GitHub's own server-side timestamp and a student cannot set it, so a five-minute push record through the critical window answers what §11.2.2 cannot: *"at 21:55 your last push was 21:12; at 22:05 it was 22:31."* The `until` fallback filters on the committer date, and the committer date comes from the student's machine.
+
+**The sentinel stops nothing itself.** Everything that stops a write goes through `applySubmissionLock`, so there is one implementation and the sentinel cannot drift from it. `STOP_ONLY` deliberately writes **no** lockdown record: `find-finalizable.mjs` reads that record's existence as evidence a finalize happened, and one with no results would strand the assignment forever.
+
+Three failure paths, and every one degrades to the nightly:
+
+| Failure | Result |
+|---|---|
+| Cron delayed, or a firing dropped | Next firing (≤ 4 h) catches it; if that is after the deadline, the nightly locks it |
+| Sentinel killed, or out of runway | `fired=false`, no stop is triggered, the timeline it did gather is still committed |
+| Deadline moved beyond reach mid-watch | Gives up cleanly and says so; a later firing re-arms |
+| Two sentinels overlap | The concurrency group queues the second, and the flip is idempotent |
+
+Nothing here can make things worse than not having run, which is what makes it safe to ship incrementally. It is also why it **ships disabled**: `publish-assignment.yml` enables it alongside `daily-activity.yml`, and it self-disables when no orgs are registered.
+
+Known limitation: a sentinel is armed for the **assignment** deadline only. A student whose extension expires at some other instant is locked on the next nightly, exactly as before - `find-finalizable.mjs` re-queues them (§6.2.2). The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
 
 Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). Reports continue to flag any observed late activity regardless of lock-down.
 

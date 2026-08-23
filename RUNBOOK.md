@@ -544,10 +544,33 @@ All under Actions in `pxl-classroom`.
 | `regenerate-dashboard.yml` | Dashboard looks stale after a manual control-repo edit |
 | `reconcile-registry.yml` | Quick drift check (deleted repos, revoked access) without waiting for nightly |
 | `daily-activity.yml` | Force one nightly cycle (collect + finalize) |
+| `deadline-sentinel.yml` | Arm the deadline watchers early, off-cadence (see §7.1) |
 | `weekly-usage-report.yml` | Force a usage report off-cadence |
 | `setup-org.yml` | Add a new org (admin only) |
 
 Every workflow takes `org` as an input; many also take `assignment_id` for scoping.
+
+### 7.1 The deadline sentinel
+
+Without it, "Late work: does not count" locks the submission branch on the **first nightly run after the deadline** and reconstructs the submission with `?until=`. With it, the branch locks at the deadline itself and the run records a five-minute `pushed_at` timeline through the critical window - GitHub's own push timestamps, which a student cannot set, and the only thing that settles an argument about when work landed.
+
+**It ships disabled.** `publish-assignment.yml` enables it the next time you publish an assignment, alongside `daily-activity.yml`. To turn it on now:
+
+```bash
+gh workflow enable deadline-sentinel.yml
+```
+
+and to turn it off again:
+
+```bash
+gh workflow disable deadline-sentinel.yml
+```
+
+What to expect once it is on: a run every 4 hours, which does nothing at all unless a deadline falls in the next 4.5 hours. When one does, a job holds a runner slot until that instant. The hub is a public repository, so that time is free (ARCHITECTURE §6.5) - but it does consume a **concurrency slot**, and GitHub Team allows 60. `find-armable.mjs` caps how many are armed per firing (`MAX_SENTINELS`, default 8) and logs what it dropped; anything dropped falls through to the nightly, so the deadline still holds, just later.
+
+Every failure degrades the same way. A dropped cron firing, a killed job, a deadline moved out of reach - all of them leave the nightly finalize doing exactly what it did before. Nothing the sentinel does can make things worse than it not having run.
+
+The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, beside the lockdown record it explains, with `outcome` (`fired`, `gave-up:runtime`, `gave-up:moved`) and one `pushed_at` sample per poll.
 
 ---
 

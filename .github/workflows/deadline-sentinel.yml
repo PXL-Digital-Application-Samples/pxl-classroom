@@ -1,0 +1,217 @@
+name: Deadline Sentinel
+
+# Stops writes to submission refs AT the deadline, rather than on the next
+# nightly run hours later (ARCHITECTURE §11.2.3).
+#
+# A repository ruleset has no time conditions, so something has to be running at
+# the instant. A fixed 4-hourly cron arms a sentinel for every deadline within
+# reach; the sentinel polls `pushed_at` for the cohort while it waits, and when
+# the instant arrives it runs lockdown's Phase 1 and dispatches the ordinary
+# finalize.
+#
+# SHIPS DISABLED. `publish-assignment.yml` enables it, exactly as it does
+# `daily-activity.yml` - so a hub with no published assignments runs nothing.
+# Every failure degrades to the nightly: a dropped firing, a killed job or an
+# exhausted cap all fall through to the ordinary pass, which locks on the first
+# nightly after the deadline and reconstructs the submission with `?until=`.
+# Nothing here can make things worse than not having run.
+
+on:
+  schedule:
+    # Every 4 hours; the arm window is 4.5h, so every deadline gets a firing
+    # that can reach it. Cron drift decides only whether a sentinel arms in
+    # time, never when it acts.
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      org: { type: string }
+
+permissions:
+  contents: read
+
+jobs:
+  find-orgs:
+    uses: ./.github/workflows/_find-orgs.reusable.yml
+    with:
+      org: ${{ inputs.org }}
+
+  disable-when-empty:
+    needs: find-orgs
+    if: needs.find-orgs.outputs.orgs == '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Disable deadline-sentinel (no participating orgs)
+        run: |
+          echo "No participating orgs registered. Disabling deadline-sentinel.yml until next publish."
+          gh workflow disable deadline-sentinel.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
+  arm:
+    environment: provisioning
+    needs: find-orgs
+    if: needs.find-orgs.outputs.orgs != '[]'
+    strategy:
+      matrix:
+        org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
+      max-parallel: 4
+      fail-fast: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # A person dispatches this. The other thing that can reach
+      # workflow_dispatch is an App installation token - what a stolen broker
+      # credential would be - and it arrives as `<slug>[bot]`. First, before
+      # anything mints a token.
+      - name: Reject automated dispatch
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        run: |
+          echo "::error::This workflow is dispatched by a person, not a credential."
+          exit 1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: npm ci --omit=dev
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: token
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.org }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ matrix.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+      - id: find
+        env:
+          ORG: ${{ matrix.org }}
+        run: node scripts/find-armable.mjs control "$ORG" > "armable-${ORG}.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: armable-${{ matrix.org }}
+          path: armable-${{ matrix.org }}.json
+
+  aggregate-armable:
+    needs: arm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sentinels: ${{ steps.agg.outputs.sentinels }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: armable-*
+          merge-multiple: true
+      - id: agg
+        run: |
+          cat armable-*.json | jq -s 'flatten' -c > all-armable.json
+          echo "sentinels=$(cat all-armable.json)" >> "$GITHUB_OUTPUT"
+
+  watch:
+    environment: provisioning
+    needs: aggregate-armable
+    if: needs.aggregate-armable.outputs.sentinels != '[]' && needs.aggregate-armable.outputs.sentinels != ''
+    strategy:
+      matrix:
+        sentinel: ${{ fromJSON(needs.aggregate-armable.outputs.sentinels) }}
+      fail-fast: false
+    concurrency:
+      # One sentinel per (org, deadline instant), not per assignment: three
+      # assignments sharing a 22:00 deadline share one job. A duplicate armed by
+      # an overlapping firing queues behind it and exits immediately, because by
+      # then the instant has passed.
+      group: sentinel-${{ matrix.sentinel.org }}-${{ matrix.sentinel.key }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    # The job limit is 6h and the arm window is 4.5h; the script gives up at
+    # 4h45m so it writes its timeline rather than being killed holding it.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: npm ci --omit=dev
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: token
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.sentinel.org }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ matrix.sentinel.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      - name: Wait for the deadline
+        id: sentinel
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ matrix.sentinel.org }}
+          DATA_DIR: control
+          ASSIGNMENT_IDS: ${{ join(matrix.sentinel.assignment_ids, ',') }}
+          DEADLINE_AT: ${{ matrix.sentinel.deadline_at }}
+          SENTINEL_KEY: ${{ matrix.sentinel.key }}
+        run: node scripts/deadline-sentinel.mjs
+
+      - name: Pick up extensions granted while we waited
+        if: steps.sentinel.outputs.fired == 'true'
+        run: git -C control pull --rebase --autostash
+
+      # Phase 1 only, once per assignment sharing this instant. No lockdown
+      # record is written: find-finalizable.mjs reads that record's existence as
+      # evidence a finalize happened, and one with no results would strand the
+      # assignment forever.
+      #
+      # The script is run directly rather than through ./lockdown because the
+      # job already holds the token and the dependencies, and the composite
+      # action takes one assignment.
+      - name: Stop writes
+        if: steps.sentinel.outputs.fired == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ matrix.sentinel.org }}
+          DATA_DIR: control
+          STOP_ONLY: "1"
+          ASSIGNMENT_IDS: ${{ join(matrix.sentinel.assignment_ids, ',') }}
+        run: |
+          set -e
+          for id in $(printf '%s' "$ASSIGNMENT_IDS" | tr ',' ' '); do
+            ASSIGNMENT_ID="$id" node lockdown/lockdown.mjs
+          done
+
+      - name: Commit the push timeline
+        if: always()
+        env:
+          KEY: ${{ matrix.sentinel.key }}
+        run: |
+          set -e
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control add lockdowns/
+          if git -C control diff --cached --quiet; then exit 0; fi
+          git -C control commit -m "Deadline sentinel timeline ${KEY}"
+          scripts/git-push-with-retry.sh control
+
+      # Phases 2-4 unhurried, against repositories that can no longer move.
+      - name: Finalize now
+        if: steps.sentinel.outputs.fired == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          TARGET_ORG: ${{ matrix.sentinel.org }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'daily-activity.yml',
+              ref: 'main',
+              inputs: { org: process.env.TARGET_ORG },
+            })

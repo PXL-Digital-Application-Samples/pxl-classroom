@@ -282,6 +282,12 @@ jobs:
         run: |
           echo "Assignment published! Waking up the daily-activity workflow."
           gh workflow enable daily-activity.yml
+          # The sentinel is what stops writes AT the deadline rather than on the
+          # next nightly. It ships disabled and self-disables when no orgs are
+          # registered; enabling it here gives it the same lifecycle as the
+          # nightly. `|| true`: never fail a publish over the precision layer -
+          # without it the deadline still holds, just a few hours later.
+          gh workflow enable deadline-sentinel.yml || echo "::warning::Could not enable deadline-sentinel.yml - deadlines will lock on the nightly instead."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

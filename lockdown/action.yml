@@ -23,6 +23,13 @@ inputs:
   data-dir:
     description: Root data directory containing assignments/, repositories/, observations/
     required: true
+  stop-only:
+    description: >-
+      Run Phase 1 only - stop writes and exit, writing no lockdown record. What
+      the deadline sentinel runs at the instant itself; the ordinary finalize
+      follows and does the recording, preservation and reporting.
+    required: false
+    default: "false"
 
 outputs:
   locked_count:
@@ -80,4 +87,5 @@ runs:
         ORG: ${{ inputs.org }}
         ASSIGNMENT_ID: ${{ inputs.assignment-id }}
         DATA_DIR: ${{ inputs.data-dir }}
+        STOP_ONLY: ${{ inputs.stop-only == 'true' && '1' || '0' }}
       run: node "$GITHUB_ACTION_PATH/lockdown.mjs"

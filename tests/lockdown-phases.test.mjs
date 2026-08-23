@@ -18,7 +18,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -206,6 +206,65 @@ test("a failed phase 2 leaves the cohort stopped and is safely re-runnable", asy
     assert.equal(rowFor(retry.record, "bob").snapshot_sha, HEAD_SHA);
     assert.equal(rowFor(retry.record, "alice").snapshot_sha, HEAD_SHA);
     assert.equal(retry.record.error_count, 0);
+  });
+});
+
+// --- stop-only (what the deadline sentinel runs) -----------------------------
+
+function runStopOnly(dir, apiBase) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [lockdownScript], {
+      env: {
+        ...process.env,
+        GITHUB_TOKEN: "stub-token",
+        GITHUB_API_URL: apiBase,
+        ORG: "TestOrg",
+        ASSIGNMENT_ID: "exam",
+        DATA_DIR: dir,
+        STOP_ONLY: "1",
+        GITHUB_OUTPUT: join(dir, "out.env"),
+        GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
+      },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d));
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("error", reject);
+    child.on("close", (status) => {
+      const outPath = join(dir, "out.env");
+      resolve({
+        status, stdout, stderr,
+        recordExists: existsSync(join(dir, "lockdowns", "exam", "lockdown-record.json")),
+        outputs: existsSync(outPath) ? readFileSync(outPath, "utf8") : "",
+      });
+    });
+  });
+}
+
+test("stop-only writes NO lockdown record - one with no results strands the assignment", async () => {
+  // find-finalizable.mjs reads the record's existence as evidence a finalize
+  // happened. A record with an empty `results` would make every student look
+  // preserved and the assignment would never be finalized at all.
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir(["alice", "bob"]);
+    const res = await runStopOnly(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.recordExists, false);
+    assert.match(res.outputs, /outcome=stopped/);
+    assert.ok(calls.some((c) => /^PUT .*\/collaborators\//.test(c)), "it did stop the cohort");
+  });
+});
+
+test("stop-only records nothing and observes nothing", async () => {
+  // The instant is its whole job; the finalize run does phases 2-4 unhurried,
+  // against repositories that can no longer move.
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir(["alice"]);
+    await runStopOnly(dir, api);
+    assert.deepEqual(calls.filter((c) => c.includes("/commits")), [], "no snapshot is taken");
+    const obsDir = join(dir, "observations", "exam", "alice");
+    assert.equal(existsSync(obsDir) ? readdirSync(obsDir).length : 0, 0);
   });
 });
 
