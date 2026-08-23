@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
+import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -68,7 +69,6 @@ async function main() {
     process.exit(1);
   }
   const assignment = await loadYaml(assignmentPath);
-  const deadlineAt = assignment.deadline_at ? new Date(assignment.deadline_at) : null;
 
   // Load roster (now that we have a real YAML parser, arrays parse correctly)
   const rosterPath = join(dataDir, "students", "roster.yml");
@@ -112,7 +112,7 @@ async function main() {
   const overrides = await readDirJsonFiles(
     join(dataDir, "overrides", assignmentId)
   );
-  const overrideByLogin = new Map(overrides.map((o) => [o.github_login, o]));
+  const overrideByLogin = indexOverrides(overrides);
 
   // Load teams (for group assignments)
   const teams = await readDirJsonFiles(
@@ -145,28 +145,23 @@ async function main() {
     const acceptance = acceptanceByLogin.get(login);
     const repo = repoByLogin.get(login);
     const observations = observationsByLogin.get(login) || [];
-    const override = overrideByLogin.get(login);
     const studentTeam = teamByMemberLogin.get(login.toLowerCase()) || (acceptance?.team_slug ? teamBySlug.get(acceptance.team_slug) : null);
 
-    // Determine submission status from observations.
-    // Apply lecturer override on deadline if one exists for this student (P0-7).
-    // In group assignments, propagate the most generous extension among team members
-    // so the entire team repository is evaluated consistently.
-    let effectiveDeadline = override?.deadline_at
-      ? new Date(override.deadline_at)
-      : deadlineAt;
-
-    if (studentTeam && Array.isArray(studentTeam.members)) {
-      for (const m of studentTeam.members) {
-        const teamMemberOverride = overrideByLogin.get(m.toLowerCase()) || overrideByLogin.get(m);
-        if (teamMemberOverride?.deadline_at) {
-          const overrideDate = new Date(teamMemberOverride.deadline_at);
-          if (!effectiveDeadline || overrideDate > effectiveDeadline) {
-            effectiveDeadline = overrideDate;
-          }
-        }
-      }
-    }
+    // Determine submission status from observations, against the deadline that
+    // applies to *this* student (P0-7): the assignment's, moved by any
+    // extension granted to them or - on a group assignment, where the team
+    // shares one repository - to any of their team-mates.
+    //
+    // lib/effective-deadline.mjs is the single implementation, shared with
+    // lockdown.mjs and find-finalizable.mjs. It must not fork: this file's
+    // inline version read a field the Admin Panel stopped writing in June 2026,
+    // so every extension silently did nothing here while the lockdown demoted
+    // the student anyway.
+    const effective = effectiveDeadlineFor(assignment, login, {
+      overrides: overrideByLogin,
+      team: studentTeam,
+    });
+    const effectiveDeadline = effective.deadline;
 
     let lastOnTimeSha = null;
     let lastOnTimeObservedAt = null;
@@ -308,8 +303,11 @@ async function main() {
       author_email: latestAuthorEmail ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
       effective_deadline_at: effectiveDeadline?.toISOString() ?? null,
-      override_applied: !!override,
-      override_reason: override?.reason ?? null,
+      // "an extension moved this student's deadline", not "an override document
+      // exists" - the columns sit beside effective_deadline_at and an
+      // annotation or exemption override must not read as extra time.
+      override_applied: effective.extended,
+      override_reason: effective.reason,
       repo_id: repo?.repo_id ?? null,
       repo_name: repo?.repo_name ?? null,
       repo_url: repo?.repo_url ?? null,

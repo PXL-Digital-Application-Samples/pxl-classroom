@@ -148,6 +148,17 @@ async function main() {
     const sourceRepo = repoNameFull.split("/")[1];
     const sourceSha = rec.snapshot_sha;
 
+    // A student whose deadline extension is still running was skipped by
+    // lockdown by design, so they have no snapshot yet. That is the system
+    // honouring a lecturer's decision, not a failure - counting it as one turns
+    // the whole cohort's nightly amber every night until the extension expires.
+    // find-finalizable.mjs re-queues the assignment once it does.
+    if (!sourceSha && rec.deferred_until) {
+      log(`preserve ${login}`, { ok: true, note: `deferred - extension runs to ${rec.deferred_until}` });
+      rows.push(`| ${login} | - | deferred to ${rec.deferred_until} |`);
+      continue;
+    }
+
     if (!sourceSha) {
       log(`preserve ${login}`, { ok: false, note: "no snapshot_sha" });
       errorCount++;

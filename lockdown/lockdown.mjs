@@ -2,6 +2,7 @@
 // PXL Classroom - deadline lock-down.
 //
 // Based on spikes/04-deadline/deadline.mjs. For each managed repository:
+//   0. Skips it entirely if a granted extension is still running (deferred)
 //   1. Takes a final snapshot of the submission ref
 //   2. Demotes the student from current permission to "pull" (read-only)
 //   3. Verifies the demotion
@@ -13,6 +14,7 @@ import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promise
 import { join } from "node:path";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
+import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -85,6 +87,31 @@ async function readRepoRecords() {
   return records;
 }
 
+// --- Read lecturer overrides -------------------------------------------------
+//
+// A granted extension is the only thing that can move a student's deadline, and
+// until this was added lockdown never looked: an extended student was demoted to
+// `pull` at the assignment's own deadline while report.mjs told the lecturer
+// their extension was running. See lib/effective-deadline.mjs.
+async function readOverrides() {
+  const dir = join(cfg.dataDir, "overrides", cfg.assignmentId);
+  let files;
+  try { files = await readdir(dir); } catch { return []; }
+  const docs = [];
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      docs.push(JSON.parse(await readFile(join(dir, f), "utf8")));
+    } catch (e) {
+      // The student is locked at the assignment deadline if this file is the
+      // one holding their extension, so it is logged as a failure line rather
+      // than swallowed - it is the only trace a lecturer would have.
+      log(`override ${f}`, { ok: false, note: e.message });
+    }
+  }
+  return docs;
+}
+
 // --- Read a previous lockdown record (retry path) ----------------------------
 //
 // A finalize run can be retried - e.g. preservation failed and find-finalizable
@@ -135,6 +162,12 @@ async function main() {
     });
   }
 
+  // 2c. Lecturer overrides - who has been granted more time
+  const overrides = await readOverrides();
+  if (overrides.length) {
+    log("overrides", { ok: true, note: `${overrides.length} override document(s)` });
+  }
+
   // 3. Read repo records
   const records = await readRepoRecords();
   // Zero students is a valid population - the loop below no-ops and step 5
@@ -145,6 +178,7 @@ async function main() {
   // 4. Lockdown each repo
   let lockedCount = 0;
   let errorCount = 0;
+  let deferredCount = 0;
   let maxUncertainty = 0;
   const rows = [];
   const lockdownResults = [];
@@ -153,6 +187,54 @@ async function main() {
     const login = rec.github_login;
     const repoName = rec.repo_name?.split("/")?.[1] ?? rec.repo_name;
     try {
+      // 4a0. Has this student been granted more time?
+      //
+      // A group shares one repository, so the most generous extension among its
+      // members governs the repo - locking it at anyone else's deadline locks
+      // out the student who was granted the time.
+      //
+      // The check comes before every read and every write: a deferred student is
+      // not in the target list at all, so no observation is fabricated, no
+      // permission is touched, and no API call is spent on them. The assignment
+      // re-queues once the extension expires (find-finalizable.mjs reads
+      // deferred_until), and until then it counts as active so the nightly does
+      // not disable itself and stop observing their work.
+      const members = Array.isArray(rec.members) && rec.members.length ? rec.members : (login ? [login] : []);
+      const displayKey = rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login;
+      const effective = effectiveDeadlineFor(assignment, login, {
+        overrides,
+        team: { members },
+      });
+      // Gated on `extended`, not on the deadline alone: a lecturer running a
+      // lockdown early still locks the cohort, exactly as before. Only a
+      // granted, still-running extension defers.
+      if (effective.extended && effective.deadline > new Date()) {
+        const deferredUntil = effective.deadline.toISOString();
+        deferredCount++;
+        log(`lockdown ${displayKey}`, {
+          ok: true,
+          note: `deferred - extension granted to ${effective.grantedTo} runs to ${deferredUntil}`,
+        });
+        rows.push(`| ${displayKey} | - | - | deferred to ${deferredUntil} |`);
+        for (const m of members) {
+          lockdownResults.push({
+            github_login: m,
+            team_slug: rec.team_slug || undefined,
+            repo_name: `${cfg.org}/${repoName}`,
+            repo_id: rec.repo_id ?? null,
+            snapshot_sha: null,
+            snapshot_ref: submissionRef,
+            lockdown_at: null,
+            deferred_until: deferredUntil,
+            deferred_reason: effective.reason,
+            permission_after: null,
+            verified: false,
+            uncertainty_seconds: null,
+          });
+        }
+        continue;
+      }
+
       // 4a. Final snapshot
       const repoRes = await gh("GET", `/repos/${cfg.org}/${repoName}`);
       if (!repoRes.ok) {
@@ -180,8 +262,6 @@ async function main() {
         const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits/${branch}`);
         snapshotSha = commitRes.ok ? commitRes.data.sha : null;
       }
-
-      const members = Array.isArray(rec.members) && rec.members.length ? rec.members : (login ? [login] : []);
 
       // Write the final observation (only for a fresh snapshot - re-recording a
       // frozen one would fabricate a second observation of the same fact)
@@ -254,7 +334,6 @@ async function main() {
         });
       }
 
-      const displayKey = rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login;
       if (allLocked) {
         lockedCount++;
         log(`lockdown ${displayKey}`, { ok: true, note: `${branch}@${(snapshotSha || "?").slice(0, 12)} -> pull (${uncertaintySec ?? "?"}s)` });
@@ -287,24 +366,34 @@ async function main() {
     observer_run: cfg.runUrl,
     locked_count: lockedCount,
     error_count: errorCount,
+    // Students left alone because a granted extension is still running. They
+    // carry `deferred_until` in `results`; find-finalizable.mjs re-queues the
+    // assignment once that instant passes.
+    deferred_count: deferredCount,
     max_uncertainty_seconds: maxUncertainty,
     results: lockdownResults,
   };
   await writeFile(join(lockdownDir, "lockdown-record.json"), JSON.stringify(lockdownRecord, null, 2) + "\n");
 
   // 6. Outputs & summary
+  // A deferral is neither a lock nor an error: the student was granted more
+  // time and the system honoured it. Counting it as either would paint the
+  // nightly amber for doing the right thing.
   const outcome = errorCount === 0 ? "locked" : lockedCount > 0 ? "partial" : "fail:all-errors";
   await setOutput("locked_count", lockedCount);
   await setOutput("error_count", errorCount);
+  await setOutput("deferred_count", deferredCount);
   await setOutput("uncertainty_seconds", maxUncertainty);
   await setOutput("outcome", outcome);
   await summary(
     `### Lockdown: \`${outcome}\`\n\n` +
     `| student | SHA | uncertainty | status |\n|---|---|---|---|\n` +
     rows.join("\n") + "\n\n" +
-    `**${lockedCount}** locked, **${errorCount}** errors. Max uncertainty: **${maxUncertainty}s**.\n`
+    `**${lockedCount}** locked, **${errorCount}** errors` +
+    (deferredCount ? `, **${deferredCount}** deferred (extension still running)` : "") +
+    `. Max uncertainty: **${maxUncertainty}s**.\n`
   );
-  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
+  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferredCount} deferred, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 

@@ -366,6 +366,21 @@ Three properties make that retry safe:
 
 There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queue.yml` - those were earlier cron-heavy designs that have been removed.
 
+#### 6.2.2 A granted extension defers that student, and only that student
+
+Every comparison against "the deadline" has to mean the deadline **for that student**, or the system acts against work a lecturer deliberately allowed. `lib/effective-deadline.mjs` is the single implementation - `effectiveDeadlineFor(assignment, login, { overrides, team })` - and `report.mjs`, `lockdown.mjs` and `find-finalizable.mjs` all read it. It must not fork: before it existed, `report.mjs` had the only copy and it read `override.deadline_at`, a field the Admin Panel stopped writing in June 2026, while `lockdown.mjs` and `find-finalizable.mjs` never opened `overrides/` at all. Granting an extension therefore demoted the student to `pull` at the assignment's own deadline and then reported their extension as active - the report counting work the system had prevented.
+
+Both override shapes are read. The current one is the append-only `overrides[]` array (`type: deadline_extension`, latest entry wins); the flat top-level `deadline_at` predates 2026-06-17 and is honoured because control repos from that era still hold it. An extension only ever **extends**: a value earlier than the assignment deadline is ignored rather than shortening it, because failing the other way locks a student out early. A group shares one repository, so the most generous extension among its members governs the whole team.
+
+The finalize path then behaves as follows:
+
+- **`lockdown.mjs` skips the student entirely** - before the first read, so no repo is fetched, no observation is fabricated, and no permission is touched. The lockdown result records `deferred_until` (and `deferred_reason`) with a null `snapshot_sha`, and `deferred_count` sits beside `locked_count` and `error_count` in the record. Everyone else is locked at the deadline as normal. A deferral is neither a lock nor an error, so the run stays green.
+- **`preserve.mjs` skips a deferred result** without counting it as an error. A missing `snapshot_sha` with no `deferred_until` is still an error - that is a lockdown failure.
+- **`find-finalizable.mjs` re-queues the assignment** once a `deferred_until` has passed. That is new work rather than a retry of failed work, so `MAX_FINALIZE_ATTEMPTS` does not gate it; it cannot loop, because the next pass either captures a snapshot or records an error and neither is deferred any more.
+- **The assignment counts as active** while any student's effective deadline is in the future. `activeCount == 0` is what disables `daily-activity.yml` (§6.4), so without this the nightly would switch itself off mid-extension, stop observing that student, and never come back to finalize them.
+
+A limitation worth knowing: an extension granted *after* a student has already been locked down does not reopen their repository. Lock-down is a permission change, and nothing currently reverses it. See RUNBOOK §6.2a.
+
 ### 6.3 Event-driven dashboard regeneration
 
 `regenerate-dashboard.yml` has no cron. It is triggered by:
@@ -538,9 +553,17 @@ SPA validates the override JSON against override.schema.json
 SPA commits overrides/<id>/<login>.json directly to the control repo
    (via Contents API with lecturer's own token)
    v
-Next nightly run's report.mjs reads overrides, computes effective_deadline_at,
-   re-classifies submission_status accordingly
+lockdown.mjs defers that student while the extension runs - everyone else is
+   locked at the deadline (§6.2.2)
+   v
+report.mjs reads overrides through lib/effective-deadline.mjs, computes
+   effective_deadline_at, re-classifies submission_status accordingly
+   v
+find-finalizable.mjs keeps the assignment active, and re-queues it for that
+   student once the extension expires
 ```
+
+The extension must be granted **before** the student is locked down; afterwards it does not reopen their repository (RUNBOOK §6.2a).
 
 ### 9.5 Onboarding a new organization
 
@@ -662,7 +685,7 @@ PXL Classroom does not use Git author/committer dates as authoritative submissio
 - `observed_sha` (the SHA the configured submission ref pointed at)
 - `repo_id`, `ref`
 
-The deadline report classifies a submission by comparing observation times to `effective_deadline_at` (deadline + any override). The uncertainty interval between the deadline instant and the nightly observation is reported - never assumed away.
+The deadline report classifies a submission by comparing observation times to `effective_deadline_at` (deadline + any override, computed by `lib/effective-deadline.mjs` - §6.2.2). The uncertainty interval between the deadline instant and the nightly observation is reported - never assumed away.
 
 ### 11.1a Optional evidence - submit/ tags
 
@@ -672,7 +695,7 @@ When a tagged-submission exists, the deadline report prefers its SHA over the de
 
 ### 11.2 Lock-down
 
-At nightly finalize, the App demotes the student admin -> `pull` and captures a final snapshot. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
+At nightly finalize, the App demotes the student admin -> `pull` and captures a final snapshot - unless a granted extension is still running for them, in which case they are deferred untouched (§6.2.2). The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
 
 Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). Reports continue to flag any observed late activity regardless of lock-down.
 

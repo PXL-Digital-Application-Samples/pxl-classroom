@@ -29,6 +29,7 @@ function runReport({
   repositories = [],
   observations = {},
   overrides = [],
+  teams = [],
   roster = [],
 }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-report-test-"));
@@ -79,6 +80,13 @@ function runReport({
         join(dir, "observations", id, login, `${safeTs}.json`),
         JSON.stringify(obs[i])
       );
+    }
+  }
+
+  if (teams.length) {
+    mkdirSync(join(dir, "teams", id), { recursive: true });
+    for (const t of teams) {
+      writeFileSync(join(dir, "teams", id, `${t.team_slug}.json`), JSON.stringify(t));
     }
   }
 
@@ -147,6 +155,35 @@ test("student with observation after deadline is late", () => {
   assert.equal(bob.first_late_sha, "c".repeat(40));
 });
 
+// --- extensions (P0-7) -------------------------------------------------------
+//
+// The Admin Panel writes an append-only `overrides` array (and has since
+// 2026-06-17); `override.schema.json` forbids anything else. report.mjs read a
+// top-level `deadline_at` instead, which only the very first panel ever wrote -
+// so every extension granted through the live UI did nothing here, while
+// lockdown.mjs demoted the student at the assignment's own deadline anyway.
+//
+// The fixture below is the shape a real control repo holds. The legacy one is
+// covered separately, because old control repos still contain it.
+
+/** An override document in the shape the Admin Panel actually commits. */
+function extensionDoc(login, value, reason) {
+  return {
+    schema_version: 1,
+    assignment_id: "test-asgn",
+    github_login: login,
+    overrides: [
+      {
+        type: "deadline_extension",
+        value,
+        reason,
+        overridden_by: "admin-panel",
+        overridden_at: "2026-09-09T12:00:00Z",
+      },
+    ],
+  };
+}
+
 test("student with override extending deadline past the late SHA becomes on-time (P0-7)", () => {
   const report = runReport({
     assignmentYaml: BASE_YAML,
@@ -158,19 +195,94 @@ test("student with override extending deadline past the late SHA becomes on-time
         { observed_at: "2026-09-11T10:00:00Z", sha: "c".repeat(40) },
       ],
     },
-    overrides: [
-      {
-        github_login: "carol",
-        deadline_at: "2026-09-15T23:59:59Z",
-        reason: "medical extension",
-      },
-    ],
+    overrides: [extensionDoc("carol", "2026-09-15T23:59:59Z", "medical extension")],
   });
   const carol = report.students.find((s) => s.github_login === "carol");
   assert.equal(carol.submission_status, "on-time");
   assert.equal(carol.override_applied, true);
   assert.equal(carol.override_reason, "medical extension");
   assert.equal(carol.effective_deadline_at, "2026-09-15T23:59:59.000Z");
+});
+
+test("a pre-2026-06-17 flat override document still extends", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "carol", status: "accepted" }],
+    observations: {
+      carol: [{ observed_at: "2026-09-11T10:00:00Z", sha: "c".repeat(40) }],
+    },
+    overrides: [
+      {
+        schema_version: 1,
+        assignment_id: "test-asgn",
+        github_login: "carol",
+        deadline_at: "2026-09-15T23:59:59Z",
+        reason: "legacy medical extension",
+      },
+    ],
+  });
+  const carol = report.students.find((s) => s.github_login === "carol");
+  assert.equal(carol.submission_status, "on-time");
+  assert.equal(carol.effective_deadline_at, "2026-09-15T23:59:59.000Z");
+});
+
+test("an override that grants no extension is not reported as one", () => {
+  // override_applied sits beside effective_deadline_at; an annotation must not
+  // read as extra time.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "carol", status: "accepted" }],
+    observations: {
+      carol: [{ observed_at: "2026-09-11T10:00:00Z", sha: "c".repeat(40) }],
+    },
+    overrides: [
+      {
+        schema_version: 1,
+        assignment_id: "test-asgn",
+        github_login: "carol",
+        overrides: [
+          {
+            type: "annotation",
+            value: "spoke to the student",
+            reason: "note",
+            overridden_by: "admin-panel",
+            overridden_at: "2026-09-09T12:00:00Z",
+          },
+        ],
+      },
+    ],
+  });
+  const carol = report.students.find((s) => s.github_login === "carol");
+  assert.equal(carol.override_applied, false);
+  assert.equal(carol.override_reason, null);
+  assert.equal(carol.effective_deadline_at, "2026-09-10T23:59:59.000Z");
+  assert.equal(carol.submission_status, "late");
+});
+
+test("a group's most generous extension applies to the whole team repository", () => {
+  const teamYaml = BASE_YAML.replace(
+    "state: published",
+    "state: published\nassignment_type: group",
+  );
+  const report = runReport({
+    assignmentYaml: teamYaml,
+    acceptances: [
+      { github_login: "dana", status: "accepted", team_slug: "team-a" },
+      { github_login: "erin", status: "accepted", team_slug: "team-a" },
+    ],
+    teams: [{ team_slug: "team-a", team_name: "Team A", members: ["dana", "erin"] }],
+    observations: {
+      dana: [{ observed_at: "2026-09-12T10:00:00Z", sha: "d".repeat(40) }],
+      erin: [{ observed_at: "2026-09-12T10:00:00Z", sha: "d".repeat(40) }],
+    },
+    // Only erin was granted the extension; they share one repository.
+    overrides: [extensionDoc("erin", "2026-09-15T23:59:59Z", "team-mate hospitalised")],
+  });
+  for (const login of ["dana", "erin"]) {
+    const s = report.students.find((x) => x.github_login === login);
+    assert.equal(s.effective_deadline_at, "2026-09-15T23:59:59.000Z", login);
+    assert.equal(s.submission_status, "on-time", login);
+  }
 });
 
 test("roster student who didn't accept appears as no-submission", () => {

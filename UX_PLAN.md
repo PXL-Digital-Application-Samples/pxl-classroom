@@ -281,43 +281,24 @@ So the fallback gets the right code in the ordinary case and carries an honest
 caveat in the adversarial one. The sentinel is what makes the adversarial case
 answerable.
 
-#### 3.2.5 It needs the *effective* deadline — which nothing outside the report has
+#### 3.2.5 The *effective* deadline — **shipped (WS0)**
 
 Every deadline comparison above has to be the deadline **for that student**, or
 the change discards exactly the work an extension was granted to allow.
 
-That calculation already exists, once, in `report/report.mjs:155` — assignment
-deadline, overridden per student from `overrides/<id>/<login>.json`, and for a
-group taking the **latest** override among the team's members. Nothing else uses
-it. `lockdown.mjs` never reads `overrides/` at all, and neither does
-`find-finalizable.mjs`.
+`lib/effective-deadline.mjs` now exists and is what §3.2 builds on:
+`effectiveDeadlineFor(assignment, login, { overrides, team })`, plus
+`latestEffectiveDeadline(assignment, overrides)` for the cohort-wide question.
+`report.mjs`, `lockdown.mjs` and `find-finalizable.mjs` all read it. The sentinel
+(§3.2.3) uses it for the instant to wake for, re-read each poll; the ruleset
+(§3.2.2) uses it to leave an extended student off the target list, which
+`lockdown.mjs` already does by deferring them.
 
-**Which means deadline extensions do not currently work.** Grant a student seven
-extra days and:
-
-* `find-finalizable.mjs` queues the assignment the night its own deadline passes,
-  because it compares against `assignment.deadline_at`;
-* `lockdown.mjs` demotes **every** student to `pull`, including the extended one;
-* `report.mjs` then faithfully reports that student's extension as active and
-  their work as on-time — work they were locked out of doing.
-
-The report is willing to count work the system prevented. This is a live bug
-independent of everything above, and **it should ship on its own, first.**
-
-**The fix is one shared module.** `lib/effective-deadline.mjs` exports
-`effectiveDeadlineFor(assignment, login, { overrides, team })`, extracted verbatim
-from `report.mjs` so behaviour cannot fork, consumed by:
-
-| Consumer | Uses it to decide |
-|---|---|
-| `report.mjs` | on-time vs late (existing behaviour, now imported) |
-| `lockdown.mjs` | whether this student is locked yet, and the `until` window |
-| `find-finalizable.mjs` | whether every student's effective deadline has passed |
-| the sentinel | which instant to wake for, re-read each poll |
-
-A student whose extension is still running is excluded from the ruleset's targets
-and keeps write access; the assignment re-queues later and finalizes them then.
-The `finalize_attempts` ceiling must not count those nights as attempts.
+The plan said *extracted verbatim*. It could not be: the calculation in
+`report.mjs` read `override.deadline_at`, and the Admin Panel has written the
+append-only `overrides[]` array since 2026-06-17 — so extensions worked in no
+consumer at all, not merely in two of the three. Extracting it verbatim would
+have spread dead code. See ARCHITECTURE §6.2.2 for what shipped instead.
 
 #### 3.2.6 "No submission" is an outcome, not an error
 
@@ -386,8 +367,8 @@ can say which guarantee applied.
 
 #### 3.2.9 Sequencing within WS1
 
-1. `lib/effective-deadline.mjs` + the three consumers. **Independent bug fix,
-   ships alone.**
+1. ~~`lib/effective-deadline.mjs` + the three consumers.~~ **Shipped** — see
+   §3.2.5.
 2. `lockdown.mjs` phase split, still demoting. No behaviour change, all tests green.
 3. Repository rulesets behind `late_policy: block`, demotion as the fallback.
 4. The sentinel, arming from the existing cron at 4-hourly.
@@ -792,11 +773,12 @@ Each workstream is one commit, with its tests, per the repo's convention.
 
 ## 10. Risks and things to check live
 
-1. **Deadline extensions are already broken (WS0, §3.2.5).** `lockdown.mjs` and
-   `find-finalizable.mjs` never read `overrides/`, so an extended student is
-   demoted to `pull` at the assignment's own deadline while `report.mjs` reports
-   their extension as active. Found while planning `block`; it is a live bug
-   independent of it and should ship first.
+1. ~~**Deadline extensions are already broken (WS0, §3.2.5).**~~ **Fixed.** It was
+   worse than the plan recorded: `report.mjs` read a field no override document
+   has carried since 2026-06-17, so extensions worked in no consumer at all.
+   `lib/effective-deadline.mjs` is now the single implementation and
+   `lockdown.mjs` defers an extended student instead of demoting them.
+   ARCHITECTURE §6.2.2.
 2. **Whether a GitHub App can manage rulesets at all (§3.2.2).** Repository
    rulesets need `administration: write`, which the App has — but that has not
    been exercised against a real repository. Confirm before building on it, and

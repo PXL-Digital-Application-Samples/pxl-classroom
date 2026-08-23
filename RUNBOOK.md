@@ -427,6 +427,22 @@ To restore:
 3. The Admin Panel validates the student login against the roster, repository records, daily reports, or GitHub `/users/<login>` API, and then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`).
 4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
 
+**Grant it before the deadline passes.** While the extension runs, the nightly finalize leaves that student's repository open and records them as `deferred` in `lockdowns/<id>/lockdown-record.json` - everyone else is locked at the deadline as normal - and the assignment stays "active" so `daily-activity.yml` keeps observing their work. Once the extension expires, the assignment is re-queued automatically and that student is locked down, preserved and reported (ARCHITECTURE §6.2.2).
+
+On a **group** assignment an extension granted to one member applies to the whole team, because they share one repository.
+
+To see who is deferred, open `lockdowns/<id>/lockdown-record.json` in the control repo: deferred students carry `deferred_until` and a null `snapshot_sha`, and `deferred_count` sits beside `locked_count`.
+
+### 6.2a An extension granted after lock-down does not reopen the repository
+
+Lock-down is a permission change (student -> `pull`) and nothing currently reverses it. If a student has already been locked down and you grant an extension anyway, the override is recorded and `report.mjs` will use it to classify their submission, but they cannot push. Restore write access manually:
+
+```bash
+gh api -X PUT repos/<org>/<repo>/collaborators/<login> -f permission=push
+```
+
+Then delete `lockdowns/<id>/lockdown-record.json`'s entry for that student, or the next finalize will re-lock them at the frozen snapshot. Grant extensions before the deadline wherever possible.
+
 ### 6.3 Student says "I clicked Accept but nothing happened"
 
 Possible causes:
