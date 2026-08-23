@@ -74,13 +74,82 @@ carries `roster_mode: 'enforced'`; the `open` path still requires a cap.
 achievable and shipping a half-version would repeat the original mistake.**
 
 Blocking a push *as it happens* needs something running at the deadline instant.
-The options for that are a per-assignment scheduled workflow (control repos hold
-no workflows — ARCHITECTURE §2), a tighter global cron (24× the runs, against the
-Wave 8 minimal-minutes design), or a push-triggered workflow in every student repo
-(event-driven triggers, explicitly removed in Wave 8). None is available.
+The options are a per-assignment scheduled workflow (control repos hold no
+workflows — ARCHITECTURE §2), a push-triggered workflow in every student repo
+(event-driven triggers, removed in Wave 8), or a tighter cron on the hub.
 
-What *is* available, at zero additional Actions minutes, is the thing a lecturer
-almost always means by "late work is blocked": **late work does not count.**
+**The objection to the tighter cron is not cost.** The hub is a public
+repository, so standard-runner Actions there are free with no minute cap —
+ARCHITECTURE §6.5 already says exactly this, and the minimal-minutes constraint
+in §6 is about the *per-org* minutes that `execution_environment: github_actions`
+autograding consumes inside private student repositories. An hourly
+`daily-activity.yml` would bill **zero** additional minutes, in the hub and in
+every org.
+
+The objection is that GitHub's `schedule` event cannot carry an enforcement
+promise. Its documented behaviour:
+
+| Limit | Consequence for "blocking" |
+|---|---|
+| Shortest interval is **5 minutes** | The window can only narrow, never close. |
+| Delayed under load — *"High load times include the start of every hour"* | 5–30 min routinely, longer at peak. Deadlines are set on the hour. |
+| **"If the load is sufficiently high, some queued jobs may be dropped"** | On a busy evening the deadline job does not run at all. |
+| Public-repo scheduled workflows auto-disable after 60 days without repository activity | A dormant term silently switches enforcement off. |
+
+The third row is disqualifying. A control named *block* that silently does not
+run on a busy evening is the same class of defect this workstream exists to
+remove (C4) — it would just fail rarely, which is worse, because nobody would
+notice until a dispute.
+
+A tighter cron therefore stays available as a way to **narrow the read-only
+window** if that is wanted later — at no cost, and with no promise attached to
+it. It is not a way to implement `block`.
+
+#### 3.2.1 The full option set, including the ones that change the project
+
+Nothing above is fixed by architecture; the constraint is GitHub. Refusing a push
+needs the org-level App to demote the student, because a student holds **admin**
+on their own repository (ARCHITECTURE §4.1) and can undo anything set at repo
+level. So the only real question is *what fires the demotion, and when*.
+
+GitHub offers exactly two ways to make something happen at a time: `schedule`, or
+a caller. That gives five candidates, and two are dead:
+
+| | Approach | Verdict |
+|---|---|---|
+| **A** | **Deadline-anchored submission SHA.** No trigger at all — lockdown picks the last commit ≤ deadline. | **Take.** Always correct, zero minutes, cannot fail to run. Does not refuse the push. |
+| **B** | **A "Lock down now" action the lecturer presses.** Precise to the second, free, reliable, and honest about who decides — ARCHITECTURE §12 already argues for exactly this over a scheduled trigger. | **Take.** See below: the primitive is 80 % built and does not currently work. |
+| **C** | **Tighter hub cron.** Free (public repo). Narrows the automatic window from ≤24 h to ≤1 h + drift. | **Optional.** Composes with A. Carries no promise, so it must never be described as blocking. |
+| **D** | **Enforcement inside the student repository** — branch protection, a `push` workflow, a required check. | **Dead.** The student has admin and can remove it. A `push` workflow also cannot refuse a push, only react to one, and reverting a student's commit is not something to build. |
+| **E** | **Take admin away from students** so repo-level protection holds. | **Dead for this course.** Admin is deliberate — it is what lets the course teach Actions, secrets, environments and runners (ARCHITECTURE §4.1). This is a curriculum decision, not a technical one, and it still needs a trigger. |
+
+An external scheduler calling `workflow_dispatch` is not listed: it means hosting
+something and storing a hub credential in it, which is out on both counts.
+
+**B is a smaller change than it looks, and the gap is real.** *Freeze & Preserve
+Now* (`AssignmentDetailView.vue:1238`) dispatches `daily-activity.yml` for the
+org — and `find-finalizable.mjs` only queues assignments whose deadline has
+**already passed**. So pressing it before the deadline does nothing for that
+assignment, and *Close (stop accepting)* only changes `state`. **There is no way
+to lock repositories right now.** That is the missing primitive, and it is what a
+lecturer running a timed exam actually needs.
+
+What B requires: a `finalize-now.yml` (or a `force` input on the existing path)
+that runs `collect → lockdown → preserve → report` for **one named assignment**,
+ignoring the deadline check, behind the same `provisioning` environment and
+`[bot]`-actor guard as the other admin workflows. The button already exists; it
+needs a target and a confirmation naming the consequence.
+
+**Recommended combination: A + B.** A makes late work not count, automatically and
+without depending on anything firing. B lets a lecturer close a cohort at a chosen
+instant with real enforcement. Together they cover both readings of "block", and
+neither of them promises something the system cannot deliver. C stays on the shelf.
+
+---
+
+What *is* available, at zero additional Actions minutes and with no dependence on
+a cron firing on time, is the thing a lecturer almost always means by "late work
+is blocked": **late work does not count.**
 
 | | `report` (today's behaviour) | `block` (new) |
 |---|---|---|
