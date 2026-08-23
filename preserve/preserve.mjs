@@ -154,7 +154,18 @@ async function main() {
         throw new Error(`SHA ${sourceSha} not found in ${cfg.org}/${sourceRepo}`);
       }
 
-      git(`push --quiet --force "${arcUrl}" ${sourceSha}:${presRef}`, { cwd: cloneDir });
+      // NOT --force. An organization is entitled to forbid force-push with a
+      // ruleset - PXL-Systems-Expert carries Classroom50 rulesets that do - and
+      // a rejected push here fails preservation for every student, which is the
+      // safety net the whole deadline flow rests on. The broker publish was
+      // fixed for exactly this in ec896c8; this was the sibling it missed.
+      //
+      // Nothing is lost by dropping it: refs/heads/preserved/<id>/<login|team>
+      // is fresh per student, and lockdown.mjs freezes snapshot_sha across
+      // retries, so a retry pushes the same SHA to the same ref. A genuine
+      // non-fast-forward here means the archive holds something we did not put
+      // there, and overwriting it silently is the wrong answer.
+      git(`push --quiet "${arcUrl}" ${sourceSha}:${presRef}`, { cwd: cloneDir });
       
       const lsOut = git(`ls-remote "${arcUrl}" ${presRef}`, { cwd: cloneDir });
       const remoteSha = lsOut.split(/\s/)[0] || "";

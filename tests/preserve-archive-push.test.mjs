@@ -17,7 +17,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -116,4 +116,21 @@ test("preserve.mjs does not use a shallow fetch", async () => {
     !/--depth/.test(fetchLine),
     `preserve.mjs must fetch full history before pushing to the archive, got: ${fetchLine.trim()}`,
   );
+});
+
+// An organization is entitled to forbid force-push with a ruleset, and
+// preservation is the safety net the whole deadline flow rests on: a rejected
+// push there fails every student. publish-assignment.yml was fixed for exactly
+// this in ec896c8; preserve.mjs was the sibling that kept the flag.
+//
+// Nothing is lost by dropping it. The ref is fresh per student and lockdown.mjs
+// freezes snapshot_sha across retries, so a retry pushes the same SHA to the
+// same ref - which plain git treats as already up to date.
+test("preservation does not force-push to the archive", () => {
+  const src = readFileSync(new URL("../preserve/preserve.mjs", import.meta.url), "utf8");
+  const pushes = src.match(/git\(`push[^`]*`/g) || [];
+  assert.ok(pushes.length > 0, "expected preserve.mjs to push something");
+  for (const push of pushes) {
+    assert.ok(!/--force|\+refs|\s\+\S+:/.test(push), `force-push found: ${push}`);
+  }
 });
