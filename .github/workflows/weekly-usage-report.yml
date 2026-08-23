@@ -92,8 +92,10 @@ jobs:
 
       - name: Warn about missing org billing permission
         if: steps.token.outcome == 'failure'
+        env:
+          ORG: ${{ matrix.org }}
         run: |
-          echo "::warning::${{ matrix.org }}: the App installation lacks 'Organization Administration: read', so Enhanced Billing usage cannot be read. Grant it on the App (Organization permissions -> Administration: Read-only) and have an org owner approve the update - RUNBOOK.md section 10.6. The usage report is skipped for this org."
+          echo "::warning::${ORG}: the App installation lacks 'Organization Administration: read', so Enhanced Billing usage cannot be read. Grant it on the App (Organization permissions -> Administration: Read-only) and have an org owner approve the update - RUNBOOK.md section 10.6. The usage report is skipped for this org."
 
       - name: Checkout control repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

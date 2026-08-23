@@ -47,10 +47,20 @@ try {
   process.exit(0);
 }
 
+// No nonce is a deployment fault, like a missing key file - not a forged token.
+// Saying so distinctly is what tells a lecturer to republish rather than
+// hunt for a bad link, and verifyInviteToken now refuses rather than waving
+// every token through.
+if (!String(process.env.INVITE_NONCE || "").trim()) {
+  console.error(
+    "::error::INVITE_NONCE is not set on this broker, so no invitation can be verified. Republish the assignment to set it."
+  );
+}
+
 const result = verifyInviteToken(process.env.TOKEN, {
   org: process.env.ORG,
   assignmentId: process.env.ASSIGNMENT_ID,
-  nonce: process.env.INVITE_NONCE || null,
+  nonce: process.env.INVITE_NONCE,
   publicKeys: publicKeys.keys || publicKeys,
 });
 

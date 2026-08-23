@@ -55,12 +55,14 @@ jobs:
 
       - name: Commit updated repository records
         working-directory: control
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
         run: |
           git config user.name "PXL Classroom Provisioner"
           git config user.email "pxl-classroom@users.noreply.github.com"
           if [ -n "$(git status --porcelain repositories/)" ]; then
             git add repositories/
-            git commit -m "Record feedback PRs for ${{ inputs.assignment_id }}"
+            git commit -m "Record feedback PRs for ${ASSIGNMENT_ID}"
             git push
           else
             echo "No repository record updates to commit."

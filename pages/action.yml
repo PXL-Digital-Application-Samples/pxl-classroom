@@ -56,8 +56,9 @@ runs:
     - name: Set outcome
       id: result
       shell: bash
+      env:
+        SCAN: ${{ steps.scan.outputs.scan_result }}
       run: |
-        SCAN="${{ steps.scan.outputs.scan_result }}"
         if [ "$SCAN" = "clean" ]; then
           echo "outcome=published" >> "$GITHUB_OUTPUT"
         else

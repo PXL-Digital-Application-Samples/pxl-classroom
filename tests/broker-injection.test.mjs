@@ -18,16 +18,45 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
-import { parseTeamPayload, sanitizeTeamName } from "../lib/team-payload.mjs";
+import { parseTeamPayload, sanitizeTeamName, teamHintMatches } from "../lib/team-payload.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
 const BROKER = join(root, "acceptance", "broker-workflow.yml");
 const EXPRESSION = /\$\{\{[^}]*\}\}/g;
-// github.event.* and client_payload.* are attacker-reachable: anyone can star a
-// broker or open an issue on it, and client_payload is whatever the dispatcher sent.
-const UNTRUSTED = /(github\.event\b|client_payload)/;
+
+// `${{ }}` is substituted into the script TEXT before the shell or the JS parser
+// sees it. So the question is not "who can reach this value", it is "is this
+// value a literal I wrote". Anything else goes through `env:`.
+//
+// The old rule named only github.event.* and client_payload, which is how
+// sixteen sites survived - including `gh api users/${{ inputs.github_login }}`
+// in retry-acceptance.yml, a job that runs with the App key in scope, and
+// setup-org.yml interpolating an installation token and a dispatch input into
+// the same line. Neither is broker-reachable, but the rule is not about
+// reachability; it is about not composing scripts out of values.
+//
+// The allowlist is deliberately short: run-scoped facts GitHub sets itself,
+// which no caller can influence.
+const CONSTANT = new RegExp(
+  "^\\$\\{\\{\\s*(" +
+    [
+      "github\\.(server_url|repository|repository_owner|run_id|run_number|run_attempt|workspace|action_path|sha|ref|ref_name|event_name|job|api_url|graphql_url|token)\\b",
+      "runner\\.(os|arch|temp|tool_cache)\\b",
+      "job\\.status\\b",
+      "env\\.[A-Za-z_][A-Za-z0-9_]*",
+      "'[^']*'", // a literal
+    ].join("|") +
+    ")\\s*\\}\\}$"
+);
+
+// github.actor is a login GitHub validates, but it still reaches scripts via
+// env: everywhere in this repo - keeping it out of the allowlist means a future
+// `run:` cannot start composing with it.
+function isConstant(expr) {
+  return CONSTANT.test(expr);
+}
 
 function workflowFiles() {
   const dir = join(root, ".github", "workflows");
@@ -36,6 +65,10 @@ function workflowFiles() {
       .filter((f) => f.endsWith(".yml"))
       .map((f) => join(dir, f)),
     BROKER,
+    // Composite actions run the same scripts with the same values.
+    ...["acceptance", "collect", "lockdown", "notify", "pages", "preserve", "provisioning", "registry", "report"].map(
+      (a) => join(root, a, "action.yml")
+    ),
   ];
 }
 
@@ -43,7 +76,9 @@ function workflowFiles() {
 function scriptBlocks(file) {
   const doc = parse(readFileSync(file, "utf8"));
   const out = [];
-  for (const [jobName, job] of Object.entries(doc?.jobs || {})) {
+  // A workflow has jobs; a composite action has runs.steps.
+  const groups = doc?.jobs ? Object.entries(doc.jobs) : [["<composite>", doc?.runs ?? {}]];
+  for (const [jobName, job] of groups) {
     for (const step of job?.steps || []) {
       const where = `${jobName}/${step.name || step.uses || "step"}`;
       if (typeof step.run === "string") out.push({ where, kind: "run", body: step.run });
@@ -54,12 +89,12 @@ function scriptBlocks(file) {
   return out;
 }
 
-test("no workflow interpolates untrusted event data into a script", () => {
+test("no workflow composes a script out of a value", () => {
   const offenders = [];
   for (const file of workflowFiles()) {
     for (const { where, kind, body } of scriptBlocks(file)) {
       for (const expr of body.match(EXPRESSION) || []) {
-        if (UNTRUSTED.test(expr)) {
+        if (!isConstant(expr)) {
           offenders.push(`${file.slice(root.length + 1)} [${where}] ${kind}: ${expr}`);
         }
       }
@@ -68,8 +103,72 @@ test("no workflow interpolates untrusted event data into a script", () => {
   assert.deepEqual(
     offenders,
     [],
-    `Untrusted event data must reach scripts via env:, never \${{ }}:\n  ${offenders.join("\n  ")}`
+    `Values must reach scripts through env:, never by substitution into the script text:\n  ${offenders.join("\n  ")}`
   );
+});
+
+test("the guard rejects the shapes that actually shipped", () => {
+  // A regression on the rule itself. The previous version named only
+  // github.event.* and client_payload, so every one of these passed it -
+  // including `gh api users/${{ inputs.github_login }}` in a job holding the
+  // App key, and an installation token interpolated one character from a
+  // dispatch input in setup-org.yml.
+  const shouldFail = [
+    "${{ inputs.github_login }}",
+    "${{ inputs.target_org }}",
+    "${{ steps.generate_token.outputs.token }}",
+    "${{ steps.prov.outputs.repo-url }}",
+    "${{ matrix.org }}",
+    "${{ matrix.assignment.assignment_id }}",
+    "${{ github.event.issue.body }}",
+    "${{ github.event.client_payload.org }}",
+    "${{ secrets.PXL_APP_PRIVATE_KEY }}",
+    "${{ needs.find-orgs.outputs.orgs }}",
+    "${{ github.actor }}",
+  ];
+  for (const expr of shouldFail) {
+    assert.equal(isConstant(expr), false, `${expr} must not count as a constant`);
+  }
+
+  for (const expr of [
+    "${{ github.repository }}",
+    "${{ github.run_id }}",
+    "${{ github.workspace }}",
+    "${{ runner.temp }}",
+    "${{ env.SOME_VAR }}",
+  ]) {
+    assert.equal(isConstant(expr), true, `${expr} is a run-scoped constant`);
+  }
+});
+
+test("retry-acceptance validates its inputs before anything uses them", () => {
+  // This job provisions for an arbitrary login with the deadline bypassed, and
+  // it holds the App key. Its inputs get checked first, not eventually.
+  const doc = parse(readFileSync(join(root, ".github", "workflows", "retry-acceptance.yml"), "utf8"));
+  const names = doc.jobs.retry.steps.map((s) => s.name);
+  const validate = names.indexOf("Validate dispatch inputs");
+  const use = names.indexOf("Look up student GitHub numeric ID");
+  assert.ok(validate > -1, "there must be a validation step");
+  assert.ok(validate < use, "and it must come before the first use");
+});
+
+test("setup-org validates the org before it builds a remote, and keeps the token out of the URL", () => {
+  // It validated target_org in the step AFTER the one that used it, which is
+  // not validation - and that step had an installation token substituted into
+  // the same line, so a value that broke out of the URL had the credential.
+  const doc = parse(readFileSync(join(root, ".github", "workflows", "setup-org.yml"), "utf8"));
+  const step = Object.values(doc.jobs)
+    .flatMap((j) => j.steps || [])
+    .find((s) => s.name === "Initialize control repo structure");
+  assert.ok(step, "the scaffold step must exist");
+
+  const check = step.run.indexOf("grep -Eq");
+  const remote = step.run.indexOf("git remote add");
+  assert.ok(check > -1 && remote > -1 && check < remote, "validate, then use");
+
+  const remoteLine = step.run.split("\n").find((l) => l.includes("git remote add"));
+  assert.ok(!/x-access-token|:\$\{?GH_TOKEN/.test(remoteLine), `credential in the remote URL: ${remoteLine}`);
+  assert.match(step.run, /http\.https:\/\/github\.com\/\.extraheader/, "the token goes in a header instead");
 });
 
 test("the broker never reads the issue body", () => {
@@ -187,4 +286,57 @@ test("sanitizeTeamName strips control characters that would forge outputs", () =
   assert.equal(sanitizeTeamName("x".repeat(200)).length, 100);
   assert.equal(sanitizeTeamName(undefined), "");
   assert.equal(sanitizeTeamName({ toString: () => "nope" }), "");
+});
+
+// --- The team hint is a lock, not a label -----------------------------------
+//
+// The hub keys its concurrency group on the slug from the issue TITLE
+// (client_payload.team_hint), because that is all it has before the body can be
+// read. Per-team serialization is the only thing guarding max_team_size - there
+// is no distributed lock (ARCHITECTURE §5.8) - so a body naming a different team
+// than the title serializes against one team and writes to another.
+
+test("a body naming a different team than the title is refused", () => {
+  assert.equal(teamHintMatches("popular-team", "decoy"), false);
+  assert.equal(teamHintMatches("popular-team", ""), false, "no hint, but a body slug");
+  assert.equal(teamHintMatches("", "decoy"), false, "a hint, but no body slug");
+});
+
+test("agreement in any casing or padding is agreement", () => {
+  // The title regex only accepts lowercase slugs, but the body is free text and
+  // parseTeamPayload has already normalised it - being strict about whitespace
+  // here would reject real students to no purpose.
+  for (const [slug, hint] of [
+    ["alpha-1", "alpha-1"],
+    ["alpha-1", "ALPHA-1"],
+    ["alpha-1", " alpha-1 "],
+    ["", ""],
+    ["", "   "],
+  ]) {
+    assert.equal(teamHintMatches(slug, hint), true, `${JSON.stringify([slug, hint])} must match`);
+  }
+});
+
+test("individual acceptance carries neither, and matches", () => {
+  assert.equal(teamHintMatches(undefined, undefined), true);
+  assert.equal(teamHintMatches(null, null), true);
+});
+
+test("non-strings never match a real slug", () => {
+  for (const junk of [null, undefined, 0, {}, [], true]) {
+    assert.equal(teamHintMatches("alpha-1", junk), false, `${JSON.stringify(junk)}`);
+    assert.equal(teamHintMatches(junk, "alpha-1"), false, `${JSON.stringify(junk)}`);
+  }
+});
+
+test("the reader compares the two before it emits a slug", () => {
+  const src = readFileSync(join(root, "scripts", "read-team-payload.mjs"), "utf8");
+  const compare = src.indexOf("teamHintMatches");
+  const emit = src.lastIndexOf("await setOutputs({ ...parsed");
+  assert.ok(compare > -1, "read-team-payload.mjs must compare the hint");
+  assert.ok(emit > -1 && compare < emit, "and must do it before emitting the payload");
+
+  const handler = readFileSync(join(root, ".github", "workflows", "acceptance-handler.yml"), "utf8");
+  assert.match(handler, /TEAM_HINT: \$\{\{ github\.event\.client_payload\.team_hint \}\}/,
+    "the handler must pass the hint the concurrency group was built from");
 });

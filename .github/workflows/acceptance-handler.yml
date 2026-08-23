@@ -43,6 +43,11 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
           ORG: ${{ github.event.client_payload.org }}
           EXPECTED_LOGIN: ${{ github.event.client_payload.github_login }}
+          # The concurrency group above was keyed on this. The script refuses a
+          # body that names a different team, or per-team serialization - the
+          # only thing guarding max_team_size - could be side-stepped by
+          # disagreeing with your own title.
+          TEAM_HINT: ${{ github.event.client_payload.team_hint }}
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: node scripts/read-team-payload.mjs
 

@@ -5,7 +5,8 @@
 // App credentials; it forwards only the issue number, and the untrusted body is
 // read and validated here. See lib/team-payload.mjs for why.
 //
-// Inputs via env: BROKER_REPO (owner/repo), ISSUE_NUMBER, ORG, EXPECTED_LOGIN, GH_TOKEN
+// Inputs via env: BROKER_REPO (owner/repo), ISSUE_NUMBER, ORG, EXPECTED_LOGIN,
+//                 TEAM_HINT, GH_TOKEN
 // Outputs via GITHUB_OUTPUT: team_slug, team_name, team_action, issue_node_id
 //
 // issue_node_id is emitted so the caller can DELETE the issue once the body has
@@ -19,7 +20,7 @@
 
 import { appendFile } from "node:fs/promises";
 import { gh } from "../lib/gh.mjs";
-import { parseTeamPayload } from "../lib/team-payload.mjs";
+import { parseTeamPayload, teamHintMatches } from "../lib/team-payload.mjs";
 
 const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const ORG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
@@ -44,6 +45,7 @@ async function main() {
   const issueNumber = (process.env.ISSUE_NUMBER || "").trim();
   const org = (process.env.ORG || "").trim();
   const expectedLogin = (process.env.EXPECTED_LOGIN || "").trim();
+  const teamHint = (process.env.TEAM_HINT || "").trim().toLowerCase();
 
   if (!issueNumber) {
     // A star-triggered acceptance carries no issue. Nothing to read.
@@ -99,6 +101,25 @@ async function main() {
   }
 
   const parsed = parseTeamPayload({ body: res.data?.body, title: res.data?.title });
+
+  // The team hint came from the issue TITLE and is what the hub's concurrency
+  // group was keyed on, before this body could be read - and that per-team
+  // serialization is the only thing guarding max_team_size, since there is no
+  // distributed lock (ARCHITECTURE 5.8). Nothing compared the two, so a title
+  // saying `team:decoy` with a body saying `team_slug: popular-team` serialized
+  // against one team while writing to another: two of those in parallel both
+  // read the target at n-1 members and both appended. The SPA always sends them
+  // in agreement; a hand-written issue need not.
+  if (!teamHintMatches(parsed.team_slug, teamHint)) {
+    console.error(
+      `[warn] ${brokerRepo}#${issueNumber} declares team "${parsed.team_slug}" in its body but ` +
+        `"${teamHint}" in its title. The title is what the concurrency key was built from, so ` +
+        `honouring the body would bypass per-team serialization - ignoring the payload.`
+    );
+    await setOutputs({ ...EMPTY, issue_node_id: deletable });
+    return;
+  }
+
   console.log(
     `[ok] ${brokerRepo}#${issueNumber} -> team_slug="${parsed.team_slug}" team_action="${parsed.team_action}"`
   );

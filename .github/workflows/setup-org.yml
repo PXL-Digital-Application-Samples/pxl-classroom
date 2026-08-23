@@ -127,16 +127,35 @@ jobs:
               console.log('Failed to set Actions access level:', error.message);
             }
 
+      # The App installation token and a workflow_dispatch input used to be
+      # substituted into the same script TEXT, one character apart. `target_org`
+      # is validated in the NEXT step, which is too late to matter: a value that
+      # broke out of the URL would have had the token, in scope, in the same
+      # shell. Both now arrive through env:, and the login is checked here,
+      # before it is used (ARCHITECTURE 4.3.1).
+      #
+      # The token also stops appearing in the remote URL. `git remote add` with
+      # credentials embedded puts them in .git/config and in every error message
+      # git prints; http.extraheader keeps it in the environment instead.
       - name: Initialize control repo structure
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+          TARGET_ORG: ${{ inputs.target_org }}
         run: |
+          printf '%s' "$TARGET_ORG" | grep -Eq '^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$' \
+            || { echo "::error::target_org is not a valid GitHub login."; exit 1; }
+
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+
           TMPDIR=$(mktemp -d)
           cd "$TMPDIR"
           git init
           git config user.name "pxl-classroom-provisioner[bot]"
           git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
+          git config http.https://github.com/.extraheader "$AUTH_HEADER"
 
           git branch -M main
-          git remote add origin https://x-access-token:${{ steps.generate_token.outputs.token }}@github.com/${{ inputs.target_org }}/pxl-classroom-control.git
+          git remote add origin "https://github.com/${TARGET_ORG}/pxl-classroom-control.git"
 
           # Pull first, then scaffold: the script only creates what is absent,
           # so this backfills existing control repos without clobbering data.

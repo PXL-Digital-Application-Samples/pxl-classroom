@@ -73,33 +73,61 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           path: control
 
+      # Every value below reaches the shell through env:, never through a
+      # substituted expression. `${{ }}` is pasted into the script TEXT before
+      # bash sees it; an env var is data. These are workflow_dispatch inputs, so
+      # only a lecturer can set them - but this job runs with the App key in
+      # scope and provisions for an arbitrary login with the deadline bypassed,
+      # which is the last place to rely on the caller being well behaved
+      # (ARCHITECTURE 4.3.1).
+      - name: Validate dispatch inputs
+        id: valid
+        env:
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          GITHUB_LOGIN: ${{ inputs.github_login }}
+        run: |
+          printf '%s' "$ORG" | grep -Eq '^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$' \
+            || { echo "::error::org is not a valid GitHub login"; exit 1; }
+          printf '%s' "$GITHUB_LOGIN" | grep -Eq '^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$' \
+            || { echo "::error::github_login is not a valid GitHub login"; exit 1; }
+          # The same slug shape accept.mjs enforces before it touches a path.
+          printf '%s' "$ASSIGNMENT_ID" | grep -Eq '^[a-z0-9][a-z0-9-]{0,99}$' \
+            || { echo "::error::assignment_id is not a valid slug"; exit 1; }
+
       - name: Look up student GitHub numeric ID
         id: lookup
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          GITHUB_LOGIN: ${{ inputs.github_login }}
         run: |
-          ID=$(gh api users/${{ inputs.github_login }} --jq .id)
+          ID=$(gh api "users/${GITHUB_LOGIN}" --jq .id)
           if [ -z "$ID" ]; then
-            echo "::error::Could not resolve GitHub ID for ${{ inputs.github_login }}"
+            echo "::error::Could not resolve GitHub ID for ${GITHUB_LOGIN}"
             exit 1
           fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
       - name: Wipe half-done acceptance state
-        working-directory: control
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          GITHUB_LOGIN: ${{ inputs.github_login }}
         run: |
-          ACCEPT_FILE="acceptances/${{ inputs.assignment_id }}/${{ inputs.github_login }}.json"
-          if [ -f "$ACCEPT_FILE" ]; then
-            rm -f "$ACCEPT_FILE"
-            git config user.name "pxl-classroom[bot]"
-            git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "Reset acceptance state for ${{ inputs.github_login }} on ${{ inputs.assignment_id }} (manual retry)"
-            git pull --rebase || true
-            git push
-          else
+          set -e
+          ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${GITHUB_LOGIN}.json"
+          if [ ! -f "control/$ACCEPT_FILE" ]; then
             echo "No prior acceptance file at $ACCEPT_FILE - proceeding to fresh acceptance."
+            exit 0
           fi
+          rm -f "control/$ACCEPT_FILE"
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control add -A
+          git -C control commit -m "Reset acceptance state for ${GITHUB_LOGIN} on ${ASSIGNMENT_ID} (manual retry)"
+          # Was `git pull --rebase || true; git push`, which pushed whatever the
+          # working tree held even when the rebase had failed. The retry helper
+          # rebases properly and fails if it cannot.
+          scripts/git-push-with-retry.sh control
 
       - name: Run acceptance
         id: accept
@@ -154,19 +182,25 @@ jobs:
           LOGIN: ${{ steps.accept.outputs.github_login }}
           TEAM_SLUG: ${{ steps.accept.outputs.team_slug }}
           OUTCOME: ${{ steps.prov.outputs.outcome }}
+          ORG: ${{ inputs.org }}
+          TARGET_REPO: ${{ steps.accept.outputs.target_repo }}
+          REPO_ID: ${{ steps.prov.outputs.repo-id }}
+          REPO_URL: ${{ steps.prov.outputs.repo-url }}
+          BASELINE_SHA: ${{ steps.prov.outputs.baseline-sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -e
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             node scripts/write-repository-record.mjs \
               --assignment-id "$ASSIGNMENT_ID" \
               --login "$LOGIN" \
-              --org "${{ inputs.org }}" \
-              --target-repo "${{ steps.accept.outputs.target_repo }}" \
+              --org "$ORG" \
+              --target-repo "$TARGET_REPO" \
               --team-slug "$TEAM_SLUG" \
-              --repo-id "${{ steps.prov.outputs.repo-id }}" \
-              --repo-url "${{ steps.prov.outputs.repo-url }}" \
-              --baseline-sha "${{ steps.prov.outputs.baseline-sha }}" \
-              --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --repo-id "$REPO_ID" \
+              --repo-url "$REPO_URL" \
+              --baseline-sha "$BASELINE_SHA" \
+              --run-url "$RUN_URL" \
               --data-dir control
             git -C control add "repositories/" "teams/"
           fi
@@ -189,10 +223,12 @@ jobs:
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ORG: ${{ inputs.org }}
         with:
           script: |
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner, repo: context.repo.repo,
               workflow_id: 'regenerate-dashboard.yml', ref: 'main',
-              inputs: { org: '${{ inputs.org }}' },
+              inputs: { org: process.env.ORG },
             });

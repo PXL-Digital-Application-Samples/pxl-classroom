@@ -108,8 +108,10 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           path: control
       - id: find
+        env:
+          ORG: ${{ matrix.org }}
         run: |
-          node scripts/find-finalizable.mjs control ${{ matrix.org }} > finalizable-${{ matrix.org }}.json
+          node scripts/find-finalizable.mjs control "$ORG" > "finalizable-${ORG}.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: finalizable-${{ matrix.org }}
@@ -222,13 +224,15 @@ jobs:
       # find-finalizable uses to retry (and to stop retrying).
       - name: Commit + push
         if: always()
+        env:
+          ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
         run: |
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           git -C control add observations/ lockdowns/ reports/ || true
           if git -C control diff --cached --quiet; then exit 0; fi
-          git -C control commit -m "Finalize deadline for ${{ matrix.assignment.assignment_id }}"
+          git -C control commit -m "Finalize deadline for ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
 
   check-idle:
