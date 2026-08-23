@@ -77,4 +77,44 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
       await expect(slugInput).toBeDisabled();
     }
   });
+
+  // UX_PLAN §3.1 / §3.3, on the rendered form rather than the source.
+  test('A new assignment opens on the roster gate, and asks nothing about acceptance mode', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+
+    // The permissive setting was the default while the hint under it said
+    // "Anyone with the link can claim a repo."
+    const rosterSelect = page.locator('select').filter({ hasText: 'only students on the roster' });
+    await expect(rosterSelect).toHaveValue('enforced');
+    await expect(page.locator('text=Students must appear in')).toBeVisible();
+
+    // One enum value is not a decision, so there is no control for it.
+    await page.locator('details.advanced summary').click();
+    await expect(page.locator('details.advanced')).toContainText('Student permission');
+    await expect(page.locator('details.advanced')).not.toContainText('Acceptance mode');
+  });
+
+  // UX_PLAN §3.4 - the panel refuses what the schema refuses, in a sentence.
+  test('A python autograde test with no script blocks Save and says why', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+
+    await page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]').check();
+    await page.getByRole('button', { name: 'Add test' }).click();
+    await page.getByLabel('Test ID').fill('validator');
+    await page.getByLabel('Test type').selectOption('python');
+
+    const err = page.locator('.tests-editor .field-error-msg');
+    await expect(err).toContainText('needs a script');
+
+    await page.getByLabel('Python script').fill('assert 1 == 1');
+    await expect(err).toHaveCount(0);
+  });
 });

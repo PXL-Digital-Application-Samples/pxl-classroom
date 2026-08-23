@@ -57,7 +57,8 @@ test("buildAutogradingWorkflow: generates full autograding workflow with graders
   const doc = parse(yamlStr);
   assert.equal(doc.name, "Autograding");
   assert.equal(doc.jobs.grade["timeout-minutes"], 10);
-  assert.equal(doc.jobs.grade.steps.length, 5); // checkout + 3 tests + reporter
+  // checkout + 3 tests + reporter, plus the python test's write-script step
+  assert.equal(doc.jobs.grade.steps.length, 6);
 });
 
 test("buildAutogradingWorkflow: sanitizes runner IDs and environment variable keys", () => {

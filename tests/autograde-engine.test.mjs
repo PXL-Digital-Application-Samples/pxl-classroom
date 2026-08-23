@@ -41,7 +41,6 @@ test("autograde workflow: parses valid YAML with multi-step commands and custom 
         {
           id: "step-4-python-validator",
           type: "python",
-          setup_command: "python3 -m pip install pytest",
           script: "import subprocess\nassert subprocess.run(['./solution']).returncode != 0",
           timeout_s: 15,
           points: 25
@@ -58,7 +57,8 @@ test("autograde workflow: parses valid YAML with multi-step commands and custom 
   assert.equal(doc.jobs.grade["timeout-minutes"], 10);
 
   const steps = doc.jobs.grade.steps;
-  assert.equal(steps.length, 6); // checkout + 4 tests + reporter
+  // checkout + 4 tests + reporter, and the python test writes its script first
+  assert.equal(steps.length, 7);
 
   assert.equal(steps[0].uses, "actions/checkout@v4");
   
@@ -76,18 +76,24 @@ test("autograde workflow: parses valid YAML with multi-step commands and custom 
   assert.equal(steps[2].with.input, "4 5\n");
   assert.equal(steps[2].with["expected-output"], "Sum: 9\n");
 
-  // Step 4
-  assert.equal(steps[4].id, "step-4-python-validator");
-  assert.equal(steps[4].uses, "classroom-resources/autograding-python-grader@v1");
-  assert.ok(steps[4].with["setup-command"].includes("python3"));
+  // Step 4 is the python test, and it is two steps: the script is written to a
+  // file from `env:` and then run, which is what both CLI runners do. It used
+  // to be `command: t.command || "pytest"` with `script` thrown away.
+  assert.equal(steps[4].env.PXL_SCRIPT, "import subprocess\nassert subprocess.run(['./solution']).returncode != 0");
+  assert.equal(steps[4].env.PXL_SCRIPT_PATH, ".pxl-autograde/step-4-python-validator.py");
+  assert.ok(!steps[4].run.includes("subprocess"), "the script must not be pasted into the run text");
+  assert.equal(steps[5].id, "step-4-python-validator");
+  assert.equal(steps[5].uses, "classroom-resources/autograding-python-grader@v1");
+  assert.equal(steps[5].with.command, "python3 .pxl-autograde/step-4-python-validator.py");
+  assert.equal(steps[5].with["setup-command"], "", "the CLI runners install nothing either");
 
   // Reporter
-  assert.equal(steps[5].uses, "classroom-resources/autograding-grading-reporter@v1");
-  assert.equal(steps[5].with.runners, "step-1-compile,step-2-io-basic,step-3-io-negative,step-4-python-validator");
-  assert.equal(steps[5].env.STEP_1_COMPILE_RESULTS, "${{ steps.step-1-compile.outputs.result }}");
-  assert.equal(steps[5].env.STEP_2_IO_BASIC_RESULTS, "${{ steps.step-2-io-basic.outputs.result }}");
-  assert.equal(steps[5].env.STEP_3_IO_NEGATIVE_RESULTS, "${{ steps.step-3-io-negative.outputs.result }}");
-  assert.equal(steps[5].env.STEP_4_PYTHON_VALIDATOR_RESULTS, "${{ steps.step-4-python-validator.outputs.result }}");
+  assert.equal(steps[6].uses, "classroom-resources/autograding-grading-reporter@v1");
+  assert.equal(steps[6].with.runners, "step-1-compile,step-2-io-basic,step-3-io-negative,step-4-python-validator");
+  assert.equal(steps[6].env.STEP_1_COMPILE_RESULTS, "${{ steps.step-1-compile.outputs.result }}");
+  assert.equal(steps[6].env.STEP_2_IO_BASIC_RESULTS, "${{ steps.step-2-io-basic.outputs.result }}");
+  assert.equal(steps[6].env.STEP_3_IO_NEGATIVE_RESULTS, "${{ steps.step-3-io-negative.outputs.result }}");
+  assert.equal(steps[6].env.STEP_4_PYTHON_VALIDATOR_RESULTS, "${{ steps.step-4-python-validator.outputs.result }}");
 });
 
 test("parseCheckRunScore: handles realistic markdown tables from autograding-grading-reporter", () => {

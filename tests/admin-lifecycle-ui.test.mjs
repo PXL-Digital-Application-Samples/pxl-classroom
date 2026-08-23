@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
+import { validateAgainst } from "../lib/validate.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -224,4 +226,63 @@ test("opening an assignment for edit loads its invitation", () => {
       `the edit form must load ${field} from the assignment`
     );
   }
+});
+
+// -----------------------------------------------------------------------------
+// 6. The form's own defaults (UX_PLAN §3.1, §3.3)
+// -----------------------------------------------------------------------------
+
+// Only emptyForm() - the defaults for a NEW assignment. Slicing to the closing
+// brace of the returned object keeps loadAssignmentIntoForm()'s
+// `roster_mode: a.roster_mode === 'open' ? ...` out of the match; without the
+// bound this reads whichever spelling appears first in the file.
+function emptyFormSource() {
+  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  const start = src.indexOf("function emptyForm()");
+  assert.ok(start > 0, "emptyForm() must still exist");
+  const end = src.indexOf("\n}", start);
+  assert.ok(end > start, "emptyForm() must still be a function");
+  return src.slice(start, end);
+}
+
+test("a new assignment defaults to the enforced roster", () => {
+  // accept.mjs fails closed to `enforced` for anything it does not recognise,
+  // so the form was the only thing choosing the permissive setting - while its
+  // own hint said "Anyone with the link can claim a repo."
+  const body = emptyFormSource();
+  assert.match(body, /roster_mode: 'enforced'/, "new assignments start on the roster gate");
+  assert.ok(!/roster_mode: 'open'/.test(body), "'open' is an opt-in, not a default");
+});
+
+test("open enrollment still requires a cap", () => {
+  // The default changed; the guardrail behind the other value did not. Without
+  // the roster gate, max_acceptances is the only limit on who can claim a repo.
+  const base = parse(readFileSync(join(root, "tests", "fixtures", "valid-assignment.yml"), "utf8"));
+  const uncapped = { ...base, roster_mode: "open" };
+  delete uncapped.max_acceptances;
+  assert.equal(validateAgainst("assignment", uncapped).valid, false);
+  assert.equal(validateAgainst("assignment", { ...base, roster_mode: "open", max_acceptances: 30 }).valid, true);
+});
+
+test("the form refuses a python test with no script, and says so on screen", () => {
+  // The schema refuses it too (tests/sweep-correctness.test.mjs), but an AJV
+  // message names /autograde/tests/2 and a required property. Both halves are
+  // load-bearing: an error that blocks Save and renders nowhere is a disabled
+  // button with no explanation.
+  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  assert.match(src, /errors\.autograde_tests\s*=/, "fieldErrors must carry the rule - canSave watches it");
+  assert.match(src, /v-if="fieldErrors\.autograde_tests"/, "and the tests editor must render it");
+});
+
+test("acceptance_mode has no control, and is still written", () => {
+  // One enum value is not a decision (C1), so the select is gone. The field
+  // stays: existing YAMLs carry it and the public card publishes it, and
+  // buildDoc rebuilds the whole document - dropping it here would delete it.
+  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  assert.ok(
+    !/v-model="form\.acceptance_mode"/.test(src),
+    "a select with one option asks the lecturer a question they cannot answer"
+  );
+  assert.match(src, /acceptance_mode: form\.value\.acceptance_mode/, "buildDoc still writes the field");
+  assert.match(src, /acceptance_mode: 'self-service'/, "and the form still carries a value for it");
 });

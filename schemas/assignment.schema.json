@@ -303,7 +303,7 @@
               },
               "script": {
                 "type": "string",
-                "description": "Python source for type=python."
+                "description": "Python source for type=python. Required there, and the only field a python test reads: the CLI runners and the generated Actions workflow all write it to a file and run it, so `command` is ignored."
               },
               "stdin": {
                 "type": "string",
@@ -325,7 +325,26 @@
                 "minimum": 0,
                 "description": "Points awarded on pass."
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "python"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "script"
+                  ]
+                }
+              }
+            ]
           }
         }
       }

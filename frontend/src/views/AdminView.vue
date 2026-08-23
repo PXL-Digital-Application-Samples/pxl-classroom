@@ -519,8 +519,8 @@
             <div class="field">
               <label>Who may accept</label>
               <select v-model="form.roster_mode">
-                <option value="open">open: any GitHub account (exams, unknown cohort)</option>
                 <option value="enforced">enforced: only students on the roster</option>
+                <option value="open">open: any GitHub account (exams, unknown cohort)</option>
               </select>
               <small v-if="form.roster_mode !== 'open'">
                 Students must appear in <code>students/roster.yml</code>. Import them under the
@@ -639,6 +639,7 @@
                   <Icon name="plus" :size="13" />
                   <span>Add test</span>
                 </button>
+                <div v-if="fieldErrors.autograde_tests" class="field-error-msg">{{ fieldErrors.autograde_tests }}</div>
               </div>
 
               <small style="display:block; margin-top: 8px;">
@@ -674,12 +675,9 @@
               <label>Timezone (display)</label>
               <input v-model="form.timezone" placeholder="Europe/Brussels" />
             </div>
-            <div class="field">
-              <label>Acceptance mode</label>
-              <select v-model="form.acceptance_mode">
-                <option value="self-service">self-service (student opens their invitation link)</option>
-              </select>
-            </div>
+            <!-- No `acceptance_mode` control: the enum has one value, so the
+                 select was a decision the lecturer could not make. The field is
+                 still written by buildDoc() and published on the card. -->
           </details>
 
           <!-- VALIDATION ERRORS -->
@@ -1175,6 +1173,21 @@ const fieldErrors = computed(() => {
     errors.max_acceptances = 'Open enrollment requires a cap - set a maximum number of acceptances.'
   }
 
+  // 8. A python test is its script. Both CLI runners and the generated Actions
+  // workflow write `script` to a file and run it, so an empty one is a test
+  // that passes without executing anything. The schema refuses it too; caught
+  // here it reads as a sentence instead of "/autograde/tests/2 must have
+  // required property 'script'".
+  if (form.value.autograde_enabled) {
+    const scriptless = (form.value.autograde_tests || [])
+      .map((t, i) => ({ t, label: t.id || `#${i + 1}` }))
+      .filter(({ t }) => t.type === 'python' && !String(t.script || '').trim())
+      .map(({ label }) => label)
+    if (scriptless.length) {
+      errors.autograde_tests = `Python test${scriptless.length > 1 ? 's' : ''} ${scriptless.join(', ')} need${scriptless.length > 1 ? '' : 's'} a script - it is the only thing a python test runs.`
+    }
+  }
+
   return errors
 })
 
@@ -1373,8 +1386,14 @@ function emptyForm() {
     timezone: 'Europe/Brussels',
     submission_ref: 'refs/heads/main',
     student_permission: 'admin',
+    // One enum value, so there is nothing to choose and no control for it.
+    // The field stays because the schema and the public card still carry it.
     acceptance_mode: 'self-service',
-    roster_mode: 'open',
+    // The hint under this control already says "Anyone with the link can claim
+    // a repo", and `accept.mjs` fails closed to `enforced` for anything it does
+    // not recognise - the form was the only thing choosing the permissive
+    // setting. Existing assignments keep whatever they were saved with.
+    roster_mode: 'enforced',
     // `block` discards work. Now that it actually does something, defaulting to
     // it would silently start throwing away students' late commits on every new
     // assignment - so a lecturer opts in.

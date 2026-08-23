@@ -222,4 +222,57 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     await expect(onboardingCard.locator('.onboarding-head h2')).toContainText(`Welcome to ${ORG_FRESH}`);
   });
 
+  // UX_PLAN §3.5. The draft count was `ymls.length` - every assignment file in
+  // the control repo, whatever its state - so the panel told a lecturer who had
+  // just published that they had drafts to publish. What is missing on this
+  // branch is reports/dashboard.json, not the publish.
+
+  const asgn = (id, state) => ({
+    id,
+    title: id,
+    organization: ORG_ACTIVE,
+    assignment_type: 'individual',
+    roster_mode: 'enforced',
+    state,
+    template: { owner: ORG_ACTIVE, repository: 'a-template' },
+    repository_name_pattern: `${id}-{github_login}`,
+  });
+
+  test('Scenario 6 (No dashboard.json): the draft count reads each assignment state', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      participatingOrgs: [ORG_ACTIVE],
+      assignments: {
+        'lab-one-draft': asgn('lab-one-draft', 'draft'),
+        'lab-published': asgn('lab-published', 'published'),
+        'lab-closed': asgn('lab-closed', 'closed'),
+      },
+      reports: {}, // No dashboard.json yet
+      currentUser: LECTURER,
+    });
+
+    await page.goto(`/dashboard/${ORG_ACTIVE}`);
+
+    await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
+    // One draft out of three files. Counting files said three.
+    await expect(page.locator('text=You have 1 draft in the Admin Panel')).toBeVisible();
+    await expect(page.locator('text=You have 3 drafts in the Admin Panel')).not.toBeVisible();
+  });
+
+  test('Scenario 7 (No dashboard.json, nothing in draft): says what is actually pending', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      participatingOrgs: [ORG_ACTIVE],
+      assignments: { 'lab-published': asgn('lab-published', 'published') },
+      reports: {},
+      currentUser: LECTURER,
+    });
+
+    await page.goto(`/dashboard/${ORG_ACTIVE}`);
+
+    await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
+    await expect(page.locator('text=Published assignments appear here once the first report is generated')).toBeVisible();
+    await expect(page.locator('text=in the Admin Panel - publish to track them here')).not.toBeVisible();
+  });
+
 });

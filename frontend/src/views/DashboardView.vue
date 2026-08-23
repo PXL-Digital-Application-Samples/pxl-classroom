@@ -315,6 +315,9 @@
             <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
               You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
             </span>
+            <span v-else style="display: block; margin-top: var(--space-xs);">
+              Published assignments appear here once the first report is generated.
+            </span>
           </p>
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
         </template>
@@ -859,9 +862,15 @@ async function loadDashboard(orgArg) {
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return
     } else {
-      // Assignments HAVE been created in this organization (e.g. drafts or awaiting dashboard.json generation)
-      draftCount.value = ymls.length
+      // Assignments HAVE been created in this organization (e.g. drafts or awaiting dashboard.json generation).
+      //
+      // "Draft" is a claim about state, and this counted files - so a lecturer
+      // who had just published two assignments was told they had two drafts to
+      // publish. What is missing here is reports/dashboard.json, not the
+      // publish; read each YAML's own state and say only what is true.
+      const drafts = await countDraftAssignments(token, org, ymls)
       if (superseded()) return
+      draftCount.value = drafts
       dashState.value = 'no-dashboard'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return
@@ -876,6 +885,34 @@ async function loadDashboard(orgArg) {
   } finally {
     loadingData.value = false
   }
+}
+
+// How many of these assignment YAMLs are actually drafts.
+//
+// The directory listing carries names, not contents, so each file is fetched.
+// That only happens on this branch - reports/dashboard.json missing, i.e. a
+// newly onboarded org - and the pool keeps a large assignments/ directory from
+// firing one request per file at once. `yaml` is imported lazily so it stays
+// out of the dashboard chunk for the ordinary path.
+async function countDraftAssignments(token, org, files) {
+  const { parse: parseYaml } = await import('yaml')
+  const queue = [...files]
+  let drafts = 0
+  const worker = async () => {
+    for (let f = queue.shift(); f; f = queue.shift()) {
+      try {
+        const text = await getRepoContent(token, org, config.controlRepo, f.path)
+        if (!text) continue
+        // An absent state is a draft - the schema's own default.
+        if ((parseYaml(text)?.state || 'draft') === 'draft') drafts++
+      } catch {
+        // Unreadable or unparseable is not evidence of a draft. Leaving it out
+        // is the point: the bug being fixed was counting files as drafts.
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker))
+  return drafts
 }
 
 async function onAuthenticated(authedUser) {

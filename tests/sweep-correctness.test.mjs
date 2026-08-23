@@ -26,6 +26,7 @@ import { execFileSync } from "node:child_process";
 import { parse } from "yaml";
 
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -234,7 +235,7 @@ test("a generated autograding workflow is a workflow GitHub would accept", () =>
         tests: [
           { id: "compile", type: "run", command: 'gcc -o a "main file.c"', points: 5 },
           { id: "io", type: "io", command: "./a", stdin: "1 2\n", expected_stdout: "3\n" },
-          { id: "py", type: "python", command: "pytest -k 'not slow'" },
+          { id: "py", type: "python", script: 'print("hello: world")\n' },
         ],
       },
     },
@@ -243,12 +244,85 @@ test("a generated autograding workflow is a workflow GitHub would accept", () =>
   const doc = parse(yaml);
   assert.deepEqual(doc.on.push.branches, ["main"]);
   assert.equal(doc.jobs.grade["runs-on"], "ubuntu-latest");
-  assert.equal(doc.jobs.grade.steps.length, 5, "checkout + 3 tests + reporter");
+  assert.equal(doc.jobs.grade.steps.length, 6, "checkout + 3 tests + reporter, + the python write step");
   for (const step of doc.jobs.grade.steps) {
     assert.ok(step.uses || step.run, "every step must do something");
   }
   const reporter = doc.jobs.grade.steps.at(-1);
   assert.equal(reporter.with.runners, "compile,io,py");
+});
+
+// --- A python test means the same thing on every runner ---------------------
+//
+// `provision.mjs` emitted `t.command || "pytest"` for type=python and never
+// looked at `script`, while both CLI runners write `script` to t.py and run it
+// and ignore `command`. The Admin Panel only ever writes `script`, so a
+// lecturer's python test ran their code locally and the student repo's own
+// pytest suite on Actions - the same definition, two meanings, no error.
+
+test("a python test's script reaches the generated workflow, through env and not the run text", () => {
+  const script = 'import sys\nprint("a: b", file=sys.stderr)  # quotes and colons\n';
+  const doc = parse(
+    buildAutogradingWorkflow(
+      { id: "lab", autograde: { visibility: "public", tests: [{ id: "py", type: "python", script, points: 3 }] } },
+      "PXLAutomation"
+    )
+  );
+  const [, write, grade] = doc.jobs.grade.steps;
+
+  assert.equal(write.env.PXL_SCRIPT, script, "the script survives verbatim");
+  assert.equal(write.env.PXL_SCRIPT_PATH, ".pxl-autograde/py.py");
+  assert.ok(
+    !write.run.includes("import sys") && !write.run.includes('"a: b"'),
+    "the script must reach the file through env:, never composed into the shell text"
+  );
+  assert.match(write.run, /"\$PXL_SCRIPT"/, "and the run text reads it from the environment");
+
+  assert.equal(grade.uses, "classroom-resources/autograding-python-grader@v1");
+  assert.equal(grade.with.command, "python3 .pxl-autograde/py.py", "it runs the script, not pytest");
+  assert.ok(
+    !JSON.stringify(grade.with).includes("pytest"),
+    "`pytest` was the fallback that silently replaced the lecturer's script"
+  );
+});
+
+test("the CLI runners and the Actions generator agree that `script` is the authoritative field", () => {
+  const generator = readFileSync(join(root, "provisioning", "provision.mjs"), "utf8");
+  // Bounded at the next `} else {` - the branch after this one is the command
+  // grader, whose `command: t.command` would satisfy the assertion below and
+  // make this test pass against nothing.
+  const pythonStart = generator.indexOf('t.type === "python"');
+  const pythonBranch = generator.slice(pythonStart, generator.indexOf("} else {", pythonStart));
+  assert.ok(pythonStart > 0 && pythonBranch.length > 0, "the python branch must still be findable");
+  assert.ok(pythonBranch.includes("t.script"), "the generator reads script");
+  assert.ok(
+    !/command:\s*t\.command/.test(pythonBranch),
+    "and must not fall back to command - that is the fork this test exists to stop"
+  );
+  assert.ok(!/t\.setup_command/.test(pythonBranch), "setup_command is not a schema field");
+
+  for (const runner of ["runner-host.mjs", "runner-docker.mjs"]) {
+    const src = readFileSync(join(root, "cli", "src", "lib", runner), "utf8");
+    // `if (` matters: runner-docker's imageFor() tests the same expression 60
+    // lines earlier, and a slice from there covers the run/io branches too.
+    const start = src.indexOf('if (test.type === "python")');
+    assert.ok(start > 0, `${runner} must still have a python branch`);
+    const branch = src.slice(start);
+    assert.ok(branch.includes("test.script"), `${runner} reads script`);
+    assert.ok(!branch.includes("test.command"), `${runner} must not read command for a python test`);
+  }
+});
+
+test("the schema refuses a python test with no script", () => {
+  const assignment = parse(readFileSync(join(root, "tests", "fixtures", "valid-assignment.yml"), "utf8"));
+  const withAutograde = (t) => ({ ...assignment, autograde: { enabled: true, tests: [t] } });
+
+  const ok = validateAgainst("assignment", withAutograde({ id: "py", type: "python", script: "print(1)", points: 1 }));
+  assert.equal(ok.valid, true, JSON.stringify(ok.errors));
+
+  const bad = validateAgainst("assignment", withAutograde({ id: "py", type: "python", command: "pytest", points: 1 }));
+  assert.equal(bad.valid, false, "a python test carrying only `command` runs an empty script on every runner");
+  assert.ok(bad.errors.some((e) => e.params?.missingProperty === "script"), JSON.stringify(bad.errors));
 });
 
 test("no tests, and no autograde block at all, both still produce valid YAML", () => {

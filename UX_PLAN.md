@@ -59,30 +59,18 @@ UX13 (late policy), UX14 (acceptance mode).
 
 It splits into two halves that share a theme but not a commit:
 
-* **The mechanical half** — §3.1, §3.3–§3.5. Small, reviewable in one pass, and
-  it lands first because every other workstream sits on top of a form whose
-  defaults are currently wrong.
+* ~~**The mechanical half** — §3.1, §3.3–§3.5.~~ **Shipped.** The roster default
+  is `enforced`, the one-value `acceptance_mode` select is gone, a `python`
+  autograde test means `script` on every runner (and the schema requires it),
+  and the draft count reads each assignment's `state` instead of counting files.
+  CLAUDE.md and ARCHITECTURE §5.4, §10.3 and §11.6 carry the durable rules.
 * **The enforcement half** — §3.2. The largest change in the plan. It restructures
   `lockdown.mjs`, adds a new trigger mechanism, and has its own five-step sequence
-  (§3.2.9). Nothing else in the plan waits on it.
+  (§3.2.9). Steps 1–4 are shipped; step 5 is blocked on an App permission
+  rollout, not on code. Nothing else in the plan waits on it.
 
-§3.2.5 also contains a **live bug found while planning it** — deadline extensions
-do not work — which should ship before either half.
-
-### 3.1 `roster_mode` defaults to `enforced`
-
-`AdminView.vue:1350` writes `roster_mode: 'open'` into every new assignment.
-`accept.mjs` fails closed to `enforced` for any unrecognised value, so the form
-is the only thing choosing the permissive setting — and the hint underneath it
-already says *"Anyone with the link can claim a repo."*
-
-* `emptyForm()` → `roster_mode: 'enforced'`.
-* `max_acceptances` stays at its current default and stays optional under
-  `enforced`; the `open`-requires-a-cap rule in `fieldErrors` is unchanged.
-* Existing assignments are untouched. This changes the default for new ones only.
-
-**Test:** `tests/admin-lifecycle-ui.test.mjs` — a new assignment's `buildDoc()`
-carries `roster_mode: 'enforced'`; the `open` path still requires a cap.
+§3.2.5 also contained a **live bug found while planning it** — deadline
+extensions did not work — which shipped first, as WS0.
 
 ### 3.2 `late_policy: block` — enforced at the deadline, not reconstructed after it
 
@@ -492,39 +480,6 @@ cannot call it yet without a control-repo checkout. That is step 3's problem.
 
 Steps 1–4 are shipped. Step 4 is shipped **disabled** (RUNBOOK §7.1).
 Each step is useful on its own and none of them requires the next.
-### 3.3 `acceptance_mode` — control removed, field kept
-
-One enum value, so no decision to make (C1). Remove the `<select>` from
-*Advanced*; leave the schema field and `pages/generate.mjs` alone so existing
-YAMLs keep validating and the public card is unchanged.
-
-### 3.4 Python autograde tests work on both runners, or on neither
-
-`provisioning/provision.mjs:183` ignores `t.script` and emits
-`t.command || "pytest"` plus a `setup_command` that is not a schema field. The
-CLI runners (`runner-host.mjs:62`, `runner-docker.mjs:88`) write `t.script` to
-`t.py` and run it. So the same test definition means two different things.
-
-**Fix:** the GitHub Actions generator writes the script to a file and runs it, the
-way the CLI runners do — one step that `cat > t.py <<'EOF'`-equivalents the script
-via `actions/github-script` or a heredoc-free `run:` with the script in `env:`,
-then invokes it. `setup_command` is either added to the schema or dropped; dropped
-is preferable until someone asks for it.
-
-**Test:** `tests/sweep-correctness.test.mjs` gains a case asserting a `python`
-test's `script` survives into the generated workflow, and that the two runners
-agree on which field is authoritative.
-
-### 3.5 The draft count reads `state`
-
-`DashboardView.vue:863` sets `draftCount = ymls.length` when `dashboard.json` is
-absent — every assignment, whatever its state — and the copy says *"publish to
-track them here"* to someone who published two minutes ago.
-
-**Fix:** parse each YAML's `state` (the files are already fetched) and count only
-`draft`. When the count is zero but files exist, the message becomes *"Published
-assignments appear here once the first report is generated"* — which is C3's rule
-applied to a sentence.
 
 ---
 
@@ -875,8 +830,8 @@ enforcement half (§3.2) is the largest change in the plan, restructures
 `lockdown.mjs`, and has its own five-step sequence in §3.2.9. They share a theme,
 not a commit.
 
-**WS1's small half must precede WS5**, because the cohort panel reads
-`roster_mode` and `late_policy` to describe the assignment accurately. The
+~~**WS1's small half must precede WS5**~~ — **shipped**, so WS5 can read
+`roster_mode` and `late_policy` and describe the assignment accurately. The
 enforcement half does not block anything else.
 
 **WS2 and WS4 before WS5.** WS5's layout is mostly composition of things those two

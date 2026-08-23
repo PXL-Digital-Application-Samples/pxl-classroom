@@ -181,13 +181,35 @@ export function buildAutogradingWorkflow(assignment, org) {
         },
       });
     } else if (t.type === "python") {
+      // `script` is the ONLY field a python test reads, here and on both CLI
+      // runners (`runner-host.mjs` and `runner-docker.mjs` each write it to
+      // `t.py` and run `python3` over it). This used to emit
+      // `t.command || "pytest"` and ignore `script` entirely - and the Admin
+      // Panel only ever writes `script` - so the same test definition meant the
+      // lecturer's script on the CLI and the student repo's own pytest suite on
+      // Actions. The schema now requires `script` for `type: python`, so there
+      // is no second field left to disagree about.
+      //
+      // The script reaches the file through `env:`, never through the run text.
+      // Pasting it in is F15 again: the first quote in a lecturer's source
+      // closes the string and every student's workflow stops parsing.
+      const scriptPath = `.pxl-autograde/${runnerId}.py`;
+      steps.push({
+        name: `Write ${runnerId} script`,
+        run: `mkdir -p .pxl-autograde\nprintf '%s' "$PXL_SCRIPT" > "$PXL_SCRIPT_PATH"\n`,
+        env: { PXL_SCRIPT: String(t.script ?? ""), PXL_SCRIPT_PATH: scriptPath },
+      });
       steps.push({
         ...common,
         uses: "classroom-resources/autograding-python-grader@v1",
         with: {
           "test-name": String(t.id ?? "test"),
-          "setup-command": t.setup_command || "pip install pytest",
-          command: t.command || "pytest",
+          // The CLI runners install nothing before running the script, so
+          // neither does this. `setup_command` was read here and is not a
+          // schema field - `additionalProperties: false` means it could never
+          // legitimately arrive.
+          "setup-command": "",
+          command: `python3 ${scriptPath}`,
           timeout: t.timeout_s || 10,
           "max-score": t.points || 1,
         },

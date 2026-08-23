@@ -314,6 +314,7 @@ Done by a lecturer.
 | Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}` |
 | Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
+| Who may accept | **`enforced` by default** - only logins in `students/roster.yml` (import them on the **Roster** tab; an empty roster means nobody can accept). Switch to `open` only for a cohort you do not know up front, e.g. an exam - it removes the roster gate entirely and then requires a cap (§12.4). |
 | Max acceptances | guardrail: cap on accepted students (default 150; leave empty for no cap; 0 is rejected) |
 | Lock down student repos at the deadline | default on |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §12.7) |
@@ -907,12 +908,21 @@ autograde:
   execution_environment: github_actions
   visibility: public
   tests:
-    - name: "Test 1: Hello World"
+    - id: hello-world                      # lowercase slug; `id`, not `name`
       type: run
       command: "pytest tests/test_lab.py"
       timeout_s: 5
       points: 5
+    - id: validator
+      type: python
+      script: |                            # `script`, not `command` - see below
+        import subprocess
+        assert subprocess.run(["./solution"]).returncode == 0
+      timeout_s: 15
+      points: 10
 ```
+
+**A `python` test is its `script`, and nothing else.** Every runner - `--runner host`, `--runner docker`, and the generated Actions workflow - writes `script` to a file and executes it; `command` is ignored, and the schema rejects a `python` test that has no `script`. Write the assertions you want run directly in `script`. If you want pytest, use `type: run` with `command: pytest ...` instead: a `script` is executed by the interpreter, so a file that only *defines* `def test_x()` passes without testing anything. And nothing is installed before it runs - `setup_command` was read by the Actions generator, was never a schema field, and is gone - so keep a python test to the standard library plus whatever the repository itself provides.
 
 #### Option A: Lecturer-side (CLI-only)
 
@@ -936,7 +946,7 @@ Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.jso
 When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions whenever the student pushes code.
 
 - **Template Preservation**: If the assignment's template repository already contains a custom autograding workflow (`.github/workflows/autograding.yml` or `classroom.yml`, such as standard GitHub Classroom or Cloud PE workflows), it is preserved during provisioning without overwrite.
-- **Workflow Generation**: If no workflow exists in the template, provisioning injects a workflow utilizing `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter`.
+- **Workflow Generation**: If no workflow exists in the template, provisioning injects a workflow utilizing `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter`. A `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is the same thing the CLI runners do, which is what makes a test definition mean one thing on both paths.
 - **Guardrails**: The generated workflow automatically enforces `timeout-minutes: 10` (preventing infinite loops from burning runner quotas) and `concurrency: { cancel-in-progress: true }` (cancelling obsolete runs if a student pushes repeatedly).
 - **Visibility `private`**: The injected workflow calls a reusable workflow stored in the control repository (`pxl-classroom-control`), hiding the actual tests and commands from the student's view.
 - **Visibility `public`**: The tests are executed openly in the student's repository, allowing them to see exactly what commands are run.
