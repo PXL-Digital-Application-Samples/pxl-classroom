@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, copyFileSync, mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { signInviteToken, generateKeyPair, inviteFileFor } from "../lib/invite-token.mjs";
@@ -181,4 +181,43 @@ test("generate.mjs outputs assignments as an empty object if no assignments dire
   assert.equal(output.schema_version, 1);
   assert.ok(output.assignments && typeof output.assignments === "object" && !Array.isArray(output.assignments), "assignments output must be a non-array object");
   assert.equal(Object.keys(output.assignments).length, 0);
+});
+
+test("a deleted assignment's card is pruned from the public site", () => {
+  // Found live: deleting an assignment left its acceptance card fetchable on
+  // Pages for anyone who kept the link, and for a group assignment the teams
+  // file beside it lists member logins. The generator owns public/i entirely,
+  // so anything it did not just write is stale.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-prune-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  const outDir = join(dir, "public");
+  mkdirSync(join(outDir, "i"), { recursive: true });
+  mkdirSync(join(outDir, "teams"), { recursive: true });
+
+  const stale = "d".repeat(64);
+  writeFileSync(join(outDir, "i", `${stale}.json`), "{}");
+  writeFileSync(join(outDir, "i", `${stale}.teams.json`), "{}");
+  // public/teams predates the move behind the invitation digest.
+  writeFileSync(join(outDir, "teams", "old.json"), JSON.stringify({ teams: [{ members: ["someone"] }] }));
+
+  const token = mintToken("PXLAutomation", "test-valid");
+  const base = readFileSync(fix("valid-assignment.yml"), "utf8");
+  writeFileSync(
+    join(dir, "assignments", "test-valid.yml"),
+    `${base}\ninvite_token: ${token}\ninvite_nonce: 0badc0de\n`
+  );
+
+  const res = spawnSync("node", [join(here, "..", "pages", "generate.mjs")], {
+    env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir },
+    encoding: "utf8",
+  });
+  assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+
+  const remaining = readdirSync(join(outDir, "i"));
+  assert.deepEqual(
+    remaining.sort(),
+    [`${inviteFileFor(token)}.json`],
+    "only the live assignment's card may survive"
+  );
+  assert.ok(!existsSync(join(outDir, "teams")), "legacy public/teams must be removed");
 });

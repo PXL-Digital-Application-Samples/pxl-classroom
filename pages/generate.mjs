@@ -11,7 +11,7 @@
 // Inputs via env: DATA_DIR, OUTPUT_DIR
 // Outputs via GITHUB_OUTPUT: generated_count
 
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -25,6 +25,33 @@ async function setOutput(name, value) {
 async function summary(md) {
   if (process.env.GITHUB_STEP_SUMMARY)
     await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+}
+
+// Assignments get deleted, closed, or reverted to draft. Without pruning, the
+// acceptance card of one that no longer exists stays fetchable on a public site
+// for anyone who kept the link - and for a group assignment the teams file
+// beside it lists member logins. Found by a live run: deleting a test
+// assignment left its card behind.
+//
+// `git add public/` stages deletions, so removing the file here is enough for
+// regenerate-dashboard.yml to publish the removal.
+async function pruneStalePublicFiles(outputDir, expected) {
+  const inviteDir = join(outputDir, "i");
+  if (existsSync(inviteDir)) {
+    for (const name of await readdir(inviteDir)) {
+      if (expected.has(name)) continue;
+      await rm(join(inviteDir, name), { force: true });
+      console.log(`[ok] Pruned stale invitation file ${name}`);
+    }
+  }
+  // public/teams/ predates the move behind the invitation digest. Anything
+  // still there is a public cohort list for an assignment that no longer
+  // publishes one.
+  const legacyTeams = join(outputDir, "teams");
+  if (existsSync(legacyTeams)) {
+    await rm(legacyTeams, { recursive: true, force: true });
+    console.log("[ok] Removed legacy public/teams - teams now live behind the invitation digest");
+  }
 }
 
 async function main() {
@@ -48,6 +75,7 @@ async function main() {
 
   const files = (await readdir(assignmentsDir)).filter((f) => f.endsWith(".yml"));
   const assignments = {};
+  const expectedInviteFiles = new Set();
 
   for (const file of files) {
     const def = await loadYaml(join(assignmentsDir, file));
@@ -118,6 +146,7 @@ async function main() {
         join(outputDir, "i", `${inviteFile}.json`),
         JSON.stringify({ schema_version: 1, assignment: card }, null, 2) + "\n"
       );
+      expectedInviteFiles.add(`${inviteFile}.json`);
     } else {
       // Published before signed invitations existed, or published by hand.
       // Republish mints one; until then the link cannot resolve.
@@ -176,6 +205,7 @@ async function main() {
         join(publicTeamsDir, `${inviteFile}.teams.json`),
         JSON.stringify({ schema_version: 1, assignment_id: def.id, teams: publicTeams }, null, 2) + "\n"
       );
+      expectedInviteFiles.add(`${inviteFile}.teams.json`);
     }
   }
 
@@ -189,6 +219,8 @@ async function main() {
     join(outputDir, "assignments.json"),
     JSON.stringify(output, null, 2) + "\n"
   );
+
+  await pruneStalePublicFiles(outputDir, expectedInviteFiles);
 
   const count = Object.keys(assignments).length;
   await setOutput("generated_count", String(count));
