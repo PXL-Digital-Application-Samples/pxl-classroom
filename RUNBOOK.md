@@ -83,6 +83,34 @@ node scripts/generate-invite-keypair.mjs 1
 
 **Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
 
+#### 1.3.2 The `provisioning` environment
+
+Every hub job that holds `PXL_APP_PRIVATE_KEY` or `PXL_INVITE_SIGNING_KEY` declares `environment: provisioning`. That environment allows deployments from `main` only, and a job naming an environment does not start when the run's ref is outside the policy - which is what stops a `workflow_dispatch --ref <other-branch>` from running hub code with a credential in scope (ARCHITECTURE §4.3.4).
+
+Create it once, on the hub:
+
+```bash
+gh api --method PUT repos/PXL-Digital-Application-Samples/pxl-classroom/environments/provisioning -f 'deployment_branch_policy[protected_branches]=false' -f 'deployment_branch_policy[custom_branch_policies]=true'
+```
+
+Then add `main` as the only allowed branch:
+
+```bash
+gh api --method POST repos/PXL-Digital-Application-Samples/pxl-classroom/environments/provisioning/deployment-branch-policies -f name=main -f type=branch
+```
+
+Do **not** add required reviewers or a wait timer: acceptance runs synchronously and would stall behind an approval.
+
+**Second layer, when convenient.** The three secrets currently live as repository secrets, which the jobs can still read. Moving them into the `provisioning` environment means a job that does not name the environment cannot read them at all. GitHub never discloses a stored secret, so this needs the values re-entered by hand - the App private key from your own copy, and the invitation key regenerated per §1.3.1 (which retires links already handed out, so republish afterwards).
+
+**Blocking ad-hoc branch creation.** Not yet applied. A ruleset stops anyone but an admin creating branches on the hub, which removes the other half of the branch-ref path. `participating-orgs` is excluded because `setup-org.yml` creates it on a fresh hub:
+
+```bash
+gh api --method POST repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets --input ruleset.json
+```
+
+with `ruleset.json` containing target `branch`, enforcement `active`, rule `creation`, `conditions.ref_name.include` of `~ALL` excluding `refs/heads/participating-orgs`, and bypass actors for OrganizationAdmin and the repository admin role.
+
 ### 1.4 Install the App on the hub's owning org, scoped narrowly
 
 The broker workflows mint tokens against this installation to dispatch into the hub. Scope it tightly.

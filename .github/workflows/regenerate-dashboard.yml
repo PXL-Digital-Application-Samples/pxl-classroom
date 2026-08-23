@@ -13,6 +13,7 @@ jobs:
       org: ${{ inputs.org }}
 
   generate:
+    environment: provisioning
     needs: find-orgs
     if: needs.find-orgs.outputs.orgs != '[]'
     strategy:

@@ -37,6 +37,7 @@ permissions:
 
 jobs:
   sync-starter:
+    environment: provisioning
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

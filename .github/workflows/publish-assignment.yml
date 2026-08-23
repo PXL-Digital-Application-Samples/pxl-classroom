@@ -25,9 +25,27 @@ permissions:
 
 jobs:
   publish:
+    environment: provisioning
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # A lecturer dispatches these as themselves, through the SPA or the
+      # Actions tab. The only other thing that can reach workflow_dispatch here
+      # is an App installation token - which is what a stolen broker credential
+      # would be - and it arrives as `<app-slug>[bot]`. Deny that identity
+      # rather than maintaining an allowlist of people.
+      #
+      # It does NOT stop a stolen user credential, which acts as its owner. That
+      # is the residual, and rulesets plus the provisioning environment are what
+      # bound it.
+      - name: Reject automated dispatch
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "::error::$ACTOR may not dispatch this workflow; a lecturer must run it"
+          exit 1
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       
       - name: Mint App token for Org

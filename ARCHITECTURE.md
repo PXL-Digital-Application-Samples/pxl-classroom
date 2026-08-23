@@ -167,6 +167,16 @@ The acceptance card now lives at `data/<org>/i/<sha256(invite_token)>.json`, and
 **The residual is deliberate.** An outsider can still enumerate assignment titles and deadlines per org. After §4.3.2 that discloses course structure; it grants nothing, because acceptance needs a signed invitation. Removing it entirely would mean either breaking the student portal or writing per-student data to a public site, and neither is a trade worth making for a title.
 
 The invitation token is in the URL path, so `frontend/index.html` sets `<meta name="referrer" content="no-referrer">` - otherwise every cross-origin subresource, Google Fonts included, would receive it as a `Referer` header.
+
+#### 4.3.4 Hub defence in depth
+
+`workflow_dispatch` runs the workflow file from whichever ref the caller names, and the `participating-orgs` branch carries deliberately lighter protection (§5.5) so automation can commit the org registry to it. Those two facts compose into a way to run hub code at an attacker-influenced ref with the App private key in scope. §4.3.1 and §4.3.2 close the realistic route to *obtaining* that key; this bounds what holding one would be worth.
+
+- **Every job holding a hub credential names the `provisioning` environment**, whose deployment branch policy allows `main` only. A job that names an environment does not start when the run's ref falls outside that policy - so the branch-ref path is closed by the reference itself, independent of where the secret is stored. Thirteen jobs across eleven workflows; `tests/workflow-hardening.test.mjs` fails if a new one forgets.
+- **The admin workflows refuse an automated dispatch.** `setup-org.yml`, `retry-acceptance.yml` and `publish-assignment.yml` reject a `workflow_dispatch` whose actor ends in `[bot]`, as the first step, before anything mints a token. A lecturer dispatches as themselves through the SPA or the Actions tab; an App installation token - what a stolen broker credential would be - arrives as `<slug>[bot]`. `retry-acceptance` can provision for an arbitrary login with the window bypassed and `setup-org` creates org-level state, so neither should be reachable by a credential rather than a person.
+- **Hub credentials are never exposed at workflow or job level**, only on the steps that need them, so a third-party action elsewhere in the job never sees one.
+
+**Residual, accepted.** The actor guard does not stop a stolen *user* credential, which acts as its owner. Moving `PXL_APP_PRIVATE_KEY`, `PXL_APP_CLIENT_ID` and `PXL_INVITE_SIGNING_KEY` from repository secrets into the `provisioning` environment would add a second layer - a job that does not name the environment could then not read them at all - and is worth doing when someone can re-enter the values, since GitHub never discloses a stored secret. See RUNBOOK §1.3.2.
 - **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern; see RUNBOOK §9.
 - **Per-org control-repo compromise.** Restricted to that single org's data.
 - **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.

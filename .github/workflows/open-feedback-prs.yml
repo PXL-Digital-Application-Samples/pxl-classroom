@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   open-prs:
+    environment: provisioning
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
