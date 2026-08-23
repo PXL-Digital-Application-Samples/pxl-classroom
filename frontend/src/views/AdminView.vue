@@ -640,8 +640,7 @@
             <div class="field">
               <label>Acceptance mode</label>
               <select v-model="form.acceptance_mode">
-                <option value="self-service">self-service (student stars broker)</option>
-                <option value="pre-provisioned">pre-provisioned (lecturer creates repos in advance)</option>
+                <option value="self-service">self-service (student opens their invitation link)</option>
               </select>
             </div>
           </details>

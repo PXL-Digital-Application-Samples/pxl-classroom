@@ -41,6 +41,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
   - Workflows sleep when idle, and weekly audits monitor SKU billing limits.
 - **Student & Team Self-Service:**
   - One-click repository provisioning in 15-30s.
+  - Acceptance is gated by a signed invitation link, verified on the public broker before any credential is used, so a caller without the link cannot cause work.
   - Students can form teams, join groups under capacity limits, or switch teams before deadlines.
 - **Smart Starter Code Synchronization:**
   - Distribute template fixes or new test suites to active student repositories with one click.
@@ -68,6 +69,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 | **Resource & Billing Audits** | None (standard GitHub billing page) | None (standard GitHub billing page) | Automated weekly SKU billing audits with @-mention alerts |
 | **Student Repository Role** | Write only (Restricted) | Write only (Restricted) | Admin (Enables Secrets, Environments, Runners, OIDC) |
 | **Student Self-Service Acceptance** | Web redirect with background queue | Web portal acceptance link | Instant 1-click provisioning (repository ready in 15-30s) |
+| **Invitation Link Security** | Opaque token, validated server-side | Portal link | Ed25519-signed token, verified at the edge before any credential is in scope |
 | **Roster Management** | CSV import or LMS sync (Strict) | Org-level repository roster | Dual-Mode: Enforced roster or Open signup with student caps |
 | **Team Formation Self-Service** | Basic team selection from preset list | Basic team repository creation | Full self-service team creation, capacity limits, and team switching |
 | **Assignment Creation Flow** | Multi-step web form | Web configuration form | 1-Click publish from web Admin Panel with instant validation |
@@ -122,9 +124,9 @@ graph LR
     SPA[GitHub Pages SPA]
     CLI[pxl-classroom CLI]
 
-    Student[Student] --> SPA
-    SPA -->|Star| Broker
-    Broker -->|Dispatch| Hub
+    Student[Student] -->|Invitation link| SPA
+    SPA -->|Signed invitation| Broker
+    Broker -->|Verify, then dispatch| Hub
     Hub --> Control
     Hub --> Archive
     Lecturer[Lecturer] --> SPA
@@ -162,7 +164,7 @@ npx pxl-classroom feedback open --org my-org --assignment lab-1
 | `acceptance/`, `provisioning/`, `lockdown/`, `preserve/`, `report/` | Composite actions |
 | `frontend/` | Vue 3 single page application |
 | `cli/` | Companion `@pxl-classroom/cli` package |
-| `lib/` | Shared utility modules (yaml, gh, gittree, audit) |
+| `lib/` | Shared utility modules (yaml, gh, gittree, audit, invite-token) |
 | `schemas/` | JSON schemas for assignments, rosters, teams, reports, grading |
 | `control-repo-template/` | Template scaffold for new organization control repos |
 | `tests/`, `cli/tests/` | Unit and integration test suites |

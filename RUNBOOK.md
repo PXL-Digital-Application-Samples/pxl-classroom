@@ -44,7 +44,7 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
    GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** - store them per §1.3 immediately. (If the exchange fails - the code is single-use and expires after one hour - the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
 4. Account permissions are **not in the installation manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
-   - Account: **Starring RW** - required so students can star the broker to trigger acceptance.
+   - Account: **Starring RW** - legacy. Acceptance no longer stars the broker (ARCHITECTURE §4.3.2); the student opens an issue carrying their signed invitation. Harmless to leave granted.
    - Account: **Email addresses: Read** (optional) - allows reading verified student emails during acceptance/login.
 
 ### 1.3 Set hub secrets
@@ -368,7 +368,8 @@ Each org's control repo has an open issue titled **PXL Classroom - Instructor No
 
 | Event | Meaning |
 |---|---|
-| `provisioning-failed` | A student accepted but the repo wasn't created. Most often: GitHub rate limit during a burst. The student can re-star the broker to retry. |
+| `provisioning-failed` | A student accepted but the repo wasn't created. Most often: GitHub rate limit during a burst. The student retries by opening their invitation link again. |
+| `acceptance-rejected` | A student was turned away - not on the roster, outside the window, or the cap is full. The reason is in the comment. Deduped per assignment+login+reason, so a student retrying the same closed door updates one comment rather than adding another. |
 | `collection-failed` | The nightly collect step couldn't reach a student's repo. Usually transient. |
 | `deadline-gap` | An observation gap straddles a deadline. Reduces evidence quality; mention in grading. |
 | `missing-access` | The reconcile step found a repo where the student's admin grant has been revoked. |
@@ -396,7 +397,7 @@ To restore:
 
 1. In the control repo, delete `repositories/<id>/<login>.json`.
 2. (Optional) delete `acceptances/<id>/<login>.json` if you want them to re-confirm acceptance.
-3. Ask the student to re-star the broker. Acceptance handler re-provisions because the registry no longer shows them.
+3. Ask the student to open their invitation link and accept again. The acceptance handler re-provisions because the registry no longer shows them.
 
 ### 6.2 Grant an extension
 
@@ -410,7 +411,8 @@ To restore:
 Possible causes:
 
 - **They starred but signed out before the SPA could detect the repo.** Ask them to re-open the assignment URL. The SPA polls `/repos/<org>/<expected-name>` and `/user/repository_invitations` - if the repo exists, they'll see the link.
-- **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can unstar and re-star the broker. Alternatively, a lecturer can trigger **Retry acceptance** for the student from the Admin Panel or the assignment detail view.
+- **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can simply accept again from their invitation link. Alternatively, a lecturer can trigger **Retry acceptance** for the student from the Admin Panel or the assignment detail view.
+- **A student says the Accept button does nothing.** If the page reports "GitHub is blocking your request", their GitHub account has been flagged and its content is hidden from everyone but themselves - the acceptance issue is created and removed before the broker sees it. Confirm with `gh api users/<login>`: a flagged account returns 404 to everyone else and 200 to itself. Only GitHub Support can lift it; provision the student manually in the meantime.
   - *Lecturer Retry Flow:* The SPA validates the student login (against roster/records/reports/GitHub), checks if the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run.
 - **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button. If a student needs to accept outside the window, the lecturer must trigger a retry acceptance (which prompts to bypass window checks).
 - **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or via Admin Panel) or reject.
@@ -522,7 +524,7 @@ A bot stars many brokers from many accounts.
 
 1. Edit affected `assignments/<id>.yml` - set `state: closed`. Acceptance handler rejects new attempts on closed assignments.
 2. Optionally lower `max_acceptances` to the current accepted count.
-3. Disable the broker repository (org Settings -> archive the broker repo) - `watch:started` does not fire on archived repos.
+3. Set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner (ARCHITECTURE §4.3.2). Archiving the broker repository also works, but the variable is reversible in one click.
 4. Reconcile in Admin Panel to identify any provisioned bot repos; delete them in bulk.
 
 ### 9.4 Hub workflow file was modified by a fork PR

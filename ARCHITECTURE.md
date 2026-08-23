@@ -257,14 +257,26 @@ deadline_at: 2026-10-05T21:59:59Z
 timezone: Europe/Brussels
 submission_ref: refs/heads/main
 student_permission: admin             # pull|triage|push|maintain|admin
-acceptance_mode: self-service         # self-service|pre-provisioned
+acceptance_mode: self-service         # self-service is the only implemented mode
 roster_mode: enforced                 # enforced|open - who may accept (§15).
                                       # open requires max_acceptances.
 late_policy: report                   # report|block
 state: published                      # draft|published|closed|archived
 max_acceptances: 150
 lock_down_enabled: true
+
+# Written by publish-assignment.yml, never by hand. The token is a capability:
+# it stays in this PRIVATE repo and reaches Pages only as a sha256 filename
+# (§4.3.2, §4.3.3). Republishing reuses the nonce and expiry so links already
+# handed out keep working; regenerate_invite mints a new one and retires them.
+invite_token: AQGL...w9NAj9P              # signed, 122 chars
+invite_nonce: 63ad9fbc                    # mirrored to the broker's INVITE_NONCE
+invite_expires_at: 2027-09-27T01:27:18Z
 ```
+
+**`acceptance_mode` has one implemented value.** A `pre-provisioned` mode - the lecturer creates repositories up front and GitHub sends its own repository invitations - was offered in the schema and the Admin Panel but implemented in no code path, so selecting it silently produced self-service behaviour. It has been removed rather than left as a trap; see §16.
+
+**`roster_mode` is independent of it.** `acceptance_mode` is *how* a repository is created; `roster_mode` is *who* may accept. Rosters apply to self-service acceptance exactly as before, and `enforced` remains the default (§15).
 
 ### 5.5 Participating-orgs registry
 
@@ -595,7 +607,8 @@ A regression guard test (`tests/cors.test.mjs`) fails CI if `auth.js` ever direc
 
 ### 10.3 Data sources
 
-- **Public assignment list:** static Pages JSON at `/data/<org>/assignments.json`, fetched from the hub Pages site. The build pipeline gathers these files from each participating organization's control repository using `scripts/fetch-pages-data.mjs` before constructing the SPA, while `pages/generate.mjs` outputs the object format keyed by ID in the control repo.
+- **Acceptance card:** static Pages JSON at `/data/<org>/i/<sha256(invite_token)>.json`, one file per invitation, with a group assignment's teams file beside it as `<sha256>.teams.json`. Fetching it requires the link (§4.3.3). `pages/generate.mjs` writes these into each control repo's `public/`, and `scripts/fetch-pages-data.mjs` gathers them into the SPA at build time.
+- **Portal index:** `/data/<org>/assignments.json`, reduced to the fields the student portal needs to match a signed-in student's own repositories against an assignment. It carries nothing that would let an outsider size up or reach one.
 - **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch - not N per-student calls.
 - **Student status:** the student's own token reads `/repos/<org>/<expected-name>` and `/user/repository_invitations` - never the control repo.
 - **Refresh / Live Status & Student Hover Tooltips (AssignmentDetailView).** The per-assignment detail view exposes a "Refresh" button that re-queries `/repos/<org>/<repo>/commits?per_page=1` for each provisioned student (concurrency 6) and recomputes `submission_status` against `effective_deadline_at` with nightly semantics: a post-deadline commit never downgrades a student who has an on-time submission on record (it records `first_late_sha`, not a `late` status). Refresh also captures `author_name` and `author_email` from commit objects. Hovering over a student's username renders a smart tooltip resolving identity across a 4-tier hierarchy: (1) institutional roster (`students/roster.yml`), (2) Git commit author email/name (prioritizing real email, suppressing noreply addresses and bot names), (3) GitHub public user profile (`GET /users/{login}`, batched in the background without blocking render), and (4) clean fallback. The updated `reports/<id>.json` is committed back to the control repo with `live_refreshed_at` + `live_refreshed_by` set - but only when every student refreshed successfully; a partial refresh (rate limit, transient errors) is surfaced and not persisted. Backend `collect/collect.mjs` also gathers `commit_count`, `commit_date`, `author_name`, and `author_email` during scheduled runs so static reports populate automatically. The view's CSV export is generated client-side from the report currently on screen, matching the table.
@@ -720,7 +733,7 @@ The engine evaluates dependencies in strict hierarchical order:
 3. **Tier 2 (Control Repo):** Control repository existence, privacy (`private: true`), and canonical scaffold directory integrity.
 4. **Tier 3 (Assignment & Template):** YAML schema validation, starter template accessibility, `is_template: true` verification on GitHub, and enforced roster file presence.
 5. **Tier 4 (Acceptance Broker):** Broker repository existence, public visibility (`private: false`), and `.github/workflows/acceptance-trigger.yml` integrity.
-6. **Tier 5 (Student Edge & Pages):** Control repo `public/assignments.json` compilation, GitHub Pages CDN propagation, and student invitation link readiness.
+6. **Tier 5 (Student Edge & Pages):** Control repo `public/` compilation, GitHub Pages CDN propagation, and student invitation link readiness - an assignment published before signed invitations existed has no `invite_token`, so no acceptance card is generated and its link cannot resolve until it is republished.
 
 The Web UI integrates 1-click self-healing automated repairs (`mark_template`, `publish_broker`, `make_broker_public`, `deploy_pages`, `regen_dashboard`, `setup_org`, `navigate_roster`) that execute immediate remediation and automatically re-run diagnostics. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
 
@@ -810,6 +823,13 @@ On-demand runs are dispatch-and-watch operations. The SPA sends a unique `reques
 - LMS / LTI 1.3 direct gradebook sync.
 - Plagiarism / similarity detection (Dolos CLI plugin).
 - Multi-institution federated hosting.
+- **Pre-provisioning with timed handover.** Repositories created from the template ahead of time and held closed, with student access granted at a scheduled instant - the exam-day pattern, where everything is ready and the cohort starts together rather than each student racing a provisioning run.
+
+  Removed from `acceptance_mode` for now because it was declared and implemented nowhere (§5.4). Three things to settle before building it:
+
+  - **Precision costs minutes.** `daily-activity.yml` is nightly, so a handover accurate to the minute needs its own trigger. GitHub's cron is best-effort and can drift by 15 minutes or more under load, which is the wrong tool for "the exam starts at 09:00". A lecturer-pressed button at the moment of handover is precise, free, and honest about who decides; a scheduled workflow is convenient and approximate. Wave 8 (§6) argues for the button.
+  - **It replaces the invitation link rather than refining it.** With repositories already created, the student accepts a GitHub *repository invitation*, not a PXL link - so signed invitations (§4.3.2) do not apply to these assignments at all, and neither would per-student tokens.
+  - **It needs every student's GitHub login up front**, not just a roster of names and student numbers. A repository cannot be created from `repository_name_pattern` or have access granted without the login. This is the binding constraint, and it runs against the grain of how exams are actually run here: both live exam assignments use `roster_mode: open` (§15) *because* the cohort is not known when the assignment is published. Pre-provisioning is therefore incompatible with `open` by construction, and adopting it means adding a step where students register their GitHub username before exam day - a process change, not a code change. Worth settling that before building anything.
 
 ---
 

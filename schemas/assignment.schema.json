@@ -184,11 +184,10 @@
     "acceptance_mode": {
       "type": "string",
       "enum": [
-        "self-service",
-        "pre-provisioned"
+        "self-service"
       ],
       "default": "self-service",
-      "description": "How student repos are created: self-service (star event) or pre-provisioned."
+      "description": "How student repos are created. Only self-service is implemented: the student opens their invitation link and the repository is provisioned on acceptance. A pre-provisioned mode (lecturer creates repos up front, GitHub sends its own repository invitations) was offered here but implemented nowhere, so selecting it silently produced self-service behaviour."
     },
     "roster_mode": {
       "type": "string",
