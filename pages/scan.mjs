@@ -35,6 +35,12 @@ const RULES = [
   { name: "roster-field", re: /"(display_name|full_name|class_group|institutional_id)"\s*:/g },
   { name: "github-app-key", re: /\bv[0-9]+\.[0-9a-f]{40}\b/g },
   { name: "jwt-token", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./g },
+  // A signed invitation is a capability: anyone holding it can accept. It lives
+  // in the PRIVATE control repo and reaches Pages only as a sha256 FILENAME, so
+  // finding one in the body of a world-readable artifact means the generator
+  // just handed every visitor a working link. Matches the exact wire shape from
+  // lib/invite-token-format.mjs - 35 chars, a dot, 86 chars.
+  { name: "invitation-token", re: /\b[A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86}\b/g },
 ];
 
 async function* walk(p) {

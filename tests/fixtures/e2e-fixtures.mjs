@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
 import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
-import { signInviteToken, generateKeyPair } from '../../lib/invite-token.mjs'
+import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -49,11 +49,21 @@ export const STUDENT_2 = {
 // key. One pair per run keeps every token in a spec file mutually consistent.
 const E2E_KEYPAIR = generateKeyPair()
 
+// digest -> assignment id, per org. Built lazily, shared across the run.
+const digestIndex = new Map()
+
+// Fixed, not Date.now()-derived. Expiry is encoded at MINUTE granularity, so a
+// clock-based value makes inviteToken() impure: the spec's call and the route
+// mock's call landing either side of a minute boundary mint different tokens,
+// different digests, and a 404 for the acceptance card. That failed roughly one
+// run in four.
+const E2E_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z'
+
 export function inviteToken(org, assignmentId) {
   return signInviteToken({
     org,
     assignmentId,
-    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    expiresAt: E2E_TOKEN_EXPIRY,
     nonce: 'e2e00001',
     privateKeyPem: E2E_KEYPAIR.privateKeyPem,
   })
@@ -172,6 +182,45 @@ export async function setupStandardMockRoutes(page, {
         generated_at: new Date().toISOString(),
         assignments: orgAssignmentMap,
       }),
+    });
+  });
+
+  // Per-invitation Pages files. Named by the sha256 of the token, so the only
+  // way to find one is to hold the link - the org-wide index above no longer
+  // carries the acceptance card (ARCHITECTURE §4.3.3). The digest is matched
+  // back to an assignment by re-deriving it, exactly as the generator does.
+  await page.route(`**/data/*/i/*.json*`, async (route) => {
+    const url = route.request().url();
+    const match = url.match(/data\/([^/?#]+)\/i\/([0-9a-f]{64})(\.teams)?\.json/);
+    if (!match) {
+      await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not found' }) });
+      return;
+    }
+    const [, requestedOrg, digest, isTeams] = match;
+    const orgAssignmentMap =
+      allOrgAssignments[requestedOrg] || (requestedOrg === org ? assignments : {});
+
+    let asgnId = digestIndex.get(`${requestedOrg}/${digest}`) ?? null;
+    if (asgnId === null) {
+      // Signing is not free, and this route is hit on every navigation. Derive
+      // the whole org's digests once, then answer from the map.
+      for (const id of Object.keys(orgAssignmentMap)) {
+        digestIndex.set(`${requestedOrg}/${inviteFileFor(inviteToken(requestedOrg, id))}`, id);
+      }
+      asgnId = digestIndex.get(`${requestedOrg}/${digest}`) ?? null;
+    }
+    if (!asgnId) {
+      await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not found' }) });
+      return;
+    }
+
+    const body = isTeams
+      ? { schema_version: 1, assignment_id: asgnId, teams: teams[asgnId] || [] }
+      : { schema_version: 1, assignment: { id: asgnId, ...orgAssignmentMap[asgnId] } };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
     });
   });
 

@@ -339,7 +339,7 @@ import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
-import { acceptanceIssueTitle } from '../lib/invite.js'
+import { acceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
@@ -481,7 +481,7 @@ async function loadTeams() {
 
   // 1. Try fetching from Pages CDN static data
   try {
-    const url = `${import.meta.env.BASE_URL}data/${props.org}/teams/${props.assignment.id}.json?_t=${Date.now()}`
+    const url = `${await inviteTeamsUrl(props.org, props.inviteToken)}?_t=${Date.now()}`
     const res = await fetch(url)
     if (res.ok) {
       const data = await res.json()

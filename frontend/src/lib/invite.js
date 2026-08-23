@@ -16,6 +16,7 @@ import {
   subjectInput,
   subjectFromDigest,
   subjectsMatch,
+  inviteFileName,
 } from '../../../lib/invite-token-format.mjs'
 
 export { TOKEN_PATTERN }
@@ -101,4 +102,23 @@ export function parseInvitationLink(input) {
   if (bare) return { org: bare[1], inviteToken: bare[2] }
 
   return null
+}
+
+/**
+ * Where this invitation's assignment metadata lives on Pages.
+ *
+ * Named by the digest of the token, so the file can only be found by someone
+ * holding the link - the org-wide index no longer carries the acceptance card
+ * (ARCHITECTURE §4.3.3). Same rule as pages/generate.mjs, via the shared
+ * format module, because a mismatch here is a 404 for every student.
+ */
+export async function inviteDataUrl(org, token, base = import.meta.env.BASE_URL) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+  return `${base}data/${org}/i/${inviteFileName(digest)}.json`
+}
+
+/** Companion teams file for a group assignment, behind the same digest. */
+export async function inviteTeamsUrl(org, token, base = import.meta.env.BASE_URL) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+  return `${base}data/${org}/i/${inviteFileName(digest)}.teams.json`
 }

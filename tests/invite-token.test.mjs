@@ -12,7 +12,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -266,8 +266,47 @@ test("republishing keeps the link, regenerating retires it", () => {
 });
 
 test("the invitation token never reaches public Pages output", () => {
-  // pages/generate.mjs picks fields explicitly rather than copying the
-  // assignment, so this pins that invite_* is not among them.
-  const generate = readFileSync(join(root, "pages", "generate.mjs"), "utf8");
-  assert.ok(!/invite_token|invite_nonce/.test(generate), "invite_* must not be published to Pages");
+  // Generate for real and read the artifact, rather than grepping the source:
+  // the generator legitimately reads invite_token now, to derive the filename
+  // it publishes the card under. What matters is that the value itself never
+  // lands in anything world-readable.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-pages-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  const token = mint();
+  writeFileSync(
+    join(dir, "assignments", `${ID}.yml`),
+    [
+      "schema_version: 1",
+      `id: ${ID}`,
+      "title: Linux Processes",
+      `organization: ${ORG}`,
+      "state: published",
+      "opens_at: 2026-09-01T06:00:00Z",
+      "deadline_at: 2026-10-05T21:59:59Z",
+      `repository_name_pattern: ${ID}-{github_login}`,
+      `invite_token: ${token}`,
+      "invite_nonce: 0badc0de",
+      "",
+    ].join("\n")
+  );
+  const outDir = join(dir, "public");
+  execFileSync(process.execPath, [join(root, "pages", "generate.mjs")], {
+    env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir },
+    stdio: "pipe",
+  });
+
+  for (const file of readdirSync(outDir, { recursive: true })) {
+    const full = join(outDir, String(file));
+    if (!statSync(full).isFile()) continue;
+    assert.ok(
+      !readFileSync(full, "utf8").includes(token),
+      `${file} contains the invitation token`
+    );
+  }
+
+  // And the privacy scanner is the backstop if a future field ever carries one.
+  const scan = execFileSync(process.execPath, [join(root, "pages", "scan.mjs"), outDir], {
+    encoding: "utf8",
+  });
+  assert.match(scan, /clean/);
 });

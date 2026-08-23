@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { ORG, ASSIGNMENT_ID, LECTURER, STUDENT_1, STUDENT_2, injectAuth, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, ASSIGNMENT_ID, LECTURER, STUDENT_1, STUDENT_2, injectAuth, inviteUrl, inviteToken } from '../fixtures/e2e-fixtures.mjs';
+import { inviteFileFor } from '../../lib/invite-token.mjs';
 
 test.describe('07 - Multi-User Concurrent Live Browser Collaboration', () => {
   test('Lecturer, Student 1, and Student 2 interact simultaneously across isolated sessions', async ({ browser }) => {
@@ -25,7 +26,30 @@ test.describe('07 - Multi-User Concurrent Live Browser Collaboration', () => {
     await injectAuth(student2Page, STUDENT_2);
 
     // Setup live CDN data proxy for local dev server
+    const CARD = {
+      id: ASSIGNMENT_ID,
+      title: 'Test Groepsopdracht 2',
+      organization: ORG,
+      state: 'published',
+      opens_at: new Date(Date.now() - 3600000).toISOString(),
+      deadline_at: new Date(Date.now() + 86400000 * 14).toISOString(),
+      assignment_type: 'group',
+      group_config: { max_team_size: 3, formation_mode: 'self-service', allow_team_creation: true },
+    };
+    const DIGEST = inviteFileFor(inviteToken(ORG, ASSIGNMENT_ID));
+
     const setupDataProxy = async (page) => {
+      // The acceptance card and its teams file now live behind the digest of
+      // the invitation token, so there is nothing on the live CDN to proxy -
+      // these tokens are minted locally. Serve them directly.
+      await page.route(`**/data/${ORG}/i/${DIGEST}.json*`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ schema_version: 1, assignment: CARD }),
+        });
+      });
+
       await page.route(`**/data/${ORG}/assignments.json*`, async (route) => {
         try {
           const liveRes = await fetch(`https://pxl-digital-application-samples.github.io/pxl-classroom/data/${ORG}/assignments.json`);
@@ -60,7 +84,7 @@ test.describe('07 - Multi-User Concurrent Live Browser Collaboration', () => {
         });
       });
 
-      await page.route(`**/data/${ORG}/teams/${ASSIGNMENT_ID}.json*`, async (route) => {
+      await page.route(`**/data/${ORG}/i/${DIGEST}.teams.json*`, async (route) => {
         try {
           const liveRes = await fetch(`https://pxl-digital-application-samples.github.io/pxl-classroom/data/${ORG}/teams/${ASSIGNMENT_ID}.json`);
           if (liveRes.ok) {

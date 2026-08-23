@@ -345,7 +345,7 @@ import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
-import { acceptanceIssueTitle, resolveAssignmentFromToken } from '../lib/invite.js'
+import { acceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
@@ -497,20 +497,18 @@ async function loadAssignment(isRetry = false) {
   }
   error.value = null
   try {
-    const url = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json?t=${Date.now()}`
+    // Fetched by the digest of the invitation, not by assignment id: the
+    // org-wide index no longer carries the acceptance card, so holding the link
+    // is what makes this file findable at all (ARCHITECTURE §4.3.3).
+    const url = `${await inviteDataUrl(props.org, props.inviteToken)}?t=${Date.now()}`
     const res = await fetch(url, { cache: 'no-store' })
     if (res.ok) {
       // A non-JSON body (e.g. an HTML fallback for a missing data file)
-      // means the org has no published data - that's "not found", not an error.
+      // means there is no such invitation - that's "not found", not an error.
       let data = null
       try { data = await res.json() } catch { /* treat as not found */ }
-      // The token names its assignment by hash, so the id is matched against
-      // the published set rather than read out of the link.
-      const match = data?.assignments
-        ? await resolveAssignmentFromToken(props.inviteToken, props.org, data.assignments)
-        : null
-      if (match) {
-        assignment.value = { ...match }
+      if (data?.assignment?.id) {
+        assignment.value = { ...data.assignment }
         stopNotFoundPolling()
         if (isAuthenticated()) {
           user.value = getUser()

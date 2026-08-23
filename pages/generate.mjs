@@ -16,6 +16,7 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
+import { inviteFileFor } from "../lib/invite-token.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -66,7 +67,7 @@ async function main() {
     }
 
     // Extract ONLY public metadata - no roster, no repo URLs, no tokens
-    assignments[def.id] = {
+    const card = {
       id: def.id,
       title: def.title,
       description: def.description || null,
@@ -90,10 +91,45 @@ async function main() {
       group_config: def.assignment_type === "group" ? (def.group_config || null) : undefined,
     };
 
+    // The full card is published under the DIGEST of the invitation token, so
+    // fetching it requires the link. The org-wide index below keeps only the
+    // fields the student portal needs to match a student's own repositories to
+    // an assignment - students cannot read the control repo, so that list has
+    // nowhere else to come from (ARCHITECTURE §4.3.3).
+    assignments[def.id] = {
+      id: card.id,
+      title: card.title,
+      organization: card.organization,
+      opens_at: card.opens_at,
+      deadline_at: card.deadline_at,
+      timezone: card.timezone,
+      repository_name_pattern: card.repository_name_pattern,
+      assignment_type: card.assignment_type,
+      // The lecturer dashboard's org status lights read this across every org
+      // at zero API cost. It adds nothing an outsider could not infer from
+      // opens_at and deadline_at, which the portal needs anyway.
+      state: card.state,
+    };
+
+    const inviteFile = def.invite_token ? inviteFileFor(def.invite_token) : null;
+    if (inviteFile) {
+      await mkdir(join(outputDir, "i"), { recursive: true });
+      await writeFile(
+        join(outputDir, "i", `${inviteFile}.json`),
+        JSON.stringify({ schema_version: 1, assignment: card }, null, 2) + "\n"
+      );
+    } else {
+      // Published before signed invitations existed, or published by hand.
+      // Republish mints one; until then the link cannot resolve.
+      console.warn(`[warning] ${def.id} has no invite_token - no invitation file generated`);
+    }
+
     // If group assignment, also generate sanitized public teams file
     if (def.assignment_type === "group") {
       const teamsDir = join(dataDir, "teams", def.id);
-      const publicTeamsDir = join(outputDir, "teams");
+      // Behind the invitation digest too: the public teams file lists member
+      // logins, so it is the cohort by another name.
+      const publicTeamsDir = join(outputDir, "i");
       await mkdir(publicTeamsDir, { recursive: true });
       const publicTeams = [];
 
@@ -132,8 +168,12 @@ async function main() {
         }
       }
 
+      if (!inviteFile) {
+        console.warn(`[warning] ${def.id} has no invite_token - no teams file generated`);
+        continue;
+      }
       await writeFile(
-        join(publicTeamsDir, `${def.id}.json`),
+        join(publicTeamsDir, `${inviteFile}.teams.json`),
         JSON.stringify({ schema_version: 1, assignment_id: def.id, teams: publicTeams }, null, 2) + "\n"
       );
     }

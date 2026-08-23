@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import { existsSync } from 'node:fs';
-import { inviteUrl } from './fixtures/e2e-fixtures.mjs';
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -12,6 +11,11 @@ if (existsSync('.env.test')) {
 // Configuration from environment or defaults for test run
 const ORG = process.env.TEST_ORG || 'PXL-2TIN-CloudEssentials-2627';
 const ASSIGNMENT_ID = process.env.TEST_ASSIGNMENT_ID || 'test-groepsopdracht-2';
+// The real invitation link for that assignment. Since the acceptance card is
+// published under the sha256 of its token (ARCHITECTURE §4.3.3), a live run
+// against real Pages data needs the real token - it cannot be derived from the
+// assignment id, which is the point. Copy it from the assignment detail view.
+const INVITE_TOKEN = process.env.TEST_INVITE_TOKEN || '';
 
 // 3 test accounts
 const LECTURER = {
@@ -39,10 +43,14 @@ const STUDENT_2 = {
 const HAS_LIVE_CREDENTIALS =
   LECTURER.token !== 'mock_lecturer_token' &&
   STUDENT_1.token !== 'mock_student1_token' &&
-  STUDENT_2.token !== 'mock_student2_token';
+  STUDENT_2.token !== 'mock_student2_token' &&
+  INVITE_TOKEN !== '';
 
 test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
-  test.skip(!HAS_LIVE_CREDENTIALS, 'Live test: set real tokens in .env.test to run it');
+  test.skip(
+    !HAS_LIVE_CREDENTIALS,
+    'Live test: set real GitHub tokens and TEST_INVITE_TOKEN in .env.test to run it'
+  );
 
   test('Lecturer, Student 1, and Student 2 interact concurrently on group assignment', async ({ browser }) => {
     // ---------------------------------------------------------------------------
@@ -156,7 +164,7 @@ test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
     // ---------------------------------------------------------------------------
     // Step 1: Student 2 opens assignment acceptance portal
     // ---------------------------------------------------------------------------
-    await student2Page.goto(inviteUrl(ORG, ASSIGNMENT_ID));
+    await student2Page.goto(`/${ORG}/i/${INVITE_TOKEN}`);
 
     // Wait for the team selection header to be visible
     const heading = student2Page.locator('h2', { hasText: 'Group Assignment: Team Selection' });

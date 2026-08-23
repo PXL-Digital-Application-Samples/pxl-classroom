@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- The invitation token is in the URL path, so any cross-origin
+         subresource - Google Fonts, for one - would receive it as a
+         Referer header. Send no referrer at all. -->
+    <meta name="referrer" content="no-referrer" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="PXL Classroom - GitHub-native assignment distribution and submission reporting" />

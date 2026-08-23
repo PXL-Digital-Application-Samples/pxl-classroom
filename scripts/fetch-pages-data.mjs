@@ -137,6 +137,38 @@ async function main() {
         activeOrgs.push({ login: org });
       }
 
+      // Fetch public/i/*.json - the per-invitation assignment cards and their
+      // teams files. Named by the sha256 of the invitation token, so the only
+      // way to fetch one is to hold the link (ARCHITECTURE §4.3.3).
+      try {
+        const inviteListUrl = `https://api.github.com/repos/${org}/pxl-classroom-control/contents/public/i`;
+        const inviteList = await request(inviteListUrl, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (Array.isArray(inviteList)) {
+          const orgInviteDir = join(outDir, org, "i");
+          await mkdir(orgInviteDir, { recursive: true });
+          let saved = 0;
+          for (const item of inviteList) {
+            if (item.type !== "file" || !item.name.endsWith(".json")) continue;
+            const fileItem = await request(item.url, {
+              headers: { Authorization: `token ${token}` },
+            });
+            if (fileItem?.content) {
+              const bin = Buffer.from(fileItem.content.replace(/\n/g, ""), "base64").toString("utf8");
+              await writeFile(join(orgInviteDir, item.name), bin);
+              saved++;
+            }
+          }
+          // Filenames are digests, so logging them is noise, not information.
+          console.log(`[ok] Saved ${saved} invitation file(s) for ${org}`);
+        }
+      } catch (iErr) {
+        if (iErr.status !== 404) {
+          console.warn(`[warning] Failed to fetch public/i for ${org}:`, iErr.message);
+        }
+      }
+
       // Fetch public/teams/*.json for group assignments
       try {
         const teamsListUrl = `https://api.github.com/repos/${org}/pxl-classroom-control/contents/public/teams`;
