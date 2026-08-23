@@ -839,10 +839,11 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { config } from '../lib/config.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
-import { commitFile, deleteFile, getRepo, triggerWorkflow, listOrgRepos, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns, validateTemplateRepository } from '../lib/api.js'
+import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
+import { invitationUrl } from '../lib/invite.js'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
 import AuthCard from '../components/AuthCard.vue'
@@ -930,8 +931,10 @@ const liveCheckLoading = ref(false)
 const brokerExists = ref(null) // null = unchecked, true = exists, false = missing
 const pagesLive = ref(null)    // null = unchecked, true = live, false = not live
 
-function onTeamsSeeded({ teams }) {
-  toast.success(`${teams} team(s) are ready. Open the assignment's Teams tab to review them before publishing.`)
+function onTeamsSeeded() {
+  // The modal already reported the result; a second toast here just stacked on
+  // top of it. Refresh the list so the assignment's team count is current.
+  loadAssignments()
 }
 
 function onDiagnosticFixed({ type }) {
@@ -993,10 +996,12 @@ const retryForm = ref({ login: '' })
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
-const shareableLink = computed(() => {
-  const base = window.location.origin + (import.meta.env.BASE_URL || '/')
-  return `${base}${props.org}/a/${form.value.id}`
-})
+// The invitation link is minted at publish time and recorded in the control
+// repo, so it cannot be derived from the form. Copy it from the assignment's
+// detail view once published.
+const shareableLink = computed(() =>
+  form.value.invite_token ? invitationUrl(props.org, form.value.invite_token) : null,
+)
 
 const manualRepositoryNamePattern = ref(false)
 const templateSearchText = ref('')
@@ -1680,7 +1685,6 @@ function buildDoc(state = null) {
   }
 }
 
-const generatedYaml = computed(() => stringifyYaml(buildDoc()))
 
 const validationErrors = ref([])
 

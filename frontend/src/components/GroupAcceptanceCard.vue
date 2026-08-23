@@ -336,14 +336,18 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
 import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
-import { getToken, getUser } from '../lib/auth.js'
+import { getToken } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
+import { acceptanceIssueTitle } from '../lib/invite.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
   org: { type: String, required: true },
   user: { type: Object, required: true },
+  // The signed invitation from the route. Acceptance carries it in the issue
+  // title; without it the broker rejects before touching a credential.
+  inviteToken: { type: String, default: '' },
 })
 
 const tabMode = ref('join')
@@ -677,14 +681,16 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
     const token = getToken()
     const brokerRepo = props.assignment.broker_repo || `broker-${props.assignment.id}`
 
-    // Issue dispatch payload on public broker repo
+    // The TITLE carries the signed invitation and the team slug, because that
+    // is all the broker reads - it holds App credentials and must never parse
+    // the body (ARCHITECTURE §4.3.1). The body carries the rest, and the HUB
+    // fetches and validates it (scripts/read-team-payload.mjs).
     const issueRes = await ghApi(token, 'POST', `/repos/${props.org}/${brokerRepo}/issues`, {
-      title: `team:${teamSlug}`,
+      title: acceptanceIssueTitle(props.inviteToken, teamSlug),
       body: JSON.stringify({
         team_slug: teamSlug,
         team_name: teamName,
         team_action: teamAction,
-        github_login: props.user.login,
       }),
     })
 
@@ -694,13 +700,6 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
         throw new Error(`Broker repository "${brokerRepo}" not found. Ask your lecturer to publish the assignment.`)
       }
       throw new Error(`Failed to submit team registration (${msg}). Ensure the broker repository exists and issues are enabled.`)
-    }
-
-    // Also trigger star as redundant signal
-    try {
-      await ghApi(token, 'PUT', `/user/starred/${props.org}/${brokerRepo}`)
-    } catch {
-      // non-critical
     }
 
     acceptState.value = 'pending'

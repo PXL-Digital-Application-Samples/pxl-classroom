@@ -80,12 +80,10 @@ test("the broker never reads the issue body", () => {
   );
 });
 
-test("the broker reads the issue title only through env, for the concurrency hint", () => {
-  // The hub's concurrency group is evaluated at dispatch time, before the body
-  // can be read, so the broker has to supply the team slug for it. Taking the
-  // title through env: and matching it with a bash regex is safe - the value is
-  // never substituted into the script text. Test 1 proves that; this pins what
-  // the step is allowed to extract.
+test("the broker reads the issue title only through env, against one strict pattern", () => {
+  // The title carries the invitation token and the concurrency hint, so the
+  // broker must read it - but through env:, where it is never substituted into
+  // the script text. Test 1 proves that; this pins what may be extracted.
   const doc = parse(readFileSync(BROKER, "utf8"));
   const steps = Object.values(doc.jobs).flatMap((job) => job.steps || []);
   const titleSteps = steps.filter((step) =>
@@ -94,8 +92,8 @@ test("the broker reads the issue title only through env, for the concurrency hin
   assert.equal(titleSteps.length, 1, "exactly one step may take the issue title, and only via env:");
   assert.match(
     titleSteps[0].run,
-    /\[\[ "\$ISSUE_TITLE" =~ \^team:\(\[a-z0-9\]\[a-z0-9-\]\{0,63\}\)\$ \]\]/,
-    "the title may only be matched against a strict slug regex"
+    /RE='\^pxl-accept:\(\[A-Za-z0-9_-\]\{35\}\\\.\[A-Za-z0-9_-\]\{86\}\)\( team:\(\[a-z0-9\]\[a-z0-9-\]\{0,63\}\)\)\?\$'/,
+    "the title may only be matched against the exact token+slug pattern"
   );
 });
 

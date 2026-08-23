@@ -32,7 +32,12 @@ test("every script in scripts/*.mjs is referenced somewhere", () => {
   const scriptsToFind = scriptsFullPath.map(fp => fp.slice(scriptsDir.length + 1).replace(/\\/g, '/'));
 
   // Files to look in
-  const workflows = findFiles(join(root, ".github", "workflows"), (fp, item) => item.endsWith(".yml"));
+  // The broker template is a workflow too - it is published to every broker
+  // rather than run in place, so it never appears under .github/workflows.
+  const workflows = [
+    ...findFiles(join(root, ".github", "workflows"), (fp, item) => item.endsWith(".yml")),
+    join(root, "acceptance", "broker-workflow.yml"),
+  ];
   const actionFiles = findFiles(root, (fp, item) => item === "action.yml");
   const packageJson = [join(root, "package.json")];
   // all other .mjs scripts in the repo, including the ones in scripts (they might import each other)

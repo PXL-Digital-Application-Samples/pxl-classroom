@@ -330,6 +330,21 @@
           }
         }
       }
+    },
+    "invite_token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{35}.[A-Za-z0-9_-]{86}$",
+      "description": "Signed invitation token minted at publish time. The broker verifies it before any credential is in scope. PRIVATE - never publish to Pages output."
+    },
+    "invite_nonce": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}$",
+      "description": "Invitation generation. Mirrored to the broker INVITE_NONCE variable; rotating it retires every link issued before it."
+    },
+    "invite_expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Expiry embedded in invite_token. Recorded so republishing reproduces the same token instead of minting a new link."
     }
   }
 }

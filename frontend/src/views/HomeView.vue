@@ -56,7 +56,7 @@
               v-model="jumpInput"
               type="text"
               class="jump-input"
-              placeholder="e.g. pxl-digital-app-samples/a/linux-processes or full URL"
+              placeholder="Paste the invitation link your lecturer sent you"
               aria-label="Direct assignment link or ID"
             />
             <button type="submit" class="btn btn-secondary" :disabled="!jumpInput.trim()">
@@ -128,7 +128,7 @@
                 v-model="jumpInput"
                 type="text"
                 class="jump-input"
-                placeholder="Paste link or org/a/assignment-id"
+                placeholder="Paste your invitation link"
                 aria-label="Direct assignment link"
               />
               <button type="submit" class="btn btn-primary" :disabled="!jumpInput.trim()">
@@ -169,12 +169,10 @@
             </div>
 
             <div class="card-actions flex items-center justify-between" style="margin-top: var(--space-md); padding-top: var(--space-sm); border-top: 1px solid var(--border-muted);">
-              <router-link
-                :to="{ name: 'assignment', params: { org: a.org, assignmentId: a.id } }"
-                class="btn btn-sm"
-              >
-                Assignment details
-              </router-link>
+              <!-- No link back to the acceptance page: it is reached by
+                   invitation token, which this card does not have, and a
+                   student who is already accepted wants the repository. -->
+              <span class="text-xs text-muted">{{ a.org }}</span>
 
               <a
                 v-if="a.repoUrl"
@@ -426,21 +424,23 @@ function jumpToAssignment() {
   const input = jumpInput.value.trim()
   if (!input) return
 
-  // Match /:org/a/:id or URL
-  const m1 = input.match(/(?:^|\/)([a-zA-Z0-9_-]+)\/a\/([a-zA-Z0-9_-]+)(?:$|\/|\?|#)/)
+  // Match /:org/i/:token, pasted whole or as a URL. The token is the link -
+  // an assignment id alone no longer opens anything, because the broker will
+  // not act without a signed invitation.
+  const m1 = input.match(/(?:^|\/)([a-zA-Z0-9_-]+)\/i\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})(?:$|\/|\?|#)/)
   if (m1) {
-    router.push({ name: 'assignment', params: { org: m1[1], assignmentId: m1[2] } })
+    router.push({ name: 'invitation', params: { org: m1[1], inviteToken: m1[2] } })
     return
   }
 
-  // Match :org/:assignmentId
-  const m2 = input.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)$/)
+  // Match :org/:token without the /i/ segment.
+  const m2 = input.match(/^([a-zA-Z0-9_-]+)\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})$/)
   if (m2) {
-    router.push({ name: 'assignment', params: { org: m2[1], assignmentId: m2[2] } })
+    router.push({ name: 'invitation', params: { org: m2[1], inviteToken: m2[2] } })
     return
   }
 
-  jumpError.value = 'Invalid link format. Expected "org/a/assignment-id" or a direct URL.'
+  jumpError.value = 'That does not look like an invitation link. Paste the whole link your lecturer sent you.'
 }
 
 // Auth methods

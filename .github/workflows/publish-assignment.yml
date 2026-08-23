@@ -10,6 +10,10 @@ on:
         description: "Assignment ID"
         required: true
         type: string
+      regenerate_invite:
+        description: "Regenerate the invitation link (retires every link already handed out)"
+        type: boolean
+        default: false
       dry_run:
         description: "Dry run"
         type: boolean
@@ -49,11 +53,28 @@ jobs:
 
       - name: Validate assignment
         working-directory: control
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
         run: |
-          if [ ! -f "assignments/${{ inputs.assignment_id }}.yml" ] && [ ! -f "assignments/${{ inputs.assignment_id }}.json" ]; then
+          if [ ! -f "assignments/${ASSIGNMENT_ID}.yml" ] && [ ! -f "assignments/${ASSIGNMENT_ID}.json" ]; then
             echo "::error::Assignment file not found"
             exit 1
           fi
+
+      # Mints the signed invitation token and records it in the PRIVATE control
+      # repo. Republishing keeps the existing link alive; regenerate_invite
+      # retires every link already handed out. See ARCHITECTURE §4.3.2.
+      - name: Mint invitation token
+        id: invite
+        if: inputs.dry_run != true
+        env:
+          DATA_DIR: control
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          ORG: ${{ inputs.org }}
+          INVITE_SIGNING_KEY: ${{ secrets.PXL_INVITE_SIGNING_KEY }}
+          INVITE_KID: ${{ vars.INVITE_KID }}
+          REGENERATE: ${{ inputs.regenerate_invite }}
+        run: node scripts/set-assignment-invite.mjs
 
       - name: Publish broker
         if: inputs.dry_run != true
@@ -62,6 +83,8 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           ORG: ${{ inputs.org }}
+          INVITE_NONCE: ${{ steps.invite.outputs.nonce }}
+          INVITE_TOKEN: ${{ steps.invite.outputs.token }}
           PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
           PXL_APP_PRIVATE_KEY: ${{ secrets.PXL_APP_PRIVATE_KEY }}
         run: |
@@ -80,6 +103,12 @@ jobs:
 
           gh variable set ASSIGNMENT_ID --body "${ASSIGNMENT_ID}" --repo "${ORG}/${BROKER_REPO}"
           gh variable set CONTROL_ORG --body "${ORG}" --repo "${ORG}/${BROKER_REPO}"
+          # The nonce is what the broker checks a token against, so writing it
+          # here is what actually retires superseded links. INVITE_ENABLED is a
+          # kill switch evaluated in the job-level `if`, before a runner is
+          # allocated - switching it off costs nothing at all.
+          gh variable set INVITE_NONCE --body "${INVITE_NONCE}" --repo "${ORG}/${BROKER_REPO}"
+          gh variable set INVITE_ENABLED --body "true" --repo "${ORG}/${BROKER_REPO}"
 
           # Automatically populate App secrets on the broker repository
           echo "$PXL_APP_CLIENT_ID" | gh secret set PXL_APP_CLIENT_ID --repo "${ORG}/${BROKER_REPO}"
@@ -94,13 +123,15 @@ jobs:
           # Copy from pxl-classroom workspace
           cp "${GITHUB_WORKSPACE}/acceptance/broker-workflow.yml" .github/workflows/acceptance-trigger.yml
 
-          cat > README.md << READMEEOF
-          # ${ASSIGNMENT_ID}
-
-          Assignment acceptance broker. Star this repo to accept the assignment.
+          # No acceptance link in the README: this repository is public, and the
+          # invitation token is what keeps an outsider from triggering work here.
+          cat > README.md << 'READMEEOF'
+          # Assignment acceptance broker
 
           > This is an automated repository managed by PXL Classroom.
-          > Accept here: https://pxl-digital-application-samples.github.io/pxl-classroom/${ORG}/a/${ASSIGNMENT_ID}
+
+          Acceptance happens through your invitation link, which your lecturer
+          distributes. Opening an issue here by hand does nothing.
           READMEEOF
 
           git add -A
@@ -110,31 +141,37 @@ jobs:
           git branch -M main
           git push -u origin main --force
 
+          # The hub is public and so are its run logs and step summaries.
+          # The invitation token must never be printed here.
           {
             echo "### [OK] Published assignment"
             echo "| field | value |"
             echo "|---|---|"
             echo "| assignment | ${ASSIGNMENT_ID} |"
             echo "| broker | ${ORG}/${BROKER_REPO} |"
-            echo "| URL | https://pxl-digital-application-samples.github.io/pxl-classroom/${ORG}/a/${ASSIGNMENT_ID} |"
+            echo "| invitation | recorded in the control repo - copy it from the Admin Panel |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Update assignment state
         if: inputs.dry_run != true
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
         run: |
           set -e
-          FILE="assignments/${{ inputs.assignment_id }}.yml"
+          FILE="assignments/${ASSIGNMENT_ID}.yml"
           if [ -f "control/$FILE" ]; then
             sed -i "s/^state:.*/state: published/" "control/$FILE"
           else
-            FILE="assignments/${{ inputs.assignment_id }}.json"
+            FILE="assignments/${ASSIGNMENT_ID}.json"
             node scripts/update-json-field.mjs --schema assignment "control/$FILE" "state" "published"
           fi
 
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          # Also carries invite_token / invite_nonce / invite_expires_at from the
+          # Mint invitation token step - all of it stays in the private repo.
           git -C control add "$FILE"
-          git -C control diff --cached --quiet || git -C control commit -m "Publish assignment ${{ inputs.assignment_id }}"
+          git -C control diff --cached --quiet || git -C control commit -m "Publish assignment ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
 
       - name: Enable daily activity workflow
@@ -148,6 +185,7 @@ jobs:
       - name: Trigger dashboard regeneration
         if: inputs.dry_run != true
         run: |
-          gh workflow run regenerate-dashboard.yml --field org="${{ inputs.org }}"
+          gh workflow run regenerate-dashboard.yml --field org="$ORG"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: ${{ inputs.org }}

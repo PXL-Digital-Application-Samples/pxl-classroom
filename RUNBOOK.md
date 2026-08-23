@@ -57,6 +57,31 @@ In `pxl-classroom` -> Settings -> Secrets and variables -> Actions:
 | `PXL_APP_PRIVATE_KEY` | full PEM body from §1.2, including BEGIN/END lines |
 | `VITE_GITHUB_CLIENT_ID` | Same Client ID as `PXL_APP_CLIENT_ID`; used at SPA build time to wire the device flow. |
 | `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. MUST end in `?url=` or `?` (`?` is auto-rewritten to `?url=`); anything else throws at SPA init. |
+| `PXL_INVITE_SIGNING_KEY` | Ed25519 private key that signs invitation tokens. See §1.3.1. `publish-assignment.yml` fails closed without it. |
+
+#### 1.3.1 Invitation signing keypair
+
+Acceptance is triggered by a public event on a public repository, so anyone can fire a broker. The signed invitation token is what makes an unauthorized trigger cost nothing: the broker verifies it before minting an App token (ARCHITECTURE §4.3.2).
+
+```bash
+node scripts/generate-invite-keypair.mjs 1
+```
+
+1. Pipe the **private** half into the hub secret. Do not paste it into a terminal you are sharing, and do not commit it:
+
+   ```bash
+   gh secret set PXL_INVITE_SIGNING_KEY --repo PXL-Digital-Application-Samples/pxl-classroom < key.pem
+   ```
+
+2. Put the **public** half in `acceptance/invite-keys.json` under its key id and commit it. It belongs in a public repository: every broker reads it from a hub checkout, and a public key is what lets the broker reject a forged token without holding anything worth stealing.
+
+3. Delete the local `key.pem`.
+
+**Rotation.** Generate with the next key id, keep the previous entry in `invite-keys.json` so links already in circulation keep verifying, and set the `INVITE_KID` repository *variable* on the hub to the new id so new links use it. Drop the old entry once every assignment signed with it is closed.
+
+**Retiring one assignment's links** does not need the key: republish it with `regenerate_invite: true`, which mints a new nonce and writes it to the broker's `INVITE_NONCE` variable. Every previously issued link for that assignment then reports `superseded`. Plain republishing keeps the existing link alive, so a repair does not silently break links the day before a deadline.
+
+**Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
 
 ### 1.4 Install the App on the hub's owning org, scoped narrowly
 

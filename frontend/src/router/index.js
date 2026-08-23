@@ -7,8 +7,11 @@ const routes = [
     component: () => import('../views/HomeView.vue'),
   },
   {
-    path: '/:org/a/:assignmentId',
-    name: 'assignment',
+    // Invitation link. The token is the capability: the broker verifies it
+    // before any credential is in scope, so a URL nobody was given cannot
+    // trigger work. The assignment id is not readable from it by design.
+    path: '/:org/i/:inviteToken',
+    name: 'invitation',
     component: () => import('../views/AssignmentView.vue'),
     props: true,
   },
@@ -76,8 +79,10 @@ const APP_NAME = 'PXL Classroom'
 router.afterEach((to) => {
   let page = ''
   switch (to.name) {
-    case 'assignment':
-      page = `${to.params.assignmentId} - Accept assignment`
+    case 'invitation':
+      // No id in the title: the route does not know it until the token
+      // resolves, and a link is not meant to advertise what it opens.
+      page = 'Accept assignment'
       break
     case 'dashboard':
       page = to.params.org ? `Dashboard - ${to.params.org}` : 'Dashboard'

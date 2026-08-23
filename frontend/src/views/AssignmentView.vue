@@ -23,7 +23,7 @@
           <div class="spinner-lg spinner"></div>
           <h2>Looking for newly published assignment…</h2>
           <p class="text-secondary">
-            Checking live deployment for "<strong>{{ assignmentId }}</strong>" in <strong>{{ org }}</strong> (attempt {{ notFoundPollCount }} of {{ maxNotFoundPolls }}).
+            Checking live deployment in <strong>{{ org }}</strong> (attempt {{ notFoundPollCount }} of {{ maxNotFoundPolls }}).
           </p>
           <p class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-xs);">
             If your lecturer just published this assignment, GitHub Pages takes 1 to 2 minutes to complete deployment. This page will update automatically.
@@ -36,12 +36,12 @@
           <Icon name="clipboard" :size="48" class="status-icon" />
           <h2>Assignment not found</h2>
           <p class="text-secondary">
-            There is no published assignment "{{ assignmentId }}" in <strong>{{ org }}</strong>.
-            The link may be mistyped, or the assignment isn't open yet.
+            This invitation link doesn't match a published assignment in <strong>{{ org }}</strong>.
+            It may be out of date, incomplete, or the assignment isn't open yet.
           </p>
           <p class="text-secondary">
-            Ask your lecturer to verify the accept link. If it was published in the last few minutes,
-            wait a moment and refresh.
+            Ask your lecturer for a current invitation link. If the assignment was published in the
+            last few minutes, wait a moment and refresh.
           </p>
           <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-md); justify-content: center;">
             <button class="btn btn-primary" @click="startNotFoundPolling">Check again</button>
@@ -94,6 +94,7 @@
           :assignment="assignment"
           :org="org"
           :user="user"
+          :invite-token="inviteToken"
         />
 
         <!-- Authenticated - Individual acceptance flow -->
@@ -335,7 +336,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import GroupAcceptanceCard from '../components/GroupAcceptanceCard.vue'
@@ -343,14 +344,22 @@ import StudentDiagnosticsModal from '../components/StudentDiagnosticsModal.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { starRepo, unstarRepo, isStarred, getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
+import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
+import { acceptanceIssueTitle, resolveAssignmentFromToken } from '../lib/invite.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
 const props = defineProps({
   org: { type: String, required: true },
-  assignmentId: { type: String, required: true },
+  // Supplied by the /:org/i/:inviteToken route. The assignment id is not
+  // readable from the token - it carries a hash of it - so it is resolved by
+  // matching against the org's published assignments.
+  inviteToken: { type: String, default: '' },
 })
+
+// The assignment id, once the token has resolved to one. Everything that
+// derives a repo or broker name needs it, and none of it runs before load.
+const resolvedId = computed(() => assignment.value?.id || '')
 
 // State
 const loading = ref(true)
@@ -440,10 +449,6 @@ const timeRemainingBadgeClass = computed(() => {
   return 'badge-success'
 })
 
-const stateBadgeClass = computed(() => {
-  const map = { published: 'badge-success', closed: 'badge-warning', draft: 'badge-neutral', archived: 'badge-neutral' }
-  return map[assignment.value?.state] || 'badge-neutral'
-})
 
 // Lifecycle
 onMounted(async () => {
@@ -478,7 +483,6 @@ function startNotFoundPolling() {
 
 onUnmounted(() => {
   stopNotFoundPolling()
-  if (pollAbort) pollAbort.abort()
   if (pollTimer) clearTimeout(pollTimer)
   if (nowInterval) clearInterval(nowInterval)
 })
@@ -500,8 +504,13 @@ async function loadAssignment(isRetry = false) {
       // means the org has no published data - that's "not found", not an error.
       let data = null
       try { data = await res.json() } catch { /* treat as not found */ }
-      if (data?.assignments && data.assignments[props.assignmentId]) {
-        assignment.value = { id: props.assignmentId, ...data.assignments[props.assignmentId] }
+      // The token names its assignment by hash, so the id is matched against
+      // the published set rather than read out of the link.
+      const match = data?.assignments
+        ? await resolveAssignmentFromToken(props.inviteToken, props.org, data.assignments)
+        : null
+      if (match) {
+        assignment.value = { ...match }
         stopNotFoundPolling()
         if (isAuthenticated()) {
           user.value = getUser()
@@ -610,7 +619,7 @@ async function refreshStudentSubmissionMeta(org, repoName) {
 
   // Load student override if exists
   try {
-    const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${props.assignmentId}/${user.value.login}.json`)
+    const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${resolvedId.value}/${user.value.login}.json`)
     if (overrideFile) {
       const parsed = JSON.parse(overrideFile)
       const ext = (parsed.overrides || []).find((o) => o.type === 'deadline_extension')
@@ -629,7 +638,7 @@ async function checkExistingState() {
   if (!token || !assignment.value) return
 
   const org = props.org
-  const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
+  const pattern = assignment.value.repository_name_pattern || `${resolvedId.value}-{github_login}`
   const expectedName = pattern.replace('{github_login}', user.value.login)
 
   // Check if repo exists
@@ -659,7 +668,7 @@ async function checkExistingState() {
   }
 
   // Check if already starred the broker
-  const brokerRepo = assignment.value.broker_repo || `broker-${props.assignmentId}`
+  const brokerRepo = assignment.value.broker_repo || `broker-${resolvedId.value}`
   const starred = await isStarred(token, org, brokerRepo)
   if (starred) {
     // Already starred - provisioning might be in progress
@@ -683,8 +692,6 @@ function handleLogout() {
   clearAuth()
   user.value = null
   acceptState.value = 'ready'
-  deviceFlow.value = null
-  authError.value = null
 }
 
 // Accept assignment (star the broker)
@@ -698,16 +705,22 @@ async function acceptAssignment() {
   try {
     const token = getToken()
     const org = props.org
-    const brokerRepo = assignment.value.broker_repo || `broker-${props.assignmentId}`
+    const brokerRepo = assignment.value.broker_repo || `broker-${resolvedId.value}`
 
-    if (await isStarred(token, org, brokerRepo)) {
-      await unstarRepo(token, org, brokerRepo)
-      await new Promise((r) => setTimeout(r, 500))
-    }
-
-    const result = await starRepo(token, org, brokerRepo)
-    if (result.status !== 204) {
-      throw new Error(`Failed to accept assignment (HTTP ${result.status}). Make sure the broker repo exists.`)
+    // Everything the broker needs is in the TITLE. It never reads the body of
+    // an issue on a repository that holds App credentials (ARCHITECTURE
+    // §4.3.1), and the `pxl-accept:` prefix is its job-level filter - GitHub
+    // evaluates that before allocating a runner, so an issue carrying no valid
+    // invitation costs nothing at all.
+    const res = await ghApi(token, 'POST', `/repos/${org}/${brokerRepo}/issues`, {
+      title: acceptanceIssueTitle(props.inviteToken),
+      body: '',
+    })
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error('Acceptance is not open for this assignment yet. Ask your lecturer to publish it.')
+      }
+      throw new Error(`Failed to accept assignment (HTTP ${res.status}).`)
     }
 
     acceptState.value = 'pending'
@@ -727,7 +740,7 @@ async function acceptAssignment() {
 // the student is already a collaborator - safe to show either way.
 const invitationUrl = computed(() => {
   if (!assignment.value || !user.value?.login) return null
-  const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
+  const pattern = assignment.value.repository_name_pattern || `${resolvedId.value}-{github_login}`
   const repo = pattern.replace('{github_login}', user.value.login)
   return `https://github.com/${props.org}/${repo}/invitations`
 })
@@ -742,7 +755,7 @@ function startPolling() {
     if (!token) return
 
     const org = props.org
-    const pattern = assignment.value.repository_name_pattern || `${props.assignmentId}-{github_login}`
+    const pattern = assignment.value.repository_name_pattern || `${resolvedId.value}-{github_login}`
     const expectedName = pattern.replace('{github_login}', user.value.login)
 
     // Check repo

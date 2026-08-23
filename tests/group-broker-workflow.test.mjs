@@ -19,10 +19,15 @@ test("publish-assignment.yml creates/edits broker with --enable-issues", () => {
   );
 });
 
-test("broker-workflow.yml triggers on both watch:started and issues:opened", () => {
+test("broker-workflow.yml triggers only on issues:opened", () => {
   const content = readFileSync(join(root, "acceptance", "broker-workflow.yml"), "utf8");
-  assert.ok(content.includes("watch:\n    types: [started]"), "broker workflow must handle watch:started for individual");
-  assert.ok(content.includes("issues:\n    types: [opened]"), "broker workflow must handle issues:opened for group payload");
+  assert.ok(content.includes("issues:\n    types: [opened]"), "broker workflow must handle issues:opened");
+  // A star carries no payload, so it cannot carry a signed invitation token.
+  // Keeping the trigger would mean a workflow that can only ever reject.
+  assert.ok(
+    !content.includes("watch:"),
+    "broker workflow must not trigger on watch: acceptance requires a signed invitation token"
+  );
 });
 
 test("GroupAcceptanceCard.vue validates issue creation response before pending", () => {

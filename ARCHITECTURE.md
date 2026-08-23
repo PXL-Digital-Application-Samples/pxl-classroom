@@ -41,7 +41,7 @@ All authoritative application data lives in instructor-controlled private reposi
 
 ```mermaid
 graph TD
-    Student[Student browser] -->|device flow + star| Broker
+    Student[Student browser] -->|device flow + signed invitation| Broker
     Lecturer[Lecturer browser] -->|device flow| Pages
     Pages[Pages SPA<br/>pxl-classroom Pages] -->|reads at runtime| ControlRepo
     Pages -->|dispatches| Hub
@@ -69,7 +69,7 @@ Five repository roles, one App, one Pages site.
 |---|---|---|---|
 | **Central hub** - `PXL-Digital-Application-Samples/pxl-classroom` | Public | 1 | All workflows, composite actions, scripts, frontend source, schemas |
 | **Control repo** - `<org>/pxl-classroom-control` | Private | 1 per org | Assignments, roster, acceptances, repositories, observations, reports, overrides, errors |
-| **Broker repo** - `<org>/broker-<assignment-id>` | Public | 1 per assignment | A single `watch:started` workflow that dispatches to the hub |
+| **Broker repo** - `<org>/broker-<assignment-id>` | Public | 1 per assignment | A single workflow that verifies a signed invitation and dispatches to the hub |
 | **Archive repo** - `<org>/pxl-classroom-archive` | Private | 1 per org | Preserved submission SHAs as branches |
 | **Student repo** - `<org>/<repository_name_pattern>` | Private | 1 per accepted student | The student's own work |
 
@@ -90,7 +90,7 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 | Repository: Secrets | Read/Write | Yes | Setting Actions secrets during provisioning |
 | Repository: Workflows | Read/Write | Yes | Provisioning Actions workflows in student repositories |
 | Organization: Administration | Read | Yes | Enhanced Billing endpoint used by the weekly usage report |
-| Account: Starring | Read/Write | No (Manual) | The browser-side device-flow token (stars broker on accept) |
+| Account: Starring | Read/Write | No (Manual) | Legacy; acceptance no longer stars the broker (§4.3.2) |
 | Account: Email addresses | Read | No (Optional) | Reading verified student email during acceptance/login |
 
 The App is installed:
@@ -132,6 +132,24 @@ Three invariants close it, enforced by `tests/broker-injection.test.mjs`:
 - **The broker reads the issue title only through `env:`, and only to match `^team:<slug>$`.** The hub's concurrency group is evaluated at dispatch time, before the body can be read, so the broker must supply the slug for it. That value is a **concurrency key only** (`client_payload.team_hint`); the authoritative team comes from the hub's own read. Sequential concurrency per team is what guards team capacity without a distributed lock (§5.8), so it cannot simply be dropped.
 
 Team names are also stripped of control characters before use: outputs are written as `name=value` lines to `GITHUB_OUTPUT`, so an embedded newline would forge outputs downstream.
+
+#### 4.3.2 Signed invitations - what stops an outsider triggering work
+
+Acceptance is triggered by a public event on a public repository. Every event an unprivileged account can fire there - star, fork, issue, comment, wiki edit - is open to any GitHub account on earth, and none of them prove authorization. The trigger is a doorbell, not a key; authorization happens after it, against data the caller cannot forge.
+
+Roster gating (§4.2) is that authorization, but it runs in the hub, *after* the broker has minted an App token and the hub has cloned the private control repo. A stranger's star therefore used to cost two workflow runs, two token mints and a clone. **Signed invitation tokens move the first check to the edge**, before any credential is in scope.
+
+- `publish-assignment.yml` signs `{version, key id, subject, expiry, nonce}` with the hub secret `PXL_INVITE_SIGNING_KEY` and records the token in the assignment YAML - in the **private** control repo. It must never reach Pages output; `pages/generate.mjs` selects fields explicitly and the privacy scanner is the backstop.
+- The subject is `sha256("<org lowercased>/<assignment-id>")` truncated to 16 bytes, so a link does not advertise what it opens and a token for one assignment cannot open another broker.
+- The whole token is 122 characters and travels in the **issue title**, not the body. That is what lets the broker read everything it needs without touching attacker-controlled body text (§4.3.1).
+- The broker checks out the public hub - no credentials - and verifies against `acceptance/invite-keys.json` before minting. **Verification is asymmetric because the verifier is public.** An HMAC would put the minting secret on every broker; a public key is safe to publish by definition. Encryption is the wrong primitive: the broker cannot hold a decryption key either, and on a public channel ciphertext replays exactly as well as plaintext.
+- `vars.INVITE_ENABLED` and the `pxl-accept:` title prefix are checked in the workflow's **job-level `if`**, which GitHub evaluates before allocating a runner.
+
+The floor this leaves: a caller without a valid token costs one boot on a free public runner and touches nothing private. `tests/invite-token.test.mjs` pins the ordering - no step before verification may reference a secret.
+
+**The token is not a secret in the sharing sense.** Anyone the link reaches can accept; that is an accepted risk bounded by `max_acceptances` and closing the assignment (§15). What it prevents is an outsider who never had the link causing work to happen.
+
+**Revocation** is the nonce, mirrored to the broker's `INVITE_NONCE` variable. Republishing reuses it, so a repair does not break links already handed out; `regenerate_invite: true` mints a fresh one and every earlier link reports `superseded`. Key rotation is the `kid` field, with old public keys retained until their assignments close. See RUNBOOK §1.3.1.
 - **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern; see RUNBOOK §9.
 - **Per-org control-repo compromise.** Restricted to that single org's data.
 - **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.
@@ -269,7 +287,7 @@ The defining design decision of v1: **the system consumes zero billed minutes wh
 
 ### 6.1 Synchronous provisioning
 
-When a student stars a broker, the central `acceptance-handler.yml` workflow runs the full sequence in a single workflow run: accept -> provision -> write registry record -> dispatch dashboard regen. **There is no queue.** A 250-student burst is handled by GitHub's own workflow scheduler and the App's per-org rate-limit budget; if the org is rate-limited, the workflow run fails and the SPA shows the student "GitHub is currently experiencing high load. Please try again in 15 minutes." (`AssignmentView.vue`). The student retries by re-starring the broker; idempotency makes this safe.
+When a student accepts through their invitation link, the central `acceptance-handler.yml` workflow runs the full sequence in a single workflow run: accept -> provision -> write registry record -> dispatch dashboard regen. **There is no queue.** A 250-student burst is handled by GitHub's own workflow scheduler and the App's per-org rate-limit budget; if the org is rate-limited, the workflow run fails and the SPA shows the student "GitHub is currently experiencing high load. Please try again in 15 minutes." (`AssignmentView.vue`). The student retries from the same link; idempotency makes this safe.
 
 ### 6.2 One nightly cron
 
@@ -333,7 +351,7 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `acceptance-handler.yml` | `repository_dispatch [acceptance]` | Sync: accept -> provision -> dispatch dashboard regen. Per-student concurrency. |
+| `acceptance-handler.yml` | `repository_dispatch [acceptance]` | Sync: read team payload -> accept -> provision -> dispatch dashboard regen. Per-student concurrency. |
 | `daily-activity.yml` | `cron 0 0 * * *` + `workflow_dispatch` | Nightly: collect, finalize finalizable assignments, disable self when idle. **Disabled when no class active.** |
 | `publish-assignment.yml` | `workflow_dispatch` | Create broker repo, set vars, push broker workflow, flip assignment `state` to `published`, **enable `daily-activity.yml`**. |
 | `regenerate-dashboard.yml` | `workflow_dispatch` (called by other workflows) | Multi-org: generate public Pages JSON + run privacy scanner + commit to each org's `public/`. |
@@ -376,14 +394,21 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 ### 9.1 Student acceptance (synchronous)
 
 ```
-1. Student opens https://<pages-host>/pxl-classroom/<org>/a/<assignment-id>
-2. SPA shows title, opens_at, deadline, current state.
+1. Student opens the invitation link, https://<pages-host>/pxl-classroom/<org>/i/<token>
+2. SPA matches the token's subject against the org's published assignments to
+   learn which one it is - the id is a hash inside the token, not readable from
+   the link - then shows title, opens_at, deadline, current state.
    - *Acceptance Gating:* The SPA gates the acceptance flow: if the assignment state is not 'published' (e.g., if it is 'closed' or 'draft') or if the current time is before `opens_at`, it displays a status warning message instead of the Accept button. If the student has already accepted and has a provisioned repository, they can still access their repository.
 3. Student clicks "Accept" -> device-flow auth (only if first time this session)
-4. SPA POSTs PUT /user/starred/<org>/broker-<assignment-id>          [Account/Starring]
-5. Broker's watch:started workflow fires
-6. Broker mints a token for the pxl-classroom-scoped App installation
-7. Broker POSTs /repos/PXL-DAS/pxl-classroom/dispatches type=acceptance
+4. SPA opens an issue on <org>/broker-<assignment-id> titled
+   `pxl-accept:<token>[ team:<slug>]`
+5. Broker job-level `if` checks the title prefix and vars.INVITE_ENABLED, before
+   GitHub allocates a runner
+6. Broker checks out the public hub (no credentials) and verifies the signature
+   against acceptance/invite-keys.json. An invalid token stops here - nothing
+   private has been touched and no credential has been minted (§4.3.2)
+7. Only then: broker mints a token for the pxl-classroom-scoped App installation
+   and POSTs /repos/PXL-DAS/pxl-classroom/dispatches type=acceptance
 8. acceptance-handler.yml in the hub:
    a. Mints App token for inputs.org
    b. Checks out <org>/pxl-classroom-control
@@ -403,7 +428,7 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 10. SPA shows the repo URL + "Open repository" button
 ```
 
-Idempotency: a re-star (unstar then restar) re-fires `watch:started`; the acceptance script detects an existing acceptance and returns `already-accepted`; provisioning detects an existing repo and returns `reused`. The student gets the same repo URL.
+Idempotency: opening a second acceptance issue re-fires the broker; the acceptance script detects an existing acceptance and returns `already-accepted`; provisioning detects an existing repo and returns `reused`. The student gets the same repo URL.
 
 Failure modes:
 - Rate limit / GitHub outage -> workflow fails -> SPA polls 30× over ~3 min (20 × 3 s, then 10 × 10 s) -> "GitHub is currently experiencing high load. Please try again in 15 minutes."
@@ -520,7 +545,7 @@ The App needs the following permissions. Eight repository permissions and Organi
 | `secrets: write` | Yes | Set per-broker / per-control-repo Actions secrets during provisioning. |
 | `workflows: write` | Yes | Provision Actions workflows in student repositories. |
 | `organization_administration: read` | Yes | Enhanced Billing endpoint used by the weekly usage report. Distinct from repository `administration`. |
-| `starring: write` (account) | No (manual) | Students star the broker to trigger acceptance. User-level permission. |
+| `issues: write` | Yes | Students open the acceptance issue carrying their signed invitation on the public broker (§4.3.2). |
 | `email addresses: read` (account) | No (optional) | Read student verified primary email upon acceptance/login. |
 
 **A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly - every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
@@ -533,7 +558,7 @@ The App needs the following permissions. Eight repository permissions and Organi
 
 What a leaked lecturer token grants: the intersection of the table above with the user's GitHub permissions on installed orgs. In practice for an org owner that is contents/admin/secrets/actions write on every repo the App is installed on. The `actions: write` delta on top of the existing write permissions is small in marginal terms - workflows are public, inputs are validated, and the dispatch attack surface is bounded by what those workflows are designed to do. Token lifetime is 8 hours; lecturers can revoke at any time at `https://github.com/settings/applications`.
 
-Student tokens, which only have Account/Starring write and email read granted at OAuth time, remain essentially harmless (worst case: mass-star on the student's behalf for ≤ 8 hours).
+Student tokens, which grant only issue creation on public repositories and email read at OAuth time, remain essentially harmless (worst case: opening issues on the student's behalf for ≤ 8 hours - and on a broker those are rejected without a valid invitation).
 
 For PXL's classroom threat model, this is acceptable. If the deployment ever handles higher-value data (e.g. graded assignments worth credit transferable to another institution), swap the proxy to a self-hosted one or a Cloudflare Worker - both are drop-in replacements via `VITE_CORS_PROXY_URL`.
 
@@ -677,7 +702,7 @@ The system tolerates duplicate events, delayed workflow execution, canceled runs
 
 Target scale: 500 active students, 20 active assignments, 10,000 managed repositories over an org's lifetime, 250-student class-wide acceptance burst.
 
-**Bursts.** The secondary rate limit (≈80 content writes/min, 500/hr per token) is the bottleneck. Per-org App tokens are scoped per-installation, so two orgs can burst in parallel. Within one org: a 250-student burst issues ~500 writes (create + grant). The synchronous acceptance model trades retries for queue complexity - students who fail get a clear "try again in 15 minutes" and the retry is a free re-star.
+**Bursts.** The secondary rate limit (≈80 content writes/min, 500/hr per token) is the bottleneck. Per-org App tokens are scoped per-installation, so two orgs can burst in parallel. Within one org: a 250-student burst issues ~500 writes (create + grant). The synchronous acceptance model trades retries for queue complexity - students who fail get a clear "try again in 15 minutes" and the retry is a free reopen of the same link.
 
 **Per-org concurrency.** `acceptance-handler.yml` uses `concurrency: accept-${org}-${assignment_id}-${github_login}` so duplicate stars from the same user never run in parallel.
 
@@ -743,9 +768,9 @@ On-demand runs are dispatch-and-watch operations. The SPA sends a unique `reques
   Open-mode acceptors appear in reports without roster metadata - `report/report.mjs` unions acceptances, repositories, observations and roster, so they are listed with `full_name`/`student_number`/`class_group` as `null` until the lecturer imports a roster or applies overrides.
 - **Lock-down is a deterrent, not tamper-proof.** A student who prepared beforehand may retain alternative write paths. Reports flag observed late activity; preservation captures the on-time SHA.
 - **No institutional verification.** A student could associate with the wrong roster entry. Lecturer review + overrides correct it. MS 365 / Entra ID verification is a v2 candidate and would be the only explicit exception to the GitHub-only constraint.
-- **Public broker is public.** Star activity is publicly visible. Acceptable.
+- **Public broker is public.** Acceptance issues, and so who accepted, are publicly visible. Acceptable. A signed invitation stops an outsider *triggering* work (§4.3.2); it does not hide that acceptance happened.
 - **GitHub Pages is public.** Privacy scanner is a hard publish gate; no roster/email/token can land in public output.
-- **Class-wide burst is best-effort.** No queue. If 250 students all star within seconds, GitHub's rate limit may reject some - they retry by re-starring.
+- **Class-wide burst is best-effort.** No queue. If 250 students all accept within seconds, GitHub's rate limit may reject some - they retry from the same link.
 
 ---
 

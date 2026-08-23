@@ -1007,10 +1007,11 @@ const SortIcon = (props) => props.dir
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
-import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getRepo, getWorkflowRuns } from '../lib/api.js'
+import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
+import { invitationUrl } from '../lib/invite.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
@@ -1396,21 +1397,6 @@ const roster = computed(() => Array.from(rosterByLogin.value.values()))
 const userProfilesByLogin = ref(new Map())
 const profileCache = new Map()
 
-async function fetchUserProfile(token, login) {
-  if (!login) return null
-  const key = login.toLowerCase()
-  if (profileCache.has(key)) return profileCache.get(key)
-  try {
-    const res = await ghApi(token, 'GET', `/users/${login}`)
-    if (res.ok && res.data) {
-      profileCache.set(key, res.data)
-      return res.data
-    }
-  } catch {
-    // ignore
-  }
-  return null
-}
 
 function isBot(str) {
   if (!str) return false
@@ -1628,7 +1614,6 @@ function onKeydown(e) {
     if (exportDropdownOpen.value) exportDropdownOpen.value = false
     if (moreActionsOpen.value) moreActionsOpen.value = false
     if (actionStudent.value) closeActions()
-    if (showBreakdown.value) showBreakdown.value = false
   }
 }
 
@@ -1949,7 +1934,7 @@ const CSV_HEADERS = [
 function csvCell(v) {
   if (v === null || v === undefined) return ''
   let str = Array.isArray(v) ? v.join('; ') : String(v)
-  if (/^[=\+\-@]/.test(str)) {
+  if (/^[=+\-@]/.test(str)) {
     str = `'${str}`
   }
   return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
@@ -1975,14 +1960,38 @@ function exportCSV() {
   URL.revokeObjectURL(url)
 }
 
-function copyAcceptLink() {
-  const base = window.location.origin + (import.meta.env.BASE_URL || '/')
-  // Route shape is /:org/a/:assignmentId - the org segment is required.
-  const link = `${base}${props.org}/a/${props.assignmentId}`
+async function copyAcceptLink() {
+  // The link cannot be constructed from the id: it carries the signed token
+  // minted at publish time, which lives in the private control repo. No token
+  // means the assignment was never published, or was published before signed
+  // invitations existed.
+  const token = await loadInviteToken()
+  if (!token) {
+    toast.error('No invitation link yet - publish this assignment to mint one.')
+    return
+  }
+  const link = invitationUrl(props.org, token)
   navigator.clipboard.writeText(link).then(
-    () => toast.success(`Invitation link copied: ${link}`),
+    () => toast.success('Invitation link copied'),
     () => toast.error('Could not copy link'),
   )
+}
+
+// Read from the control repo with the lecturer's own token. Deliberately not
+// cached in the report or the dashboard: the token must not travel anywhere
+// that a student can read, and Pages output is world-readable.
+async function loadInviteToken() {
+  try {
+    const file = await getRepoContent(
+      getToken(), props.org, 'pxl-classroom-control',
+      `assignments/${props.assignmentId}.yml`,
+    )
+    if (!file?.ok) return null
+    const match = String(file.data || '').match(/^invite_token: *(\S+)$/m)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
 }
 
 // Manifest of preserved submissions - login + archive SHA + clickable
@@ -3108,7 +3117,10 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 768px) {
   .summary-row { grid-template-columns: repeat(2, 1fr); }
   .actions-bar { flex-direction: column; align-items: stretch; }
-  .actions-bar > div { width: 100%; }
+  /* Stacking the bar is not enough: each row is itself a flex line of buttons
+     ("Copy invitation link" alone is ~150px), and without wrapping it pushed
+     the page sideways below ~430px. */
+  .actions-bar > div { width: 100%; flex-wrap: wrap; }
   .search-input { flex: 1; min-width: 0; }
   .desktop-only { display: none; }
   .mobile-only { display: block; }
