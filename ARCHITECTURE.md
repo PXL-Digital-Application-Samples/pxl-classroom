@@ -730,7 +730,9 @@ Confirmed against a live repository before it shipped: the App pushes straight t
 
 Two failure paths, both degrading to the old behaviour rather than to no lock: an unresolvable App id (a ruleset the App cannot bypass would lock the system out with no way back) and a ruleset call that fails, per repository. `lock_method` on each result says which actually applied.
 
-The trade the ruleset makes is that the student stays repo admin and could delete the repository outright. Phase ordering answers it: by the time that matters, preservation has pushed a copy to `pxl-classroom-archive`, which they cannot touch. `lock_down_enabled` remains available for anyone who wants admin gone as well.
+The trade the ruleset makes is that the student stays repo admin and could delete the repository outright, or delete the ruleset. Phase ordering answers the first: by the time that matters, preservation has pushed a copy to `pxl-classroom-archive`, which they cannot touch. The second is a deliberate, visible act in their own repository settings - *"you committed at 22:31"* is arguable, *"you disabled the deadline enforcement on your repository"* is not. `lock_down_enabled` remains available for anyone who wants admin gone as well.
+
+**Organization scope is the version that closes both, and it is a rollout rather than a design problem.** Measured live: one organization ruleset with `conditions.repository_name.include: ["<pattern>-*"]` locks a whole cohort and leaves other repos alone, `PUT /orgs/{org}/rulesets/{id}` flips all of them in **one** call regardless of cohort size, and each student's repository lists it as `source_type: "Organization"` - visible to them, manageable only by an org owner. The blocker is that the App declares `organization_administration: read` and the call needs `write`; that permission lives on the App, so it takes a declaration change plus approval by every installed org (RUNBOOK §6.7, §10.6). Until then repository rulesets do the job with no permission change, and `applySubmissionLock` is the one function that would gain the new scope.
 
 #### 11.2.2 Reconstructing the deadline state
 

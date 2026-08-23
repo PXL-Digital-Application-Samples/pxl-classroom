@@ -173,7 +173,26 @@ same ruleset gets `current_user_can_bypass: "never"` and is rejected with
 PUT /repos/{org}/{repo}/rulesets/{id}   -f enforcement=active
 ```
 
-##### Open decision: organization-level or repository-level
+##### Open decision: organization-level or repository-level — **measured**
+
+The organization half was tested live on 23 Aug 2026, with an org owner's token
+rather than the App's, because the only thing the App permission changes is *who
+may make the call*:
+
+* One ruleset with `conditions.repository_name.include: ["exam2026-*"]` blocked
+  pushes to `exam2026-alice` and `exam2026-bob` and left `other-repo` alone.
+  **One object, one call, whole cohort** — the row in the table below is real,
+  and it is a property of organization scope only.
+* `PUT /orgs/{org}/rulesets/{id} -f enforcement=disabled` released all of them in
+  one call, and the next push succeeded immediately. So Phase 1 at org scope is
+  genuinely a single request regardless of cohort size.
+* The ruleset shows up in each **repository's** own `GET .../rulesets` listing
+  carrying `source_type: "Organization"`. That is exactly why
+  `findSubmissionLock` filters it out: a student's repo lists it, and neither
+  they nor the repo can manage it.
+
+What remains is not a design question but a rollout: the App declares
+`organization_administration: read` and the call needs `write`. See §3.2.9 step 5.
 
 | | Permission needed | Student (repo admin) can remove it? |
 |---|---|---|
@@ -453,8 +472,25 @@ cannot call it yet without a control-repo checkout. That is step 3's problem.
    `daily-activity.yml`'s (which is `0 0 * * *` and disables itself when idle),
    and `publish-assignment.yml` enables it beside the nightly. Turn it on with
    `gh workflow enable deadline-sentinel.yml`; RUNBOOK §7.1.
-5. Organization rulesets, once the App permission is approved.
+5. Organization rulesets, once the App permission is approved. **Blocked on a
+   human, and the block is not a code problem.** The mechanism is measured and
+   works (§3.2.2 above); what is missing is that the App declares
+   `organization_administration: **read**` and the call needs `write`. That
+   permission lives on the **App**, not the installation, so it takes:
 
+   1. the App owner changing *Organization permissions → Administration* to
+      **Read and write** at
+      `https://github.com/settings/apps/pxl-classroom-provisioner/permissions`;
+   2. **every installed org approving** the new request (RUNBOOK §10.6);
+   3. only then, `applySubmissionLock` gaining an `"org-ruleset"` method beside
+      the two it has, with the repository ruleset staying as the fallback for
+      orgs that have not approved.
+
+   Until then `late_policy: block` works through repository rulesets, which need
+   no permission change. What org scope buys is one call instead of N, and a lock
+   a repo-admin student cannot delete — worth doing, not worth blocking on.
+
+Steps 1–4 are shipped. Step 4 is shipped **disabled** (RUNBOOK §7.1).
 Each step is useful on its own and none of them requires the next.
 ### 3.3 `acceptance_mode` — control removed, field kept
 

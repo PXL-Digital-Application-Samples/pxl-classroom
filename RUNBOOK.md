@@ -466,6 +466,14 @@ gh api repos/<org>/<repo>/rulesets --jq '.[] | select(.name=="pxl-classroom-dead
 
 then `gh api -X DELETE repos/<org>/<repo>/rulesets/<id>`.
 
+**A student can delete that ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to `pxl-classroom-archive`, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. If you want a lock they cannot reach, that is an **organization** ruleset, and it needs an App permission the App does not yet declare:
+
+1. The App owner changes *Organization permissions → Administration* to **Read and write** at `https://github.com/settings/apps/pxl-classroom-provisioner/permissions`.
+2. Every installed org approves the new request (§10.6 - the same re-approval flow as any permission change).
+3. The system then locks a cohort with one API call instead of one per student.
+
+Measured before recommending it: one org ruleset matching `exam2026-*` blocked pushes to both cohort repos and left an unrelated repo alone, and one `PUT` released them all.
+
 ### 6.3 Student says "I clicked Accept but nothing happened"
 
 Possible causes:
