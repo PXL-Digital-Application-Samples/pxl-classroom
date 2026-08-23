@@ -134,8 +134,19 @@ jobs:
 
           TMPDIR=$(mktemp -d)
           cd "$TMPDIR"
-          git init
+          git init -q
+          git symbolic-ref HEAD refs/heads/main
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${BROKER_REPO}.git"
+
+          # Continue the broker's existing history rather than force-pushing a
+          # fresh root commit over it. Force-push is rejected outright by an org
+          # that forbids it - PXL-Systems-Expert carries Classroom50 org rulesets
+          # that do - and republishing then fails with GH013 after the invitation
+          # has already been minted, leaving state: published with no working
+          # link. Rewriting a broker's history buys nothing anyway.
+          if git fetch --depth=1 origin main 2>/dev/null; then
+            git reset -q --hard FETCH_HEAD
+          fi
           mkdir -p .github/workflows
           
           # Copy from pxl-classroom workspace
@@ -155,9 +166,14 @@ jobs:
           git add -A
           git config user.name "pxl-classroom[bot]"
           git config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git commit -m "Initialize broker for ${ASSIGNMENT_ID}"
-          git branch -M main
-          git push -u origin main --force
+          # Nothing to do when the broker already carries this exact workflow;
+          # republishing to repair something else must not fail on an empty diff.
+          if git diff --cached --quiet; then
+            echo "Broker already up to date"
+          else
+            git commit -q -m "Publish broker for ${ASSIGNMENT_ID}"
+            git push -q origin HEAD:main
+          fi
 
           # The hub is public and so are its run logs and step summaries.
           # The invitation token must never be printed here.
