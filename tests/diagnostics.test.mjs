@@ -2,6 +2,20 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
 import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS } from "../lib/audit.mjs";
+import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
+
+// A published assignment is only healthy when its invitation chain agrees, so
+// the fixture carries a real signed token rather than a state that would
+// strand every student.
+const KEYPAIR = generateKeyPair();
+const INVITE_NONCE = "0badc0de";
+const INVITE_TOKEN = signInviteToken({
+  org: "TestOrg",
+  assignmentId: "hw1",
+  expiresAt: "2099-01-01T00:00:00.000Z",
+  nonce: INVITE_NONCE,
+  privateKeyPem: KEYPAIR.privateKeyPem,
+});
 
 function createMockRequest({
   userStatus = 200,
@@ -18,7 +32,7 @@ function createMockRequest({
   controlIsPrivate = true,
   missingScaffold = [],
   assignmentYmlStatus = 200,
-  assignmentYml = "title: Homework 1\ntemplate: TestOrg/template-hw1\nrepository_name_pattern: 'hw1-{github_login}'\nopens_at: '2026-09-01T08:00:00Z'\ndeadline_at: '2026-09-15T22:00:00Z'\nstate: published\nroster_mode: open\n",
+  assignmentYml = "title: Homework 1\ntemplate: TestOrg/template-hw1\nrepository_name_pattern: 'hw1-{github_login}'\nopens_at: '2026-09-01T08:00:00Z'\ndeadline_at: '2026-09-15T22:00:00Z'\nstate: published\nroster_mode: open\ninvite_token: " + INVITE_TOKEN + "\ninvite_nonce: " + INVITE_NONCE + "\n",
   templateStatus = 200,
   templateIsTemplate = true,
   rosterStatus = 200,
@@ -77,7 +91,7 @@ function createMockRequest({
         if (assignmentYmlStatus !== 200) return { status: assignmentYmlStatus, ok: false };
         return { status: 200, ok: true, data: { content: Buffer.from(assignmentYml).toString("base64") } };
       }
-      if (p === "rosters/hw1.csv") {
+      if (p === "students/roster.yml") {
         return { status: rosterStatus, ok: rosterStatus === 200 };
       }
       if (p === "public/assignments.json") {
@@ -94,6 +108,22 @@ function createMockRequest({
     }
 
     // Tier 4
+    if (path.includes("acceptance/invite-keys.json")) {
+      const json = JSON.stringify({ keys: { 1: KEYPAIR.publicKeyBase64 } });
+      return { status: 200, ok: true, data: { content: Buffer.from(json).toString("base64") } };
+    }
+    if (path.includes("/actions/variables")) {
+      return {
+        status: 200,
+        ok: true,
+        data: {
+          variables: [
+            { name: "INVITE_NONCE", value: INVITE_NONCE },
+            { name: "INVITE_ENABLED", value: "true" },
+          ],
+        },
+      };
+    }
     if (path === "/repos/TestOrg/broker-hw1") {
       if (brokerStatus !== 200) return { status: brokerStatus, ok: false };
       return { status: 200, ok: true, data: { private: brokerIsPrivate } };

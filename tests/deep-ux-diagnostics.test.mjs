@@ -1,7 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
+import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
 import { EXPECTED_APP_PERMISSIONS } from "../lib/audit.mjs";
+
+// A published assignment is only healthy if its invitation chain agrees: the
+// assignment holds a signed token, the hub publishes the key it was signed
+// with, and the broker's nonce matches. The fixture therefore carries a real
+// token rather than pretending invitations do not exist.
+const KEYPAIR = generateKeyPair();
+const INVITE_NONCE = "0badc0de";
+export const DEEP_TEST_TOKEN = signInviteToken({
+  org: "PXL-CSMobile",
+  assignmentId: "deep-test-hw",
+  expiresAt: "2099-01-01T00:00:00.000Z",
+  nonce: INVITE_NONCE,
+  privateKeyPem: KEYPAIR.privateKeyPem,
+});
 
 function createMockRequest(overrides = {}) {
   return async (method, path, body = null) => {
@@ -27,6 +42,22 @@ function createMockRequest(overrides = {}) {
     if (path === "/repos/hub/repo/contents/participating-orgs.yml?ref=participating-orgs") {
       const yaml = "orgs:\n  - login: PXL-CSMobile\n    budget_owner_login: admin";
       return { status: 200, ok: true, data: { content: Buffer.from(yaml).toString("base64") } };
+    }
+    if (path.includes("acceptance/invite-keys.json")) {
+      const json = JSON.stringify({ keys: { 1: KEYPAIR.publicKeyBase64 } });
+      return { status: 200, ok: true, data: { content: Buffer.from(json).toString("base64") } };
+    }
+    if (path.includes("/actions/variables")) {
+      return {
+        status: 200,
+        ok: true,
+        data: {
+          variables: [
+            { name: "INVITE_NONCE", value: INVITE_NONCE },
+            { name: "INVITE_ENABLED", value: "true" },
+          ],
+        },
+      };
     }
     if (path === "/repos/PXL-CSMobile/pxl-classroom-control") {
       return { status: 200, ok: true, data: { private: true } };
@@ -77,6 +108,8 @@ test("Deep Test: All 6 Tiers 100% Green with Subtitles and Educator Labels", asy
       opens_at: "2026-09-01T08:00:00Z",
       deadline_at: "2026-10-01T22:00:00Z",
       state: "published",
+      invite_token: DEEP_TEST_TOKEN,
+      invite_nonce: INVITE_NONCE,
     },
     hubOwner: "hub",
     hubRepo: "repo",
@@ -194,9 +227,9 @@ test("Deep Test: Private Broker Repository Triggers 'Make Broker Public' Auto-Fi
   assert.equal(visCheck.fixAction.label, "Make Broker Public");
 });
 
-test("Deep Test: Enforced Roster Mode Missing CSV triggers 'Open Roster Editor' Navigation Action", async () => {
+test("Deep Test: Enforced Roster Mode Missing roster.yml triggers 'Open Roster Editor' Navigation Action", async () => {
   const req = createMockRequest({
-    "/repos/PXL-CSMobile/pxl-classroom-control/contents/rosters/deep-test-hw.csv": async () => ({ status: 404, ok: false }),
+    "/repos/PXL-CSMobile/pxl-classroom-control/contents/students/roster.yml": async () => ({ status: 404, ok: false }),
   });
 
   const res = await runDiagnostics({

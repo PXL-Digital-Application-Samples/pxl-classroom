@@ -187,3 +187,31 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
     "Dialog must assure user that existing repositories are safe and untouched"
   );
 });
+
+// The Admin Panel rebuilds the whole assignment document on save rather than
+// patching it, so any field buildDoc does not carry through is deleted from the
+// YAML. invite_token is minted by publish-assignment.yml and never edited here,
+// which is exactly what makes it easy to drop - and dropping it silently
+// retires the invitation link already in students' hands, leaving a document
+// that still validates against the schema.
+test("saving an edited assignment preserves its invitation", () => {
+  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  for (const field of ["invite_token", "invite_nonce", "invite_expires_at"]) {
+    assert.ok(
+      src.includes(`...(form.value.${field} ? { ${field}: form.value.${field} } : {})`),
+      `buildDoc must carry ${field} through, or saving an edit deletes it from the YAML`
+    );
+  }
+});
+
+test("opening an assignment for edit loads its invitation", () => {
+  // Without this the field never reaches the form, so buildDoc has nothing to
+  // preserve and "Copy invitation link" has nothing to copy.
+  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  for (const field of ["invite_token", "invite_nonce", "invite_expires_at"]) {
+    assert.ok(
+      src.includes(`${field}: a.${field} || ''`),
+      `the edit form must load ${field} from the assignment`
+    );
+  }
+});

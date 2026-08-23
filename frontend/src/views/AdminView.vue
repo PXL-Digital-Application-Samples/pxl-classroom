@@ -1548,6 +1548,9 @@ function editAssignment(a) {
     state: a.state || 'draft',
     max_acceptances: a.max_acceptances ?? 50,
     lock_down_enabled: a.lock_down_enabled ?? true,
+    invite_token: a.invite_token || '',
+    invite_nonce: a.invite_nonce || '',
+    invite_expires_at: a.invite_expires_at || '',
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
     autograde_enabled: a.autograde?.enabled === true,
@@ -1653,6 +1656,12 @@ function buildDoc(state = null) {
     state: state || form.value.state,
     ...(form.value.max_acceptances ? { max_acceptances: Number(form.value.max_acceptances) } : {}),
     lock_down_enabled: !!form.value.lock_down_enabled,
+    // Minted by publish-assignment.yml and never edited here - but this rebuilds
+    // the whole document, so anything not carried through is deleted. Dropping
+    // these silently retires the invitation link already handed to students.
+    ...(form.value.invite_token ? { invite_token: form.value.invite_token } : {}),
+    ...(form.value.invite_nonce ? { invite_nonce: form.value.invite_nonce } : {}),
+    ...(form.value.invite_expires_at ? { invite_expires_at: form.value.invite_expires_at } : {}),
     ...(form.value.assignment_type ? { assignment_type: form.value.assignment_type } : {}),
     ...(form.value.assignment_type === 'group'
       ? {

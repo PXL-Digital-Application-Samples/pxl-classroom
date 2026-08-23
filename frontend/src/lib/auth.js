@@ -18,7 +18,7 @@
 //
 // Default: corsproxy.io. Override via VITE_CORS_PROXY_URL at build time.
 // Threat model: the proxy operator sees device_code + access_token in transit.
-// Student tokens carry only Account/Starring scope (8h lifetime, instant
+// Student tokens can only open an issue on a public broker (8h lifetime, instant
 // revoke at github.com/settings/applications). Lecturer tokens additionally
 // permit reading the org's control repo. See ARCHITECTURE.md §10.2.
 import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'

@@ -2,6 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
 import { EXPECTED_APP_PERMISSIONS } from "../lib/audit.mjs";
+import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
+
+// A published assignment without a signed invitation genuinely cannot work,
+// so these contract fixtures carry a real one rather than asserting a green
+// panel for a state that would strand every student.
+const KEYPAIR = generateKeyPair();
+const INVITE_NONCE = "0badc0de";
 
 // Helper recreating AdminView.vue's exact buildDoc() logic
 function vueBuildDoc(formState) {
@@ -27,6 +34,14 @@ function vueBuildDoc(formState) {
     state: formState.state || "draft",
     ...(formState.max_acceptances ? { max_acceptances: Number(formState.max_acceptances) } : {}),
     lock_down_enabled: !!formState.lock_down_enabled,
+    invite_token: signInviteToken({
+      org: formState.organization,
+      assignmentId: formState.id,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      nonce: INVITE_NONCE,
+      privateKeyPem: KEYPAIR.privateKeyPem,
+    }),
+    invite_nonce: INVITE_NONCE,
     ...(formState.assignment_type ? { assignment_type: formState.assignment_type } : {}),
     ...(formState.assignment_type === "group"
       ? {
@@ -48,6 +63,22 @@ function createMockRequest(customHandlers = {}) {
     }
     if (path === "/user") return { status: 200, ok: true, data: { login: "lecturer" } };
     if (path === "/rate_limit") return { status: 200, ok: true, data: { resources: { core: { remaining: 4900, limit: 5000 } } } };
+    if (path.includes("acceptance/invite-keys.json")) {
+      const json = JSON.stringify({ keys: { 1: KEYPAIR.publicKeyBase64 } });
+      return { status: 200, ok: true, data: { content: Buffer.from(json).toString("base64") } };
+    }
+    if (path.includes("/actions/variables")) {
+      return {
+        status: 200,
+        ok: true,
+        data: {
+          variables: [
+            { name: "INVITE_NONCE", value: INVITE_NONCE },
+            { name: "INVITE_ENABLED", value: "true" },
+          ],
+        },
+      };
+    }
     if (path === "/user/installations") {
       return {
         status: 200,

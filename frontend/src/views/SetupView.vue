@@ -51,7 +51,7 @@
         <li>
           On the App settings page, add the account permission the manifest cannot carry:
           <ul>
-            <li>Account -> <strong>Starring: Read and write</strong> (students star the broker to accept)</li>
+            <li>Account -> <strong>Email addresses: Read</strong> (reads the student's verified primary email at acceptance)</li>
           </ul>
         </li>
         <li>Re-run the <code>deploy-frontend.yml</code> workflow so the SPA rebuilds with the client ID.</li>
@@ -174,7 +174,7 @@
         <ol class="steps">
           <li>GitHub shows a confirmation page - click <strong>Create GitHub App for …</strong>.</li>
           <li>You are redirected back here; this page exchanges the one-time code and shows the App ID, Client ID, and private key.</li>
-          <li>You store the three hub secrets (<code>PXL_APP_CLIENT_ID</code>, <code>PXL_APP_PRIVATE_KEY</code>, <code>VITE_GITHUB_CLIENT_ID</code>), add Account <strong>Starring: Read and write</strong>, and re-run <code>deploy-frontend.yml</code>.</li>
+          <li>You store the hub secrets (<code>PXL_APP_CLIENT_ID</code>, <code>PXL_APP_PRIVATE_KEY</code>, <code>VITE_GITHUB_CLIENT_ID</code>, <code>PXL_INVITE_SIGNING_KEY</code>) and re-run <code>deploy-frontend.yml</code>.</li>
         </ol>
         <p class="text-secondary">Full procedure: <a :href="`${runbookUrl}#12-create-the-central-github-app`" target="_blank" rel="noopener">RUNBOOK §1.2-§1.4</a>.</p>
       </details>

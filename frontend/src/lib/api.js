@@ -97,13 +97,6 @@ export function totalFromLinkHeader(headers, fallbackArray) {
 // --- Student-facing API calls -----------------------------------------------
 
 /**
- * Star a repository (acceptance trigger).
- */
-export async function starRepo(token, owner, repo) {
-  return ghApi(token, 'PUT', `/user/starred/${owner}/${repo}`)
-}
-
-/**
  * Add a collaborator to a repository with specific permission (e.g. admin, pull, push).
  */
 export async function addCollaborator(token, owner, repo, username, permission = 'admin') {
@@ -127,22 +120,6 @@ export async function removeCollaborator(token, owner, repo, username) {
     // non-critical
   }
   return res
-}
-
-/**
- * Unstar a repository. Used by the retry path so that a subsequent star
- * re-fires the broker's watch:started event.
- */
-export async function unstarRepo(token, owner, repo) {
-  return ghApi(token, 'DELETE', `/user/starred/${owner}/${repo}`)
-}
-
-/**
- * Check if the user has starred a repo.
- */
-export async function isStarred(token, owner, repo) {
-  const res = await ghApi(token, 'GET', `/user/starred/${owner}/${repo}`)
-  return res.status === 204
 }
 
 /**
