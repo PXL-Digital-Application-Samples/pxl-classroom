@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 // DESIGN.md §1 is the half of the design system no static test can check: the
 // rules are about what is VISIBLE at once, and most of these views render their
@@ -151,7 +151,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
         ],
       },
     });
-    await page.goto(`/${ORG}/a/g`);
+    await page.goto(inviteUrl(ORG, 'g'));
     await page.waitForTimeout(1200);
     await conforms(page, 'student team list');
 
@@ -177,7 +177,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
         ],
       },
     });
-    await page.goto(`/${ORG}/a/g`);
+    await page.goto(inviteUrl(ORG, 'g'));
     await page.waitForTimeout(1200);
     await conforms(page, 'student carried-over group');
 

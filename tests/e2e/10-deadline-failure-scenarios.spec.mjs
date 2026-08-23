@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => {
   test('Scenario 1 (Registration Gating): Blocks late acceptance while preserving repository access for existing student', async ({ page }) => {
@@ -29,7 +29,7 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     });
 
     // 1. Unaccepted student visits past-deadline assignment -> Should see "Assignment closed"
-    await page.goto(`/${ORG}/a/lab-past-deadline`);
+    await page.goto(inviteUrl(ORG, 'lab-past-deadline'));
     await expect(page.locator('h2', { hasText: 'Assignment closed' })).toBeVisible();
     await expect(page.locator('button', { hasText: 'Accept assignment' })).not.toBeVisible();
 
@@ -57,7 +57,7 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
       ],
     });
 
-    await page.goto(`/${ORG}/a/lab-past-deadline`);
+    await page.goto(inviteUrl(ORG, 'lab-past-deadline'));
     await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
     await expect(page.locator(`text=${ORG}/lab-past-deadline-${STUDENT_1.login}`)).toBeVisible();
   });
@@ -93,7 +93,7 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
       },
     });
 
-    await page.goto(`/${ORG}/a/group-past-deadline`);
+    await page.goto(inviteUrl(ORG, 'group-past-deadline'));
     await expect(page.locator('h2', { hasText: 'Assignment closed' })).toBeVisible();
     await expect(page.locator('button', { hasText: /Join Team|Create & Join Team/i })).not.toBeVisible();
   });

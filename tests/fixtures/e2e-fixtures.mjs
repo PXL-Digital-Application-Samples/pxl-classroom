@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
 import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
+import { signInviteToken, generateKeyPair } from '../../lib/invite-token.mjs'
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -41,6 +42,28 @@ export const STUDENT_2 = {
 /**
  * Injects authentication into browser sessionStorage before page loads.
  */
+// Student pages are reached by invitation token, not by assignment id
+// (ARCHITECTURE §4.3.2). The SPA never verifies the signature - it only matches
+// the token's subject against the org's published assignments - so a throwaway
+// keypair is enough here, and the specs stay independent of the real signing
+// key. One pair per run keeps every token in a spec file mutually consistent.
+const E2E_KEYPAIR = generateKeyPair()
+
+export function inviteToken(org, assignmentId) {
+  return signInviteToken({
+    org,
+    assignmentId,
+    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    nonce: 'e2e00001',
+    privateKeyPem: E2E_KEYPAIR.privateKeyPem,
+  })
+}
+
+/** The student-facing URL for an assignment, as a lecturer would hand it out. */
+export function inviteUrl(org, assignmentId) {
+  return `/${org}/i/${inviteToken(org, assignmentId)}`
+}
+
 export async function injectAuth(page, user) {
   const authData = JSON.stringify({
     access_token: user.token,

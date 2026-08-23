@@ -100,7 +100,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 ### 3. Student Acceptance
 
-- Distribute the URL `/:org/a/:assignment-id` to students.
+- Distribute the invitation link `/:org/i/:invite-token` to students - copy it from the assignment's detail view; it is minted at publish time and cannot be derived from the id.
 - Students sign in and accept. The repository is provisioned immediately.
 
 ### 4. Collection and Grading

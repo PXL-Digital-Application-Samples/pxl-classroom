@@ -1,11 +1,9 @@
 import { test, expect } from '@playwright/test';
-import {
-  ORG,
+import { ORG,
   LECTURER,
   STUDENT_1,
   injectAuth,
-  setupStandardMockRoutes,
-} from '../fixtures/e2e-fixtures.mjs';
+  setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG_WEB = 'PXL-1TIN-Web-2627';
 
@@ -82,13 +80,14 @@ test.describe('14 - Multi-Org Portal, Student Assignments Dashboard & Usage Bill
     await expect(webCard).toBeVisible();
     await expect(webCard.locator('.org-badge')).toContainText(ORG_WEB);
 
-    // Click Assignment details on the Cloud assignment card
-    const cloudDetailsBtn = cloudCard.getByRole('link', { name: /Assignment details/i });
-    await expect(cloudDetailsBtn).toBeVisible();
-    await cloudDetailsBtn.click();
-
-    // Verify student is navigated to the assignment acceptance page
-    await expect(page).toHaveURL(new RegExp(`/${ORG}/a/cloud-storage-lab`));
+    // The card offers the repository, not the acceptance page. Acceptance is
+    // reached by invitation token now, and this card - built from the student's
+    // accepted repos - has no token to route with. A student who is already
+    // accepted wants the repo anyway.
+    await expect(cloudCard.getByRole('link', { name: /Assignment details/i })).toHaveCount(0);
+    const cloudRepoLink = cloudCard.getByRole('link', { name: /Open on GitHub/i });
+    await expect(cloudRepoLink).toBeVisible();
+    await expect(cloudRepoLink).toHaveAttribute('href', /github\.com/);
   });
 
   test('Scenario 2 (Lecturer Portal Landing & Organization Entry): Welcomes lecturer and routes to lecturer dashboard', async ({ page }) => {

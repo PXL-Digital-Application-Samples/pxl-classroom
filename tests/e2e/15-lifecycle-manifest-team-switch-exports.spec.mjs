@@ -1,11 +1,9 @@
 import { test, expect } from '@playwright/test';
-import {
-  ORG,
+import { ORG,
   LECTURER,
   STUDENT_1,
   injectAuth,
-  setupStandardMockRoutes,
-} from '../fixtures/e2e-fixtures.mjs';
+  setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Team Switching', () => {
 
@@ -207,7 +205,7 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
       currentUser: STUDENT_1,
     });
 
-    await page.goto(`/${ORG}/a/${groupAssignmentId}`);
+    await page.goto(inviteUrl(ORG, groupAssignmentId));
 
     // Verify initial provisioned card with Team Alpha
     await expect(page.locator('.provisioned-state')).toBeVisible();

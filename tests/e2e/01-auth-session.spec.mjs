@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('01 - Auth & Session Lifecycle', () => {
   test('User session badge renders avatar, login name, and session duration', async ({ page }) => {
@@ -40,7 +40,7 @@ test.describe('01 - Auth & Session Lifecycle', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/test-assignment`);
+    await page.goto(inviteUrl(ORG, 'test-assignment'));
     const signInHeading = page.locator('h2', { hasText: 'Sign in with GitHub' });
     await expect(signInHeading).toBeVisible();
     await expect(page.locator('button', { hasText: 'Sign in with GitHub' })).toBeVisible();
@@ -50,7 +50,7 @@ test.describe('01 - Auth & Session Lifecycle', () => {
     await injectAuth(page, STUDENT_1);
     await setupStandardMockRoutes(page, { assignments: {} });
 
-    await page.goto(`/${ORG}/a/non-existent-assignment-12345`);
+    await page.goto(inviteUrl(ORG, 'non-existent-assignment-12345'));
     const errorHeading = page.locator('h2', { hasText: /Assignment not found|Looking for newly published/ });
     await expect(errorHeading).toBeVisible();
   });

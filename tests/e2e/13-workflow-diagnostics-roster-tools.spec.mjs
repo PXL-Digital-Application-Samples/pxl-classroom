@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupStandardMockRoutes, injectAuth } from '../fixtures/e2e-fixtures.mjs';
+import { setupStandardMockRoutes, injectAuth, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 const LECTURER = { login: 'prof-cloud', name: 'Professor Cloud', token: 'mock_lecturer_token' };
@@ -35,7 +35,7 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
       ],
     });
 
-    await page.goto(`/${ORG}/a/${assignmentId}`);
+    await page.goto(inviteUrl(ORG, assignmentId));
 
     // Wait for assignment card to load
     await expect(page.getByRole('heading', { name: 'Accept assignment' })).toBeVisible();

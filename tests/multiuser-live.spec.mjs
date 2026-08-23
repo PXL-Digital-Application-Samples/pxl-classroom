@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { existsSync } from 'node:fs';
+import { inviteUrl } from './fixtures/e2e-fixtures.mjs';
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -144,7 +145,7 @@ test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
     // ---------------------------------------------------------------------------
     // Step 1: Student 2 opens assignment acceptance portal
     // ---------------------------------------------------------------------------
-    await student2Page.goto(`/${ORG}/a/${ASSIGNMENT_ID}`);
+    await student2Page.goto(inviteUrl(ORG, ASSIGNMENT_ID));
 
     // Wait for the team selection header to be visible
     const heading = student2Page.locator('h2', { hasText: 'Group Assignment: Team Selection' });

@@ -324,7 +324,7 @@ This dispatches `publish-assignment.yml`, which:
 
 ### 4.4 Share the link
 
-The student-facing URL: `https://<pages-host>/pxl-classroom/<org>/a/<assignment-id>`.
+The student-facing URL is the invitation link: `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>`. It cannot be constructed from the assignment id - the token is minted at publish time and recorded in the control repo, so copy it from the assignment's detail view (ARCHITECTURE §4.3.2).
 
 That's the only URL students need. They open it, sign in, click Accept, wait ~30 seconds, get a repo link.
 
@@ -618,7 +618,7 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] App permissions include `organization_administration: read` and System Health reports **Enhanced Billing Usage API** healthy.
 - [ ] App permissions include `actions: write` (required for `workflow_dispatch` from the Admin UI / Usage view).
 - [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
-- [ ] Cold-load `https://<pages-host>/pxl-classroom/<org>/a/<sample-id>` lands on AssignmentView.
+- [ ] Cold-load an invitation link `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>` lands on AssignmentView with the right assignment resolved.
 - [ ] The Instructor Notifications issue exists and is open in each control repo.
 
 ## 12. CLI installation (companion tooling)

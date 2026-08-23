@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 // Carrying groups forward from one assignment to the next: the lecturer seeds
 // teams from a previous grouping, and the student confirms the group they
@@ -450,7 +450,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     const card = page.locator('.preassigned-flow');
     await expect(card).toBeVisible({ timeout: 15000 });
     await expect(card).toContainText('Your group: Alpha Team');
@@ -480,7 +480,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     // The hero confirms it…
     await expect(page.locator('.preassigned-flow button', { hasText: 'Accept & Join Team' })).toBeEnabled({ timeout: 15000 });
 
@@ -509,7 +509,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     const betaCard = page.locator('.team-item-card', { hasText: 'Beta Team' });
     await expect(betaCard.locator('button', { hasText: 'Full' })).toBeDisabled({ timeout: 15000 });
   });
@@ -527,7 +527,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     await page.locator('button', { hasText: 'Choose a different group' }).click();
 
     await expect(page.locator('.team-item-card', { hasText: 'Beta Team' })).toBeVisible();
@@ -551,7 +551,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     await expect(page.locator('.preassigned-flow')).toContainText('Pre-Assigned Team: Exam Pair 1', { timeout: 15000 });
     await expect(page.locator('button', { hasText: 'Choose a different group' })).toHaveCount(0);
   });
@@ -568,7 +568,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       teams: { [NEXT]: [{ team_slug: 'exam-pair-1', team_name: 'Exam Pair 1', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false }] },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     await expect(page.locator('.preassigned-flow')).toContainText('No Pre-Assigned Team', { timeout: 15000 });
     await expect(page.locator('.tab-pill', { hasText: /Join Existing Team/ })).toHaveCount(0);
   });
@@ -590,7 +590,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       teams: { [NEXT]: [{ team_slug: 'exam-pair-1', team_name: 'Exam Pair 1', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false }] },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     await expect(page.locator('.tab-pill', { hasText: /Join Existing Team/ })).toBeVisible({ timeout: 15000 });
     await expect(page.locator('text=No Pre-Assigned Team')).toHaveCount(0);
   });
@@ -611,7 +611,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       teams: { [NEXT]: [{ team_slug: 'exam-pair-1', team_name: 'Exam Pair 1', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false }] },
     });
 
-    await page.goto(`/${ORG}/a/${NEXT}`);
+    await page.goto(inviteUrl(ORG, NEXT));
     await expect(page.locator('.preassigned-flow')).toContainText('Exam Pair 1', { timeout: 15000 });
     await expect(page.locator('button', { hasText: 'Choose a different group' })).toHaveCount(0);
   });

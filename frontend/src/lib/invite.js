@@ -74,3 +74,31 @@ export function acceptanceIssueTitle(token, teamSlug) {
 export function invitationUrl(org, token, base = import.meta.env.BASE_URL) {
   return `${window.location.origin}${base}${org}/i/${token}`
 }
+
+/**
+ * Parse whatever a student pastes into the "have a link?" box.
+ *
+ * Accepts a full Pages URL, a `/:org/i/:token` path, or `org/token`. Lives here
+ * rather than inside HomeView because the test suite needs the real thing: the
+ * previous parser was re-implemented inside portal-logic.test.mjs, so the test
+ * kept passing against a copy that no longer matched the view.
+ *
+ * @returns {{org: string, inviteToken: string} | null}
+ */
+export function parseInvitationLink(input) {
+  if (typeof input !== 'string') return null
+  const clean = input.trim()
+  if (!clean) return null
+
+  // Regex literals, not strings: building these with `new RegExp` swallowed the
+  // backslashes in \. and \?, which turned the separator into a bare quantifier.
+  const withSegment = clean.match(
+    /(?:^|\/)([a-zA-Z0-9_-]+)\/i\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})(?:$|\/|\?|#)/,
+  )
+  if (withSegment) return { org: withSegment[1], inviteToken: withSegment[2] }
+
+  const bare = clean.match(/^([a-zA-Z0-9_-]+)\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})$/)
+  if (bare) return { org: bare[1], inviteToken: bare[2] }
+
+  return null
+}

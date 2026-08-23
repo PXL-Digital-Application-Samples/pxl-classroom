@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupStandardMockRoutes, injectAuth, LECTURER, openStarterSyncModal } from '../fixtures/e2e-fixtures.mjs';
+import { setupStandardMockRoutes, injectAuth, LECTURER, openStarterSyncModal, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 const STUDENT_EXTENDED = { login: 'student-extended', name: 'Eve Extended', token: 'mock_extended_token' };
@@ -201,7 +201,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
       },
     });
 
-    await page.goto(`/${ORG}/a/lab-extended`);
+    await page.goto(inviteUrl(ORG, 'lab-extended'));
 
     // Verify Provisioned State
     await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
@@ -454,7 +454,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
       },
     });
 
-    await page.goto(`/${ORG}/a/lab-late-student`);
+    await page.goto(inviteUrl(ORG, 'lab-late-student'));
 
     // Verify Provisioned State
     await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
@@ -501,7 +501,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
       },
     });
 
-    await page.goto(`/${ORG}/a/lab-unstarted`);
+    await page.goto(inviteUrl(ORG, 'lab-unstarted'));
 
     // Verify Provisioned State
     await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
@@ -558,7 +558,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
       },
     });
 
-    await page.goto(`/${ORG}/a/group-status-lab`);
+    await page.goto(inviteUrl(ORG, 'group-status-lab'));
 
     // Verify Team Provisioned State
     await expect(page.locator('h2', { hasText: 'Your team repository is ready!' })).toBeVisible();

@@ -207,6 +207,7 @@ import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getInvitations, ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
+import { parseInvitationLink } from '../lib/invite.js'
 
 const router = useRouter()
 
@@ -421,25 +422,12 @@ async function refreshStudentAssignments() {
 // Jump to Assignment
 function jumpToAssignment() {
   jumpError.value = ''
-  const input = jumpInput.value.trim()
-  if (!input) return
-
-  // Match /:org/i/:token, pasted whole or as a URL. The token is the link -
-  // an assignment id alone no longer opens anything, because the broker will
-  // not act without a signed invitation.
-  const m1 = input.match(/(?:^|\/)([a-zA-Z0-9_-]+)\/i\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})(?:$|\/|\?|#)/)
-  if (m1) {
-    router.push({ name: 'invitation', params: { org: m1[1], inviteToken: m1[2] } })
+  const parsed = parseInvitationLink(jumpInput.value)
+  if (parsed) {
+    router.push({ name: 'invitation', params: parsed })
     return
   }
-
-  // Match :org/:token without the /i/ segment.
-  const m2 = input.match(/^([a-zA-Z0-9_-]+)\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})$/)
-  if (m2) {
-    router.push({ name: 'invitation', params: { org: m2[1], inviteToken: m2[2] } })
-    return
-  }
-
+  if (!jumpInput.value.trim()) return
   jumpError.value = 'That does not look like an invitation link. Paste the whole link your lecturer sent you.'
 }
 

@@ -1,16 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-// Helper functions corresponding to HomeView.vue logic
-function parseAssignmentLink(input) {
-  if (!input) return null;
-  const clean = input.trim();
-  const m1 = clean.match(/(?:^|\/)([a-zA-Z0-9_-]+)\/a\/([a-zA-Z0-9_-]+)(?:$|\/|\?|#)/);
-  if (m1) return { org: m1[1], assignmentId: m1[2] };
-  const m2 = clean.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)$/);
-  if (m2) return { org: m2[1], assignmentId: m2[2] };
-  return null;
-}
+// The real parser, not a copy. A local re-implementation here kept passing
+// against logic the view no longer had.
+import { parseInvitationLink } from "../frontend/src/lib/invite.js";
+import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
 
 function matchStudentAssignments(allOrgAssignments, userLogin, userRepos, userInvites) {
   const normalizedLogin = (userLogin || "").toLowerCase();
@@ -54,35 +48,49 @@ function matchStudentAssignments(allOrgAssignments, userLogin, userRepos, userIn
 // -----------------------------------------------------------------------------
 // Direct Link Parser Tests
 // -----------------------------------------------------------------------------
-test("parseAssignmentLink extracts org and assignmentId from full GitHub Pages URL", () => {
-  const url = "https://pxl-digital-application-samples.github.io/pxl-classroom/pxl-digital-app-samples/a/linux-processes";
-  const res = parseAssignmentLink(url);
-  assert.deepEqual(res, { org: "pxl-digital-app-samples", assignmentId: "linux-processes" });
+const KP = generateKeyPair();
+const TOKEN = signInviteToken({
+  org: "pxl-course-org",
+  assignmentId: "exam-2026",
+  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+  nonce: "abcdef01",
+  privateKeyPem: KP.privateKeyPem,
 });
 
-test("parseAssignmentLink extracts org and assignmentId with trailing slash, query, or hash", () => {
-  const url = "https://pxl-digital-application-samples.github.io/pxl-classroom/pxl-course-org/a/lab-01/?ref=canvas#instructions";
-  const res = parseAssignmentLink(url);
-  assert.deepEqual(res, { org: "pxl-course-org", assignmentId: "lab-01" });
+test("parseInvitationLink extracts org and token from a full Pages URL", () => {
+  const res = parseInvitationLink(
+    `https://pxl-digital-application-samples.github.io/pxl-classroom/pxl-course-org/i/${TOKEN}`
+  );
+  assert.deepEqual(res, { org: "pxl-course-org", inviteToken: TOKEN });
 });
 
-test("parseAssignmentLink extracts org and assignmentId from relative /:org/a/:id path", () => {
-  const path = "pxl-course-org/a/exam-2026";
-  const res = parseAssignmentLink(path);
-  assert.deepEqual(res, { org: "pxl-course-org", assignmentId: "exam-2026" });
+test("parseInvitationLink tolerates a trailing slash, query, or hash", () => {
+  const res = parseInvitationLink(`pxl-course-org/i/${TOKEN}/?ref=canvas#instructions`);
+  assert.deepEqual(res, { org: "pxl-course-org", inviteToken: TOKEN });
 });
 
-test("parseAssignmentLink extracts org and assignmentId from short :org/:id format", () => {
-  const short = "pxl-course-org/exam-2026";
-  const res = parseAssignmentLink(short);
-  assert.deepEqual(res, { org: "pxl-course-org", assignmentId: "exam-2026" });
+test("parseInvitationLink accepts the bare org/token form", () => {
+  assert.deepEqual(parseInvitationLink(`pxl-course-org/${TOKEN}`), {
+    org: "pxl-course-org",
+    inviteToken: TOKEN,
+  });
 });
 
-test("parseAssignmentLink returns null for invalid or empty inputs", () => {
-  assert.equal(parseAssignmentLink(""), null);
-  assert.equal(parseAssignmentLink("   "), null);
-  assert.equal(parseAssignmentLink("just-a-slug"), null);
-  assert.equal(parseAssignmentLink("https://github.com/org/repo"), null);
+test("parseInvitationLink rejects anything that is not an invitation", () => {
+  for (const bad of [
+    "",
+    null,
+    undefined,
+    "   ",
+    "just-some-text",
+    // The pre-token student URL. It has to fail: without a signed invitation
+    // the broker rejects, so sending the student there would strand them.
+    "pxl-course-org/a/exam-2026",
+    // Right shape, wrong length.
+    `pxl-course-org/i/${TOKEN.slice(0, 60)}`,
+  ]) {
+    assert.equal(parseInvitationLink(bad), null, `expected null for ${JSON.stringify(bad)}`);
+  }
 });
 
 // -----------------------------------------------------------------------------

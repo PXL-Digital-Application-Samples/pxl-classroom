@@ -1,10 +1,8 @@
 import { test, expect } from '@playwright/test';
-import {
-  injectAuth,
+import { injectAuth,
   setupStandardMockRoutes,
   LECTURER,
-  STUDENT_1,
-} from '../fixtures/e2e-fixtures.mjs';
+  STUDENT_1, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 
@@ -366,7 +364,7 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       },
     });
 
-    await page.goto(`/${ORG}/a/${assignmentId}`);
+    await page.goto(inviteUrl(ORG, assignmentId));
 
     // Verify initial provisioned card showing Team Red
     await expect(page.locator('.provisioned-state')).toBeVisible();

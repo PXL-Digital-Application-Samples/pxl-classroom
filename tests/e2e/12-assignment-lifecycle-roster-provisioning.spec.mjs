@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupStandardMockRoutes, injectAuth, LECTURER, STUDENT_1 } from '../fixtures/e2e-fixtures.mjs';
+import { setupStandardMockRoutes, injectAuth, LECTURER, STUDENT_1, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 
@@ -62,7 +62,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       ],
     });
 
-    await page.goto(`/${ORG}/a/cloud-native-microservices`);
+    await page.goto(inviteUrl(ORG, 'cloud-native-microservices'));
 
     // Verify ready state & student acceptance
     await expect(page.locator('h1', { hasText: 'Cloud Native Microservices' })).toBeVisible();
@@ -124,7 +124,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       ],
     });
 
-    await page.goto(`/${ORG}/a/lab-enforced`);
+    await page.goto(inviteUrl(ORG, 'lab-enforced'));
 
     // Successfully provisions
     await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
@@ -153,7 +153,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       userRepos: [], // outsider has no repo
     });
 
-    await page.goto(`/${ORG}/a/lab-enforced-gating`);
+    await page.goto(inviteUrl(ORG, 'lab-enforced-gating'));
 
     // Verify ready accept button is available
     const acceptBtn = page.getByRole('button', { name: 'Accept assignment' });
@@ -189,7 +189,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       userRepos: [],
     });
 
-    await page.goto(`/${ORG}/a/lab-midflight-roster`);
+    await page.goto(inviteUrl(ORG, 'lab-midflight-roster'));
     const acceptBtn = page.getByRole('button', { name: 'Accept assignment' });
     await expect(acceptBtn).toBeVisible();
     await acceptBtn.click();
@@ -274,7 +274,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       ],
     });
 
-    await page.goto(`/${ORG}/a/group-preassigned-lab`);
+    await page.goto(inviteUrl(ORG, 'group-preassigned-lab'));
 
     // Directly renders pre-assigned team without manual create/join tabs
     await expect(page.locator('h2', { hasText: 'Your team repository is ready!' })).toBeVisible();
@@ -305,7 +305,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       },
     });
 
-    await page.goto(`/${ORG}/a/group-preassigned-lab`);
+    await page.goto(inviteUrl(ORG, 'group-preassigned-lab'));
     await expect(page.locator('h3', { hasText: 'No Pre-Assigned Team' })).toBeVisible();
   });
 
@@ -325,7 +325,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       },
     });
 
-    await page.goto(`/${ORG}/a/lab-draft`);
+    await page.goto(inviteUrl(ORG, 'lab-draft'));
     await expect(page.locator('h2', { hasText: 'Assignment not open yet' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Accept assignment' })).not.toBeVisible();
 
@@ -344,7 +344,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       },
     });
 
-    await page.goto(`/${ORG}/a/lab-future-open`);
+    await page.goto(inviteUrl(ORG, 'lab-future-open'));
     await expect(page.locator('h2', { hasText: 'Assignment not open yet' })).toBeVisible();
     await expect(page.locator('.acceptance-card')).toContainText('Opens');
 
@@ -361,7 +361,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       },
     });
 
-    await page.goto(`/${ORG}/a/lab-closed`);
+    await page.goto(inviteUrl(ORG, 'lab-closed'));
     await expect(page.locator('h2', { hasText: 'Assignment closed' })).toBeVisible();
   });
 
@@ -385,7 +385,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       userRepos: [],
     });
 
-    await page.goto(`/${ORG}/a/lab-capped`);
+    await page.goto(inviteUrl(ORG, 'lab-capped'));
 
     // Verify registration cap reached notice and absence of accept button
     await expect(page.locator('h2', { hasText: 'Registration cap reached' })).toBeVisible();
@@ -421,7 +421,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       ],
     });
 
-    await page.goto(`/${ORG}/a/lab-invite`);
+    await page.goto(inviteUrl(ORG, 'lab-invite'));
 
     // Verify pending invitation state
     await expect(page.locator('h2', { hasText: 'Repository invitation pending' })).toBeVisible();
@@ -454,7 +454,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       userRepos: [], // initially no repo
     });
 
-    await page.goto(`/${ORG}/a/lab-timeout`);
+    await page.goto(inviteUrl(ORG, 'lab-timeout'));
     const acceptBtn = page.getByRole('button', { name: 'Accept assignment' });
     await expect(acceptBtn).toBeVisible();
     await acceptBtn.click();
@@ -515,7 +515,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       ],
     });
 
-    await page.goto(`/${ORG}/a/lab-idempotent`);
+    await page.goto(inviteUrl(ORG, 'lab-idempotent'));
 
     // Directly renders ready repository view without showing accept button or duplicating repos
     await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();

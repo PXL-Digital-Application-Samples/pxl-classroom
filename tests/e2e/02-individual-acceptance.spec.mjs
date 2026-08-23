@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('02 - Individual Student Acceptance Flow', () => {
   test('Happy Path: Student accepts assignment, views provisioned repo, and copies URL', async ({ page, context }) => {
@@ -29,7 +29,7 @@ test.describe('02 - Individual Student Acceptance Flow', () => {
       ],
     });
 
-    await page.goto(`/${ORG}/a/hw-individual`);
+    await page.goto(inviteUrl(ORG, 'hw-individual'));
 
     // Initially provisioned state
     const readyHeading = page.locator('h2', { hasText: 'Your repository is ready!' });
@@ -62,7 +62,7 @@ test.describe('02 - Individual Student Acceptance Flow', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/hw-future`);
+    await page.goto(inviteUrl(ORG, 'hw-future'));
     const futureHeading = page.locator('h2', { hasText: 'Assignment not open yet' });
     await expect(futureHeading).toBeVisible();
     await expect(page.locator('.status-icon')).toBeVisible();
@@ -85,7 +85,7 @@ test.describe('02 - Individual Student Acceptance Flow', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/hw-closed`);
+    await page.goto(inviteUrl(ORG, 'hw-closed'));
     const closedHeading = page.locator('h2', { hasText: 'Assignment closed' });
     await expect(closedHeading).toBeVisible();
   });
@@ -109,7 +109,7 @@ test.describe('02 - Individual Student Acceptance Flow', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/hw-capped`);
+    await page.goto(inviteUrl(ORG, 'hw-capped'));
     const cappedHeading = page.locator('h2', { hasText: 'Registration cap reached' });
     await expect(cappedHeading).toBeVisible();
   });
@@ -143,7 +143,7 @@ test.describe('02 - Individual Student Acceptance Flow', () => {
       ],
     });
 
-    await page.goto(`/${ORG}/a/hw-invite`);
+    await page.goto(inviteUrl(ORG, 'hw-invite'));
     const inviteHeading = page.locator('h2', { hasText: /invitation pending|accept your invitation/i });
     await expect(inviteHeading).toBeVisible({ timeout: 10000 });
   });

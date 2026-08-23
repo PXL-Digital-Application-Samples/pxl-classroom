@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('03 - Group Assignment & Team Formation Flow', () => {
   test('Happy Path: Student views open teams, filters by search, and clicks Join Team', async ({ page }) => {
@@ -43,7 +43,7 @@ test.describe('03 - Group Assignment & Team Formation Flow', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/group-proj`);
+    await page.goto(inviteUrl(ORG, 'group-proj'));
 
     const header = page.locator('h2', { hasText: 'Group Assignment: Team Selection' });
     await expect(header).toBeVisible({ timeout: 10000 });
@@ -97,7 +97,7 @@ test.describe('03 - Group Assignment & Team Formation Flow', () => {
       teams: { 'group-create': [] },
     });
 
-    await page.goto(`/${ORG}/a/group-create`);
+    await page.goto(inviteUrl(ORG, 'group-create'));
 
     const createTab = page.locator('.tab-pill', { hasText: '+ Create New Team' });
     await expect(createTab).toBeVisible();
@@ -147,7 +147,7 @@ test.describe('03 - Group Assignment & Team Formation Flow', () => {
       },
     });
 
-    await page.goto(`/${ORG}/a/group-conflict`);
+    await page.goto(inviteUrl(ORG, 'group-conflict'));
     const createTab = page.locator('.tab-pill', { hasText: '+ Create New Team' });
     await createTab.click();
 
@@ -182,7 +182,7 @@ test.describe('03 - Group Assignment & Team Formation Flow', () => {
       teams: { 'group-preassigned': [] },
     });
 
-    await page.goto(`/${ORG}/a/group-preassigned`);
+    await page.goto(inviteUrl(ORG, 'group-preassigned'));
     const noTeamCard = page.locator('h3', { hasText: 'No Pre-Assigned Team' });
     await expect(noTeamCard).toBeVisible();
     await expect(page.locator('.preassigned-flow')).toContainText(STUDENT_2.login);

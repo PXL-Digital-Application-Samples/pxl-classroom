@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, ASSIGNMENT_ID, LECTURER, STUDENT_1, STUDENT_2, injectAuth } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, ASSIGNMENT_ID, LECTURER, STUDENT_1, STUDENT_2, injectAuth, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('07 - Multi-User Concurrent Live Browser Collaboration', () => {
   test('Lecturer, Student 1, and Student 2 interact simultaneously across isolated sessions', async ({ browser }) => {
@@ -97,7 +97,7 @@ test.describe('07 - Multi-User Concurrent Live Browser Collaboration', () => {
     // ---------------------------------------------------------------------------
     // Step 1: Student 2 opens assignment acceptance portal
     // ---------------------------------------------------------------------------
-    await student2Page.goto(`/${ORG}/a/${ASSIGNMENT_ID}`);
+    await student2Page.goto(inviteUrl(ORG, ASSIGNMENT_ID));
 
     const heading = student2Page.locator('h2', { hasText: 'Group Assignment: Team Selection' });
     await expect(heading).toBeVisible({ timeout: 15000 });
