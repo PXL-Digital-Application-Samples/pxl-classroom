@@ -78,6 +78,11 @@ function runAccept(envOverrides = {}, setupData = null) {
   return { status: res.status, stdout: res.stdout, stderr: res.stderr, outputs, dir };
 }
 
+// A rejection is an expected outcome, not a system failure: accept.mjs exits 0
+// and reports it through `outcome`, so an ordinary "not on the roster" does not
+// paint the hub's Actions tab red and teach people to ignore red runs. Only
+// fail:* - a genuine system error - exits 1. acceptance-handler.yml routes a
+// rejection to the lecturer's tracking issue instead.
 test("fail:validation for missing inputs", () => {
   const res = runAccept({ ASSIGNMENT_ID: "" });
   assert.equal(res.status, 1);
@@ -102,7 +107,7 @@ test("fail:validation for invalid LOGIN", () => {
 
 test("rejected:no-assignment", () => {
   const res = runAccept({ ASSIGNMENT_ID: "valid", GITHUB_LOGIN: "valid", GITHUB_ID: "123" });
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:no-assignment");
 });
 
@@ -112,7 +117,7 @@ template:
   owner: x
   repository: y`;
   const res = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" }, { assignmentYaml: yaml });
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:not-published");
 });
 
@@ -122,7 +127,7 @@ template:
   owner: x
   repository: y`;
   const res = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" }, { assignmentYaml: yaml });
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:not-published");
 });
 
@@ -134,7 +139,7 @@ template:
   owner: x
   repository: y`;
   const res = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" }, { assignmentYaml: yaml });
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:not-open");
 });
 
@@ -146,7 +151,7 @@ template:
   owner: x
   repository: y`;
   const res = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" }, { assignmentYaml: yaml });
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:past-deadline");
 });
 
@@ -177,7 +182,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "456" },
     { assignmentYaml: yaml, acceptances: { "test-asgn": { "alice": { accepted_at: "2026-01-01" } } } }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:cap-reached");
 });
 
@@ -233,7 +238,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" },
     { assignmentYaml: yaml, noRoster: true }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:no-roster");
 });
 
@@ -246,7 +251,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
     { assignmentYaml: yaml }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:not-on-roster");
 });
 
@@ -303,7 +308,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
     { assignmentYaml: yaml, noRoster: true }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:past-deadline");
 });
 
@@ -319,7 +324,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
     { assignmentYaml: yaml, noRoster: true }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:not-open");
 });
 
@@ -351,7 +356,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
     { assignmentYaml: yaml, noRoster: true, acceptances: { "test-asgn": { "someone": { accepted_at: "2026-01-01" } } } }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:cap-reached");
 });
 
@@ -365,7 +370,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
     { assignmentYaml: yaml, noRoster: true }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:not-published");
 });
 
@@ -396,7 +401,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
     { assignmentYaml: yaml }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:not-on-roster");
 });
 
@@ -414,7 +419,7 @@ template:
       { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
       { assignmentYaml: yaml }
     );
-    assert.equal(res.status, 1, `roster_mode="${bad}" should not open enrollment`);
+    assert.equal(res.status, 0, `roster_mode="${bad}" should not open enrollment`);
     assert.equal(res.outputs.outcome, "rejected:not-on-roster", `roster_mode="${bad}"`);
   }
 });
@@ -428,7 +433,7 @@ template:
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "stranger", GITHUB_ID: "999" },
     { assignmentYaml: yaml, noRoster: true }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:no-roster");
 });
 
@@ -556,7 +561,7 @@ template:
       GITHUB_OUTPUT: join(dir, "out.env"),
     },
   });
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   const out = readFileSync(join(dir, "out.env"), "utf8");
   assert.match(out, /outcome=rejected:team-full/);
 });
@@ -685,7 +690,7 @@ template:
       },
     }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:no-assigned-team");
 });
 
@@ -756,7 +761,7 @@ test("seeded team - pre-assigned student cannot join a different team", () => {
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "beta" },
     { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:team-not-assigned");
 });
 
@@ -765,7 +770,7 @@ test("seeded team - pre-assigned student cannot create a team via team_name eith
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "My Own Team" },
     { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:team-not-assigned");
 });
 
@@ -785,7 +790,7 @@ test("unassigned fallback - block (the default) still rejects", () => {
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "105", TEAM_NAME: "Latecomers" },
     { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:no-assigned-team");
 });
 
@@ -811,7 +816,7 @@ test("unassigned fallback - self-service still requires the student to name a te
       teams: { "test-asgn": { alpha: SEEDED_ALPHA } },
     }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:no-team");
 });
 
@@ -823,7 +828,7 @@ test("unassigned fallback - an assigned student is unaffected by the fallback", 
       teams: { "test-asgn": { alpha: SEEDED_ALPHA } },
     }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:team-not-assigned");
 });
 
@@ -842,7 +847,7 @@ template:
       teams: { "test-asgn": { alpha: { ...SEEDED_ALPHA, max_members: 2 } } },
     }
   );
-  assert.equal(res.status, 1);
+  assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "rejected:team-full");
 });
 

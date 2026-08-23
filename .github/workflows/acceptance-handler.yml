@@ -73,6 +73,31 @@ jobs:
           feedback-pr-baseline-branch: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
           previous-repo: ${{ steps.accept.outputs.previous_repo }}
           
+      # A rejection used to leave no trace a lecturer could find: nothing was
+      # written to the control repo, and the only signal was a red run in the
+      # hub's Actions tab, which belongs to a different org than the course. A
+      # student saying "it won't let me accept" was unanswerable.
+      #
+      # Deduped per (assignment, login, reason), so a student retrying the same
+      # closed door updates one comment instead of adding another.
+      - name: Notify the lecturer of a rejected acceptance
+        if: startsWith(steps.accept.outputs.outcome, 'rejected:')
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ github.event.client_payload.org }}
+          control-repo: pxl-classroom-control
+          event-type: acceptance-rejected
+          assignment-id: ${{ github.event.client_payload.assignment_id }}
+          details: |
+            `${{ github.event.client_payload.github_login }}` tried to accept and was turned away: **${{ steps.accept.outputs.outcome }}**
+
+            ${{ steps.accept.outputs.reject_reason }}
+
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: reject-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.github_login }}-${{ steps.accept.outputs.outcome }}
+
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
         uses: ./notify

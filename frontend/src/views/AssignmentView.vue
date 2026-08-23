@@ -263,6 +263,25 @@
           </div>
 
           <!-- Timeout state -->
+          <!-- The acceptance issue we opened no longer exists. GitHub does
+               this to accounts it has restricted: the request succeeds, the
+               content is removed moments later, and no event ever reaches the
+               broker. Nothing the lecturer can fix, so say so plainly rather
+               than blaming load. -->
+          <div v-else-if="acceptState === 'blocked-account'" class="timeout-state fade-in">
+            <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
+            <h2>GitHub is blocking your request</h2>
+            <p class="text-secondary">
+              Your acceptance was submitted, but GitHub removed it immediately. That normally means
+              your GitHub account is flagged or restricted, which this page cannot work around.
+            </p>
+            <p class="text-secondary">
+              Contact GitHub Support about the restriction on <strong>{{ user.login }}</strong>, and
+              let your lecturer know so they can provision your repository another way in the meantime.
+            </p>
+            <button class="btn btn-secondary" @click="acceptState = 'ready'">Back</button>
+          </div>
+
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
             <h2>One more step - accept your invitation</h2>
@@ -372,6 +391,9 @@ const acceptError = ref(null)
 const repoUrl = ref(null)
 const repoFullName = ref(null)
 const pendingInvitation = ref(null)
+// Number of the acceptance issue opened on the broker, so we can tell a
+// restricted account apart from a slow one when polling gives up.
+const acceptanceIssue = ref(null)
 const repoCopied = ref(false)
 
 // Student Diagnostics & Account Checker State (1.A)
@@ -737,6 +759,7 @@ async function acceptAssignment() {
       throw new Error(`Failed to accept assignment (HTTP ${res.status}).`)
     }
 
+    acceptanceIssue.value = res.data?.number ?? null
     acceptState.value = 'pending'
     startPolling()
   } catch (e) {
@@ -744,6 +767,20 @@ async function acceptAssignment() {
     acceptError.value = e.message
   }
   accepting.value = false
+}
+
+// True when the acceptance issue we just opened is no longer readable, which is
+// how a restricted account presents: the POST succeeds, the content disappears,
+// and no webhook ever fires. Treated as unknown (false) if we cannot tell.
+async function acceptanceIssueVanished() {
+  if (!acceptanceIssue.value || !assignment.value) return false
+  const brokerRepo = assignment.value.broker_repo || `broker-${resolvedId.value}`
+  try {
+    const res = await ghApi(getToken(), 'GET', `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}`)
+    return res.status === 404
+  } catch {
+    return false
+  }
 }
 
 // Deterministic from the assignment's naming pattern, so it works even though
@@ -804,7 +841,13 @@ function startPolling() {
     
     // Cap polling at 30 attempts
     if (pollCount.value > 30) {
-      acceptState.value = 'timeout'
+      // Before blaming GitHub load, check the acceptance issue is still there.
+      // An account GitHub has restricted gets HTTP 201 on creation and then has
+      // its content removed a few seconds later - the broker never sees an
+      // event, so nothing downstream runs and the student waits three minutes
+      // for a message about load that has nothing to do with it. Observed on a
+      // real account during live testing.
+      acceptState.value = (await acceptanceIssueVanished()) ? 'blocked-account' : 'timeout'
       return
     }
     

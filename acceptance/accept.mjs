@@ -32,11 +32,26 @@ const log = (step, detail) =>
     `[${detail.ok === false ? "FAIL" : "ok"}] ${step}${detail.note ? ` - ${detail.note}` : ""}`
   );
 
+// A system error: the run should go red so somebody looks at it.
 async function fail(category, note) {
   log(category, { ok: false, note });
   await setOutput("outcome", category);
   await summary(`### Acceptance FAILED: \`${category}\`\n\n${note ?? ""}`);
   process.exit(1);
+}
+
+// An expected outcome: the student is not on the roster, the window has closed,
+// the cap is full. Exits 0 deliberately - a red workflow run for a rejection the
+// system handled correctly teaches people to ignore red workflow runs, and
+// buries the real failures next to it. The outcome string still gates every
+// downstream step, and acceptance-handler.yml notifies the lecturer, which is
+// where a rejection actually needs to surface.
+async function reject(category, note) {
+  log(category, { ok: false, note });
+  await setOutput("outcome", category);
+  await setOutput("reject_reason", note ?? "");
+  await summary(`### Acceptance rejected: \`${category}\`\n\n${note ?? ""}`);
+  process.exit(0);
 }
 
 // --- Strict input validation -------------------------------------------------
@@ -71,14 +86,14 @@ async function main() {
   // 2. Load assignment definition
   const assignmentPath = join(dataDir, "assignments", `${assignmentId}.yml`);
   if (!existsSync(assignmentPath))
-    await fail("rejected:no-assignment", `assignment file not found: ${assignmentPath}`);
+    await reject("rejected:no-assignment", `assignment file not found: ${assignmentPath}`);
 
   const assignment = await loadYaml(assignmentPath);
   log("assignment", { ok: true, note: `state=${assignment.state} title="${assignment.title}"` });
 
   // 3. Check assignment state
   if (assignment.state !== "published")
-    await fail("rejected:not-published", `assignment state is "${assignment.state}", not "published"`);
+    await reject("rejected:not-published", `assignment state is "${assignment.state}", not "published"`);
 
   // 4. Check open window (guardrail)
   const now = new Date();
@@ -89,12 +104,12 @@ async function main() {
     if (assignment.opens_at) {
       const opens = new Date(assignment.opens_at);
       if (now < opens)
-        await fail("rejected:not-open", `assignment opens at ${assignment.opens_at}, current time is ${now.toISOString()}`);
+        await reject("rejected:not-open", `assignment opens at ${assignment.opens_at}, current time is ${now.toISOString()}`);
     }
     if (assignment.deadline_at) {
       const deadline = new Date(assignment.deadline_at);
       if (now > deadline)
-        await fail("rejected:past-deadline", `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}`);
+        await reject("rejected:past-deadline", `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}`);
     }
     log("window", { ok: true, note: `within open window` });
   }
@@ -132,13 +147,13 @@ async function main() {
     });
   } else {
     if (!roster) {
-      await fail("rejected:no-roster", `roster file not found: ${rosterPath}`);
+      await reject("rejected:no-roster", `roster file not found: ${rosterPath}`);
     }
     const onRoster = (roster?.students || []).some(
       (s) => s.github_login?.toLowerCase() === login.toLowerCase()
     );
     if (!onRoster) {
-      await fail("rejected:not-on-roster", `student @${login} is not registered in the roster`);
+      await reject("rejected:not-on-roster", `student @${login} is not registered in the roster`);
     }
     log("roster", { ok: true, note: `@${login} is on the roster` });
   }
@@ -200,7 +215,7 @@ async function main() {
       // the assignment rather than silently redirecting, so the student is told.
       const requested = teamSlug || slugify(teamName);
       if (requested && requested.toLowerCase() !== assignedSlug.toLowerCase()) {
-        await fail(
+        await reject(
           "rejected:team-not-assigned",
           `@${login} is assigned to team "${assignedSlug}"; teams are pre-assigned for this assignment and students cannot change them`
         );
@@ -208,7 +223,7 @@ async function main() {
       teamSlug = assignedSlug;
       teamName = assignedName || assignedSlug;
     } else if (formationMode === "pre-assigned" && unassignedFallback === "block") {
-      await fail("rejected:no-assigned-team", `student @${login} has no pre-assigned team in the roster`);
+      await reject("rejected:no-assigned-team", `student @${login} has no pre-assigned team in the roster`);
     } else if (!teamSlug && !teamName && assignedSlug) {
       // Self-service (or pre-assigned falling back): the assigned team is the
       // default only when the student named none. Naming a different one is a
@@ -232,10 +247,10 @@ async function main() {
       teamSlug = slugify(teamName);
     }
     if (!teamSlug) {
-      await fail("rejected:no-team", "team_slug or team_name is required for group assignments");
+      await reject("rejected:no-team", "team_slug or team_name is required for group assignments");
     }
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(teamSlug)) {
-      await fail("rejected:invalid-team-slug", `team_slug "${teamSlug}" is not a valid slug`);
+      await reject("rejected:invalid-team-slug", `team_slug "${teamSlug}" is not a valid slug`);
     }
 
     const teamFile = join(teamsDir, `${teamSlug}.json`);
@@ -260,7 +275,7 @@ async function main() {
       const teamData = JSON.parse(await readFile(teamFile, "utf-8"));
       if (!teamData.members.some((m) => m.toLowerCase() === login.toLowerCase())) {
         if (teamData.members.length >= (teamData.max_members || maxTeamSize)) {
-          await fail(
+          await reject(
             "rejected:team-full",
             `team "${teamSlug}" has reached its capacity (${teamData.members.length}/${teamData.max_members || maxTeamSize})`
           );
@@ -273,7 +288,7 @@ async function main() {
       isFirstMember = teamData.members.length === 1;
     } else {
       if (assignment.group_config?.allow_team_creation === false) {
-        await fail("rejected:team-creation-disabled", "creating new teams is disabled for this assignment");
+        await reject("rejected:team-creation-disabled", "creating new teams is disabled for this assignment");
       }
       const newTeam = {
         schema_version: 1,
@@ -328,7 +343,7 @@ async function main() {
       currentCount = files.filter((f) => f.endsWith(".json")).length;
     }
     if (currentCount >= maxAcceptances)
-      await fail(
+      await reject(
         "rejected:cap-reached",
         `per-assignment cap reached (${currentCount}/${maxAcceptances}). Acceptance queued for lecturer review.`
       );

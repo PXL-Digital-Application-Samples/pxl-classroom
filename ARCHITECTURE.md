@@ -707,6 +707,7 @@ A single instructor-only tracking issue per participating org, opened in the con
 | `missing-access` | `reconcile-registry.yml` |
 | `unexpected-deletion` | `reconcile-registry.yml` |
 | `late-activity` | `daily-activity.yml`'s finalize leg |
+| `acceptance-rejected` | `acceptance-handler.yml` - a student was turned away (not on roster, window closed, cap full). Deduped per assignment+login+reason. Without it a rejection left no trace the org's lecturer could find: nothing is written to the control repo, and the only signal was a red run in the hub, which belongs to a different org. |
 | `preservation-failed` | `daily-activity.yml`'s finalize leg |
 
 Dedup-keys are stable per `(org, assignment, login, condition)` so repeated nights don't re-spam.
