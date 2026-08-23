@@ -70,6 +70,11 @@ outputs:
   outcome:
     description: accepted | already-accepted | rejected:* | fail:*
     value: ${{ steps.accept.outputs.outcome }}
+  reject_reason:
+    description: >-
+      Human-readable reason for a rejected:* outcome, so the lecturer's
+      notification says what the student actually ran into. Empty otherwise.
+    value: ${{ steps.accept.outputs.reject_reason }}
   target_repo:
     description: Deterministic target repository name
     value: ${{ steps.accept.outputs.target_repo }}
