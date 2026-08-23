@@ -83,6 +83,27 @@ node scripts/generate-invite-keypair.mjs 1
 
 **Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
 
+**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the signed invitation. The broker redacts that title within seconds and the hub deletes the issue once it has read the body, so under normal operation there is nothing to find. A leftover means one of three things, and all of them leave the assignment's link readable by anyone:
+
+1. **The App lacks `Administration: write` on that organization.** `deleteIssue` is a GraphQL mutation that requires repository admin; `issues: write` is not enough. Check what the App declares and what the org approved:
+
+   ```bash
+   gh api apps/pxl-classroom-provisioner --jq .permissions
+   ```
+
+   Grant it, then re-run the acceptance handler or delete the leftovers by hand.
+
+2. **`INVITE_ENABLED` is `false`.** The job-level `if` skips the whole run, cleanup included, so an issue opened while acceptance was switched off simply sits there.
+
+3. **A run died between the dispatch and the cleanup.**
+
+In every case: delete the listed issues, then republish with `regenerate_invite: true`. Redaction is not enough on its own - a rename is still visible in the issue timeline, so a token that was exposed has to be retired, not just hidden.
+
+```bash
+gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title pxl-accept' --json number,title
+gh issue delete --repo <org>/broker-<assignment-id> <number> --yes
+```
+
 #### 1.3.2 The `provisioning` environment
 
 Every hub job that holds `PXL_APP_PRIVATE_KEY` or `PXL_INVITE_SIGNING_KEY` declares `environment: provisioning`. That environment allows deployments from `main` only, and a job naming an environment does not start when the run's ref is outside the policy - which is what stops a `workflow_dispatch --ref <other-branch>` from running hub code with a credential in scope (ARCHITECTURE §4.3.4).

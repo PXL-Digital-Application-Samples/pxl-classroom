@@ -158,6 +158,38 @@ jobs:
           git -C control diff --cached --quiet || git -C control commit -m "Provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
           scripts/git-push-with-retry.sh control
           
+      # The trigger issue's title carried the assignment's signed invitation and
+      # the broker is PUBLIC, so closing it hides nothing: a closed, locked issue
+      # is still readable, still listed and still returned by GitHub's issue
+      # search. The first student to accept would otherwise publish the token to
+      # anyone who looked - which defeats §4.3.2 outright and, because the
+      # acceptance card is named sha256(token), makes the card and its teams file
+      # public too (§4.3.3).
+      #
+      # The broker redacts the title within seconds; this removes the issue and
+      # its rename history. It runs HERE, not there, for two reasons: deleting
+      # needs ADMIN on the repository, which `github.token` on the broker never
+      # has and the App's `administration: write` does - and the body has to be
+      # read for group acceptance before the issue can go.
+      - name: Delete the trigger issue
+        if: always() && steps.team.outputs.issue_node_id != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          NODE_ID: ${{ steps.team.outputs.issue_node_id }}
+          BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
+        run: |
+          if gh api graphql \
+               -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' \
+               -F id="$NODE_ID" >/dev/null 2>&1; then
+            echo "::notice::Deleted the trigger issue on ${BROKER_REPO}"
+            exit 0
+          fi
+          # Not fatal - the acceptance itself already happened, and the broker
+          # has redacted the title. But the rename is still in the timeline, so
+          # somebody has to know.
+          echo "::warning::Could not delete the trigger issue on ${BROKER_REPO}. deleteIssue needs Administration: write on the organization; without it the invitation stays recoverable from the issue timeline. Grant the permission and regenerate this assignment's invitation - see RUNBOOK §1.3.2."
+
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

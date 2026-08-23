@@ -67,6 +67,10 @@ function createMockRequest(customHandlers = {}) {
       const json = JSON.stringify({ keys: { 1: KEYPAIR.publicKeyBase64 } });
       return { status: 200, ok: true, data: { content: Buffer.from(json).toString("base64") } };
     }
+    // Tier 4 exposure sweep: a broker with no leftover pxl-accept issue.
+    if (path.includes("/issues?state=all")) {
+      return { status: 200, ok: true, data: [] };
+    }
     if (path.includes("/actions/variables")) {
       return {
         status: 200,

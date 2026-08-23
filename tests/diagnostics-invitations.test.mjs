@@ -35,11 +35,15 @@ const b64 = (text) => Buffer.from(text, "utf8").toString("base64");
  * Stubs only the two endpoints the invitation checks read: the hub's public key
  * file and the broker's Actions variables.
  */
-function makeRequest({ keys = { 1: KEYPAIR.publicKeyBase64 }, vars = { INVITE_NONCE: NONCE, INVITE_ENABLED: "true" }, keysStatus = 200, varsStatus = 200 } = {}) {
+function makeRequest({ keys = { 1: KEYPAIR.publicKeyBase64 }, vars = { INVITE_NONCE: NONCE, INVITE_ENABLED: "true" }, keysStatus = 200, varsStatus = 200, exposedIssues = [] } = {}) {
   return async (_method, path) => {
     if (path.includes("invite-keys.json")) {
       if (keysStatus !== 200) return { ok: false, status: keysStatus, data: null };
       return { ok: true, status: 200, data: { content: b64(JSON.stringify({ keys })) } };
+    }
+    // Tier 4 exposure sweep: no leftover acceptance issue on the broker.
+    if (path.includes("/issues?state=all")) {
+      return { ok: true, status: 200, data: exposedIssues };
     }
     if (path.includes("/actions/variables")) {
       if (varsStatus !== 200) return { ok: false, status: varsStatus, data: null };
