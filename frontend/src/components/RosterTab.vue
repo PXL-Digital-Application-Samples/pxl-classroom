@@ -620,9 +620,20 @@ const studentCount = computed(() => {
   return Array.isArray(students) ? students.length : 0
 })
 
+// `github_login` is the optional column, and `accept.mjs` matches on it and
+// nothing else - so a roster of 200 students imported before anyone handed in
+// their username lets exactly nobody accept. "200 students on the roster" is
+// true and answers the wrong question.
+const linkedCount = computed(() => {
+  const students = existingRoster.value?.students
+  if (!Array.isArray(students)) return 0
+  return students.filter((s) => typeof s?.github_login === 'string' && s.github_login.trim()).length
+})
+
 defineExpose({
   isDirty: () => canCommit.value,
   studentCount,
+  linkedCount,
 })
 </script>
 

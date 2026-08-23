@@ -562,9 +562,24 @@
                   <span>No students imported yet - nobody can accept.</span>
                   <button type="button" class="btn-link" @click="setTab('roster')">Import roster →</button>
                 </span>
+                <span v-else-if="rosterCount > 0 && rosterLinked === 0" class="status-indicator">
+                  <!-- github_login is the optional column and the only thing
+                       accept.mjs matches on, so a roster imported before anyone
+                       handed in a username stops every acceptance. -->
+                  <span class="status-dot dot-warning"></span>
+                  <span>
+                    {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} on the roster, but
+                    none has a GitHub username yet - nobody can accept.
+                  </span>
+                  <button type="button" class="btn-link" @click="setTab('roster')">Manage →</button>
+                </span>
                 <span v-else-if="rosterCount > 0" class="status-indicator">
                   <span class="status-dot dot-success"></span>
-                  <span>{{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} on the roster.</span>
+                  <span>
+                    {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} on the roster<template
+                      v-if="rosterLinked < rosterCount"
+                    >, {{ rosterCount - rosterLinked }} without a GitHub username yet</template>.
+                  </span>
                   <button type="button" class="btn-link" @click="setTab('roster')">Manage →</button>
                 </span>
                 <span v-else>
@@ -1092,6 +1107,9 @@ function rosterDirty() {
 // null until the roster has been read (or when there is no roster file at all),
 // so the form can say "not known yet" rather than "nobody can accept".
 const rosterCount = computed(() => rosterTab.value?.studentCount ?? null)
+// How many of them can actually be matched by accept.mjs, which reads
+// github_login and nothing else.
+const rosterLinked = computed(() => rosterTab.value?.linkedCount ?? 0)
 function confirmRosterDiscard() {
   if (!rosterDirty()) return true
   return window.confirm('Discard the un-committed roster import?')

@@ -574,6 +574,13 @@ per call and caches nothing) — it comes from `RosterTab`, which has already re
 the file; and a roster that **fails to read** must not be reported as an empty
 one, which the plan did not distinguish.
 
+Two bugs the edge-case tests found afterwards, both the same shape: a failed
+request rendering as a confident zero. `listOrgRepos` swallowed a failed page,
+so a 500 on both template routes claimed the organization had no templates; and
+`github_login` is optional in the roster CSV and is the only field `accept.mjs`
+matches on, so a roster imported before anyone handed in a username let nobody
+accept while the form said *"200 students on the roster"* in green.
+
 Rules are in CLAUDE.md, ARCHITECTURE §10.4 and RUNBOOK §4.1.
 `tests/e2e/32-first-run-wall.spec.mjs`, `tests/assignment-validation-messages.test.mjs`.
 

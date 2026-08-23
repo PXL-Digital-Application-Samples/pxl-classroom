@@ -434,11 +434,24 @@ export function explainDispatchFailure(res, fallback) {
  * query - works regardless of org size). Without one, paginates the org repos
  * endpoint via Link rel="next".
  */
-export async function listOrgRepos(token, org, prefix = '') {
+// `failFast` turns a failed page into an error instead of a short list. The
+// default stays lenient because a partial list is fine for most callers - but
+// a caller that renders "this organization has none" from an empty result has
+// to be able to tell an empty org from an unanswered request.
+export async function listOrgRepos(token, org, prefix = '', { failFast = false } = {}) {
+  const fail = (status) => {
+    const e = new Error(`Failed to list repositories for ${org} (HTTP ${status})`)
+    e.status = status
+    return e
+  }
+
   if (prefix) {
     const q = encodeURIComponent(`org:${org} ${prefix} in:name`)
     const res = await ghApi(token, 'GET', `/search/repositories?q=${q}&per_page=100`)
-    if (!res.ok) return []
+    if (!res.ok) {
+      if (failFast) throw fail(res.status)
+      return []
+    }
     return (res.data?.items || []).filter((r) => r.name.startsWith(prefix))
   }
 
@@ -452,7 +465,10 @@ export async function listOrgRepos(token, org, prefix = '') {
         'X-GitHub-Api-Version': '2022-11-28',
       },
     }, { timeoutMs: READ_TIMEOUT_MS })
-    if (!res.ok) break
+    if (!res.ok) {
+      if (failFast) throw fail(res.status)
+      break
+    }
     const data = await res.json()
     if (Array.isArray(data)) out.push(...data)
     const link = res.headers.get('link') || ''
@@ -478,8 +494,15 @@ export async function listOrgTemplates(token, org) {
     console.error('Search templates failed, falling back to listOrgRepos', e)
   }
 
-  // Fallback: list all org repos and filter client-side
-  const repos = await listOrgRepos(token, org)
+  // Fallback: list all org repos and filter client-side. This leg runs ONLY
+  // because the search already failed, so it is not allowed to fail quietly:
+  // `listOrgRepos` used to `break` out of its pagination loop on a bad
+  // response and return an empty array, and the Admin Panel rendered that as
+  // "This organization has no template repositories yet" - telling a lecturer
+  // to go and create a template they may well already have. An empty org and
+  // an unanswered request are different facts (the same rule the roster count
+  // follows), and only one of them is safe to state.
+  const repos = await listOrgRepos(token, org, '', { failFast: true })
   return repos.filter((r) => r.is_template)
 }
 
