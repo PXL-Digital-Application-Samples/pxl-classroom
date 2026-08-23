@@ -5,7 +5,7 @@
         v-for="t in toasts"
         :key="t.id"
         :class="['toast', `toast-${t.type}`]"
-        :role="t.type === 'error' ? 'alert' : 'status'"
+        :role="t.type === 'error' || t.type === 'warning' ? 'alert' : 'status'"
         @mouseenter="pauseToast(t.id)"
         @mouseleave="resumeToast(t.id)"
       >
@@ -68,6 +68,7 @@ import { toasts, dismissToast, pauseToast, resumeToast } from '../lib/toast.js'
 .toast-success { background: var(--accent-green); }
 .toast-error { background: var(--accent-red); }
 .toast-info { background: var(--accent-blue); }
+.toast-warning { background: var(--accent-yellow-emphasis); }
 
 .toast-enter-active,
 .toast-leave-active {

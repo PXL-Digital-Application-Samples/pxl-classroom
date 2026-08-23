@@ -35,7 +35,7 @@ test("grade command: SHA-mismatch guard, validation, and dry-run", async () => {
   const sha1 = runGitSync(["rev-parse", "preserved/a1/student1"], mockArchive);
   
   runGitSync(["branch", "preserved/a1/student2"], mockArchive);
-  const sha2 = runGitSync(["rev-parse", "preserved/a1/student2"], mockArchive);
+  const _sha2 = runGitSync(["rev-parse", "preserved/a1/student2"], mockArchive);
 
   writeFileSync(join(homeDir, ".gitconfig"), `
 [url "file://${mockArchive.replace(/\\/g, '/')}"]
@@ -204,11 +204,11 @@ autograde:
     program.exitOverride();
     registerGradeCommand(program);
 
-    let stdout = "";
+    let _stdout = "";
     let stderr = "";
     const originalStdoutWrite = process.stdout.write;
     const originalStderrWrite = process.stderr.write;
-    process.stdout.write = (chunk) => { stdout += chunk; return true; };
+    process.stdout.write = (chunk) => { _stdout += chunk; return true; };
     process.stderr.write = (chunk) => { stderr += chunk; return true; };
 
     const originalExit = process.exit;
@@ -445,11 +445,11 @@ autograde:
     registerGradeCommand(program);
 
     let stdout = "";
-    let stderr = "";
+    let _stderr = "";
     const originalStdoutWrite = process.stdout.write;
     const originalStderrWrite = process.stderr.write;
     process.stdout.write = (chunk) => { stdout += chunk; return true; };
-    process.stderr.write = (chunk) => { stderr += chunk; return true; };
+    process.stderr.write = (chunk) => { _stderr += chunk; return true; };
 
     try {
       await program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "cloud-pe-1"]);

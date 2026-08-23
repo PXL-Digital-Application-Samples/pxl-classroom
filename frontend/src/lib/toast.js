@@ -7,7 +7,7 @@ let idCounter = 0
 // Success/info auto-dismiss quickly; errors carry remediation text (often two
 // sentences) and stay long enough to read - and can always be dismissed or
 // paused (hover) via the Toast component.
-const DURATION_MS = { success: 5000, info: 7000, error: 15000 }
+const DURATION_MS = { success: 5000, info: 7000, warning: 10000, error: 15000 }
 
 export const toast = {
   success(message, options) {
@@ -18,7 +18,17 @@ export const toast = {
   },
   info(message, options) {
     addToast(message, 'info', options)
-  }
+  },
+  // A partial failure is neither success nor error: "3 of 40 PRs failed" and
+  // "the link is copied but the broker is missing" are the shape. Four call
+  // sites were already written against toast.warning/toast.warn and threw
+  // TypeError instead of warning anybody - see tests/toast-api.test.mjs.
+  warning(message, options) {
+    addToast(message, 'warning', options)
+  },
+  warn(message, options) {
+    addToast(message, 'warning', options)
+  },
 }
 
 export function dismissToast(id) {

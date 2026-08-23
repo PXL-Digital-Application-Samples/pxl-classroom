@@ -21,7 +21,6 @@ import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { saveConfig, loadConfig } from "../lib/config.mjs";
 import { stableStringify } from "../lib/stable.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 

@@ -459,7 +459,7 @@ async function main() {
         const v = s[h];
         if (v === null || v === undefined) return "";
         let str = Array.isArray(v) ? v.join("; ") : String(v);
-        if (/^[=\+\-@]/.test(str)) {
+        if (/^[=+\-@]/.test(str)) {
           str = `'${str}`;
         }
         return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;

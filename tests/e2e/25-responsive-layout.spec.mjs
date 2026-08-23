@@ -52,6 +52,65 @@ const MEASURE = () => {
 };
 
 test.describe('25 - Responsive layout', () => {
+  // The per-assignment views were never in the loop below, and the Teams tab's
+  // data table wrapper (.table-responsive) turned out to be declared nowhere -
+  // ~200px of sideways scroll on a phone, invisible at desktop width.
+  test('No sideways scroll on the group assignment detail view, in either tab', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        g: {
+          id: 'g',
+          title: 'Group Assignment',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'group',
+          repository_name_pattern: 'g-{team_slug}',
+          deadline_at: '2099-01-01T00:00:00Z',
+          group_config: { max_team_size: 3 },
+        },
+      },
+      reports: {
+        g: {
+          schema_version: 1,
+          assignment_id: 'g',
+          org: ORG,
+          generated_at: new Date().toISOString(),
+          students: [
+            { github_login: 'student-one', acceptance_state: 'accepted', team_slug: 'team-alpha', submission_status: 'on-time' },
+          ],
+          teams: [
+            {
+              team_slug: 'team-alpha',
+              team_name: 'Team Alpha With A Long Name',
+              members: ['student-one', 'student-two', 'student-three'],
+              repo_name: `${ORG}/g-team-alpha`,
+              repo_url: `https://github.com/${ORG}/g-team-alpha`,
+              submission_status: 'on-time',
+              commit_count: 12,
+            },
+          ],
+        },
+      },
+    });
+
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/dashboard/${ORG}/g`);
+      await page.waitForTimeout(700);
+
+      const students = await page.evaluate(MEASURE);
+      expect(students.scrollsSideways, `students view at ${width}px: ${students.overflowing.join(', ')}`).toBe(false);
+
+      await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+      await page.waitForTimeout(300);
+
+      const teams = await page.evaluate(MEASURE);
+      expect(teams.scrollsSideways, `teams view at ${width}px: ${teams.overflowing.join(', ')}`).toBe(false);
+    }
+  });
+
   for (const route of ['/', `/dashboard/${ORG}`, `/dashboard/${ORG}/usage`, '/usage']) {
     test(`No sideways scroll and a real gutter at every width: ${route}`, async ({ page }) => {
       await injectAuth(page, LECTURER);

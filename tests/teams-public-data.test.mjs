@@ -52,7 +52,6 @@ group_config:
   await writeFile(join(tmpDir, "teams", "group-hw1", "team-full.json"), JSON.stringify(team2));
 
   // Run generator logic (similar to pages/generate.mjs)
-  const assignmentsDir = join(tmpDir, "assignments");
   const outputDir = join(tmpDir, "public");
   
   // Dynamic import or run generate

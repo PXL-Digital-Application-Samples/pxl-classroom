@@ -9,9 +9,7 @@
 // `--json` emits a single JSON object on stdout and suppresses the human
 // summary, for piping into nightly CI.
 
-import { Command } from "commander";
 import { makeOctokit } from "../lib/octokit.mjs";
-import { loadConfig, saveConfig } from "../lib/config.mjs";
 import { runAudit } from "../../../lib/audit.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 

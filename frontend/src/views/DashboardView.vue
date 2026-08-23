@@ -416,7 +416,6 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { parse as parseYaml } from 'yaml'
 import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
@@ -648,7 +647,6 @@ const visibleAssignments = computed(() => {
 const orgsLoaded = ref(false)
 const orgsLoadError = ref(null)
 
-const runbookUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/RUNBOOK.md`
 
 function onGlobalKeydown(e) {
   if (e.key === 'Escape') {
@@ -725,9 +723,6 @@ watch(selectedOrg, async (org) => {
   }
 }, { immediate: true })
 
-function stateClass(state) {
-  return { published: 'badge-success', closed: 'badge-warning', draft: 'badge-neutral', archived: 'badge-neutral' }[state] || 'badge-neutral'
-}
 
 async function loadOrgs() {
   const token = getToken()

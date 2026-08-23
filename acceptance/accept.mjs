@@ -147,7 +147,6 @@ async function main() {
   const isGroup = assignment.assignment_type === "group";
   let teamSlug = env("TEAM_SLUG", "");
   let teamName = env("TEAM_NAME", "");
-  const teamAction = env("TEAM_ACTION", "join");
   let previousTeamSlug = null;
   let previousRepo = null;
   let isFirstMember = true;

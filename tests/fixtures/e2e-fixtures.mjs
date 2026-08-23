@@ -500,7 +500,6 @@ export async function setupStandardMockRoutes(page, {
         return;
       } else if (url.includes('/compare/')) {
         // Compare API for pre-flight scan
-        const match = url.match(/\/compare\/(.+)\.\.\.(.+)/);
         await route.fulfill({
           status: 200,
           body: JSON.stringify({

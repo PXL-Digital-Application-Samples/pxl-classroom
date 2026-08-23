@@ -12,7 +12,6 @@ function lintBash(scriptContent, fileContext) {
   writeFileSync(tmpFile, scriptContent);
   
   // Bash might need forward slashes
-  const bashTmpFile = tmpFile.replace(/\\/g, '/');
   
   try {
     // If bash is running in WSL or MSYS, it might need to resolve C:/ to /mnt/c/ or /c/

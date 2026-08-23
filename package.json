@@ -12,9 +12,11 @@
     "cli"
   ],
   "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "node --test tests/*.test.mjs cli/tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:e2e"
+    "test:all": "npm run lint && npm test && npm run test:e2e"
   },
   "dependencies": {
     "ajv": "^8.20.0",
@@ -22,6 +24,9 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1"
+    "@playwright/test": "^1.62.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-vue": "^9.33.0",
+    "globals": "^17.11.0"
   }
 }

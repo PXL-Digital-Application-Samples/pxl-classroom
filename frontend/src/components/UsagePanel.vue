@@ -230,7 +230,6 @@ import {
   ghApi,
 } from '../lib/api.js'
 import { config } from '../lib/config.js'
-import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
 const SortIcon = (props) =>

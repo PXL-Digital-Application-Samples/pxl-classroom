@@ -928,6 +928,20 @@ select:focus {
 }
 .req { color: var(--accent-red); margin-left: 2px; }
 .col-actions { width: 1%; text-align: right; }
+/* Wide data tables scroll inside their own box instead of pushing the page
+   sideways. TeamsTable wrapped its table in .table-responsive and nothing ever
+   defined it - the "used, defined nowhere" case from DESIGN.md §7 - so the
+   Teams tab overflowed the viewport by ~200px on a phone. */
+.table-responsive {
+  overflow-x: auto;
+  max-width: 100%;
+  /* overflow-x alone scrolls the table inside this box but still leaves it in
+     the DOCUMENT's scrollable overflow, so the whole page kept scrolling
+     sideways on a phone. Paint containment is what actually takes the
+     descendant out of it, and unlike table-layout: fixed it changes no
+     column widths. */
+  contain: paint;
+}
 .diag-banner {
   padding: var(--space-md);
   border-radius: 8px;

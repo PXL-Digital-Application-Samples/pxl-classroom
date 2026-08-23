@@ -71,7 +71,6 @@ async function main() {
     
     for (const { path, data } of repos) {
       let changed = false;
-      const originalState = data.access_state;
       const originalVisibility = data.visibility || "private";
       
       const repoNameParts = data.repo_name.split('/');

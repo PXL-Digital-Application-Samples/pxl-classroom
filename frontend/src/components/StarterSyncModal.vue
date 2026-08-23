@@ -222,7 +222,6 @@ import Icon from './Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { ghApi, triggerWorkflow } from '../lib/api.js'
-import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
 const props = defineProps({

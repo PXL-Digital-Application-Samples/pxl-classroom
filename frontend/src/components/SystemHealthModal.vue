@@ -335,12 +335,6 @@ function severityIcon(sev) {
   return 'info'
 }
 
-function badgeClass(sev) {
-  if (sev === 'ok') return 'badge-success'
-  if (sev === 'warn') return 'badge-warning'
-  if (sev === 'fail') return 'badge-danger'
-  return 'badge-neutral'
-}
 
 function overallTitle(sev) {
   if (sev === 'ok') return 'All Systems Operational & Verified'

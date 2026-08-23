@@ -97,19 +97,6 @@ test('Autograding Check-Run Parser: Team 2 Partial Fail (20/30 pts)', () => {
 });
 
 test('Docker Autograding Engine: computes granular test points and failures for group teams', () => {
-  const dockerAssignment = {
-    id: 'group-autograding-docker',
-    title: 'Group Docker Microservice',
-    assignment_type: 'group',
-    autograde: {
-      enabled: true,
-      execution_environment: 'docker',
-      tests: [
-        { id: 'unit', name: 'Unit Tests', command: 'npm run test:unit', points: 25 },
-        { id: 'integration', name: 'Integration Tests', command: 'npm run test:integration', points: 25 },
-      ],
-    },
-  };
 
   // Team 1 simulation: all pass
   const team1Results = [
@@ -200,7 +187,7 @@ test('CSV Export Headers: includes autograding and feedback PR fields', () => {
   function csvCell(v) {
     if (v === null || v === undefined) return '';
     let str = Array.isArray(v) ? v.join('; ') : String(v);
-    if (/^[=\+\-@]/.test(str)) str = `'${str}`;
+    if (/^[=+\-@]/.test(str)) str = `'${str}`;
     return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   }
 

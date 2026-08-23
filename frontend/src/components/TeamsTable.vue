@@ -494,7 +494,7 @@ import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
-import { commitFile, commitFiles, deleteFile, addCollaborator, removeCollaborator, triggerWorkflow } from '../lib/api.js'
+import { commitFile, commitFiles, deleteFile, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { planUnseed } from '../../../lib/seed-teams.mjs'
@@ -692,18 +692,6 @@ function resolveMemberDisplayName(login) {
   return null
 }
 
-function statusBadgeClass(status) {
-  switch (status) {
-    case 'on-time':
-      return 'badge-success'
-    case 'late':
-      return 'badge-warning'
-    case 'no-submission':
-      return 'badge-neutral'
-    default:
-      return 'badge-neutral'
-  }
-}
 
 function openCreateTeamModal() {
   newTeamForm.value = { name: '', members: [] }
@@ -732,13 +720,32 @@ function addMemberToTeam(login) {
 // nightly run, which is exactly how lecturer-created teams used to vanish.
 async function republishTeams(token) {
   try {
-    await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'regenerate-dashboard.yml', {
-      org: props.org,
-    })
+    // triggerWorkflow resolves with { ok: false } on a 403/404 rather than
+    // throwing, so the result has to be inspected: silently swallowing it
+    // reports success while students still cannot see the change.
+    const res = await triggerWorkflow(
+      token,
+      config.hubOwner,
+      config.hubRepo,
+      'regenerate-dashboard.yml',
+      { org: props.org }
+    )
+    if (!res.ok) {
+      toast.error(
+        explainDispatchFailure(res, 'Saved, but publishing the change to students failed'),
+        { link: {
+          href: `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/regenerate-dashboard.yml`,
+          text: 'Run it manually',
+        } }
+      )
+      return false
+    }
+    return true
   } catch (e) {
     toast.error(
-      `Team saved, but publishing it to students failed: ${e.message}. Use Regenerate dashboard from the assignment page.`
+      `Saved, but publishing the change to students failed: ${e.message}. Run Regenerate Dashboard from the hub's Actions tab.`
     )
+    return false
   }
 }
 

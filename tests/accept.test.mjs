@@ -181,7 +181,7 @@ template:
   assert.equal(res.outputs.outcome, "rejected:cap-reached");
 });
 
-test("accepted - happy path with deriveRepoName \`{github_login}\` substitution", () => {
+test("accepted - happy path with deriveRepoName `{github_login}` substitution", () => {
   const yaml = `state: published
 repository_name_pattern: hw-{github_login}
 template:
@@ -196,7 +196,7 @@ template:
   assert.equal(res.outputs.target_repo, "hw-charlie");
 });
 
-test("accepted - deriveRepoName \`{login}\` legacy mis-match (doesn't substitute)", () => {
+test("accepted - deriveRepoName `{login}` legacy mis-match (doesn't substitute)", () => {
   const yaml = `state: published
 repository_name_pattern: hw-{login}
 template:
@@ -486,7 +486,7 @@ template:
   assert.equal(res1.status, 0);
 
   // Now bob joins the same team
-  const res2 = runAccept(
+  runAccept(
     {
       ASSIGNMENT_ID: "test-asgn",
       GITHUB_LOGIN: "bob",

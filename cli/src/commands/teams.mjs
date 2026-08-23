@@ -8,7 +8,6 @@
 // The planning is shared with the SPA (lib/seed-teams.mjs); this command only
 // reads the control repo, prints the plan, and commits it in one commit.
 
-import { Command } from "commander";
 import { createInterface } from "node:readline/promises";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";

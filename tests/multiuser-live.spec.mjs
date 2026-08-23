@@ -11,7 +11,6 @@ if (existsSync('.env.test')) {
 // Configuration from environment or defaults for test run
 const ORG = process.env.TEST_ORG || 'PXL-2TIN-CloudEssentials-2627';
 const ASSIGNMENT_ID = process.env.TEST_ASSIGNMENT_ID || 'test-groepsopdracht-2';
-const IS_LIVE = Boolean(process.env.TEST_STUDENT1_TOKEN && process.env.TEST_STUDENT2_TOKEN);
 
 // 3 test accounts
 const LECTURER = {

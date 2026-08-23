@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupStandardMockRoutes, injectAuth, LECTURER, STUDENT_1, STUDENT_2 } from '../fixtures/e2e-fixtures.mjs';
+import { setupStandardMockRoutes, injectAuth, LECTURER, STUDENT_1 } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 

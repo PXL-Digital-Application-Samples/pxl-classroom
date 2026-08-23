@@ -1,8 +1,8 @@
 <template>
   <div class="modal-overlay" @click.self="close">
-    <div class="modal seed-modal" role="dialog" aria-modal="true" aria-label="Seed teams">
+    <div class="modal seed-modal" role="dialog" aria-modal="true" aria-labelledby="seed-modal-title">
       <header class="modal-head">
-        <h3>Seed teams — {{ assignment.id }}</h3>
+        <h3 id="seed-modal-title">Seed teams — {{ assignment.id }}</h3>
         <button class="modal-close" type="button" @click="close" aria-label="Close">×</button>
       </header>
 
@@ -15,7 +15,13 @@
         <!-- Source -->
         <div class="field">
           <label for="seed-source">Take the groups from</label>
-          <select id="seed-source" v-model="sourceKey" class="form-control" :disabled="applying">
+          <select
+            id="seed-source"
+            ref="sourceSelectEl"
+            v-model="sourceKey"
+            class="form-control"
+            :disabled="applying"
+          >
             <option value="">Select a source…</option>
             <optgroup v-if="sourceAssignments.length" label="A previous group assignment">
               <option v-for="a in sourceAssignments" :key="a.id" :value="`assignment:${a.id}`">
@@ -86,6 +92,8 @@
               </span>
             </div>
 
+            <p v-if="skippedSummary" class="seed-footnote">{{ skippedSummary }}</p>
+
             <!-- Warnings -->
             <div v-if="plan.warnings.length" class="diag-banner seed-banner-warn">
               <div>
@@ -138,7 +146,7 @@
           :disabled="!canApply"
           @click="apply"
         >
-          {{ applying ? 'Seeding…' : plan?.ok ? `Seed ${plan.stats.teams} team(s)` : 'Seed teams' }}
+          {{ applyLabel }}
         </button>
       </footer>
     </div>
@@ -146,9 +154,16 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { getToken, getUser } from '../lib/auth.js'
-import { listTeams, commitFiles, getRepoContent, listRepoDir, triggerWorkflow } from '../lib/api.js'
+import {
+  listTeams,
+  commitFiles,
+  getRepoContent,
+  listRepoDir,
+  triggerWorkflow,
+  explainDispatchFailure,
+} from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { planSeed, teamsFromRoster, seedCommitMessage } from '../../../lib/seed-teams.mjs'
@@ -167,6 +182,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'seeded'])
 
 const sourceKey = ref('')
+const sourceSelectEl = ref(null)
 const discovered = ref([])
 const loadingSources = ref(false)
 const loading = ref(false)
@@ -180,6 +196,17 @@ const sourceAssignments = computed(() => {
     .filter((a) => a.assignment_type === 'group' && a.id !== props.assignment.id)
     .sort((a, b) => String(b.deadline_at || '').localeCompare(String(a.deadline_at || '')))
 })
+
+function onKeydown(e) {
+  if (e.key === 'Escape') close()
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  sourceSelectEl.value?.focus()
+})
+
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 // Callers that already hold the org's assignments pass them; the assignment
 // detail page only knows its own, so the modal discovers the rest itself.
@@ -227,18 +254,68 @@ const canApply = computed(
   () => !!plan.value?.ok && plan.value.teams.length > 0 && !applying.value && !loading.value
 )
 
+const applyLabel = computed(() => {
+  if (applying.value) return 'Seeding…'
+  if (plan.value?.ok && plan.value.teams.length > 0) return `Seed ${plan.value.teams.length} team(s)`
+  if (plan.value?.ok) return 'Nothing to seed'
+  return 'Seed teams'
+})
+
+// "3 skipped" on its own is a number nobody can act on.
+const SKIP_REASONS = {
+  vacant: 'already empty in the source',
+  'no-members': 'had no members',
+  'invalid-slug': 'had an unusable slug',
+  'already-populated': 'already exist here with members',
+  'all-members-already-teamed': 'every member is already in another team here',
+}
+
+const skippedSummary = computed(() => {
+  const skipped = plan.value?.skipped || []
+  if (skipped.length === 0) return ''
+  const byReason = new Map()
+  for (const s of skipped) {
+    const label = SKIP_REASONS[s.reason] || s.reason
+    if (!byReason.has(label)) byReason.set(label, [])
+    byReason.get(label).push(s.team_slug)
+  }
+  const parts = [...byReason.entries()].map(([label, slugs]) => `${slugs.join(', ')} (${label})`)
+  return `Skipped ${skipped.length}: ${parts.join('; ')}.`
+})
+
 watch(sourceKey, () => {
   plan.value = null
   loadError.value = null
   if (sourceKey.value) buildPlan()
 })
 
+// Switching source while a read is in flight: without this counter a slow first
+// source can resolve last and overwrite the plan for the source now selected -
+// the preview would then describe A while the dropdown says B, and Apply would
+// write A under a commit message naming B.
+let planRequestId = 0
+
 async function buildPlan() {
+  const requestId = ++planRequestId
   loading.value = true
   loadError.value = null
   plan.value = null
-  const token = getToken()
   try {
+    const fresh = await computePlan()
+    if (requestId !== planRequestId) return
+    plan.value = fresh
+  } catch (e) {
+    if (requestId !== planRequestId) return
+    loadError.value = e?.message || 'Unknown error'
+  } finally {
+    if (requestId === planRequestId) loading.value = false
+  }
+}
+
+/** Read the control repo and plan. Throws; callers decide how to report. */
+async function computePlan() {
+  const token = getToken()
+  {
     const existingTeams = await listTeams(token, props.org, config.controlRepo, props.assignment.id)
     let sourceTeams = []
     let roster = null
@@ -256,7 +333,7 @@ async function buildPlan() {
       sourceTeams = await listTeams(token, props.org, config.controlRepo, sourceAssignment.value.id)
     }
 
-    plan.value = planSeed({
+    return planSeed({
       sourceTeams,
       existingTeams,
       targetAssignment: props.assignment,
@@ -266,41 +343,78 @@ async function buildPlan() {
       actor: getUser()?.login || 'lecturer',
       source: sourceKey.value === 'roster' ? 'roster' : 'assignment',
     })
-  } catch (e) {
-    loadError.value = e?.message || 'Unknown error'
-  } finally {
-    loading.value = false
   }
 }
 
+/** What the plan will actually do, ignoring timestamps. */
+function planSignature(p) {
+  return (p?.teams || [])
+    .map((t) => `${t.team_slug}:${[...t.members].sort().join(',')}`)
+    .join('|')
+}
+
 async function apply() {
-  if (!plan.value?.ok) return
+  if (!canApply.value) return
   applying.value = true
   try {
     const token = getToken()
-    const sourceLabel = sourceKey.value === 'roster' ? 'the roster' : sourceAssignment.value?.id
+    const sourceLabel =
+      sourceKey.value === 'roster' ? 'the roster' : sourceAssignment.value?.id || sourceKey.value
+
+    // The preview is a snapshot. A student accepting between review and apply
+    // can create or join a team in the target, and writing the stale plan would
+    // either overwrite their team or list them in two teams at once. Re-plan and
+    // show the difference rather than guessing which one the lecturer meant.
+    const fresh = await computePlan()
+    if (!fresh.ok || fresh.teams.length === 0 || planSignature(fresh) !== planSignature(plan.value)) {
+      plan.value = fresh
+      toast.warn('The teams changed while you were reviewing. Check the updated plan and apply again.')
+      return
+    }
+
     const res = await commitFiles(
       token,
       props.org,
       config.controlRepo,
-      plan.value.changes,
-      seedCommitMessage(plan.value, { targetId: props.assignment.id, sourceLabel })
+      fresh.changes,
+      seedCommitMessage(fresh, { targetId: props.assignment.id, sourceLabel })
     )
     if (!res.ok) {
       toast.error(`Could not write the teams: ${res.error}`)
       return
     }
 
-    // Students read the published teams file, not the control repo. Without
-    // this regeneration a seeded team exists but is invisible to them.
-    await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'regenerate-dashboard.yml', {
-      org: props.org,
-    })
+    // Students read the published teams file, not the control repo, so a failed
+    // regeneration means the teams exist but nobody can see them. triggerWorkflow
+    // resolves with { ok: false } rather than throwing - not checking it is how a
+    // 403 turns into a success message.
+    const dispatch = await triggerWorkflow(
+      token,
+      config.hubOwner,
+      config.hubRepo,
+      'regenerate-dashboard.yml',
+      { org: props.org }
+    )
+    if (!dispatch.ok) {
+      toast.error(
+        explainDispatchFailure(
+          dispatch,
+          `Seeded ${fresh.stats.teams} team(s), but publishing them to students failed`
+        ),
+        { link: {
+          href: `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/regenerate-dashboard.yml`,
+          text: 'Run it manually',
+        } }
+      )
+      emit('seeded', { teams: fresh.stats.teams, students: fresh.stats.students })
+      emit('close')
+      return
+    }
 
     toast.success(
-      `Seeded ${plan.value.stats.teams} team(s) with ${plan.value.stats.students} student(s) into ${props.assignment.id}.`
+      `Seeded ${fresh.stats.teams} team(s) with ${fresh.stats.students} student(s) into ${props.assignment.id}.`
     )
-    emit('seeded', { teams: plan.value.stats.teams, students: plan.value.stats.students })
+    emit('seeded', { teams: fresh.stats.teams, students: fresh.stats.students })
     emit('close')
   } catch (e) {
     toast.error(`Seeding failed: ${e.message}`)
@@ -414,7 +528,8 @@ function close() {
 .seed-preview-row {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
   padding: 8px var(--space-md);
   border-bottom: 1px solid var(--border-muted);
 }
@@ -427,7 +542,9 @@ function close() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 160px;
+  /* min-width would push the row past a phone-width modal; basis lets it shrink. */
+  flex: 0 1 160px;
+  min-width: 0;
 }
 
 .seed-preview-slug {
@@ -439,7 +556,8 @@ function close() {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  flex: 1;
+  flex: 1 1 120px;
+  min-width: 0;
 }
 
 .seed-member {

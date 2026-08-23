@@ -287,7 +287,6 @@ test("Feature 3: computeFeedbackPrModalStats computes exact counts across mixed 
 
 test("Feature 3: Draft PR creation payload uses draft: true and preserves student main branch untouched", () => {
   const assignment = { title: "Linux Processes Lab", feedback_pr_baseline_branch: "pxl-baseline" };
-  const targetStudent = { github_login: "alice", repo_name: "PXLAutomation/linux-processes-alice" };
 
   const payload = {
     title: `${assignment.title} - Feedback`,

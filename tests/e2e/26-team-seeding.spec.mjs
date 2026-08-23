@@ -880,4 +880,245 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await expect(page.locator('.member-pending-note')).toHaveCount(0);
     await expect(page.locator('.seeded-note', { hasText: 'cannot see these teams' })).toBeVisible();
   });
+
+  // ------------------------------------------------- the modal's own edges --
+
+  test('Switching source mid-read never leaves the previous source on screen', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        [PREV]: groupAssignment(PREV),
+        slow: groupAssignment('slow'),
+        [NEXT]: groupAssignment(NEXT),
+      },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: {
+        slow: [controlTeam('slow', 'slowpoke', 'Slowpoke Team', ['zoe'])],
+        [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])],
+      },
+    });
+
+    // Make the first source answer last. Registered after the fixture, so it
+    // wins, and falls through to it once the delay has elapsed.
+    await page.route(
+      (url) => url.href.includes(`/contents/teams/slow`),
+      async (route) => {
+        await new Promise((r) => setTimeout(r, 2500));
+        await route.fallback();
+      }
+    );
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption('assignment:slow');
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1, { timeout: 10000 });
+    await expect(page.locator('.seed-preview-row')).toContainText('Alpha Team');
+
+    // The slow read lands well after; it must not repaint the preview.
+    await page.waitForTimeout(3000);
+    await expect(page.locator('.seed-preview-row')).toContainText('Alpha Team');
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1);
+    await expect(page.locator('.seed-status')).toHaveCount(0);
+  });
+
+  test('A target that changed while you were reviewing blocks the write', async ({ page }) => {
+    const gitCommits = [];
+    let reads = 0;
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      gitCommits,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: { [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])] },
+    });
+
+    // The second read of the source team - the one apply() makes - sees a
+    // membership that moved underneath the preview.
+    await page.route(
+      (url) => url.href.includes(`/contents/teams/${PREV}/alpha.json`),
+      async (route) => {
+        reads += 1;
+        const members = reads === 1 ? [STUDENT_1.login] : [STUDENT_1.login, STUDENT_2.login];
+        const doc = controlTeam(PREV, 'alpha', 'Alpha Team', members);
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify({
+            content: Buffer.from(JSON.stringify(doc)).toString('base64'),
+            encoding: 'base64',
+            sha: 'x',
+          }),
+        });
+      }
+    );
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1, { timeout: 10000 });
+
+    await page.locator('.modal-foot .btn-primary').click();
+
+    // Nothing written, modal still open, plan re-rendered with the new truth.
+    await expect(page.locator('.toast-warning')).toContainText('changed while you were reviewing', { timeout: 10000 });
+    expect(gitCommits).toHaveLength(0);
+    await expect(page.locator('.seed-modal')).toBeVisible();
+    await expect(page.locator('.seed-preview-row')).toContainText(`@${STUDENT_2.login}`);
+
+    // Applying the plan now on screen goes through.
+    await page.locator('.modal-foot .btn-primary').click();
+    await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
+  });
+
+  test('A failed dashboard regeneration is reported, not swallowed', async ({ page }) => {
+    const gitCommits = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      gitCommits,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: { [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])] },
+    });
+
+    await page.route(
+      (url) => url.href.includes('regenerate-dashboard.yml/dispatches'),
+      async (route) => {
+        await route.fulfill({
+          status: 403,
+          body: JSON.stringify({ message: 'Resource not accessible by integration' }),
+        });
+      }
+    );
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1, { timeout: 10000 });
+    await page.locator('.modal-foot .btn-primary').click();
+
+    // The teams WERE written - saying "seeded" alone would be a lie about what
+    // students can see.
+    await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
+    const toastEl = page.locator('.toast-error');
+    await expect(toastEl).toContainText('publishing them to students failed');
+    await expect(toastEl).toContainText('actions:write');
+    await expect(toastEl.locator('a')).toHaveAttribute('href', /regenerate-dashboard\.yml/);
+    await expect(page.locator('.toast-success')).toHaveCount(0);
+  });
+
+  test('Escape closes the modal, and the source select takes focus', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+    });
+
+    await openSeedModal(page, NEXT);
+    await expect(page.locator('#seed-source')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.seed-modal')).toHaveCount(0);
+  });
+
+  test('Skipped teams are explained rather than left as a bare count', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: {
+        [PREV]: [
+          controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login]),
+          controlTeam(PREV, 'gone', 'Gone Team', ['zoe'], { vacant: true }),
+          controlTeam(PREV, 'empty', 'Empty Team', []),
+        ],
+      },
+    });
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-summary')).toContainText('skipped', { timeout: 10000 });
+    const footnote = page.locator('.seed-footnote', { hasText: 'Skipped 2' });
+    await expect(footnote).toContainText('gone (already empty in the source)');
+    await expect(footnote).toContainText('empty (had no members)');
+  });
+
+  test('Re-seeding the same source offers nothing and cannot be applied', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: {
+        [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])],
+        [NEXT]: [controlTeam(NEXT, 'alpha', 'Alpha Team', [STUDENT_1.login])],
+      },
+    });
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-footnote', { hasText: 'Nothing left to seed' })).toBeVisible({ timeout: 10000 });
+    const apply = page.locator('.modal-foot .btn-primary');
+    await expect(apply).toContainText('Nothing to seed');
+    await expect(apply).toBeDisabled();
+  });
+
+  test('Seeding from the assignment editor raises exactly one toast', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      controlTeams: { [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])] },
+    });
+
+    await page.goto(`/dashboard/${ORG}/admin?edit=${NEXT}`);
+    const seedBtn = page.locator('button', { hasText: 'Seed teams from…' });
+    await expect(seedBtn).toBeEnabled({ timeout: 15000 });
+    await seedBtn.click();
+
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1, { timeout: 10000 });
+    await page.locator('.modal-foot .btn-primary').click();
+
+    await expect(page.locator('.toast-success')).toHaveCount(1, { timeout: 10000 });
+    await expect(page.locator('.toast-success')).toContainText('Seeded 1 team');
+  });
+
+  test('The modal fits a phone without scrolling sideways', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: {
+        [PREV]: [
+          controlTeam(PREV, 'a-very-long-team-slug-for-testing', 'A Very Long Team Name For Testing', [
+            'student-with-a-long-login-one',
+            'student-with-a-long-login-two',
+            'student-with-a-long-login-three',
+          ]),
+        ],
+      },
+    });
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1, { timeout: 10000 });
+
+    const overflow = await page.evaluate(() => {
+      const modal = document.querySelector('.seed-modal');
+      const row = document.querySelector('.seed-preview-row');
+      return {
+        modal: modal.scrollWidth - modal.clientWidth,
+        modalRight: Math.round(modal.getBoundingClientRect().right),
+        row: row.scrollWidth - row.clientWidth,
+        viewport: window.innerWidth,
+      };
+    });
+    expect(overflow.modal).toBeLessThanOrEqual(1);
+    expect(overflow.row).toBeLessThanOrEqual(1);
+    expect(overflow.modalRight).toBeLessThanOrEqual(overflow.viewport);
+  });
 });

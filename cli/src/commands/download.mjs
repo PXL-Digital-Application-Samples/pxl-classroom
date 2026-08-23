@@ -9,19 +9,17 @@
 // SHA. Writes a manifest at <dir>/_manifest.json with {login, sha, branch,
 // downloaded_at} rows so plagiarism tools / CI know what they're looking at.
 
-import { Command } from "commander";
-import { mkdir, writeFile, readFile, stat } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { makeOctokit } from "../lib/octokit.mjs";
-import { loadConfig, saveConfig } from "../lib/config.mjs";
+import { saveConfig } from "../lib/config.mjs";
 import { requireToken } from "../lib/auth.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 
-const CONTROL_REPO = "pxl-classroom-control";
 const ARCHIVE_REPO = "pxl-classroom-archive";
 
 
@@ -137,7 +135,6 @@ export function registerDownloadCommand(program) {
         });
       });
 
-      const rows = [];
       let okCount = 0, cachedCount = 0, failedCount = 0;
       for (let i = 0; i < results.length; i++) {
         const r = results[i];

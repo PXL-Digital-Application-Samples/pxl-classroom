@@ -9,18 +9,14 @@
 // halfway through, re-running picks up where you left off. The grader never
 // touches the student's live repo - only archive branches.
 
-import { Command } from "commander";
-import { mkdir, writeFile, rm, mkdtemp } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { rm, mkdtemp } from "node:fs/promises";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline/promises";
-import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { parse as yamlParse } from "yaml";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { loadConfig, saveConfig } from "../lib/config.mjs";
 import { requireToken } from "../lib/auth.mjs";
 import { runDocker } from "../lib/runner-docker.mjs";
 import { runHost } from "../lib/runner-host.mjs";

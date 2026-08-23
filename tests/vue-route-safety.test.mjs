@@ -36,10 +36,8 @@ test("every .vue file under frontend/src has useRoute imported when referencing 
     // We check if the file references 'route.' or 'route ' or 'route,' or similar route usage
     // but excludes files that do not mention route at all.
     // Also, if the file uses 'route' as a local/reactive variable, it MUST import useRoute.
-    const hasRouteUsage = /\broute\b/.test(content);
     const importsUseRoute = /import\s+{[^}]*useRoute[^}]*}\s+from\s+['"]vue-router['"]/.test(content) ||
                           /import\s+useRoute\s+from\s+['"]vue-router['"]/.test(content);
-    const definesRoute = /const\s+route\s+=\s+useRoute\(\)/.test(content);
 
     // If it references 'route' but doesn't define/import it, and it doesn't get it from props or setup params
     // Vue template allows 'route' if using router-link or other elements, but inside setup scripts, using 'route' requires defining it.

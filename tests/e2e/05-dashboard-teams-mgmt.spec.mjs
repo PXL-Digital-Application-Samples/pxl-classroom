@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('05 - Lecturer Dashboard & Team Management', () => {
   test('Happy Path: Lecturer views group assignment detail, inspects teams and under-capacity badges', async ({ page }) => {

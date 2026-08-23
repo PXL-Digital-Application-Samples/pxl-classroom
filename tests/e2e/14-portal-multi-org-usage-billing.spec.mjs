@@ -3,7 +3,6 @@ import {
   ORG,
   LECTURER,
   STUDENT_1,
-  STUDENT_2,
   injectAuth,
   setupStandardMockRoutes,
 } from '../fixtures/e2e-fixtures.mjs';

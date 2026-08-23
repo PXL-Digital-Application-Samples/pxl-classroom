@@ -6,7 +6,7 @@
 // per-student errors. No npm dependencies (Node 18+ fetch).
 
 import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 

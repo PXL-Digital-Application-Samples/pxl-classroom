@@ -12,10 +12,8 @@
 // pushed at least one commit ahead of baseline).
 
 import { Command } from "commander";
-import { parse as yamlParse } from "yaml";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
-import { loadConfig, saveConfig } from "../lib/config.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
 

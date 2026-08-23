@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => {
   test('Scenario 1 (Registration Gating): Blocks late acceptance while preserving repository access for existing student', async ({ page }) => {

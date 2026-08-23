@@ -178,7 +178,6 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
 
   test('Scenario 3 (Student Submission Status & Countdown): Displays on-time status, countdown timer, and extension banner', async ({ page }) => {
     const pastDeadline = new Date(Date.now() - 3600 * 1000 * 12).toISOString();
-    const extendedDeadline = new Date(Date.now() + 3600 * 1000 * 36).toISOString();
 
     await injectAuth(page, STUDENT_EXTENDED);
     await setupStandardMockRoutes(page, {

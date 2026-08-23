@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
-import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS } from "../lib/audit.mjs";
+import { EXPECTED_APP_PERMISSIONS } from "../lib/audit.mjs";
 
 function createMockRequest(overrides = {}) {
   return async (method, path, body = null) => {
