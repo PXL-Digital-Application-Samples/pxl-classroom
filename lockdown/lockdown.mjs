@@ -1,12 +1,32 @@
 #!/usr/bin/env node
 // PXL Classroom - deadline lock-down.
 //
-// Based on spikes/04-deadline/deadline.mjs. For each managed repository:
-//   0. Skips it entirely if a granted extension is still running (deferred)
-//   1. Takes a final snapshot of the submission ref
-//   2. Demotes the student from current permission to "pull" (read-only)
-//   3. Verifies the demotion
-//   4. Records lockdown time and uncertainty interval (lockdown_at − deadline_at)
+// Four phases, in this order, for the whole cohort:
+//
+//   0. PLAN    - who this run acts on, and who it deliberately leaves alone
+//                (a granted extension still running defers that repository)
+//   1. STOP    - stop writes to the submission ref. Time-critical.
+//   2. RECORD  - repo object, pushed_at, HEAD, and the final observation
+//   3. PRESERVE- preserve/preserve.mjs, a separate step in the workflow
+//   4. DEMOTE  - collaborator -> pull, only when STOP did not already do it
+//
+// The order matters and it used to be the other way round. One loop read a
+// student's HEAD and then demoted them, per student, so in a 200-student cohort
+// student 1 was frozen at T+0s and student 200 minutes later - the demotion is
+// a write against an ~80/min secondary limit. Two consequences nobody would
+// choose: students at the end of the list got extra time, and the snapshot was
+// not a consistent cut, because student 1's HEAD was read minutes before
+// student 200's.
+//
+// Stopping first fixes both. Every HEAD in phase 2 is read after all writes
+// stopped, so the cohort is cut at one instant, and phase 2 is safely
+// re-runnable because the repositories cannot move any more.
+//
+// STOP is one function - applySubmissionLock() - because *how* it stops is a
+// per-assignment decision. Today it demotes (`lock_method: "demotion"`), which
+// is N calls; a repository ruleset flipped to `enforcement: active` is one call
+// for the whole cohort and leaves the student their Actions, secrets and
+// runners. The rest of the file does not care which ran.
 //
 // Continues on per-student errors. No npm dependencies (Node 18+ fetch).
 
@@ -120,6 +140,9 @@ async function readOverrides() {
 // until the demotion propagates, and a lecturer can grant an extension), and
 // re-snapshotting would silently replace the on-time submission with a later
 // commit. Prior snapshots are therefore frozen and reused verbatim.
+//
+// Stop-first makes that hazard structural rather than incidental - after phase 1
+// nothing can move - but the freeze stays as belt and braces.
 async function readPriorLockdown() {
   try {
     const raw = await readFile(
@@ -132,115 +155,128 @@ async function readPriorLockdown() {
   }
 }
 
-// --- Main --------------------------------------------------------------------
-async function main() {
-  const bad = validate();
-  if (bad) await fail("fail:validation", bad);
-
-  // 1. Auth check
-  const ping = await gh("GET", "/rate_limit");
-  if (!ping.ok) await fail("fail:auth", `token rejected (HTTP ${ping.status})`);
-  log("auth", { ok: true, note: "installation token accepted" });
-
-  // 2. Read assignment
-  const assignment = await readAssignment();
-  if (!assignment) await fail("fail:assignment", `no assignment file for "${cfg.assignmentId}"`);
-  const submissionRef = assignment.submission_ref || "refs/heads/main";
-  const deadlineAt = assignment.deadline_at || null;
-  log("assignment", { ok: true, note: `deadline_at=${deadlineAt} submission_ref=${submissionRef}` });
-
-  // 2b. Prior lockdown (retry path) - frozen snapshots, keyed by login
-  const prior = await readPriorLockdown();
-  const priorByLogin = new Map(
-    (prior?.results || []).filter((r) => r.github_login).map((r) => [r.github_login, r])
-  );
-  const attempt = (prior?.finalize_attempts ?? 0) + 1;
-  if (prior) {
-    log("prior-lockdown", {
-      ok: true,
-      note: `retry #${attempt} - reusing ${priorByLogin.size} frozen snapshot(s)`,
-    });
-  }
-
-  // 2c. Lecturer overrides - who has been granted more time
-  const overrides = await readOverrides();
-  if (overrides.length) {
-    log("overrides", { ok: true, note: `${overrides.length} override document(s)` });
-  }
-
-  // 3. Read repo records
-  const records = await readRepoRecords();
-  // Zero students is a valid population - the loop below no-ops and step 5
-  // still writes an empty lockdown-record.json, which preserve needs in order
-  // to report "no students to preserve" instead of fail:no-lockdowns.
-  log("repo-records", { ok: true, note: records.length ? `${records.length} student(s)` : "no repository records - nothing to lock down" });
-
-  // 4. Lockdown each repo
-  let lockedCount = 0;
-  let errorCount = 0;
-  let deferredCount = 0;
-  let maxUncertainty = 0;
-  const rows = [];
-  const lockdownResults = [];
+// --- Phase 0: plan -----------------------------------------------------------
+/**
+ * Split the cohort into repositories this run acts on and repositories it
+ * deliberately leaves alone.
+ *
+ * A group shares one repository, so the most generous extension among its
+ * members governs the repo - locking it at anyone else's deadline locks out the
+ * student who was granted the time.
+ *
+ * Deferral is decided once, here, so "excluded from the target list" means the
+ * same thing to the stop as it does to the recording: a deferred repository is
+ * never fetched, never observed, and never has a permission touched.
+ */
+function planTargets(assignment, records, overrides, now = new Date()) {
+  const targets = [];
+  const deferrals = [];
 
   for (const rec of records) {
     const login = rec.github_login;
-    const repoName = rec.repo_name?.split("/")?.[1] ?? rec.repo_name;
-    try {
-      // 4a0. Has this student been granted more time?
-      //
-      // A group shares one repository, so the most generous extension among its
-      // members governs the repo - locking it at anyone else's deadline locks
-      // out the student who was granted the time.
-      //
-      // The check comes before every read and every write: a deferred student is
-      // not in the target list at all, so no observation is fabricated, no
-      // permission is touched, and no API call is spent on them. The assignment
-      // re-queues once the extension expires (find-finalizable.mjs reads
-      // deferred_until), and until then it counts as active so the nightly does
-      // not disable itself and stop observing their work.
-      const members = Array.isArray(rec.members) && rec.members.length ? rec.members : (login ? [login] : []);
-      const displayKey = rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login;
-      const effective = effectiveDeadlineFor(assignment, login, {
-        overrides,
-        team: { members },
-      });
-      // Gated on `extended`, not on the deadline alone: a lecturer running a
-      // lockdown early still locks the cohort, exactly as before. Only a
-      // granted, still-running extension defers.
-      if (effective.extended && effective.deadline > new Date()) {
-        const deferredUntil = effective.deadline.toISOString();
-        deferredCount++;
-        log(`lockdown ${displayKey}`, {
-          ok: true,
-          note: `deferred - extension granted to ${effective.grantedTo} runs to ${deferredUntil}`,
-        });
-        rows.push(`| ${displayKey} | - | - | deferred to ${deferredUntil} |`);
-        for (const m of members) {
-          lockdownResults.push({
-            github_login: m,
-            team_slug: rec.team_slug || undefined,
-            repo_name: `${cfg.org}/${repoName}`,
-            repo_id: rec.repo_id ?? null,
-            snapshot_sha: null,
-            snapshot_ref: submissionRef,
-            lockdown_at: null,
-            deferred_until: deferredUntil,
-            deferred_reason: effective.reason,
-            permission_after: null,
-            verified: false,
-            uncertainty_seconds: null,
-          });
-        }
-        continue;
-      }
+    const members = Array.isArray(rec.members) && rec.members.length ? rec.members : (login ? [login] : []);
+    const target = {
+      rec,
+      login,
+      members,
+      repoName: rec.repo_name?.split("/")?.[1] ?? rec.repo_name,
+      displayKey: rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login,
+    };
 
-      // 4a. Final snapshot
-      const repoRes = await gh("GET", `/repos/${cfg.org}/${repoName}`);
+    const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members } });
+    // Gated on `extended`, not on the deadline alone: a lecturer running a
+    // lockdown early still locks the cohort, exactly as before. Only a granted,
+    // still-running extension defers.
+    if (effective.extended && effective.deadline > now) {
+      deferrals.push({ ...target, effective });
+    } else {
+      targets.push(target);
+    }
+  }
+  return { targets, deferrals };
+}
+
+// --- Phase 1: STOP -----------------------------------------------------------
+/**
+ * Stop writes to the submission ref for every target. This is the only
+ * time-critical phase, and the only one that must happen *at* the deadline.
+ *
+ * `method` decides how:
+ *   "demotion" - collaborator -> pull, one call per member, verified after.
+ *                Takes everything, not just push: Actions, secrets,
+ *                environments, runners, settings.
+ *   "none"     - nothing is stopped. The recording phases still run, so the
+ *                report still reflects reality; it just carries no guarantee.
+ *
+ * Idempotent either way: re-running re-locks anyone who regained write access.
+ * Returns per-target outcomes plus the instant the phase fired.
+ */
+async function applySubmissionLock({ targets, method, priorByLogin }) {
+  const lockedAt = new Date().toISOString();
+  const byRepo = new Map();
+
+  for (const t of targets) {
+    // Frozen on retry: lockdown_at is a historical fact about when this student
+    // stopped being able to push, not about when this run happened.
+    const priorRec = priorByLogin.get(t.login);
+    const lockdownAt = priorRec?.snapshot_sha ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
+
+    if (method === "none") {
+      byRepo.set(t, { locked: false, permissionAfter: null, lockdownAt: null, skipped: true });
+      continue;
+    }
+
+    let allLocked = true;
+    let permAfter = "read";
+    try {
+      for (const m of t.members) {
+        const demote = await gh("PUT", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}`, { permission: "pull" });
+        if (!(demote.status === 204 || demote.status === 201)) {
+          log(`stop ${m}`, { ok: false, note: `demote HTTP ${demote.status}` });
+          allLocked = false;
+          continue;
+        }
+        const verify = await gh("GET", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}/permission`);
+        const userPerm = verify.ok ? verify.data.permission : `error-${verify.status}`;
+        if (userPerm !== "read") {
+          allLocked = false;
+          permAfter = userPerm;
+        }
+      }
+    } catch (e) {
+      log(`stop ${t.displayKey}`, { ok: false, note: e.message });
+      allLocked = false;
+      permAfter = "exception";
+    }
+    byRepo.set(t, { locked: allLocked, permissionAfter: permAfter, lockdownAt });
+  }
+
+  log("phase 1 - stop", {
+    ok: true,
+    note: `${method} applied to ${targets.length} repository/repositories at ${lockedAt}`,
+  });
+  return { method, lockedAt, byRepo };
+}
+
+// --- Phase 2: RECORD ---------------------------------------------------------
+/**
+ * Read what the cohort looks like now that it cannot change, and write the final
+ * observation. Nothing here races anything: phase 1 already stopped the writes.
+ *
+ * `pushed_at` comes off the repository object this already fetches, at no extra
+ * cost. It is GitHub's own server-side timestamp - a student cannot set it - so
+ * it is the one piece of evidence in the record that survives an argument about
+ * commit dates.
+ */
+async function recordCohortState({ targets, submissionRef, priorByLogin, prior }) {
+  const byRepo = new Map();
+
+  for (const t of targets) {
+    try {
+      const repoRes = await gh("GET", `/repos/${cfg.org}/${t.repoName}`);
       if (!repoRes.ok) {
-        log(`lockdown ${login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
-        errorCount++;
-        rows.push(`| ${login} | - | - | error |`);
+        log(`record ${t.login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
+        byRepo.set(t, { ok: false, reason: `repo HTTP ${repoRes.status}` });
         continue;
       }
       const branch = submissionRef.startsWith("refs/heads/")
@@ -249,17 +285,17 @@ async function main() {
 
       // Frozen on retry: never re-snapshot a student who was already locked
       // down, or a late commit would replace their on-time submission.
-      const priorRec = priorByLogin.get(login);
+      const priorRec = priorByLogin.get(t.login);
       const frozen = !!priorRec?.snapshot_sha;
       let snapshotSha;
       if (frozen) {
         snapshotSha = priorRec.snapshot_sha;
-        log(`lockdown ${login}`, {
+        log(`record ${t.login}`, {
           ok: true,
-          note: `snapshot frozen from attempt #${prior.finalize_attempts ?? 1} (${snapshotSha.slice(0, 12)})`,
+          note: `snapshot frozen from attempt #${prior?.finalize_attempts ?? 1} (${snapshotSha.slice(0, 12)})`,
         });
       } else {
-        const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits/${branch}`);
+        const commitRes = await gh("GET", `/repos/${cfg.org}/${t.repoName}/commits/${branch}`);
         snapshotSha = commitRes.ok ? commitRes.data.sha : null;
       }
 
@@ -268,12 +304,12 @@ async function main() {
       if (snapshotSha && !frozen) {
         const now = new Date().toISOString();
         const safeTs = now.replace(/[:.]/g, "-");
-        for (const m of members) {
+        for (const m of t.members) {
           const observation = {
             schema_version: 1,
             assignment_id: cfg.assignmentId,
             github_login: m,
-            team_slug: rec.team_slug || undefined,
+            team_slug: t.rec.team_slug || undefined,
             repo_id: repoRes.data.id,
             observed_at: now,
             ref: submissionRef,
@@ -287,70 +323,162 @@ async function main() {
         }
       }
 
-      // 4b. Demote student(s) to pull (read-only). Re-run on a retry too: it is
-      // idempotent and re-locks anyone who regained write access since.
-      const lockdownAt = frozen ? priorRec.lockdown_at : new Date().toISOString();
-      let allLocked = true;
-      let permAfter = "read";
-
-      for (const m of members) {
-        const demote = await gh("PUT", `/repos/${cfg.org}/${repoName}/collaborators/${m}`, { permission: "pull" });
-        if (!(demote.status === 204 || demote.status === 201)) {
-          log(`lockdown ${m}`, { ok: false, note: `demote HTTP ${demote.status}` });
-          allLocked = false;
-          continue;
-        }
-
-        // 4c. Verify demotion
-        const verify = await gh("GET", `/repos/${cfg.org}/${repoName}/collaborators/${m}/permission`);
-        const userPerm = verify.ok ? verify.data.permission : `error-${verify.status}`;
-        if (userPerm !== "read") {
-          allLocked = false;
-          permAfter = userPerm;
-        }
-      }
-
-      // 4d. Uncertainty interval
-      let uncertaintySec = null;
-      if (deadlineAt) {
-        const ms = new Date(lockdownAt) - new Date(deadlineAt);
-        uncertaintySec = Math.round(ms / 1000);
-        if (Math.abs(uncertaintySec) > maxUncertainty) maxUncertainty = Math.abs(uncertaintySec);
-      }
-
-      // Record lockdown result per member
-      for (const m of members) {
-        lockdownResults.push({
-          github_login: m,
-          team_slug: rec.team_slug || undefined,
-          repo_name: `${cfg.org}/${repoName}`,
-          repo_id: repoRes.data.id,
-          snapshot_sha: snapshotSha,
-          snapshot_ref: submissionRef,
-          lockdown_at: lockdownAt,
-          permission_after: permAfter,
-          verified: allLocked,
-          uncertainty_seconds: uncertaintySec,
-        });
-      }
-
-      if (allLocked) {
-        lockedCount++;
-        log(`lockdown ${displayKey}`, { ok: true, note: `${branch}@${(snapshotSha || "?").slice(0, 12)} -> pull (${uncertaintySec ?? "?"}s)` });
-        rows.push(`| ${displayKey} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | [OK] locked |`);
-      } else {
-        errorCount++;
-        log(`lockdown ${displayKey}`, { ok: false, note: `permission after=${permAfter}, expected read` });
-        rows.push(`| ${displayKey} | \`${(snapshotSha || "-").slice(0, 12)}\` | ${uncertaintySec ?? "-"}s | perm=${permAfter} |`);
-      }
+      byRepo.set(t, {
+        ok: true,
+        repoId: repoRes.data.id,
+        branch,
+        snapshotSha,
+        frozen,
+        pushedAt: repoRes.data.pushed_at ?? null,
+      });
     } catch (e) {
-      log(`lockdown ${login || rec.team_slug}`, { ok: false, note: e.message });
-      errorCount++;
-      rows.push(`| ${login} | - | - | exception |`);
+      log(`record ${t.login || t.rec.team_slug}`, { ok: false, note: e.message });
+      byRepo.set(t, { ok: false, reason: e.message });
+    }
+  }
+  return byRepo;
+}
+
+// --- Main --------------------------------------------------------------------
+async function main() {
+  const bad = validate();
+  if (bad) await fail("fail:validation", bad);
+
+  // Auth check
+  const ping = await gh("GET", "/rate_limit");
+  if (!ping.ok) await fail("fail:auth", `token rejected (HTTP ${ping.status})`);
+  log("auth", { ok: true, note: "installation token accepted" });
+
+  // Read assignment
+  const assignment = await readAssignment();
+  if (!assignment) await fail("fail:assignment", `no assignment file for "${cfg.assignmentId}"`);
+  const submissionRef = assignment.submission_ref || "refs/heads/main";
+  const deadlineAt = assignment.deadline_at || null;
+  log("assignment", { ok: true, note: `deadline_at=${deadlineAt} submission_ref=${submissionRef}` });
+
+  // Prior lockdown (retry path) - frozen snapshots, keyed by login
+  const prior = await readPriorLockdown();
+  const priorByLogin = new Map(
+    (prior?.results || []).filter((r) => r.github_login).map((r) => [r.github_login, r])
+  );
+  const attempt = (prior?.finalize_attempts ?? 0) + 1;
+  if (prior) {
+    log("prior-lockdown", {
+      ok: true,
+      note: `retry #${attempt} - reusing ${priorByLogin.size} frozen snapshot(s)`,
+    });
+  }
+
+  // Lecturer overrides - who has been granted more time
+  const overrides = await readOverrides();
+  if (overrides.length) {
+    log("overrides", { ok: true, note: `${overrides.length} override document(s)` });
+  }
+
+  // Repo records. Zero students is a valid population - the phases below no-op
+  // and the record is still written, which preserve needs in order to report
+  // "no students to preserve" instead of fail:no-lockdowns.
+  const records = await readRepoRecords();
+  log("repo-records", { ok: true, note: records.length ? `${records.length} student(s)` : "no repository records - nothing to lock down" });
+
+  // --- Phase 0: plan ---------------------------------------------------------
+  const { targets, deferrals } = planTargets(assignment, records, overrides);
+  for (const d of deferrals) {
+    log(`lockdown ${d.displayKey}`, {
+      ok: true,
+      note: `deferred - extension granted to ${d.effective.grantedTo} runs to ${d.effective.deadline.toISOString()}`,
+    });
+  }
+
+  // --- Phase 1: STOP ---------------------------------------------------------
+  // "demotion" is the only method implemented today; it is what the record's
+  // lock_method reports, so a report can say which guarantee applied.
+  const lockMethod = targets.length ? "demotion" : "none";
+  const lock = await applySubmissionLock({ targets, method: lockMethod, priorByLogin });
+
+  // --- Phase 2: RECORD -------------------------------------------------------
+  const recorded = await recordCohortState({ targets, submissionRef, priorByLogin, prior });
+
+  // --- Assemble the record ---------------------------------------------------
+  let lockedCount = 0;
+  let errorCount = 0;
+  let maxUncertainty = 0;
+  const rows = [];
+  const lockdownResults = [];
+
+  for (const d of deferrals) {
+    const deferredUntil = d.effective.deadline.toISOString();
+    rows.push(`| ${d.displayKey} | - | - | deferred to ${deferredUntil} |`);
+    for (const m of d.members) {
+      lockdownResults.push({
+        github_login: m,
+        team_slug: d.rec.team_slug || undefined,
+        repo_name: `${cfg.org}/${d.repoName}`,
+        repo_id: d.rec.repo_id ?? null,
+        snapshot_sha: null,
+        snapshot_ref: submissionRef,
+        lockdown_at: null,
+        deferred_until: deferredUntil,
+        deferred_reason: d.effective.reason,
+        permission_after: null,
+        verified: false,
+        uncertainty_seconds: null,
+      });
     }
   }
 
-  // 5. Write lockdown record
+  for (const t of targets) {
+    const state = recorded.get(t);
+    const stop = lock.byRepo.get(t);
+
+    // A repository that could not be read produces no result row, exactly as
+    // before: preserve iterates the results, and a row it can never preserve
+    // would turn every subsequent night amber for a repo that is simply gone.
+    if (!state?.ok) {
+      errorCount++;
+      rows.push(`| ${t.displayKey} | - | - | error |`);
+      continue;
+    }
+
+    const lockdownAt = stop.lockdownAt;
+    let uncertaintySec = null;
+    if (deadlineAt && lockdownAt) {
+      uncertaintySec = Math.round((new Date(lockdownAt) - new Date(deadlineAt)) / 1000);
+      if (Math.abs(uncertaintySec) > maxUncertainty) maxUncertainty = Math.abs(uncertaintySec);
+    }
+
+    for (const m of t.members) {
+      lockdownResults.push({
+        github_login: m,
+        team_slug: t.rec.team_slug || undefined,
+        repo_name: `${cfg.org}/${t.repoName}`,
+        repo_id: state.repoId,
+        snapshot_sha: state.snapshotSha,
+        snapshot_ref: submissionRef,
+        // GitHub's own server-side timestamp for the last push to any ref.
+        // Unlike a commit date, a student cannot set it.
+        pushed_at: state.pushedAt,
+        lockdown_at: lockdownAt,
+        lock_method: lock.method,
+        permission_after: stop.permissionAfter,
+        verified: stop.locked,
+        uncertainty_seconds: uncertaintySec,
+      });
+    }
+
+    const sha12 = (state.snapshotSha || "-").slice(0, 12);
+    if (stop.locked) {
+      lockedCount++;
+      log(`lockdown ${t.displayKey}`, { ok: true, note: `${state.branch}@${sha12} -> pull (${uncertaintySec ?? "?"}s)` });
+      rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | [OK] locked |`);
+    } else {
+      errorCount++;
+      log(`lockdown ${t.displayKey}`, { ok: false, note: `permission after=${stop.permissionAfter}, expected read` });
+      rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | perm=${stop.permissionAfter} |`);
+    }
+  }
+
+  // Write lockdown record
   const lockdownDir = join(cfg.dataDir, "lockdowns", cfg.assignmentId);
   await mkdir(lockdownDir, { recursive: true });
   const lockdownRecord = {
@@ -364,36 +492,41 @@ async function main() {
     finalize_attempts: attempt,
     first_finalized_at: prior?.first_finalized_at || new Date().toISOString(),
     observer_run: cfg.runUrl,
+    // When phase 1 fired and what it did, so a report can say which guarantee
+    // applied rather than implying one.
+    locked_at: lock.lockedAt,
+    lock_method: lock.method,
     locked_count: lockedCount,
     error_count: errorCount,
     // Students left alone because a granted extension is still running. They
     // carry `deferred_until` in `results`; find-finalizable.mjs re-queues the
     // assignment once that instant passes.
-    deferred_count: deferredCount,
+    deferred_count: deferrals.length,
     max_uncertainty_seconds: maxUncertainty,
     results: lockdownResults,
   };
   await writeFile(join(lockdownDir, "lockdown-record.json"), JSON.stringify(lockdownRecord, null, 2) + "\n");
 
-  // 6. Outputs & summary
+  // Outputs & summary.
   // A deferral is neither a lock nor an error: the student was granted more
   // time and the system honoured it. Counting it as either would paint the
   // nightly amber for doing the right thing.
   const outcome = errorCount === 0 ? "locked" : lockedCount > 0 ? "partial" : "fail:all-errors";
   await setOutput("locked_count", lockedCount);
   await setOutput("error_count", errorCount);
-  await setOutput("deferred_count", deferredCount);
+  await setOutput("deferred_count", deferrals.length);
+  await setOutput("lock_method", lock.method);
   await setOutput("uncertainty_seconds", maxUncertainty);
   await setOutput("outcome", outcome);
   await summary(
-    `### Lockdown: \`${outcome}\`\n\n` +
+    `### Lockdown: \`${outcome}\` (stopped by \`${lock.method}\` at ${lock.lockedAt})\n\n` +
     `| student | SHA | uncertainty | status |\n|---|---|---|---|\n` +
     rows.join("\n") + "\n\n" +
     `**${lockedCount}** locked, **${errorCount}** errors` +
-    (deferredCount ? `, **${deferredCount}** deferred (extension still running)` : "") +
+    (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
     `. Max uncertainty: **${maxUncertainty}s**.\n`
   );
-  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferredCount} deferred, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
+  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 

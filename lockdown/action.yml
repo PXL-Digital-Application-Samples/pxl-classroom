@@ -1,9 +1,11 @@
 name: PXL Classroom Lockdown
 description: >-
-  At the deadline, take a final snapshot of each student repo's submission ref,
-  demote the student to pull (read-only), verify, and record the lockdown.
-  A student with a running deadline extension is skipped entirely and recorded
-  with deferred_until, so the assignment finalizes them once it expires.
+  At the deadline, stop writes to every student repo's submission ref, then
+  record the final snapshot, pushed_at and lockdown time for the whole cohort.
+  Stop first, record after: the snapshot is a consistent cut and nobody at the
+  end of the list gets extra time. A student with a running deadline extension
+  is skipped entirely and recorded with deferred_until, so the assignment
+  finalizes them once it expires.
 
 inputs:
   client-id:
@@ -34,6 +36,9 @@ outputs:
       Number of repos left untouched because a granted deadline extension is
       still running. Neither locked nor failed.
     value: ${{ steps.run.outputs.deferred_count }}
+  lock_method:
+    description: How writes were stopped - demotion | none
+    value: ${{ steps.run.outputs.lock_method }}
   uncertainty_seconds:
     description: Maximum uncertainty interval (lockdown_at - deadline_at) across all repos
     value: ${{ steps.run.outputs.uncertainty_seconds }}

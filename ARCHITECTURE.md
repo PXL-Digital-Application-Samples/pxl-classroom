@@ -695,7 +695,21 @@ When a tagged-submission exists, the deadline report prefers its SHA over the de
 
 ### 11.2 Lock-down
 
-At nightly finalize, the App demotes the student admin -> `pull` and captures a final snapshot - unless a granted extension is still running for them, in which case they are deferred untouched (§6.2.2). The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
+At nightly finalize, the App stops writes to the whole cohort's submission refs and *then* captures the final snapshots - unless a granted extension is still running for a student, in which case they are deferred untouched (§6.2.2).
+
+**Stop first, record after.** `lockdown.mjs` runs four phases over the cohort rather than one loop per student:
+
+| Phase | What | Why it is where it is |
+|---|---|---|
+| 0 — plan | Split the cohort into targets and deferrals | "Excluded from the target list" has to mean the same thing to the stop as to the recording |
+| 1 — stop | `applySubmissionLock({ targets, method })` | The only time-critical step |
+| 2 — record | Repo object, `pushed_at`, `HEAD`, the final observation | Nothing races it any more |
+| 3 — preserve | `preserve/preserve.mjs` | A separate workflow step |
+| 4 — demote | Collaborator -> `pull` | Only when phase 1 did not already do it |
+
+It used to read a student's `HEAD` and then demote them, per student. In a 200-student cohort that froze student 1 at T+0s and student 200 minutes later, because the demotion is a write against an ~80/min secondary limit - so students at the end of the list got extra time, and the snapshot was not a consistent cut. Three properties follow from the inversion: every `HEAD` is read after all writes stopped, phase 2 is safely re-runnable because the repositories cannot move, and freeze-on-retry stops being the thing holding the design together (it stays as belt and braces).
+
+`method` is the one place that knows *how* writes stop. Today it is `"demotion"` - N calls, and it takes Actions, secrets, environments and runners along with push. The record carries `locked_at` (when phase 1 fired), `lock_method`, and `pushed_at` per student - GitHub's own server-side timestamp, read off the repository object phase 2 fetches anyway, and the one field in the record a student cannot set. The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
 
 Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). Reports continue to flag any observed late activity regardless of lock-down.
 

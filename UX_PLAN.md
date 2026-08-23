@@ -343,34 +343,39 @@ it is a policy decision rather than a tuning knob:
 been defaulting to the value that did nothing — so it changes to `'report'` and a
 lecturer opts *in* to discarding work.
 
-#### 3.2.8 What this means for `lockdown.mjs`
+#### 3.2.8 What this means for `lockdown.mjs` — **phase split shipped**
 
-The file is restructured, not patched. Today one loop does snapshot-and-demote per
-student; it becomes:
+The file is restructured, not patched, and the restructure has landed:
 
-* `applySubmissionLock({ org, assignmentId, scope })` — Phase 1, idempotent, one
-  call, callable from the sentinel and from a lecturer-pressed button
-* `recordCohortState(...)` — Phase 2, the existing snapshot logic minus the
-  demotion, now reading `pushed_at` from the repo object it **already fetches**
-  (`lockdown.mjs:158`) at no extra cost
-* the demotion becomes Phase 4 behind a per-assignment switch
+* `planTargets(...)` — Phase 0, splits the cohort into targets and deferrals so
+  "excluded from the target list" means the same thing to the stop as to the
+  recording
+* `applySubmissionLock({ targets, method, priorByLogin })` — Phase 1, idempotent,
+  the only thing that knows *how* writes stop. `method` is `"demotion"` today;
+  step 3 adds `"ruleset"` beside it and nothing else in the file changes
+* `recordCohortState(...)` — Phase 2, the snapshot logic minus the demotion,
+  reading `pushed_at` off the repo object it already fetches
+* the demotion becomes Phase 4 once Phase 1 stops it another way
 
-The lockdown record gains `locked_at` (when Phase 1 actually fired), `pushed_at`
-per student, and `lock_method` (`ruleset` | `demotion` | `none`), so the report
-can say which guarantee applied.
+The lockdown record carries `locked_at`, `lock_method` and per-student
+`pushed_at`. What is still open is the `scope` argument: Phase 1 takes a target
+list, not an org/assignment pair, so the sentinel and a lecturer-pressed button
+cannot call it yet without a control-repo checkout. That is step 3's problem.
 
 **Tests:**
 
-* `tests/effective-deadline.test.mjs` (new) — the extracted function against
-  assignment-only, per-student override, group-latest-member, and malformed
-  override records. **Ships first, on its own.**
-* `tests/lockdown-phases.test.mjs` (new) — Phase 1 precedes any read; a failed
-  Phase 2 is safely re-runnable; the lock is one call regardless of cohort size;
-  an extended student is excluded from the target list.
+* ~~`tests/effective-deadline.test.mjs`~~ — **shipped** (19 tests).
+* ~~`tests/lockdown-phases.test.mjs`~~ — **shipped**: every stop precedes any
+  read, and any repository fetch; `locked_at`/`lock_method`/`pushed_at`; a failed
+  Phase 2 leaves the cohort stopped and re-runs clean; an empty cohort stops
+  nothing. *"The lock is one call regardless of cohort size"* is not assertable
+  until rulesets — demotion is N calls by construction — so it belongs to step 3.
+* ~~an extended student is excluded from the target list~~ — **shipped** in
+  `tests/lockdown-extension.test.mjs` (no API call is spent on them at all).
 * `tests/lockdown-late-policy.test.mjs` (new) — the `until` fallback picks the
   pre-deadline commit; an only-late repo yields no submission; an extension moves
   the window; freeze-on-retry still wins.
-* `tests/lockdown-retry.test.mjs` — unchanged, must stay green.
+* `tests/lockdown-retry.test.mjs` — unchanged, still green.
 * `tests/e2e/32-deadline-lock.spec.mjs` (new) — the lecturer-facing half: the
   control's wording, the "lock now" action, and the report showing `lock_method`.
 
@@ -378,7 +383,7 @@ can say which guarantee applied.
 
 1. ~~`lib/effective-deadline.mjs` + the three consumers.~~ **Shipped** — see
    §3.2.5.
-2. `lockdown.mjs` phase split, still demoting. No behaviour change, all tests green.
+2. ~~`lockdown.mjs` phase split, still demoting.~~ **Shipped** — see §3.2.8.
 3. Repository rulesets behind `late_policy: block`, demotion as the fallback.
 4. The sentinel, arming from the existing cron at 4-hourly.
 5. Organization rulesets, once the App permission is approved.
