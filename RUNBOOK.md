@@ -101,7 +101,9 @@ gh api --method POST repos/PXL-Digital-Application-Samples/pxl-classroom/environ
 
 Do **not** add required reviewers or a wait timer: acceptance runs synchronously and would stall behind an approval.
 
-**Second layer, when convenient.** The three secrets currently live as repository secrets, which the jobs can still read. Moving them into the `provisioning` environment means a job that does not name the environment cannot read them at all. GitHub never discloses a stored secret, so this needs the values re-entered by hand - the App private key from your own copy, and the invitation key regenerated per §1.3.1 (which retires links already handed out, so republish afterwards).
+**Where each secret lives.** `PXL_APP_PRIVATE_KEY` and `PXL_INVITE_SIGNING_KEY` are **environment** secrets on `provisioning`, with no repository-level copy - a job that does not name the environment cannot read them. `PXL_APP_CLIENT_ID` remains a repository secret on purpose: a client id is not secret and already ships in the SPA bundle.
+
+If you ever re-add one at repository level, note that it silently shadows nothing - environment secrets win for jobs that name the environment - but it does hand the value to any job that does not. `tests/workflow-hardening.test.mjs` fails CI if such a job appears.
 
 **Blocking ad-hoc branch creation.** Not yet applied. A ruleset stops anyone but an admin creating branches on the hub, which removes the other half of the branch-ref path. `participating-orgs` is excluded because `setup-org.yml` creates it on a fresh hub:
 
