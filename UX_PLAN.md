@@ -175,6 +175,58 @@ taking `[0].sha`, and `null` when the list is empty. Everything downstream —
 freezing on retry, preservation, reporting — is unchanged, because it all keys off
 `snapshot_sha`.
 
+#### 3.2.2 It needs the *effective* deadline — which nothing outside the report has
+
+`until` has to be the deadline **for that student**, not the assignment's, or
+`block` discards exactly the work a deadline extension was granted to allow.
+
+That calculation already exists, once, in `report/report.mjs:155` — assignment
+deadline, overridden per student from `overrides/<id>/<login>.json`, and for a
+group taking the **latest** override among the team's members. Nothing else uses
+it. `lockdown.mjs` never reads `overrides/` at all, and neither does
+`find-finalizable.mjs`.
+
+**Which means deadline extensions do not currently work.** Grant a student seven
+extra days and:
+
+* `find-finalizable.mjs` queues the assignment the night its own deadline passes,
+  because it compares against `assignment.deadline_at`;
+* `lockdown.mjs` demotes **every** student to `pull`, including the extended one,
+  because it has no per-student notion of a deadline;
+* `report.mjs` then faithfully reports that student's extension as active and
+  their work as on-time — work they were locked out of doing.
+
+So the report is willing to count work the system prevented. This is not caused
+by `block`; `block` just makes it impossible to ignore, because it puts the same
+`effectiveDeadline` on the critical path.
+
+**The fix is one shared module.** `lib/effective-deadline.mjs` exports
+`effectiveDeadlineFor(assignment, login, { overrides, team })`, extracted verbatim
+from `report.mjs` so behaviour cannot fork, and consumed by:
+
+| Consumer | Uses it to decide |
+|---|---|
+| `report.mjs` | on-time vs late (existing behaviour, now imported) |
+| `lockdown.mjs` | the `until` window **and** whether to demote this student yet |
+| `find-finalizable.mjs` | whether the assignment is finalizable, i.e. every student's effective deadline has passed |
+
+A student whose extension is still running is skipped by lockdown and keeps write
+access; the assignment re-queues on a later night and finalizes them then. The
+`finalize_attempts` ceiling must not count those nights as attempts.
+
+#### 3.2.3 "No submission" is an outcome, not an error
+
+Under `block`, a student who only pushed after the deadline has **no**
+`snapshot_sha`. `preserve.mjs:225` treats that as `errorCount++`, which makes the
+run's outcome `partial` — so one slacker turns the nightly amber for the whole
+cohort. That is the same "an empty population is not a failure" principle CLAUDE.md
+already applies to zero *records*, at the wrong granularity: it needs to apply to
+zero *submissions* too.
+
+`preserve` gains a third bucket — preserved / **no submission** / failed — and only
+the last one counts toward `errorCount`. The report already distinguishes them; the
+workflow outcome does not.
+
 **Two caveats that must be written into the UI, not just the code:**
 
 1. **`until` filters on committer date, which a student can forge.** This is the
@@ -606,17 +658,28 @@ Each workstream is one commit, with its tests, per the repo's convention.
    tamper-proof, and the report should surface the discrepancy where it has both
    facts. Worth deciding whether that becomes a flag in the report before `block`
    ships.
-2. **Deadline extensions and `block` (WS1).** The `until` window must come from the
-   student's effective deadline. This is the one way the change could silently void
-   every extension already granted, and it needs a test before anything else.
-3. **`AdminView.vue` is 2,900 lines and this plan touches most of it.** WS2, WS4
+2. **Deadline extensions are already broken (WS1, §3.2.2).** `lockdown.mjs` and
+   `find-finalizable.mjs` never read `overrides/`, so an extended student is
+   demoted to `pull` at the assignment's own deadline while `report.mjs` reports
+   their extension as active. Found while planning `block`, but it is a live bug
+   independent of it and should probably ship on its own, ahead of everything
+   here. The shared `effectiveDeadlineFor` is the fix for both.
+3. **`until` filters on a date GitHub does not document (WS1).** The REST docs say
+   only *"Only commits before this date will be returned"* — they do not state
+   whether that is the author date or the committer date. `git log --until` uses
+   the committer date and GitHub's listing behaves the same way, but this needs
+   confirming against a real repository before shipping, because a rebased or
+   cherry-picked commit carries two different dates and the choice decides which
+   commit is picked. Both are client-supplied, so it changes nothing about
+   forgeability.
+4. **`AdminView.vue` is 2,900 lines and this plan touches most of it.** WS2, WS4
    and WS5 should each extract as they go — `InvitationShare.vue`, `AutogradeModal.vue`,
    and a `PublishedCohortPanel.vue` — rather than growing the file further. Extracted
    classes used by more than one component go to `style.css` (DESIGN.md §7).
-4. **The undeclared-class backlog** (`tests/fixtures/undeclared-classes.backlog.json`,
+5. **The undeclared-class backlog** (`tests/fixtures/undeclared-classes.backlog.json`,
    98 entries) overlaps several of the components being touched. Any class a
    rewritten component stops using must leave that file, or the guard fails.
-5. **Nothing here has been tried against a live org.** The template-empty state, the
+6. **Nothing here has been tried against a live org.** The template-empty state, the
    roster count and the cohort numbers all assume responses I have only seen from
    fixtures.
 
