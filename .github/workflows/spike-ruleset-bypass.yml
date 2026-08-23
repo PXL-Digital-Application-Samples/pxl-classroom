@@ -1,0 +1,89 @@
+name: Spike - ruleset bypass for the Provisioner App
+
+# TEMPORARY. UX_PLAN §10 risk 2: a repository ruleset with the App in
+# bypass_actors must still let the App push, or the whole stop-first ordering in
+# §3.2.1 unpicks (Phase 3 would have to precede Phase 1). Nothing else can
+# answer it - only the hub holds the App private key.
+#
+# Delete this file once the answer is recorded.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  spike:
+    # The App key is an environment secret; provisioning allows main only.
+    environment: provisioning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Reject automated dispatch
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        run: |
+          echo "::error::This workflow is dispatched by a person, not a credential."
+          exit 1
+
+      - name: Mint App installation token for the spike org
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: PXL-Systems-Expert
+
+      - name: Read the ruleset back as the App
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          echo "### Ruleset on the spike repo" >> "$GITHUB_STEP_SUMMARY"
+          gh api repos/PXL-Systems-Expert/pxl-ruleset-spike/rulesets \
+            --jq '.[] | "\(.name) enforcement=\(.enforcement)"' | tee -a "$GITHUB_STEP_SUMMARY"
+          gh api repos/PXL-Systems-Expert/pxl-ruleset-spike/rulesets/21246402 \
+            --jq '{enforcement, current_user_can_bypass, bypass_actors}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Push to the locked ref as the App
+        id: push
+        env:
+          # Never in the command line: it lands in .git/config and in every
+          # error message git prints. Same shape as preserve/preserve.mjs.
+          APP_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          BASIC=$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $BASIC"
+
+          git clone --quiet https://github.com/PXL-Systems-Expert/pxl-ruleset-spike.git work
+          cd work
+          git config user.email "provisioner@pxl-classroom.invalid"
+          git config user.name "PXL Classroom Provisioner"
+          git commit --quiet --allow-empty -m "spike: App push against an active ruleset"
+
+          if git push origin main 2>push.log; then
+            echo "result=bypassed" >> "$GITHUB_OUTPUT"
+            echo "APP PUSH SUCCEEDED - bypass_actors works for actor_type Integration" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "result=blocked" >> "$GITHUB_OUTPUT"
+            echo "APP PUSH BLOCKED:" >> "$GITHUB_STEP_SUMMARY"
+            sed 's/^/    /' push.log >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cat push.log || true
+
+      - name: Flip enforcement as the App
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Phase 1 of §3.2.1 is exactly this call, in the other direction: the
+          # sentinel has to flip enforcement with an App token at the deadline.
+          gh api -X PUT repos/PXL-Systems-Expert/pxl-ruleset-spike/rulesets/21246402 \
+            -f enforcement=disabled --jq '"flip to disabled: \(.enforcement)"' \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          gh api -X PUT repos/PXL-Systems-Expert/pxl-ruleset-spike/rulesets/21246402 \
+            -f enforcement=active --jq '"flip back to active: \(.enforcement)"' \
+            | tee -a "$GITHUB_STEP_SUMMARY"
