@@ -261,7 +261,9 @@ Students should not have to re-form the same teams for every group assignment. S
 5. Warnings do not block. Expect them for students who left the roster, teams below the minimum size, and teams students have already formed in the new assignment (those are kept untouched - seeding never overwrites real membership).
 6. Applying writes every team in one commit and dispatches `regenerate-dashboard.yml`, which is what makes the teams visible to students. Nothing is published while the assignment is still a draft, so seed, review in the Teams tab, adjust, and publish.
 
-Afterwards the Teams tab shows a "carried over from …" line, and members with no acceptance yet are dimmed with a per-team "N not accepted yet" count. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
+Afterwards the Teams tab shows a "carried over from …" line, a standing "N students on the roster have no team" line naming who is left to place by hand, and - once the assignment is published - dimmed members with a per-team "N not accepted yet" count.
+
+**Seeded the wrong source?** The Teams tab's **Undo seed (N)** button (or `pxl-classroom teams unseed --assignment <id>`) deletes the carried-over teams in one commit. It only ever removes teams that came from a seed, have no repository, and have no member who has accepted; anything a student has already joined is kept and reported in the confirmation. On a draft that is all of them, which is why reviewing before publishing is the cheap moment to change your mind. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
 
 Headless equivalent:
 

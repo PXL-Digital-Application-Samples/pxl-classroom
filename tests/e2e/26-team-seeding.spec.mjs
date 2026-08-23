@@ -615,4 +615,269 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await expect(page.locator('.preassigned-flow')).toContainText('Exam Pair 1', { timeout: 15000 });
     await expect(page.locator('button', { hasText: 'Choose a different group' })).toHaveCount(0);
   });
+
+  // ------------------------------------------------------------ undo a seed --
+  //
+  // A bulk write needs a bulk undo: deleting 33 teams one at a time is ~100
+  // clicks, and deleteVacantTeam refuses any team that still has members.
+
+  /** Open the Teams tab, answering the next window.confirm. */
+  async function openTeamsTab(page, assignmentId, { acceptConfirm = true } = {}) {
+    page.on('dialog', (d) => (acceptConfirm ? d.accept() : d.dismiss()));
+    await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.waitForTimeout(300);
+  }
+
+  const SEEDED = { source: 'assignment', assignment_id: PREV, assignment_title: 'Linux Processes', seeded_at: '2026-09-01T10:00:00Z' };
+
+  function seededReportTeam(slug, name, members, extra = {}) {
+    return {
+      team_slug: slug,
+      team_name: name,
+      members,
+      submission_status: 'no-submission',
+      seeded_from: SEEDED,
+      ...extra,
+    };
+  }
+
+  test('Undo removes every carried-over team of a draft in one commit', async ({ page }) => {
+    const gitCommits = [];
+    const workflowDispatches = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      gitCommits,
+      workflowDispatches,
+      assignments: { [NEXT]: groupAssignment(NEXT, { state: 'draft' }) },
+      controlTeams: {
+        [NEXT]: [
+          controlTeam(NEXT, 'alpha', 'Alpha Team', [STUDENT_1.login], { seeded_from: SEEDED }),
+          controlTeam(NEXT, 'beta', 'Beta Team', ['carol'], { seeded_from: SEEDED }),
+        ],
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    const undo = page.locator('button', { hasText: /Undo seed/ });
+    await expect(undo).toContainText('Undo seed (2)');
+    await undo.click();
+    await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
+
+    // A multi-file DELETE: one commit, null content per path.
+    expect(gitCommits[0].files.map((f) => f.path).sort()).toEqual([
+      `teams/${NEXT}/alpha.json`,
+      `teams/${NEXT}/beta.json`,
+    ]);
+    expect(gitCommits[0].files.every((f) => f.content === null)).toBe(true);
+    expect(workflowDispatches.some((d) => d.workflow === 'regenerate-dashboard.yml')).toBe(true);
+  });
+
+  test('Undo keeps a carried-over team a student has already accepted into', async ({ page }) => {
+    const gitCommits = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      gitCommits,
+      assignments: { [NEXT]: groupAssignment(NEXT) },
+      reports: {
+        [NEXT]: emptyReport(NEXT, {
+          students: [
+            { github_login: STUDENT_1.login, acceptance_state: 'accepted', team_slug: 'alpha' },
+            { github_login: 'carol', acceptance_state: 'not-accepted', team_slug: 'beta' },
+          ],
+          teams: [
+            seededReportTeam('alpha', 'Alpha Team', [STUDENT_1.login]),
+            seededReportTeam('beta', 'Beta Team', ['carol']),
+          ],
+        }),
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    await expect(page.locator('button', { hasText: /Undo seed/ })).toContainText('Undo seed (1)');
+    await page.locator('button', { hasText: /Undo seed/ }).click();
+    await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
+    expect(gitCommits[0].files.map((f) => f.path)).toEqual([`teams/${NEXT}/beta.json`]);
+  });
+
+  test('Undo never touches a team that already has a repository', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT) },
+      reports: {
+        [NEXT]: emptyReport(NEXT, {
+          students: [{ github_login: 'zoe', acceptance_state: 'not-accepted' }],
+          teams: [
+            seededReportTeam('alpha', 'Alpha Team', [STUDENT_1.login], {
+              repo_url: `https://github.com/${ORG}/${NEXT}-alpha`,
+              repo_name: `${ORG}/${NEXT}-alpha`,
+            }),
+          ],
+        }),
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    await expect(page.locator('button', { hasText: /Undo seed/ })).toHaveCount(0);
+  });
+
+  test('Undo is absent when the teams were formed by students', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT) },
+      reports: {
+        [NEXT]: emptyReport(NEXT, {
+          teams: [{ team_slug: 'self', team_name: 'Self Made', members: ['carol'], submission_status: 'no-submission' }],
+        }),
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    await expect(page.locator('button', { hasText: /Undo seed/ })).toHaveCount(0);
+    await expect(page.locator('.seeded-note', { hasText: 'carried over' })).toHaveCount(0);
+  });
+
+  test('Dismissing the undo confirmation writes nothing', async ({ page }) => {
+    const gitCommits = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      gitCommits,
+      assignments: { [NEXT]: groupAssignment(NEXT, { state: 'draft' }) },
+      controlTeams: {
+        [NEXT]: [controlTeam(NEXT, 'alpha', 'Alpha Team', [STUDENT_1.login], { seeded_from: SEEDED })],
+      },
+    });
+
+    await openTeamsTab(page, NEXT, { acceptConfirm: false });
+    await page.locator('button', { hasText: /Undo seed/ }).click();
+    await page.waitForTimeout(600);
+    expect(gitCommits).toHaveLength(0);
+    await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
+  });
+
+  // -------------------------------------------------- unplaced students -----
+
+  test('The Teams tab names roster students who have no team', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT) },
+      roster: [
+        { student_number: '1', full_name: 'One', github_login: STUDENT_1.login },
+        { student_number: '2', full_name: 'Two', github_login: STUDENT_2.login },
+        { student_number: '3', full_name: 'Three', github_login: 'carol' },
+      ],
+      reports: {
+        [NEXT]: emptyReport(NEXT, {
+          teams: [{ team_slug: 'alpha', team_name: 'Alpha Team', members: [STUDENT_1.login], submission_status: 'no-submission' }],
+        }),
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    const note = page.locator('.seeded-note', { hasText: 'no team' });
+    await expect(note).toContainText('2 students on the roster have no team');
+    await expect(note).toContainText(`@${STUDENT_2.login}`);
+    await expect(note).toContainText('@carol');
+  });
+
+  test('No unplaced line once every roster student has a team', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT) },
+      roster: [{ student_number: '1', full_name: 'One', github_login: STUDENT_1.login }],
+      reports: {
+        [NEXT]: emptyReport(NEXT, {
+          teams: [{ team_slug: 'alpha', team_name: 'Alpha Team', members: [STUDENT_1.login], submission_status: 'no-submission' }],
+        }),
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    await expect(page.locator('.seeded-note', { hasText: 'no team' })).toHaveCount(0);
+  });
+
+  test('A long unplaced list is truncated rather than flooding the tab', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT) },
+      roster: Array.from({ length: 20 }, (_, i) => ({
+        student_number: String(i), full_name: `S${i}`, github_login: `student${i}`,
+      })),
+      reports: { [NEXT]: emptyReport(NEXT, { teams: [] }) },
+    });
+
+    await openTeamsTab(page, NEXT);
+    const note = page.locator('.seeded-note', { hasText: 'no team' });
+    await expect(note).toContainText('20 students on the roster have no team');
+    await expect(note).toContainText('and 12 more');
+  });
+
+  test('The seed plan counts and names the students it will not place', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      roster: [
+        { student_number: '1', full_name: 'One', github_login: STUDENT_1.login },
+        { student_number: '2', full_name: 'Two', github_login: STUDENT_2.login },
+        { student_number: '3', full_name: 'Latecomer', github_login: 'late-joiner' },
+      ],
+      controlTeams: {
+        [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login, STUDENT_2.login])],
+      },
+    });
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+
+    await expect(page.locator('.seed-summary')).toContainText('still without a team', { timeout: 10000 });
+    await expect(page.locator('.seed-banner-warn')).toContainText('will still have no team');
+    await expect(page.locator('.seed-banner-warn')).toContainText('@late-joiner');
+    // Not a blocker - the seed is still worth applying.
+    await expect(page.locator('.modal-foot .btn-primary')).toBeEnabled();
+  });
+
+  test('A kept team names the students it strands', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: {
+        [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login, STUDENT_2.login])],
+        [NEXT]: [controlTeam(NEXT, 'alpha', 'Alpha (student-formed)', ['zoe'])],
+      },
+    });
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-banner-warn')).toContainText('were therefore not placed', { timeout: 10000 });
+    await expect(page.locator('.seed-banner-warn')).toContainText(`@${STUDENT_1.login}`);
+  });
+
+  test('A draft does not mark every member as "not accepted yet"', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT, { state: 'draft' }) },
+      controlTeams: {
+        [NEXT]: [controlTeam(NEXT, 'alpha', 'Alpha Team', [STUDENT_1.login, STUDENT_2.login])],
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
+    await expect(page.locator('.member-pending')).toHaveCount(0);
+    await expect(page.locator('.member-pending-note')).toHaveCount(0);
+    await expect(page.locator('.seeded-note', { hasText: 'cannot see these teams' })).toBeVisible();
+  });
 });

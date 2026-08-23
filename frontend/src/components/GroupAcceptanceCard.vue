@@ -270,7 +270,8 @@
             </div>
             <div class="team-action-btn">
               <button
-                class="btn btn-primary btn-sm"
+                class="btn btn-sm"
+                :class="isMyTeam(team) ? 'btn-primary' : 'btn-secondary'"
                 :disabled="(team.is_full && !isMyTeam(team)) || accepting"
                 @click="confirmJoinTeam(team)"
               >
@@ -306,7 +307,7 @@
 
           <button 
             type="submit" 
-            class="btn btn-success btn-lg" 
+            class="btn btn-primary btn-lg"
             :disabled="!computedSlug || slugConflict || accepting"
           >
             <span v-if="accepting">Creating…</span>

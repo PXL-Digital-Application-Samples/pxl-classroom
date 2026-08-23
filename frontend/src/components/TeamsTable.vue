@@ -56,9 +56,21 @@
           <Icon name="users" :size="14" />
           <span>Seed teams</span>
         </button>
-        <button class="btn btn-sm btn-primary btn-with-icon" @click="openCreateTeamModal">
+        <button class="btn btn-sm btn-secondary btn-with-icon" @click="openCreateTeamModal">
           <Icon name="plus" :size="14" />
           <span>Create Team</span>
+        </button>
+
+        <button
+          v-if="removableSeededTeams.length"
+          class="btn btn-sm btn-danger-outline btn-with-icon"
+          type="button"
+          :disabled="saving"
+          @click="removeSeededTeams"
+          title="Delete the carried-over teams nobody has accepted into yet"
+        >
+          <Icon name="x-circle" :size="14" />
+          <span>Undo seed ({{ removableSeededTeams.length }})</span>
         </button>
 
         <div class="toolbar-stats text-secondary text-sm">
@@ -71,6 +83,14 @@
     <p v-if="seededSummary" class="seeded-note">
       <Icon name="users" :size="13" />
       <span>{{ seededSummary }}</span>
+    </p>
+    <p v-if="unassignedStudents.length" class="seeded-note">
+      <Icon name="alert-circle" :size="13" />
+      <span>
+        {{ unassignedStudents.length }} student{{ unassignedStudents.length === 1 ? '' : 's' }} on the
+        roster {{ unassignedStudents.length === 1 ? 'has' : 'have' }} no team:
+        {{ unassignedPreview }}
+      </span>
     </p>
     <p v-if="assignment?.state === 'draft' && teams.length" class="seeded-note">
       <Icon name="eye-off" :size="13" />
@@ -137,7 +157,7 @@
                     v-for="m in team.members"
                     :key="m"
                     class="member-pill"
-                    :class="{ 'member-pending': !hasAccepted(m) }"
+                    :class="{ 'member-pending': isPending(m) }"
                     :title="memberTitle(m)"
                   >
                     @{{ m }}
@@ -363,7 +383,7 @@
                 </option>
               </select>
               <button
-                class="btn btn-sm btn-primary"
+                class="btn btn-sm btn-secondary"
                 type="button"
                 :disabled="!selectedStudentToAdd"
                 @click="addMemberToTeam(selectedStudentToAdd)"
@@ -385,7 +405,7 @@
             </button>
             <div class="flex gap-sm" style="margin-left: auto;">
               <button class="btn btn-secondary" type="button" @click="managingTeam = null">Close</button>
-              <button class="btn btn-success" type="button" :disabled="saving" @click="saveTeamMembers">
+              <button class="btn btn-primary" type="button" :disabled="saving" @click="saveTeamMembers">
                 {{ saving ? 'Saving…' : 'Save Changes' }}
               </button>
             </div>
@@ -474,9 +494,10 @@ import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
-import { commitFile, deleteFile, addCollaborator, removeCollaborator, triggerWorkflow } from '../lib/api.js'
+import { commitFile, commitFiles, deleteFile, addCollaborator, removeCollaborator, triggerWorkflow } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
+import { planUnseed } from '../../../lib/seed-teams.mjs'
 
 const props = defineProps({
   teams: { type: Array, required: true },
@@ -537,19 +558,51 @@ const acceptedLogins = computed(() => {
 })
 
 function hasAccepted(login) {
+  // Acceptance requires a published assignment, so on a draft nobody has -
+  // which is what makes every seeded team on a draft safely removable.
+  if (props.assignment?.state === 'draft') return false
+  // No student data at all (an older report) is not evidence of non-acceptance.
   if (!(props.students || []).length) return true
   return acceptedLogins.value.has(String(login).toLowerCase())
 }
 
+// Worth flagging in the table? On a draft the banner already says students
+// cannot see these teams, so marking every member "not accepted yet" on top of
+// that is noise about a state that is simply not reachable yet.
+function isPending(login) {
+  if (props.assignment?.state === 'draft') return false
+  if (!(props.students || []).length) return false
+  return !hasAccepted(login)
+}
+
 function memberTitle(login) {
   const base = resolveMemberTooltip(login)
-  return hasAccepted(login) ? base : `${base} - has not accepted yet, so has no repository access`
+  return isPending(login) ? `${base} - has not accepted yet, so has no repository access` : base
 }
 
 function pendingCount(team) {
-  if (!(props.students || []).length) return 0
-  return (team.members || []).filter((m) => !hasAccepted(m)).length
+  return (team.members || []).filter((m) => isPending(m)).length
 }
+
+const unassignedPreview = computed(() => {
+  const logins = unassignedStudents.value.map((s) => `@${s.github_login}`)
+  const shown = logins.slice(0, 8)
+  const rest = logins.length - shown.length
+  return rest > 0 ? `${shown.join(', ')} and ${rest} more` : shown.join(', ')
+})
+
+// A bulk write needs a bulk undo. The rule for what may be removed lives in
+// lib/seed-teams.mjs so the CLI cannot drift from it.
+const unseedPlan = computed(() =>
+  planUnseed({
+    teams: props.teams,
+    assignmentId: props.assignment?.id,
+    acceptedLogins: props.assignment?.state === 'draft' ? [] : [...acceptedLogins.value],
+  })
+)
+
+const removableSeededTeams = computed(() => unseedPlan.value.removable)
+const keptSeededTeams = computed(() => unseedPlan.value.kept)
 
 const seededSummary = computed(() => {
   const seeded = props.teams.filter((t) => t.seeded_from)
@@ -686,6 +739,45 @@ async function republishTeams(token) {
     toast.error(
       `Team saved, but publishing it to students failed: ${e.message}. Use Regenerate dashboard from the assignment page.`
     )
+  }
+}
+
+async function removeSeededTeams() {
+  const removable = removableSeededTeams.value
+  if (removable.length === 0) return
+
+  const kept = keptSeededTeams.value
+  const message =
+    `Remove ${removable.length} carried-over team(s) from ${props.assignment.id}?\n\n` +
+    removable.map((t) => `- ${t.team_name} (${(t.members || []).length} member(s))`).join('\n') +
+    (kept.length
+      ? `\n\n${kept.length} carried-over team(s) will be kept: a member has already accepted into them.`
+      : '') +
+    `\n\nThis deletes the team files from the control repository. No student repository is touched.`
+
+  if (!window.confirm(message)) return
+
+  saving.value = true
+  try {
+    const token = getToken()
+    const res = await commitFiles(
+      token,
+      props.org,
+      config.controlRepo,
+      unseedPlan.value.changes,
+      `Remove ${removable.length} seeded team(s) from ${props.assignment.id}`
+    )
+    if (!res.ok) {
+      toast.error(`Could not remove the teams: ${res.error}`)
+      return
+    }
+    await republishTeams(token)
+    toast.success(`Removed ${removable.length} carried-over team(s).`)
+    emit('refresh')
+  } catch (e) {
+    toast.error(`Error removing teams: ${e.message}`)
+  } finally {
+    saving.value = false
   }
 }
 

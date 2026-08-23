@@ -76,6 +76,10 @@
                 <span class="seed-stat-value">{{ plan.stats.skipped }}</span>
                 <span class="seed-stat-label">skipped</span>
               </div>
+              <div v-if="plan.stats.unplaced" class="seed-stat">
+                <span class="seed-stat-value">{{ plan.stats.unplaced }}</span>
+                <span class="seed-stat-label">still without a team</span>
+              </div>
               <span class="status-indicator seed-summary-note">
                 <span class="status-dot" :class="plan.warnings.length ? 'dot-warning' : 'dot-success'"></span>
                 <span>{{ plan.warnings.length ? 'Ready, with notes' : 'Ready to seed' }}</span>

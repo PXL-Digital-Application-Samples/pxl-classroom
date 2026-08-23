@@ -18,8 +18,9 @@ import {
   listTeams,
   getRoster,
   listAssignments,
+  listAcceptedLogins,
 } from "../lib/control-repo.mjs";
-import { planSeed, teamsFromRoster, seedCommitMessage } from "../../../lib/seed-teams.mjs";
+import { planSeed, planUnseed, teamsFromRoster, seedCommitMessage } from "../../../lib/seed-teams.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const HUB_OWNER_DEFAULT = "PXL-Digital-Application-Samples";
@@ -192,6 +193,85 @@ export function registerTeamsCommand(program, context = {}) {
           `\nTeams were committed, but regenerate-dashboard.yml could not be dispatched (${e.message}). ` +
             `Run it from the hub's Actions tab, or the teams stay invisible to students.\n`
         );
+        process.exitCode = 1;
+      }
+    });
+
+  teams
+    .command("unseed")
+    .description("Remove carried-over teams nobody has accepted into yet.")
+    .requiredOption("--assignment <assignment-id>", "Assignment to clean up")
+    .option("--org <login>", "Organization (defaults to the configured org)")
+    .option("--dry-run", "Print what would be removed and exit")
+    .option("--yes", "Remove without prompting")
+    .option("--hub-owner <login>", `Hub repo owner (default ${HUB_OWNER_DEFAULT})`, HUB_OWNER_DEFAULT)
+    .option("--hub-repo <name>", `Hub repo name (default ${HUB_REPO_DEFAULT})`, HUB_REPO_DEFAULT)
+    .option("--no-publish", "Skip the dashboard regeneration")
+    .action(async (opts) => {
+      const org = resolveOrg(opts.org);
+      const octokit = makeOctokit();
+      const assignmentId = opts.assignment;
+
+      const [teamList, acceptedLogins] = await Promise.all([
+        listTeams(octokit, { org, assignmentId }),
+        listAcceptedLogins(octokit, { org, assignmentId }),
+      ]);
+
+      const plan = planUnseed({ teams: teamList, acceptedLogins, assignmentId });
+
+      if (plan.removable.length === 0) {
+        out(
+          `\nNothing to undo in ${assignmentId}: no carried-over team is free of acceptances.\n` +
+            (plan.kept.length ? `${plan.kept.length} seeded team(s) are in use and were left alone.\n` : "")
+        );
+        return;
+      }
+
+      out(`\nRemoving ${plan.removable.length} carried-over team(s) from ${assignmentId}\n\n`);
+      for (const t of plan.removable) {
+        out(`    ${t.team_slug.padEnd(24)} ${(t.members || []).map((m) => `@${m}`).join(", ")}\n`);
+      }
+      if (plan.kept.length) {
+        out(`\n  Kept (a member has accepted, or a repository exists):\n`);
+        for (const t of plan.kept) out(`    ${t.team_slug}\n`);
+      }
+
+      if (opts.dryRun) {
+        out(`\nDry run - nothing was written.\n`);
+        return;
+      }
+
+      if (!opts.yes) {
+        if (!process.stdin.isTTY) {
+          process.stderr.write(`\nNo TTY to confirm on. Re-run with --yes, or --dry-run to review.\n`);
+          process.exitCode = 1;
+          return;
+        }
+        if (!(await confirm(`\nDelete these ${plan.removable.length} team file(s)? [y/N] `))) {
+          out(`Aborted.\n`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      const result = await commitWithRebase(octokit, {
+        owner: org,
+        repo: CONTROL_REPO,
+        branch: "main",
+        message: `Remove ${plan.removable.length} seeded team(s) from ${assignmentId}`,
+        changes: plan.changes,
+      });
+      out(`\nCommitted ${result.commitSha} (${plan.changes.length} file(s) removed).\n`);
+
+      if (opts.publish === false) return;
+      try {
+        await octokit.request(
+          "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+          { owner: opts.hubOwner, repo: opts.hubRepo, workflow_id: "regenerate-dashboard.yml", ref: "main", inputs: { org } }
+        );
+        out(`Dispatched regenerate-dashboard.yml.\n`);
+      } catch (e) {
+        process.stderr.write(`\nTeams removed, but regenerate-dashboard.yml could not be dispatched (${e.message}).\n`);
         process.exitCode = 1;
       }
     });

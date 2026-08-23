@@ -284,3 +284,93 @@ test("commitWithRebase: rejects empty changes", async () => {
     /non-empty array/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Secondary rate limits. GitHub allows 80 content-generating requests a minute;
+// a seed that writes a hundred team manifests uploads a hundred blobs in a
+// burst. The response is 403 or 429 and does NOT necessarily zero
+// x-ratelimit-remaining, which is what the retry used to key on.
+// ---------------------------------------------------------------------------
+
+test("commitWithRebase: 403 secondary rate limit with retry-after is retried", async () => {
+  const { fetchImpl, calls } = makeMockFetch({
+    "GET /repos/{owner}/{repo}/git/ref/{ref}": refRes("parent-sha"),
+    "GET /repos/{owner}/{repo}/git/commits/{commit_sha}": commitRes("parent-sha", "parent-tree-sha"),
+    "POST /repos/{owner}/{repo}/git/blobs": [
+      {
+        status: 403,
+        // Note: remaining is NOT "0" - this is the shape that used to throw.
+        headers: { "retry-after": "1", "x-ratelimit-remaining": "4931" },
+        body: { message: "You have exceeded a secondary rate limit" },
+      },
+      blobRes("blob-1"),
+    ],
+    "POST /repos/{owner}/{repo}/git/trees": treeRes("tree"),
+    "POST /repos/{owner}/{repo}/git/commits": commitRes("new-commit", "tree"),
+    "PATCH /repos/{owner}/{repo}/git/refs/{ref}": refRes("new-commit"),
+  });
+
+  const res = await commitWithRebase({
+    fetch: fetchImpl, token: "t",
+    owner: "o", repo: "r", message: "m",
+    changes: [{ path: "teams/a.json", content: "{}" }],
+    baseBackoffMs: 1,
+  });
+
+  assert.equal(res.commitSha, "new-commit");
+  assert.equal(res.attempts, 2);
+  assert.equal(calls.filter((c) => c.path.endsWith("/git/blobs")).length, 2);
+});
+
+test("commitWithRebase: 429 secondary rate limit is retried", async () => {
+  const { fetchImpl } = makeMockFetch({
+    "GET /repos/{owner}/{repo}/git/ref/{ref}": refRes("parent-sha"),
+    "GET /repos/{owner}/{repo}/git/commits/{commit_sha}": commitRes("parent-sha", "parent-tree-sha"),
+    "POST /repos/{owner}/{repo}/git/blobs": [
+      { status: 429, headers: { "retry-after": "1" }, body: { message: "Too Many Requests" } },
+      blobRes("blob-1"),
+    ],
+    "POST /repos/{owner}/{repo}/git/trees": treeRes("tree"),
+    "POST /repos/{owner}/{repo}/git/commits": commitRes("new-commit", "tree"),
+    "PATCH /repos/{owner}/{repo}/git/refs/{ref}": refRes("new-commit"),
+  });
+
+  const res = await commitWithRebase({
+    fetch: fetchImpl, token: "t",
+    owner: "o", repo: "r", message: "m",
+    changes: [{ path: "teams/a.json", content: "{}" }],
+    baseBackoffMs: 1,
+  });
+  assert.equal(res.commitSha, "new-commit");
+});
+
+test("commitWithRebase: a permission 403 still fails fast", async () => {
+  const { fetchImpl, calls } = makeMockFetch({
+    "GET /repos/{owner}/{repo}/git/ref/{ref}": refRes("parent-sha"),
+    "GET /repos/{owner}/{repo}/git/commits/{commit_sha}": commitRes("parent-sha", "parent-tree-sha"),
+    "POST /repos/{owner}/{repo}/git/blobs": {
+      status: 403,
+      // No retry-after, no secondary-limit wording, remaining is healthy.
+      headers: { "x-ratelimit-remaining": "4999" },
+      body: { message: "Resource not accessible by integration" },
+    },
+    "POST /repos/{owner}/{repo}/git/trees": treeRes("tree"),
+    "POST /repos/{owner}/{repo}/git/commits": commitRes("c", "tree"),
+    "PATCH /repos/{owner}/{repo}/git/refs/{ref}": refRes("c"),
+  });
+
+  await assert.rejects(
+    commitWithRebase({
+      fetch: fetchImpl, token: "t",
+      owner: "o", repo: "r", message: "m",
+      changes: [{ path: "x", content: "y" }],
+      baseBackoffMs: 1,
+    }),
+    (err) => {
+      assert.equal(err.status, 403);
+      return true;
+    },
+  );
+
+  assert.equal(calls.filter((c) => c.path.endsWith("/git/blobs")).length, 1);
+});

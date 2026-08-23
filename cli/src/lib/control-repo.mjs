@@ -115,3 +115,18 @@ export async function listAssignments(octokit, { org }) {
   }
   return docs;
 }
+
+/** Logins with an acceptance record for an assignment. */
+export async function listAcceptedLogins(octokit, { org, assignmentId }) {
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: `acceptances/${assignmentId}`,
+    });
+    return (Array.isArray(res.data) ? res.data : [])
+      .filter((f) => f.type === "file" && f.name.endsWith(".json"))
+      .map((f) => f.name.replace(/\.json$/, ""));
+  } catch (e) {
+    if (e.status === 404) return [];
+    throw e;
+  }
+}

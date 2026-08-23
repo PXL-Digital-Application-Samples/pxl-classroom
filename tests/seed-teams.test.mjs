@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
-import { planSeed, teamsFromRoster, DEFAULT_MAX_TEAM_SIZE } from "../lib/seed-teams.mjs";
+import { planSeed, planUnseed, teamsFromRoster, DEFAULT_MAX_TEAM_SIZE } from "../lib/seed-teams.mjs";
 
 const NOW = "2026-09-01T10:00:00.000Z";
 
@@ -368,4 +368,185 @@ test("a roster-sourced plan records provenance without an assignment id", () => 
 test("default max team size is used when group_config omits it", () => {
   const p = plan({ targetAssignment: target({ group_config: {} }) });
   assert.equal(p.teams[0].max_members, DEFAULT_MAX_TEAM_SIZE);
+});
+
+// ---------------------------------------------------------------------------
+// Who is left without a team - the residual manual work after a carry-forward
+// ---------------------------------------------------------------------------
+
+const ROSTER = {
+  students: [
+    { student_number: "1", full_name: "Alice A", github_login: "alice" },
+    { student_number: "2", full_name: "Bob B", github_login: "bob" },
+    { student_number: "3", full_name: "Carol C", github_login: "carol" },
+    { student_number: "4", full_name: "Dave D", github_login: "dave" },
+    { student_number: "5", full_name: "Erin E", github_login: "erin", active: false },
+    { student_number: "6", full_name: "Frank F", github_login: null },
+  ],
+};
+
+test("reports roster students who end up in no team", () => {
+  const p = plan({ roster: ROSTER });
+  assert.deepEqual(p.unplaced.map((u) => u.github_login), ["dave"]);
+  assert.equal(p.unplaced[0].full_name, "Dave D");
+  assert.equal(p.stats.unplaced, 1);
+  const warn = p.warnings.find((w) => w.code === "unplaced");
+  assert.ok(warn);
+  assert.match(warn.message, /@dave/);
+});
+
+test("unplaced ignores inactive students and unlinked accounts", () => {
+  const p = plan({ roster: ROSTER });
+  const logins = p.unplaced.map((u) => u.github_login);
+  assert.equal(logins.includes("erin"), false);
+  assert.equal(logins.includes(null), false);
+});
+
+test("a student already in a target team counts as placed", () => {
+  const p = plan({
+    roster: ROSTER,
+    existingTeams: [{ team_slug: "delta", team_name: "Delta", members: ["dave"] }],
+  });
+  assert.deepEqual(p.unplaced, []);
+  assert.equal(p.warnings.some((w) => w.code === "unplaced"), false);
+});
+
+test("unplaced is not computed under roster_mode: open", () => {
+  const p = plan({
+    roster: ROSTER,
+    targetAssignment: target({ roster_mode: "open", max_acceptances: 50 }),
+  });
+  assert.deepEqual(p.unplaced, []);
+  assert.equal(p.stats.unplaced, 0);
+});
+
+test("a kept team names the students it strands", () => {
+  const p = plan({
+    roster: ROSTER,
+    // alpha exists in the target with only zoe in it, so alice and bob - who
+    // were carried over together - land nowhere.
+    existingTeams: [{ team_slug: "alpha", team_name: "Alpha", members: ["zoe"] }],
+  });
+  const warn = p.warnings.find((w) => w.code === "existing-team-kept");
+  assert.ok(warn);
+  assert.match(warn.message, /were therefore not placed/);
+  assert.deepEqual(warn.logins.sort(), ["alice", "bob"]);
+  assert.deepEqual(p.unplaced.map((u) => u.github_login).sort(), ["alice", "bob", "dave"]);
+});
+
+test("a long unplaced list stays readable", () => {
+  const many = { students: Array.from({ length: 25 }, (_, i) => ({
+    student_number: String(i), full_name: `S${i}`, github_login: `student${i}`,
+  })) };
+  const p = plan({ roster: many });
+  const warn = p.warnings.find((w) => w.code === "unplaced");
+  assert.match(warn.message, /and 17 more/);
+  assert.equal(p.unplaced.length, 25);
+});
+
+test("no roster means no unplaced claim rather than a wrong one", () => {
+  const p = plan();
+  assert.deepEqual(p.unplaced, []);
+  assert.equal(p.warnings.some((w) => w.code === "unplaced"), false);
+});
+
+// ---------------------------------------------------------------------------
+// Undoing a seed. Narrow on purpose: this deletes files, so anything a student
+// has touched is kept and reported rather than quietly removed.
+// ---------------------------------------------------------------------------
+
+function seededTeam(slug, members, extra = {}) {
+  return {
+    team_slug: slug,
+    team_name: slug,
+    members,
+    seeded_from: { source: "assignment", assignment_id: "prev", seeded_at: NOW },
+    ...extra,
+  };
+}
+
+test("unseed removes carried-over teams nobody has accepted into", () => {
+  const p = planUnseed({
+    assignmentId: "netw",
+    teams: [seededTeam("alpha", ["alice"]), seededTeam("beta", ["bob"])],
+    acceptedLogins: [],
+  });
+  assert.deepEqual(p.removable.map((t) => t.team_slug), ["alpha", "beta"]);
+  assert.deepEqual(p.kept, []);
+  assert.deepEqual(p.changes, [
+    { path: "teams/netw/alpha.json", content: null },
+    { path: "teams/netw/beta.json", content: null },
+  ]);
+});
+
+test("unseed keeps a team a member has accepted into", () => {
+  const p = planUnseed({
+    assignmentId: "netw",
+    teams: [seededTeam("alpha", ["alice"]), seededTeam("beta", ["bob"])],
+    acceptedLogins: ["ALICE"],
+  });
+  assert.deepEqual(p.removable.map((t) => t.team_slug), ["beta"]);
+  assert.deepEqual(p.kept.map((t) => t.team_slug), ["alpha"]);
+});
+
+test("unseed keeps a team that owns a repository", () => {
+  const p = planUnseed({
+    assignmentId: "netw",
+    teams: [seededTeam("alpha", ["alice"], { repo_url: "https://github.com/o/netw-alpha" })],
+    acceptedLogins: [],
+  });
+  assert.deepEqual(p.removable, []);
+  assert.deepEqual(p.kept.map((t) => t.team_slug), ["alpha"]);
+});
+
+test("unseed keeps a team recorded by repo_id alone", () => {
+  const p = planUnseed({
+    assignmentId: "netw",
+    teams: [seededTeam("alpha", ["alice"], { repo_id: 4242 })],
+    acceptedLogins: [],
+  });
+  assert.deepEqual(p.removable, []);
+});
+
+test("unseed never touches a team that was not seeded", () => {
+  const p = planUnseed({
+    assignmentId: "netw",
+    teams: [
+      { team_slug: "student-made", team_name: "Student Made", members: ["zoe"] },
+      seededTeam("alpha", ["alice"]),
+    ],
+    acceptedLogins: [],
+  });
+  assert.deepEqual(p.removable.map((t) => t.team_slug), ["alpha"]);
+  assert.deepEqual(p.kept, []);
+});
+
+test("unseed handles an empty seeded team", () => {
+  const p = planUnseed({
+    assignmentId: "netw",
+    teams: [seededTeam("alpha", [])],
+    acceptedLogins: [],
+  });
+  assert.deepEqual(p.removable.map((t) => t.team_slug), ["alpha"]);
+});
+
+test("unseed of nothing is not an error", () => {
+  const p = planUnseed({ assignmentId: "netw" });
+  assert.deepEqual(p.removable, []);
+  assert.deepEqual(p.changes, []);
+});
+
+test("unseed accepts a Set of accepted logins and matches case-insensitively", () => {
+  const p = planUnseed({
+    assignmentId: "netw",
+    teams: [seededTeam("alpha", ["Alice"])],
+    acceptedLogins: new Set(["alice"]),
+  });
+  assert.deepEqual(p.removable, []);
+});
+
+test("unseed output is deterministic", () => {
+  const teams = [seededTeam("gamma", ["c"]), seededTeam("alpha", ["a"]), seededTeam("beta", ["b"])];
+  const p = planUnseed({ assignmentId: "netw", teams, acceptedLogins: [] });
+  assert.deepEqual(p.removable.map((t) => t.team_slug), ["alpha", "beta", "gamma"]);
 });

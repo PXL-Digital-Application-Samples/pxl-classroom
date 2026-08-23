@@ -82,6 +82,17 @@ become visible to students (`--no-publish` skips that, and they stay hidden).
 `pxl-classroom teams list --assignment <id>` prints the manifests, marking which
 teams were seeded and from where.
 
+Seeded the wrong source? `teams unseed` reverses it:
+
+```bash
+pxl-classroom teams unseed --org PXLAutomation --assignment linux-networking-2026 --dry-run
+```
+
+It deletes, in one commit, only the teams that came from a seed, own no
+repository, and have no member with an acceptance record - anything a student
+has already joined is listed as kept. The removability rule is the same
+`planUnseed` the web UI's "Undo seed" button uses.
+
 ## Configuration
 
 | Location | Purpose |
