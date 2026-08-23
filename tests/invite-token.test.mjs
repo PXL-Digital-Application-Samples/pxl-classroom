@@ -29,6 +29,7 @@ import {
   subjectFor,
   TOKEN_PATTERN,
 } from "../lib/invite-token.mjs";
+import { parseInviteFields } from "../lib/invite-token-format.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -251,7 +252,13 @@ test("republishing keeps the link, regenerating retires it", () => {
   const written = readFileSync(file, "utf8");
   assert.match(written, /# a lecturer comment/, "lecturer-authored comments must survive");
   assert.equal(written.match(/^invite_token:/gm).length, 1, "no duplicate keys after repeated publishes");
-  assert.match(written, /^invite_nonce: [0-9a-f]{8}$/m);
+  // Quoted, always. An all-digit nonce with a leading zero ("01234567") comes
+  // back from a YAML parser as the integer 1234567 - seven characters, which
+  // fails this script's own ^[0-9a-f]{8}$ check on the next republish, so it
+  // mints a fresh nonce and retires every link already handed out. Roughly one
+  // nonce in six hundred, and silent when it happens.
+  assert.match(written, /^invite_nonce: "[0-9a-f]{8}"$/m);
+  assert.match(parseInviteFields(written).invite_nonce, /^[0-9a-f]{8}$/);
 
   // The token in the file must verify against the nonce the broker gets.
   assert.equal(

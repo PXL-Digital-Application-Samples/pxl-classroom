@@ -842,7 +842,7 @@ import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoC
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
-import { invitationUrl } from '../lib/invite.js'
+import { invitationUrl, parseInviteFields } from '../lib/invite.js'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
 import AuthCard from '../components/AuthCard.vue'
@@ -1824,14 +1824,24 @@ async function verifyLiveInfrastructure(assignmentId) {
     // control repo, so the form we are holding has never seen it. Without this
     // the link box stays empty however many times a lecturer republishes -
     // only navigating away and reopening the assignment would fill it in.
-    if (token && !form.value.invite_token) {
-      const ymlRes = await getRepoContent(token, props.org, 'pxl-classroom-control', `assignments/${assignmentId}.yml`)
-      if (ymlRes?.ok) {
-        const yml = String(ymlRes.data || '')
-        const grab = (key) => yml.match(new RegExp(`^${key}: *(\\S+)$`, 'm'))?.[1] || ''
-        form.value.invite_token = grab('invite_token')
-        form.value.invite_nonce = grab('invite_nonce')
-        form.value.invite_expires_at = grab('invite_expires_at')
+    //
+    // Unconditional, not "only when the form has none": regenerating an
+    // invitation rotates the token, and a form that keeps whichever one it saw
+    // first goes on handing out a link the broker now rejects as superseded.
+    //
+    // getRepoContent resolves to the decoded FILE TEXT, or null. It is not a
+    // {ok, data} envelope - `.ok` on a string is undefined, which is why this
+    // whole block never ran and the fix that added it appeared to do nothing.
+    if (token) {
+      const yaml = await getRepoContent(token, props.org, config.controlRepo, `assignments/${assignmentId}.yml`)
+      const fields = parseInviteFields(yaml)
+      if (fields.invite_token) {
+        // These three are system-owned - a lecturer never edits them - so
+        // filling them in must not make a clean form look unsaved and prompt
+        // "Discard unsaved changes?" on the way out.
+        const wasClean = !hasUnsavedEdits()
+        Object.assign(form.value, fields)
+        if (wasClean) snapshotForm()
       }
     }
   } catch (e) {
@@ -1943,7 +1953,16 @@ function startPublishWatch() {
           brokerExists.value = true
           pagesLive.value = true
           publishWatch.value = 'ready'
-          toast.success('Published! The accept link is live and verified.')
+          // The workflow minted the invitation into the control repo while we
+          // were polling; the form has never seen it. Without this the banner
+          // says "verified live" over an empty link box and a Copy button that
+          // errors - which is exactly what a lecturer hits after publishing.
+          await verifyLiveInfrastructure(form.value.id)
+          toast.success(
+            form.value.invite_token
+              ? 'Published! The invitation link is live and ready to share.'
+              : 'Published, but the invitation link has not appeared yet. Open Troubleshoot to check it.',
+          )
           return
         }
       }
@@ -1952,6 +1971,10 @@ function startPublishWatch() {
     }
     if (publishPollCount.value >= 48) { // 48 * 10s = 8 minutes
       publishWatch.value = 'timeout'
+      // The workflow may well have finished and only Pages be lagging, so the
+      // link is often already there. Show it rather than making the lecturer
+      // press "Check Status Now" to find out.
+      await verifyLiveInfrastructure(form.value.id)
       return
     }
     publishPollTimer = setTimeout(tick, 10000)

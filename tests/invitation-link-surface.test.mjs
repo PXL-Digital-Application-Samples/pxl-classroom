@@ -1,16 +1,21 @@
 // The invitation link has one failure mode that keeps recurring, in different
 // disguises: the SPA holds an assignment in memory that is missing a field the
 // control repo has, and the UI renders a confident empty box rather than saying
-// so. It has now bitten three times -
+// so. It has now bitten four times -
 //
 //   buildDoc rebuilt the document without invite_token, deleting it on save
 //   the edit form never loaded invite_token, so the link was always null
 //   publish minted the token into the control repo and the form never re-read
 //     it, so "Copy Link" stayed empty however often the lecturer republished
+//   both re-read paths asked a STRING for `.ok`, so neither ever ran - and the
+//     test written to catch the third only grepped for the error message,
+//     which passed precisely because the code always took the error branch
 //
-// - and each time the document still validated and nothing went red. These
-// tests pin every half of that round trip, plus the link format itself, so the
-// next variant fails here instead of in front of a lecturer.
+// That last one is the lesson. A test that greps source text cannot tell live
+// code from dead code, so the round trip below runs the REAL parser against
+// what the REAL writer emits, and the structural assertions that remain check
+// the specific defect - asking a string for `.ok` - rather than checking that
+// some string appears somewhere.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,6 +30,10 @@ import {
   subjectFromDigest,
   subjectsMatch,
   inviteFileName,
+  parseInviteFields,
+  readInviteField,
+  quoteInviteValue,
+  INVITE_FIELDS,
   TOKEN_PATTERN,
 } from "../lib/invite-token-format.mjs";
 
@@ -33,6 +42,7 @@ const root = join(here, "..");
 const ADMIN = () => readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
 const DETAIL = () => readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
 const INVITE_LIB = () => readFileSync(join(root, "frontend", "src", "lib", "invite.js"), "utf8");
+const SETTER = () => readFileSync(join(root, "scripts", "set-assignment-invite.mjs"), "utf8");
 
 const KEYPAIR = generateKeyPair();
 const ORG = "PXLAutomation";
@@ -46,41 +56,178 @@ const mint = (org = ORG, id = ID) =>
     privateKeyPem: KEYPAIR.privateKeyPem,
   });
 
-// --- The three round-trip halves, in AdminView ------------------------------
+// What scripts/set-assignment-invite.mjs actually writes, reproduced from that
+// script's own upsert so the round trip cannot drift away from the writer.
+function writeInvite(yaml, { token, nonce, expiresAt }) {
+  let out = yaml;
+  for (const [key, value] of [
+    ["invite_token", token],
+    ["invite_nonce", nonce],
+    ["invite_expires_at", expiresAt],
+  ]) {
+    const line = `${key}: ${quoteInviteValue(key, value)}`;
+    const pattern = new RegExp(`^${key}:.*$`, "m");
+    out = pattern.test(out) ? out.replace(pattern, () => line) : out.replace(/\n*$/, "\n") + line + "\n";
+  }
+  return out;
+}
 
-test("the edit form loads the invitation from the assignment", () => {
-  const src = ADMIN();
-  for (const field of ["invite_token", "invite_nonce", "invite_expires_at"]) {
-    assert.ok(src.includes(`${field}: a.${field} || ''`), `edit form must load ${field}`);
+// --- The round trip, run rather than grepped --------------------------------
+
+test("what the publish script writes, the SPA reads back", () => {
+  const token = mint();
+  const yaml = writeInvite("id: linux-processes-2026\nstate: published\n", {
+    token,
+    nonce: "0badc0de",
+    expiresAt: "2027-09-27T14:01:00.000Z",
+  });
+
+  assert.deepEqual(parseInviteFields(yaml), {
+    invite_token: token,
+    invite_nonce: "0badc0de",
+    invite_expires_at: "2027-09-27T14:01:00.000Z",
+  });
+});
+
+test("a republish overwrites the invitation in place, not alongside it", () => {
+  const first = mint();
+  const second = mint(ORG, "another-assignment");
+  let yaml = writeInvite("id: linux-processes-2026\n", {
+    token: first,
+    nonce: "0badc0de",
+    expiresAt: "2027-09-27T14:01:00.000Z",
+  });
+  yaml = writeInvite(yaml, { token: second, nonce: "feedface", expiresAt: "2028-01-01T00:00:00.000Z" });
+
+  assert.equal(parseInviteFields(yaml).invite_token, second, "the reader must see the new token");
+  assert.equal(yaml.match(/^invite_token:/gm).length, 1, "and there must be exactly one of it");
+});
+
+test("a signed token survives the writer's own replace", () => {
+  // String.replace expands `$&`, `$1` and friends in the REPLACEMENT. A token is
+  // base64url so it cannot contain `$` today, but the writer is generic and the
+  // next field through it may not be.
+  const yaml = writeInvite("id: x\ninvite_token: old\n", {
+    token: "A$&B",
+    nonce: "0badc0de",
+    expiresAt: "2027-09-27T14:01:00.000Z",
+  });
+  assert.equal(parseInviteFields(yaml).invite_token, "A$&B");
+});
+
+test("an all-digit nonce survives a YAML round trip", () => {
+  // 8 hex characters are all digits about one time in forty, and a leading zero
+  // then round-trips through a YAML parser as an integer: "01234567" comes back
+  // as 1234567. The hub's ^[0-9a-f]{8}$ check fails on seven characters, decides
+  // there is no usable nonce and mints a fresh one - retiring every link already
+  // handed out, on a republish whose entire contract is that it does not.
+  const yaml = writeInvite("id: x\n", {
+    token: mint(),
+    nonce: "01234567",
+    expiresAt: "2027-09-27T14:01:00.000Z",
+  });
+  assert.match(yaml, /^invite_nonce: "01234567"$/m, "the nonce must be written quoted");
+  assert.equal(parseInviteFields(yaml).invite_nonce, "01234567");
+  assert.match(parseInviteFields(yaml).invite_nonce, /^[0-9a-f]{8}$/i, "and still pass the hub's check");
+});
+
+test("the reader tolerates a control repo checked out with CRLF endings", () => {
+  const token = mint();
+  const yaml = writeInvite("id: x\n", {
+    token,
+    nonce: "0badc0de",
+    expiresAt: "2027-09-27T14:01:00.000Z",
+  }).replace(/\n/g, "\r\n");
+  assert.equal(parseInviteFields(yaml).invite_token, token);
+  assert.equal(parseInviteFields(yaml).invite_nonce, "0badc0de");
+  assert.equal(parseInviteFields(yaml).invite_expires_at, "2027-09-27T14:01:00.000Z");
+});
+
+test("a missing or unreadable document yields empty fields, never a crash", () => {
+  for (const input of [null, undefined, "", "id: x\nstate: draft\n", 42, {}]) {
+    assert.deepEqual(parseInviteFields(input), {
+      invite_token: "",
+      invite_nonce: "",
+      invite_expires_at: "",
+    });
   }
 });
 
-test("saving rebuilds the document without dropping the invitation", () => {
-  // buildDoc constructs the YAML field by field, so anything absent is deleted -
-  // and the result still validates, because the invite fields are optional.
+test("the writer and the reader agree on which fields an invitation has", () => {
+  const src = SETTER();
+  for (const field of INVITE_FIELDS) {
+    assert.ok(src.includes(`"${field}"`), `set-assignment-invite.mjs must write ${field}`);
+    assert.equal(readInviteField(`${field}: value\n`, field), "value");
+  }
+});
+
+test("the publish script parses with the shared reader, not a private copy", () => {
+  // Its own readYamlField was the fourth copy of this parse. There is one copy,
+  // imported by the writer and by both views.
+  const src = SETTER();
+  assert.match(src, /readInviteField/, "the script must use the shared reader");
+  assert.ok(!/function readYamlField/.test(src), "and must not keep a private one");
+});
+
+// --- The specific defect: asking a string for `.ok` -------------------------
+
+test("no view treats a getRepoContent result as a response envelope", () => {
+  // getRepoContent resolves to the decoded file text or null. Reading `.ok` off
+  // a string is undefined, so `if (res?.ok)` is a block that never runs - and it
+  // shipped in BOTH invitation read paths with a green suite.
+  const files = ["AdminView.vue", "AssignmentDetailView.vue", "AssignmentView.vue", "DashboardView.vue"];
+  const offenders = [];
+  for (const name of files) {
+    const lines = readFileSync(join(root, "frontend", "src", "views", name), "utf8").split(/\r?\n/);
+    lines.forEach((line, i) => {
+      const m = line.match(/(?:const|let)\s+(\w+)\s*=\s*await getRepoContent\(/);
+      if (!m) return;
+      const binding = m[1];
+      const window = lines.slice(i, i + 8).join("\n");
+      if (new RegExp(`\\b${binding}\\??\\.(ok|status|data)\\b`).test(window)) {
+        offenders.push(`${name}:${i + 1} - ${binding} holds file text, not a response`);
+      }
+    });
+  }
+  assert.deepEqual(offenders, [], `\n  ${offenders.join("\n  ")}`);
+});
+
+test("the invitation is re-read whenever the live check runs, not only when absent", () => {
+  // Gating on "the form has no token" means a REGENERATED invitation never
+  // reaches the form, so the panel goes on copying a link the broker now
+  // rejects as superseded - worse than having no button at all.
   const src = ADMIN();
-  for (const field of ["invite_token", "invite_nonce", "invite_expires_at"]) {
-    assert.ok(
-      src.includes(`...(form.value.${field} ? { ${field}: form.value.${field} } : {})`),
-      `buildDoc must carry ${field} through`
+  const fn = src.slice(src.indexOf("async function verifyLiveInfrastructure"));
+  const body = fn.slice(0, fn.indexOf("\nasync function saveAndPublish"));
+  assert.match(body, /parseInviteFields\(/, "the live check must parse the invitation");
+  assert.ok(
+    !/!form\.value\.invite_token/.test(body),
+    "and must not skip the read when the form already holds one"
+  );
+});
+
+test("the publish watcher fetches the invitation before it claims the link is live", () => {
+  // The watcher polls Pages, sets 'ready' and toasts. The token is minted into
+  // the control repo while it polls, so without a re-read the success banner
+  // renders an empty link box under the words "verified live".
+  const src = ADMIN();
+  const fn = src.slice(src.indexOf("function startPublishWatch"));
+  const body = fn.slice(0, fn.indexOf("\nfunction stopPublishWatch"));
+
+  const ready = body.indexOf("publishWatch.value = 'ready'");
+  const timeout = body.indexOf("publishWatch.value = 'timeout'");
+  assert.ok(ready > -1 && timeout > -1, "both terminal states must exist");
+
+  for (const [label, from] of [["ready", ready], ["timeout", timeout]]) {
+    assert.match(
+      body.slice(from, from + 700),
+      /await verifyLiveInfrastructure\(/,
+      `the ${label} branch must re-read the invitation before it stops polling`
     );
   }
 });
 
-test("the live check re-reads the invitation minted by publish", () => {
-  // publish-assignment.yml writes the token into the control repo; the form in
-  // memory has never seen it. Republishing does not help, because republishing
-  // does not reload the form.
-  const src = ADMIN();
-  assert.match(
-    src,
-    /if \(token && !form\.value\.invite_token\)/,
-    "verifyLiveInfrastructure must fetch the invitation when the form lacks one"
-  );
-  assert.match(src, /grab\('invite_token'\)/, "and assign it to the form");
-});
-
-test("copying with no invitation reports it instead of writing \"null\"", () => {
+test('copying with no invitation reports it instead of writing "null"', () => {
   const src = ADMIN();
   const fn = src.slice(src.indexOf("function copyAcceptLink"));
   const guard = fn.indexOf("if (!shareableLink.value)");
@@ -89,11 +236,38 @@ test("copying with no invitation reports it instead of writing \"null\"", () => 
   assert.ok(guard < write, "the guard must come before the clipboard write");
 });
 
-test("the assignment detail view reports a missing invitation too", () => {
-  // Its link is read from the control repo rather than a form, so the failure
-  // shape differs - but a lecturer must still be told, not handed nothing.
+test("the assignment detail view reads the invitation through the shared parser", () => {
   const src = DETAIL();
-  assert.match(src, /No invitation link yet/, "detail view must explain a missing invitation");
+  const fn = src.slice(src.indexOf("async function loadInviteToken"));
+  const body = fn.slice(0, fn.indexOf("\n}") + 2);
+  assert.match(body, /parseInviteFields\(/, "it must use the shared reader");
+  assert.ok(!/\.ok\b/.test(body), "and must not ask the file text for `.ok`");
+});
+
+test("saving rebuilds the document without dropping the invitation", () => {
+  // buildDoc constructs the YAML field by field, so anything absent is deleted -
+  // and the result still validates, because the invite fields are optional.
+  const src = ADMIN();
+  for (const field of INVITE_FIELDS) {
+    assert.ok(
+      src.includes(`...(form.value.${field} ? { ${field}: form.value.${field} } : {})`),
+      `buildDoc must carry ${field} through`
+    );
+  }
+});
+
+test("the edit form loads the invitation from the assignment", () => {
+  const src = ADMIN();
+  for (const field of INVITE_FIELDS) {
+    assert.ok(src.includes(`${field}: a.${field} || ''`), `edit form must load ${field}`);
+  }
+});
+
+test("both views import the one parser rather than re-implementing it", () => {
+  for (const src of [ADMIN(), DETAIL()]) {
+    assert.match(src, /parseInviteFields/, "views must use the shared parser");
+  }
+  assert.match(INVITE_LIB(), /export \{ parseInviteFields \}/, "invite.js re-exports it");
 });
 
 // --- The link format --------------------------------------------------------

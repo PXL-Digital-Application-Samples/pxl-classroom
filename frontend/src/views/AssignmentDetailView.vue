@@ -1011,7 +1011,7 @@ import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explai
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
-import { invitationUrl } from '../lib/invite.js'
+import { invitationUrl, parseInviteFields } from '../lib/invite.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
@@ -1979,15 +1979,18 @@ async function copyAcceptLink() {
 // Read from the control repo with the lecturer's own token. Deliberately not
 // cached in the report or the dashboard: the token must not travel anywhere
 // that a student can read, and Pages output is world-readable.
+// getRepoContent resolves to the decoded FILE TEXT, or null - never a
+// {ok, data} response envelope. Reading `.ok` off a string is undefined, so
+// this returned null for every assignment ever published and the button only
+// knew how to say "no invitation link yet". The parse itself now lives in
+// lib/invite-token-format.mjs, beside the code that writes those lines.
 async function loadInviteToken() {
   try {
-    const file = await getRepoContent(
-      getToken(), props.org, 'pxl-classroom-control',
+    const yaml = await getRepoContent(
+      getToken(), props.org, config.controlRepo,
       `assignments/${props.assignmentId}.yml`,
     )
-    if (!file?.ok) return null
-    const match = String(file.data || '').match(/^invite_token: *(\S+)$/m)
-    return match ? match[1] : null
+    return parseInviteFields(yaml).invite_token || null
   } catch {
     return null
   }

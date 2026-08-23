@@ -22,6 +22,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs
 import { join } from "node:path";
 
 import { signInviteToken, newNonce } from "../lib/invite-token.mjs";
+import { readInviteField, quoteInviteValue } from "../lib/invite-token-format.mjs";
 
 function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT) {
@@ -41,13 +42,10 @@ function die(message) {
 function upsertYamlField(text, key, value) {
   const line = `${key}: ${value}`;
   const pattern = new RegExp(`^${key}:.*$`, "m");
-  if (pattern.test(text)) return text.replace(pattern, line);
+  // Replacer function, not a replacement string: `$&` and friends inside a
+  // signed token would otherwise be expanded by String.replace.
+  if (pattern.test(text)) return text.replace(pattern, () => line);
   return text.replace(/\n*$/, "\n") + line + "\n";
-}
-
-function readYamlField(text, key) {
-  const m = text.match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"));
-  return m ? m[1].trim().replace(/^["']|["']$/g, "") : null;
 }
 
 const dataDir = process.env.DATA_DIR || "control";
@@ -71,7 +69,10 @@ if (!existsSync(file)) die(`Assignment file not found: ${yamlPath}`);
 
 const raw = readFileSync(file, "utf8");
 const doc = isYaml ? null : JSON.parse(raw);
-const readField = (key) => (isYaml ? readYamlField(raw, key) : doc[key] ?? null);
+// readInviteField is the SPA's reader too (lib/invite-token-format.mjs), so a
+// value this script writes and the Admin Panel cannot read back is a test
+// failure rather than an empty link box in front of a lecturer.
+const readField = (key) => (isYaml ? readInviteField(raw, key) || null : doc[key] ?? null);
 
 const existingNonce = readField("invite_nonce");
 const existingExpiry = readField("invite_expires_at");
@@ -98,9 +99,14 @@ const expiresAt = reuse
 const token = signInviteToken({ org, assignmentId, expiresAt, nonce, kid, privateKeyPem });
 
 if (isYaml) {
-  let next = upsertYamlField(raw, "invite_token", token);
-  next = upsertYamlField(next, "invite_nonce", nonce);
-  next = upsertYamlField(next, "invite_expires_at", expiresAt);
+  let next = raw;
+  for (const [key, value] of [
+    ["invite_token", token],
+    ["invite_nonce", nonce],
+    ["invite_expires_at", expiresAt],
+  ]) {
+    next = upsertYamlField(next, key, quoteInviteValue(key, value));
+  }
   writeFileSync(file, next);
 } else {
   doc.invite_token = token;

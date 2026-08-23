@@ -151,6 +151,11 @@ The floor this leaves: a caller without a valid token costs one boot on a free p
 
 **Revocation** is the nonce, mirrored to the broker's `INVITE_NONCE` variable. Republishing reuses it, so a repair does not break links already handed out; `regenerate_invite: true` mints a fresh one and every earlier link reports `superseded`. Key rotation is the `kid` field, with old public keys retained until their assignments close. See RUNBOOK §1.3.1.
 
+**Where the invitation is recorded, and who reads it back.** The token, nonce and expiry live as three lines in the assignment's YAML in the private control repo. `lib/invite-token-format.mjs` owns both halves of that - `readInviteField` / `parseInviteFields` for reading, `quoteInviteValue` for writing - because a reader that drifts from the writer is a lecturer holding an empty link box, which has now happened four times. Two rules fall out of it:
+
+- **The nonce is written quoted.** Eight hex characters are all digits about one time in forty, and an all-digit nonce with a leading zero round-trips through a YAML parser as an integer - `01234567` returns as `1234567`. `set-assignment-invite.mjs` then fails its own `^[0-9a-f]{8}$` check, concludes there is no reusable nonce and mints a fresh one, retiring every link already handed out on a republish whose entire contract is that it does not.
+- **The parse is a line-based regex, not a YAML round trip.** The module is imported by `lib/invite-token.mjs`, which the broker runs from a bare hub checkout with no `npm ci`; a dependency here would put npm on a credential-bearing public repository. It also keeps the reader and the writer working on the same representation, so a round-trip test exercises the real thing rather than two parsers that happen to agree.
+
 #### 4.3.3 What the public Pages artifacts disclose
 
 GitHub Pages is public and access-controlled Pages is an Enterprise feature the system never uses (§2), so everything published is world-readable. Until signed invitations existed, `data/<org>/assignments.json` listed every published assignment - id, title, description, deadline, broker repo, roster mode, cap and acceptance count - which made "unlisted assignments" a UI convention rather than a property.

@@ -21,6 +21,12 @@ import {
 
 export { TOKEN_PATTERN }
 
+// Re-exported rather than re-implemented. Reading the invitation back out of an
+// assignment document has broken three times now, always the same way: a second
+// copy of the parse drifts from the writer. There is one copy, it lives beside
+// scripts/set-assignment-invite.mjs's writer, and both views import it.
+export { parseInviteFields } from '../../../lib/invite-token-format.mjs'
+
 export function isInviteToken(value) {
   return typeof value === 'string' && TOKEN_PATTERN.test(value)
 }
