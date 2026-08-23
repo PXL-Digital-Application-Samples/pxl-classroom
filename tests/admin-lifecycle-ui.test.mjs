@@ -147,10 +147,20 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
     "Lifecycle block must be gated on !isNew"
   );
 
-  // Orange styling condition check
+  // A published assignment's Publish button becomes Republish, and picks up the
+  // secondary treatment to say so.
+  //
+  // This used to assert `btn-warning`, which is not one of DESIGN.md §3's four
+  // variants and is not declared anywhere - not in style.css, not in any scoped
+  // block. Seven buttons across two components carried it and rendered as a
+  // plain `.btn`. The test passed because it read the template, not the CSS.
   assert.ok(
-    template.includes("form.state === 'published' ? 'btn-warning' : ''"),
-    "Button must have orange btn-warning class when published"
+    template.includes("form.state === 'published' ? 'btn-secondary' : ''"),
+    "Republish must use the §3 secondary variant when published"
+  );
+  assert.ok(
+    !template.includes("btn-warning"),
+    "btn-warning is not a DESIGN.md §3 variant and is declared nowhere - it renders as a plain .btn"
   );
 
   // Click handler check

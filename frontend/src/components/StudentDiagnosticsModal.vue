@@ -173,7 +173,7 @@
               GitHub Notifications
             </a>
           </div>
-          <button class="btn btn-sm btn-warning" type="button" @click="handleSwitchAccount">
+          <button class="btn btn-sm btn-secondary" type="button" @click="handleSwitchAccount">
             Sign in with different account
           </button>
         </div>

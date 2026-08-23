@@ -197,13 +197,40 @@ test("the invitation is re-read whenever the live check runs, not only when abse
   // reaches the form, so the panel goes on copying a link the broker now
   // rejects as superseded - worse than having no button at all.
   const src = ADMIN();
-  const fn = src.slice(src.indexOf("async function verifyLiveInfrastructure"));
-  const body = fn.slice(0, fn.indexOf("\nasync function saveAndPublish"));
-  assert.match(body, /parseInviteFields\(/, "the live check must parse the invitation");
+  const reader = src.slice(src.indexOf("async function refreshInvitation"));
+  const readerBody = reader.slice(0, reader.indexOf("\n}") + 2);
+  assert.match(readerBody, /parseInviteFields\(/, "refreshInvitation must parse the invitation");
   assert.ok(
-    !/!form\.value\.invite_token/.test(body),
+    !/!form\.value\.invite_token/.test(readerBody),
     "and must not skip the read when the form already holds one"
   );
+
+  const fn = src.slice(src.indexOf("async function verifyLiveInfrastructure"));
+  const body = fn.slice(0, fn.indexOf("\nasync function saveAndPublish"));
+  assert.match(body, /refreshInvitation\(/, "the live check must go through it");
+});
+
+test("liveness is decided by the page a student opens, not by the index", () => {
+  // pages/generate.mjs writes data/<org>/i/<sha256(token)>.json ONLY when the
+  // assignment carries an invite_token; without one it warns, continues, and
+  // still adds the id to assignments.json. Asking the index therefore reported
+  // "Verified Live" over a page that 404s for every student. Diagnostics Tier 5
+  // was corrected for this in e594f4f; the publish flow beside it was not.
+  const src = ADMIN();
+  const fn = src.slice(src.indexOf("async function acceptanceCardIsLive"));
+  const body = fn.slice(0, fn.indexOf("\n}") + 2);
+  assert.match(body, /inviteDataUrl\(/, "it must fetch the acceptance card");
+
+  for (const name of ["verifyLiveInfrastructure", "startPublishWatch"]) {
+    const scope = src.slice(src.indexOf(`function ${name}`));
+    const end = scope.indexOf("\n}\n");
+    const text = scope.slice(0, end > -1 ? end : 2000);
+    assert.match(text, /acceptanceCardIsLive\(/, `${name} must check the card`);
+    assert.ok(
+      !/assignments\.json/.test(text),
+      `${name} must not decide liveness from the org index - it is true without a card`
+    );
+  }
 });
 
 test("the publish watcher fetches the invitation before it claims the link is live", () => {

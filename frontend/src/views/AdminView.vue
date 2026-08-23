@@ -205,7 +205,7 @@
                     <span>Copy Link</span>
                   </button>
                 </div>
-                <button class="btn btn-sm btn-warning btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
+                <button class="btn btn-sm btn-secondary btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
                   <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
                   <span>Check status</span>
                 </button>
@@ -231,7 +231,7 @@
                   </button>
                 </div>
                 <div style="display: flex; gap: var(--space-xs);">
-                  <button class="btn btn-sm btn-warning btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
+                  <button class="btn btn-sm btn-secondary btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
                     <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
                     <span>Check Status Now</span>
                   </button>
@@ -254,7 +254,7 @@
                 This assignment is set to published, but its student acceptance broker (<code>broker-{{ form.id }}</code>) does not exist on GitHub. Students cannot accept until the broker is created.
               </p>
               <div style="display: flex; gap: var(--space-sm); align-items: center; margin-top: var(--space-xs); flex-wrap: wrap;">
-                <button class="btn btn-warning btn-with-icon" type="button" @click="handlePublishClick" :disabled="publishing">
+                <button class="btn btn-secondary btn-with-icon" type="button" @click="handlePublishClick" :disabled="publishing">
                   <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': publishing }" />
                   <span>{{ publishing ? 'Setting up…' : 'Complete Setup / Create Broker Now' }}</span>
                 </button>
@@ -297,7 +297,17 @@
             </div>
             <div class="field">
               <label>Description</label>
-              <textarea v-model="form.description" rows="2" placeholder="Optional"></textarea>
+              <textarea
+                v-model="form.description"
+                rows="2"
+                placeholder="Optional"
+              ></textarea>
+              <!-- Not gated on `touched`, unlike the required-field errors: this
+                   one only fires when there IS content, so it can never nag an
+                   empty form - and an assignment loaded from the control repo
+                   with a bad description must explain why Save is disabled. -->
+              <div v-if="fieldErrors.description" class="field-error-msg">{{ fieldErrors.description }}</div>
+              <small>Published on the public assignment page, so students can read it before they accept.</small>
             </div>
           </fieldset>
 
@@ -678,7 +688,7 @@
             <h4>Lifecycle</h4>
             <div class="lifecycle-actions">
               <button
-                :class="['btn', 'btn-with-icon', form.state === 'published' ? 'btn-warning' : '']"
+                :class="['btn', 'btn-with-icon', form.state === 'published' ? 'btn-secondary' : '']"
                 type="button"
                 @click="handlePublishClick"
                 :disabled="publishing"
@@ -699,7 +709,7 @@
               <button v-if="form.state === 'published' || form.state === 'closed'" class="btn" type="button" @click="setState('draft')" :disabled="saving">
                 Revert to draft
               </button>
-              <button v-if="form.state === 'published'" class="btn btn-warning btn-with-icon" type="button" @click="copyAcceptLink">
+              <button v-if="form.state === 'published'" class="btn btn-secondary btn-with-icon" type="button" @click="copyAcceptLink">
                 <Icon name="copy" :size="14" />
                 <span>Copy invitation link</span>
               </button>
@@ -797,13 +807,43 @@
               Use this if students are having trouble accepting or if the broker repository was missing or misconfigured.
             </p>
           </div>
+
+          <!-- Republishing normally REUSES the invitation, so a repair does not
+               break links already handed out. Rotating is the other thing a
+               lecturer needs and had no way to ask for: the input existed on
+               publish-assignment.yml and nothing in the app ever sent it. -->
+          <div class="regen-choice">
+            <div class="field checkbox">
+              <label>
+                <input type="checkbox" v-model="regenerateInvite" :disabled="publishing" />
+                Regenerate the invitation link
+              </label>
+              <small>
+                Leave this off to repair the broker while every link already handed out keeps working.
+              </small>
+            </div>
+            <div v-if="regenerateInvite" class="alert alert-danger text-sm">
+              <strong>Every link already handed out stops working.</strong>
+              Students who have not accepted yet will need the new link; anyone who already accepted keeps their repository.
+              Do this if the current link has leaked.
+            </div>
+          </div>
         </div>
 
         <footer class="modal-foot flex justify-end gap-sm">
           <button class="btn" type="button" @click="showRepublishModal = false" :disabled="publishing">Cancel</button>
-          <button class="btn btn-warning btn-with-icon" type="button" @click="confirmRepublish" :disabled="publishing">
+          <!-- DESIGN.md §1.2: a modal is its own view, so the confirm is this
+               view's single solid button. §3 has no "warning" variant - the
+               destructive spelling is .btn-danger, and it only appears when the
+               action actually is destructive. -->
+          <button
+            :class="['btn', 'btn-with-icon', regenerateInvite ? 'btn-danger' : 'btn-primary']"
+            type="button"
+            @click="confirmRepublish"
+            :disabled="publishing"
+          >
             <Icon name="refresh-cw" :size="14" />
-            <span>{{ publishing ? 'Publishing…' : 'Republish broker now' }}</span>
+            <span>{{ publishing ? 'Publishing…' : (regenerateInvite ? 'Republish and retire the old link' : 'Republish broker now') }}</span>
           </button>
         </footer>
       </div>
@@ -842,7 +882,8 @@ import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoC
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
-import { invitationUrl, parseInviteFields } from '../lib/invite.js'
+import { invitationUrl, parseInviteFields, inviteDataUrl } from '../lib/invite.js'
+import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
 import AuthCard from '../components/AuthCard.vue'
@@ -914,6 +955,8 @@ const manualSlug = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
 const showRepublishModal = ref(false)
+// Republish reuses the invitation by default; this is the opt-in that retires it.
+const regenerateInvite = ref(false)
 const showDiagnosticModal = ref(false)
 const showSeedModal = ref(false)
 const extending = ref(false)
@@ -1011,6 +1054,7 @@ const activeDropdownIdx = ref(-1)
 const touchedFields = ref({
   id: false,
   title: false,
+  description: false,
   template: false,
   repository_name_pattern: false,
   opens_at: false,
@@ -1056,7 +1100,21 @@ const fieldErrors = computed(() => {
     }
   }
 
-  // 4. Repository Name Pattern check
+  // 4. Title and description are published on a public page.
+  //
+  // pages/scan.mjs would catch this, but only after Save, after the publish
+  // workflow, inside a step that fails the whole ORG's dashboard regeneration
+  // and reports a digest-named file. "Questions? Mail me at ..." is an ordinary
+  // thing to type, so it gets refused here, next to the field.
+  for (const [key, field, value] of [
+    ['title', 'title', form.value.title],
+    ['description', 'description', form.value.description],
+  ]) {
+    const violation = findPublicTextViolation(value)
+    if (violation) errors[key] = publicTextMessage(field, violation)
+  }
+
+  // 5. Repository Name Pattern check
   if (!form.value.repository_name_pattern) {
     errors.repository_name_pattern = 'Repository name pattern is required.'
   } else if (form.value.assignment_type === 'group') {
@@ -1067,7 +1125,7 @@ const fieldErrors = computed(() => {
     errors.repository_name_pattern = 'Pattern must contain "{github_login}".'
   }
 
-  // 5. Schedule check
+  // 6. Schedule check
   if (!form.value.opens_at_local) {
     errors.opens_at = 'Open date is required.'
   }
@@ -1077,7 +1135,7 @@ const fieldErrors = computed(() => {
     errors.deadline_at = 'Deadline must be after the open date.'
   }
 
-  // 6. Max acceptances check
+  // 7. Max acceptances check
   if (form.value.max_acceptances !== '' && form.value.max_acceptances !== null && form.value.max_acceptances !== undefined) {
     const val = Number(form.value.max_acceptances)
     if (Number.isNaN(val) || !Number.isInteger(val) || val < 1) {
@@ -1496,6 +1554,7 @@ function newAssignment() {
   touchedFields.value = {
     id: false,
     title: false,
+    description: false,
     template: false,
     repository_name_pattern: false,
     opens_at: false,
@@ -1570,6 +1629,7 @@ function editAssignment(a) {
   touchedFields.value = {
     id: false,
     title: false,
+    description: false,
     template: false,
     repository_name_pattern: false,
     opens_at: false,
@@ -1796,6 +1856,54 @@ async function saveAssignment(stateOverride = null) {
   }
 }
 
+// Read the invitation the publish workflow minted straight into the control
+// repo. The form we are holding has never seen it, so without this the link box
+// stays empty however many times a lecturer republishes.
+//
+// Unconditional, not "only when the form has none": regenerating rotates the
+// token, and a form that keeps whichever one it saw first goes on handing out a
+// link the broker now rejects as superseded.
+//
+// getRepoContent resolves to the decoded FILE TEXT, or null - not a {ok, data}
+// envelope. `.ok` on a string is undefined, which is why the fix that added this
+// block appeared to do nothing.
+async function refreshInvitation(assignmentId) {
+  const token = getToken()
+  if (!token) return ''
+  const yaml = await getRepoContent(token, props.org, config.controlRepo, `assignments/${assignmentId}.yml`)
+  const fields = parseInviteFields(yaml)
+  if (!fields.invite_token) return ''
+  // These three are system-owned - a lecturer never edits them - so filling
+  // them in must not make a clean form look unsaved and prompt "Discard
+  // unsaved changes?" on the way out.
+  const wasClean = !hasUnsavedEdits()
+  Object.assign(form.value, fields)
+  if (wasClean) snapshotForm()
+  return fields.invite_token
+}
+
+// Is the page a student would open actually there?
+//
+// This used to ask whether the id appeared in assignments.json. It does not:
+// the student loads data/<org>/i/<sha256(token)>.json, and pages/generate.mjs
+// writes that file ONLY when the assignment carries an invite_token - otherwise
+// it logs a warning, continues, and still adds the id to the index. So an
+// assignment published without a token reported "Verified Live" over a page
+// that 404s for every student. Diagnostics Tier 5 was corrected for exactly
+// this in e594f4f; the publish flow beside it was not.
+async function acceptanceCardIsLive(inviteToken) {
+  if (!inviteToken) return false
+  try {
+    const url = `${await inviteDataUrl(props.org, inviteToken)}?t=${Date.now()}`
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) return false
+    const data = await res.json().catch(() => null)
+    return !!data?.assignment?.id
+  } catch {
+    return false
+  }
+}
+
 async function verifyLiveInfrastructure(assignmentId) {
   if (!assignmentId || form.value.state !== 'published') {
     brokerExists.value = null
@@ -1811,39 +1919,8 @@ async function verifyLiveInfrastructure(assignmentId) {
       const brokerRes = await getRepo(token, props.org, brokerRepo)
       brokerExists.value = brokerRes.ok
     }
-    const pagesUrl = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json?t=${Date.now()}`
-    const res = await fetch(pagesUrl, { cache: 'no-store' })
-    if (res.ok) {
-      const data = await res.json().catch(() => null)
-      pagesLive.value = !!(data?.assignments?.[assignmentId])
-    } else {
-      pagesLive.value = false
-    }
-
-    // The invitation is minted by publish-assignment.yml straight into the
-    // control repo, so the form we are holding has never seen it. Without this
-    // the link box stays empty however many times a lecturer republishes -
-    // only navigating away and reopening the assignment would fill it in.
-    //
-    // Unconditional, not "only when the form has none": regenerating an
-    // invitation rotates the token, and a form that keeps whichever one it saw
-    // first goes on handing out a link the broker now rejects as superseded.
-    //
-    // getRepoContent resolves to the decoded FILE TEXT, or null. It is not a
-    // {ok, data} envelope - `.ok` on a string is undefined, which is why this
-    // whole block never ran and the fix that added it appeared to do nothing.
-    if (token) {
-      const yaml = await getRepoContent(token, props.org, config.controlRepo, `assignments/${assignmentId}.yml`)
-      const fields = parseInviteFields(yaml)
-      if (fields.invite_token) {
-        // These three are system-owned - a lecturer never edits them - so
-        // filling them in must not make a clean form look unsaved and prompt
-        // "Discard unsaved changes?" on the way out.
-        const wasClean = !hasUnsavedEdits()
-        Object.assign(form.value, fields)
-        if (wasClean) snapshotForm()
-      }
-    }
+    const inviteToken = await refreshInvitation(assignmentId)
+    pagesLive.value = await acceptanceCardIsLive(inviteToken)
   } catch (e) {
     console.warn('Failed to verify live infrastructure:', e)
   } finally {
@@ -1894,6 +1971,8 @@ async function revertToDraftAfterFailedPublish() {
 
 function handlePublishClick() {
   if (form.value.state === 'published' && brokerExists.value === true) {
+    // Rotating is never the default - a repair republish must not break links.
+    regenerateInvite.value = false
     showRepublishModal.value = true
   } else {
     publishExisting()
@@ -1901,20 +1980,33 @@ function handlePublishClick() {
 }
 
 async function confirmRepublish() {
-  const ok = await publishExisting()
+  const ok = await publishExisting({ regenerate: regenerateInvite.value })
   if (ok) {
     showRepublishModal.value = false
+    if (regenerateInvite.value) {
+      // The old token is still in the form until the workflow writes the new
+      // one; clear it so nothing can copy a link the broker is about to reject.
+      form.value.invite_token = ''
+      toast.info('Regenerating - the new link appears here once the workflow finishes. The old one stops working now.')
+    }
+    regenerateInvite.value = false
   }
 }
 
 // Returns true when the workflow_dispatch was accepted by GitHub.
-async function publishExisting() {
+//
+// `regenerate` mints a fresh nonce, which retires every link already handed
+// out. It is an input on publish-assignment.yml that nothing in the app ever
+// sent, so the only way to rotate a leaked link was the Actions tab.
+async function publishExisting({ regenerate = false } = {}) {
   publishing.value = true
   try {
     const token = getToken()
     const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'publish-assignment.yml', {
       org: props.org,
       assignment_id: form.value.id,
+      // workflow_dispatch boolean inputs arrive as strings over the REST API.
+      regenerate_invite: regenerate ? 'true' : 'false',
     })
     if (res.ok || res.status === 204) {
       toast.success('Publish workflow triggered. Watching for the broker to appear…')
@@ -1945,26 +2037,18 @@ function startPublishWatch() {
         const brokerRes = await getRepo(token, props.org, brokerRepo)
         if (brokerRes.ok) brokerExists.value = true
       }
-      const pagesUrl = `${import.meta.env.BASE_URL}data/${props.org}/assignments.json?t=${Date.now()}`
-      const res = await fetch(pagesUrl, { cache: 'no-store' })
-      if (res.ok) {
-        const data = await res.json().catch(() => null)
-        if (data?.assignments?.[form.value.id]) {
-          brokerExists.value = true
-          pagesLive.value = true
-          publishWatch.value = 'ready'
-          // The workflow minted the invitation into the control repo while we
-          // were polling; the form has never seen it. Without this the banner
-          // says "verified live" over an empty link box and a Copy button that
-          // errors - which is exactly what a lecturer hits after publishing.
-          await verifyLiveInfrastructure(form.value.id)
-          toast.success(
-            form.value.invite_token
-              ? 'Published! The invitation link is live and ready to share.'
-              : 'Published, but the invitation link has not appeared yet. Open Troubleshoot to check it.',
-          )
-          return
-        }
+      // Two things have to be true, and only one of them was being checked.
+      // The workflow mints the invitation into the control repo while we poll,
+      // so the form has never seen it - read it first, then ask whether the
+      // page a student would open is actually there. Waiting on the index
+      // instead declared success over a card that 404s.
+      const inviteToken = await refreshInvitation(form.value.id)
+      if (inviteToken && (await acceptanceCardIsLive(inviteToken))) {
+        brokerExists.value = true
+        pagesLive.value = true
+        publishWatch.value = 'ready'
+        toast.success('Published! The invitation link is live and ready to share.')
+        return
       }
     } catch (e) {
       // ignore
@@ -2826,13 +2910,34 @@ details .field { padding: 0 var(--space-sm); }
   border: 1px solid var(--tint-accent-emphasis);
   color: var(--accent-blue);
   padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
 }
 .alert-success {
   background: var(--tint-success-subtle);
   border: 1px solid var(--tint-success-emphasis);
   color: var(--accent-green);
   padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
 }
+.alert-danger {
+  background: var(--tint-danger-subtle);
+  border: 1px solid var(--tint-danger-emphasis);
+  color: var(--accent-red);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+}
+
+/* DESIGN.md §1.1: the modal already outlines itself and its alerts. A third
+   bordered box here is the prison - this is a tonal step instead, and
+   --bg-inset is the one that actually differs in both themes. */
+.regen-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  background: var(--bg-inset);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+}
+.regen-choice .field.checkbox { margin: 0; }
+.regen-choice small { color: var(--text-secondary); }
 </style>

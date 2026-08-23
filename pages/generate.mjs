@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { inviteFileFor } from "../lib/invite-token.mjs";
+import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -91,6 +92,25 @@ async function main() {
         acceptedCount = accFiles.filter((f) => f.endsWith(".json")).length;
       } catch (e) {
         console.error(`Error reading acceptances for ${def.id}:`, e.message);
+      }
+    }
+
+    // Say which assignment, and which field, before the scanner sees a
+    // digest-named file and reports a rule id.
+    //
+    // The scanner is a publish gate over generated output, so when a lecturer
+    // wrote "Questions? Mail <address>" into a description it blocked the
+    // publish with a message naming public/i/<64 hex>.json and [email-address].
+    // The generate step failed, the org's whole dashboard regeneration failed
+    // with it, and the site redeployed with stale data - for a sentence that
+    // the Admin Panel had accepted without comment.
+    for (const [field, value] of [["title", def.title], ["description", def.description]]) {
+      const violation = findPublicTextViolation(value);
+      if (violation) {
+        throw new Error(
+          `assignments/${file}: ${publicTextMessage(field, violation)} ` +
+            `Edit it in the Admin Panel, or in assignments/${file} directly, then republish.`
+        );
       }
     }
 

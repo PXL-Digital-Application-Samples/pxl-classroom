@@ -18,29 +18,33 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { PUBLIC_TEXT_RULES } from "../lib/public-text.mjs";
+
 const RULES = [
-  // Character class matches the format used by classic tokens AND the new
-  // stateless installation token format that may include `_` in the body
-  // (GitHub Changelog, 2025-Q4 rollout). No upper length bound - new ghs_
-  // tokens can be ~520 chars and still match.
-  { name: "github-token", re: /\bgh[posu]_[A-Za-z0-9_]{20,}\b/g },
-  { name: "github-fine-grained-pat", re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
-  { name: "private-key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
-  { name: "email-address", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, allow: /@users\.noreply\.github\.com$/ },
-  // Match both legacy (v1) and current (v2) roster field names. The scanner is a
-  // publish gate - keeping both keeps it defensive against any leftover legacy
+  // Anything a lecturer can type into a field that gets published - an email
+  // address, a credential, the invitation wire shape - comes from
+  // lib/public-text.mjs, which AdminView and pages/generate.mjs use too. That
+  // way a value this scanner would reject is refused where it can still be
+  // fixed, instead of failing an org's whole Pages build three workflows later
+  // with a message naming a digest.
+  //
+  // A signed invitation is a capability: anyone holding it can accept. It lives
+  // in the PRIVATE control repo and reaches Pages only as a sha256 FILENAME, so
+  // finding one in the body of a world-readable artifact means the generator
+  // just handed every visitor a working link.
+  ...PUBLIC_TEXT_RULES,
+
+  // File-shaped rules. These match JSON field NAMES, so they only mean anything
+  // against generated output - never against a free-text field.
+  //
+  // Both legacy (v1) and current (v2) roster field names: the scanner is a
+  // publish gate, and keeping both keeps it defensive against leftover legacy
   // data in archived control repos.
   { name: "institutional-id-field", re: /"(student_id|student_number)"\s*:/g },
   { name: "claim-token-field", re: /"claim_token"\s*:/g },
   { name: "roster-field", re: /"(display_name|full_name|class_group|institutional_id)"\s*:/g },
   { name: "github-app-key", re: /\bv[0-9]+\.[0-9a-f]{40}\b/g },
   { name: "jwt-token", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./g },
-  // A signed invitation is a capability: anyone holding it can accept. It lives
-  // in the PRIVATE control repo and reaches Pages only as a sha256 FILENAME, so
-  // finding one in the body of a world-readable artifact means the generator
-  // just handed every visitor a working link. Matches the exact wire shape from
-  // lib/invite-token-format.mjs - 35 chars, a dot, 86 chars.
-  { name: "invitation-token", re: /\b[A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86}\b/g },
 ];
 
 async function* walk(p) {
