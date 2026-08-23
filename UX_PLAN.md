@@ -558,77 +558,24 @@ actions bar; Regenerate opens the modal with the box ticked.
 
 ---
 
-## 5. WS3 — The first-run wall
+## 5. WS3 — The first-run wall — **shipped**
 
-**Fixes:** UX1 (template dead end), UX3 (roster prerequisite), UX4 (seed control
+**Fixed:** UX1 (template dead end), UX3 (roster prerequisite), UX4 (seed control
 that cannot work), UX5 (AJV errors).
 
-### 5.1 Template repository — link out, with the answer
+One deviation, recorded because it was deliberate: §5.1 said the empty state
+replaces the combobox. It sits **underneath** it instead — typing `owner/repo`
+is the only way to name a template in another organization, and an org with none
+of its own is exactly when someone reaches for one.
 
-Decision: no repository creation. So the empty state has to do the whole job in
-words and one link.
+Two things the plan got wrong about the code, found while building it: the
+roster count is *not* already in hand from `validateStudentLogin` (which fetches
+per call and caches nothing) — it comes from `RosterTab`, which has already read
+the file; and a roster that **fails to read** must not be reported as an empty
+one, which the plan did not distinguish.
 
-Current: *"No template repositories found in <org>. Create one and mark it as a
-template in repo Settings."*
-
-Replacement, shown in place of the combobox when the org has zero templates:
-
-> **This organization has no template repositories yet.**
-> A template is an ordinary repository — starter code, a README, whatever each
-> student should begin from. Every student gets their own copy of it.
->
-> **[Create one on GitHub →]**   *(opens `github.com/organizations/<org>/repositories/new`)*
->
-> Then open its **Settings** and tick **Template repository**. Come back and press
-> refresh — it will appear in the list.
->
-> Already have one? Tick *Template repository* in its settings and it will show up
-> here.
-
-Two things this fixes beyond wording: it says what a template *is* (the current
-text assumes you know), and it names the one non-obvious step (the checkbox in
-Settings) that is the actual reason the list is empty for most people.
-
-The refresh button beside the combobox already exists; it gets a tooltip and stays.
-
-### 5.2 Roster — show the count, link the tab
-
-`enforced` makes `students/roster.yml` load-bearing. The form mentions it in a
-`<small>` and points at "the Roster tab", which is not a link.
-
-Under the *Who may accept* select, when `enforced` is selected:
-
-* **0 students** → `⚠ No students imported yet — nobody can accept. [Import roster →]`
-* **n students** → `✓ 213 students on the roster. [Manage →]`
-
-Both link to the Roster tab (`setTab('roster')`). The count comes from the roster
-the view already loads for `validateStudentLogin`; no new request on the common
-path.
-
-### 5.3 Remove *Seed teams from…* from the create form
-
-It is permanently disabled with *"Save this assignment first"*. A control that can
-never work on the screen it is on should not be on that screen (C1). It stays on
-the editor for a **saved** assignment, which is where it works.
-
-### 5.4 Validation speaks to lecturers
-
-`AdminView.validate()` renders raw AJV: `/autograde/tests/0/id must match pattern
-"^[a-z0-9][a-z0-9-]{0,63}$"`. The roster importer already solves exactly this with
-`formatRosterValidationError`.
-
-**Fix:** a sibling `formatAssignmentValidationError(err)` in the same style, mapping
-the paths that can actually be reached from the form:
-
-| AJV path | Message |
-|---|---|
-| `/autograde/tests/N/id` | `Check ${n}: the ID must be lowercase letters, numbers and dashes.` |
-| `/autograde/tests` (minItems) | `Autograding is on but no checks are defined. Add one, or turn it off.` |
-| `/group_config/max_team_size` | `Maximum team size must be at least ${min}.` |
-| `/repository_name_pattern` | (already handled in `fieldErrors`) |
-
-Anything unmapped falls through to the raw string rather than being swallowed —
-an unfamiliar error must still be visible.
+Rules are in CLAUDE.md, ARCHITECTURE §10.4 and RUNBOOK §4.1.
+`tests/e2e/32-first-run-wall.spec.mjs`, `tests/assignment-validation-messages.test.mjs`.
 
 ---
 
@@ -837,7 +784,8 @@ enforcement half does not block anything else.
 **WS2 and WS4 before WS5.** WS5's layout is mostly composition of things those two
 produce; doing it first would mean building the same blocks twice.
 
-**WS3 and WS6 any time.** Neither touches shared components.
+~~**WS3 and WS6 any time.**~~ **WS3 shipped**; WS6 still any time. Neither
+touches shared components.
 
 Each workstream is one commit, with its tests, per the repo's convention.
 

@@ -90,7 +90,10 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     // "Anyone with the link can claim a repo."
     const rosterSelect = page.locator('select').filter({ hasText: 'only students on the roster' });
     await expect(rosterSelect).toHaveValue('enforced');
-    await expect(page.locator('text=Students must appear in')).toBeVisible();
+    // With the gate on, the form says whether anyone can accept at all. This
+    // org's mock has no roster file, so: nobody. (UX_PLAN §5.2, covered in
+    // depth by tests/e2e/32-first-run-wall.spec.mjs.)
+    await expect(page.locator('.roster-status')).toContainText('nobody can accept');
 
     // One enum value is not a decision, so there is no control for it.
     await page.locator('details.advanced summary').click();

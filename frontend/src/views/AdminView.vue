@@ -385,9 +385,38 @@
               <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
                 Failed to load templates: {{ templatesError }}.
               </small>
-              <small v-else-if="!loadingTemplates && templates.length === 0">
-                No template repositories found in <code>{{ org }}</code>. Create one and mark it as a template in repo Settings.
-              </small>
+              <!-- The first-run wall (UX_PLAN §5.1). The old copy - "Create one
+                   and mark it as a template in repo Settings" - assumed the
+                   reader already knew what a template repository is, and buried
+                   the one non-obvious step (the checkbox) that is the actual
+                   reason this list is empty for almost everyone.
+                   The combobox deliberately stays: typing `owner/repo` is the
+                   only way to name a template the org search cannot see, and
+                   `checkTemplateValidity` probes it live. -->
+              <div v-else-if="!loadingTemplates && templates.length === 0" class="template-empty">
+                <strong>This organization has no template repositories yet.</strong>
+                <p>
+                  A template is an ordinary repository - starter code, a README, whatever each
+                  student should begin from. Every student gets their own copy of it.
+                </p>
+                <a
+                  class="btn btn-secondary btn-sm btn-with-icon"
+                  :href="`https://github.com/organizations/${org}/repositories/new`"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Icon name="plus" :size="13" />
+                  <span>Create one on GitHub</span>
+                </a>
+                <p>
+                  Then open its <strong>Settings</strong> and tick <strong>Template repository</strong>.
+                  Come back and press refresh - it will appear in the list.
+                </p>
+                <p class="text-muted">
+                  Already have one? Ticking <strong>Template repository</strong> in its settings is
+                  what makes it show up here.
+                </p>
+              </div>
               <small v-else-if="!loadingTemplates">
                 Found {{ templates.length }} template repositories.
               </small>
@@ -464,22 +493,23 @@
                 </small>
               </div>
 
-              <div class="field">
+              <!-- Not on the create form (UX_PLAN §5.3). Teams are stored under
+                   the assignment's ID, so this could never work here - it was a
+                   permanently disabled control explaining its own impossibility.
+                   It stays on the editor for a saved assignment, where it works. -->
+              <div v-if="!isNew" class="field">
                 <label>Starting teams</label>
                 <div class="flex items-center gap-sm flex-wrap">
                   <button
                     type="button"
                     class="btn btn-secondary btn-sm btn-with-icon"
-                    :disabled="isNew || hasUnsavedEdits()"
+                    :disabled="hasUnsavedEdits()"
                     @click="showSeedModal = true"
                   >
                     <Icon name="users" :size="13" />
                     <span>Seed teams from…</span>
                   </button>
-                  <span v-if="isNew" class="text-muted text-xs">
-                    Save this assignment first — teams are stored under its ID.
-                  </span>
-                  <span v-else-if="hasUnsavedEdits()" class="text-muted text-xs">
+                  <span v-if="hasUnsavedEdits()" class="text-muted text-xs">
                     Save your changes first — seeding reads this assignment's team size and
                     repository pattern.
                   </span>
@@ -522,9 +552,25 @@
                 <option value="enforced">enforced: only students on the roster</option>
                 <option value="open">open: any GitHub account (exams, unknown cohort)</option>
               </select>
-              <small v-if="form.roster_mode !== 'open'">
-                Students must appear in <code>students/roster.yml</code>. Import them under the
-                <strong>Roster</strong> tab - an empty roster means nobody can accept.
+              <!-- `enforced` makes students/roster.yml load-bearing, so the
+                   form says whether anyone can accept at all rather than
+                   naming a tab it does not link to (UX_PLAN §5.2). The count
+                   comes from RosterTab, which has already read the file. -->
+              <small v-if="form.roster_mode !== 'open'" class="roster-status">
+                <span v-if="rosterCount === 0" class="status-indicator">
+                  <span class="status-dot dot-warning"></span>
+                  <span>No students imported yet - nobody can accept.</span>
+                  <button type="button" class="btn-link" @click="setTab('roster')">Import roster →</button>
+                </span>
+                <span v-else-if="rosterCount > 0" class="status-indicator">
+                  <span class="status-dot dot-success"></span>
+                  <span>{{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} on the roster.</span>
+                  <button type="button" class="btn-link" @click="setTab('roster')">Manage →</button>
+                </span>
+                <span v-else>
+                  Students must appear in <code>students/roster.yml</code>. Import them under the
+                  <strong>Roster</strong> tab - an empty roster means nobody can accept.
+                </span>
               </small>
               <small v-else class="text-warning">
                 <strong>Anyone</strong> with the link can claim a repo while the assignment is open.
@@ -906,6 +952,7 @@ import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
+import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { toast } from '../lib/toast.js'
 import { invitationUrl, parseInviteFields, inviteDataUrl } from '../lib/invite.js'
 import { extensionFrom } from '../lib/deadline.js'
@@ -1042,6 +1089,9 @@ const rosterTab = ref(null)
 function rosterDirty() {
   return rosterTab.value?.isDirty?.() === true
 }
+// null until the roster has been read (or when there is no roster file at all),
+// so the form can say "not known yet" rather than "nobody can accept".
+const rosterCount = computed(() => rosterTab.value?.studentCount ?? null)
 function confirmRosterDiscard() {
   if (!rosterDirty()) return true
   return window.confirm('Discard the un-committed roster import?')
@@ -1822,7 +1872,10 @@ const validationErrors = ref([])
 async function validate(state = null) {
   const doc = buildDoc(state)
   const { valid, errors } = await validateAgainst('assignment', doc)
-  const problems = valid ? [] : errors.map((e) => `${e.instancePath || '(root)'} ${e.message}`)
+  // Raw AJV names a JSON Pointer, a keyword and a regex - none of which is on
+  // the lecturer's screen. UX_PLAN §5.4; unmapped errors still come through
+  // verbatim rather than being swallowed.
+  const problems = valid ? [] : errors.map((e) => formatAssignmentValidationError(e, doc))
 
   // Cross-field rules JSON Schema can't express.
   if (doc.opens_at && doc.deadline_at && new Date(doc.deadline_at) <= new Date(doc.opens_at)) {
@@ -2818,6 +2871,28 @@ details .field { padding: 0 var(--space-sm); }
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* The zero-templates wall. A tonal well, not a fourth 1px box inside a
+   fieldset inside a card (DESIGN.md §1.1) - `--bg-inset` is the step that
+   differs in both themes. */
+.template-empty {
+  margin-top: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.template-empty strong { color: var(--text-primary); }
+.template-empty p { margin: var(--space-xs) 0 var(--space-sm) 0; }
+.template-empty p:last-child { margin-bottom: 0; }
+.template-empty a { margin-bottom: var(--space-xs); }
+
+/* Roster readiness under "Who may accept". `.status-indicator` owns the dot;
+   this only keeps the sentence and its link on one line when there is room. */
+.roster-status { display: block; }
+.roster-status .status-indicator { flex-wrap: wrap; gap: var(--space-xs); }
+.roster-status .btn-link { font-size: inherit; }
 
 /* DYNAMIC VALIDATION ERROR ALERTS */
 .field-error-msg {

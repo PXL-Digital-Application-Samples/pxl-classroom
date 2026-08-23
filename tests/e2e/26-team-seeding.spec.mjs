@@ -408,7 +408,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await expect(page.locator('.empty-state')).toContainText('Seed teams from a previous assignment');
   });
 
-  test('Admin form: seeding waits for the first save, and the fallback toggle is pre-assigned only', async ({ page }) => {
+  test('Admin form: seeding is absent until the first save, and the fallback toggle is pre-assigned only', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -418,9 +418,13 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await page.goto(`/dashboard/${ORG}/admin?new=1`);
     await page.locator('input[type="radio"][value="group"]').check();
 
-    const seedBtn = page.locator('button', { hasText: 'Seed teams from…' });
-    await expect(seedBtn).toBeDisabled();
-    await expect(page.locator('text=Save this assignment first')).toBeVisible();
+    // Teams are stored under the assignment's ID, so this cannot work on the
+    // create form. It used to sit there permanently disabled, explaining its
+    // own impossibility; UX_PLAN §5.3 removes it from the screen it cannot
+    // work on. It returns on the editor for a saved assignment - covered by
+    // "Seeding from the assignment editor raises exactly one toast" below.
+    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toHaveCount(0);
+    await expect(page.locator('text=Save this assignment first')).toHaveCount(0);
 
     // The fallback only means anything when the lecturer owns the grouping.
     await expect(page.locator('text=Let students with no assigned team form their own')).toBeHidden();

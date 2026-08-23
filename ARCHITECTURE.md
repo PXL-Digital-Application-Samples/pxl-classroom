@@ -657,7 +657,9 @@ The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated P
 
 ### 10.4 Validation
 
-`frontend/src/lib/validate.js` runs ajv against the schemas in `frontend/public/schemas/` before any Admin Panel commit. The lecturer can never accidentally commit a malformed assignment or override.
+`frontend/src/lib/validate.js` runs ajv against the schemas the dev server and the build serve straight from `schemas/` (vite's `serve-schemas` middleware), before any Admin Panel commit. The lecturer can never accidentally commit a malformed assignment or override.
+
+**AJV speaks JSON Schema, not to lecturers.** `frontend/src/lib/validation-messages.js` maps the errors the assignment form can actually produce onto sentences - `/autograde/tests/0/id must match pattern "^[a-z0-9][a-z0-9-]{0,63}$"` becomes `Test "Task 1": the ID must be lowercase letters, numbers and dashes`. It is the sibling of `RosterTab`'s `formatRosterValidationError`, which does the same for the CSV importer, and it follows the same rule: **anything unmapped falls through to the raw string.** A mapping nobody wrote is still an error the lecturer has to see - swallowing it leaves a disabled Save button and no reason for it. Field-level rules the schema cannot express stay in `AdminView.fieldErrors`, where they render next to the field rather than in the summary block.
 
 ### 10.5 CLI companion
 

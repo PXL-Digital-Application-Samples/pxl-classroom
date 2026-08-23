@@ -435,19 +435,28 @@ function changedFields(u) {
   return [...keys].filter((k) => JSON.stringify(u.before[k]) !== JSON.stringify(u.after[k]))
 }
 
+// "There is no roster" and "the roster could not be read" are different facts,
+// and the assignment form turns the first into "nobody can accept". Conflating
+// them would put that warning on screen because a token expired.
+const rosterReadFailed = ref(false)
+
 async function loadExisting() {
   loadingExisting.value = true
+  rosterReadFailed.value = false
   try {
     const token = getToken()
+    // getRepoContent resolves to null on a 404 and throws on anything else, so
+    // a falsy body here is a genuine absence.
     const text = await getRepoContent(token, props.org, controlRepo, 'students/roster.yml')
     existingRoster.value = text ? parseYaml(text) : null
   } catch (e) {
+    rosterReadFailed.value = true
+    existingRoster.value = null
     if (e?.status === 401) {
       toast.error('Session expired. Sign in again.')
       return
     }
     console.error('Failed to load roster', e)
-    existingRoster.value = null
   } finally {
     loadingExisting.value = false
   }
@@ -595,8 +604,25 @@ onMounted(loadExisting)
 
 // A parsed import with an uncommitted diff is unsaved work - the parent
 // includes it in the route-leave / beforeunload guards.
+//
+// The count is exposed because the assignment form has to say whether anyone
+// can accept at all under `roster_mode: enforced`, and this component has
+// already fetched `students/roster.yml` on mount. Re-reading it there would be
+// a second request for a file that is open in the next tab - and two readers
+// that could disagree. `loadExisting()` runs again after a commit, so the
+// number the form shows follows an import without being told.
+// null means "not known": still loading, or the read failed. A roster file that
+// does not exist is 0 - that is a known fact, and it is the one that stops
+// every acceptance under `roster_mode: enforced`.
+const studentCount = computed(() => {
+  if (loadingExisting.value || rosterReadFailed.value) return null
+  const students = existingRoster.value?.students
+  return Array.isArray(students) ? students.length : 0
+})
+
 defineExpose({
   isDirty: () => canCommit.value,
+  studentCount,
 })
 </script>
 
