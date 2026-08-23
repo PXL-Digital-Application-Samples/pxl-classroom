@@ -184,6 +184,10 @@ jobs:
           NODE_ID: ${{ steps.team.outputs.issue_node_id }}
           BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
         run: |
+          # shellcheck disable=SC2016
+          # $id is a GraphQL variable, bound by -F below. It must reach the API
+          # unexpanded, so the single quotes are the point rather than an
+          # oversight.
           if gh api graphql \
                -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' \
                -F id="$NODE_ID" >/dev/null 2>&1; then

@@ -21,14 +21,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # eslint.config.mjs exists because undeclared identifiers keep shipping:
-      # the template compiler never sees a <script setup> body, Vite bundles it
-      # happily, and the unit suite does not execute components. It caught none
-      # of them because it was never wired in here - `isStarred` shipped as the
-      # fourth. no-undef is the point of the config; this is what enforces it.
-      - name: Lint
-        run: npx eslint . --max-warnings 0
-
       - name: Run unit tests
         run: node --test tests/*.test.mjs cli/tests/*.test.mjs
 
@@ -93,13 +85,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Download actionlint
-        run: |
-          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.1
-          echo "${PWD}" >> "$GITHUB_PATH"
-
-      - name: Run actionlint
-        run: actionlint
-
-      - name: Run bash -n syntax check
-        run: node scripts/workflow-lint.mjs
+      # The one lint command, identical to the one a developer runs. It used to
+      # be three steps here and `eslint .` in package.json, so `npm run lint`
+      # could pass while this job had been red since 48ed831 over a shellcheck
+      # finding nothing local would ever surface. scripts/lint.mjs owns eslint,
+      # workflow-lint and actionlint, and pins actionlint and shellcheck so both
+      # sides report identically. tests/lint-parity.test.mjs stops them
+      # separating again.
+      - name: Lint
+        run: npm run lint

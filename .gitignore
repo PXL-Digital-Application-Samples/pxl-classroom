@@ -4,3 +4,5 @@ node_modules/
 test-screenshot*.png
 test-results/
 playwright-report/
+# Pinned lint binaries, fetched on demand by scripts/lint.mjs.
+.tools/
