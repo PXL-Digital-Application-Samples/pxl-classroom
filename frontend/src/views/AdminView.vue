@@ -1819,6 +1819,21 @@ async function verifyLiveInfrastructure(assignmentId) {
     } else {
       pagesLive.value = false
     }
+
+    // The invitation is minted by publish-assignment.yml straight into the
+    // control repo, so the form we are holding has never seen it. Without this
+    // the link box stays empty however many times a lecturer republishes -
+    // only navigating away and reopening the assignment would fill it in.
+    if (token && !form.value.invite_token) {
+      const ymlRes = await getRepoContent(token, props.org, 'pxl-classroom-control', `assignments/${assignmentId}.yml`)
+      if (ymlRes?.ok) {
+        const yml = String(ymlRes.data || '')
+        const grab = (key) => yml.match(new RegExp(`^${key}: *(\\S+)$`, 'm'))?.[1] || ''
+        form.value.invite_token = grab('invite_token')
+        form.value.invite_nonce = grab('invite_nonce')
+        form.value.invite_expires_at = grab('invite_expires_at')
+      }
+    }
   } catch (e) {
     console.warn('Failed to verify live infrastructure:', e)
   } finally {
@@ -1952,6 +1967,12 @@ function stopPublishWatch() {
 }
 
 function copyAcceptLink() {
+  // Guard: without a token this writes the string "null" to the clipboard and
+  // reports success, which is worse than saying nothing happened.
+  if (!shareableLink.value) {
+    toast.error('No invitation link yet. Publish the assignment to mint one - if it is already published, open Troubleshoot to check the invitation.')
+    return
+  }
   navigator.clipboard.writeText(shareableLink.value).then(
     () => {
       if (form.value.state !== 'published') {
