@@ -79,6 +79,24 @@ jobs:
             exit 1
           fi
 
+      # What state was this assignment in before we touched it? A publish that
+      # fails must undo its own transition and nothing else - demoting an
+      # assignment that was ALREADY published, because a repair republish failed,
+      # would strand every student behind rejected:not-published.
+      - name: Record prior state
+        id: prior
+        if: inputs.dry_run != true
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        run: |
+          FILE="control/assignments/${ASSIGNMENT_ID}.yml"
+          STATE=""
+          if [ -f "$FILE" ]; then
+            STATE=$(grep -m1 '^state:' "$FILE" | awk '{print $2}' || true)
+          fi
+          echo "state=${STATE}" >> "$GITHUB_OUTPUT"
+          echo "Prior state: ${STATE:-<unknown>}"
+
       # Mints the signed invitation token and records it in the PRIVATE control
       # repo. Republishing keeps the existing link alive; regenerate_invite
       # retires every link already handed out. See ARCHITECTURE §4.3.2.
@@ -207,6 +225,37 @@ jobs:
           git -C control add "$FILE"
           git -C control diff --cached --quiet || git -C control commit -m "Publish assignment ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
+
+      # "Save & publish" writes state: published from the SPA before dispatching,
+      # and the workflow flips it again on success. When a step in between fails
+      # - the broker push being rejected by an org ruleset, say - the assignment
+      # was left claiming published with no invitation and no working broker: no
+      # student link, and every republish failing the same way. The SPA only
+      # reverts a failed DISPATCH; nothing covered a workflow that failed after
+      # being dispatched. This does.
+      #
+      # It also commits whatever the mint step produced, so the invitation is not
+      # thrown away and the next publish reuses the same link.
+      - name: Revert to prior state on failure
+        if: failure() && inputs.dry_run != true && steps.prior.outputs.state != 'published'
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          PRIOR_STATE: ${{ steps.prior.outputs.state }}
+        run: |
+          FILE="assignments/${ASSIGNMENT_ID}.yml"
+          [ -f "control/$FILE" ] || exit 0
+          TARGET="${PRIOR_STATE:-draft}"
+          sed -i "s/^state:.*/state: ${TARGET}/" "control/$FILE"
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control add "$FILE"
+          if git -C control diff --cached --quiet; then
+            echo "Nothing to revert"
+          else
+            git -C control commit -q -m "Publish failed for ${ASSIGNMENT_ID} - reverting to ${TARGET}"
+            scripts/git-push-with-retry.sh control
+            echo "::error::Publish failed; ${ASSIGNMENT_ID} reverted to ${TARGET} so it does not claim to be published without a working invitation."
+          fi
 
       - name: Enable daily activity workflow
         if: inputs.dry_run != true

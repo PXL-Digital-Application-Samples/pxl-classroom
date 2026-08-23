@@ -94,3 +94,50 @@ test("no workflow reads a hub credential outside a step that needs it", () => {
     }
   }
 });
+
+// "Save & publish" writes state: published from the SPA before dispatching, and
+// the workflow flips it again on success. When a step in between fails - the
+// broker push rejected by an org ruleset, say - the assignment was left claiming
+// published with no invitation and no working broker. The SPA only ever reverted
+// a failed DISPATCH; nothing covered a workflow that failed after dispatching.
+test("a failed publish reverts the assignment rather than stranding it", () => {
+  const doc = parse(readFileSync(join(WORKFLOW_DIR, "publish-assignment.yml"), "utf8"));
+  const steps = doc.jobs.publish.steps;
+  const names = steps.map((s) => s.name);
+
+  const prior = steps.find((s) => s.name === "Record prior state");
+  const revert = steps.find((s) => s.name === "Revert to prior state on failure");
+  assert.ok(prior, "the prior state must be recorded before anything changes");
+  assert.ok(revert, "a failed publish must undo its own transition");
+
+  // Order matters: the prior state has to be captured before the first write.
+  assert.ok(
+    names.indexOf("Record prior state") < names.indexOf("Mint invitation token"),
+    "prior state must be recorded before the first write"
+  );
+  assert.ok(
+    names.indexOf("Revert to prior state on failure") > names.indexOf("Update assignment state"),
+    "the revert must come after the steps it undoes"
+  );
+
+  assert.match(revert.if, /failure\(\)/, "the revert only runs when the publish failed");
+  // Demoting an assignment that was ALREADY published, because a repair
+  // republish failed, would strand every student behind rejected:not-published.
+  assert.match(
+    revert.if,
+    /steps\.prior\.outputs\.state != 'published'/,
+    "a repair republish of a live assignment must never demote it"
+  );
+});
+
+test("publishing never force-pushes the broker", () => {
+  // An org is entitled to forbid force-push - PXL-Systems-Expert carries
+  // Classroom50 org rulesets that do - and rewriting a broker's history buys
+  // nothing. A rejected push here fails the publish after the invitation has
+  // already been minted.
+  const broker = readFileSync(join(root, "acceptance", "broker-workflow.yml"), "utf8");
+  const publish = readFileSync(join(WORKFLOW_DIR, "publish-assignment.yml"), "utf8");
+  const forcePush = /git push[^\r\n]*--force/;
+  assert.ok(!forcePush.test(publish), "publish must not force-push the broker");
+  assert.ok(!forcePush.test(broker), "the broker template must not force-push either");
+});
