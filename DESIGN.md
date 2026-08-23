@@ -291,6 +291,35 @@ console warning. That shipped 86 times before it was swept, and separately broke
 Anything passed into a `<slot>` counts, because slot content is compiled in the
 *parent's* scope (§6). `tests/scoped-style-leakage.test.mjs` enforces this.
 
+### A class declared nowhere is the same bug
+
+`tests/scoped-style-leakage.test.mjs` catches "used here, scoped over there". It
+deliberately skips the other half — `if (!owners) continue; // not styled
+anywhere` — and that gap is how two things shipped:
+
+* **`.btn-warning`**, used seven times across `AdminView` and
+  `StudentDiagnosticsModal`, declared in neither `style.css` nor any scoped
+  block. Every one rendered with the plain `.btn` face. It is not a §3 variant
+  either; those buttons are now `.btn-secondary`, or `.btn-danger` where the
+  action is destructive.
+* **`.font-semibold`**, written in **ten** components and declared in none of
+  them, so every heading meant to be semibold rendered at the body weight. Same
+  for `.font-medium`, `.font-bold`, `.uppercase`, `.text-xl`, `.text-left` and
+  `.list-disc`. They now sit in `style.css` beside `.text-sm` / `.text-xs`.
+
+This is exactly §5 rule 3 (“every `var(--token)` must resolve”) applied to class
+names: **an undeclared class fails silently**, with no build error and no console
+warning, and a test that reads the *template* will happily confirm the class is
+there.
+
+`scripts/lint-undeclared-classes.mjs` lists them; `tests/undeclared-classes.test.mjs`
+pins the remainder in `tests/fixtures/undeclared-classes.backlog.json`. Nothing
+new may join that list, and a class that gets declared must be removed from it.
+The backlog is **not** cleared — it is component vocabulary (`.score-banner`,
+`.test-logs`, `.data-table`, `.override-alert-banner`, …) whose intended
+appearance is recorded nowhere, so it needs a design decision rather than a
+guess.
+
 Global vocabulary now includes:
 
 | Group | Classes |

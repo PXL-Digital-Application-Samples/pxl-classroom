@@ -897,6 +897,22 @@ select:focus {
 .text-sm { font-size: 0.82rem; }
 .text-xs { font-size: 0.74rem; }
 
+/* Weight, case and size utilities.
+ *
+ * These were written throughout the app - .font-semibold appears in ten
+ * components - and declared in none of it, so every heading meant to be
+ * semibold rendered at the body weight and every uppercase label rendered
+ * mixed-case. A class declared nowhere fails exactly the way an undefined
+ * custom property does (DESIGN.md §5 rule 3): silently, with no build error.
+ * scripts/lint-undeclared-classes.mjs is what finds the next one. */
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.uppercase { text-transform: uppercase; letter-spacing: 0.04em; }
+.text-xl { font-size: 1.15rem; }
+.text-left { text-align: left; }
+.list-disc { list-style: disc; }
+
 .sr-only {
   position: absolute;
   width: 1px;
