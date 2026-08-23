@@ -9,6 +9,7 @@ Working conventions for this repo (`PXL-Digital-Application-Samples/pxl-classroo
 ## Working style
 - Be terse and concrete. Do things rather than explain them; give exact values/clicks when the user must act.
 - Don't ask for command approval - permissions are set to bypass in `.claude/settings.local.json`.
+- **NEVER edit a file through a shell heredoc.** No `python3 - <<'EOF'`, no `cat > file <<'EOF'`, no `node -e`. Use the **Edit** tool for targeted replacements and **Write** for whole files. The shell and the interpreter both process escapes before the code runs, so regexes and string literals are silently mangled - `[^\n]*` becomes a literal newline, `\.` loses its backslash, `\s` and `\$` raise SyntaxWarnings. It has produced broken code in this repo many times over. If a scripted transform is genuinely unavoidable (a repo-wide sweep), **Write** the script to a real file, run it, then delete it. Bash remains correct for reading, searching, git, and running tests.
 
 ## Canonical documentation
 - **`ARCHITECTURE.md`** - full technical specification (topology, trust model, data model, workflows, actions, flows, constraints). This is the single source of truth for *what the system is*.
