@@ -365,6 +365,7 @@ import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { acceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
+import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
@@ -637,14 +638,19 @@ async function refreshStudentSubmissionMeta(org, repoName) {
     console.error('Failed to fetch latest commit:', e)
   }
 
-  // Load student override if exists
+  // Load student override if exists. The rule is shared with the backend
+  // (lib/effective-deadline.mjs): the LAST grant in the append-only history is
+  // the one in force, and an extension only ever extends. Reading the first
+  // entry here used to show a student a deadline a later grant had already
+  // superseded.
   try {
     const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${resolvedId.value}/${user.value.login}.json`)
     if (overrideFile) {
-      const parsed = JSON.parse(overrideFile)
-      const ext = (parsed.overrides || []).find((o) => o.type === 'deadline_extension')
-      if (ext) {
-        studentOverride.value = ext
+      const eff = effectiveDeadlineFor(assignment.value, user.value.login, {
+        overrides: [JSON.parse(overrideFile)],
+      })
+      if (eff.extended) {
+        studentOverride.value = { value: eff.deadline.toISOString(), reason: eff.reason }
       }
     }
   } catch {

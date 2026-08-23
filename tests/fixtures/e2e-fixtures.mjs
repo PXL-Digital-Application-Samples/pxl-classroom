@@ -110,6 +110,17 @@ export async function setupStandardMockRoutes(page, {
   // ({ workflow, inputs }), so a spec can assert what was actually written.
   gitCommits = [],
   workflowDispatches = [],
+  // Contents API writes ({ path, content, message }), one per commitFile().
+  // gitCommits covers the Git Data API path; this covers the single-file one,
+  // which is how the Admin Panel writes an assignment, a roster or an override.
+  // A spec can then run the real backend module over the exact bytes the SPA
+  // produced - the seam where the deadline-extension bug lived for two months.
+  contentWrites = [],
+  // Lecturer overrides already in the control repo, as
+  // { '<assignment-id>': { '<login>': <override doc> } }. Anything the SPA
+  // commits during the run is layered on top, so an append reads back what
+  // was there.
+  controlOverrides = {},
   // What GET /apps/{slug} reports the App declares. Defaults to a healthy App;
   // drop a key to reproduce an App that predates a manifest permission.
   appPermissions = { ...MANIFEST_APP_PERMISSIONS },
@@ -413,6 +424,7 @@ export async function setupStandardMockRoutes(page, {
           if (postData?.content) {
             const decoded = Buffer.from(postData.content, 'base64').toString('utf8');
             dynamicFiles.set(path, decoded);
+            contentWrites.push({ path, content: decoded, message: postData.message });
           }
         } catch {}
         await route.fulfill({
@@ -530,6 +542,37 @@ export async function setupStandardMockRoutes(page, {
         const match = url.match(/\/overrides\/([^/?#]+)(?:\/([^/?#]+)\.json)?/);
         const asgnId = match ? match[1] : null;
         const login = match ? match[2] : null;
+        // Caller-seeded overrides, plus anything the SPA has committed during
+        // this run - so "grant a second extension" reads back the first, the
+        // way it would against a real control repo.
+        const seeded = controlOverrides?.[asgnId] ?? {};
+        const written = new Map();
+        for (const [p, content] of dynamicFiles.entries()) {
+          const m = p.match(new RegExp(`^overrides/${asgnId}/([^/]+)\\.json$`));
+          if (m) written.set(m[1], content);
+        }
+        if (Object.keys(seeded).length || written.size) {
+          if (login) {
+            const content = written.get(login) ?? (seeded[login] ? JSON.stringify(seeded[login]) : null);
+            if (content === null) {
+              await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+              return;
+            }
+            await route.fulfill({
+              status: 200,
+              body: JSON.stringify({ content: Buffer.from(content).toString('base64'), encoding: 'base64' }),
+            });
+            return;
+          }
+          const logins = new Set([...Object.keys(seeded), ...written.keys()]);
+          await route.fulfill({
+            status: 200,
+            body: JSON.stringify([...logins].map((l) => ({
+              name: `${l}.json`, path: `overrides/${asgnId}/${l}.json`, type: 'file',
+            }))),
+          });
+          return;
+        }
         if (asgnId === 'lab-extended') {
           if (login) {
             const overrideDoc = {

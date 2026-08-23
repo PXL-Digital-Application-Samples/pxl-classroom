@@ -340,6 +340,7 @@ import { getToken } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
 import { acceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
+import { effectiveDeadlineFor } from '../lib/deadline.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
@@ -613,14 +614,17 @@ async function refreshTeamSubmissionMeta(org, repoName) {
     console.error('Failed to fetch team latest commit:', e)
   }
 
-  // Load student or team override if exists
+  // Load student or team override if exists. Same rule as the backend
+  // (lib/effective-deadline.mjs): the last grant in the append-only history
+  // wins, and an extension only ever extends.
   try {
     const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${props.assignment.id}/${props.user.login}.json`)
     if (overrideFile) {
-      const parsed = JSON.parse(overrideFile)
-      const ext = (parsed.overrides || []).find((o) => o.type === 'deadline_extension')
-      if (ext) {
-        teamOverride.value = ext
+      const eff = effectiveDeadlineFor(props.assignment, props.user.login, {
+        overrides: [JSON.parse(overrideFile)],
+      })
+      if (eff.extended) {
+        teamOverride.value = { value: eff.deadline.toISOString(), reason: eff.reason }
       }
     }
   } catch {

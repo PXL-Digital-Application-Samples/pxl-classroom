@@ -31,6 +31,7 @@ function runReport({
   overrides = [],
   teams = [],
   roster = [],
+  csv = false,
 }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-report-test-"));
   const id = "test-asgn";
@@ -102,12 +103,44 @@ function runReport({
 
   const res = spawnSync("node", [reportScript], {
     encoding: "utf8",
-    env: { ...process.env, ASSIGNMENT_ID: id, DATA_DIR: dir, OUTPUT_FORMAT: "json" },
+    env: { ...process.env, ASSIGNMENT_ID: id, DATA_DIR: dir, OUTPUT_FORMAT: csv ? "both" : "json" },
   });
   if (res.status !== 0) {
     throw new Error(`report.mjs failed: ${res.status}\n${res.stderr}\n${res.stdout}`);
   }
-  return JSON.parse(readFileSync(join(dir, "reports", `${id}.json`), "utf8"));
+  const report = JSON.parse(readFileSync(join(dir, "reports", `${id}.json`), "utf8"));
+  if (csv) report.csvText = readFileSync(join(dir, "reports", `${id}.csv`), "utf8");
+  return report;
+}
+
+/** RFC4180-enough splitter: report.mjs quotes only when a field needs it. */
+function splitCsvLine(line) {
+  const out = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch !== '"') cur += ch;
+      else if (line[i + 1] === '"') { cur += '"'; i++; }
+      else quoted = false;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+/** One student's CSV row, as a header -> value map. */
+function csvRow(csvText, login) {
+  // \uFEFF as an escape, never the literal character: an invisible byte in a
+  // regex is a trap for the next reader, and eslint's no-irregular-whitespace
+  // rule refuses it.
+  const rows = csvText.replace(/^\uFEFF/, "").trim().split(/\r?\n/).map(splitCsvLine);
+  const header = rows[0];
+  const row = rows.slice(1).find((r) => r[header.indexOf("github_login")] === login);
+  return row ? Object.fromEntries(header.map((h, i) => [h, row[i]])) : null;
 }
 
 const BASE_YAML = `schema_version: 1
@@ -257,6 +290,85 @@ test("an override that grants no extension is not reported as one", () => {
   assert.equal(carol.override_reason, null);
   assert.equal(carol.effective_deadline_at, "2026-09-10T23:59:59.000Z");
   assert.equal(carol.submission_status, "late");
+});
+
+test("an extension that lands exactly on the deadline changes nothing", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "carol", status: "accepted" }],
+    observations: { carol: [{ observed_at: "2026-09-11T10:00:00Z", sha: "c".repeat(40) }] },
+    overrides: [extensionDoc("carol", "2026-09-10T23:59:59Z", "same instant")],
+  });
+  const carol = report.students.find((s) => s.github_login === "carol");
+  assert.equal(carol.override_applied, false);
+  assert.equal(carol.submission_status, "late");
+});
+
+test("an extension recorded for a student who never accepted is still reported", () => {
+  // The roster union puts them in the report; the extension should show against
+  // them rather than silently vanish, or a lecturer cannot see what they granted.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    roster: [{ student_number: "07", full_name: "Erin", github_login: "erin" }],
+    overrides: [extensionDoc("erin", "2026-09-20T23:59:59Z", "granted early")],
+  });
+  const erin = report.students.find((s) => s.github_login === "erin");
+  assert.equal(erin.effective_deadline_at, "2026-09-20T23:59:59.000Z");
+  assert.equal(erin.override_applied, true);
+  assert.equal(erin.submission_status, "no-submission");
+});
+
+test("the last extension in the history is the one reported", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "carol", status: "accepted" }],
+    observations: { carol: [{ observed_at: "2026-09-18T10:00:00Z", sha: "c".repeat(40) }] },
+    overrides: [{
+      schema_version: 1,
+      assignment_id: "test-asgn",
+      github_login: "carol",
+      overrides: [
+        { type: "deadline_extension", value: "2026-09-13T23:59:59Z", reason: "first", overridden_by: "a", overridden_at: "2026-09-09T12:00:00Z" },
+        { type: "deadline_extension", value: "2026-09-20T23:59:59Z", reason: "second", overridden_by: "a", overridden_at: "2026-09-12T12:00:00Z" },
+      ],
+    }],
+  });
+  const carol = report.students.find((s) => s.github_login === "carol");
+  assert.equal(carol.effective_deadline_at, "2026-09-20T23:59:59.000Z");
+  assert.equal(carol.override_reason, "second");
+  assert.equal(carol.submission_status, "on-time");
+});
+
+test("a malformed extension leaves the assignment deadline standing", () => {
+  // Before the shared module this produced an Invalid Date, which is truthy -
+  // so every comparison failed and the student fell through to "late" with no
+  // on-time SHA at all.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "carol", status: "accepted" }],
+    observations: { carol: [{ observed_at: "2026-09-05T10:00:00Z", sha: "a".repeat(40) }] },
+    overrides: [extensionDoc("carol", "whenever", "typo")],
+  });
+  const carol = report.students.find((s) => s.github_login === "carol");
+  assert.equal(carol.effective_deadline_at, "2026-09-10T23:59:59.000Z");
+  assert.equal(carol.submission_status, "on-time");
+  assert.equal(carol.override_applied, false);
+});
+
+test("the CSV carries the effective deadline and the extension flags", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "carol", status: "accepted" }],
+    observations: { carol: [{ observed_at: "2026-09-11T10:00:00Z", sha: "c".repeat(40) }] },
+    overrides: [extensionDoc("carol", "2026-09-15T23:59:59Z", "medical extension")],
+    csv: true,
+  });
+  const row = csvRow(report.csvText, "carol");
+  assert.ok(row, "carol has a CSV row");
+  assert.equal(row.effective_deadline_at, "2026-09-15T23:59:59.000Z");
+  assert.equal(row.override_applied, "true");
+  assert.equal(row.override_reason, "medical extension");
+  assert.equal(row.submission_status, "on-time");
 });
 
 test("a group's most generous extension applies to the whole team repository", () => {

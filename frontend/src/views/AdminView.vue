@@ -910,6 +910,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { toast } from '../lib/toast.js'
 import { invitationUrl, parseInviteFields, inviteDataUrl } from '../lib/invite.js'
+import { extensionFrom } from '../lib/deadline.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { formatDate } from '../lib/format.js'
 import RosterTab from '../components/RosterTab.vue'
@@ -1335,10 +1336,9 @@ watch(() => extForm.value.login, (newVal) => {
       const existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${login}.json`)
       if (requestId !== currentLookupRequestId) return
       if (existingText) {
-        const doc = JSON.parse(existingText)
-        const prevExt = (doc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
+        const prevExt = extensionFrom(JSON.parse(existingText))
         if (prevExt) {
-          currentExtText.value = `Currently extended to ${formatDate(prevExt.value, form.value.timezone)} ("${prevExt.reason}"). Granting again adds a new extension to their override history.`
+          currentExtText.value = `Currently extended to ${formatDate(prevExt.at.toISOString(), form.value.timezone)} ("${prevExt.reason}"). Granting again adds a new extension to their override history.`
         } else {
           currentExtText.value = null
         }
@@ -2330,9 +2330,9 @@ async function grantExtension() {
       if (existingText) {
         const existingDoc = JSON.parse(existingText)
         overridesList = existingDoc?.overrides || []
-        const prevExt = overridesList.filter((o) => o.type === 'deadline_extension').pop()
-        if (prevExt?.value && (!currentEffective || new Date(prevExt.value) > new Date(currentEffective))) {
-          currentEffective = prevExt.value
+        const prevExt = extensionFrom(existingDoc)
+        if (prevExt && (!currentEffective || prevExt.at > new Date(currentEffective))) {
+          currentEffective = prevExt.at.toISOString()
         }
       }
     } catch { /* unreadable override - fall back to the assignment deadline */ }

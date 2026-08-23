@@ -330,6 +330,59 @@ test("an expired deferral re-queues even at the retry ceiling", () => {
   assert.match(res.stderr, /extension-expired/);
 });
 
+test("a deferral due exactly now is due", () => {
+  const res = runWithDeferrals(
+    [{ login: "bob", deferred_until: new Date(Date.now() - 1).toISOString() }],
+    { extensions: [{ login: "bob", value: new Date(Date.now() - 1).toISOString() }] },
+  );
+  assert.equal(res.finalizable.length, 1);
+});
+
+test("a malformed deferred_until does not queue the assignment every night forever", () => {
+  // An unparseable date compares false against everything, so it is never
+  // "due" - which is the safe direction: a human sees an unfinalized
+  // assignment rather than a matrix leg burning nightly.
+  const res = runWithDeferrals([{ login: "bob", deferred_until: "next tuesday" }]);
+  assert.equal(res.finalizable.length, 0);
+});
+
+test("a mixed record queues on the expired deferral even while another still runs", () => {
+  const res = runWithDeferrals(
+    [
+      { login: "alice", preserved: true },
+      { login: "bob", deferred_until: AN_HOUR_AGO() },
+      { login: "carol", deferred_until: IN_A_WEEK() },
+    ],
+    { extensions: [{ login: "carol", value: IN_A_WEEK() }] },
+  );
+  assert.equal(res.finalizable.length, 1, "bob is due; carol is not, and waiting for her would strand him");
+  assert.equal(res.activeCount, 1, "and carol keeps the nightly awake");
+});
+
+test("an expired deferral is reported before an incomplete preservation", () => {
+  // Both are true at once here. The message a human reads should name the new
+  // work, not the retry - they are different problems.
+  const res = runWithDeferrals([
+    { login: "alice" },
+    { login: "bob", deferred_until: AN_HOUR_AGO() },
+  ]);
+  assert.equal(res.finalizable.length, 1);
+  assert.match(res.stderr, /extension-expired/);
+});
+
+test("an unreadable override does not stop the assignment being counted", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-ff-badoverride-"));
+  const future = new Date(Date.now() + 86400000).toISOString();
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", "a.yml"), `state: published\ndeadline_at: "${future}"`);
+  mkdirSync(join(dir, "overrides", "a"), { recursive: true });
+  writeFileSync(join(dir, "overrides", "a", "bob.json"), "{ not json");
+  const res = spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
+  assert.equal(JSON.parse(res.stdout.trim()).length, 0);
+  assert.match(res.stderr, /Unreadable override/);
+  assert.equal(JSON.parse(readFileSync(join(dir, "active-TestOrg.json"), "utf8")).active, 1);
+});
+
 test("a deferred student who then failed to lock down does not loop forever", () => {
   // Second pass: the extension is over and the deferral was cleared, but the
   // repo could not be locked (deleted, say). No snapshot, no deferred_until -

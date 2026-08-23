@@ -11,6 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEADLINE_EXTENSION,
   effectiveDeadlineFor,
   extensionFrom,
   indexOverrides,
@@ -35,6 +36,60 @@ function overrideDoc(login, ...extensions) {
     })),
   };
 }
+
+// --- one implementation, everywhere -----------------------------------------
+
+test("nothing re-implements the rule instead of importing it", async () => {
+  // The SPA had forked it three ways: the backend and two lecturer views took
+  // the LAST entry of the append-only history, while the two student-facing
+  // readers took the FIRST. A student granted a second extension was shown the
+  // superseded one - told they had less time than they did.
+  //
+  // Same guard as tests/rate-limit.test.mjs puts on the retry policy: a local
+  // `filter(o => o.type === 'deadline_extension')` is the shape of that fork,
+  // so it may only live in the module itself.
+  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const { join, dirname, relative } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+  const walk = (dir, out = []) => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools") continue;
+      const p = join(dir, entry);
+      if (statSync(p).isDirectory()) walk(p, out);
+      else if (/\.(mjs|js|vue)$/.test(entry)) out.push(p);
+    }
+    return out;
+  };
+
+  const allowed = new Set([
+    join(root, "lib", "effective-deadline.mjs"),        // the implementation
+    join(root, "tests", "effective-deadline.test.mjs"), // this file
+  ]);
+
+  const offenders = walk(root)
+    .filter((p) => !allowed.has(p) && !p.startsWith(join(root, "tests")))
+    .filter((p) => /deadline_extension/.test(readFileSync(p, "utf8")))
+    .filter((p) => {
+      const src = readFileSync(p, "utf8");
+      // Writing one is fine - AdminView and AssignmentDetailView both grant
+      // extensions. Deciding which one is in force is not.
+      //
+      // `[\s\S]{0,80}?` rather than `[^)]*`: the predicate is an arrow function
+      // whose own parens close before the token, so a paren-excluding class
+      // never reaches it and the guard silently matches nothing. Confirmed by
+      // putting the fork back and watching this pass.
+      return /\.(filter|find)\([\s\S]{0,80}?deadline_extension/.test(src);
+    })
+    .map((p) => relative(root, p));
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `these pick the extension in force themselves instead of using lib/effective-deadline.mjs:\n  ${offenders.join("\n  ")}`
+  );
+});
 
 // --- no override -------------------------------------------------------------
 
@@ -219,6 +274,117 @@ test("latestEffectiveDeadline is the last instant anyone is still working to", (
     latestEffectiveDeadline(ASSIGNMENT, overrides).toISOString(),
     "2026-09-25T22:00:00.000Z",
   );
+});
+
+// --- boundaries -------------------------------------------------------------
+
+test("an extension exactly equal to the deadline is not an extension", () => {
+  // `>` not `>=`. It moves nothing, so reporting it as extra time would put
+  // override_applied on a row where nothing was granted.
+  const doc = overrideDoc("alice", { value: ASSIGNMENT.deadline_at });
+  const eff = effectiveDeadlineFor(ASSIGNMENT, "alice", { overrides: [doc] });
+  assert.equal(eff.extended, false);
+  assert.equal(eff.deadline.getTime(), DEADLINE);
+});
+
+test("one millisecond past the deadline is", () => {
+  const doc = overrideDoc("alice", { value: new Date(DEADLINE + 1).toISOString() });
+  assert.equal(effectiveDeadlineFor(ASSIGNMENT, "alice", { overrides: [doc] }).extended, true);
+});
+
+test("an assignment with no deadline is extended by any grant", () => {
+  // Nothing to be later than, so `!base` has to count as extendable or a
+  // deadline-less assignment could never honour an extension at all.
+  const doc = overrideDoc("alice", { value: "2026-09-17T22:00:00Z" });
+  const eff = effectiveDeadlineFor({}, "alice", { overrides: [doc] });
+  assert.equal(eff.extended, true);
+  assert.equal(eff.deadline.toISOString(), "2026-09-17T22:00:00.000Z");
+  assert.equal(eff.base, null);
+});
+
+// --- documents that disagree with themselves ---------------------------------
+
+test("a document whose github_login differs from its filename is keyed on the field", () => {
+  // indexOverrides reads the record, never the path. A hand-renamed file must
+  // not silently extend the wrong student.
+  const doc = overrideDoc("bob", { value: "2026-09-17T22:00:00Z" });
+  const index = indexOverrides([doc]);
+  assert.equal(index.get("bob"), doc);
+  assert.equal(effectiveDeadlineFor(ASSIGNMENT, "alice", { overrides: index }).extended, false);
+  assert.equal(effectiveDeadlineFor(ASSIGNMENT, "bob", { overrides: index }).extended, true);
+});
+
+test("two documents for the same login: the last one indexed wins, deterministically", () => {
+  const early = overrideDoc("alice", { value: "2026-09-12T22:00:00Z" });
+  const late = overrideDoc("alice", { value: "2026-09-25T22:00:00Z" });
+  assert.equal(indexOverrides([early, late]).get("alice"), late);
+  assert.equal(indexOverrides([late, early]).get("alice"), early);
+});
+
+test("a document with no github_login is ignored rather than indexed under undefined", () => {
+  const index = indexOverrides([{ overrides: [{ type: DEADLINE_EXTENSION, value: "2026-09-25T22:00:00Z" }] }]);
+  assert.equal(index.size, 0);
+});
+
+test("an overrides field that is not an array is survivable", () => {
+  for (const junk of [{ overrides: "later please" }, { overrides: 42 }, { overrides: {} }]) {
+    assert.equal(extensionFrom(junk), null);
+  }
+});
+
+test("an entry with no value is not an extension", () => {
+  const doc = { github_login: "alice", overrides: [{ type: DEADLINE_EXTENSION, reason: "forgot the date" }] };
+  assert.equal(extensionFrom(doc), null);
+});
+
+// --- teams -------------------------------------------------------------------
+
+test("the student's own extension wins when it is the most generous", () => {
+  const overrides = [
+    overrideDoc("alice", { value: "2026-09-30T22:00:00Z", reason: "mine" }),
+    overrideDoc("bob", { value: "2026-09-12T22:00:00Z", reason: "theirs" }),
+  ];
+  const eff = effectiveDeadlineFor(ASSIGNMENT, "alice", { overrides, team: { members: ["alice", "bob"] } });
+  assert.equal(eff.grantedTo, "alice");
+  assert.equal(eff.reason, "mine");
+});
+
+test("a member listed twice, or in a different case, is counted once and correctly", () => {
+  const overrides = [overrideDoc("Bob", { value: "2026-09-25T22:00:00Z" })];
+  const eff = effectiveDeadlineFor(ASSIGNMENT, "alice", {
+    overrides,
+    team: { members: ["alice", "bob", "BOB", "Bob"] },
+  });
+  assert.equal(eff.extended, true);
+  assert.equal(eff.grantedTo, "bob");
+});
+
+test("a team with no members, or a null team, falls back to the student alone", () => {
+  const overrides = [overrideDoc("alice", { value: "2026-09-17T22:00:00Z" })];
+  for (const team of [null, undefined, {}, { members: [] }, { members: [null, ""] }]) {
+    assert.equal(effectiveDeadlineFor(ASSIGNMENT, "alice", { overrides, team }).extended, true, JSON.stringify(team));
+  }
+});
+
+test("a missing login still answers with the assignment deadline", () => {
+  const eff = effectiveDeadlineFor(ASSIGNMENT, undefined, { overrides: [] });
+  assert.equal(eff.deadline.getTime(), DEADLINE);
+  assert.equal(eff.extended, false);
+});
+
+// --- the cohort-wide question ------------------------------------------------
+
+test("latestEffectiveDeadline ignores non-extension overrides and malformed ones", () => {
+  const overrides = [
+    overrideDoc("bob", { type: "annotation", value: "2027-01-01T00:00:00Z" }),
+    overrideDoc("carol", { value: "not a date" }),
+  ];
+  assert.equal(latestEffectiveDeadline(ASSIGNMENT, overrides).getTime(), DEADLINE);
+});
+
+test("latestEffectiveDeadline works with no assignment deadline at all", () => {
+  const overrides = [overrideDoc("bob", { value: "2026-09-25T22:00:00Z" })];
+  assert.equal(latestEffectiveDeadline({}, overrides).toISOString(), "2026-09-25T22:00:00.000Z");
 });
 
 test("latestEffectiveDeadline is the assignment deadline when nothing extends it", () => {

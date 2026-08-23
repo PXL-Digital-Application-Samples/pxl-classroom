@@ -309,6 +309,45 @@ test("a team-mate's extension defers the whole team repository", async () => {
   });
 });
 
+test("an extension granted AFTER lockdown does not discard the recorded submission", async () => {
+  // The freeze rule and the deferral rule meet here, and the freeze has to win.
+  // alice was locked down and her submission recorded; a lecturer then grants
+  // her an extension - too late, and RUNBOOK §6.2a says so. If the retry defers
+  // her, her result row is rewritten with snapshot_sha: null and the on-time
+  // submission disappears from the record, which is exactly what
+  // freeze-on-retry exists to prevent.
+  const dir = makeControlDir({ students: [{ login: "alice" }] });
+  await withStubApi(async (api) => {
+    const first = await runLockdown(dir, api);
+    assert.equal(rowFor(first.record, "alice").snapshot_sha, HEAD_SHA);
+  });
+
+  mkdirSync(join(dir, "overrides", "exam"), { recursive: true });
+  writeFileSync(
+    join(dir, "overrides", "exam", "alice.json"),
+    JSON.stringify({
+      schema_version: 1,
+      assignment_id: "exam",
+      github_login: "alice",
+      overrides: [{
+        type: "deadline_extension", value: RUNNING, reason: "granted too late",
+        overridden_by: "admin-panel", overridden_at: new Date().toISOString(),
+      }],
+    }),
+  );
+
+  await withStubApi(async (api) => {
+    const retry = await runLockdown(dir, api);
+    const alice = rowFor(retry.record, "alice");
+    assert.equal(
+      alice.snapshot_sha,
+      HEAD_SHA,
+      "the recorded submission must survive an extension granted after the fact",
+    );
+    assert.equal(alice.deferred_until, undefined, "and she is not deferred back into the future");
+  });
+});
+
 test("no overrides at all changes nothing", async () => {
   await withStubApi(async (api, calls) => {
     const dir = makeControlDir({ students: [{ login: "alice" }] });
@@ -317,6 +356,110 @@ test("no overrides at all changes nothing", async () => {
     assert.equal(rowFor(res.record, "alice").snapshot_sha, HEAD_SHA);
     assert.equal(res.record.deferred_count, 0);
     assert.ok(calls.includes("PUT /repos/TestOrg/exam-alice/collaborators/alice"));
+  });
+});
+
+test("a cohort splits: some locked, some deferred, in one run", async () => {
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({
+      students: [{ login: "alice" }, { login: "bob" }, { login: "carol" }],
+      extensions: [{ login: "alice", value: RUNNING }, { login: "carol", value: RUNNING }],
+    });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.record.deferred_count, 2);
+    assert.equal(res.record.locked_count, 1);
+    assert.equal(res.record.error_count, 0);
+    assert.equal(rowFor(res.record, "bob").snapshot_sha, HEAD_SHA);
+    for (const login of ["alice", "carol"]) {
+      assert.equal(rowFor(res.record, login).snapshot_sha, null, login);
+    }
+    assert.deepEqual(
+      calls.filter((c) => /^PUT .*\/collaborators\//.test(c)),
+      ["PUT /repos/TestOrg/exam-bob/collaborators/bob"],
+      "only the student whose time is up is touched",
+    );
+  });
+});
+
+test("an extension that expires exactly now does not defer", async () => {
+  // The boundary is `>`: a deadline that has arrived has arrived. Deferring on
+  // equality would push the student to the next nightly for no reason.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir({
+      students: [{ login: "alice" }],
+      extensions: [{ login: "alice", value: new Date(Date.now() - 1000).toISOString() }],
+    });
+    const res = await runLockdown(dir, api);
+    assert.equal(rowFor(res.record, "alice").snapshot_sha, HEAD_SHA);
+    assert.equal(res.record.deferred_count, 0);
+  });
+});
+
+test("a malformed extension value locks the student rather than stranding them", async () => {
+  // Fails towards acting. A student left deferred on an unparseable date would
+  // never be finalized at all, because nothing would ever say their time was up.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir({
+      students: [{ login: "alice" }],
+      extensions: [{ login: "alice", value: "next tuesday" }],
+    });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(rowFor(res.record, "alice").snapshot_sha, HEAD_SHA);
+    assert.equal(res.record.deferred_count, 0);
+  });
+});
+
+test("an override for somebody who has no repository is simply not a target", async () => {
+  await withStubApi(async (api) => {
+    const dir = makeControlDir({
+      students: [{ login: "alice" }],
+      extensions: [{ login: "ghost", value: RUNNING }],
+    });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.record.deferred_count, 0);
+    assert.equal(rowFor(res.record, "ghost"), undefined);
+    assert.equal(rowFor(res.record, "alice").snapshot_sha, HEAD_SHA);
+  });
+});
+
+test("every student deferred is a valid, green, empty-of-work run", async () => {
+  // The whole cohort has more time. Nothing to lock, nothing to preserve, and
+  // nothing has gone wrong - preserve reads this record and must not fail.
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({
+      students: [{ login: "alice" }, { login: "bob" }],
+      extensions: [{ login: "alice", value: RUNNING }, { login: "bob", value: RUNNING }],
+    });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.outputs, /outcome=locked/);
+    assert.match(res.outputs, /locked_count=0/);
+    assert.match(res.outputs, /error_count=0/);
+    assert.equal(res.record.results.length, 2);
+    assert.deepEqual(calls.filter((c) => c.includes("/repos/TestOrg/exam-")), []);
+  });
+});
+
+test("the latest of several extensions decides the deferral", async () => {
+  const dir = makeControlDir({ students: [{ login: "alice" }] });
+  mkdirSync(join(dir, "overrides", "exam"), { recursive: true });
+  writeFileSync(
+    join(dir, "overrides", "exam", "alice.json"),
+    JSON.stringify({
+      schema_version: 1, assignment_id: "exam", github_login: "alice",
+      overrides: [
+        { type: "deadline_extension", value: EXPIRED, reason: "first", overridden_by: "a", overridden_at: EXPIRED },
+        { type: "deadline_extension", value: RUNNING, reason: "second", overridden_by: "a", overridden_at: EXPIRED },
+      ],
+    }),
+  );
+  await withStubApi(async (api) => {
+    const res = await runLockdown(dir, api);
+    const alice = rowFor(res.record, "alice");
+    assert.equal(alice.deferred_until, new Date(RUNNING).toISOString(), "the append-only history's last entry rules");
+    assert.equal(alice.deferred_reason, "second");
   });
 });
 

@@ -173,8 +173,15 @@ async function readPriorLockdown() {
  * Deferral is decided once, here, so "excluded from the target list" means the
  * same thing to the stop as it does to the recording: a deferred repository is
  * never fetched, never observed, and never has a permission touched.
+ *
+ * A student who already has a frozen snapshot is never deferred, whatever their
+ * overrides say. Their submission has been taken; deferring them would rewrite
+ * that result row with `snapshot_sha: null` and lose it, which is precisely what
+ * freeze-on-retry exists to prevent. An extension granted after lockdown is too
+ * late to un-take a submission - RUNBOOK §6.2a says so, and says what to do
+ * instead.
  */
-function planTargets(assignment, records, overrides, now = new Date()) {
+function planTargets(assignment, records, overrides, priorByLogin = new Map(), now = new Date()) {
   const targets = [];
   const deferrals = [];
 
@@ -189,11 +196,15 @@ function planTargets(assignment, records, overrides, now = new Date()) {
       displayKey: rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login,
     };
 
+    // Any member already holding a frozen snapshot means this repository's
+    // submission is on record and must not be rewritten.
+    const alreadyRecorded = members.some((m) => priorByLogin.get(m)?.snapshot_sha);
+
     const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members } });
     // Gated on `extended`, not on the deadline alone: a lecturer running a
     // lockdown early still locks the cohort, exactly as before. Only a granted,
     // still-running extension defers.
-    if (effective.extended && effective.deadline > now) {
+    if (!alreadyRecorded && effective.extended && effective.deadline > now) {
       deferrals.push({ ...target, effective });
     } else {
       targets.push(target);
@@ -478,7 +489,7 @@ async function main() {
   log("repo-records", { ok: true, note: records.length ? `${records.length} student(s)` : "no repository records - nothing to lock down" });
 
   // --- Phase 0: plan ---------------------------------------------------------
-  const { targets, deferrals } = planTargets(assignment, records, overrides);
+  const { targets, deferrals } = planTargets(assignment, records, overrides, priorByLogin);
   for (const d of deferrals) {
     log(`lockdown ${d.displayKey}`, {
       ok: true,

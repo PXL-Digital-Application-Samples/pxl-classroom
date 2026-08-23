@@ -1012,6 +1012,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { invitationUrl, parseInviteFields } from '../lib/invite.js'
+import { extensionFrom } from '../lib/deadline.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
@@ -1453,10 +1454,12 @@ const tableColumnCount = computed(() =>
   (hasWarnings.value ? 1 : 0) +
   (hasSubmitTags.value ? 1 : 0))
 
+// One rule, shared with the backend (lib/effective-deadline.mjs): the last
+// grant in the append-only history is the one in force. A local
+// `.filter(...).pop()` is how the SPA came to hold three different answers.
 function extensionFor(login) {
-  const doc = overridesByLogin.value.get(login)
-  const ext = (doc?.overrides || []).filter((o) => o.type === 'deadline_extension').pop()
-  return ext || null
+  const ext = extensionFrom(overridesByLogin.value.get(login))
+  return ext ? { value: ext.at.toISOString(), reason: ext.reason } : null
 }
 
 const WARNING_MAP = {
