@@ -354,6 +354,23 @@ overrides the scoped `details { border: … }` rule to a single `border-top`,
 because the editor pane already draws a border and every fieldset inside draws
 another — three, which is §1.1's prison.
 
+### A grid track is `minmax(0, 1fr)`, never a bare `1fr`
+
+A `1fr` track's automatic minimum is its content's **min-content** size, and for
+anything with `white-space: nowrap` min-content equals max-content. The admin
+editor's `.invitation-link` is a nowrap 122-character URL, so the track grew to
+fit the whole thing and the page scrolled 208px sideways on a 375px phone —
+invisible at desktop width. `min-width: 0` on the flex item does **not** fix it:
+that bounds the flex minimum, not the grid track's intrinsic minimum. The floor
+goes on the track, and the child then does what it was already styled to do
+(ellipsise).
+
+`tests/e2e/25-responsive-layout.spec.mjs` measures this. Its route sweep had
+visited `/dashboard/:org/admin` with **nothing open**, where the editor pane is
+a two-line empty state — so the pane holding the entire assignment form was
+never measured at any width. It now opens an assignment, collapsed and
+expanded, at all seven widths.
+
 ## 8. Visual Sandbox & Interactive Testing
 
 An offline interactive workbench is available at the route **`/sandbox`**. It allows developers to:

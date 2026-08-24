@@ -334,13 +334,23 @@
               </span>
             </summary>
 
+          <!-- `touchedFields.X || !isNew` on every field error below.
+               `touched` exists so a form you are still filling in does not
+               nag you about the boxes you have not reached yet - which is
+               about a NEW assignment. On one loaded from the control repo
+               every error is a fact about a document that already exists, and
+               gating those on touch is how "1 field needs fixing" ended up on
+               the settings summary with nothing on screen saying which field.
+               Reachable: nothing validates an assignment YAML on the way in,
+               so `roster_mode: open` with no cap, or `deadline_at: soon`,
+               arrives here and disables Save silently. -->
           <!-- BASICS -->
           <fieldset>
             <legend>Basics</legend>
             <div class="field">
               <label>Title <span class="req">*</span></label>
               <input v-model="form.title" @input="autoSyncSlug(); touchedFields.title = true" placeholder="e.g. Linux Processes 2026" />
-              <div v-if="touchedFields.title && fieldErrors.title" class="field-error-msg">{{ fieldErrors.title }}</div>
+              <div v-if="(touchedFields.title || !isNew) && fieldErrors.title" class="field-error-msg">{{ fieldErrors.title }}</div>
             </div>
             <div class="field">
               <label>Slug (URL identifier) <span class="req">*</span></label>
@@ -350,7 +360,7 @@
                 @input="manualSlug = true; touchedFields.id = true"
                 placeholder="linux-processes-2026"
               />
-              <div v-if="touchedFields.id && fieldErrors.id" class="field-error-msg">{{ fieldErrors.id }}</div>
+              <div v-if="(touchedFields.id || !isNew) && fieldErrors.id" class="field-error-msg">{{ fieldErrors.id }}</div>
               <small v-if="isNew">Auto-derived from title. Edit to override.</small>
               <small v-else>Locked. Changing the slug would orphan the YAML file.</small>
             </div>
@@ -440,7 +450,7 @@
                   <Icon name="x-circle" :size="13" /> {{ templateValidationStatus.message || 'Repository not found on GitHub' }}
                 </span>
               </div>
-              <div v-if="touchedFields.template && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
+              <div v-if="(touchedFields.template || !isNew) && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
               <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
                 Failed to load templates: {{ templatesError }}.
               </small>
@@ -483,7 +493,7 @@
             <div class="field">
               <label>Repository name pattern <span class="req">*</span></label>
               <input v-model="form.repository_name_pattern" @input="manualRepositoryNamePattern = true; touchedFields.repository_name_pattern = true" placeholder="linux-processes-{github_login}" />
-              <div v-if="touchedFields.repository_name_pattern && fieldErrors.repository_name_pattern" class="field-error-msg">{{ fieldErrors.repository_name_pattern }}</div>
+              <div v-if="(touchedFields.repository_name_pattern || !isNew) && fieldErrors.repository_name_pattern" class="field-error-msg">{{ fieldErrors.repository_name_pattern }}</div>
               <small>Must contain <code>{{ form.assignment_type === 'group' ? '{team_slug}' : '{github_login}' }}</code>. The repository will be named per this pattern.</small>
             </div>
           </fieldset>
@@ -588,13 +598,13 @@
             <div class="field">
               <label>Opens at <span class="req">*</span></label>
               <input type="datetime-local" v-model="form.opens_at_local" @change="touchedFields.opens_at = true" />
-              <div v-if="touchedFields.opens_at && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
+              <div v-if="(touchedFields.opens_at || !isNew) && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
               <small>{{ utcHint(form.opens_at_local) }}</small>
             </div>
             <div class="field">
               <label>Deadline <span class="req">*</span></label>
               <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
-              <div v-if="touchedFields.deadline_at && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
+              <div v-if="(touchedFields.deadline_at || !isNew) && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
               <small>{{ utcHint(form.deadline_at_local) }}</small>
               <small v-if="deadlineInPast" class="text-warning">
                 This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
@@ -655,7 +665,7 @@
             <div class="field">
               <label>Max acceptances<span v-if="form.roster_mode === 'open'"> (required)</span></label>
               <input type="number" v-model.number="form.max_acceptances" min="1" @input="touchedFields.max_acceptances = true" />
-              <div v-if="touchedFields.max_acceptances && fieldErrors.max_acceptances" class="field-error-msg">{{ fieldErrors.max_acceptances }}</div>
+              <div v-if="(touchedFields.max_acceptances || !isNew) && fieldErrors.max_acceptances" class="field-error-msg">{{ fieldErrors.max_acceptances }}</div>
               <small v-if="form.max_acceptances">Hard cap on accepted students. Acceptances beyond this are rejected.</small>
               <small v-else-if="form.roster_mode === 'open'" class="field-error-msg">
                 Required with open enrollment - without the roster gate this is the only limit on who can claim a repo.
@@ -789,10 +799,15 @@
             <!-- Repair above the rule, state transitions below it (UX_PLAN
                  §7.1 / UX24). "Republish the broker" and "stop the whole
                  cohort accepting" were adjacent buttons in one flat row; only
-                 one of them changes what the assignment IS. On a draft there
-                 is nothing to repair yet - Publish is the transition, and it
-                 sits with the others. -->
-            <div v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-group lifecycle-repair">
+                 one of them changes what the assignment IS.
+
+                 PUBLISHED ONLY, and that is load-bearing: publish-assignment.yml
+                 writes `state: published` unconditionally, so dispatching it
+                 from a closed or archived assignment REOPENS acceptance. That
+                 is a transition, not a repair, and grouping it here under copy
+                 promising nothing changes would be C4 exactly. A draft has no
+                 broker to repair yet; its Publish is a transition too. -->
+            <div v-if="form.state === 'published'" class="lifecycle-group lifecycle-repair">
               <span class="lifecycle-group-label">Repair</span>
               <button
                 class="btn btn-secondary btn-with-icon"
@@ -812,13 +827,16 @@
             <div class="lifecycle-group lifecycle-transitions">
               <span v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-group-label">State</span>
               <button
-                v-if="form.state !== 'published' && form.state !== 'closed'"
+                v-if="form.state !== 'published'"
                 class="btn btn-with-icon"
                 type="button"
                 @click="handlePublishClick"
                 :disabled="publishing"
               >
                 <template v-if="publishing">Publishing…</template>
+                <!-- Named after what it does from here. From `closed` or
+                     `archived` this is not a publish, it is an un-close. -->
+                <template v-else-if="form.state === 'closed' || form.state === 'archived'">Reopen for acceptance</template>
                 <template v-else>Publish (create broker, enable nightly)</template>
               </button>
               <button class="btn" type="button" @click="setState('closed')" :disabled="form.state === 'closed' || saving">
@@ -1275,12 +1293,23 @@ const fieldErrors = computed(() => {
   }
 
   // 6. Schedule check
+  //
+  // The unreadable case is not hypothetical: nothing validates an assignment
+  // YAML on the way IN, so `deadline_at: soon` reaches the form as a date the
+  // browser cannot parse. Saying so is the only way the lecturer learns why
+  // the cohort card has no countdown and Save is disabled.
+  const unreadable = (v) => Boolean(v) && Number.isNaN(new Date(v).getTime())
   if (!form.value.opens_at_local) {
     errors.opens_at = 'Open date is required.'
+  } else if (unreadable(form.value.opens_at_local)) {
+    errors.opens_at = 'This open date is not a date the panel can read - pick it again.'
   }
   if (!form.value.deadline_at_local) {
     errors.deadline_at = 'Deadline is required.'
-  } else if (form.value.opens_at_local && new Date(form.value.deadline_at_local) <= new Date(form.value.opens_at_local)) {
+  } else if (unreadable(form.value.deadline_at_local)) {
+    errors.deadline_at = 'This deadline is not a date the panel can read - pick it again.'
+  } else if (form.value.opens_at_local && !unreadable(form.value.opens_at_local)
+             && new Date(form.value.deadline_at_local) <= new Date(form.value.opens_at_local)) {
     errors.deadline_at = 'Deadline must be after the open date.'
   }
 
@@ -1593,7 +1622,14 @@ function toLocalInputValue(date) {
 function localToUtc(localStr) {
   // datetime-local string -> UTC ISO. Browser interprets as local.
   if (!localStr) return ''
-  return new Date(localStr).toISOString()
+  const d = new Date(localStr)
+  // `toISOString()` throws RangeError on an unparseable date, and this runs
+  // inside the `shareAssignment` computed - so a hand-edited YAML carrying
+  // `deadline_at: soon` took the entire editor pane down during render, with
+  // the field that would fix it on the far side of the crash. An empty string
+  // instead: the cohort card says "no deadline set", fieldErrors names it, and
+  // the schema refuses the save.
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString()
 }
 
 function utcToLocalInput(utcIso) {
@@ -2194,9 +2230,18 @@ function handlePublishClick() {
     // arrives with the box already ticked.
     regenerateInvite.value = false
     showRepublishModal.value = true
-  } else {
-    publishExisting()
+    return
   }
+  // publish-assignment.yml runs `sed -i "s/^state:.*/state: published/"` with
+  // no regard for what the state was, so dispatching it from a closed or
+  // archived assignment puts the cohort back to accepting. Every other thing
+  // in this row that changes state says so first; this one has to as well.
+  const reopening = form.value.state === 'closed' || form.value.state === 'archived'
+  if (reopening && !window.confirm(
+    `Reopen "${form.value.id}" for acceptance? Publishing sets its state back to published, ` +
+    `so students can accept it again until the deadline.`
+  )) return
+  publishExisting()
 }
 
 async function confirmRepublish() {
@@ -2415,12 +2460,20 @@ watch(
 
 .admin-layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  /* `minmax(0, 1fr)`, never a bare `1fr`. A `1fr` track's automatic minimum is
+     its content's min-content size, and the invitation link is `white-space:
+     nowrap`, so its min-content IS its max-content - a 122-character URL. The
+     track grew to fit it and the editor pane pushed the page 208px wider than
+     a 375px phone, sideways-scrolling the whole admin route. The floor makes
+     the child ellipsise (which it is already styled to do) instead of the
+     track widening. tests/e2e/25-responsive-layout.spec.mjs covers this route
+     now; it never did before. */
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: var(--space-lg);
   align-items: start;
 }
 @media (max-width: 900px) {
-  .admin-layout { grid-template-columns: 1fr; }
+  .admin-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* LIST */

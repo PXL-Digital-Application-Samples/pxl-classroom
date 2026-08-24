@@ -33,17 +33,25 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
   // a draft does not, and its Publish is a transition, so it sits with the
   // others.
   const isOut = formState === 'published' || formState === 'closed';
-  const showRepairGroup = isOut;
+
+  // PUBLISHED only. publish-assignment.yml writes `state: published`
+  // unconditionally, so the same dispatch from `closed` or `archived` reopens
+  // acceptance - a transition, not a repair, and it must not sit under copy
+  // promising nothing changes.
+  const showRepairGroup = formState === 'published';
+  const reopens = formState === 'closed' || formState === 'archived';
 
   const publishButtonLabel = publishing
     ? 'Publishing…'
-    : isOut
+    : formState === 'published'
     ? 'Republish broker'
+    : reopens
+    ? 'Reopen for acceptance'
     : 'Publish (create broker, enable nightly)';
 
   const publishButtonDisabled = publishing; // Never disabled by formState === 'published'
-  const isRepublish = isOut;
-  const buttonVariant = isOut ? 'btn-secondary' : '';
+  const isRepublish = formState === 'published';
+  const buttonVariant = formState === 'published' ? 'btn-secondary' : '';
 
   // Other lifecycle buttons
   const canClose = formState !== 'closed' && !saving;
@@ -68,6 +76,7 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
     showCopyLink,
     showDeleteDraft,
     showMovedNote,
+    reopens,
   };
 }
 
@@ -138,9 +147,10 @@ test("Initial condition: Published assignment renders a Republish broker button 
   assert.equal(state.showMovedNote, true, "Extensions and retries moved; say where");
 });
 
-// A closed assignment is still out in the world: the broker exists, students
-// hold links, and repairing it is still a thing to do.
-test("Initial condition: Closed assignment keeps the repair group", () => {
+// A closed assignment has no repair, because the only mechanism available -
+// re-dispatching publish-assignment.yml - reopens it. Calling that a repair is
+// C4: the UI describing behaviour the system does not have.
+test("Initial condition: Closed assignment has no repair group, and its publish says it reopens", () => {
   const state = computeAdminLifecycleState({
     isNew: false,
     formState: 'closed',
@@ -149,10 +159,26 @@ test("Initial condition: Closed assignment keeps the repair group", () => {
     deleting: false,
   });
 
-  assert.equal(state.showRepairGroup, true);
-  assert.equal(state.publishButtonLabel, 'Republish broker');
+  assert.equal(state.showRepairGroup, false, "republishing a closed assignment is not a repair - it un-closes it");
+  assert.equal(state.publishButtonLabel, 'Reopen for acceptance');
+  assert.equal(state.reopens, true, "and it confirms before doing it");
   assert.equal(state.canClose, false, "Already closed");
   assert.equal(state.showRevertToDraft, true);
+});
+
+test("Initial condition: Archived reopens too, and says so", () => {
+  const state = computeAdminLifecycleState({
+    isNew: false,
+    formState: 'archived',
+    publishing: false,
+    saving: false,
+    deleting: false,
+  });
+
+  assert.equal(state.showRepairGroup, false);
+  assert.equal(state.publishButtonLabel, 'Reopen for acceptance');
+  assert.equal(state.reopens, true);
+  assert.equal(state.canArchive, false, "Already archived");
 });
 
 // -----------------------------------------------------------------------------
@@ -216,12 +242,17 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
   // "Publish" while it is not. Complementary conditions, so neither state can
   // show both or neither.
   assert.ok(
-    template.includes(`v-if="form.state === 'published' || form.state === 'closed'"`),
-    "Repair group renders for a published or closed assignment"
+    template.includes(`<div v-if="form.state === 'published'" class="lifecycle-group lifecycle-repair">`),
+    "Repair group renders for a published assignment only"
   );
   assert.ok(
-    template.includes(`v-if="form.state !== 'published' && form.state !== 'closed'"`),
-    "The transition-row Publish renders only while the assignment is NOT out"
+    template.includes(`v-if="form.state !== 'published'"`),
+    "The transition-row Publish renders for every other state"
+  );
+  assert.match(
+    template,
+    /Reopen for acceptance/,
+    "and from closed or archived it is named after what it does"
   );
   assert.ok(
     template.includes("Republish broker"),

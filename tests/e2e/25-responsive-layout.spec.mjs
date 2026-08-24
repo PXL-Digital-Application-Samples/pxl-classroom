@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
 
 // Reported live: narrowing the window pushed the heading and cards flush to the
 // left edge with no gutter, and the page scrolled sideways. Two causes:
@@ -52,6 +52,65 @@ const MEASURE = () => {
 };
 
 test.describe('25 - Responsive layout', () => {
+  // The route sweep below only ever visited the admin panel with NOTHING open,
+  // where the editor pane is a two-line empty state - so the pane that holds
+  // the entire assignment form was never measured at any width. It scrolled
+  // 208px sideways on a phone: `.admin-layout` used a bare `1fr`, whose
+  // automatic minimum is its content's min-content size, and the invitation
+  // link is `white-space: nowrap`, so its min-content IS a 122-character URL.
+  // The track grew to fit it. `minmax(0, 1fr)` is the floor that stops it.
+  test('No sideways scroll in the admin editor, open and closed, at every width', async ({ page }) => {
+    const ID = 'linux-processes-2026';
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        [ID]: {
+          schema_version: 1,
+          id: ID,
+          title: 'Linux Processes 2026',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'individual',
+          roster_mode: 'enforced',
+          max_acceptances: 150,
+          opens_at: new Date(Date.now() - 86400000).toISOString(),
+          deadline_at: new Date(Date.now() + 86400000).toISOString(),
+          template: { owner: ORG, repository: 'linux-template' },
+          repository_name_pattern: `${ID}-{github_login}`,
+          // Without a token the share block never renders its link, which is
+          // the element that caused this.
+          invite_token: inviteToken(ORG, ID),
+          invite_nonce: '0badc0de',
+        },
+      },
+      userRepos: [{ name: `broker-${ID}`, full_name: `${ORG}/broker-${ID}` }],
+    });
+
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+      await expect(page.locator('.cohort-card')).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(500);
+
+      let m = await page.evaluate(MEASURE);
+      expect(
+        m.scrollsSideways,
+        `admin editor (collapsed) @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,
+      ).toBe(false);
+
+      // And with the six fieldsets on screen, which is where the combobox,
+      // the datetime inputs and the autograde summary live.
+      await expandSettings(page);
+      await page.waitForTimeout(300);
+      m = await page.evaluate(MEASURE);
+      expect(
+        m.scrollsSideways,
+        `admin editor (settings open) @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,
+      ).toBe(false);
+    }
+  });
+
   // The per-assignment views were never in the loop below, and the Teams tab's
   // data table wrapper (.table-responsive) turned out to be declared nowhere -
   // ~200px of sideways scroll on a phone, invisible at desktop width.

@@ -645,11 +645,22 @@ and an unreadable file "couldn't read the cohort report" - never `0 accepted`,
 which is a different fact - and an assignment with no `max_acceptances` shows
 no denominator (§11.6).
 
-*Lifecycle* separates **Repair** (`Republish broker`, published/closed only)
-from the **State** transitions below a rule; a draft has nothing to repair yet,
-so its `Publish` sits with the transitions. Per-student extensions and retries
-are not here at all - they need a student, and their home is the student's own
-row on the tracking view (§10.1).
+*Lifecycle* separates **Repair** from the **State** transitions below a rule.
+The repair group holds `Republish broker` and renders for a **published**
+assignment only: `publish-assignment.yml` writes `state: published`
+unconditionally, so the same dispatch from `closed` or `archived` reopens
+acceptance. From those states the control is `Reopen for acceptance`, sits with
+the transitions, and confirms first. A draft has nothing to repair yet, so its
+`Publish` is a transition too. Per-student extensions and retries are not here
+at all - they need a student, and their home is the student's own row on the
+tracking view (§10.1).
+
+Nothing validates an assignment YAML on the way **in**, so the editor has to
+survive one that is wrong. An unparseable `deadline_at` produces an empty
+`deadline_at` rather than a `RangeError` out of `localToUtc`, and every field
+error renders when `touchedFields.X || !isNew` - the touch gate exists so a
+*new* form does not nag about boxes nobody has reached, which is not a reason
+to hide a problem in a document that already exists.
 
 ### 10.2 Authentication
 

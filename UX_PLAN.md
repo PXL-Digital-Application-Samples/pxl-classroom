@@ -619,6 +619,27 @@ What deviated from the plan, and why:
 * The new spec is `tests/e2e/37-published-cohort.spec.mjs` — the plan said 31,
   which WS1 had taken.
 
+Three bugs the edge-case pass (`tests/e2e/38-published-cohort-edges.spec.mjs`)
+found afterwards, one of them WS5's own:
+
+* **`Republish broker` reopened a closed assignment.** `publish-assignment.yml`
+  writes `state: published` unconditionally, and WS5 had just relabelled that
+  dispatch as a *repair* under copy promising nothing changes — C4, introduced
+  by the relabelling. Repair is `published` only now; from `closed` or
+  `archived` the control is **Reopen for acceptance** and confirms first.
+* **A hand-edited `deadline_at: soon` took the whole editor pane down.**
+  `toISOString()` throws on an invalid Date and it ran inside the
+  `shareAssignment` computed, so the crash happened during render with the
+  field that would fix it inside the crashed pane. Pre-existing; the cohort
+  card is just the second consumer. The same investigation found every field
+  error gated on `touchedFields`, so an assignment loaded broken opened its
+  settings, said "1 field needs fixing", and named no field. The gate is
+  `touchedFields.X || !isNew`.
+* **The admin editor scrolled 208px sideways on a phone.** `.admin-layout` used
+  a bare `1fr`; the invitation link is `white-space: nowrap`, so the track grew
+  to its full 122 characters. Pre-existing since WS2, and invisible to the
+  responsive sweep, which only ever visited that route with nothing open.
+
 Rules are in CLAUDE.md, ARCHITECTURE §10.1.1, DESIGN.md §1.2 and §7, and
 RUNBOOK §4.3, §6.2 and §6.3.
 
