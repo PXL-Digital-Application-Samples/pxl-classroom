@@ -373,7 +373,19 @@
                 <span class="status-dot" :class="a.state === 'published' ? 'dot-success' : (a.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
                 <span class="status-text">{{ a.state === 'published' ? 'Accepting' : (a.state === 'closed' ? 'Closed' : a.state) }}</span>
               </span>
-              <span class="text-muted text-xs mono">{{ a.id }}</span>
+              <span class="flex items-center gap-xs">
+                <span class="text-muted text-xs mono">{{ a.id }}</span>
+                <!-- dashboard.json carries no invitation token - it must not,
+                     and does not need to: the component reads it from the
+                     control repo on click, so a card costs nothing until
+                     somebody actually wants the link (UX_PLAN §4.2). -->
+                <InvitationShare
+                  v-if="a.state === 'published'"
+                  :org="selectedOrg"
+                  :assignment="{ ...a, timezone: a.timezone }"
+                  variant="compact"
+                />
+              </span>
             </div>
             <h3 class="assignment-card-title">{{ a.title }}</h3>
             <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
@@ -423,6 +435,7 @@ import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
+import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'

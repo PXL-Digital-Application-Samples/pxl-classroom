@@ -125,10 +125,16 @@ test("UI E2E Contract: AssignmentDetailView exports 1-Primary CTA and grouped Mo
   const detailViewPath = join(FRONTEND_SRC, "views", "AssignmentDetailView.vue");
   const content = await readFile(detailViewPath, "utf8");
 
-  // Verify Copy Invitation Link is primary
+  // The single primary CTA is the share block's Copy, which now lives in
+  // InvitationShare.vue (UX_PLAN §4.1) rather than as a lone header button.
   assert.ok(
-    content.includes("copyAcceptLink"),
-    "Detail view must provide copyAcceptLink handler",
+    content.includes("<InvitationShare"),
+    "Detail view must render the share block",
+  );
+  assert.match(
+    content,
+    /<InvitationShare[^>]*variant="inline"/s,
+    "and the inline variant is the one whose Copy is this view's primary",
   );
   assert.ok(
     content.includes("moreActionsOpen"),

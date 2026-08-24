@@ -79,7 +79,7 @@ node scripts/generate-invite-keypair.mjs 1
 
 **Rotation.** Generate with the next key id, keep the previous entry in `invite-keys.json` so links already in circulation keep verifying, and set the `INVITE_KID` repository *variable* on the hub to the new id so new links use it. Drop the old entry once every assignment signed with it is closed.
 
-**Retiring one assignment's links** does not need the key: republish it with `regenerate_invite: true`, which mints a new nonce and writes it to the broker's `INVITE_NONCE` variable. Every previously issued link for that assignment then reports `superseded`. Plain republishing keeps the existing link alive, so a repair does not silently break links the day before a deadline.
+**Retiring one assignment's links** does not need the key: republish it with `regenerate_invite: true`, which mints a new nonce and writes it to the broker's `INVITE_NONCE` variable. Every previously issued link for that assignment then reports `superseded`. Plain republishing keeps the existing link alive, so a repair does not silently break links the day before a deadline. In the Admin Panel this is **Regenerate link →**, in the share block beside the link it retires; it opens the republish dialog with the box already ticked and states the consequence before you confirm. The same dialog reached from *Lifecycle → Republish broker* arrives **unticked**, because that path is a repair.
 
 **Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
 
@@ -378,7 +378,18 @@ This dispatches `publish-assignment.yml`, which:
 
 ### 4.4 Share the link
 
-The student-facing URL is the invitation link: `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>`. It cannot be constructed from the assignment id - the token is minted at publish time and recorded in the control repo, so copy it from the assignment's detail view (ARCHITECTURE §4.3.2).
+The student-facing URL is the invitation link: `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>`. It cannot be constructed from the assignment id - the token is minted at publish time and recorded in the control repo (ARCHITECTURE §4.3.2).
+
+**Where to find it.** The **Share with students** block appears in four places, and you never have to open the editor to reach it:
+
+| Where | What you get |
+|---|---|
+| The banner after publishing, in the Admin Panel | The link, **Copy**, **Open** (the page a student sees), and **Regenerate link →** |
+| The assignment's detail page, under the header | The same block, with the live accepted count feeding its status |
+| Each published row in the Admin Panel's assignment list | A copy button |
+| Each published card on the dashboard | A copy button |
+
+The link is shown truncated - hover it for the whole thing, and Copy always puts the full URL on the clipboard. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§12.5).
 
 That's the only URL students need. They open it, sign in, click Accept, wait ~30 seconds, get a repo link.
 

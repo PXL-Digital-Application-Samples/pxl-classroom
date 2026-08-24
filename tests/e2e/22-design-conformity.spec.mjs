@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, inviteToken } from '../fixtures/e2e-fixtures.mjs';
 
 // DESIGN.md §1 is the half of the design system no static test can check: the
 // rules are about what is VISIBLE at once, and most of these views render their
@@ -118,6 +118,84 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
   test('Lecturer group views: assignment detail and its Teams tab', async ({ page }) => {
     await openTeamsTab(page);
     await conforms(page, 'assignment detail / Teams tab');
+  });
+
+  // The admin editor was only ever visited with NOTHING being edited, so the
+  // published banner - the biggest block in the view - was never counted at
+  // all. It carried a solid `Track Roster & Progress` while the editor's own
+  // Save is already the view's primary, and WS2 then added a Copy to the same
+  // block. The banner holds NONE: the view's one solid button is Save, and a
+  // section that is not the view does not get to add a second.
+  //
+  // Scoped to that block on purpose. Opening an assignment reveals a
+  // pre-existing §1.2 backlog this workstream did not create and must not
+  // silently absorb: five visible primaries across the whole view - the list
+  // pane's `New assignment`, `Save & publish` twice (the form repeats its
+  // actions at top and bottom), `Grant extension` and `Retry acceptance`.
+  // UX_PLAN WS5 restructures this view; the count belongs there, with the
+  // decisions about which of those five survives.
+  test('Admin editor: the published banner adds no solid button of its own', async ({ page }) => {
+    const base = {
+      schema_version: 1,
+      id: 'lab',
+      title: 'Lab',
+      organization: ORG,
+      template: { owner: ORG, repository: 't' },
+      repository_name_pattern: 'lab-{github_login}',
+      opens_at: new Date(Date.now() - 86400000).toISOString(),
+      deadline_at: new Date(Date.now() + 86400000).toISOString(),
+      assignment_type: 'individual',
+      state: 'published',
+      // Without a token the banner never reaches its "Live & Verified" state,
+      // which is the one holding the buttons this test is about - it sat on
+      // "Checking live status" and asserted nothing.
+      invite_token: inviteToken(ORG, 'lab'),
+      invite_nonce: '0badc0de',
+    };
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { lab: base },
+      userRepos: [{ name: 'broker-lab', full_name: `${ORG}/broker-lab` }],
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=lab`);
+    await expect(page.locator('.published-info-card.is-success')).toBeVisible({ timeout: 15000 });
+
+    const solid = page.locator('.published-info-card .btn-primary');
+    expect(
+      await solid.count(),
+      'DESIGN.md §1.2: the editor\'s one solid button is Save; the banner must not add another',
+    ).toBe(0);
+    // And the status pills rule applies to it like anywhere else.
+    const pills = await page.evaluate(PILLS);
+    expect(pills).toEqual([]);
+  });
+
+  // And the detail page in the state a lecturer sees first: published, with
+  // nobody accepted yet. That used to be a whole different page.
+  test('Assignment detail before anyone has accepted', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        solo: {
+          schema_version: 1,
+          id: 'solo',
+          title: 'Solo',
+          organization: ORG,
+          template: { owner: ORG, repository: 't' },
+          repository_name_pattern: 'solo-{github_login}',
+          opens_at: new Date(Date.now() - 86400000).toISOString(),
+          deadline_at: new Date(Date.now() + 86400000).toISOString(),
+          state: 'published',
+          assignment_type: 'individual',
+        },
+      },
+      reports: {},
+    });
+    await page.goto(`/dashboard/${ORG}/solo`);
+    await page.waitForTimeout(1200);
+    await conforms(page, 'assignment detail / no acceptances');
   });
 
   test('Team management modals', async ({ page }) => {

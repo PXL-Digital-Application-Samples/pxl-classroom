@@ -50,37 +50,19 @@
         <button class="btn btn-primary" type="button" @click="loadAll">Retry</button>
       </div>
 
-      <!-- No report -->
-      <div v-else-if="!report" class="center-card fade-in">
-        <h2>No report yet</h2>
-        <p class="text-secondary">
-          Reports for <code>{{ assignmentId }}</code> are written to the control repo by the nightly
-          <code>daily-activity.yml</code> run in the hub or automatically after student acceptances.
-          You can also force an interim report to generate immediately using the button below.
-        </p>
-        <div v-if="dailyWatch === ''">
-          <button class="btn btn-primary btn-with-icon" @click="runDailyActivity" :disabled="dailyTriggering">
-            <Icon name="zap" :size="14" />
-            <span>{{ dailyTriggering ? 'Triggering…' : 'Run daily activity now' }}</span>
-          </button>
-          <p class="text-muted" style="font-size: 0.85rem; margin-top: var(--space-sm);">
-            Dispatches <code>daily-activity.yml</code> in the hub for {{ org }}. Takes a couple of minutes.
-          </p>
-        </div>
-        <div v-else-if="dailyWatch === 'watching'" class="daily-watch">
-          <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
-          <span class="text-secondary">Workflow started. Watching for the report to land… (checked {{ dailyPollCount }}×)</span>
-        </div>
-        <p v-else-if="dailyWatch === 'timeout'" class="text-warning">
-          No report after 5 minutes. Check the
-          <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/daily-activity.yml`" target="_blank" rel="noopener">workflow run</a> for failures.
-        </p>
-      </div>
+      <!-- No dedicated "no report" page. It used to replace the WHOLE view -
+           header, share block, Teams, Export, Sync, Feedback PRs and Freeze all
+           vanished with the table - so the one moment a lecturer most needs the
+           invitation link was the one moment the page hid it (UX_PLAN §4.3).
+           An absent report is now an empty one, and only the table swaps. -->
 
       <!-- Report loaded -->
       <div v-else class="report-content fade-in">
         <!-- Post-Deadline Preservation Summary Banner -->
-        <div v-if="deadlinePassed && report" class="card preservation-banner">
+        <!-- `report.students.length`, not just `report`: an absent report is
+             now an empty one, and "Preservation Pending 0/0" for an assignment
+             nobody accepted is a status about nothing. -->
+        <div v-if="deadlinePassed && report && report.students.length > 0" class="card preservation-banner">
           <div class="preservation-banner-header">
             <div class="preservation-banner-title-group">
               <span class="preservation-banner-title">Preservation &amp; Lockdown Status</span>
@@ -399,13 +381,13 @@
               </div>
             </div>
 
-            <!-- Single Standout Primary CTA -->
-            <button class="btn btn-primary btn-sm btn-with-icon" @click="copyAcceptLink" title="Copy student invitation link to clipboard">
-              <Icon name="copy" :size="13" />
-              <span>Copy invitation link</span>
-            </button>
           </div>
         </div>
+
+        <!-- Handing the link to students is the thing this page is for before
+             anyone has accepted, so it is a block with the student-facing
+             status on it, not a lone button (UX_PLAN §4.1). -->
+        <InvitationShare :org="org" :assignment="shareAssignment" variant="inline" class="detail-share" />
 
         <!-- Segmented Tab for Group Assignments -->
         <div v-if="isGroupAssignment" class="tab-pill-selector" style="margin-bottom: var(--space-md);">
@@ -605,6 +587,37 @@
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- Nobody has accepted. Only the TABLE says so; the header, the share
+             block and the actions bar stay where they were (UX_PLAN §4.3).
+             Not on the Teams tab: TeamsTable has its own empty state, and two
+             of them stacked is the noise this is meant to remove. -->
+        <div
+          v-if="report.students.length === 0 && !(isGroupAssignment && viewTab === 'teams')"
+          class="empty-state cohort-empty"
+        >
+          <h3>No one has accepted yet.</h3>
+          <p class="text-secondary">
+            Students appear here as they accept. Share the link above, or
+            <router-link :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }" class="btn-link">check the invitation</router-link>
+            if you expected someone by now.
+          </p>
+          <p v-if="dailyWatch === ''" class="text-muted cohort-empty-note">
+            Reports refresh automatically after each acceptance and nightly.
+            <button class="btn-link" type="button" @click="runDailyActivity" :disabled="dailyTriggering">
+              {{ dailyTriggering ? 'Refreshing…' : 'Refresh now' }}
+            </button>
+          </p>
+          <p v-else-if="dailyWatch === 'watching'" class="text-muted cohort-empty-note">
+            <span class="spinner-sm"></span>
+            Refreshing… (checked {{ dailyPollCount }}×)
+          </p>
+          <p v-else-if="dailyWatch === 'timeout'" class="text-warning cohort-empty-note">
+            Still nothing after 5 minutes. Check the
+            <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/daily-activity.yml`" target="_blank" rel="noopener">workflow run</a>
+            for failures.
+          </p>
         </div>
 
         <!-- Student cards (mobile) -->
@@ -996,6 +1009,7 @@ import { h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
+import InvitationShare from '../components/InvitationShare.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
 
@@ -1011,7 +1025,6 @@ import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explai
 import { validateAgainst } from '../lib/validate.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
-import { invitationUrl, parseInviteFields } from '../lib/invite.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -1027,6 +1040,15 @@ const user = ref(getUser())
 const loading = ref(true)
 const report = ref(null)
 const assignment = ref(null)
+
+// The assignment YAML plus the live accepted count, which is what makes the
+// share block's status line ("cap reached") true rather than a guess. The
+// component reads the token from the same YAML if it is not in hand.
+const shareAssignment = computed(() => ({
+  ...(assignment.value || {}),
+  id: props.assignmentId,
+  accepted_count: acceptedStudentsCount.value,
+}))
 const loadError = ref(null)
 const togglingState = ref(false)
 const viewTab = ref('teams')
@@ -1658,19 +1680,6 @@ async function mergeTeamManifests(token) {
     .map((f) => ({ slug: f.name.replace(/\.json$/, ''), path: f.path }))
   if (manifests.length === 0) return
 
-  if (!report.value && assignment.value?.state === 'draft') {
-    // A draft has no acceptances by definition, so an empty student list is the
-    // truth rather than a data-shaped stand-in for a missing report.
-    report.value = {
-      schema_version: 1,
-      assignment_id: props.assignmentId,
-      assignment_title: assignment.value?.title || props.assignmentId,
-      org: props.org,
-      generated_at: null,
-      students: [],
-      teams: [],
-    }
-  }
   if (!report.value) return
 
   const known = new Set((report.value.teams || []).map((t) => String(t.team_slug).toLowerCase()))
@@ -1711,6 +1720,21 @@ async function mergeTeamManifests(token) {
   }
 }
 
+// The shape reports/<id>.json has before anything has been generated. Used for
+// an assignment nobody has accepted yet, and previously open-coded inside
+// mergeTeamManifests for the draft case alone.
+function emptyReport() {
+  return {
+    schema_version: 1,
+    assignment_id: props.assignmentId,
+    assignment_title: assignment.value?.title || props.assignmentId,
+    org: props.org,
+    generated_at: null,
+    students: [],
+    teams: [],
+  }
+}
+
 async function loadAll() {
   const token = getToken()
   if (!token) { loading.value = false; return }
@@ -1727,6 +1751,15 @@ async function loadAll() {
     }
     if (assignmentContent) {
       assignment.value = parseYaml(assignmentContent)
+    }
+    // An assignment nobody has accepted yet has no report file, and that is a
+    // fact about the cohort, not a failure to load. Standing an empty report in
+    // for it keeps ONE render path - the alternative was a second full page
+    // that dropped every action along with the table (UX_PLAN §4.3). Only done
+    // once the assignment itself is known, so a genuine read failure still
+    // lands in the error branch rather than looking like an empty cohort.
+    if (!report.value && assignment.value) {
+      report.value = emptyReport()
     }
     if (rosterContent) {
       try {
@@ -1962,42 +1995,11 @@ function exportCSV() {
   URL.revokeObjectURL(url)
 }
 
-async function copyAcceptLink() {
-  // The link cannot be constructed from the id: it carries the signed token
-  // minted at publish time, which lives in the private control repo. No token
-  // means the assignment was never published, or was published before signed
-  // invitations existed.
-  const token = await loadInviteToken()
-  if (!token) {
-    toast.error('No invitation link yet - publish this assignment to mint one.')
-    return
-  }
-  const link = invitationUrl(props.org, token)
-  navigator.clipboard.writeText(link).then(
-    () => toast.success('Invitation link copied'),
-    () => toast.error('Could not copy link'),
-  )
-}
-
-// Read from the control repo with the lecturer's own token. Deliberately not
-// cached in the report or the dashboard: the token must not travel anywhere
-// that a student can read, and Pages output is world-readable.
-// getRepoContent resolves to the decoded FILE TEXT, or null - never a
-// {ok, data} response envelope. Reading `.ok` off a string is undefined, so
-// this returned null for every assignment ever published and the button only
-// knew how to say "no invitation link yet". The parse itself now lives in
-// lib/invite-token-format.mjs, beside the code that writes those lines.
-async function loadInviteToken() {
-  try {
-    const yaml = await getRepoContent(
-      getToken(), props.org, config.controlRepo,
-      `assignments/${props.assignmentId}.yml`,
-    )
-    return parseInviteFields(yaml).invite_token || null
-  } catch {
-    return null
-  }
-}
+// Copying the link, and the control-repo read behind it, live in
+// InvitationShare.vue. Both used to exist here as well, and the read was
+// silently broken for months on one of the two copies - `getRepoContent`
+// resolves to decoded FILE TEXT, never a {ok, data} envelope, and the copy that
+// checked `.ok` returned null for every assignment ever published. One reader.
 
 // Manifest of preserved submissions - login + archive SHA + clickable
 // archive branch URL. Power users do the actual bulk clone via the CLI; the
@@ -2815,6 +2817,21 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 0.8rem;
 }
 
+/* Only the table is empty; the page around it is not. */
+.cohort-empty {
+  margin-top: var(--space-md);
+}
+.cohort-empty h3 {
+  margin: 0 0 var(--space-xs) 0;
+}
+.cohort-empty-note {
+  font-size: 0.8rem;
+  margin-top: var(--space-sm);
+}
+.detail-share {
+  margin-bottom: var(--space-md);
+}
+
 .ext-note {
   font-size: 0.72rem;
   color: var(--accent-blue);
@@ -2917,12 +2934,19 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .export-dropdown-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
+  /* Anchored to the trigger's RIGHT edge, because these triggers live in a
+     right-aligned toolbar. With `left: 0` the 270px menu grew towards the
+     viewport edge and stayed on screen only because another button happened to
+     sit to its right - remove that button and the More menu's own centre fell
+     outside the window (tests/e2e/21-org-dropdown.spec.mjs). */
+  right: 0;
   z-index: 100;
   min-width: 270px;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md, 6px);
+  /* No inline fallback after the comma: --radius-md is defined, and a fallback
+     only hides a typo (DESIGN.md §5 rule 2). */
+  border-radius: var(--radius-md);
   box-shadow: 0 8px 24px var(--shadow-color-lg);
   padding: 4px;
   display: flex;

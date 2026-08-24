@@ -80,18 +80,24 @@ test.describe('27 - The invitation link, end to end', () => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await openEditor(page, publishedAssignment());
 
-    const linkText = page.locator('.link-box .link-text').first();
+    const linkText = page.locator('.invitation-link').first();
     await expect(linkText).toBeVisible({ timeout: 15000 });
 
     const shown = (await linkText.textContent())?.trim() ?? '';
     expect(shown, 'the link box must not render an empty string or "null"').not.toBe('');
     expect(shown).not.toContain('null');
     expect(shown, 'the link is /:org/i/:token').toContain(`/${ORG}/i/`);
-    expect(shown).toContain(inviteToken(ORG, ID));
+    // Truncated, not hidden (UX_PLAN §4.1): enough to recognise, never the full
+    // 122 characters. The whole value lives on the title and in the clipboard.
+    const token = inviteToken(ORG, ID);
+    expect(shown, 'the box must not print the whole token').not.toContain(token);
+    expect(shown).toContain(token.slice(0, 8));
+    expect(await linkText.getAttribute('title'), 'hover gives the full link').toContain(token);
 
-    await page.locator('button[aria-label="Copy student invitation link"]').first().click();
+    await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     const copied = await page.evaluate(() => navigator.clipboard.readText());
     expect(copied, 'the clipboard must hold the link, not "null"').toContain(`/${ORG}/i/`);
+    expect(copied, 'and the whole token, not the truncation').toContain(token);
   });
 
   test('The link appears when the workflow mints it, without a page reload', async ({ page }) => {
@@ -141,16 +147,17 @@ test.describe('27 - The invitation link, end to end', () => {
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
 
     // Nothing to copy yet, and it says so rather than copying "null".
-    await page.locator('button', { hasText: 'Copy invitation link' }).first().click();
+    await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     await expect(page.locator('.toast', { hasText: /No invitation link yet/i })).toBeVisible({ timeout: 10000 });
 
     // The workflow finishes.
     tokenMinted = true;
     await page.locator('button', { hasText: /Check status/i }).first().click();
 
-    const linkText = page.locator('.link-box .link-text').first();
-    await expect(linkText, 'the re-read must pick up the freshly minted token').toContainText(
-      inviteToken(ORG, ID),
+    const linkText = page.locator('.invitation-link').first();
+    await expect(linkText, 'the re-read must pick up the freshly minted token').toHaveAttribute(
+      'title',
+      new RegExp(inviteToken(ORG, ID).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       { timeout: 15000 },
     );
   });
@@ -163,8 +170,10 @@ test.describe('27 - The invitation link, end to end', () => {
     delete noToken.invite_nonce;
     await openEditor(page, noToken);
 
-    await page.locator('button', { hasText: 'Copy invitation link' }).first().click();
+    await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     await expect(page.locator('.toast', { hasText: /No invitation link yet/i })).toBeVisible({ timeout: 10000 });
+    // And the status line names the state rather than showing an empty box.
+    await expect(page.locator('.invitation-share')).toContainText('Published, but no link');
   });
 
   // --- F11: liveness is the student's page, not the index -------------------
@@ -276,7 +285,7 @@ test.describe('27 - The invitation link, end to end', () => {
     await modal.locator('.modal-foot button').last().click();
     await expect(modal).toBeHidden({ timeout: 10000 });
 
-    await page.locator('button', { hasText: 'Copy invitation link' }).first().click();
+    await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     await expect(
       page.locator('.toast', { hasText: /No invitation link yet/i }),
       'the retired link must not stay copyable',
@@ -361,7 +370,7 @@ test.describe('27 - The invitation link, end to end', () => {
       await page.goto(`/dashboard/${ORG}/admin?theme=${theme}`);
       await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
 
-      const copy = page.locator('button', { hasText: 'Copy invitation link' }).first();
+      const copy = page.locator('.invitation-share button', { hasText: /Copy/ }).first();
       await expect(copy).toBeVisible({ timeout: 15000 });
       const cls = (await copy.getAttribute('class')) ?? '';
       expect(cls, `${theme}: btn-warning is declared nowhere`).not.toContain('btn-warning');

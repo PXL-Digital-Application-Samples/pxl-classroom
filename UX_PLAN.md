@@ -483,78 +483,33 @@ Each step is useful on its own and none of them requires the next.
 
 ---
 
-## 4. WS2 — Make "hand this to students" a place
+## 4. WS2 — Make "hand this to students" a place — **shipped**
 
-**Fixes:** UX6 (link as a blob), UX7 (no distribute step), UX8 (empty state eats
+**Fixed:** UX6 (link as a blob), UX7 (no distribute step), UX8 (empty state eats
 the page), UX21 (regenerate undiscoverable), UX23 (link in three places).
 
-### 4.1 One component: `InvitationShare.vue`
+Deviations, all deliberate:
 
-Used by more than one view, so per DESIGN.md §7 its classes live in `style.css`.
+* **Copy is `.btn-primary` only in the `inline` variant.** §4.1 called it the
+  primary action of the block, but DESIGN.md §1.2 is enforced across the whole
+  *view* and the editor's primary is Save. On the detail page Copy replaces the
+  primary that was already there; in the banner it is secondary and
+  `Track Roster & Progress` was demoted with it, so that block adds no solid
+  button of its own.
+* **`:resolve="false"`** had to be added: the component reads the token from the
+  control repo when a caller does not have it, and that resurrected a link the
+  panel had deliberately cleared on rotation.
+* The test file is `34-share-surface.spec.mjs`; `29` was taken.
 
-```
-┌─ Share with students ─────────────────────────────────────┐
-│  pxl.../PXLAutomation/i/AQGU7LHwUF…VODw     [Copy] [Open] │
-│                                                            │
-│  ● Live — students can accept now                          │
-│  Anyone with this link can accept until 30 Aug, 19:02.     │
-│  Link expires 27 Sep 2027.            Regenerate link →    │
-└────────────────────────────────────────────────────────────┘
-```
+Two things found while building it: the More-actions dropdown was anchored
+`left: 0` and stayed on screen only because another button sat to its right —
+removing that button put the menu's own centre outside the window; and the
+`22-design-conformity` suite had never visited the admin editor with an
+assignment open, so the whole publish banner was uncounted.
 
-* **Truncated, not hidden.** Enough to recognise it, never the full 122
-  characters. Full value on hover/`title` and in the clipboard.
-* **Copy** is the primary action of the block. **Open** opens the student page in
-  a new tab, which is the only way a lecturer can see what students see.
-* The status line is the *student-facing* truth: accepting, not yet open, closed,
-  or cap reached — the same conditions `AssignmentView` gates on.
-* **Regenerate link →** is a text button that opens the existing republish modal
-  with the checkbox pre-ticked. It is the only mention of rotation in the app and
-  it belongs here, not buried under *Lifecycle → Republish broker*.
+Rules are in CLAUDE.md, ARCHITECTURE §10.3 and §11.3, RUNBOOK §4.4 and §1.3.1.
 
-**Props:** `org`, `assignment` (needs `id`, `invite_token`, `state`, `deadline_at`,
-`accepted_count`, `max_acceptances`), `variant: 'banner' | 'inline' | 'compact'`.
-
-### 4.2 Where it goes
-
-| Surface | Variant | Replaces |
-|---|---|---|
-| Post-publish banner, `AdminView` | `banner` | the current link box inside `.published-info-card` |
-| `AssignmentDetailView` header | `inline` | the lone *Copy invitation link* primary button |
-| Assignment card in the admin list | `compact` | nothing — this is the gap |
-| Assignment card on `DashboardView` | `compact` | nothing — this is the gap |
-
-The compact variant is a single icon-button that copies and toasts. It exists so
-that a lecturer returning a week later does not have to open the editor to find
-the link.
-
-`AdminView`'s *Lifecycle → Copy invitation link* is **removed** — copying is not a
-lifecycle transition (UX24), and the banner and the list card both carry it.
-
-### 4.3 The tracking page stops collapsing
-
-`AssignmentDetailView.vue:53` renders a full-page `No report yet` state that
-removes the header, the share block, Teams, Export, Sync Starter Code, Feedback
-PRs and Freeze along with the table.
-
-**Fix:** the page always renders header → share block → summary → actions bar. Only
-the *table* swaps for an empty state, and it says what has not happened:
-
-> **No one has accepted yet.**
-> Students appear here as they accept. Share the link above, or
-> [check the invitation](#) if you expected someone by now.
->
-> <sub>Reports refresh automatically after each acceptance and nightly.
-> [Refresh now](#)</sub>
-
-*Run daily activity now* keeps its function and loses its name — it becomes
-**Refresh now**, demoted to a text button in the small print. Workflow file names
-do not appear in an empty state.
-
-**Tests:** `tests/e2e/29-share-surface.spec.mjs` (new) — the link is reachable
-from the list card, the dashboard card and the detail header without opening the
-editor; the detail page with zero students still shows the share block and the
-actions bar; Regenerate opens the modal with the box ticked.
+`tests/e2e/34-share-surface.spec.mjs`.
 
 ---
 
@@ -788,8 +743,8 @@ not a commit.
 `roster_mode` and `late_policy` and describe the assignment accurately. The
 enforcement half does not block anything else.
 
-**WS2 and WS4 before WS5.** WS5's layout is mostly composition of things those two
-produce; doing it first would mean building the same blocks twice.
+~~**WS2 and WS4 before WS5.**~~ **WS2 shipped**; WS4 still comes before WS5,
+whose layout is mostly composition of what those two produce.
 
 ~~**WS3 and WS6 any time.**~~ **WS3 shipped**; WS6 still any time. Neither
 touches shared components.

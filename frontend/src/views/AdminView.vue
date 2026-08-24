@@ -99,6 +99,16 @@
               <div class="meta">
                 <span class="badge" :class="`badge-${a.state}`">{{ a.state }}</span>
                 <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
+                <!-- The link, without opening the editor first (UX_PLAN §4.2).
+                     The list already parsed each YAML, so the token is in hand
+                     and this costs no request. -->
+                <InvitationShare
+                  v-if="a.state === 'published'"
+                  :org="org"
+                  :assignment="a"
+                  variant="compact"
+                  :resolve="false"
+                />
               </div>
             </router-link>
           </li>
@@ -158,15 +168,16 @@
               <p class="published-desc">
                 Verified on GitHub and Pages. You can safely share the student invitation link below on Canvas, Toledo, or email. Students who open it will be prompted to accept the assignment and will automatically receive their provisioned repository.
               </p>
+              <!-- :resolve="false" - the form is the authority here. Rotating
+                   clears form.invite_token on purpose, and re-reading the YAML
+                   the workflow has not rewritten yet would hand the retired
+                   link straight back. -->
+              <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
               <div class="link-share-row">
-                <div class="link-box">
-                  <span class="link-text">{{ shareableLink }}</span>
-                  <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
-                    <Icon name="copy" :size="12" />
-                    <span>Copy Link</span>
-                  </button>
-                </div>
-                <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }" class="btn btn-primary btn-track">
+                <!-- Secondary: the block's own emphasis is Copy, and DESIGN.md
+                     §1.2 counts primaries across the view - the editor's is
+                     Save. This was a second solid button in the same section. -->
+                <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }" class="btn btn-secondary btn-track">
                   <span>Track Roster &amp; Progress</span>
                   <Icon name="arrow-right" :size="14" />
                 </router-link>
@@ -197,14 +208,12 @@
                   <span>3. Student Web Portal {{ pagesLive ? 'Live' : 'Deploying (~1 min)…' }}</span>
                 </div>
               </div>
+              <!-- :resolve="false" - the form is the authority here. Rotating
+                   clears form.invite_token on purpose, and re-reading the YAML
+                   the workflow has not rewritten yet would hand the retired
+                   link straight back. -->
+              <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
               <div class="link-share-row">
-                <div class="link-box">
-                  <span class="link-text">{{ shareableLink }}</span>
-                  <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
-                    <Icon name="copy" :size="12" />
-                    <span>Copy Link</span>
-                  </button>
-                </div>
                 <button class="btn btn-sm btn-secondary btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
                   <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
                   <span>Check status</span>
@@ -222,14 +231,12 @@
               <p class="published-desc">
                 GitHub Actions is taking longer than usual to complete deployment. The student link will activate automatically as soon as the background workflow finishes.
               </p>
+              <!-- :resolve="false" - the form is the authority here. Rotating
+                   clears form.invite_token on purpose, and re-reading the YAML
+                   the workflow has not rewritten yet would hand the retired
+                   link straight back. -->
+              <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
               <div class="link-share-row">
-                <div class="link-box">
-                  <span class="link-text">{{ shareableLink }}</span>
-                  <button class="btn btn-sm btn-copy" type="button" @click="copyAcceptLink" aria-label="Copy student invitation link">
-                    <Icon name="copy" :size="12" />
-                    <span>Copy Link</span>
-                  </button>
-                </div>
                 <div style="display: flex; gap: var(--space-xs);">
                   <button class="btn btn-sm btn-secondary btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
                     <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
@@ -795,10 +802,9 @@
               <button v-if="form.state === 'published' || form.state === 'closed'" class="btn" type="button" @click="setState('draft')" :disabled="saving">
                 Revert to draft
               </button>
-              <button v-if="form.state === 'published'" class="btn btn-secondary btn-with-icon" type="button" @click="copyAcceptLink">
-                <Icon name="copy" :size="14" />
-                <span>Copy invitation link</span>
-              </button>
+              <!-- No "Copy invitation link" here: copying is not a lifecycle
+                   transition (UX_PLAN §4.2 / UX24). It lives in the share block
+                   above and on every assignment row. -->
               <button v-if="form.state === 'draft'" class="btn btn-danger" type="button" @click="deleteDraft" :disabled="deleting">
                 {{ deleting ? 'Deleting…' : 'Delete draft' }}
               </button>
@@ -810,8 +816,7 @@
             </div>
             <div v-else-if="publishWatch === 'ready'" class="publish-watch publish-ready">
               <Icon name="check-circle" :size="15" />
-              <span>Assignment is live. The invitation link works now.</span>
-              <button class="btn-link" type="button" @click="copyAcceptLink">Copy invitation link</button>
+              <span>Assignment is live. The invitation link above works now.</span>
             </div>
             <div v-else-if="publishWatch === 'timeout'" class="publish-watch">
               <span class="text-warning">
@@ -969,7 +974,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { toast } from '../lib/toast.js'
-import { invitationUrl, parseInviteFields, inviteDataUrl } from '../lib/invite.js'
+import { parseInviteFields, inviteDataUrl } from '../lib/invite.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { formatDate } from '../lib/format.js'
@@ -978,6 +983,7 @@ import AuthCard from '../components/AuthCard.vue'
 import AppHeader from '../components/AppHeader.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import SeedTeamsModal from '../components/SeedTeamsModal.vue'
+import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -1132,12 +1138,28 @@ const retryForm = ref({ login: '' })
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
-// The invitation link is minted at publish time and recorded in the control
-// repo, so it cannot be derived from the form. Copy it from the assignment's
-// detail view once published.
-const shareableLink = computed(() =>
-  form.value.invite_token ? invitationUrl(props.org, form.value.invite_token) : null,
-)
+// What InvitationShare needs from the form. Built here rather than passed as
+// `form` so the component sees an assignment-shaped object on every surface -
+// the list rows and the dashboard cards pass real assignment records.
+const shareAssignment = computed(() => ({
+  id: form.value.id,
+  state: form.value.state,
+  timezone: form.value.timezone,
+  invite_token: form.value.invite_token || null,
+  invite_expires_at: form.value.invite_expires_at || null,
+  opens_at: form.value.opens_at_local ? localToUtc(form.value.opens_at_local) : null,
+  deadline_at: form.value.deadline_at_local ? localToUtc(form.value.deadline_at_local) : null,
+  max_acceptances: form.value.max_acceptances || null,
+}))
+
+// Rotation had no affordance outside the Actions tab, and the one place it
+// belongs is beside the link it retires. handlePublishClick still resets the
+// box to false: a repair republish must not break links, and only a control
+// that says "Regenerate" may arrive with it ticked.
+function openRegenerate() {
+  regenerateInvite.value = true
+  showRepublishModal.value = true
+}
 
 const manualRepositoryNamePattern = ref(false)
 const templateSearchText = ref('')
@@ -2106,6 +2128,8 @@ async function revertToDraftAfterFailedPublish() {
 function handlePublishClick() {
   if (form.value.state === 'published' && brokerExists.value === true) {
     // Rotating is never the default - a repair republish must not break links.
+    // Only openRegenerate(), behind a control that says "Regenerate link",
+    // arrives with the box already ticked.
     regenerateInvite.value = false
     showRepublishModal.value = true
   } else {
@@ -2207,28 +2231,11 @@ function stopPublishWatch() {
   }
 }
 
-function copyAcceptLink() {
-  // Guard: without a token this writes the string "null" to the clipboard and
-  // reports success, which is worse than saying nothing happened.
-  if (!shareableLink.value) {
-    toast.error('No invitation link yet. Publish the assignment to mint one - if it is already published, open Troubleshoot to check the invitation.')
-    return
-  }
-  navigator.clipboard.writeText(shareableLink.value).then(
-    () => {
-      if (form.value.state !== 'published') {
-        toast.info(`Invitation link copied! Note: Assignment is in ${form.value.state} state; students cannot accept until published.`)
-      } else if (brokerExists.value === false) {
-        toast.warning(`Invitation link copied! Warning: Student acceptance broker is not yet created. Click "Complete Setup" before sharing.`)
-      } else if (publishWatch.value === 'watching' || pagesLive.value === false) {
-        toast.warning(`Invitation link copied! Note: GitHub Pages is still finishing deployment (~1 min); it will be active momentarily.`)
-      } else {
-        toast.success(`Invitation link copied! Ready to share with students: ${shareableLink.value}`)
-      }
-    },
-    () => toast.error('Could not copy link to clipboard'),
-  )
-}
+// Copying the link lives in InvitationShare.vue, not here. There were three
+// implementations of "put the link on the clipboard" across two views, each
+// with its own guard against writing the string "null" - one of them silently
+// broken for months (tests/invitation-link-surface.test.mjs). One component
+// owns it now.
 
 async function deleteDraft() {
   if (form.value.state !== 'draft') return

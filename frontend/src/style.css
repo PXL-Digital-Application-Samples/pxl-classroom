@@ -965,6 +965,74 @@ select:focus {
   gap: var(--space-md);
   align-items: flex-start;
 }
+
+/* InvitationShare.vue - used by AdminView, DashboardView and
+   AssignmentDetailView, so per DESIGN.md §7 its vocabulary lives here. A
+   scoped block in the component would not reach any of them. */
+.invitation-share {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+/* The banner variant sits INSIDE .published-info-card, which is already a box
+   with a tinted background. A second filled panel there would be the prison
+   (DESIGN.md §1.1) and would have to fight three different tints
+   (success/warning/error). A single-side border is a divider, which §1.1
+   explicitly allows, so the section separates by rule and whitespace and the
+   link chip below carries the only tonal step. */
+.invitation-share-banner {
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-muted);
+}
+.invitation-share-title {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.invitation-share-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+.invitation-link {
+  flex: 1 1 18ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  /* Recessed against a plain card. --bg-inset is the step that differs in both
+     themes (DESIGN.md §2); --bg-surface-elevated does not, in light. */
+  background: var(--bg-inset);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+}
+/* On the publish banner the surrounding card is tinted, so the recessed step
+   goes the other way: a neutral chip reads as raised out of the tint. */
+.invitation-share-banner .invitation-link {
+  background: var(--bg-surface);
+}
+.invitation-share-status {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.invitation-share-note {
+  flex: 1 1 20ch;
+  min-width: 0;
+}
+.invitation-regenerate {
+  font-size: inherit;
+  white-space: nowrap;
+}
+.invitation-compact {
+  flex-shrink: 0;
+}
 .form-control {
   width: 100%;
   padding: 8px 10px;

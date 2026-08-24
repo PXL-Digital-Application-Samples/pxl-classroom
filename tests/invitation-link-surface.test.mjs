@@ -42,6 +42,10 @@ const root = join(here, "..");
 const ADMIN = () => readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
 const DETAIL = () => readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
 const INVITE_LIB = () => readFileSync(join(root, "frontend", "src", "lib", "invite.js"), "utf8");
+// Copying the link and reading the token behind it moved out of the two views
+// into one component (UX_PLAN §4.1). They had a copy each, with a guard each,
+// and one of the two reads was dead for months.
+const SHARE = () => readFileSync(join(root, "frontend", "src", "components", "InvitationShare.vue"), "utf8");
 const SETTER = () => readFileSync(join(root, "scripts", "set-assignment-invite.mjs"), "utf8");
 
 const KEYPAIR = generateKeyPair();
@@ -255,20 +259,32 @@ test("the publish watcher fetches the invitation before it claims the link is li
 });
 
 test('copying with no invitation reports it instead of writing "null"', () => {
-  const src = ADMIN();
-  const fn = src.slice(src.indexOf("function copyAcceptLink"));
-  const guard = fn.indexOf("if (!shareableLink.value)");
-  const write = fn.indexOf("navigator.clipboard.writeText");
-  assert.ok(guard > -1, "copyAcceptLink must guard against a null link");
-  assert.ok(guard < write, "the guard must come before the clipboard write");
+  const src = SHARE();
+  const fn = src.slice(src.indexOf("async function copy()"));
+  const guard = fn.indexOf("if (!value)");
+  const write = fn.indexOf("clipboard.writeText");
+  assert.ok(guard > -1, "copy() must guard against a null token");
+  assert.ok(write > -1 && guard < write, "the guard must come before the clipboard write");
 });
 
-test("the assignment detail view reads the invitation through the shared parser", () => {
-  const src = DETAIL();
-  const fn = src.slice(src.indexOf("async function loadInviteToken"));
+test("the share component reads the invitation through the shared parser", () => {
+  const src = SHARE();
+  const fn = src.slice(src.indexOf("async function ensureToken"));
   const body = fn.slice(0, fn.indexOf("\n}") + 2);
   assert.match(body, /parseInviteFields\(/, "it must use the shared reader");
   assert.ok(!/\.ok\b/.test(body), "and must not ask the file text for `.ok`");
+});
+
+test("neither view keeps a second copy of the clipboard write", () => {
+  // Three implementations of "put the link on the clipboard" existed across two
+  // views, each with its own null guard, and one of the reads behind them was
+  // dead. A view that grows another one is the fork this consolidation removes.
+  for (const [name, src] of [["AdminView", ADMIN()], ["AssignmentDetailView", DETAIL()]]) {
+    assert.ok(
+      !/clipboard\.writeText\([^)]*invitationUrl/.test(src) && !src.includes("function copyAcceptLink"),
+      `${name} must delegate copying to InvitationShare.vue`,
+    );
+  }
 });
 
 test("saving rebuilds the document without dropping the invitation", () => {
@@ -290,9 +306,11 @@ test("the edit form loads the invitation from the assignment", () => {
   }
 });
 
-test("both views import the one parser rather than re-implementing it", () => {
-  for (const src of [ADMIN(), DETAIL()]) {
-    assert.match(src, /parseInviteFields/, "views must use the shared parser");
+test("every reader imports the one parser rather than re-implementing it", () => {
+  // AdminView still reads the invitation for its own liveness check; the share
+  // component reads it to copy. Both go through the same module.
+  for (const src of [ADMIN(), SHARE()]) {
+    assert.match(src, /parseInviteFields/, "readers must use the shared parser");
   }
   assert.match(INVITE_LIB(), /export \{ parseInviteFields \}/, "invite.js re-exports it");
 });
