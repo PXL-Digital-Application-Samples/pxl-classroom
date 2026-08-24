@@ -81,6 +81,14 @@ function createMockRequest(overrides = {}) {
       });
       return { status: 200, ok: true, data: { content: Buffer.from(json).toString("base64") } };
     }
+    // A real roster, because "all 6 tiers green" now requires one that
+    // somebody could actually accept against. The catch-all below answers
+    // every other control-repo path with empty content, which used to satisfy
+    // the roster check too - it asked only whether the file existed.
+    if (path === "/repos/PXL-CSMobile/pxl-classroom-control/contents/students/roster.yml") {
+      const roster = "students:\n  - student_number: '0123456'\n    full_name: Alice Example\n    github_login: alice\n";
+      return { status: 200, ok: true, data: { content: Buffer.from(roster).toString("base64") } };
+    }
     if (path.startsWith("/repos/PXL-CSMobile/pxl-classroom-control/contents/")) {
       return { status: 200, ok: true, data: { content: "" } };
     }
