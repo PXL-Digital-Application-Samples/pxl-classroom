@@ -257,19 +257,36 @@ test.describe('32 - §5.3 A control that cannot work is not on the screen', () =
 // ========================================================== §5.4 validation
 
 test.describe('32 - §5.4 Validation speaks to lecturers', () => {
-  async function autogradeFormWith(page, { id, type = 'run' }) {
-    await openNewAssignmentForm(page);
-    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Validation Lab');
-    await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
-    await page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]').check();
-    await page.getByRole('button', { name: 'Add test' }).click();
-    await page.getByLabel('Test ID').fill(id);
-    await page.getByLabel('Test type').selectOption(type);
-    if (type === 'run') await page.getByLabel('Command').fill('make test');
-  }
+  // The modal refuses a bad check id before it can be saved (UX_PLAN §6.3), so
+  // this state now only arrives from a YAML someone edited by hand. That is
+  // exactly when the raw AJV mattered most: there is no control to point at.
+  test('A bad check id from a hand-written YAML is explained, not printed as a JSON Pointer and a regex', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'hand-edited': {
+          schema_version: 1,
+          id: 'hand-edited',
+          title: 'Hand Edited',
+          organization: ORG,
+          template: { owner: ORG, repository: 'starter-template' },
+          repository_name_pattern: 'hand-edited-{github_login}',
+          opens_at: new Date(Date.now() - 86400000).toISOString(),
+          deadline_at: new Date(Date.now() + 86400000 * 7).toISOString(),
+          state: 'draft',
+          assignment_type: 'individual',
+          autograde: {
+            enabled: true,
+            execution_environment: 'lecturer_local',
+            tests: [{ id: 'Task 1', type: 'run', command: 'make', points: 5 }],
+          },
+        },
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=hand-edited`);
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Hand Edited', { timeout: 10000 });
 
-  test('A bad test id is explained, not printed as a JSON Pointer and a regex', async ({ page }) => {
-    await autogradeFormWith(page, { id: 'Task 1' });
     await page.getByRole('button', { name: 'Save as draft' }).first().click();
 
     const errors = page.locator('.validation-errors');
@@ -280,17 +297,38 @@ test.describe('32 - §5.4 Validation speaks to lecturers', () => {
     await expect(errors).not.toContainText('/autograde/tests/0/id');
   });
 
-  test('Autograding on with no tests names both ways out', async ({ page }) => {
-    await openNewAssignmentForm(page);
-    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Empty Autograde Lab');
-    await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
-    await page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]').check();
-    await page.getByRole('button', { name: 'Save as draft' }).first().click();
+  // "Autograding is on but no checks are defined" is no longer reachable from
+  // the UI at all: the modal cannot save an empty configuration, and loading
+  // one from a hand-edited YAML turns the flag off rather than preserving a
+  // state whose only outcome is a failed save. The message stays for anything
+  // that does reach the validator, covered against the real schema in
+  // tests/assignment-validation-messages.test.mjs.
+  test('An empty autograde block loads as off rather than as an unsaveable state', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'empty-ag': {
+          schema_version: 1,
+          id: 'empty-ag',
+          title: 'Empty Autograde',
+          organization: ORG,
+          template: { owner: ORG, repository: 'starter-template' },
+          repository_name_pattern: 'empty-ag-{github_login}',
+          opens_at: new Date(Date.now() - 86400000).toISOString(),
+          deadline_at: new Date(Date.now() + 86400000 * 7).toISOString(),
+          state: 'draft',
+          assignment_type: 'individual',
+          autograde: { enabled: true, execution_environment: 'lecturer_local', tests: [] },
+        },
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=empty-ag`);
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Empty Autograde', { timeout: 10000 });
 
-    const errors = page.locator('.validation-errors');
-    await expect(errors).toBeVisible();
-    await expect(errors).toContainText('Autograding is on but no tests are defined');
-    await expect(errors).toContainText('turn autograding off');
-    await expect(errors).not.toContainText('minItems');
+    await expect(page.locator('.autograde-summary-text')).toHaveText('Off');
+    await expect(page.getByRole('button', { name: 'Save as draft' }).first()).toBeEnabled();
+    await page.getByRole('button', { name: 'Save as draft' }).first().click();
+    await expect(page.locator('.toast', { hasText: /Saved empty-ag/i })).toBeVisible({ timeout: 10000 });
   });
 });

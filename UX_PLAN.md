@@ -541,93 +541,30 @@ Rules are in CLAUDE.md, ARCHITECTURE §10.4 and RUNBOOK §4.1.
 
 ---
 
-## 6. WS4 — Autograding becomes a task
+## 6. WS4 — Autograding becomes a task — **shipped**
 
-**Fixes:** UX10 (checkbox opens a config language), UX12 (zero-test states),
+**Fixed:** UX10 (checkbox opens a config language), UX12 (zero-test states),
 UX15 (visibility named after its mechanism).
 
-### 6.1 In the form: one line
+Deviations and additions:
 
-The *Guardrails* fieldset shows a summary row, never the configuration:
+* **`autograde_enabled` had to be handled on load, not only in the form.** The
+  plan says the configuration's existence is the flag; an assignment YAML with
+  `enabled: true` and zero checks then loads as a state the summary calls "Off"
+  while Save fails on `tests.minItems`. It loads as *off* instead, so the next
+  save repairs it.
+* **Duplicate check ids are refused**, which §6.2 did not mention: two checks
+  with one id collide as workflow step ids.
+* §6.3's "closing the modal with zero checks sets Off" is stronger here — the
+  modal cannot save an empty configuration at all, and *Turn off automated
+  checks* is the explicit way out.
+* The zero-checks `npm test` path is not deleted but **replaced with a failing
+  step**. `visibility: private` with no checks still reaches the same generator
+  branch, and returning nothing there produces a workflow with no jobs.
+* The spec is `35-autograding.spec.mjs`; `30` was taken.
 
-```
-Automated checks    Off                                      [ Set up ]
-Automated checks    3 checks · run on your machine           [ Edit ]  [Remove]
-Automated checks    2 checks · run in student repos, hidden  [ Edit ]  [Remove]
-```
-
-That is the entire footprint in the form. `autograde_enabled` stops being a
-checkbox — the configuration's existence *is* the flag.
-
-### 6.2 `AutogradeModal.vue`
-
-A modal, so DESIGN.md §1.2 applies: it is its own view and gets exactly one
-primary (`Save checks`). Three sections in order, all visible at once — this is a
-form, not a wizard, and the order is what carries the teaching.
-
-**① What this does** — one sentence, always visible:
-> Run the same checks against every submission and record a score per student.
-> Results appear in the assignment's report and in the CSV export.
-
-**② Where do they run?** Two radio cards, not a `<select>`, because the trade-off
-is the decision:
-
-| | **On your machine** | **In each student's repo** |
-|---|---|---|
-| | You run `pxl-classroom grade` after the deadline. | GitHub Actions runs them on every push. |
-| Cost | No Actions minutes. | Uses the organization's Actions minutes. |
-| Students see | Results when you publish them. | A pass/fail on every push. |
-| Tests are | Never in the student repo. | In the repo, unless hidden. |
-
-**③ Can students read the tests?** — only when ② is *in each student's repo*.
-Currently *Test Visibility → Private (Hidden via reusable workflow)*; becomes:
-
-> ( ) **Yes** — the checks are committed to each student's repository. Simplest,
->     and students can run them locally.
-> (•) **No** — the checks stay in the control repository and run from there.
-
-The mechanism ("reusable workflow") is true but is not the decision.
-
-**④ The checks** — a real table with headers, which the current row editor lacks
-entirely:
-
-| ID | What it does | Command | Points | |
-|---|---|---|---|---|
-| `compiles` | Command must succeed | `make` | 20 | ✕ |
-| `greets` | Input → expected output | `./greet` | 10 | ✕ |
-
-* **Add a check** offers the three types as named starting points, each
-  pre-filled with a working example, rather than an empty row and a type
-  dropdown:
-  * *A command that must succeed* → `run`, command `make test`
-  * *Compare output for given input* → `io`, with stdin and expected stdout
-  * *A Python script* → `python`, with a two-line script
-* Type-specific fields (stdin/expected stdout, script) appear under the row they
-  belong to, labelled.
-* Total points are summed and shown, because that is the number a lecturer
-  actually cares about and nothing displays it today.
-
-### 6.3 Zero checks is refused before the schema sees it
-
-`tests.minItems: 1` means enabling autograding with no checks fails on save with an
-AJV path, and `cleanTests()` emits `id: ''` for an unfilled row so it fails on the
-*pattern* instead. Both are WS3.4's problem, but the modal must not produce that
-state at all:
-
-* `Save checks` is disabled while any row is incomplete, with the reason on the row.
-* Closing the modal with zero checks sets `Automated checks: Off` rather than
-  saving an enabled-but-empty configuration.
-* The `visibility: public` + zero-tests path in `provision.mjs` that emits a
-  hardcoded `npm test` is deleted — it can no longer be reached from the UI, and
-  it was never a defensible default for a hand-written YAML either.
-
-**Tests:**
-* `tests/autograde-modal.test.mjs` (new) — presets produce schema-valid tests;
-  an incomplete row blocks save; closing with zero checks disables autograding;
-  the summary line matches the configuration.
-* `tests/e2e/30-autograding.spec.mjs` (new) — set up from the form, add two
-  checks, save, reopen and see them; the summary line reads correctly; DESIGN.md
-  §1.2 (one primary in the modal).
+Rules are in CLAUDE.md, ARCHITECTURE §11.6 and RUNBOOK §4.1 and §12.9.
+`tests/autograde-modal.test.mjs`, `tests/e2e/35-autograding.spec.mjs`.
 
 ---
 
@@ -743,8 +680,8 @@ not a commit.
 `roster_mode` and `late_policy` and describe the assignment accurately. The
 enforcement half does not block anything else.
 
-~~**WS2 and WS4 before WS5.**~~ **WS2 shipped**; WS4 still comes before WS5,
-whose layout is mostly composition of what those two produce.
+~~**WS2 and WS4 before WS5.**~~ **Both shipped.** WS5's layout is mostly
+composition of what they produce, so it is unblocked.
 
 ~~**WS3 and WS6 any time.**~~ **WS3 shipped**; WS6 still any time. Neither
 touches shared components.

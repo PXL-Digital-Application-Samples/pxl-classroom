@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, addCheck, CHECK_PYTHON } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => {
   test('Happy Path: Lecturer fills out assignment form, searches template, and previews pattern', async ({ page }) => {
@@ -102,22 +102,23 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
   });
 
   // UX_PLAN §3.4 - the panel refuses what the schema refuses, in a sentence.
-  test('A python autograde test with no script blocks Save and says why', async ({ page }) => {
+  // The checks live in a modal now (§6), so the refusal is on the row.
+  test('A python check with no script cannot be saved, and says why', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
+    await openAutogradeModal(page);
+    await addCheck(page, CHECK_PYTHON);
+    await page.getByLabel('Check 1 Python script').fill('');
 
-    await page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]').check();
-    await page.getByRole('button', { name: 'Add test' }).click();
-    await page.getByLabel('Test ID').fill('validator');
-    await page.getByLabel('Test type').selectOption('python');
-
-    const err = page.locator('.tests-editor .field-error-msg');
+    const err = page.locator('.autograde-setup-modal .field-error-msg');
     await expect(err).toContainText('needs a script');
+    await expect(page.getByRole('button', { name: 'Save checks' })).toBeDisabled();
 
-    await page.getByLabel('Python script').fill('assert 1 == 1');
+    await page.getByLabel('Check 1 Python script').fill('assert 1 == 1');
     await expect(err).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save checks' })).toBeEnabled();
   });
 });

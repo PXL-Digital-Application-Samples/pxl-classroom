@@ -139,13 +139,26 @@ export function buildAutogradingWorkflow(assignment, org) {
 
   const tests = assignment?.autograde?.tests || [];
   if (tests.length === 0) {
+    // Public visibility with no checks used to emit `run: npm test` - a
+    // hardcoded guess at the student's toolchain, reported as this
+    // assignment's grade in every repository. `tests` has `minItems: 1` and the
+    // Admin Panel can no longer produce an enabled-but-empty configuration
+    // (UX_PLAN §6.3), so this is now only reachable from a hand-written YAML
+    // the schema would reject - and a guess was never a defensible default
+    // there either. A job that does nothing is honest; a job that runs someone
+    // else's test command and calls the result a grade is not.
     return stringifyYaml({
       ...shell,
       jobs: {
         grade: {
           "runs-on": "ubuntu-latest",
           "timeout-minutes": 10,
-          steps: [{ uses: "actions/checkout@v4" }, { run: "npm test" }],
+          steps: [
+            {
+              name: "No checks configured",
+              run: "echo 'This assignment has autograding enabled but defines no checks.' >&2\nexit 1",
+            },
+          ],
         },
       },
     });

@@ -19,7 +19,7 @@
 
 import { test, expect } from '@playwright/test';
 import { stringify as stringifyYaml } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal } from '../fixtures/e2e-fixtures.mjs';
 
 const rosterStatus = (page) => page.locator('.roster-status');
 const templateEmpty = (page) => page.locator('.template-empty');
@@ -479,17 +479,29 @@ test.describe('33 - §5.3 The seed control appears exactly when it can work', ()
 // ================================================ §5.4 validation messages
 
 test.describe('33 - §5.4 Nothing in the summary is addressed to a schema author', () => {
-  async function autogradeWith(page, tests) {
-    await openNewForm(page);
-    await fillMinimum(page, 'Validation Edge Lab');
-    await page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]').check();
-    for (const [i, t] of tests.entries()) {
-      await page.getByRole('button', { name: 'Add test' }).click();
-      await page.getByLabel('Test ID').nth(i).fill(t.id);
-      if (t.type) await page.getByLabel('Test type').nth(i).selectOption(t.type);
-      if (t.command !== undefined) await page.getByLabel('Command').nth(i).fill(t.command);
-      if (t.points !== undefined) await page.getByLabel('Points').nth(i).fill(String(t.points));
-    }
+  // The modal refuses every one of these before Save (UX_PLAN §6.3), so they
+  // arrive from a YAML someone edited by hand - which is exactly when raw AJV
+  // was worst: there is no control on screen to point the JSON Pointer at.
+  async function autogradeWith(page, tests, opts = {}) {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'edge-lab': groupAssignment({
+          id: 'edge-lab',
+          title: 'Validation Edge Lab',
+          assignment_type: 'individual',
+          repository_name_pattern: 'edge-lab-{github_login}',
+          group_config: undefined,
+          autograde: { enabled: true, execution_environment: 'lecturer_local', tests },
+        }),
+      },
+      ...opts,
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=edge-lab`);
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Validation Edge Lab', {
+      timeout: 10000,
+    });
   }
 
   test('Several bad checks are all translated, and no JSON Pointer survives', async ({ page }) => {
@@ -536,37 +548,30 @@ test.describe('33 - §5.4 Nothing in the summary is addressed to a schema author
     await expect(summary(page)).not.toContainText('/group_config');
   });
 
-  test('Fixing the error clears the summary and the save goes through', async ({ page }) => {
+  test('Fixing the error in the modal clears the summary and the save goes through', async ({ page }) => {
     const contentWrites = [];
-    await openNewForm(page, { contentWrites });
-    await fillMinimum(page, 'Fixable Lab');
-    await page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]').check();
-    await page.getByRole('button', { name: 'Add test' }).click();
-    await page.getByLabel('Test ID').fill('Task 1');
-    await page.getByLabel('Command').fill('make test');
+    await autogradeWith(page, [{ id: 'Task 1', type: 'run', command: 'make', points: 5 }], { contentWrites });
     await saveDraft(page).click();
     await expect(summary(page)).toBeVisible();
 
-    await page.getByLabel('Test ID').fill('task-1');
+    // The repair happens where the check lives.
+    await openAutogradeModal(page);
+    await page.getByLabel('Check 1 ID').fill('task-1');
+    await page.getByRole('button', { name: 'Save checks' }).click();
     await saveDraft(page).click();
 
-    await expect(page.locator('.toast', { hasText: /Saved fixable-lab/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.toast', { hasText: /Saved edge-lab/i })).toBeVisible({ timeout: 10000 });
     await expect(summary(page)).toHaveCount(0);
-    expect(contentWrites.some((w) => w.path === 'assignments/fixable-lab.yml')).toBe(true);
+    expect(contentWrites.some((w) => w.path === 'assignments/edge-lab.yml')).toBe(true);
   });
 
   test('A field-level error is reported once, beside its field, not twice', async ({ page }) => {
-    // A scriptless python test is refused by fieldErrors before validate() can
+    // A scriptless python check is refused by fieldErrors before validate() can
     // run, so the summary block must stay empty rather than repeating it in
     // schema language further down the form.
-    await openNewForm(page);
-    await fillMinimum(page, 'Double Report Lab');
-    await page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]').check();
-    await page.getByRole('button', { name: 'Add test' }).click();
-    await page.getByLabel('Test ID').fill('validator');
-    await page.getByLabel('Test type').selectOption('python');
+    await autogradeWith(page, [{ id: 'validator', type: 'python', points: 5 }]);
 
-    await expect(page.locator('.tests-editor .field-error-msg')).toContainText('needs a script');
+    await expect(page.locator('.autograde-summary .field-error-msg')).toContainText('needs a script');
     await expect(summary(page)).toHaveCount(0);
     await expect(saveDraft(page)).toBeDisabled();
   });

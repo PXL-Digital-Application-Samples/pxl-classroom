@@ -320,7 +320,7 @@ Step 2 is the one people miss, and it is the only reason the Admin Panel's templ
 | Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open` (§12.4). |
 | Lock down student repos at the deadline | default on |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §12.7) |
-| Enable autograding | optional - test editor + execution environment picker (see §12.9) |
+| Automated checks | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos, hidden`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §12.9). |
 
 5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
@@ -913,7 +913,14 @@ pxl-classroom download --org PXLAutomation \
 
 ### 12.9 Autograding
 
-Configure tests on the assignment YAML (the Admin Panel surfaces a banner when an `autograde` block is present):
+**In the Admin Panel**, the Guardrails section shows one line - **Automated checks** - and a **Set up** button. The modal behind it asks the two questions that are decisions:
+
+* **Where do they run?** *On your machine* costs no Actions minutes, keeps the checks out of the student repository, and you run `pxl-classroom grade` after the deadline. *In each student's repo* runs them on every push, on the organization's Actions minutes, and shows the student a pass/fail each time.
+* **Can students read the checks?** Only asked for the second answer. *Yes* commits them to each student's repository; *No* keeps them in the control repository and runs them from there.
+
+Then add checks from three named starting points - *a command that must succeed*, *compare output for given input*, *a Python script* - each of which arrives pre-filled with a working example to edit. The table totals the points. A check with a missing ID, a duplicate ID, an empty command or (for Python) no script cannot be saved, and says so on its own row. Saving with **no** checks is not a state: use **Turn off automated checks**.
+
+**Or edit the YAML directly** (the shape the panel writes):
 
 ```yaml
 autograde:
@@ -959,6 +966,7 @@ Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.jso
 When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions whenever the student pushes code.
 
 - **Template Preservation**: If the assignment's template repository already contains a custom autograding workflow (`.github/workflows/autograding.yml` or `classroom.yml`, such as standard GitHub Classroom or Cloud PE workflows), it is preserved during provisioning without overwrite.
+- **No checks, autograding on**: the injected workflow **fails** with a message saying the assignment defines none. It used to run `npm test` - a guess at the student's toolchain whose result was then reported as this assignment's grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
 - **Workflow Generation**: If no workflow exists in the template, provisioning injects a workflow utilizing `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter`. A `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is the same thing the CLI runners do, which is what makes a test definition mean one thing on both paths.
 - **Guardrails**: The generated workflow automatically enforces `timeout-minutes: 10` (preventing infinite loops from burning runner quotas) and `concurrency: { cancel-in-progress: true }` (cancelling obsolete runs if a student pushes repeatedly).
 - **Visibility `private`**: The injected workflow calls a reusable workflow stored in the control repository (`pxl-classroom-control`), hiding the actual tests and commands from the student's view.

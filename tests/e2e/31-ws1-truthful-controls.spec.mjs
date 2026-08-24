@@ -18,6 +18,10 @@ import {
   injectAuth,
   setupStandardMockRoutes,
   inviteUrl,
+  openAutogradeModal,
+  addCheck,
+  CHECK_RUN,
+  CHECK_PYTHON,
 } from '../fixtures/e2e-fixtures.mjs';
 import { validateAgainst } from '../../lib/validate.mjs';
 import { buildAutogradingWorkflow } from '../../provisioning/provision.mjs';
@@ -28,9 +32,6 @@ const rosterSelect = (page) => page.locator('select').filter({ hasText: 'only st
 const capInput = (page) => page.locator('input[type="number"][min="1"]').first();
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
 const advanced = (page) => page.locator('details.advanced');
-const autogradeBox = (page) =>
-  page.locator('label').filter({ hasText: 'Enable autograding' }).locator('input[type="checkbox"]');
-const testsError = (page) => page.locator('.tests-editor .field-error-msg');
 
 /** The most recent commit of assignments/<id>.yml, parsed. */
 function committed(contentWrites, id) {
@@ -187,12 +188,21 @@ test.describe('31 - §3.3 Acceptance mode is not a question, and not deleted eit
 // ======================================================== §3.4 python autograde
 
 test.describe('31 - §3.4 A python test means one thing, from the form to the workflow', () => {
+  // The checks live in a modal now (UX_PLAN §6). A python preset arrives with
+  // a working script, so an EMPTY one has to be made by clearing it.
   async function addPythonTest(page, { id, script, index = 0 }) {
-    await page.getByRole('button', { name: 'Add test' }).click();
-    await page.getByLabel('Test ID').nth(index).fill(id);
-    await page.getByLabel('Test type').nth(index).selectOption('python');
-    if (script !== undefined) await page.getByLabel('Python script').nth(index).fill(script);
+    await addCheck(page, CHECK_PYTHON);
+    await page.getByLabel(`Check ${index + 1} ID`).fill(id);
+    await page.getByLabel(`Check ${index + 1} Python script`).fill(script ?? '');
   }
+
+  async function openChecks(page, title, opts = {}) {
+    await openNewAssignmentForm(page, opts);
+    await fillMinimum(page, title);
+    await openAutogradeModal(page);
+  }
+
+  const saveChecks = (page) => page.getByRole('button', { name: 'Save checks' });
 
   test('The script survives the form, the YAML, the schema and the generated workflow', async ({ page }) => {
     // A double quote and a colon are what broke the string-concatenated
@@ -200,13 +210,12 @@ test.describe('31 - §3.4 A python test means one thing, from the form to the wo
     // is exercised with both in the source.
     const script = 'import sys\nprint("hello: world")\nsys.exit(0)\n';
     const contentWrites = [];
-    await openNewAssignmentForm(page, { contentWrites });
-    await fillMinimum(page, 'Python Lab');
+    await openChecks(page, 'Python Lab', { contentWrites });
 
-    await autogradeBox(page).check();
-    await page.locator('select').filter({ hasText: 'GitHub Actions (Student Repo)' }).selectOption('github_actions');
-    await page.locator('select').filter({ hasText: 'Public (Visible in student repo)' }).selectOption('public');
+    await page.getByRole('radio', { name: /In each student's repo/ }).check();
+    await page.locator('input[value="public"]').check();
     await addPythonTest(page, { id: 'validator', script });
+    await saveChecks(page).click();
 
     await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'python-lab'), { timeout: 10000 }).toBeTruthy();
@@ -234,35 +243,46 @@ test.describe('31 - §3.4 A python test means one thing, from the form to the wo
     expect(JSON.stringify(grade.with)).not.toContain('pytest');
   });
 
-  test('A python test with no script blocks Save and names the test', async ({ page }) => {
-    await openNewAssignmentForm(page);
-    await fillMinimum(page, 'Scriptless Lab');
-    await autogradeBox(page).check();
-    await addPythonTest(page, { id: 'validator' });
+  test('A python test with no script cannot be saved, and the row says why', async ({ page }) => {
+    await openChecks(page, 'Scriptless Lab');
+    await addPythonTest(page, { id: 'validator', script: '' });
 
-    await expect(testsError(page)).toContainText('validator');
-    await expect(testsError(page)).toContainText('needs a script');
-    await expect(saveDraft(page)).toBeDisabled();
+    await expect(page.locator('.autograde-setup-modal .field-error-msg')).toContainText('needs a script');
+    await expect(saveChecks(page)).toBeDisabled();
 
-    await page.getByLabel('Python script').fill('assert True');
-    await expect(testsError(page)).toHaveCount(0);
-    await expect(saveDraft(page)).toBeEnabled();
+    await page.getByLabel('Check 1 Python script').fill('assert True');
+    await expect(page.locator('.autograde-setup-modal .field-error-msg')).toHaveCount(0);
+    await expect(saveChecks(page)).toBeEnabled();
   });
 
-  test('Two scriptless python tests are named together, in the plural', async ({ page }) => {
-    await openNewAssignmentForm(page);
-    await fillMinimum(page, 'Two Scriptless');
-    await autogradeBox(page).check();
-    await addPythonTest(page, { id: 'first', index: 0 });
-    await addPythonTest(page, { id: 'second', index: 1 });
+  test('A scriptless python check in a hand-written YAML is caught on the form', async ({ page }) => {
+    // The modal cannot produce this state, but a YAML edited by hand can - and
+    // the schema rejects it, so the form has to say so in words rather than
+    // letting Save fail on a JSON Pointer.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'hand-edited': draftAssignment({
+          id: 'hand-edited',
+          title: 'Hand Edited',
+          autograde: {
+            enabled: true,
+            execution_environment: 'lecturer_local',
+            tests: [
+              { id: 'first', type: 'python', points: 1 },
+              { id: 'second', type: 'python', points: 1 },
+            ],
+          },
+        }),
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=hand-edited`);
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Hand Edited', { timeout: 10000 });
 
-    await expect(testsError(page)).toContainText('first, second');
-    await expect(testsError(page)).toContainText('need a script');
-
-    // Fixing one is not fixing both.
-    await page.getByLabel('Python script').nth(0).fill('assert True');
-    await expect(testsError(page)).toContainText('second');
-    await expect(testsError(page)).toContainText('needs a script');
+    const err = page.locator('.autograde-summary .field-error-msg');
+    await expect(err).toContainText('first, second');
+    await expect(err).toContainText('need a script');
     await expect(saveDraft(page)).toBeDisabled();
   });
 
@@ -270,26 +290,23 @@ test.describe('31 - §3.4 A python test means one thing, from the form to the wo
     // `python3` over a file of spaces exits 0, which is a test that passes
     // without running anything - the exact failure the `script` requirement
     // exists to stop.
-    await openNewAssignmentForm(page);
-    await fillMinimum(page, 'Blank Script Lab');
-    await autogradeBox(page).check();
+    await openChecks(page, 'Blank Script Lab');
     await addPythonTest(page, { id: 'validator', script: '   \n  \n' });
 
-    await expect(testsError(page)).toContainText('needs a script');
-    await expect(saveDraft(page)).toBeDisabled();
+    await expect(page.locator('.autograde-setup-modal .field-error-msg')).toContainText('needs a script');
+    await expect(saveChecks(page)).toBeDisabled();
   });
 
-  test('Switching a test from run to python leaves no command behind', async ({ page }) => {
+  test('A check saved as python carries no command behind it', async ({ page }) => {
     const contentWrites = [];
-    await openNewAssignmentForm(page, { contentWrites });
-    await fillMinimum(page, 'Switched Lab');
-    await autogradeBox(page).check();
+    await openChecks(page, 'Switched Lab', { contentWrites });
 
-    await page.getByRole('button', { name: 'Add test' }).click();
-    await page.getByLabel('Test ID').fill('validator');
-    await page.getByLabel('Command').fill('make test');
-    await page.getByLabel('Test type').selectOption('python');
-    await page.getByLabel('Python script').fill('assert True');
+    // Start from the command preset, which fills `command`, then replace it
+    // with a python check: the row the modal writes must carry only `script`.
+    await addCheck(page, CHECK_RUN);
+    await addPythonTest(page, { id: 'validator', script: 'assert True', index: 1 });
+    await page.locator('.ag-table tbody tr').first().getByRole('button', { name: /Remove check/ }).click();
+    await saveChecks(page).click();
 
     await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'switched-lab'), { timeout: 10000 }).toBeTruthy();
@@ -304,13 +321,12 @@ test.describe('31 - §3.4 A python test means one thing, from the form to the wo
 
   test('Two python tests get their own script files and their own results', async ({ page }) => {
     const contentWrites = [];
-    await openNewAssignmentForm(page, { contentWrites });
-    await fillMinimum(page, 'Two Python Lab');
-    await autogradeBox(page).check();
-    await page.locator('select').filter({ hasText: 'GitHub Actions (Student Repo)' }).selectOption('github_actions');
-    await page.locator('select').filter({ hasText: 'Public (Visible in student repo)' }).selectOption('public');
+    await openChecks(page, 'Two Python Lab', { contentWrites });
+    await page.getByRole('radio', { name: /In each student's repo/ }).check();
+    await page.locator('input[value="public"]').check();
     await addPythonTest(page, { id: 'first', script: 'assert 1 == 1', index: 0 });
     await addPythonTest(page, { id: 'second', script: 'assert 2 == 2', index: 1 });
+    await saveChecks(page).click();
 
     await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'two-python-lab'), { timeout: 10000 }).toBeTruthy();

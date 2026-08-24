@@ -738,6 +738,22 @@ export async function openMoreActionsMenu(page) {
   await expect(page.locator('[role="menu"]').first()).toBeVisible();
 }
 
+// Automated checks moved out of the Guardrails fieldset into a modal
+// (UX_PLAN §6). The form shows one summary line; everything else is behind it.
+export async function openAutogradeModal(page) {
+  await page.locator('.autograde-summary-row button', { hasText: /^(Set up|Edit)$/ }).click();
+  await expect(page.locator('.autograde-setup-modal')).toBeVisible({ timeout: 10000 });
+}
+
+/** Add a check from its named preset - each arrives pre-filled and valid. */
+export async function addCheck(page, label) {
+  await page.locator('.ag-add button', { hasText: label }).click();
+}
+
+export const CHECK_RUN = 'A command that must succeed';
+export const CHECK_IO = 'Compare output for given input';
+export const CHECK_PYTHON = 'A Python script';
+
 export async function openStarterSyncModal(page) {
   await openMoreActionsMenu(page);
   await page.locator('[role="menuitem"]:has-text("Sync Starter Code")').click();

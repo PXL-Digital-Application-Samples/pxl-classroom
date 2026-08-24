@@ -966,6 +966,15 @@ select:focus {
   align-items: flex-start;
 }
 
+/* Field-level validation text. AdminView and AutogradeModal both render it, so
+   it is shared vocabulary (DESIGN.md §7) rather than a scoped rule that would
+   leave every message in the modal invisible. */
+.field-error-msg {
+  color: var(--accent-red);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
 /* InvitationShare.vue - used by AdminView, DashboardView and
    AssignmentDetailView, so per DESIGN.md §7 its vocabulary lives here. A
    scoped block in the component would not reach any of them. */

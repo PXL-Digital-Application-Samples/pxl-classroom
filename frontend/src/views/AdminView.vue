@@ -660,64 +660,30 @@
                 PRs are opened lazily via <code>pxl-classroom feedback open --assignment {{ form.id || 'ID' }}</code> once students push commits.
               </small>
             </div>
-            <div class="field checkbox">
-              <label>
-                <input type="checkbox" v-model="form.autograde_enabled" />
-                Enable autograding
-              </label>
-              <small>Define tests below; run them lecturer-side via the CLI, or student-side via GitHub Actions.</small>
-            </div>
-            <div v-if="form.autograde_enabled" class="field autograde-banner">
-              <label>Execution Environment</label>
-              <select v-model="form.autograde_execution_environment">
-                <option value="lecturer_local">Lecturer Local (CLI)</option>
-                <option value="github_actions">GitHub Actions (Student Repo)</option>
-              </select>
-              <div v-if="form.autograde_execution_environment === 'github_actions'" style="margin-top: 8px;">
-                <label>Test Visibility</label>
-                <select v-model="form.autograde_visibility">
-                  <option value="private">Private (Hidden via reusable workflow)</option>
-                  <option value="public">Public (Visible in student repo)</option>
-                </select>
-              </div>
-
-              <div class="tests-editor">
-                <label>Tests ({{ (form.autograde_tests || []).length }})</label>
-                <div v-for="(t, i) in form.autograde_tests" :key="i" class="test-row">
-                  <div class="test-row-head">
-                    <input v-model="t.id" placeholder="test-id (lowercase, dashes)" class="test-id" aria-label="Test ID" />
-                    <select v-model="t.type" aria-label="Test type">
-                      <option value="run">run: shell command, exit 0 passes</option>
-                      <option value="io">io: stdin in, compare stdout</option>
-                      <option value="python">python: run a script</option>
-                    </select>
-                    <input v-model.number="t.points" type="number" min="0" placeholder="pts" class="test-points" aria-label="Points" />
-                    <button class="btn test-remove" type="button" @click="removeTest(i)" :aria-label="`Remove test ${t.id || i + 1}`">
-                      <Icon name="x" :size="13" />
-                    </button>
-                  </div>
-                  <textarea v-if="t.type !== 'python'" v-model="t.command" rows="1" :placeholder="t.type === 'io' ? 'executable + args, e.g. ./greet' : 'shell command, e.g. make test'" aria-label="Command"></textarea>
-                  <textarea v-else v-model="t.script" rows="3" placeholder="Python source" aria-label="Python script"></textarea>
-                  <template v-if="t.type === 'io'">
-                    <textarea v-model="t.stdin" rows="1" placeholder="stdin payload" aria-label="Stdin"></textarea>
-                    <textarea v-model="t.expected_stdout" rows="1" placeholder="expected stdout (trimmed, newline-normalized)" aria-label="Expected stdout"></textarea>
-                  </template>
-                </div>
-                <button class="btn btn-with-icon" type="button" @click="addTest">
-                  <Icon name="plus" :size="13" />
-                  <span>Add test</span>
+            <!-- One line, never the configuration (UX_PLAN §6.1). This was an
+                 "Enable autograding" checkbox that opened a type dropdown, four
+                 unlabelled textareas whose meaning changed with it, no headers,
+                 no totals and no validation until the schema refused the save.
+                 The configuration's existence is the flag; there is no separate
+                 checkbox left to disagree with it. -->
+            <div class="field autograde-summary">
+              <label>Automated checks</label>
+              <div class="autograde-summary-row">
+                <span class="autograde-summary-text">{{ autogradeSummary }}</span>
+                <button class="btn btn-secondary btn-sm" type="button" @click="showAutogradeModal = true">
+                  {{ form.autograde_enabled && (form.autograde_tests || []).length ? 'Edit' : 'Set up' }}
                 </button>
-                <div v-if="fieldErrors.autograde_tests" class="field-error-msg">{{ fieldErrors.autograde_tests }}</div>
+                <button
+                  v-if="form.autograde_enabled && (form.autograde_tests || []).length"
+                  class="btn btn-sm"
+                  type="button"
+                  @click="clearAutograde"
+                >Remove</button>
               </div>
-
-              <small style="display:block; margin-top: 8px;">
-                <template v-if="form.autograde_execution_environment === 'lecturer_local'">
-                  0 platform Actions minutes billed. Run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> after deadline.
-                  Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
-                </template>
-                <template v-else>
-                  Executed via GitHub Actions on student pushes (uses organization Actions minutes). If template has custom workflows, they are preserved; otherwise tests above are injected.
-                </template>
+              <div v-if="fieldErrors.autograde_tests" class="field-error-msg">{{ fieldErrors.autograde_tests }}</div>
+              <small v-if="form.autograde_enabled && form.autograde_execution_environment === 'lecturer_local'">
+                Run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> after the deadline.
+                Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
               </small>
             </div>
           </fieldset>
@@ -940,6 +906,18 @@
       </div>
     </div>
 
+    <!-- AUTOMATED CHECKS -->
+    <AutogradeModal
+      v-if="showAutogradeModal"
+      :config="{
+        execution_environment: form.autograde_execution_environment,
+        visibility: form.autograde_visibility,
+        tests: form.autograde_tests,
+      }"
+      @save="applyAutograde"
+      @close="showAutogradeModal = false"
+    />
+
     <!-- SEED TEAMS FROM AN EXISTING GROUPING -->
     <SeedTeamsModal
       v-if="showSeedModal && !isNew"
@@ -973,6 +951,7 @@ import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoC
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
+import { cleanChecks, summariseAutograde } from '../lib/autograde.js'
 import { toast } from '../lib/toast.js'
 import { parseInviteFields, inviteDataUrl } from '../lib/invite.js'
 import { extensionFrom } from '../lib/deadline.js'
@@ -984,6 +963,7 @@ import AppHeader from '../components/AppHeader.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import InvitationShare from '../components/InvitationShare.vue'
+import AutogradeModal from '../components/AutogradeModal.vue'
 import Icon from '../components/Icon.vue'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -1765,7 +1745,12 @@ function editAssignment(a) {
     invite_expires_at: a.invite_expires_at || '',
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
-    autograde_enabled: a.autograde?.enabled === true,
+    // The configuration's existence is the flag (UX_PLAN §6.1), so
+    // `enabled: true` with no checks loads as off rather than as a state the
+    // summary calls "Off" while Save fails on `tests.minItems`. A hand-edited
+    // YAML in that shape gets repaired by the next save instead of trapping
+    // the lecturer behind an error they cannot reach a control for.
+    autograde_enabled: a.autograde?.enabled === true && (a.autograde?.tests || []).length > 0,
     autograde_execution_environment: a.autograde?.execution_environment || 'lecturer_local',
     autograde_visibility: a.autograde?.visibility || 'private',
     autograde_tests: a.autograde?.tests || [],
@@ -1819,31 +1804,35 @@ function cancelEdit() {
   editing.value = null
 }
 
-// ---------------------------------------------------------------- autograde tests
+// ---------------------------------------------------------------- automated checks
 
-function addTest() {
-  if (!Array.isArray(form.value.autograde_tests)) form.value.autograde_tests = []
-  form.value.autograde_tests.push({ id: '', type: 'run', command: '', points: 1 })
+// The row editor lives in AutogradeModal.vue now; this view holds the one-line
+// summary and the resulting configuration (UX_PLAN §6.1).
+const showAutogradeModal = ref(false)
+
+const autogradeSummary = computed(() =>
+  summariseAutograde({
+    enabled: form.value.autograde_enabled,
+    execution_environment: form.value.autograde_execution_environment,
+    visibility: form.value.autograde_visibility,
+    tests: form.value.autograde_tests,
+  }),
+)
+
+function applyAutograde(config) {
+  form.value.autograde_enabled = config.enabled
+  form.value.autograde_execution_environment = config.execution_environment
+  form.value.autograde_visibility = config.visibility
+  form.value.autograde_tests = config.tests
+  showAutogradeModal.value = false
 }
 
-function removeTest(i) {
-  form.value.autograde_tests.splice(i, 1)
-}
-
-// Strip empty optional fields so the committed YAML stays schema-clean
-// (additionalProperties: false; only the fields the test type uses).
-function cleanTests() {
-  return (form.value.autograde_tests || []).map((t) => ({
-    id: t.id || '',
-    type: t.type || 'run',
-    points: Number(t.points) || 0,
-    ...(t.type === 'python'
-      ? { ...(t.script ? { script: t.script } : {}) }
-      : { ...(t.command ? { command: t.command } : {}) }),
-    ...(t.type === 'io' && t.stdin ? { stdin: t.stdin } : {}),
-    ...(t.type === 'io' && t.expected_stdout ? { expected_stdout: t.expected_stdout } : {}),
-    ...(t.timeout_s ? { timeout_s: Number(t.timeout_s) } : {}),
-  }))
+// Removing the checks removes the flag with them: an enabled-but-empty
+// configuration fails `tests.minItems: 1` on save, and promises a score the
+// system will never produce.
+function clearAutograde() {
+  form.value.autograde_enabled = false
+  form.value.autograde_tests = []
 }
 
 // ---------------------------------------------------------------- YAML generation + validation
@@ -1901,7 +1890,7 @@ function buildDoc(state = null) {
     // Included whenever enabled - an empty tests list then fails schema
     // validation visibly instead of being silently dropped from the YAML.
     ...(form.value.autograde_enabled
-      ? { autograde: { enabled: true, execution_environment: form.value.autograde_execution_environment, visibility: form.value.autograde_visibility, tests: cleanTests() } }
+      ? { autograde: { enabled: true, execution_environment: form.value.autograde_execution_environment, visibility: form.value.autograde_visibility, tests: cleanChecks(form.value.autograde_tests) } }
       : {}),
   }
 }
@@ -2794,32 +2783,28 @@ details .field { padding: 0 var(--space-sm); }
 .lifecycle h4 { margin: 0 0 var(--space-md) 0; }
 .lifecycle-actions { display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md); }
 .lifecycle-section { margin-bottom: var(--space-sm); }
-.autograde-banner small {
+.autograde-summary small {
   display: block;
   background: var(--tint-accent-subtle);
   border-left: 3px solid var(--accent-blue);
   padding: var(--space-sm) var(--space-md);
   color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+.autograde-summary-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.autograde-summary-text {
+  flex: 1 1 18ch;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
 }
 .text-warning { color: var(--accent-yellow); }
 .text-secondary { color: var(--text-secondary); }
-
-.tests-editor { display: flex; flex-direction: column; gap: var(--space-sm); margin-top: var(--space-sm); }
-.test-row {
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: var(--space-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--bg-primary);
-}
-.test-row-head { display: flex; gap: 6px; align-items: center; }
-.test-row-head .test-id { flex: 1; min-width: 0; }
-.test-row-head select { flex: 2; min-width: 0; }
-.test-row-head .test-points { width: 72px; flex-shrink: 0; }
-.test-remove { padding: 4px 8px; flex-shrink: 0; }
-.test-row textarea { font-family: var(--font-mono); font-size: 0.85rem; min-height: 34px; }
 
 .btn-danger { border-color: var(--accent-red); color: var(--accent-red); }
 .btn-danger:hover { background: var(--tint-danger-subtle); }
@@ -2920,11 +2905,8 @@ details .field { padding: 0 var(--space-sm); }
 .roster-status .btn-link { font-size: inherit; }
 
 /* DYNAMIC VALIDATION ERROR ALERTS */
-.field-error-msg {
-  color: var(--accent-red);
-  font-size: 0.85rem;
-  margin-top: 4px;
-}
+/* .field-error-msg moved to style.css - AutogradeModal renders one too, and a
+   scoped rule here would leave it invisible there (DESIGN.md §7). */
 
 @keyframes spin {
   from { transform: rotate(0deg); }

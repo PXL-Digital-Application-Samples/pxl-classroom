@@ -106,29 +106,24 @@ test("buildAutogradingWorkflow: handles io tests with multiline strings and defa
   assert.equal(ioStep.with.command, "./calc");
 });
 
-test("buildAutogradingWorkflow: fallback for public visibility with no tests or null tests", () => {
-  const assignmentEmpty = {
-    autograde: {
-      enabled: true,
-      execution_environment: "github_actions",
-      visibility: "public",
-      tests: []
-    }
-  };
-  const yamlEmpty = buildAutogradingWorkflow(assignmentEmpty, "PXLAutomation");
-  assert.ok(yamlEmpty.includes("npm test"));
-  const docEmpty = parse(yamlEmpty);
-  assert.equal(docEmpty.jobs.grade.steps.length, 2);
+// Autograding on with no checks used to emit `run: npm test` - a guess at the
+// student's toolchain, whose result was then reported as this assignment's
+// grade in every repository. `tests` has minItems: 1 and the Admin Panel cannot
+// produce the state any more (UX_PLAN §6.3), so this is only reachable from a
+// hand-written YAML the schema rejects. It fails loudly instead of grading
+// somebody else's test command.
+test("buildAutogradingWorkflow: enabled with no checks fails the run rather than guessing one", () => {
+  for (const autograde of [
+    { enabled: true, execution_environment: "github_actions", visibility: "public", tests: [] },
+    { enabled: true, execution_environment: "github_actions", visibility: "public" },
+  ]) {
+    const yamlStr = buildAutogradingWorkflow({ autograde }, "PXLAutomation");
+    assert.ok(!yamlStr.includes("npm test"), "no guess at the student's toolchain");
 
-  const assignmentNull = {
-    autograde: {
-      enabled: true,
-      execution_environment: "github_actions",
-      visibility: "public"
-    }
-  };
-  const yamlNull = buildAutogradingWorkflow(assignmentNull, "PXLAutomation");
-  assert.ok(yamlNull.includes("npm test"));
-  const docNull = parse(yamlNull);
-  assert.equal(docNull.jobs.grade.steps.length, 2);
+    const doc = parse(yamlStr);
+    assert.equal(doc.jobs.grade.steps.length, 1);
+    const [step] = doc.jobs.grade.steps;
+    assert.match(step.run, /exit 1/, "a job that reports a grade it did not measure is worse than a red one");
+    assert.match(step.run, /defines no checks/, "and it says what is wrong");
+  }
 });
