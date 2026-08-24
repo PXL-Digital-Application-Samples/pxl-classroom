@@ -171,7 +171,7 @@
 // type dropdown, four unlabelled textareas whose meaning changed with the
 // dropdown, and no headers, no totals and no validation until the schema
 // rejected the save three commits later.
-import { computed, reactive } from 'vue'
+import { computed, onMounted, onUnmounted, reactive } from 'vue'
 import Icon from './Icon.vue'
 import { CHECK_PRESETS, newCheck, checkProblems, totalPoints } from '../lib/autograde.js'
 
@@ -205,6 +205,9 @@ const PLACES = [
 const draft = reactive({
   execution_environment: props.config.execution_environment || 'lecturer_local',
   visibility: props.config.visibility || 'private',
+  // A whole-object copy, not a field list: `timeout_s` has no control here and
+  // must still survive an edit. Rebuilding a record from the fields a form
+  // happens to show is how buildDoc used to delete invitation tokens.
   tests: JSON.parse(JSON.stringify(props.config.tests || [])),
 })
 
@@ -245,6 +248,14 @@ function save() {
 function cancel() {
   emit('close')
 }
+
+// Escape closes it, as it does every other modal in the app (SeedTeamsModal).
+// A dialog you can only leave by finding the right button is a trap.
+function onKeydown(e) {
+  if (e.key === 'Escape') cancel()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>

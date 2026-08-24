@@ -918,7 +918,7 @@ pxl-classroom download --org PXLAutomation \
 * **Where do they run?** *On your machine* costs no Actions minutes, keeps the checks out of the student repository, and you run `pxl-classroom grade` after the deadline. *In each student's repo* runs them on every push, on the organization's Actions minutes, and shows the student a pass/fail each time.
 * **Can students read the checks?** Only asked for the second answer. *Yes* commits them to each student's repository; *No* keeps them in the control repository and runs them from there.
 
-Then add checks from three named starting points - *a command that must succeed*, *compare output for given input*, *a Python script* - each of which arrives pre-filled with a working example to edit. The table totals the points. A check with a missing ID, a duplicate ID, an empty command or (for Python) no script cannot be saved, and says so on its own row. Saving with **no** checks is not a state: use **Turn off automated checks**.
+Then add checks from three named starting points - *a command that must succeed*, *compare output for given input*, *a Python script* - each of which arrives pre-filled with a working example to edit. The table totals the points. A check with a missing ID, a duplicate ID, an empty command, an empty points box or (for Python) no script cannot be saved, and says so on its own row. **A blank points box is not zero** - if a check is genuinely worth nothing (a setup step that must succeed), type `0`. Saving with **no** checks is not a state: use **Turn off automated checks**. Escape, the backdrop and **×** all close without saving.
 
 **Or edit the YAML directly** (the shape the panel writes):
 

@@ -78,7 +78,13 @@ export function checkProblem(check) {
   if (!id) return 'Give this check an ID.'
   if (!ID_PATTERN.test(id)) return 'The ID must be lowercase letters, numbers and dashes.'
 
-  const points = Number(check?.points)
+  // A blank field is not a zero. `Number('')` is 0 and `cleanChecks` would have
+  // written `points: 0` for a row the lecturer never filled in - the system
+  // deciding a score on their behalf, quietly. An explicit 0 stays legitimate:
+  // a setup step that must succeed but is worth nothing is a real check.
+  const raw = check?.points
+  if (raw === '' || raw === null || raw === undefined) return 'Give this check a points value.'
+  const points = Number(raw)
   if (!Number.isFinite(points) || points < 0) return 'Points must be a number, 0 or more.'
 
   if (check.type === 'python') {

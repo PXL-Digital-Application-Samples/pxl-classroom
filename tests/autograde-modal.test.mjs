@@ -110,7 +110,20 @@ test("two checks sharing an id are both flagged, because the workflow ids collid
 });
 
 test("a complete row is not flagged, and zero points is a legitimate choice", () => {
+  // A setup step that must succeed but is worth nothing is a real check.
   assert.equal(checkProblem({ id: "setup", type: "run", command: "pip install -r req.txt", points: 0 }), null);
+  assert.equal(checkProblem({ id: "half", type: "run", command: "make", points: 2.5 }), null);
+});
+
+test("a BLANK points field is not a zero", () => {
+  // `Number('')` is 0, so an untouched field would have been saved as a score
+  // the lecturer never entered - the system deciding on their behalf, quietly.
+  for (const points of ["", null, undefined]) {
+    const problem = checkProblem({ id: "ok", type: "run", command: "make", points });
+    assert.match(problem, /give this check a points value/i, `points: ${JSON.stringify(points)}`);
+  }
+  // And an explicit zero is still fine, so the rule cannot be "falsy".
+  assert.equal(checkProblem({ id: "ok", type: "run", command: "make", points: 0 }), null);
 });
 
 // --------------------------------------------------------------- the document

@@ -563,8 +563,14 @@ Deviations and additions:
   branch, and returning nothing there produces a workflow with no jobs.
 * The spec is `35-autograding.spec.mjs`; `30` was taken.
 
+Two more found by the edge cases afterwards, both a control deciding something
+on the lecturer's behalf: Escape did not close the modal (every other modal in
+the app closes on it), and a blank points field was `Number('') === 0`, so a row
+nobody filled in was saved with a score the system chose.
+
 Rules are in CLAUDE.md, ARCHITECTURE §11.6 and RUNBOOK §4.1 and §12.9.
-`tests/autograde-modal.test.mjs`, `tests/e2e/35-autograding.spec.mjs`.
+`tests/autograde-modal.test.mjs`, `tests/e2e/35-autograding.spec.mjs`,
+`tests/e2e/36-autograding-edges.spec.mjs`.
 
 ---
 
