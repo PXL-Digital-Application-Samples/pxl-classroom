@@ -79,20 +79,26 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
   });
 
   // UX_PLAN §3.1 / §3.3, on the rendered form rather than the source.
-  test('A new assignment opens on the roster gate, and asks nothing about acceptance mode', async ({ page }) => {
+  test('A new assignment opens on open enrolment, and asks nothing about acceptance mode', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
-    // The permissive setting was the default while the hint under it said
-    // "Anyone with the link can claim a repo."
+    // `open` since 2026-08-24: signed invitations gate the broker, so the
+    // roster is no longer what stands between a stranger and a repository -
+    // and requiring a CSV import before anyone could accept bought nothing.
     const rosterSelect = page.locator('select').filter({ hasText: 'only students on the roster' });
-    await expect(rosterSelect).toHaveValue('enforced');
-    // With the gate on, the form says whether anyone can accept at all. This
-    // org's mock has no roster file, so: nobody. (UX_PLAN §5.2, covered in
-    // depth by tests/e2e/32-first-run-wall.spec.mjs.)
+    await expect(rosterSelect).toHaveValue('open');
+    // No roster status, because no gate to report on - it says what open
+    // enrolment means instead.
+    await expect(page.locator('.roster-status')).toHaveCount(0);
+    await expect(page.locator('text=Students need the link')).toBeVisible();
+
+    // And the gate is one dropdown away, with its own answer to "can anyone
+    // accept?" (UX_PLAN §5.2, covered in depth by 32-first-run-wall).
+    await rosterSelect.selectOption('enforced');
     await expect(page.locator('.roster-status')).toContainText('nobody can accept');
 
     // One enum value is not a decision, so there is no control for it.

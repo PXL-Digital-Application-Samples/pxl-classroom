@@ -83,8 +83,13 @@ const draftAssignment = (over = {}) => ({
 
 // ============================================================ §3.1 roster gate
 
-test.describe('31 - §3.1 The roster gate is the default a new assignment is saved with', () => {
-  test('A new assignment is committed as roster_mode: enforced, and validates', async ({ page }) => {
+test.describe('31 - §3.1 What a new assignment is saved with', () => {
+  test('A new assignment is committed as roster_mode: open, with a cap, and validates', async ({ page }) => {
+    // Reversed on 2026-08-24. WS1 chose `enforced` because the broker repo is
+    // public and the roster was the only thing between any GitHub account and
+    // a provisioned repository. Signed invitations gate the broker now
+    // (ARCHITECTURE §4.3.2), so a lecturer no longer has to import a CSV
+    // before a single student can accept.
     const contentWrites = [];
     await openNewAssignmentForm(page, { contentWrites });
     await fillMinimum(page, 'Roster Default Lab');
@@ -93,11 +98,29 @@ test.describe('31 - §3.1 The roster gate is the default a new assignment is sav
     await expect.poll(() => committed(contentWrites, 'roster-default-lab'), { timeout: 10000 }).toBeTruthy();
     const doc = committed(contentWrites, 'roster-default-lab');
 
-    // The form used to write 'open' here while its own hint said "Anyone with
-    // the link can claim a repo".
-    expect(doc.roster_mode).toBe('enforced');
+    expect(doc.roster_mode).toBe('open');
+    // Open without a cap is unsaveable, so the default has to carry one or a
+    // brand new assignment opens on a validation error it did not cause.
+    expect(doc.max_acceptances).toBeGreaterThan(0);
     const { valid, errors } = validateAgainst('assignment', doc);
     expect(valid, JSON.stringify(errors)).toBe(true);
+  });
+
+  test('Choosing the roster gate still saves, and needs no cap', async ({ page }) => {
+    // The other half: `enforced` is one dropdown away and unaffected by the
+    // default moving.
+    const contentWrites = [];
+    await openNewAssignmentForm(page, { contentWrites });
+    await fillMinimum(page, 'Gated Lab');
+    await rosterSelect(page).selectOption('enforced');
+    await capInput(page).fill('');
+    await expect(saveDraft(page)).toBeEnabled();
+    await saveDraft(page).click();
+
+    await expect.poll(() => committed(contentWrites, 'gated-lab'), { timeout: 10000 }).toBeTruthy();
+    const doc = committed(contentWrites, 'gated-lab');
+    expect(doc.roster_mode).toBe('enforced');
+    expect(validateAgainst('assignment', doc).valid).toBe(true);
   });
 
   test('Open enrollment cannot be saved without a cap, and the message is next to the field', async ({ page }) => {
@@ -105,8 +128,9 @@ test.describe('31 - §3.1 The roster gate is the default a new assignment is sav
     await openNewAssignmentForm(page, { contentWrites });
     await fillMinimum(page, 'Exam Open Lab');
 
-    // Empty cap is fine under `enforced` - it is only the roster gate's absence
-    // that makes the cap the last limit standing.
+    // Clearing the cap is only legal under `enforced` - it is the roster
+    // gate's absence that makes the cap the last limit standing.
+    await rosterSelect(page).selectOption('enforced');
     await capInput(page).fill('');
     await expect(saveDraft(page)).toBeEnabled();
 

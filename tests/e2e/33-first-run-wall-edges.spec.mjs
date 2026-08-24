@@ -22,6 +22,14 @@ import { stringify as stringifyYaml } from 'yaml';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal } from '../fixtures/e2e-fixtures.mjs';
 
 const rosterStatus = (page) => page.locator('.roster-status');
+
+// The roster status block only renders under the gate, and `enforced` stopped
+// being the default on 2026-08-24 (signed invitations gate the broker now, so
+// a lecturer no longer has to import a CSV before anyone can accept). What
+// these tests are about - whether the form can answer "can anyone accept?" -
+// is unchanged; reaching it now needs one dropdown.
+const gateOn = async (page) =>
+  page.locator('select').filter({ hasText: 'only students on the roster' }).first().selectOption('enforced');
 const templateEmpty = (page) => page.locator('.template-empty');
 const templateError = (page) => page.locator('.text-danger', { hasText: 'Failed to load templates' });
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
@@ -317,6 +325,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     // the pair, and re-reading the file in AdminView would have been a second
     // request and a second answer.
     await openNewForm(page);
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('nobody can accept');
 
     await page.locator('.primer-tab', { hasText: 'Roster' }).click();
@@ -342,6 +351,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('Students must appear in');
     await expect(rosterStatus(page)).not.toContainText('No students imported yet');
     await expect(rosterStatus(page).locator('.status-dot')).toHaveCount(0);
@@ -354,6 +364,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('No students imported yet - nobody can accept');
   });
 
@@ -369,6 +380,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('3 students on the roster');
     await expect(rosterStatus(page)).toContainText('none has a GitHub username yet - nobody can accept');
     await expect(rosterStatus(page).locator('.status-dot.dot-warning')).toBeVisible();
@@ -384,6 +396,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await page.locator('.new-btn').click();
 
     // Some students CAN accept, so this is not a warning.
+    await gateOn(page);
     await expect(rosterStatus(page).locator('.status-dot.dot-success')).toBeVisible();
     await expect(rosterStatus(page)).toContainText('4 students on the roster');
     await expect(rosterStatus(page)).toContainText('2 without a GitHub username yet');
@@ -396,6 +409,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('2 students on the roster.');
     await expect(rosterStatus(page)).not.toContainText('without a GitHub username');
   });
@@ -410,6 +424,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
 
     await page.goto(`/dashboard/${ORG}/admin?edit=group-lab`);
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Group Lab', { timeout: 10000 });
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('3 students on the roster');
   });
 
@@ -417,6 +432,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await openNewForm(page);
     const select = page.locator('select').filter({ hasText: 'only students on the roster' });
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toBeVisible();
     await select.selectOption('open');
     await expect(rosterStatus(page)).toHaveCount(0);
@@ -651,6 +667,7 @@ test.describe('33 - Both walls at once', () => {
     await page.locator('.new-btn').click();
 
     await expect(templateEmpty(page)).toBeVisible();
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('nobody can accept');
     // Neither is a modal or an overlay: both are answerable in place.
     await expect(page.getByPlaceholder('Type or select a template repository')).toBeVisible();

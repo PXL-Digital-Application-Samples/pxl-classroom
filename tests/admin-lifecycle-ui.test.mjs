@@ -323,13 +323,32 @@ function emptyFormSource() {
   return src.slice(start, end);
 }
 
-test("a new assignment defaults to the enforced roster", () => {
-  // accept.mjs fails closed to `enforced` for anything it does not recognise,
-  // so the form was the only thing choosing the permissive setting - while its
-  // own hint said "Anyone with the link can claim a repo."
+test("a new assignment defaults to open enrolment, with the cap that makes it valid", () => {
+  // Reversed on 2026-08-24, on Tom's call. WS1 chose `enforced` because the
+  // broker is public and the roster was the only thing between any GitHub
+  // account and a provisioned repo - which stopped being true once signed
+  // invitations gated the broker (ARCHITECTURE §4.3.2). Requiring a CSV import
+  // before anyone could accept was buying nothing.
   const body = emptyFormSource();
-  assert.match(body, /roster_mode: 'enforced'/, "new assignments start on the roster gate");
-  assert.ok(!/roster_mode: 'open'/.test(body), "'open' is an opt-in, not a default");
+  assert.match(body, /roster_mode: 'open'/, "new assignments accept anyone holding the link");
+  assert.ok(!/roster_mode: 'enforced'/.test(body), "'enforced' is the opt-in now");
+
+  // `open` without a cap is unsaveable (schema allOf/if/then), so the default
+  // has to carry one or every new assignment opens on a validation error.
+  assert.match(body, /max_acceptances: \d+/, "open enrolment requires a cap, so emptyForm must set one");
+});
+
+test("the backend still fails CLOSED for an unrecognised roster_mode", () => {
+  // The form default and the parser's fallback are different decisions. A
+  // typo'd or absent value must still be treated as `enforced` - that is a
+  // rule about garbage, not about what a lecturer gets by default, and
+  // flipping the default must not have relaxed it.
+  const src = readFileSync(join(root, "acceptance", "accept.mjs"), "utf8");
+  assert.match(
+    src,
+    /assignment\.roster_mode === "open" \? "open" : "enforced"/,
+    "anything that is not exactly 'open' is enforced",
+  );
 });
 
 test("open enrollment still requires a cap", () => {

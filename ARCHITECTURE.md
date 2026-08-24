@@ -112,7 +112,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 ### 4.2 Identity
 
 - **Lecturers** authenticate to the SPA via GitHub device flow against the Provisioner App. Authorization derives from organization ownership: any owner of an org where the App is installed is a lecturer in that org. The SPA reads control-repo data with the **lecturer's own token**; no per-user secret on the server side.
-- **Students** authenticate to the SPA via the same device flow. Acceptance gating is per assignment, via `roster_mode`. Under `enforced` (the default) the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned. Under `open` any GitHub account may accept within the window and below the cap, and the lecturer reconciles `github_login` -> student afterward; unrecognised `roster_mode` values fail closed to `enforced`.
+- **Students** authenticate to the SPA via the same device flow. Acceptance gating is per assignment, via `roster_mode`. Under `enforced` the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned. Under `open` any GitHub account may accept within the window and below the cap, and the lecturer reconciles `github_login` -> student afterward; unrecognised `roster_mode` values fail closed to `enforced`.
 - **Automation** authenticates as the App, using short-lived per-org installation tokens minted at workflow runtime.
 
 ### 4.3 Bounded blast radius
@@ -273,7 +273,8 @@ timezone: Europe/Brussels
 submission_ref: refs/heads/main
 student_permission: admin             # pull|triage|push|maintain|admin
 acceptance_mode: self-service         # self-service is the only implemented mode
-roster_mode: enforced                 # enforced|open - who may accept (§15).
+roster_mode: open                     # open|enforced - who may accept (§15).
+                                      # `open` is the default for new assignments.
                                       # open requires max_acceptances.
 late_policy: report                   # report|block
 state: published                      # draft|published|closed|archived
@@ -291,7 +292,11 @@ invite_expires_at: 2027-09-27T01:27:18Z
 
 **`acceptance_mode` has one implemented value.** A `pre-provisioned` mode - the lecturer creates repositories up front and GitHub sends its own repository invitations - was offered in the schema and the Admin Panel but implemented in no code path, so selecting it silently produced self-service behaviour. It has been removed rather than left as a trap; see §16. With one value left there is no decision to make, so the Admin Panel renders **no control** for it - a select with a single option asks a question the lecturer cannot answer. The field is still written by `buildDoc()` and published on the acceptance card; the schema is unchanged, so existing YAMLs keep validating.
 
-**`roster_mode` is independent of it.** `acceptance_mode` is *how* a repository is created; `roster_mode` is *who* may accept. Rosters apply to self-service acceptance exactly as before, and `enforced` is the default - in the schema, in `accept.mjs` (which fails closed for any unrecognised value) and, since the mechanical half of UX_PLAN WS1, in `emptyForm()` too. The form used to write `open` into every new assignment while its own hint said *"Anyone with the link can claim a repo"*; it was the only thing choosing the permissive setting (§15). Existing assignments are untouched - the default governs new ones only.
+**`roster_mode` is independent of it.** `acceptance_mode` is *how* a repository is created; `roster_mode` is *who* may accept. `accept.mjs` fails **closed** to `enforced` for any unrecognised value, and that is unchanged - it is a rule about garbage, not a default.
+
+The *form* default is `open` (2026-08-24). WS1 had set it to `enforced` because the broker repo is public, so the roster was the only thing between any GitHub account and a provisioned repository. Signed invitations took that job over (§4.3.2): the broker verifies an Ed25519 signature at the edge before a credential is minted, so someone without the link gets nothing whatever `roster_mode` says. Requiring a CSV import before a single student could accept therefore bought nothing, while making every new org's first assignment depend on one. `enforced` is one dropdown away; `open` requires `max_acceptances`, which `emptyForm()` supplies. Existing assignments are untouched - the default governs new ones only.
+
+**A roster is still worth having under `open`.** It stops being a gate, not a record: `report.mjs` builds the population from the union of acceptances, repositories, observations *and* the roster, so roster students appear before they accept and carry their student number, name and class group into the report and the CSV export. Under `open` a student who is not on the roster still accepts - their row simply carries the GitHub login and nothing else until the lecturer reconciles it.
 
 **`max_acceptances` is a guardrail, not a seat allocator — by decision, not by
 oversight.** `accept.mjs` counts `acceptances/<id>/*.json`, compares, then
@@ -1038,7 +1043,7 @@ On-demand runs are dispatch-and-watch operations. The SPA sends a unique `reques
 
 ## 15. Constraints accepted in v1
 
-- **Roster-gated acceptance, with a per-assignment opt-out.** By default (`roster_mode: enforced`) students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo, which prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
+- **Roster-gated acceptance, available per assignment.** Under `roster_mode: enforced` students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo, which prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
 
   Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` -> real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published - the alternative being an assignment that silently provisions nobody. Because the roster gate is gone, `max_acceptances` becomes **mandatory** under `open` and is the binding limit - enforced by the schema, by the Admin Panel, and by `accept.mjs` (`fail:config`). Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
 

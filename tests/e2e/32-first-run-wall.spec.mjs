@@ -21,6 +21,14 @@ import { stringify as stringifyYaml } from 'yaml';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
 const rosterStatus = (page) => page.locator('.roster-status');
+
+// The roster status block only renders under the gate, and `enforced` stopped
+// being the default on 2026-08-24 (signed invitations gate the broker now, so
+// a lecturer no longer has to import a CSV before anyone can accept). What
+// these tests are about - whether the form can answer "can anyone accept?" -
+// is unchanged; reaching it now needs one dropdown.
+const gateOn = async (page) =>
+  page.locator('select').filter({ hasText: 'only students on the roster' }).first().selectOption('enforced');
 const templateEmpty = (page) => page.locator('.template-empty');
 
 async function openAdmin(page, opts = {}) {
@@ -152,6 +160,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     // state of every freshly scaffolded control repo.
     await openNewAssignmentForm(page);
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('No students imported yet - nobody can accept');
     await expect(rosterStatus(page).locator('.status-dot.dot-warning')).toBeVisible();
 
@@ -166,6 +175,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('3 students on the roster');
     await expect(rosterStatus(page).locator('.status-dot.dot-success')).toBeVisible();
 
@@ -180,6 +190,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('1 student on the roster');
     await expect(rosterStatus(page)).not.toContainText('1 students');
   });
@@ -191,6 +202,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('.new-btn').click();
 
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('nobody can accept');
   });
 
@@ -206,6 +218,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
 
     // The neutral copy still explains that an empty roster blocks acceptance -
     // what it must not do is assert this org's roster IS empty.
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('Students must appear in');
     await expect(rosterStatus(page)).not.toContainText('No students imported yet');
     await expect(rosterStatus(page).locator('.status-dot')).toHaveCount(0);
@@ -213,11 +226,13 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
 
   test('Open enrollment does not talk about a roster it has switched off', async ({ page }) => {
     await openNewAssignmentForm(page);
+    await gateOn(page);
     await expect(rosterStatus(page)).toBeVisible();
 
     await page.locator('select').filter({ hasText: 'only students on the roster' }).selectOption('open');
     await expect(rosterStatus(page)).toHaveCount(0);
-    await expect(page.locator('text=Anyone')).toBeVisible();
+    // It says what open enrolment means instead of going quiet.
+    await expect(page.locator('text=Students need the link')).toBeVisible();
   });
 });
 

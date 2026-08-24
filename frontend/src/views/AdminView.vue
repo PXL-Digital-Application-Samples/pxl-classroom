@@ -618,9 +618,21 @@
             <div class="field">
               <label>Who may accept</label>
               <select v-model="form.roster_mode">
+                <option value="open">open: anyone with the invitation link</option>
                 <option value="enforced">enforced: only students on the roster</option>
-                <option value="open">open: any GitHub account (exams, unknown cohort)</option>
               </select>
+              <!-- A roster is still worth importing under `open`: report.mjs
+                   builds the population from the union of acceptances and the
+                   roster, so roster students show up before they accept and
+                   carry their number, name and class group into the report and
+                   the CSV export. `open` drops the GATE, not the roster. -->
+              <small v-if="form.roster_mode === 'open'">
+                Students need the link, and nothing else. The cap below is the only limit.
+                <template v-if="rosterCount > 0">
+                  Your roster still names {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} in
+                  the report - it just does not decide who may accept.
+                </template>
+              </small>
               <!-- `enforced` makes students/roster.yml load-bearing, so the
                    form says whether anyone can accept at all rather than
                    naming a tab it does not link to (UX_PLAN §5.2). The count
@@ -1568,11 +1580,26 @@ function emptyForm() {
     // One enum value, so there is nothing to choose and no control for it.
     // The field stays because the schema and the public card still carry it.
     acceptance_mode: 'self-service',
-    // The hint under this control already says "Anyone with the link can claim
-    // a repo", and `accept.mjs` fails closed to `enforced` for anything it does
-    // not recognise - the form was the only thing choosing the permissive
-    // setting. Existing assignments keep whatever they were saved with.
-    roster_mode: 'enforced',
+    // Open, deliberately, and reversed from WS1's default on 2026-08-24.
+    //
+    // WS1 set this to `enforced` because the broker repo is public, so the
+    // roster was the only thing standing between any GitHub account and a
+    // provisioned repository. That stopped being the case when signed
+    // invitations landed (ARCHITECTURE §4.3.2): the broker verifies an
+    // Ed25519 signature at the edge before a credential is minted, so someone
+    // without the link gets nothing whatever this says. The roster is no
+    // longer load-bearing for access control, and defaulting to it made every
+    // new assignment depend on a CSV import before a single student could
+    // accept.
+    //
+    // `enforced` remains one dropdown away, and existing assignments keep
+    // whatever they were saved with. `accept.mjs` still fails CLOSED to
+    // `enforced` for any unrecognised value - that is a parser rule about
+    // garbage, not a default, and it must not be relaxed to match this.
+    //
+    // Open requires a cap (schema `allOf`/`if`/`then`), and `max_acceptances`
+    // below is why a new assignment is valid the moment it is created.
+    roster_mode: 'open',
     // `block` discards work. Now that it actually does something, defaulting to
     // it would silently start throwing away students' late commits on every new
     // assignment - so a lecturer opts in.
