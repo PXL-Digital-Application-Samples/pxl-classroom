@@ -33,9 +33,16 @@ import { loadYaml } from '../lib/yaml.mjs';
 
 const ARM_WINDOW_MS = Number(process.env.ARM_WINDOW_MS ?? 4.5 * 3600_000);
 
-// A sentinel holds a runner slot for hours and the Team plan allows 60
-// concurrent jobs. Cap what one firing can arm; the rest fall through to the
-// nightly, and the cap is logged rather than applied silently.
+// PER ORG, not per firing. This script runs once per org (the workflow's `arm`
+// job is a matrix over orgs), so this bounds one org's list and nothing more -
+// `aggregate-armable` then flattens all of them into a single `watch` matrix.
+// With 22 participating orgs the ceiling here is 22 x 8, which is well past
+// the 60 concurrent jobs a Team plan allows.
+//
+// The global bound is therefore `max-parallel` on the `watch` matrix, not this
+// number. This one stays as a per-org sanity limit: one org with dozens of
+// deadlines in a single 4.5h window is a mistake worth not amplifying, and
+// what it drops is logged rather than applied silently.
 const MAX_SENTINELS = Number(process.env.MAX_SENTINELS ?? 8);
 
 /** `2026-09-10T22:00:00.000Z` -> `20260910T220000Z`, safe in a concurrency group. */

@@ -121,6 +121,25 @@ jobs:
       matrix:
         sentinel: ${{ fromJSON(needs.aggregate-armable.outputs.sentinels) }}
       fail-fast: false
+      # The ONLY global bound on how many runner slots this workflow can hold.
+      #
+      # find-armable.mjs's MAX_SENTINELS is applied per ORG - the arm job is a
+      # matrix over orgs and each leg caps its own list - and aggregate-armable
+      # then flattens every org's list into this one matrix. With 22
+      # participating orgs that is a ceiling of 22 x 8 = 176 concurrent jobs,
+      # on a Team plan that allows 60. The cap whose own comment cites that
+      # limit never bounded it.
+      #
+      # A sentinel holds its slot for up to 4h45m, so saturating the budget
+      # would starve daily-activity - the nightly this whole workflow is
+      # designed to degrade TO. Failing over into the thing you broke is not a
+      # fallback.
+      #
+      # Capping concurrency rather than dropping sentinels is deliberate:
+      # nothing is silently discarded, and a sentinel that starts after its
+      # instant is not wasted either - the wait loop breaks immediately and
+      # still runs Phase 1, so writes stop, just without the precision.
+      max-parallel: 8
     concurrency:
       # One sentinel per (org, deadline instant), not per assignment: three
       # assignments sharing a 22:00 deadline share one job. A duplicate armed by

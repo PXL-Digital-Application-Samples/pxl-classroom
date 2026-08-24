@@ -361,3 +361,59 @@ test("bad input fails before it holds a runner for hours", async () => {
     { deadlineFor: () => null },
   );
 });
+
+// --- how many runner slots one firing can hold ------------------------------
+//
+// MAX_SENTINELS reads like a global cap and is not one: this script runs once
+// per ORG (the `arm` job is a matrix over orgs), and `aggregate-armable` then
+// flattens every org's list into a single `watch` matrix. With 22
+// participating orgs the ceiling was 22 x 8 = 176 concurrent jobs, on a Team
+// plan that allows 60 - from a cap whose own comment cited that limit.
+//
+// A sentinel holds its slot for up to 4h45m, so saturating the budget would
+// starve daily-activity: the nightly this workflow is designed to degrade TO.
+// Failing over into the thing you broke is not a fallback.
+
+test("planSentinels caps PER ORG, which is why it cannot be the global bound", () => {
+  const many = Array.from({ length: 5 }, (_, i) => ({
+    id: `a${i}`,
+    doc: published(at(1 + i * 0.5)),
+  }));
+
+  // Two orgs, each capped at 3, is six sentinels - not three.
+  const a = planSentinels(many, { now: NOW, org: "OrgA", max: 3 });
+  const b = planSentinels(many, { now: NOW, org: "OrgB", max: 3 });
+  assert.equal(a.armed.length, 3);
+  assert.equal(b.armed.length, 3);
+  assert.equal(
+    a.armed.length + b.armed.length,
+    6,
+    "the workflow flattens both lists into one matrix, so the totals add up",
+  );
+});
+
+test("the watch matrix carries the global bound the per-org cap cannot", async () => {
+  const { parse } = await import("yaml");
+  const wf = parse(readFileSync(join(here, "..", ".github", "workflows", "deadline-sentinel.yml"), "utf8"));
+  const watch = wf.jobs?.watch;
+
+  assert.ok(watch, "the watch job must exist");
+  const cap = watch.strategy?.["max-parallel"];
+  assert.ok(
+    Number.isInteger(cap) && cap > 0,
+    "watch must cap max-parallel - it is the only thing bounding how many " +
+      "sentinels hold runner slots at once across every org",
+  );
+  assert.ok(
+    cap <= 20,
+    `max-parallel of ${cap} is not a bound worth having against a 60-job plan ` +
+      "that also has to run daily-activity, publishes and deploys",
+  );
+  // Capping concurrency, not the list: nothing may be silently discarded, and
+  // a sentinel that starts late still stops writes.
+  assert.equal(
+    watch.strategy?.["fail-fast"],
+    false,
+    "one org's sentinel failing must not cancel every other org's",
+  );
+});
