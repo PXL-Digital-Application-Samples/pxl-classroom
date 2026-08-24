@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
-import { EXPECTED_APP_PERMISSIONS } from "../lib/audit.mjs";
+import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS, APP_SLUG } from "../lib/audit.mjs";
 import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
 
 // A published assignment without a signed invitation genuinely cannot work,
@@ -62,6 +62,11 @@ function createMockRequest(customHandlers = {}) {
       return customHandlers[path](method, path);
     }
     if (path === "/user") return { status: 200, ok: true, data: { login: "lecturer" } };
+    // Without this the 404 fallback now reports "no such App" - the branch
+    // WS6 filled in, which used to add no check at all.
+    if (path === `/apps/${APP_SLUG}`) {
+      return { status: 200, ok: true, data: { slug: APP_SLUG, permissions: { ...MANIFEST_APP_PERMISSIONS } } };
+    }
     if (path === "/rate_limit") return { status: 200, ok: true, data: { resources: { core: { remaining: 4900, limit: 5000 } } } };
     if (path.includes("acceptance/invite-keys.json")) {
       const json = JSON.stringify({ keys: { 1: KEYPAIR.publicKeyBase64 } });

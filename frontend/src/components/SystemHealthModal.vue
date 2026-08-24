@@ -100,6 +100,7 @@
 
 <script setup>
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { getToken, getUser, startDeviceFlow } from '../lib/auth.js'
 import { ghApi, triggerWorkflow } from '../lib/api.js'
 import { config } from '../lib/config.js'
@@ -115,6 +116,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'fixed', 'navigate-tab'])
+const router = useRouter()
 
 const running = ref(false)
 const report = ref(null)
@@ -320,6 +322,14 @@ async function executeFix(c) {
       emit('close')
     } else if (fix.type === 'link' && fix.url) {
       window.open(fix.url, '_blank', 'noopener,noreferrer')
+    } else if (fix.type === 'navigate_view' && fix.name) {
+      // An in-app destination, by route NAME rather than by path: the SPA is
+      // served under import.meta.env.BASE_URL on Pages, so a hardcoded
+      // '/setup' handed to window.open would 404 there. Named `navigate_view`
+      // beside `navigate_roster` - and NOT `route`, which tests/
+      // vue-route-safety.test.mjs reads as an undeclared `useRoute()`.
+      emit('close')
+      router.push({ name: fix.name })
     }
   } catch (e) {
     toast.error(`Fix failed: ${e.message}`)

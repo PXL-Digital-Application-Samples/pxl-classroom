@@ -40,7 +40,7 @@
                 <div
                   v-for="org in orgs"
                   :key="org.login"
-                  class="org-dropdown-item"
+                  class="org-dropdown-item org-choice-item"
                   :class="{ 'is-selected': org.login === selectedOrg }"
                   role="option"
                   :aria-selected="org.login === selectedOrg"
@@ -59,6 +59,25 @@
                 </div>
 
                 <div class="org-dropdown-divider" role="separator"></div>
+                <!-- The only cross-org view in the app, and it had zero inbound
+                     links from anywhere - reachable by typing /usage and no
+                     other way (UX_PLAN §8 / UX17). It belongs with the other
+                     control that is about organizations rather than about one
+                     organization, and it needs a LABEL: an icon in the header
+                     rail would have been one more thing nobody finds. -->
+                <!-- `.org-action-item`, not `.org-connect-item`: that class
+                     is how two specs address the Connect door specifically,
+                     and borrowing it makes `.org-connect-item` ambiguous. -->
+                <router-link
+                  :to="{ name: 'usage-overview' }"
+                  class="org-dropdown-item org-action-item"
+                  role="option"
+                  aria-selected="false"
+                  @click="orgDropdownOpen = false"
+                >
+                  <Icon name="database" :size="13" />
+                  <span class="org-item-text">Usage &amp; limits, all organizations</span>
+                </router-link>
                 <a
                   :href="appInstallUrl"
                   target="_blank"
@@ -986,12 +1005,14 @@ function handleLogout() {
   margin: var(--space-xs) 0;
 }
 /* Distinguished from the org rows: this one leaves the app. */
-.org-connect-item {
+.org-connect-item,
+.org-action-item {
   color: var(--accent-blue);
   text-decoration: none;
   font-weight: 500;
 }
-.org-connect-item:hover {
+.org-connect-item:hover,
+.org-action-item:hover {
   text-decoration: none;
 }
 
@@ -1071,6 +1092,10 @@ function handleLogout() {
   outline: none;
 }
 
+/* An actual organization to switch to, as opposed to the action rows below
+   the divider. Named rather than left as ":not(.org-connect-item)", which
+   silently counted the second action row as a 101st organization. */
+.org-choice-item { cursor: pointer; }
 .org-dropdown-item.is-selected {
   font-weight: 600;
   color: var(--accent-blue);

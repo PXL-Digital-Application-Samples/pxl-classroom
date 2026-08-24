@@ -358,6 +358,25 @@
                   </div>
                 </button>
 
+                <button
+                  v-if="feedbackPrEnabled"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleRefreshFeedbackPrs"
+                  :disabled="refreshingFeedbackPrs || feedbackPrAlreadyOpenedCount === 0"
+                >
+                  <Icon name="refresh-cw" :size="14" class="dropdown-icon" :class="{ 'spin-animation': refreshingFeedbackPrs }" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">{{ refreshingFeedbackPrs ? 'Checking PRs…' : 'Refresh feedback PR status' }}</span>
+                    <span class="dropdown-item-sub">
+                      {{ feedbackPrAlreadyOpenedCount === 0
+                        ? 'No feedback PRs have been opened yet'
+                        : `State and review-comment count for ${feedbackPrAlreadyOpenedCount} PR(s)` }}
+                    </span>
+                  </div>
+                </button>
+
                 <div v-if="assignment && (assignment.template || feedbackPrEnabled)" class="dropdown-divider"></div>
 
                 <button
@@ -541,6 +560,24 @@
                 <td v-if="feedbackPrEnabled" class="col-feedback-pr">
                   <template v-if="s.feedback_pr_number">
                     <a :href="s.feedback_pr_url" target="_blank" class="mono">#{{ s.feedback_pr_number }}</a>
+                    <!-- What `pxl-classroom feedback list` answers and the
+                         panel could not: is it still open, and has anyone
+                         left review comments on it (UX_PLAN §8 / UX20).
+                         Absent until refreshed - it is a live read, not a
+                         field on the report. -->
+                    <span v-if="s.feedback_pr_state" class="fb-pr-meta">
+                      <span class="status-indicator">
+                        <span class="status-dot" :class="feedbackPrDot(s)"></span>
+                        <span class="status-text">{{ feedbackPrStateLabel(s) }}</span>
+                      </span>
+                      <span
+                        class="fb-pr-comments"
+                        :title="`${s.feedback_pr_review_comments} inline review comment(s) on this pull request`"
+                      >
+                        <Icon name="message-square" :size="11" />
+                        {{ s.feedback_pr_review_comments }}
+                      </span>
+                    </span>
                   </template>
                   <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">- pending</span>
                 </td>
@@ -671,6 +708,16 @@
                 <span>Feedback PR:</span>
                 <template v-if="s.feedback_pr_number">
                   <a :href="s.feedback_pr_url" target="_blank" class="mono">#{{ s.feedback_pr_number }}</a>
+                  <span v-if="s.feedback_pr_state" class="fb-pr-meta">
+                    <span class="status-indicator">
+                      <span class="status-dot" :class="feedbackPrDot(s)"></span>
+                      <span class="status-text">{{ feedbackPrStateLabel(s) }}</span>
+                    </span>
+                    <span class="fb-pr-comments">
+                      <Icon name="message-square" :size="11" />
+                      {{ s.feedback_pr_review_comments }}
+                    </span>
+                  </span>
                 </template>
                 <span v-else class="text-muted">- pending</span>
               </div>
@@ -1332,6 +1379,100 @@ function openFeedbackPrs() {
   showFeedbackPrModal.value = true
 }
 
+// --- feedback PR status -------------------------------------------------------
+//
+// `pxl-classroom feedback list` answers "which students have a feedback PR,
+// is it still open, and has anyone left review comments on it". The SPA showed
+// only the number and a link (UX_PLAN §8 / UX20).
+//
+// It is a LIVE read, not a field: `open-feedback-prs.mjs` records
+// feedback_pr_number and feedback_pr_url and nothing else, and a comment count
+// changes every time a lecturer reviews. So it is behind an explicit control
+// rather than fetched on render - one request per open PR, which on a
+// 200-student cohort is 200 requests nobody asked for.
+//
+// One request per student, not two: GET /pulls/{n} carries `state`, `draft`
+// AND `review_comments`. The CLI pages /pulls/{n}/comments for the count
+// because it wants only the count; the totals agree.
+const refreshingFeedbackPrs = ref(false)
+
+function feedbackPrStateLabel(s) {
+  if (s.feedback_pr_state === 'closed') return s.feedback_pr_merged ? 'Merged' : 'Closed'
+  return s.feedback_pr_draft ? 'Draft' : 'Open'
+}
+
+function feedbackPrDot(s) {
+  if (s.feedback_pr_state === 'closed') return s.feedback_pr_merged ? 'dot-success' : 'dot-danger'
+  return s.feedback_pr_draft ? 'dot-neutral' : 'dot-success'
+}
+
+async function refreshFeedbackPrStatus() {
+  const token = getToken()
+  if (!token || !report.value) return
+  const queue = (report.value.students || []).filter(
+    (s) => Number.isInteger(s.feedback_pr_number) && s.repo_name,
+  )
+  if (queue.length === 0) {
+    toast.error('No feedback PRs have been opened for this assignment yet.')
+    return
+  }
+
+  refreshingFeedbackPrs.value = true
+  let failed = 0
+  const results = new Map()
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < queue.length) {
+      const s = queue[cursor++]
+      const repo = (s.repo_name || '').split('/').pop()
+      try {
+        const res = await ghApi(token, 'GET', `/repos/${props.org}/${repo}/pulls/${s.feedback_pr_number}`)
+        if (!res.ok) {
+          // A 404 means the PR is gone, not that the read failed - say so
+          // rather than leaving a stale "Open" next to a deleted branch.
+          if (res.status === 404) {
+            results.set(s.github_login, { state: 'closed', draft: false, merged: false, comments: 0 })
+          } else {
+            failed++
+          }
+          continue
+        }
+        results.set(s.github_login, {
+          state: res.data?.state === 'closed' ? 'closed' : 'open',
+          draft: res.data?.draft === true,
+          merged: Boolean(res.data?.merged_at),
+          comments: Number(res.data?.review_comments) || 0,
+        })
+      } catch {
+        failed++
+      }
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker))
+
+    // Partial results are shown, unlike a Live Status refresh - nothing is
+    // committed here, so a half-answer costs nothing and is still an answer.
+    // The count of what could not be read is part of it.
+    for (const s of report.value.students) {
+      const r = results.get(s.github_login)
+      if (!r) continue
+      s.feedback_pr_state = r.state
+      s.feedback_pr_draft = r.draft
+      s.feedback_pr_merged = r.merged
+      s.feedback_pr_review_comments = r.comments
+    }
+    const withComments = [...results.values()].filter((r) => r.comments > 0).length
+    if (failed > 0) {
+      toast.error(`Read ${results.size} of ${queue.length} feedback PRs; ${failed} could not be read.`)
+    } else {
+      toast.success(`${results.size} feedback PR(s) checked - ${withComments} carry review comments.`)
+    }
+  } finally {
+    refreshingFeedbackPrs.value = false
+  }
+}
+
 async function executeOpenFeedbackPrs() {
   const token = getToken()
   if (!token || !report.value) return
@@ -1617,6 +1758,11 @@ function handleSyncStarterCode() {
 function handleOpenFeedbackPrs() {
   moreActionsOpen.value = false
   openFeedbackPrs()
+}
+
+function handleRefreshFeedbackPrs() {
+  moreActionsOpen.value = false
+  refreshFeedbackPrStatus()
 }
 
 function handleToggleAcceptanceState() {
@@ -2755,6 +2901,20 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 .col-submit-tag .tag-time { font-size: 0.75rem; margin-top: 2px; }
 .col-submit-tag .untagged { font-size: 0.85rem; }
 .col-feedback-pr { font-size: 0.85rem; }
+.fb-pr-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: var(--space-xs);
+  white-space: nowrap;
+}
+.fb-pr-comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
 
 .autograde-section {
   margin-top: var(--space-xl);

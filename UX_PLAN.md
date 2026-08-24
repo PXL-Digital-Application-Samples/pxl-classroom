@@ -645,21 +645,53 @@ RUNBOOK §4.3, §6.2 and §6.3.
 
 ---
 
-## 8. WS6 — Link what exists, or remove it
+## 8. WS6 — Link what exists, or remove it — **shipped**
 
-**Fixes:** UX17 (`/usage`), UX18 (`/setup`), UX19 (`/sandbox`), UX20 (feedback list).
+**Fixed:** UX17 (`/usage`), UX18 (`/setup`), UX19 (`/sandbox`), UX20 (feedback list).
 
-| Route / feature | Now | Change |
-|---|---|---|
-| `/usage` (all orgs) | 0 inbound links | Link from the org switcher rail, beside the health pulse: **Usage & limits**. It is the only cross-org view in the app and it is currently unreachable. |
-| `/dashboard/:org/usage` | 1 inbound link; duplicates the embedded `UsagePanel` | Keep both — the panel is the glance, the view is the detail. The panel's header becomes a link to it. |
-| `/setup` | 0 inbound links | Link from the `DashboardView` "no organizations" state and from the System Health *Tier 1* check when the App is missing or misconfigured. That is where someone discovers they need it. |
-| `/sandbox` | 0 inbound links, shipped in production | Guard the route on `import.meta.env.DEV`. It renders mock cohort data at a public URL. |
-| `pxl-classroom feedback list` | No UI | The *Open Feedback PRs* result panel gains a per-student column: PR number, state, and open review-comment count — the question the CLI command answers. Same data, already fetched by `open-feedback-prs.mjs`. |
+`/usage` is in the org switcher below the divider; the usage panel's header
+links to `/dashboard/:org/usage`; `/setup` is offered by System Health Tier 1
+when the App does not exist; `/sandbox` is gated on `import.meta.env.DEV` and
+is absent from a production bundle. The Feedback PR column answers what
+`pxl-classroom feedback list` answers.
 
-**Tests:** `tests/vue-route-safety.test.mjs` gains an assertion that every named
-route except `not-found` has at least one inbound link or is dev-gated — the check
-that would have caught all three of these.
+What deviated from the plan, and why:
+
+* **`/usage` went in the org dropdown, not the header rail beside the health
+  pulse.** The rail would have made it an icon, and UX17 is a *discoverability*
+  finding — an unlabelled icon is one more thing nobody finds. The dropdown is
+  the org switcher, it already has a divider and a labelled action below it,
+  and a cross-org view groups better with the other cross-org control than
+  beside a per-org one.
+* **`/setup` is NOT linked from the "no organizations" state.** That state's
+  audience is a lecturer who needs to *install* the existing App; `/setup`
+  creates a new one. Sending them there splits every org's installation across
+  two Apps. It hangs off the one place where "no App exists" is a fact:
+  Tier 1 — which **returned silently** on that branch (`if (appRes.ok) { … }`
+  and no `else`), so every check below it failed with no cause given. Any
+  failure that is *not* a 404 still says nothing, because a false alarm here is
+  the expensive one.
+* **The feedback data was not "already fetched".** The plan said
+  `open-feedback-prs.mjs` had it; that script records `feedback_pr_number` and
+  `feedback_pr_url` and nothing else, and a review-comment count changes every
+  time a lecturer reviews. It is a live read behind an explicit control —
+  one `GET /pulls/{n}` per open PR, which carries `state`, `draft` and
+  `review_comments` together — rather than N requests on every render of a
+  200-student table.
+* **It landed in the existing Feedback PR column**, not in the *Open Feedback
+  PRs* modal. That modal is a one-shot dispatch dialog with no result panel to
+  extend, and the question ("has anyone reviewed this yet") is asked days
+  later, next to the student.
+
+Three things the tests then forced: `.org-connect-item` is how two specs
+address the Connect door, so the new row is `.org-action-item`; the org rows
+gained `.org-choice-item` because a spec counted them as
+`:not(.org-connect-item)` and read the second action row as a 101st
+organization; and the panel header needed `flex-wrap`, because one more control
+in a `flex-shrink-0` cluster pushed the dashboard 10px past a 360px phone.
+
+Rules are in CLAUDE.md, ARCHITECTURE §10.1 and §10.5, and DESIGN.md §8.
+`tests/e2e/39-orphan-routes.spec.mjs`, `tests/vue-route-safety.test.mjs`.
 
 ---
 
@@ -693,10 +725,14 @@ enforcement half does not block anything else.
 
 ~~**WS2 and WS4 before WS5.**~~ ~~**Both shipped.**~~ **WS5 shipped too.**
 
-~~**WS3 and WS6 any time.**~~ **WS3 shipped**; WS6 still any time — and is now
-the last section left. Neither touches shared components.
+~~**WS3 and WS6 any time.**~~ **Both shipped.**
 
 Each workstream is one commit, with its tests, per the repo's convention.
+
+**Everything in this plan has now shipped except §3.2.9 step 5** — org
+rulesets, which is blocked on a GitHub App permission rollout rather than on
+code (see §3.2.9). §3 stays in this file until that lands; when it does, so
+does the file.
 
 ---
 

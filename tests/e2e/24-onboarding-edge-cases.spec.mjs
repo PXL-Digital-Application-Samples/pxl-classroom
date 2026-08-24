@@ -131,7 +131,9 @@ test.describe('24 - Onboarding edge cases', () => {
 
     await page.goto('/dashboard/PXL-Org-101');
     await page.locator('.org-dropdown-btn').click();
-    const items = page.locator('.org-dropdown-item:not(.org-connect-item)');
+    // The org rows carry their own class; the rows below the divider are
+    // actions, and there is more than one of them now.
+    const items = page.locator('.org-choice-item');
     await expect(items).toHaveCount(101);
     await expect(page.locator('.org-dropdown-menu')).toContainText('PXL-Org-101');
   });

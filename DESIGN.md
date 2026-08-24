@@ -373,6 +373,14 @@ expanded, at all seven widths.
 
 ## 8. Visual Sandbox & Interactive Testing
 
+> **`/sandbox` is a development-only route.** It is registered behind
+> `import.meta.env.DEV` in `frontend/src/router/index.js`, so the branch and its
+> dynamic import are dropped from a production build and the catch-all renders
+> 404 instead. It renders fabricated cohort data — invented student logins,
+> teams and reports — and it shipped to a public Pages site for months with no
+> link to it from anywhere. Nothing found it, which is not the same as nothing
+> being able to. `tests/vue-route-safety.test.mjs` fails if the gate is removed.
+
 An offline interactive workbench is available at the route **`/sandbox`**. It allows developers to:
 - Inspect all tonal surface swatches, border contrast, and typography scales.
 - Interact with button hierarchies, sizes, and spinner states.

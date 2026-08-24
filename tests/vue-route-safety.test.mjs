@@ -105,3 +105,81 @@ test("every @event handler referenced in a template is defined in the component"
       "so the control silently does nothing.",
   );
 });
+
+// A route with no way to reach it is a page that exists only for whoever knows
+// to type the URL. Three shipped that way (UX_PLAN §8): `/usage`, the only
+// cross-org view in the app, had zero inbound links; `/setup` had zero; and
+// `/sandbox` served fabricated cohort data from a public Pages site, also with
+// zero. Nothing in the build says so - a route is reachable by construction,
+// discoverable only by somebody linking to it.
+//
+// Two routes are exempt, and the list may not grow without a reason written
+// here:
+//
+//   invitation  - entered from OUTSIDE the app, which is the whole design.
+//                 The link is minted by publish-assignment.yml and handed to
+//                 students on Canvas; InvitationShare renders it as an <a
+//                 href> built from the token, never as a named route.
+//   not-found   - the catch-all. Linking to it would be absurd.
+//
+// `sandbox` counts as reachable a different way: it is gated on
+// import.meta.env.DEV, so it does not exist in the bundle a student could
+// load. That is the other acceptable answer to "nothing links here".
+test("every route is either linked to from somewhere, or does not ship", () => {
+  const src = join(root, "frontend", "src");
+  const routerFile = join(src, "router", "index.js");
+  const routerSrc = readFileSync(routerFile, "utf8");
+
+  const names = [...routerSrc.matchAll(/name:\s*'([a-z-]+)'/g)].map((m) => m[1]);
+  assert.ok(names.length >= 8, `expected to find the route table, found ${names.length} names`);
+
+  const ENTERED_FROM_OUTSIDE = new Set(["invitation", "not-found"]);
+  assert.deepEqual(
+    [...ENTERED_FROM_OUTSIDE].sort(),
+    ["invitation", "not-found"],
+    "The exemption list is deliberately two entries. Adding a third means " +
+      "writing down why that route needs no way in.",
+  );
+
+  // Everything that can hold a link: the SPA, plus lib/ - the diagnostic
+  // engine is shared with the CLI and is where the /setup pointer lives,
+  // because "the App does not exist" is the moment anybody needs it.
+  const linkSources = [
+    ...findFiles(src, (p) => /\.(vue|js)$/.test(p) && p !== routerFile),
+    ...findFiles(join(root, "lib"), (p) => p.endsWith(".mjs")),
+  ].map((p) => readFileSync(p, "utf8"));
+  const haystack = linkSources.join("\n");
+
+  const devGated = new Set(
+    [...routerSrc.matchAll(/import\.meta\.env\.DEV[\s\S]{0,200}?name:\s*'([a-z-]+)'/g)].map((m) => m[1]),
+  );
+
+  const orphans = [];
+  for (const name of names) {
+    if (ENTERED_FROM_OUTSIDE.has(name)) continue;
+    if (devGated.has(name)) continue;
+    // `:to="{ name: 'usage-overview' }"`, `router.push({ name: 'setup' })`,
+    // or a diagnostic action carrying `name: "setup"`.
+    if (new RegExp(`name:\\s*['"]${name}['"]`).test(haystack)) continue;
+    // `home` is reached as `to="/"`, which carries no name anywhere.
+    if (name === "home" && /\bto="\/"/.test(haystack)) continue;
+    orphans.push(name);
+  }
+
+  assert.deepEqual(
+    orphans,
+    [],
+    "These routes exist and nothing in the app links to them, so the only way " +
+      "in is to know the URL:\n  " + orphans.join("\n  "),
+  );
+
+  // Spelled out rather than left implicit in `devGated`: /sandbox is the one
+  // route allowed to have no way in, and only because it is not in the bundle
+  // a student could load. Remove the gate and the assertion above catches it
+  // as an orphan - but this says which answer it is taking.
+  assert.ok(
+    devGated.has("sandbox"),
+    "/sandbox renders fabricated cohort data and must stay behind " +
+      "import.meta.env.DEV, or it ships to a public Pages site again.",
+  );
+});

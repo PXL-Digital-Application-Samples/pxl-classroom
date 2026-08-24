@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
 import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
-import { EXPECTED_APP_PERMISSIONS } from "../lib/audit.mjs";
+import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS, APP_SLUG } from "../lib/audit.mjs";
 
 // A published assignment is only healthy if its invitation chain agrees: the
 // assignment holds a signed token, the hub publishes the key it was signed
@@ -24,6 +24,13 @@ function createMockRequest(overrides = {}) {
       return overrides[path](method, path, body);
     }
     if (path === "/user") return { status: 200, ok: true, data: { login: "lecturer-bob" } };
+    // The App's own declaration. Unmocked it fell through to the 404 below,
+    // which used to mean "add no check at all" - the branch WS6 filled in,
+    // because "no such App" is the one thing every tier below is downstream
+    // of and the only moment anybody needs /setup.
+    if (path === `/apps/${APP_SLUG}`) {
+      return { status: 200, ok: true, data: { slug: APP_SLUG, permissions: { ...MANIFEST_APP_PERMISSIONS } } };
+    }
     if (path === "/rate_limit") return { status: 200, ok: true, data: { resources: { core: { remaining: 4950, limit: 5000, reset: Math.floor(Date.now() / 1000) + 3600 } } } };
     if (path === "/user/installations") {
       return {

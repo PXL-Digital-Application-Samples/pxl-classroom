@@ -717,11 +717,40 @@ The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated P
 
 **AJV speaks JSON Schema, not to lecturers.** `frontend/src/lib/validation-messages.js` maps the errors the assignment form can actually produce onto sentences - `/autograde/tests/0/id must match pattern "^[a-z0-9][a-z0-9-]{0,63}$"` becomes `Test "Task 1": the ID must be lowercase letters, numbers and dashes`. It is the sibling of `RosterTab`'s `formatRosterValidationError`, which does the same for the CSV importer, and it follows the same rule: **anything unmapped falls through to the raw string.** A mapping nobody wrote is still an error the lecturer has to see - swallowing it leaves a disabled Save button and no reason for it. Field-level rules the schema cannot express stay in `AdminView.fieldErrors`, where they render next to the field rather than in the summary block.
 
+#### 10.4.1 Every route has a way in
+
+A route is reachable by construction and *discoverable* only because somebody
+linked to it, and nothing in the build tells the difference. Four shipped with
+no inbound link at all - `/usage`, `/dashboard/:org/usage` (linked only from
+`/usage`, which had none itself), `/setup`, and `/sandbox`, which served
+fabricated cohort data from a public Pages site.
+
+Where each one now lives, and why there rather than somewhere else:
+
+| Route | Reached from | Because |
+| :--- | :--- | :--- |
+| `/usage` | the org dropdown, below the divider | it is cross-org, like the "Connect an organization" row beside it - and it needs a label, not an icon in the header rail |
+| `/dashboard/:org/usage` | `UsagePanel`'s header (*Full report*) | the panel is the glance, the view is the detail. `@click.stop`, because the header **is** the accordion toggle |
+| `/setup` | System Health **Tier 1**, when `GET /apps/{slug}` 404s | the only moment anyone needs the App Manifest form. Deliberately **not** the dashboard's "no organizations" state: that audience needs to install the existing App, and pointing them at `/setup` splits the installation base across two Apps |
+| `/sandbox` | nowhere, deliberately | gated on `import.meta.env.DEV`, so it is absent from a production bundle and the catch-all renders 404 |
+
+`tests/vue-route-safety.test.mjs` enforces it: every named route needs an
+inbound link somewhere in `frontend/src` or `lib/`, or a dev gate. Two routes
+are exempt - `invitation` (entered from outside, which is the design) and
+`not-found` - and that list may not grow without a recorded reason.
+
+The System Health fix action for an in-app destination is
+`{ type: "navigate_view", name: "<route name>" }`, resolved with
+`router.push({ name })`. By name, never by path: the SPA is served under
+`import.meta.env.BASE_URL` on Pages.
+
 ### 10.5 CLI companion
 
 The `cli/` workspace ships a `pxl-classroom` command - an alternate UX for the SPA's lecturer-side actions where clicking through the Admin Panel scales poorly (bulk CSV roster import, install audits, feedback-PR orchestration, bulk submission download, autograding runs, carrying groups forward with `teams seed`). Same App, same device-flow auth, same schemas. CLI and SPA validate against the same files in `schemas/`; the CLI reads them from disk, the SPA fetches them at runtime. See RUNBOOK §12 for installation.
 
 The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (accepts an Octokit-style request fn or a plain `{ fetch, token }`), so the CLI, workflow scripts, and the SPA can share it without dependency lock-in.
+
+**Where the CLI answers a question the app did not.** `pxl-classroom feedback list` reports, per student, whether the Feedback PR is still open and how many inline review comments it carries; the tracking view showed a PR number and a link. It does now too, behind an explicit *Refresh feedback PR status* control in the **··· More** menu - a **live** read, because `open-feedback-prs.mjs` records only `feedback_pr_number` and `feedback_pr_url`, and a comment count changes every time a lecturer reviews. One `GET /repos/{org}/{repo}/pulls/{n}` per open PR (it carries `state`, `draft` and `review_comments` together), 6-way pooled, on demand rather than N requests on every render. A 404 on a PR means it is gone and is recorded as closed - a stale "Open" beside a deleted branch sends the lecturer to review nothing.
 
 ### 10.6 Design System & Visual Architecture
 

@@ -40,6 +40,16 @@
       </div>
 
       <div class="flex items-center gap-sm flex-shrink-0">
+        <!-- The panel is the glance; /dashboard/:org/usage is the detail, and
+             it had exactly one inbound link - from a view that itself had none
+             (UX_PLAN §8). `@click.stop` because this header IS the accordion
+             toggle: without it, following the link also collapses the panel
+             behind it. -->
+        <router-link
+          :to="{ name: 'usage-org', params: { org } }"
+          class="btn-link usage-full-report"
+          @click.stop
+        >Full report</router-link>
         <span class="toggle-indicator text-xs text-muted">
           {{ isExpanded ? 'Hide details' : 'Show details' }}
         </span>
@@ -512,6 +522,12 @@ onBeforeUnmount(() => {
   user-select: none;
   border-radius: var(--radius-sm);
   padding: 2px 4px;
+  /* The right cluster is flex-shrink-0 and gained a "Full report" link, which
+     pushed the dashboard 10px wider than a 360px phone. Wrapping is the right
+     answer rather than shrinking: these are three separate controls, not one
+     label to squeeze. */
+  flex-wrap: wrap;
+  gap: var(--space-xs);
 }
 
 .usage-toggle-head:hover .usage-title {
@@ -567,6 +583,13 @@ onBeforeUnmount(() => {
 .toggle-indicator {
   font-size: 0.75rem;
   font-weight: 500;
+}
+
+/* Sits inside a role="button" header, so it needs to read as its own control
+   rather than as part of the toggle's label. */
+.usage-full-report {
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .usage-body {

@@ -49,11 +49,19 @@ const routes = [
     name: 'setup',
     component: () => import('../views/SetupView.vue'),
   },
-  {
-    path: '/sandbox',
-    name: 'sandbox',
-    component: () => import('../views/SandboxView.vue'),
-  },
+  // Developer workbench. It renders fabricated cohort data - invented student
+  // logins, teams and reports - and it shipped to production with no link to
+  // it from anywhere, on a public Pages site. Nothing found it, which is not
+  // the same as nothing being able to. `import.meta.env.DEV` is statically
+  // replaced at build time, so the branch and its dynamic import are dropped
+  // from a production bundle entirely and the catch-all renders 404 instead.
+  ...(import.meta.env.DEV
+    ? [{
+        path: '/sandbox',
+        name: 'sandbox',
+        component: () => import('../views/SandboxView.vue'),
+      }]
+    : []),
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
