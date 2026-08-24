@@ -492,6 +492,10 @@ Measured before recommending it: one org ruleset matching `exam2026-*` blocked p
 
 ### 6.3 Student says "I clicked Accept but nothing happened"
 
+**First, how long have they actually waited?** Provisioning is two chained Actions runs (broker → `repository_dispatch` → hub), so **20 to 40 seconds is normal** and longer is common when Actions is queued. The page says so, counts the elapsed seconds, and updates itself the moment the repository appears — a student who waits 30 seconds has waited a normal amount of time.
+
+The page only offers a "look for a repository invitation" link when it could **not** read `/user/repository_invitations`. If it *could*, it already knows: a pending invitation puts the student in a state with an in-app **Accept invitation** button, and no invitation means there is nothing to accept. A student who is already an org member or owner is added as a direct collaborator and never receives one.
+
 Possible causes:
 
 - **They accepted but signed out before the SPA could detect the repo.** Ask them to re-open their invitation link. The SPA polls `/repos/<org>/<expected-name>` and `/user/repository_invitations` - if the repo exists, they'll see the link.

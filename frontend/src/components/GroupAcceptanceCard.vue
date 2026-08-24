@@ -78,20 +78,31 @@
       <Icon name="clock" :size="48" class="status-icon status-icon-pulse" />
       <h2>Setting up your team repository…</h2>
       <p class="text-secondary">
-        Joining <strong>{{ targetTeamName }}</strong>. GitHub Actions is configuring collaborator access.
+        Joining <strong>{{ targetTeamName }}</strong>. GitHub Actions is configuring collaborator
+        access, which usually takes <strong>20 to 40 seconds</strong> - longer when GitHub is busy.
       </p>
       <div class="progress-bar">
         <div class="progress-bar-fill"></div>
       </div>
-      <p class="text-muted">Checking every {{ pollInterval / 1000 }}s… (attempt {{ pollCount }})</p>
+      <p class="text-muted">Waiting {{ waitedSeconds }}s…</p>
 
-      <div v-if="pollCount >= 5 && invitationUrl" class="invitation-hint" role="status">
+      <!-- Reassurance rather than a guessed cause; see AssignmentView for the
+           reasoning, which this card had a verbatim copy of. -->
+      <p v-if="pollCount >= 5" class="text-secondary">
+        Still going, and that is normal. Leave this page open - it updates by itself.
+      </p>
+
+      <div v-if="pollCount >= 10 && showInvitationGuess" class="invitation-hint" role="status">
         <p class="text-secondary">
-          Waiting on GitHub? You might need to accept an invitation to join the repository:
+          We could not check your GitHub invitations from here. If you are not already a member of
+          <strong>{{ org }}</strong>, there may be one waiting:
         </p>
         <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary">
-          Accept your repository invitation
+          Look for a repository invitation
         </a>
+        <p class="text-muted" style="margin-top: var(--space-xs);">
+          A "404" there just means the repository is not ready yet - come back to this page.
+        </p>
       </div>
     </div>
 
@@ -113,14 +124,24 @@
     <!-- State: Timeout -->
     <div v-else-if="acceptState === 'timeout'" class="timeout-state text-center">
       <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
-      <h2>Invitation may be pending</h2>
-      <p class="text-secondary">
-        Please check your GitHub notifications or email for an invitation to the team repository.
+      <h2 v-if="showInvitationGuess">Invitation may be pending</h2>
+      <h2 v-else>Your team repository has not appeared</h2>
+      <template v-if="showInvitationGuess">
+        <p class="text-secondary">
+          We could not check your invitations from this page. Please check your GitHub
+          notifications or email for an invitation to the team repository.
+        </p>
+        <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg" style="margin-bottom: var(--space-sm);">
+          Open Repository Invitations
+        </a>
+        <p class="text-muted" style="margin-bottom: var(--space-sm);">
+          If that page shows a "404", the repository was never created - tell your lecturer.
+        </p>
+      </template>
+      <p v-else class="text-secondary">
+        GitHub has no repository for your team and no invitation waiting, so setup did not
+        finish. This is not something you can fix from here - tell your lecturer.
       </p>
-      <a v-if="invitationUrl" :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg" style="margin-bottom: var(--space-sm);">
-        Open Repository Invitations
-      </a>
-      <br />
       <button class="btn btn-secondary" @click="checkExistingState">Check again</button>
     </div>
 
@@ -374,8 +395,13 @@ const showAlternatives = ref(false)
 const showDiagnosticsModal = ref(false)
 const rosterStatus = ref('enrolled')
 
+// 3s, deliberately. See AssignmentView: polling less often only adds dead time
+// after the repository appears.
 const pollInterval = ref(3000)
 const pollCount = ref(0)
+const waitedMs = ref(0)
+let pollStartedAt = 0
+const waitedSeconds = computed(() => Math.max(0, Math.round(waitedMs.value / 1000)))
 let pollTimer = null
 
 const isPreAssignedMode = computed(() => props.assignment.group_config?.formation_mode === 'pre-assigned')
@@ -434,6 +460,10 @@ const filteredTeams = computed(() => {
 
 const openTeamsCount = computed(() => teams.value.filter((t) => !t.is_full).length)
 
+// A GUESS at the invitation page, and it 404s until the repository exists.
+// Only shown when GET /user/repository_invitations is not answering, because
+// otherwise we already know the truth - see AssignmentView for the full
+// reasoning, which this card duplicates.
 const invitationUrl = computed(() => {
   if (!targetTeamName.value && !myCurrentTeam.value) return null
   const slug = myCurrentTeam.value?.team_slug || selectedTeam.value?.team_slug || computedSlug.value
@@ -441,6 +471,11 @@ const invitationUrl = computed(() => {
   const repo = pattern.replace('{team_slug}', slug).replace('{github_login}', props.user.login)
   return `https://github.com/${props.org}/${repo}/invitations`
 })
+
+const invitationsReadable = ref(null)
+const showInvitationGuess = computed(
+  () => invitationsReadable.value === false && Boolean(invitationUrl.value),
+)
 
 onMounted(async () => {
   await loadTeams()
@@ -635,7 +670,8 @@ async function checkExistingState() {
     }
 
     const invites = await getInvitations(token)
-    if (invites.ok && Array.isArray(invites.data)) {
+    invitationsReadable.value = invites.ok && Array.isArray(invites.data)
+    if (invitationsReadable.value) {
       const match = invites.data.find(
         (inv) => inv.repository?.name === expectedName && inv.repository?.owner?.login === props.org
       )
@@ -700,6 +736,8 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
 
 function startPolling(teamSlug) {
   pollCount.value = 0
+  waitedMs.value = 0
+  pollStartedAt = Date.now()
   const pattern = props.assignment.repository_name_pattern || `${props.assignment.id}-{team_slug}`
   const expectedName = pattern
     .replace('{team_slug}', teamSlug)
@@ -707,6 +745,7 @@ function startPolling(teamSlug) {
 
   const tick = async () => {
     pollCount.value++
+    waitedMs.value = Date.now() - pollStartedAt
     const token = getToken()
     if (!token) return
 
@@ -746,7 +785,8 @@ function startPolling(teamSlug) {
     }
   }
 
-  pollTimer = setTimeout(tick, pollInterval.value)
+  // Immediately, not at +3s - see AssignmentView.
+  tick()
 }
 
 async function handleAcceptInvitation() {

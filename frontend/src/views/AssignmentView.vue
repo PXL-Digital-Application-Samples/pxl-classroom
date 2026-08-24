@@ -147,28 +147,50 @@
           <div v-else-if="acceptState === 'pending'" class="pending-state">
             <Icon name="clock" :size="48" class="status-icon status-icon-pulse" />
             <h2>Setting up your repository…</h2>
+            <!-- "Less than a minute" set the wrong expectation: provisioning is
+                 TWO chained Actions runs (broker -> repository_dispatch -> hub),
+                 so twenty to forty seconds is the ordinary case and ten seconds
+                 never was. A student who expects ten and waits thirty concludes
+                 the tool is broken. -->
             <p class="text-secondary">
-              Your assignment has been accepted. GitHub Actions is provisioning your private repository.
-              This usually takes less than a minute.
+              Your assignment has been accepted. Two GitHub Actions runs create your private
+              repository from the template, which usually takes <strong>20 to 40 seconds</strong> -
+              longer when GitHub is busy.
             </p>
             <div class="progress-bar">
               <div class="progress-bar-fill"></div>
             </div>
-            <p class="text-muted">Checking every {{ pollInterval / 1000 }}s… (attempt {{ pollCount }})</p>
+            <!-- Elapsed time, not "attempt 7 every 3s". The poll cadence is
+                 this page's business; how long they have been waiting is
+                 theirs. -->
+            <p class="text-muted">Waiting {{ waitedSeconds }}s…</p>
 
-            <!-- Students who are not already org members are added by invitation
-                 rather than granted directly, and this page cannot detect that:
-                 listing invitations needs an OAuth `repo` scope the student's
-                 App token does not carry. So offer the link rather than waiting
-                 out the full timeout. -->
-            <div v-if="pollCount >= 5 && invitationUrl" class="invitation-hint" role="status">
+            <!-- Reassurance, deliberately NOT a diagnosis. What stood here
+                 asserted a cause ("GitHub may be waiting for you to accept an
+                 invitation") on nothing but a timer, and handed over a link
+                 that 404s until the repository exists - which at fifteen
+                 seconds it usually does not. -->
+            <p v-if="pollCount >= 5" class="text-secondary">
+              Still going, and that is normal. Leave this page open - it updates by itself
+              the moment the repository appears.
+            </p>
+
+            <!-- The guessed link, and the ONLY place it belongs while waiting:
+                 we asked GitHub for your invitations and could not get an
+                 answer, so we cannot tell whether one is waiting for you. It
+                 is held back to ~30s because before that the repository
+                 probably does not exist and the link would 404. -->
+            <div v-if="pollCount >= 10 && showInvitationGuess" class="invitation-hint" role="status">
               <p class="text-secondary">
-                Taking more than a few seconds? GitHub may be waiting for you to accept an
-                invitation to the repository.
+                We could not check your GitHub invitations from here. If you are not already a
+                member of <strong>{{ org }}</strong>, there may be one waiting:
               </p>
               <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary">
-                Accept your repository invitation
+                Look for a repository invitation
               </a>
+              <p class="text-muted" style="margin-top: var(--space-xs);">
+                A "404" there just means the repository is not ready yet - come back to this page.
+              </p>
             </div>
 
             <div class="flex justify-center gap-sm mt-md">
@@ -287,13 +309,18 @@
 
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
-            <h2>One more step - accept your invitation</h2>
+            <!-- Two different situations, and they used to share one headline
+                 that guessed at the friendlier of them. If we could read your
+                 invitations and there was none, "One more step - accept your
+                 invitation" is telling a student whose provisioning actually
+                 FAILED to go and accept something that does not exist, with a
+                 link that 404s. -->
+            <h2 v-if="showInvitationGuess">One more step - accept your invitation</h2>
+            <h2 v-else>Your repository has not appeared</h2>
 
-            <!-- By far the most common cause, and the one this page cannot
-                 detect on its own (see the pending state). Lead with it. -->
-            <template v-if="invitationUrl">
+            <template v-if="showInvitationGuess">
               <p class="text-secondary">
-                Your repository has almost certainly been created. Unless you are already a member of
+                We could not check your invitations from this page. Unless you are already a member of
                 <strong>{{ org }}</strong>, GitHub adds you by invitation - and it needs you to accept it
                 before you can see the repository.
               </p>
@@ -303,10 +330,17 @@
               <p class="text-muted" style="margin-top: var(--space-sm);">
                 It is also waiting in your GitHub notifications and in the email GitHub sent you.
                 Once accepted, come back and press <strong>Check again</strong>.
+                If that page shows a "404", the repository was never created - the causes below apply instead.
               </p>
             </template>
+            <p v-else class="text-secondary">
+              GitHub has no repository for you and no invitation waiting, so setup did not finish.
+              This is not something you can fix from here.
+            </p>
 
-            <p class="text-secondary">Less commonly, setup can stall because:</p>
+            <p class="text-secondary">
+              {{ showInvitationGuess ? 'Less commonly, setup can stall because:' : 'The usual causes:' }}
+            </p>
             <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
               <li>The assignment registration cap has been reached.</li>
               <li v-if="assignment?.roster_mode !== 'open'">You are not on the lecturer's roster for this course.</li>
@@ -434,8 +468,17 @@ const latestSubmitTag = ref(null)
 // Device flow
 
 // Polling
+// 3s, deliberately not slower. The wait FEELS long because the page used to
+// promise "less than a minute" and then accuse GitHub of waiting on the
+// student after fifteen seconds - not because it checks too often. Polling
+// less often only adds dead time after the repository appears, and costs
+// nothing worth saving: each student polls with their own user token against
+// their own 5,000/hr limit, so a thirty-second wait is about ten requests.
 const pollInterval = ref(3000)
 const pollCount = ref(0)
+const waitedMs = ref(0)
+let pollStartedAt = 0
+const waitedSeconds = computed(() => Math.max(0, Math.round(waitedMs.value / 1000)))
 let pollTimer = null
 
 const now = ref(new Date())
@@ -767,12 +810,11 @@ async function acceptanceIssueVanished() {
   }
 }
 
-// Deterministic from the assignment's naming pattern, so it works even though
-// the invitation itself is invisible to us: GET /user/repository_invitations
-// needs an OAuth `repo` scope, and student tokens are GitHub App user tokens
-// with no scopes at all (see lib/auth.js). GitHub serves the accept/decline
-// page at /<owner>/<repo>/invitations, and simply redirects to the repo once
-// the student is already a collaborator - safe to show either way.
+// A GUESS at where the invitation would be, derived from the naming pattern.
+// GitHub serves the accept/decline page at /<owner>/<repo>/invitations and
+// redirects to the repo if you are already a collaborator - but it 404s when
+// the repository does not exist yet, which during provisioning is the normal
+// case for the first half-minute.
 const invitationUrl = computed(() => {
   if (!assignment.value || !user.value?.login) return null
   const pattern = assignment.value.repository_name_pattern || `${resolvedId.value}-{github_login}`
@@ -780,12 +822,37 @@ const invitationUrl = computed(() => {
   return `https://github.com/${props.org}/${repo}/invitations`
 })
 
+// null until the poll has asked once; true when GET /user/repository_invitations
+// answered, false when it did not.
+//
+// This is the only thing that may put the guessed link on screen, and the
+// reasoning is worth keeping because a comment beside the old hint claimed the
+// opposite of what the polling code does:
+//
+//   * The API answers and names a match -> we are in `invited`, holding the
+//     real invitation and an in-app Accept button. No guess needed.
+//   * The API answers and names nothing -> there is no invitation. Either the
+//     repository does not exist yet, or it does and we were added directly
+//     (an org owner or member is - no invitation is ever sent), in which case
+//     getRepo already succeeded and we are in `provisioned`. Both ways the
+//     guessed link 404s, and offering it asserts a cause that is not true.
+//   * The API fails -> we are blind, and a guess is the best on offer.
+//
+// So: only when we are blind.
+const invitationsReadable = ref(null)
+const showInvitationGuess = computed(
+  () => invitationsReadable.value === false && Boolean(invitationUrl.value),
+)
+
 // Poll for repo provisioning
 function startPolling() {
   pollCount.value = 0
-  
+  waitedMs.value = 0
+  pollStartedAt = Date.now()
+
   const tick = async () => {
     pollCount.value++
+    waitedMs.value = Date.now() - pollStartedAt
     const token = getToken()
     if (!token) return
 
@@ -803,9 +870,12 @@ function startPolling() {
       return
     }
 
-    // Check invitation
+    // Check invitation. Whether this call ANSWERS is itself the signal that
+    // decides whether the guessed link may ever be shown - see
+    // `showInvitationGuess`.
     const invites = await getInvitations(token)
-    if (invites.ok && Array.isArray(invites.data)) {
+    invitationsReadable.value = invites.ok && Array.isArray(invites.data)
+    if (invitationsReadable.value) {
       const match = invites.data.find(
         (inv) => inv.repository?.name === expectedName && inv.repository?.owner?.login === org
       )
@@ -840,8 +910,12 @@ function startPolling() {
       pollTimer = setTimeout(tick, pollInterval.value)
     }
   }
-  
-  pollTimer = setTimeout(tick, pollInterval.value)
+
+  // Immediately, not at +3s. Re-opening the link after the repository already
+  // exists is a common way to arrive here, and three seconds of "Setting up
+  // your repository…" for something that is already set up is three seconds
+  // of the page being wrong.
+  tick()
 }
 
 // Accept invitation
