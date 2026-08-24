@@ -666,7 +666,11 @@
               <label>Max acceptances<span v-if="form.roster_mode === 'open'"> (required)</span></label>
               <input type="number" v-model.number="form.max_acceptances" min="1" @input="touchedFields.max_acceptances = true" />
               <div v-if="(touchedFields.max_acceptances || !isNew) && fieldErrors.max_acceptances" class="field-error-msg">{{ fieldErrors.max_acceptances }}</div>
-              <small v-if="form.max_acceptances">Hard cap on accepted students. Acceptances beyond this are rejected.</small>
+              <!-- Not "Hard cap": the check is check-then-act across parallel
+                   runs, so a simultaneous burst can land a couple over
+                   (deliberate - ARCHITECTURE §5.4). C4 says the UI must not
+                   describe behaviour the system does not have. -->
+              <small v-if="form.max_acceptances">Cap on accepted students. Acceptances beyond it are rejected.</small>
               <small v-else-if="form.roster_mode === 'open'" class="field-error-msg">
                 Required with open enrollment - without the roster gate this is the only limit on who can claim a repo.
               </small>

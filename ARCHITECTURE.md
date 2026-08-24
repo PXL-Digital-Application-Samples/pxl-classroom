@@ -293,6 +293,24 @@ invite_expires_at: 2027-09-27T01:27:18Z
 
 **`roster_mode` is independent of it.** `acceptance_mode` is *how* a repository is created; `roster_mode` is *who* may accept. Rosters apply to self-service acceptance exactly as before, and `enforced` is the default - in the schema, in `accept.mjs` (which fails closed for any unrecognised value) and, since the mechanical half of UX_PLAN WS1, in `emptyForm()` too. The form used to write `open` into every new assignment while its own hint said *"Anyone with the link can claim a repo"*; it was the only thing choosing the permissive setting (§15). Existing assignments are untouched - the default governs new ones only.
 
+**`max_acceptances` is a guardrail, not a seat allocator — by decision, not by
+oversight.** `accept.mjs` counts `acceptances/<id>/*.json`, compares, then
+writes: check-then-act. The acceptance concurrency group is keyed on
+`team_hint || github_login`, so per-*team* serialization guards `max_team_size`
+(§5.8) but acceptances by different students are **not** serialized against one
+another. Two students arriving together both read 49, both see `49 < 50`, and
+both write. The cap can overshoot by roughly the number of acceptances in
+flight.
+
+Closing it means keying the group on the assignment, which serializes every
+acceptance for it: a 200-student cohort accepting in the first minutes of a
+lecture would run one at a time, ~30s each, on a system whose design goal is
+billing zero minutes when idle. **Reviewed and left as-is on 2026-08-24.** The
+cap's job is to stop an unbounded link being farmed, and it does that. What
+follows from it is a documentation rule, not a code one: nothing in the UI may
+present the number as exact (C4). The Admin Panel says *"Cap on accepted
+students"*, never *"hard cap"*.
+
 ### 5.5 Participating-orgs registry
 
 `participating-orgs.yml` lives on a dedicated **`participating-orgs` branch** of the hub repo (not `main`). This branch has lighter protection - `main`'s "PRs + ≥2 reviews + signed commits" rule would block automation commits, but the orgs registry is high-frequency. The Setup-Organization workflow commits directly to this branch; cron workflows fetch from `ref: participating-orgs`.

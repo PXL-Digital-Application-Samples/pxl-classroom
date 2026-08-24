@@ -344,7 +344,30 @@ async function main() {
     process.exit(0);
   }
 
-  // 7. Check per-assignment cap (guardrail)
+  // 7. Check per-assignment cap.
+  //
+  // A GUARDRAIL, NOT A HARD LIMIT, AND DELIBERATELY SO. Read this before
+  // "fixing" it.
+  //
+  // The count below is read, compared, and then written to - a textbook
+  // check-then-act. The acceptance concurrency group is
+  // `accept-<org>-<id>-<team_hint || github_login>`, so acceptances by
+  // DIFFERENT students are not serialized against each other: two students
+  // arriving together both read 49, both see 49 < 50, and both write. The cap
+  // can therefore overshoot by roughly the number of acceptances in flight at
+  // once.
+  //
+  // Closing it means keying the concurrency group on the assignment instead of
+  // the student, which serializes every acceptance for that assignment. A
+  // 200-student cohort accepting in the first minutes of a lecture would then
+  // run one at a time - roughly 30s each - on a system whose whole design goal
+  // is billing zero minutes when idle (Wave 8). The overshoot is a handful of
+  // repositories; the cure is an hour of queued runners and a room full of
+  // students watching a spinner.
+  //
+  // Decided 2026-08-24: leave it. The cap exists to stop an unbounded link
+  // being farmed, and it does that. It is not an exam-seat allocator. Nothing
+  // in the UI may describe it as exact (C4) - see ARCHITECTURE §5.4.
   const maxAcceptances = assignment.max_acceptances;
   if (maxAcceptances && !previousTeamSlug) {
     let currentCount = 0;
