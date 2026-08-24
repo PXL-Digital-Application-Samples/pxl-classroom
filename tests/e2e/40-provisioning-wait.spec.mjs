@@ -135,6 +135,58 @@ test.describe('40 - The waiting state does not guess', () => {
   });
 });
 
+test.describe('40 - An invitation on page two is still an invitation', () => {
+  test('The poll finds it past the first page', async ({ page }) => {
+    // /user/repository_invitations defaults to THIRTY per page, and a student
+    // who has accepted across several courses without accepting the repo
+    // invitations accumulates them. Theirs lands last.
+    //
+    // This got worse when the waiting screen started trusting this call: a
+    // truncated success reads as "there is no invitation", and the timeout
+    // state then tells the student setup failed - the opposite of what
+    // happened, and with no way for them to find the invitation that exists.
+    const filler = Array.from({ length: 100 }, (_, i) => ({
+      id: 1000 + i,
+      repository: { name: `other-course-${i}`, full_name: `other/other-course-${i}`, owner: { login: 'other' } },
+    }));
+    const mine = {
+      id: 555,
+      repository: { name: REPO, full_name: `${ORG}/${REPO}`, html_url: `https://github.com/${ORG}/${REPO}`, owner: { login: ORG } },
+    };
+
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, { currentUser: STUDENT_1, assignments: { [ID]: assignment() } });
+    await page.route(`**/api.github.com/repos/${ORG}/${REPO}`, (route) =>
+      route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+
+    let pagesServed = 0;
+    await page.route('**/api.github.com/user/repository_invitations*', (route) => {
+      const u = new URL(route.request().url());
+      const p = Number(u.searchParams.get('page') || 1);
+      pagesServed = Math.max(pagesServed, p);
+      const body = p === 1 ? filler : [mine];
+      const next = new URL(u);
+      next.searchParams.set('page', String(p + 1));
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        // `access-control-expose-headers` is not decoration: this is a
+        // cross-origin response, so JS cannot read `link` without it and the
+        // pagination under test silently sees one page.
+        headers: p === 1
+          ? { link: `<${next}>; rel="next"`, 'access-control-expose-headers': 'link' }
+          : { 'access-control-expose-headers': 'link' },
+        body: JSON.stringify(body),
+      });
+    });
+
+    await page.goto(inviteUrl(ORG, ID));
+    await expect.poll(() => pagesServed, { timeout: 25000 }).toBeGreaterThanOrEqual(1);
+    await expect(page.getByRole('button', { name: /^Accept invitation$/i })).toBeVisible({ timeout: 25000 });
+    expect(pagesServed, 'the second page must actually be requested').toBeGreaterThanOrEqual(2);
+  });
+});
+
 test.describe('40 - A real invitation is handled in-app, not by a guess', () => {
   test('An invitation we CAN see gets the Accept button, never the guessed link', async ({ page }) => {
     await injectAuth(page, STUDENT_1);

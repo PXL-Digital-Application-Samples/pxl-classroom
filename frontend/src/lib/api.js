@@ -131,9 +131,42 @@ export async function getRepo(token, owner, repo) {
 
 /**
  * Get pending repository invitations for the user.
+ *
+ * Paginated, and that is not theoretical. The default page size is **30**, and
+ * a student who has accepted assignments across several courses without ever
+ * accepting the repository invitations accumulates them - so theirs could sit
+ * on page two and the acceptance page would poll for three minutes without
+ * finding it.
+ *
+ * It matters more since the waiting screen started trusting this call: an
+ * answer that omits the student's invitation reads as "there is no invitation"
+ * and the timeout state then tells them setup failed, which is the opposite of
+ * what happened. A truncated success is worse here than an error would be.
  */
 export async function getInvitations(token) {
-  return ghApi(token, 'GET', '/user/repository_invitations')
+  const merged = []
+  let path = '/user/repository_invitations?per_page=100'
+  let last = null
+  const seen = new Set()
+  // A student is not in 2,000 pending invitations; the cap only stops a
+  // malformed or self-referential Link header spinning forever.
+  const MAX_PAGES = 20
+
+  for (let page = 0; path && page < MAX_PAGES; page++) {
+    if (seen.has(path)) break
+    seen.add(path)
+    const res = await ghApi(token, 'GET', path)
+    if (!res.ok) return res
+    last = res
+    merged.push(...(Array.isArray(res.data) ? res.data : []))
+
+    const link = res.headers?.get?.('link') || ''
+    const next = link.split(',').find((p) => /rel="next"/.test(p))
+    const m = next && next.match(/<([^>]+)>/)
+    path = m ? m[1].replace('https://api.github.com', '') : null
+  }
+
+  return { ...last, data: merged }
 }
 
 /**

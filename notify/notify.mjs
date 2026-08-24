@@ -10,7 +10,7 @@
 // Outputs via GITHUB_OUTPUT: outcome
 
 import { appendFile } from "node:fs/promises";
-import { gh } from "../lib/gh.mjs";
+import { gh, ghAll } from "../lib/gh.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -72,23 +72,35 @@ export async function notifyEvent({ org, controlRepo, eventType, assignmentId, d
 
   // Check for dedup
   if (dedupKey) {
-    const comments = await gh(
-      "GET",
-      `/repos/${org}/${controlRepo}/issues/${issueNumber}/comments?per_page=100`
-    );
-    if (comments.ok) {
-      const existing = comments.data.find(
-        (c) => c.body && c.body.includes(`${DEDUP_MARKER}${dedupKey}-->`)
+    // Every page, not the first. GitHub returns issue comments OLDEST first,
+    // so `per_page=100` alone read the hundred oldest - and a tracking issue
+    // passes a hundred comments within a term. Past that, the marker for a
+    // recent event was never in the window, so dedup silently stopped
+    // deduplicating anything and every repeat posted a fresh comment.
+    //
+    // ghAll, not a loop of my own: lib/gh.mjs already walks Link headers, and
+    // it carries the rate-limit retry policy CLAUDE.md keeps in one place.
+    let existing = null;
+    try {
+      const comments = await ghAll(
+        `/repos/${org}/${controlRepo}/issues/${issueNumber}/comments?per_page=100`
       );
-      if (existing) {
-        // Update existing comment
-        await gh(
-          "PATCH",
-          `/repos/${org}/${controlRepo}/issues/comments/${existing.id}`,
-          { body: commentBody }
-        );
-        return "deduplicated";
-      }
+      existing = comments.find(
+        (c) => c.body && c.body.includes(`${DEDUP_MARKER}${dedupKey}-->`)
+      ) || null;
+    } catch {
+      // Unreadable comment list: post a new comment rather than lose the
+      // notification. A duplicate is noise; a dropped alert is not.
+      existing = null;
+    }
+    if (existing) {
+      // Update existing comment
+      await gh(
+        "PATCH",
+        `/repos/${org}/${controlRepo}/issues/comments/${existing.id}`,
+        { body: commentBody }
+      );
+      return "deduplicated";
     }
   }
 
