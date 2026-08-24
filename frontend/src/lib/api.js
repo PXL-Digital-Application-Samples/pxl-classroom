@@ -484,7 +484,17 @@ export async function listOrgRepos(token, org, prefix = '', { failFast = false }
  */
 export async function listOrgTemplates(token, org) {
   try {
-    const q = encodeURIComponent(`org:${org} is:template`)
+    // `fork:true` means "forks AS WELL AS non-forks". GitHub's repository
+    // search hides forks by default, and a fork can perfectly well be a
+    // template - so a lecturer who forked a template into their org watched it
+    // never appear in the picker, with no error anywhere, while
+    // `is_template: true` sat on the repository. Reported live for
+    // PXL-2TIN-NetAdv-26-27/Guts-DotNetAdvanced-2627 on 2026-08-24.
+    //
+    // The REST fallback below would have found it (GET /orgs/{org}/repos
+    // includes forks), but that leg only runs when the search FAILS - and this
+    // search succeeded. It just answered a question nobody meant to ask.
+    const q = encodeURIComponent(`org:${org} is:template fork:true`)
     const res = await ghApi(token, 'GET', `/search/repositories?q=${q}&per_page=100`)
     if (res.ok) {
       const items = res.data?.items || []

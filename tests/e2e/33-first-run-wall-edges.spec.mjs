@@ -577,6 +577,69 @@ test.describe('33 - §5.4 Nothing in the summary is addressed to a schema author
   });
 });
 
+// ===================================================== a template that is a fork
+
+test.describe('33 - A forked template is still a template', () => {
+  /**
+   * GitHub's repository search, faithfully: forks are omitted unless the query
+   * says `fork:true`. The route reads the real query string rather than being
+   * told the answer, so it fails if the qualifier is dropped again.
+   */
+  async function routeSearchLikeGitHub(page, { forks = [], plain = [] } = {}) {
+    await page.route('**/search/repositories*', async (route) => {
+      const q = decodeURIComponent(new URL(route.request().url()).searchParams.get('q') || '');
+      const items = /\bfork:true\b/.test(q) ? [...plain, ...forks] : [...plain];
+      await route.fulfill({ status: 200, body: JSON.stringify({ total_count: items.length, items }) });
+    });
+  }
+
+  test('A template that is a fork appears in the picker', async ({ page }) => {
+    // Reported live 2026-08-24: a colleague made PXL-2TIN-NetAdv-26-27, forked
+    // a public template into it, and it never showed up - no error anywhere,
+    // `is_template: true` on the repository, and the wall telling them the org
+    // had no templates. GitHub search hides forks by default, and the REST
+    // fallback that would have found it only runs when the search FAILS. This
+    // search succeeded; it just answered a question nobody meant to ask.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchLikeGitHub(page, { forks: [templateRepo('Guts-DotNetAdvanced-2627')] });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+
+    await expect(templateEmpty(page), 'the org has a template - the wall is a false claim').toHaveCount(0);
+    await expect(page.getByPlaceholder('Type or select a template repository')).toHaveValue(
+      `${ORG}/Guts-DotNetAdvanced-2627`,
+      { timeout: 5000 },
+    );
+  });
+
+  test('An org whose only templates are forks is not told it has none', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchLikeGitHub(page, { forks: [templateRepo('forked-a'), templateRepo('forked-b')] });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+    await expect(page.locator('text=Found 2 template repositories')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('Forks come in ADDITION to the rest, not instead of them', async ({ page }) => {
+    // `fork:true` includes forks alongside non-forks; `fork:only` would have
+    // swapped one blind spot for the opposite one.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchLikeGitHub(page, {
+      plain: [templateRepo('made-here')],
+      forks: [templateRepo('forked-in')],
+    });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+    await expect(page.locator('text=Found 2 template repositories')).toBeVisible({ timeout: 5000 });
+  });
+});
+
 // ============================================================== cross-cutting
 
 test.describe('33 - Both walls at once', () => {
