@@ -52,8 +52,9 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
     // Set up dialog handler for window.confirm
     page.on('dialog', (dialog) => dialog.accept());
 
-    // Change state to Closed
-    const closeBtn = page.getByRole('button', { name: /Close \(stop accepting\)/i });
+    // Change state to Closed. WS5 renamed the button after what it does to
+    // the cohort rather than after the state name (UX_PLAN §7.1).
+    const closeBtn = page.getByRole('button', { name: /^Stop accepting$/i });
     await expect(closeBtn).toBeVisible();
     await closeBtn.click();
     await expect(page.locator('.toast', { hasText: /closed/i })).toBeVisible();

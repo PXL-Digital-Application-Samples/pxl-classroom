@@ -249,7 +249,7 @@ Bursty courses (Terraform, container builds) need higher limits; size the budget
 
 ### 2.4 Grant lecturers access to the hub repo
 
-Lecturers trigger **Publish** and **Retry acceptance** from the Admin Panel; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a detailed error toast (e.g. `Trigger failed (403): ... Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access`).
+Lecturers trigger **Publish** from the Admin Panel and **Retry acceptance** from a student's row on the tracking view; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a detailed error toast (e.g. `Trigger failed (403): ... Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access`).
 
 - Add each org's lecturers as **Write** collaborators (or members of a team with write) on the hub repo.
   `workflow_dispatch` requires write - Read is not enough, and produces exactly the 403 described above.
@@ -364,7 +364,9 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 
 ### 4.3 Publish
 
-In the editor -> click **Save & publish** (on an existing draft, the Lifecycle section's **Publish (create broker, enable nightly)** does the same). The panel watches for the broker repo and confirms when the accept link is live.
+In the editor -> click **Save & publish** in the header bar (on an existing draft, *Lifecycle -> State -> **Publish (create broker, enable nightly)*** does the same). The panel watches for the broker repo and confirms when the accept link is live.
+
+Once it is published, opening it again leads with the invitation link, an accepted/deadline summary and a link to the tracking page; the six fieldsets move behind **Edit settings** and *Lifecycle* separates **Repair** (Republish broker) from the state transitions below it.
 
 If the workflow dispatch fails (typically 403 - you're not a hub collaborator, see §2.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again.
 
@@ -436,9 +438,9 @@ To restore:
 
 ### 6.2 Grant an extension
 
-1. Admin Panel -> **Grant Deadline Extension**.
-2. Fill: assignment ID, student login, new deadline, reason.
-3. The Admin Panel validates the student login against the roster, repository records, daily reports, or GitHub `/users/<login>` API, and then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`).
+1. Open the assignment's **roster & progress** page (`/dashboard/<org>/<assignment-id>`) and click the **···** action on the student's row.
+2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the Admin Panel's own copy of this form was deleted for that reason (UX_PLAN WS5). The Lifecycle block in the editor links here.
+3. The modal shows any extension already in force, then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`), appending to the existing history rather than replacing it.
 4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
 
 **Grant it before the deadline passes.** While the extension runs, the nightly finalize leaves that student's repository open and records them as `deferred` in `lockdowns/<id>/lockdown-record.json` - everyone else is locked at the deadline as normal - and the assignment stays "active" so `daily-activity.yml` keeps observing their work. Once the extension expires, the assignment is re-queued automatically and that student is locked down, preserved and reported (ARCHITECTURE §6.2.2).
@@ -493,9 +495,9 @@ Measured before recommending it: one org ruleset matching `exam2026-*` blocked p
 Possible causes:
 
 - **They accepted but signed out before the SPA could detect the repo.** Ask them to re-open their invitation link. The SPA polls `/repos/<org>/<expected-name>` and `/user/repository_invitations` - if the repo exists, they'll see the link.
-- **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can simply accept again from their invitation link. Alternatively, a lecturer can trigger **Retry acceptance** for the student from the Admin Panel or the assignment detail view.
+- **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can simply accept again from their invitation link. Alternatively, a lecturer can trigger **Retry acceptance** from the student's row on the assignment's roster & progress page (the **···** action).
 - **A student says the Accept button does nothing.** If the page reports "GitHub is blocking your request", their GitHub account has been flagged and its content is hidden from everyone but themselves - the acceptance issue is created and removed before the broker sees it. Confirm with `gh api users/<login>`: a flagged account returns 404 to everyone else and 200 to itself. Only GitHub Support can lift it; provision the student manually in the meantime.
-  - *Lecturer Retry Flow:* The SPA validates the student login (against roster/records/reports/GitHub), checks if the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run.
+  - *Lecturer Retry Flow:* the student comes from the report row, so there is no login to validate; the SPA checks whether the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run.
 - **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button. If a student needs to accept outside the window, the lecturer must trigger a retry acceptance (which prompts to bypass window checks).
 - **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or via Admin Panel) or reject.
 - **The student is not on the roster.** Under the default `roster_mode: enforced` the acceptance is rejected server-side with `rejected:not-on-roster` (or `rejected:no-roster` if `students/roster.yml` is missing), and the student sits on "Setting up your repository…" until it times out - the SPA cannot read the private roster, so it can't say this directly. Confirm in the hub's Actions tab: the `Accept assignment` run for that student shows the rejection reason in its summary. Fix by importing the roster (§12.4) or, for an assignment with no fixed cohort, switching it to open enrollment (§12.4 -> *Running an assignment without a roster*).

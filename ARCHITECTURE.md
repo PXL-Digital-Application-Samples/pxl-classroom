@@ -548,7 +548,9 @@ publish-assignment.yml:
 ### 9.4 Override (deadline extension)
 
 ```
-Lecturer opens Admin Panel -> Grant Extension
+Lecturer opens the assignment's roster & progress page -> the student's row
+   -> Grant deadline extension
+   (the login is the row, not a typed field - AdminView's copy was deleted)
    v
 SPA validates the override JSON against override.schema.json
    v
@@ -591,7 +593,7 @@ Admin sets Actions spending limit + budget alerts on <org>
 
 Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory and sessionStorage only (never localStorage) and dies on tab close.
 
-The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `prefers-color-scheme: light` variant. Every authenticated view - including deep links to the Admin Panel and per-assignment detail - renders a sign-in card when no session exists, never a data-shaped empty state; device-flow failures render inline in that card.
+The SPA is dual-theme (dark default / light / system) with every colour declared once as a `light-dark()` token in `frontend/src/style.css`; see DESIGN.md §5. Every authenticated view - including deep links to the Admin Panel and per-assignment detail - renders a sign-in card when no session exists, never a data-shaped empty state; device-flow failures render inline in that card.
 
 ### 10.1 Routes
 
@@ -600,14 +602,54 @@ The SPA ships a single dark theme (GitHub-dark palette) by design; there is no `
 | `/` | `HomeView` | Role-adaptive portal - unauthenticated landing with sign-in & direct lookup; authenticated student "My Assignments" (accepted repos only); lecturer dashboard router |
 | `/:org/i/:inviteToken` | `AssignmentView` | Student - invitation link: resolves the assignment from the token's subject, accept flow, polling, repo link |
 | `/dashboard/:org?` | `DashboardView` | Lecturer - org selector (with live status lights & memory), System Health audit modal, live assignment sync, + Assignment shortcut, and embedded Resource Usage & Limits panel |
-| `/dashboard/:org/admin` | `AdminView` | Lecturer - Admin Panel: create assignment, publish, grant extension |
-| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips, amber Admin shortcut, and Export dropdown menu |
+| `/dashboard/:org/admin` | `AdminView` | Lecturer - Admin Panel: create, edit and publish an assignment. A **published or closed** one opens on its cohort (share block, accepted/deadline summary, link to tracking) with the fieldsets behind an *Edit settings* disclosure; a draft opens on the form (§10.1.1) |
+| `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips, amber Admin shortcut, and Export dropdown menu. **Sole home of the per-student operations**: grant a deadline extension, retry a failed acceptance |
 | `/dashboard/:org/usage` | `UsageView` | Lecturer - per-org weekly usage report |
 | `/usage` | `UsageOverviewView` | Lecturer - cross-org usage aggregate |
 | `/setup` | `SetupView` | Admin - App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
 | `/sandbox` | `SandboxView` | Developer / Designer - offline component gallery and design system workbench with mock fixtures |
 
 A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pages.
+
+#### 10.1.1 The editor pane changes with the assignment's state
+
+Defining an assignment and running a cohort are different jobs. `AdminView`
+rendered the same screen for both, so the moment an assignment was out in the
+world the lecturer was still looking at `submission_ref` and a template picker.
+
+`cohortFirst` is `state === 'published' || state === 'closed'`, and when it is
+true the pane leads with the invitation share block, a **cohort card**
+(accepted / cap, time to the deadline, link to `/dashboard/:org/:id`) and puts
+the six fieldsets behind an `Edit settings` `<details>`. A **draft** opens on
+the form, because defining it is still the job; an **archived** assignment does
+too, since what is left to look at there is what it was configured to be.
+
+Rules that hold the disclosure together:
+
+* Its `open` attribute binds `settingsOpen || !cohortFirst`, so an assignment
+  reverted from published to draft cannot render a shut `<details>` whose
+  summary is `display: none` - a form with no control to open it.
+* `settingsOpen` is seeded per assignment as `!cohortFirst || fieldErrorCount > 0`:
+  one that arrives with a validation problem (a hand-edited YAML with no
+  template) opens expanded, because collapsing the only field that would fix it
+  leaves a disabled Save with no explanation.
+* The **summary carries the field-error count**, which is what stops a problem
+  hiding once the lecturer closes it again. There is deliberately no code
+  forcing it open: every field that can carry an error is inside it, so no
+  problem can appear while it is shut, and a `<details>` that refuses to close
+  is a dead control.
+
+The cohort card reads `reports/dashboard.json` once per page load, shared by
+every assignment in the list. An absent entry renders "no cohort report yet"
+and an unreadable file "couldn't read the cohort report" - never `0 accepted`,
+which is a different fact - and an assignment with no `max_acceptances` shows
+no denominator (§11.6).
+
+*Lifecycle* separates **Repair** (`Republish broker`, published/closed only)
+from the **State** transitions below a rule; a draft has nothing to repair yet,
+so its `Publish` sits with the transitions. Per-student extensions and retries
+are not here at all - they need a student, and their home is the student's own
+row on the tracking view (§10.1).
 
 ### 10.2 Authentication
 

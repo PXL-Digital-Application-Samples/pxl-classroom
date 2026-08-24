@@ -22,6 +22,7 @@ import {
   injectAuth,
   setupStandardMockRoutes,
   inviteToken,
+  expandSettings,
 } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'linux-processes-2026';
@@ -68,7 +69,9 @@ async function openEditor(page, assignment, extra = {}) {
     .click();
   // The editor is open once the Title field is on screen. A bare
   // `textarea, input` match resolves to the roster tab's hidden file input.
-  await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 10000 });
+  // A published assignment collapses the fieldsets behind the settings
+  // disclosure (UX_PLAN §7.1), so expand it first.
+  await expandSettings(page);
 }
 
 const NEWLINE = String.fromCharCode(10);
@@ -144,7 +147,7 @@ test.describe('27 - The invitation link, end to end', () => {
 
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
+    await expandSettings(page);
 
     // Nothing to copy yet, and it says so rather than copying "null".
     await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();

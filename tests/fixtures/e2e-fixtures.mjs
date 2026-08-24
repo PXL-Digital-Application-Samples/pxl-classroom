@@ -74,6 +74,25 @@ export function inviteUrl(org, assignmentId) {
   return `/${org}/i/${inviteToken(org, assignmentId)}`
 }
 
+/**
+ * Expand the Admin Panel's "Edit settings" disclosure and wait for the form.
+ *
+ * A published or closed assignment opens on its cohort, with the six
+ * fieldsets collapsed (UX_PLAN §7.1). A draft renders them directly - there
+ * the summary is `display: none` and the <details> is already open, so this is
+ * a no-op that still waits for the form. One implementation, because every
+ * spec that edits an assignment needs the same three lines.
+ */
+export async function expandSettings(page) {
+  const details = page.locator('details.settings-disclosure');
+  await details.waitFor({ state: 'attached', timeout: 15000 });
+  if (!(await details.evaluate((el) => el.open))) {
+    await details.locator('> summary').click();
+  }
+  await page.getByPlaceholder('e.g. Linux Processes 2026')
+    .waitFor({ state: 'visible', timeout: 10000 });
+}
+
 export async function injectAuth(page, user) {
   const authData = JSON.stringify({
     access_token: user.token,

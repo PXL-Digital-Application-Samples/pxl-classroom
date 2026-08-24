@@ -62,33 +62,52 @@ const studentAssignment = () => ({
   broker_repo: `broker-${STUDENT_ID}`,
 });
 
-/** Open the published assignment in the Admin Panel with the sinks attached. */
-async function openEditor(page, { contentWrites, assignment = publishedAssignment(), extra = {} } = {}) {
+/** A report with the one student on it, so the tracking view has a row. */
+const reportWith = (student = STUDENT) => ({
+  schema_version: 1,
+  assignment_id: ID,
+  org: ORG,
+  generated_at: new Date().toISOString(),
+  students: [{
+    github_login: student,
+    acceptance_state: 'accepted',
+    submission_status: 'on-time',
+    repo_name: `${ID}-${student}`,
+  }],
+});
+
+/**
+ * Open the assignment's roster & progress page with the sinks attached.
+ *
+ * WS5 moved this operation here from the Admin Panel: it needs a student
+ * login, and the editor made you type one from memory (UX_PLAN §7.2). The
+ * contract being tested is unchanged - the SPA's bytes against the real
+ * backend reader - only the surface that produces them.
+ */
+async function openTracking(page, { contentWrites, assignment = publishedAssignment(), extra = {} } = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
     assignments: { [ID]: assignment },
     roster: ROSTER,
+    reports: { [ID]: reportWith() },
     contentWrites,
     ...extra,
   });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 15000 });
-  await page.locator('.assignment-row, .assignment-item, li', { hasText: TITLE }).first().click();
-  await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 10000 });
+  await page.goto(`/dashboard/${ORG}/${ID}`);
+  await expect(page.getByRole('button', { name: `Actions for ${STUDENT}` }).first())
+    .toBeVisible({ timeout: 15000 });
 }
 
-/** Fill and submit the Grant deadline extension form. */
+/** Fill and submit the per-row extension form. */
 async function grantExtension(page, { login = STUDENT, when, reason = 'Medical certificate' }) {
-  // Scoped to its own <details>: the editor has other datetime-local inputs
-  // (opens_at, deadline_at) and picking the wrong one would silently edit the
-  // assignment instead.
-  const section = page.locator('details.lifecycle-section', { hasText: 'Grant deadline extension' });
-  await section.locator('summary').click();
-  await section.getByPlaceholder('octocat').fill(login);
-  await section.locator('input[type="datetime-local"]').fill(when);
-  await section.locator('textarea').fill(reason);
-  await section.getByRole('button', { name: /Grant extension/ }).click();
+  await page.getByRole('button', { name: `Actions for ${login}` }).first().click();
+  // Scoped to the dialog: the page behind it carries its own inputs.
+  const modal = page.locator('.modal-overlay .modal');
+  await expect(modal).toBeVisible({ timeout: 10000 });
+  await modal.locator('input[type="datetime-local"]').fill(when);
+  await modal.locator('textarea').fill(reason);
+  await modal.getByRole('button', { name: /Grant extension/ }).click();
 }
 
 /** A local datetime string the datetime-local input accepts. */
@@ -107,7 +126,7 @@ test.describe('30 - Deadline extensions', () => {
     // The whole bug in one assertion. Not "an override was written" and not
     // "the module parses a fixture" - the real bytes through the real reader.
     const contentWrites = [];
-    await openEditor(page, { contentWrites });
+    await openTracking(page, { contentWrites });
 
     const granted = new Date(Date.now() + 10 * 86400_000);
     await grantExtension(page, { when: localInput(granted), reason: 'Hospitalised' });
@@ -129,7 +148,7 @@ test.describe('30 - Deadline extensions', () => {
     // deadline_at could not be committed even if something tried - which is
     // why the old reader could never have worked.
     const contentWrites = [];
-    await openEditor(page, { contentWrites });
+    await openTracking(page, { contentWrites });
     await grantExtension(page, { when: localInput(new Date(Date.now() + 9 * 86400_000)) });
 
     await expect.poll(() => overrideWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
@@ -150,7 +169,7 @@ test.describe('30 - Deadline extensions', () => {
     // == 0 is what disables daily-activity.yml. If it read the wrong shape the
     // nightly would switch off mid-extension and never finalize the student.
     const contentWrites = [];
-    await openEditor(page, { contentWrites });
+    await openTracking(page, { contentWrites });
     const granted = new Date(Date.now() + 12 * 86400_000);
     await grantExtension(page, { when: localInput(granted) });
 
@@ -180,7 +199,7 @@ test.describe('30 - Deadline extensions', () => {
         overridden_at: new Date().toISOString(),
       }],
     };
-    await openEditor(page, {
+    await openTracking(page, {
       contentWrites,
       extra: { controlOverrides: { [ID]: { [STUDENT]: existing } } },
     });
@@ -200,28 +219,45 @@ test.describe('30 - Deadline extensions', () => {
   test('an extension that does not move the deadline forward is refused', async ({ page }) => {
     // Shortening by accident is the failure that locks a student out early.
     const contentWrites = [];
-    await openEditor(page, { contentWrites });
+    await openTracking(page, { contentWrites });
 
     await grantExtension(page, { when: localInput(new Date(Date.now() + 3600_000)), reason: 'Too early' });
 
-    await expect(page.locator('.toast, [role="alert"]').first()).toContainText(/later than/i, { timeout: 10000 });
+    await expect(page.locator('.toast, [role="alert"]').first())
+      .toContainText(/after the current effective deadline/i, { timeout: 10000 });
     expect(overrideWrite(contentWrites), 'nothing may be committed').toBeFalsy();
   });
 
   // --- the login gate -------------------------------------------------------
 
-  test('a typo is caught before anything is written', async ({ page }) => {
+  test('the login is the row, not something typed from memory', async ({ page }) => {
+    // The editor's copy of this form had a free-text login box and a
+    // four-tier validator behind it to catch what people typed into it. WS5
+    // deleted both: the operation is reached from the student it concerns, so
+    // there is no login to get wrong (UX_PLAN §7.2). What must stay true is
+    // that the document is keyed on THAT student.
     const contentWrites = [];
-    await openEditor(page, { contentWrites });
+    await openTracking(page, { contentWrites });
 
-    await grantExtension(page, {
-      login: 'definitely-not-a-real-login-xyz',
-      when: localInput(new Date(Date.now() + 9 * 86400_000)),
-    });
+    await page.getByRole('button', { name: `Actions for ${STUDENT}` }).first().click();
+    const modal = page.locator('.modal-overlay .modal');
+    await expect(modal).toContainText(STUDENT);
+    await expect(
+      modal.getByPlaceholder('octocat'),
+      'no free-text login field - the row already said who this is',
+    ).toHaveCount(0);
 
-    await expect(page.locator('.toast, [role="alert"]').first()).toBeVisible({ timeout: 10000 });
-    expect(overrideWrite(contentWrites)).toBeFalsy();
-    expect(contentWrites.some((w) => w.path.startsWith(`overrides/${ID}/`))).toBe(false);
+    await modal.locator('input[type="datetime-local"]').fill(localInput(new Date(Date.now() + 9 * 86400_000)));
+    await modal.locator('textarea').fill('Reached from the row');
+    await modal.getByRole('button', { name: /Grant extension/ }).click();
+
+    await expect.poll(() => overrideWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    const doc = JSON.parse(overrideWrite(contentWrites).content);
+    expect(doc.github_login).toBe(STUDENT);
+    expect(
+      contentWrites.filter((w) => w.path.startsWith(`overrides/${ID}/`)).map((w) => w.path),
+      'exactly one student was touched',
+    ).toEqual([`overrides/${ID}/${STUDENT}.json`]);
   });
 
   // --- what the lecturer is told --------------------------------------------
@@ -313,7 +349,7 @@ test.describe('30 - Deadline extensions', () => {
     // Status moves on the nightly run or an explicit refresh. Saying otherwise
     // sends a lecturer looking for a change that is not due yet.
     const contentWrites = [];
-    await openEditor(page, { contentWrites });
+    await openTracking(page, { contentWrites });
     await grantExtension(page, { when: localInput(new Date(Date.now() + 8 * 86400_000)) });
 
     await expect(page.locator('.toast, [role="alert"]').first())

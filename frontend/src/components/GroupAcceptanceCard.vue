@@ -341,6 +341,7 @@ import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from
 import { toast } from '../lib/toast.js'
 import { acceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
+import { formatDeadlineCountdown } from '../lib/countdown.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
@@ -570,25 +571,7 @@ const isPastDeadline = computed(() => {
   return new Date() > effectiveDeadline.value
 })
 
-const deadlineCountdown = computed(() => {
-  if (!effectiveDeadline.value) return null
-  const now = new Date()
-  const deadline = effectiveDeadline.value
-  const diffMs = deadline - now
-  if (diffMs <= 0) {
-    return `Deadline passed (${deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`
-  }
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffDays > 0) {
-    return `Closes in ${diffDays}d ${diffHours % 24}h`
-  }
-  if (diffHours > 0) {
-    return `Closes in ${diffHours}h ${diffMins % 60}m`
-  }
-  return `Closes in ${diffMins}m`
-})
+const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value))
 
 const teamSubmissionStatus = computed(() => {
   if (!teamLatestCommit.value) return 'no-submission'

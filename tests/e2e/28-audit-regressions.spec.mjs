@@ -8,7 +8,7 @@
 //        read as "file not found" - a big report looked absent
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, inviteToken } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'linux-processes-2026';
 
@@ -46,7 +46,7 @@ async function openTroubleshoot(page, brokerIssues) {
   });
   await page.goto(`/dashboard/${ORG}/admin`);
   await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
-  await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
+  await expandSettings(page);
   await page.locator('button', { hasText: 'Troubleshoot' }).first().click();
   const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');
   await expect(overlay).toBeVisible({ timeout: 15000 });

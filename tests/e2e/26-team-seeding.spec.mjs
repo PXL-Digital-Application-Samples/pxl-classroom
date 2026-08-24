@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, expandSettings } from '../fixtures/e2e-fixtures.mjs';
 
 // Carrying groups forward from one assignment to the next: the lecturer seeds
 // teams from a previous grouping, and the student confirms the group they
@@ -1077,6 +1077,9 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/admin?edit=${NEXT}`);
+    // A published assignment opens on its cohort, with the fieldsets - and the
+    // seed control among them - behind the settings disclosure (UX_PLAN §7.1).
+    await expandSettings(page);
     const seedBtn = page.locator('button', { hasText: 'Seed teams from…' });
     await expect(seedBtn).toBeEnabled({ timeout: 15000 });
     await seedBtn.click();

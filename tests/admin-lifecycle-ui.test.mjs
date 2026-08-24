@@ -28,26 +28,36 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
     };
   }
 
-  // Publish / Republish button inside Lifecycle section
+  // WS5 split the flat row in two: repair above the rule, state transitions
+  // below (UX_PLAN §7.1). An assignment that is out has something to repair;
+  // a draft does not, and its Publish is a transition, so it sits with the
+  // others.
+  const isOut = formState === 'published' || formState === 'closed';
+  const showRepairGroup = isOut;
+
   const publishButtonLabel = publishing
     ? 'Publishing…'
-    : formState === 'published'
+    : isOut
     ? 'Republish broker'
     : 'Publish (create broker, enable nightly)';
 
   const publishButtonDisabled = publishing; // Never disabled by formState === 'published'
-  const isRepublish = formState === 'published';
-  const buttonVariant = formState === 'published' ? 'btn-warning' : '';
+  const isRepublish = isOut;
+  const buttonVariant = isOut ? 'btn-secondary' : '';
 
   // Other lifecycle buttons
   const canClose = formState !== 'closed' && !saving;
   const canArchive = formState !== 'archived' && !saving;
-  const showRevertToDraft = formState === 'published' || formState === 'closed';
-  const showCopyLink = formState === 'published';
+  const showRevertToDraft = isOut;
+  const showCopyLink = false; // WS2: copying is not a lifecycle transition
   const showDeleteDraft = formState === 'draft';
+  // Per-student operations left for the tracking view (UX_PLAN §7.2); the
+  // pointer stays for one release.
+  const showMovedNote = isOut;
 
   return {
     showLifecycle: true,
+    showRepairGroup,
     publishButtonLabel,
     publishButtonDisabled,
     isRepublish,
@@ -57,6 +67,7 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
     showRevertToDraft,
     showCopyLink,
     showDeleteDraft,
+    showMovedNote,
   };
 }
 
@@ -97,12 +108,13 @@ test("Initial condition: Existing Draft assignment renders Publish button (enabl
   assert.equal(state.showDeleteDraft, true);
   assert.equal(state.showCopyLink, false);
   assert.equal(state.showRevertToDraft, false);
+  assert.equal(state.showRepairGroup, false, "A draft has no broker to repair yet");
 });
 
 // -----------------------------------------------------------------------------
 // 3. Initial Condition: Existing Assignment in Published (isNew = false, state = 'published')
 // -----------------------------------------------------------------------------
-test("Initial condition: Published assignment renders orange Republish broker button (enabled)", () => {
+test("Initial condition: Published assignment renders a Republish broker button under Repair", () => {
   const state = computeAdminLifecycleState({
     isNew: false,
     formState: 'published',
@@ -112,13 +124,35 @@ test("Initial condition: Published assignment renders orange Republish broker bu
   });
 
   assert.equal(state.showLifecycle, true);
+  assert.equal(state.showRepairGroup, true, "Republish is a repair, not a state transition");
   assert.equal(state.publishButtonLabel, 'Republish broker');
   assert.equal(state.publishButtonDisabled, false, "Republish broker button must be clickable");
   assert.equal(state.isRepublish, true);
-  assert.equal(state.buttonVariant, 'btn-warning', "Republish broker button must be orange (btn-warning)");
-  assert.equal(state.showCopyLink, true);
+  // Not btn-warning: it is not one of DESIGN.md §3's four variants and is
+  // declared nowhere, so it rendered as a plain .btn. This simulation asserted
+  // it for months while the template check on line ~160 forbade it.
+  assert.equal(state.buttonVariant, 'btn-secondary', "Republish uses the §3 secondary variant");
+  assert.equal(state.showCopyLink, false);
   assert.equal(state.showRevertToDraft, true);
   assert.equal(state.showDeleteDraft, false);
+  assert.equal(state.showMovedNote, true, "Extensions and retries moved; say where");
+});
+
+// A closed assignment is still out in the world: the broker exists, students
+// hold links, and repairing it is still a thing to do.
+test("Initial condition: Closed assignment keeps the repair group", () => {
+  const state = computeAdminLifecycleState({
+    isNew: false,
+    formState: 'closed',
+    publishing: false,
+    saving: false,
+    deleting: false,
+  });
+
+  assert.equal(state.showRepairGroup, true);
+  assert.equal(state.publishButtonLabel, 'Republish broker');
+  assert.equal(state.canClose, false, "Already closed");
+  assert.equal(state.showRevertToDraft, true);
 });
 
 // -----------------------------------------------------------------------------
@@ -149,17 +183,23 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
     "Lifecycle block must be gated on !isNew"
   );
 
-  // A published assignment's Publish button becomes Republish, and picks up the
+  // Repair sits above the rule, state transitions below it (UX_PLAN §7.1).
+  assert.ok(
+    /class="lifecycle-group lifecycle-repair"/.test(template),
+    "Republish belongs to the repair group, not the transition row"
+  );
+  assert.ok(
+    template.indexOf('lifecycle-repair') < template.indexOf('lifecycle-transitions'),
+    "Repair is rendered above the state transitions"
+  );
+
+  // A published assignment's Publish button becomes Republish, and carries the
   // secondary treatment to say so.
   //
   // This used to assert `btn-warning`, which is not one of DESIGN.md §3's four
   // variants and is not declared anywhere - not in style.css, not in any scoped
   // block. Seven buttons across two components carried it and rendered as a
   // plain `.btn`. The test passed because it read the template, not the CSS.
-  assert.ok(
-    template.includes("form.state === 'published' ? 'btn-secondary' : ''"),
-    "Republish must use the §3 secondary variant when published"
-  );
   assert.ok(
     !template.includes("btn-warning"),
     "btn-warning is not a DESIGN.md §3 variant and is declared nowhere - it renders as a plain .btn"
@@ -171,10 +211,17 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
     "Button must call handlePublishClick"
   );
 
-  // Published template condition check
+  // Exactly one of the two publish entry points can render: Repair's
+  // "Republish broker" once the assignment is out, the transition row's
+  // "Publish" while it is not. Complementary conditions, so neither state can
+  // show both or neither.
   assert.ok(
-    template.includes("v-else-if=\"form.state === 'published'\""),
-    "Must have dedicated v-else-if branch for form.state === 'published'"
+    template.includes(`v-if="form.state === 'published' || form.state === 'closed'"`),
+    "Repair group renders for a published or closed assignment"
+  );
+  assert.ok(
+    template.includes(`v-if="form.state !== 'published' && form.state !== 'closed'"`),
+    "The transition-row Publish renders only while the assignment is NOT out"
   );
   assert.ok(
     template.includes("Republish broker"),
@@ -285,4 +332,108 @@ test("acceptance_mode has no control, and is still written", () => {
   );
   assert.match(src, /acceptance_mode: form\.value\.acceptance_mode/, "buildDoc still writes the field");
   assert.match(src, /acceptance_mode: 'self-service'/, "and the form still carries a value for it");
+});
+
+// -----------------------------------------------------------------------------
+// WS5 - a published assignment opens on the cohort (UX_PLAN §7)
+// -----------------------------------------------------------------------------
+
+const adminSrc = () => readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+
+test("only a published or closed assignment leads with the cohort", () => {
+  // A draft opens on the form, because defining it IS the job. An archived
+  // one keeps the form too - it is out of day-to-day tracking, so what is left
+  // to look at is what it was configured to be.
+  const src = adminSrc();
+  const start = src.indexOf("const cohortFirst = computed(");
+  assert.ok(start > 0, "cohortFirst must exist");
+  const body = src.slice(start, src.indexOf(")\n", start));
+  assert.match(body, /!isNew\.value/, "a new assignment is not a cohort");
+  assert.match(body, /form\.value\.state === 'published'/);
+  assert.match(body, /form\.value\.state === 'closed'/);
+  assert.ok(!/'draft'/.test(body), "a draft opens on the form");
+  assert.ok(!/'archived'/.test(body), "an archived assignment opens on the form");
+});
+
+test("the settings disclosure cannot leave a draft collapsed and uncloseable", () => {
+  // `settingsOpen` is seeded per assignment and then owned by the lecturer, so
+  // reverting a published assignment to draft would otherwise leave a shut
+  // <details> whose summary is display:none - a form with no way to open it.
+  const src = adminSrc();
+  const start = src.indexOf("const settingsExpanded = computed(");
+  assert.ok(start > 0, "settingsExpanded must exist");
+  const body = src.slice(start, src.indexOf(")\n", start));
+  assert.match(body, /settingsOpen\.value \|\| !cohortFirst\.value/);
+  assert.match(src, /:open="settingsExpanded"/, "the <details> must bind the computed, not the raw ref");
+});
+
+test("a field error is counted on the summary, and opens the settings on load", () => {
+  // A validation problem must never hide behind a disclosure. Every field
+  // that can carry one is INSIDE it, so the only entry point that can produce
+  // a problem behind a shut disclosure is loading an assignment - which opens
+  // it. After that the count on the summary, which is outside, is what keeps
+  // the problem stated while the lecturer has it shut.
+  const src = adminSrc();
+  assert.match(src, /v-if="fieldErrorCount"/, "the summary carries the count");
+  assert.match(
+    src,
+    /settingsOpen\.value = !cohortFirst\.value \|\| fieldErrorCount\.value > 0/,
+    "an assignment that loads with a problem opens expanded"
+  );
+});
+
+test("the editor no longer runs per-student operations", () => {
+  // Both needed a student login and made you type one from memory. Their home
+  // is the student's own row on the tracking view (UX_PLAN §7.2 / C2), which
+  // already had the more capable copies.
+  const src = adminSrc();
+  for (const gone of [
+    "grantExtension",
+    "retryAcceptance",
+    "validateStudentLogin",
+    "startRetryWatch",
+    "extForm",
+    "retryForm",
+  ]) {
+    assert.ok(!src.includes(gone), `${gone} moved to AssignmentDetailView - no copy may stay here`);
+  }
+  assert.match(
+    src,
+    /Per-student extensions and retries are on the/,
+    "and the lecturer who knew the accordions is told where they went"
+  );
+});
+
+test("the form's actions are not repeated top and bottom", () => {
+  // DESIGN.md §1.2 counts primaries across the view, and the form rendered
+  // Cancel / Save as draft / Save & publish twice - two solid buttons on
+  // screen at once, which is why the conformity test was scoped away from the
+  // editor until this workstream.
+  const src = adminSrc();
+  const template = src.slice(0, src.indexOf("<script setup>"));
+  const saves = template.match(/@click="saveAndPublish"/g) || [];
+  assert.equal(saves.length, 1, "exactly one Save & publish button in the editor");
+  assert.ok(
+    !/<div class="actions">/.test(template),
+    "the duplicated bottom action row is gone; the header bar is the form's action bar"
+  );
+  // And the list pane's own CTA yields while an assignment is open.
+  assert.match(
+    template,
+    /editing \? '' : 'btn-primary'/,
+    "New assignment is only solid when there is no assignment on screen"
+  );
+});
+
+test("the cohort card never invents a number", () => {
+  // Two rules the WS3 wall established, one module over: an absent report is
+  // not a cohort of zero, and an assignment with no cap has no cap.
+  const src = adminSrc();
+  const start = src.indexOf("const cohort = computed(");
+  assert.ok(start > 0, "cohort must exist");
+  const body = src.slice(start, src.indexOf("\n})", start));
+  assert.match(body, /typeof entry\.accepted !== 'number'/, "no entry, no figure");
+  assert.match(body, /return null/, "and the card renders the reason instead");
+  assert.match(body, /Number\(form\.value\.max_acceptances\) \|\| null/, "no cap means no cap");
+  assert.ok(!/\?\? 150/.test(src) && !/\?\? 50/.test(body), "never substitute a cap the assignment does not have");
 });

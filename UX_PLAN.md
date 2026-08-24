@@ -574,69 +574,53 @@ Rules are in CLAUDE.md, ARCHITECTURE §11.6 and RUNBOOK §4.1 and §12.9.
 
 ---
 
-## 7. WS5 — A published assignment opens on the cohort
+## 7. WS5 — A published assignment opens on the cohort — **shipped**
 
-**Fixes:** UX22 (operations duplicated), UX24 (Lifecycle is a flat row),
+**Fixed:** UX22 (operations duplicated), UX24 (Lifecycle is a flat row),
 UX25 (published editor is the draft editor).
 
-Routing is unchanged — `/dashboard/:org/admin` still edits, `/dashboard/:org/:id`
-still tracks. What changes is what the editor pane leads with when
-`form.state === 'published'`.
+The editor pane branches on state: `published`/`closed` lead with the share
+block, a cohort card and a link to the tracking page, with the six fieldsets
+behind an `Edit settings` disclosure; a draft opens on the form. *Grant deadline
+extension* and *Retry a failed acceptance* are deleted from `AdminView` along
+with `validateStudentLogin` and `startRetryWatch`; Lifecycle groups **Repair**
+above the state transitions.
 
-### 7.1 The editor pane, published
+What deviated from the plan, and why:
 
-```
-Edit: linux-processes-2026  [published]        [Troubleshoot] [Save]
+* **The cohort numbers cost one request.** §7.1 said they come from "the same
+  `dashboard.json` the list already reads" — the list does not read it; that is
+  `DashboardView`. It is one Contents API call per page load, shared by every
+  assignment in the pane, and the card says *"no cohort report yet"* /
+  *"couldn't read the cohort report"* rather than rendering a zero nobody
+  counted.
+* **Nothing forces the disclosure open.** The plan wanted `fieldErrors` to force
+  it; a `<details>` that refuses to close is a dead control, and every field
+  that can carry an error is *inside* it, so no problem can appear while it is
+  shut. It opens on **load** when the assignment arrives broken, and the
+  **count on the summary** is what keeps the problem stated afterwards. A
+  watcher for the unreachable case was written, then deleted — it was a test
+  that could only pass against nothing.
+* **Archived keeps the form.** §7.1 named `published` and `closed`; archived
+  falls to the draft behaviour, because what is left to look at there is what
+  the assignment was configured to be.
+* **The transitions already confirmed.** §7.1 said *Stop accepting* and *Revert
+  to draft* had no confirmation. They did, and both already named the
+  consequence; the tests now pin that rather than adding a second one.
+* **Two more §1.2 primaries went with it.** The backlog `tests/e2e/22` recorded
+  was five: the two accordions, plus the form repeating `Save & publish` top and
+  bottom, plus `New assignment`. The duplicated bottom action row is deleted
+  (the header bar is the form's action bar) and `New assignment` is solid only
+  while nothing is open. `22-design-conformity` now checks the whole admin
+  editor, collapsed and expanded, instead of just `.published-info-card`.
+* **A fourth countdown copy was about to be written**, so
+  `frontend/src/lib/countdown.js` is now the only one and
+  `tests/deadline-countdown.test.mjs` fails if anything forks it again.
+* The new spec is `tests/e2e/37-published-cohort.spec.mjs` — the plan said 31,
+  which WS1 had taken.
 
-┌─ InvitationShare (banner) ──────────────────────────────┐
-└─────────────────────────────────────────────────────────┘
-
-┌─ Cohort ────────────────────────────────────────────────┐
-│  47 / 150 accepted     Deadline in 6d 23h               │
-│  [ Track roster & progress → ]                          │
-└─────────────────────────────────────────────────────────┘
-
-▸ Edit settings          (collapsed: the six fieldsets, unchanged)
-
-┌─ Lifecycle ─────────────────────────────────────────────┐
-│  Repair:  [Republish broker]                            │
-│  ─────────────────────────────────────────────────────  │
-│  [Stop accepting]  [Revert to draft]  [Archive]         │
-└─────────────────────────────────────────────────────────┘
-```
-
-* **A draft is unchanged** — it opens on the form, because defining it *is* the
-  job. Only `published` and `closed` lead with the cohort.
-* **Edit settings** is a `<details>`. It opens automatically if `fieldErrors` is
-  non-empty, so a validation problem can never hide behind a disclosure.
-* **Cohort** numbers come from the same `dashboard.json` the list already reads;
-  no new request.
-* **Lifecycle** is grouped: repair above the rule, state transitions below.
-  *Copy invitation link* leaves (WS2). *Stop accepting* and *Revert to draft*
-  each get a confirmation naming the consequence — both stop every student
-  mid-assignment today with no confirmation at all.
-
-### 7.2 Extensions and retries leave the editor
-
-`AdminView`'s *Grant deadline extension* and *Retry a failed acceptance*
-`<details>` blocks are deleted. Both already exist on `AssignmentDetailView` in the
-per-row action modal (`AssignmentDetailView.vue:734`), reached from the student
-they concern — which is the correct home (C2), because both need a student login
-and the editor makes you type it from memory.
-
-`validateStudentLogin` and the extension/retry handlers move with them; the detail
-view's copies are already the more capable ones.
-
-**Risk:** a lecturer who knows the editor accordions will look for them there. The
-Lifecycle block gets a line — *"Per-student extensions and retries are on the
-[roster & progress](#) page."* — for one release.
-
-**Tests:**
-* `tests/admin-lifecycle-ui.test.mjs` — a draft opens on the form; a published
-  assignment opens with settings collapsed; `fieldErrors` forces them open.
-* `tests/e2e/31-published-cohort.spec.mjs` (new) — the published editor leads with
-  share + cohort; extensions/retries are absent from the editor and present on
-  the student row; state transitions confirm.
+Rules are in CLAUDE.md, ARCHITECTURE §10.1.1, DESIGN.md §1.2 and §7, and
+RUNBOOK §4.3, §6.2 and §6.3.
 
 ---
 
@@ -686,11 +670,10 @@ not a commit.
 `roster_mode` and `late_policy` and describe the assignment accurately. The
 enforcement half does not block anything else.
 
-~~**WS2 and WS4 before WS5.**~~ **Both shipped.** WS5's layout is mostly
-composition of what they produce, so it is unblocked.
+~~**WS2 and WS4 before WS5.**~~ ~~**Both shipped.**~~ **WS5 shipped too.**
 
-~~**WS3 and WS6 any time.**~~ **WS3 shipped**; WS6 still any time. Neither
-touches shared components.
+~~**WS3 and WS6 any time.**~~ **WS3 shipped**; WS6 still any time — and is now
+the last section left. Neither touches shared components.
 
 Each workstream is one commit, with its tests, per the repo's convention.
 
@@ -754,6 +737,12 @@ Each workstream is one commit, with its tests, per the repo's convention.
    and WS5 should each extract as they go — `InvitationShare.vue`, `AutogradeModal.vue`,
    and a `PublishedCohortPanel.vue` — rather than growing the file further. Extracted
    classes used by more than one component go to `style.css` (DESIGN.md §7).
+   **WS2 and WS4 extracted; WS5 did not.** Its cohort card is ~25 lines of
+   template over one computed, used by one view — a component for that buys
+   indirection, not reuse, and DESIGN.md §7's rule (a class used by two
+   components lives in `style.css`) has nothing to bite on. The file still
+   shrank: WS5 deleted ~260 lines of extension/retry handling. It is 2,994
+   lines and the next workstream to touch it should still extract.
 6. **The undeclared-class backlog** (`tests/fixtures/undeclared-classes.backlog.json`,
    98 entries) overlaps several of the components being touched. Any class a
    rewritten component stops using must leave that file, or the guard fails.

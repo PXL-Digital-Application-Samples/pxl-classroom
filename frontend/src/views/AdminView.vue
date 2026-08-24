@@ -60,7 +60,11 @@
     <div v-show="activeTab === 'assignments'" class="admin-layout">
       <!-- LEFT: assignment list -->
       <aside class="list-pane">
-        <button class="btn btn-primary new-btn btn-with-icon" @click="newAssignment">
+        <!-- DESIGN.md §1.2 counts primaries across the whole view. With an
+             assignment open, the view's job is that assignment and its Save is
+             the solid button; with nothing open, this is the only thing to do
+             here and gets it. Exactly one, in both states. -->
+        <button :class="['btn', 'new-btn', 'btn-with-icon', editing ? '' : 'btn-primary']" @click="newAssignment">
           <Icon name="plus" :size="14" />
           <span>New assignment</span>
         </button>
@@ -173,15 +177,8 @@
                    the workflow has not rewritten yet would hand the retired
                    link straight back. -->
               <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
-              <div class="link-share-row">
-                <!-- Secondary: the block's own emphasis is Copy, and DESIGN.md
-                     §1.2 counts primaries across the view - the editor's is
-                     Save. This was a second solid button in the same section. -->
-                <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }" class="btn btn-secondary btn-track">
-                  <span>Track Roster &amp; Progress</span>
-                  <Icon name="arrow-right" :size="14" />
-                </router-link>
-              </div>
+              <!-- No "Track roster & progress" here: the cohort card below
+                   carries it, and it was the same link twice (UX_PLAN §7.1). -->
             </div>
 
             <!-- 2. PUBLISHING / DEPLOYING IN PROGRESS -->
@@ -281,6 +278,61 @@
               <p class="published-desc">Checking student acceptance broker repository and Pages deployment status.</p>
             </div>
           </div>
+
+          <!-- COHORT SUMMARY (UX_PLAN §7.1)
+               Once an assignment is out, the job is running a cohort, not
+               defining one - so a published or closed assignment leads with
+               where it stands and how long is left, and the settings go behind
+               the disclosure below. A draft opens on the form, because
+               defining it IS the job. -->
+          <section v-if="cohortFirst" class="cohort-card">
+            <div class="cohort-figures">
+              <div class="cohort-stat">
+                <template v-if="cohort">
+                  <span class="cohort-value">{{ cohort.accepted }}<span v-if="cohort.cap" class="cohort-of"> / {{ cohort.cap }}</span></span>
+                  <span class="cohort-label">accepted</span>
+                </template>
+                <template v-else>
+                  <!-- Never "0 accepted": a report that has not run and a
+                       cohort where nobody has accepted are different facts,
+                       and only one of them is a number. -->
+                  <span class="cohort-value cohort-unknown">—</span>
+                  <span class="cohort-label">{{ cohortUnknownReason }}</span>
+                </template>
+              </div>
+              <div class="cohort-stat">
+                <span class="cohort-value">{{ deadlineSummary.value }}</span>
+                <span class="cohort-label" :title="formatDate(shareAssignment.deadline_at, form.timezone)">{{ deadlineSummary.label }}</span>
+              </div>
+            </div>
+            <router-link
+              :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }"
+              class="btn btn-secondary btn-with-icon"
+            >
+              <span>Track roster &amp; progress</span>
+              <Icon name="arrow-right" :size="14" />
+            </router-link>
+          </section>
+
+          <!-- The six fieldsets, collapsed once the assignment is out. The
+               summary carries the field-error count so a validation problem is
+               visible from outside the disclosure even when it is shut. -->
+          <details
+            class="settings-disclosure"
+            :class="{ 'is-static': !cohortFirst }"
+            :open="settingsExpanded"
+            @toggle="settingsOpen = $event.target.open"
+          >
+            <summary>
+              <!-- `display: flex` on a <summary> removes the native disclosure
+                   triangle, so the control has to bring its own or it reads as
+                   a heading nobody would click. -->
+              <Icon name="chevron-down" :size="14" class="settings-caret" />
+              <span>Edit settings</span>
+              <span v-if="fieldErrorCount" class="settings-problems">
+                {{ fieldErrorCount }} field{{ fieldErrorCount === 1 ? '' : 's' }} need{{ fieldErrorCount === 1 ? 's' : '' }} fixing
+              </span>
+            </summary>
 
           <!-- BASICS -->
           <fieldset>
@@ -713,8 +765,11 @@
                  select was a decision the lecturer could not make. The field is
                  still written by buildDoc() and published on the card. -->
           </details>
+          </details>
 
-          <!-- VALIDATION ERRORS -->
+          <!-- VALIDATION ERRORS - outside the disclosure on purpose. Save is
+               disabled by them, so hiding them behind a collapsed section is
+               how a lecturer ends up with a dead button and no explanation. -->
           <div v-if="validationErrors.length" class="validation-errors">
             <strong>Fix these before saving:</strong>
             <ul>
@@ -722,51 +777,58 @@
             </ul>
           </div>
 
-          <!-- SAVE ACTIONS -->
-          <div class="actions">
-            <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
-            <!-- "Save as draft" only while the assignment IS a draft - on a
-                 published assignment it would silently unpublish. -->
-            <button
-              v-if="isNew || form.state === 'draft'"
-              class="btn"
-              type="button"
-              @click="saveAssignment('draft')"
-              :disabled="saving || !canSave"
-            >{{ saving ? 'Saving…' : 'Save as draft' }}</button>
-            <button
-              class="btn btn-primary"
-              type="button"
-              @click="saveAndPublish"
-              :disabled="saving || !canSave"
-            >{{ saving ? 'Saving…' : (form.state === 'published' ? 'Save' : 'Save & publish') }}</button>
-          </div>
+          <!-- No second Cancel / Save row here. The editor header bar carries
+               exactly these three buttons, and repeating them put two solid
+               `Save & publish` on screen at once - DESIGN.md §1.2, and the
+               reason it was scoped out of the conformity test until now. -->
 
           <!-- LIFECYCLE ACTIONS for existing -->
           <div v-if="!isNew" class="lifecycle">
             <h4>Lifecycle</h4>
-            <div class="lifecycle-actions">
+
+            <!-- Repair above the rule, state transitions below it (UX_PLAN
+                 §7.1 / UX24). "Republish the broker" and "stop the whole
+                 cohort accepting" were adjacent buttons in one flat row; only
+                 one of them changes what the assignment IS. On a draft there
+                 is nothing to repair yet - Publish is the transition, and it
+                 sits with the others. -->
+            <div v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-group lifecycle-repair">
+              <span class="lifecycle-group-label">Repair</span>
               <button
-                :class="['btn', 'btn-with-icon', form.state === 'published' ? 'btn-secondary' : '']"
+                class="btn btn-secondary btn-with-icon"
                 type="button"
                 @click="handlePublishClick"
                 :disabled="publishing"
               >
                 <template v-if="publishing">Publishing…</template>
-                <template v-else-if="form.state === 'published'">
+                <template v-else>
                   <Icon name="refresh-cw" :size="14" />
                   <span>Republish broker</span>
                 </template>
+              </button>
+              <small class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched, and links already handed out keep working.</small>
+            </div>
+
+            <div class="lifecycle-group lifecycle-transitions">
+              <span v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-group-label">State</span>
+              <button
+                v-if="form.state !== 'published' && form.state !== 'closed'"
+                class="btn btn-with-icon"
+                type="button"
+                @click="handlePublishClick"
+                :disabled="publishing"
+              >
+                <template v-if="publishing">Publishing…</template>
                 <template v-else>Publish (create broker, enable nightly)</template>
               </button>
               <button class="btn" type="button" @click="setState('closed')" :disabled="form.state === 'closed' || saving">
-                Close (stop accepting)
-              </button>
-              <button class="btn" type="button" @click="setState('archived')" :disabled="form.state === 'archived' || saving">
-                Archive
+                Stop accepting
               </button>
               <button v-if="form.state === 'published' || form.state === 'closed'" class="btn" type="button" @click="setState('draft')" :disabled="saving">
                 Revert to draft
+              </button>
+              <button class="btn" type="button" @click="setState('archived')" :disabled="form.state === 'archived' || saving">
+                Archive
               </button>
               <!-- No "Copy invitation link" here: copying is not a lifecycle
                    transition (UX_PLAN §4.2 / UX24). It lives in the share block
@@ -775,6 +837,15 @@
                 {{ deleting ? 'Deleting…' : 'Delete draft' }}
               </button>
             </div>
+
+            <!-- Both used to live here as accordions that made you type a
+                 login from memory. They are per-student operations and their
+                 home is the student's own row (UX_PLAN §7.2 / C2). -->
+            <p v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-moved text-secondary">
+              Per-student extensions and retries are on the
+              <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }">roster &amp; progress</router-link>
+              page, on the student's own row.
+            </p>
 
             <div v-if="publishWatch === 'watching'" class="publish-watch">
               <div class="spinner sm"></div>
@@ -791,40 +862,6 @@
               </span>
             </div>
 
-            <details class="lifecycle-section">
-              <summary>Grant deadline extension</summary>
-              <div class="field">
-                <label>Student GitHub login</label>
-                <input v-model="extForm.login" placeholder="octocat" />
-                <p v-if="currentExtText" class="text-secondary" style="font-size: 0.85rem; margin-top: var(--space-xs, 4px);">
-                  {{ currentExtText }}
-                </p>
-              </div>
-              <div class="field">
-                <label>New deadline (just for this student)</label>
-                <input type="datetime-local" v-model="extForm.deadline_local" />
-                <small>{{ utcHint(extForm.deadline_local) }}</small>
-              </div>
-              <div class="field">
-                <label>Reason (recorded in the override)</label>
-                <textarea v-model="extForm.reason" rows="2" placeholder="Medical certificate / approved by program coordinator / etc."></textarea>
-              </div>
-              <button class="btn btn-primary" type="button" @click="grantExtension" :disabled="extending || !extForm.login || !extForm.deadline_local || !extForm.reason.trim()">
-                {{ extending ? 'Granting…' : 'Grant extension' }}
-              </button>
-            </details>
-
-            <details class="lifecycle-section">
-              <summary>Retry a failed acceptance</summary>
-              <p class="text-secondary">Use this when a student's acceptance got stuck (e.g. rate-limit during a burst). Wipes the half-done state and re-runs the full pipeline.</p>
-              <div class="field">
-                <label>Student GitHub login</label>
-                <input v-model="retryForm.login" placeholder="octocat" />
-              </div>
-              <button class="btn btn-primary" type="button" @click="retryAcceptance" :disabled="retrying || !retryForm.login">
-                {{ retrying ? 'Triggering…' : 'Retry acceptance' }}
-              </button>
-            </details>
           </div>
         </form>
       </main>
@@ -947,16 +984,16 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { config } from '../lib/config.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
-import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, ghApi, listOrgTemplates, getWorkflowRuns, validateTemplateRepository } from '../lib/api.js'
+import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { cleanChecks, summariseAutograde } from '../lib/autograde.js'
 import { toast } from '../lib/toast.js'
 import { parseInviteFields, inviteDataUrl } from '../lib/invite.js'
-import { extensionFrom } from '../lib/deadline.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { formatDate } from '../lib/format.js'
+import { countdownParts } from '../lib/countdown.js'
 import RosterTab from '../components/RosterTab.vue'
 import AuthCard from '../components/AuthCard.vue'
 import AppHeader from '../components/AppHeader.vue'
@@ -984,7 +1021,7 @@ function handleLogout() {
 
 async function onAuthenticated(authedUser) {
   user.value = authedUser
-  await Promise.all([loadAssignments(), loadTemplates()])
+  await Promise.all([loadAssignments(), loadTemplates(), loadCohortSummary()])
 }
 
 
@@ -1033,14 +1070,17 @@ const showRepublishModal = ref(false)
 const regenerateInvite = ref(false)
 const showDiagnosticModal = ref(false)
 const showSeedModal = ref(false)
-const extending = ref(false)
-const retrying = ref(false)
 const deleting = ref(false)
 
 // '' | 'watching' | 'ready' | 'timeout' - post-publish broker watch
 const publishWatch = ref('')
 const publishPollCount = ref(0)
 let publishPollTimer = null
+
+// Drives the cohort card's countdown. A minute is the smallest unit it ever
+// prints, so it ticks at a minute.
+const now = ref(new Date())
+let clockTimer = null
 
 // Live infrastructure check state for published assignments
 const liveCheckLoading = ref(false)
@@ -1112,11 +1152,24 @@ function onBeforeUnload(e) {
   }
 }
 
-const extForm = ref({ login: '', deadline_local: '', reason: '' })
-const currentExtText = ref(null)
-const retryForm = ref({ login: '' })
-
 const isNew = computed(() => editing.value && editing.value.__new === true)
+
+// A published or closed assignment leads with the cohort; a draft leads with
+// the form, because defining it is still the job (UX_PLAN §7.1). An archived
+// one keeps the form too - it is out of day-to-day tracking, so what is left
+// to look at there is what it was configured to be.
+const cohortFirst = computed(() =>
+  !isNew.value && (form.value.state === 'published' || form.value.state === 'closed')
+)
+
+// Whether the six fieldsets are expanded. Seeded per assignment on load - an
+// assignment that arrives with a validation problem opens expanded - and
+// owned by the lecturer after that.
+const settingsOpen = ref(true)
+// A draft has no disclosure at all - the summary is hidden and the fieldsets
+// are the page. Binding `open` through this is what stops a published
+// assignment reverted to draft from rendering a collapsed, uncloseable form.
+const settingsExpanded = computed(() => settingsOpen.value || !cohortFirst.value)
 
 // What InvitationShare needs from the form. Built here rather than passed as
 // `form` so the component sees an assignment-shaped object on every surface -
@@ -1261,6 +1314,15 @@ const fieldErrors = computed(() => {
   return errors
 })
 
+// Rendered on the disclosure's summary, so a validation problem is stated
+// whether the fieldsets are open or shut. That - not forcing the disclosure
+// open - is what stops one hiding behind it: a <details> that refuses to
+// close is a dead control, and every field that can carry an error is inside
+// this one, so there is no way to introduce a problem while it is collapsed.
+// The only entry point that can is loading an assignment, and
+// `editAssignment` seeds `settingsOpen` from exactly this count.
+const fieldErrorCount = computed(() => Object.keys(fieldErrors.value).length)
+
 // Combobox functions
 function selectTemplate(t) {
   form.value.template = t.full_name
@@ -1401,39 +1463,53 @@ watch(() => form.value.id, (newId) => {
   }
 })
 
-let extLookupTimeout = null
-let currentLookupRequestId = 0
+// ---------------------------------------------------------------- cohort summary
 
-watch(() => extForm.value.login, (newVal) => {
-  if (extLookupTimeout) clearTimeout(extLookupTimeout)
-  const login = newVal ? newVal.trim() : ''
-  if (!login || !form.value?.id) {
-    currentExtText.value = null
-    return
+// reports/dashboard.json, read ONCE per page load and shared by every
+// assignment in the list. UX_PLAN §7.1 assumed the list already had it - it
+// does not (that is DashboardView), so this is one extra Contents API call for
+// the whole pane rather than one per assignment opened.
+const dashboardEntries = ref(null)   // null until read; {} when there is none
+const dashboardError = ref(false)
+
+async function loadCohortSummary() {
+  dashboardEntries.value = null
+  dashboardError.value = false
+  const token = getToken()
+  if (!token) return
+  try {
+    const text = await getRepoContent(token, props.org, config.controlRepo, 'reports/dashboard.json')
+    // A missing file is an answer ("no report has run"); an unreadable one is
+    // not an answer at all, and the card says which.
+    dashboardEntries.value = text ? (JSON.parse(text)?.assignments || {}) : {}
+  } catch {
+    dashboardError.value = true
+    dashboardEntries.value = {}
   }
-  extLookupTimeout = setTimeout(async () => {
-    const requestId = ++currentLookupRequestId
-    const token = getToken()
-    if (!token) return
-    try {
-      const existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${login}.json`)
-      if (requestId !== currentLookupRequestId) return
-      if (existingText) {
-        const prevExt = extensionFrom(JSON.parse(existingText))
-        if (prevExt) {
-          currentExtText.value = `Currently extended to ${formatDate(prevExt.at.toISOString(), form.value.timezone)} ("${prevExt.reason}"). Granting again adds a new extension to their override history.`
-        } else {
-          currentExtText.value = null
-        }
-      } else {
-        currentExtText.value = null
-      }
-    } catch {
-      if (requestId === currentLookupRequestId) {
-        currentExtText.value = null
-      }
-    }
-  }, 400)
+}
+
+// null whenever there is no reported figure, so the card can say so instead of
+// rendering a zero nobody counted.
+const cohort = computed(() => {
+  const entry = dashboardEntries.value?.[form.value.id]
+  if (!entry || typeof entry.accepted !== 'number') return null
+  // An assignment with no cap has no cap - never substitute a number here.
+  const cap = Number(form.value.max_acceptances) || null
+  return { accepted: entry.accepted, cap, total: entry.total_students ?? null }
+})
+
+const cohortUnknownReason = computed(() => {
+  if (dashboardEntries.value === null) return 'reading the report…'
+  if (dashboardError.value) return "couldn't read the cohort report"
+  return 'no cohort report yet'
+})
+
+const deadlineSummary = computed(() => {
+  const parts = countdownParts(shareAssignment.value.deadline_at, now.value)
+  if (!parts) return { value: '—', label: 'no deadline set' }
+  return parts.passed
+    ? { value: parts.duration, label: 'past the deadline' }
+    : { value: parts.duration, label: 'until the deadline' }
 })
 
 // ---------------------------------------------------------------- defaults / helpers
@@ -1699,12 +1775,9 @@ function newAssignment() {
   brokerExists.value = null
   pagesLive.value = null
   liveCheckLoading.value = false
-  
-  const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
-  const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
-  extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
-  retryForm.value = { login: '' }
-  
+  // A new assignment is nothing but its settings.
+  settingsOpen.value = true
+
   snapshotForm()
 }
 
@@ -1774,10 +1847,10 @@ function editAssignment(a) {
     deadline_at: false,
     max_acceptances: false,
   }
-  const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
-  const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
-  extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
-  retryForm.value = { login: '' }
+  // Collapsed once the assignment is out - unless it arrives with a problem,
+  // which a hand-edited YAML can, and then hiding the fields would hide the
+  // only thing there is to do.
+  settingsOpen.value = !cohortFirst.value || fieldErrorCount.value > 0
   // Pin the editing template into the dropdown even if it lives in a different
   // org than the assignment org. Drop any synthetic entry from a previous edit.
   templates.value = templates.value.filter(t => !t._foreign)
@@ -2271,267 +2344,6 @@ async function setState(newState) {
   }
 }
 
-// ---------------------------------------------------------------- extension + retry
-
-// ---------------------------------------------------------------- extension + retry
-
-let retryPollTimer = null
-
-function startRetryWatch(login, repoName, initialRunId) {
-  if (retryPollTimer) clearTimeout(retryPollTimer)
-  let pollCount = 0
-  const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
-  const tick = async () => {
-    pollCount++
-    const token = getToken()
-    if (!token) return
-
-    try {
-      const res = await getWorkflowRuns(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml')
-      if (res.ok && res.data?.workflow_runs) {
-        const latestRun = res.data.workflow_runs[0]
-        if (latestRun && latestRun.id !== initialRunId) {
-          if (latestRun.status === 'completed') {
-            if (latestRun.conclusion === 'success') {
-              toast.success(`Retry succeeded: repository is live.`, {
-                link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
-              })
-              return
-            } else {
-              toast.error(`Retry workflow failed.`, {
-                link: { text: 'Check the workflow run.', href: latestRun.html_url }
-              })
-              return
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error polling retry workflow:', e)
-    }
-
-    if (pollCount >= 48) { // 48 * 5s = 4 minutes
-      toast.error(`Retry for ${login} timed out.`, {
-        link: { text: 'Check the workflow run.', href: workflowUrl }
-      })
-      return
-    }
-    retryPollTimer = setTimeout(tick, 5000)
-  }
-  retryPollTimer = setTimeout(tick, 5000)
-}
-
-async function validateStudentLogin(login, assignmentId) {
-  const token = getToken()
-  const lowerLogin = login.toLowerCase()
-
-  // 1. Try checking the roster first
-  try {
-    const rosterText = await getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml')
-    if (rosterText) {
-      const rosterDoc = parseYaml(rosterText)
-      const match = (rosterDoc?.students || []).find(
-        (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
-      )
-      if (match) return { valid: true, canonicalLogin: match.github_login }
-    }
-  } catch { /* ignored */ }
-
-  // 2. Try checking the repository record case-insensitively by listing the directory
-  try {
-    const files = await listRepoDir(token, props.org, config.controlRepo, `repositories/${assignmentId}`)
-    if (files && Array.isArray(files)) {
-      const match = files.find(f => {
-        const name = f.name.toLowerCase()
-        return name.endsWith('.json') && name.slice(0, -5) === lowerLogin
-      })
-      if (match) {
-        return { valid: true, canonicalLogin: match.name.slice(0, -5) }
-      }
-    }
-  } catch { /* ignored */ }
-
-  // 3. Try checking reports/<id>.json
-  try {
-    const reportText = await getRepoContent(token, props.org, config.controlRepo, `reports/${assignmentId}.json`)
-    if (reportText) {
-      const reportDoc = JSON.parse(reportText)
-      const match = (reportDoc?.students || []).find(
-        (s) => s.github_login && s.github_login.toLowerCase() === lowerLogin
-      )
-      if (match) return { valid: true, canonicalLogin: match.github_login }
-    }
-  } catch { /* ignored */ }
-
-  // 4. Try checking if user exists on GitHub via API.
-  //    Under roster_mode=open there is no roster to be absent from, so any
-  //    real GitHub account is a legitimate target for a retry/extension -
-  //    only a non-existent login is an error.
-  const openMode = form.value?.roster_mode === 'open'
-  try {
-    const userRes = await ghApi(token, 'GET', `/users/${login}`)
-    if (userRes.ok) {
-      const canonical = userRes.data?.login || login
-      if (openMode) return { valid: true, canonicalLogin: canonical }
-      return { valid: false, reason: 'not_on_roster', canonicalLogin: canonical }
-    } else if (userRes.status === 404) {
-      return { valid: false, reason: 'not_exists' }
-    }
-  } catch { /* ignored */ }
-
-  return { valid: false, reason: 'not_on_roster' }
-}
-
-async function grantExtension() {
-  if (!extForm.value.login || !extForm.value.reason) {
-    toast.error('Login and reason are required')
-    return
-  }
-  if (!extForm.value.deadline_local) {
-    toast.error('Pick a new deadline for the extension.')
-    return
-  }
-  extending.value = true
-  try {
-    const token = getToken()
-
-    // R4-04: Validate login
-    const checkResult = await validateStudentLogin(extForm.value.login, form.value.id)
-    if (!checkResult.valid) {
-      if (checkResult.reason === 'not_exists') {
-        toast.error(`${extForm.value.login} isn't a GitHub login - check the spelling.`)
-      } else {
-        toast.error(`${extForm.value.login} exists but isn't on this assignment's roster/records.`)
-      }
-      return
-    }
-
-    const canonicalLogin = checkResult.canonicalLogin || extForm.value.login
-    const newDeadlineUtc = localToUtc(extForm.value.deadline_local)
-
-    // An extension must move the deadline forward, not shorten it. The floor
-    // is the student's *current effective* deadline: an already-granted
-    // extension (if later) wins over the assignment deadline - same rule as
-    // the per-row modal in the report view.
-    let currentEffective = localToUtc(form.value.deadline_at_local)
-    let overridesList = []
-    let existingText = null
-    try {
-      existingText = await getRepoContent(token, props.org, config.controlRepo, `overrides/${form.value.id}/${canonicalLogin}.json`)
-      if (existingText) {
-        const existingDoc = JSON.parse(existingText)
-        overridesList = existingDoc?.overrides || []
-        const prevExt = extensionFrom(existingDoc)
-        if (prevExt && (!currentEffective || prevExt.at > new Date(currentEffective))) {
-          currentEffective = prevExt.at.toISOString()
-        }
-      }
-    } catch { /* unreadable override - fall back to the assignment deadline */ }
-    if (currentEffective && new Date(newDeadlineUtc) <= new Date(currentEffective)) {
-      toast.error(`The extension must be later than ${canonicalLogin}'s current effective deadline (${formatDate(currentEffective, form.value.timezone)}).`)
-      return
-    }
-
-    // Append to existing overrides
-    overridesList.push({
-      type: 'deadline_extension',
-      value: newDeadlineUtc,
-      reason: extForm.value.reason,
-      overridden_by: 'admin-panel',
-      overridden_at: new Date().toISOString(),
-    })
-
-    const overrideDoc = {
-      schema_version: 1,
-      assignment_id: form.value.id,
-      github_login: canonicalLogin,
-      overrides: overridesList,
-    }
-    const { valid, errors } = await validateAgainst('override', overrideDoc)
-    if (!valid) {
-      toast.error('Override failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
-      return
-    }
-    const path = `overrides/${form.value.id}/${canonicalLogin}.json`
-    const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${canonicalLogin} on ${form.value.id}`)
-    if (res.ok) {
-      toast.success(`Extension granted to ${canonicalLogin} (status updates on the next nightly run or Live Status refresh).`)
-      const currentDl = form.value.deadline_at_local ? new Date(form.value.deadline_at_local) : new Date()
-      const plus7 = new Date(currentDl.getTime() + 7 * 86400000)
-      extForm.value = { login: '', deadline_local: toLocalInputValue(plus7), reason: '' }
-    } else {
-      toast.error(`Extension failed: ${res.data?.message || 'unknown error'}`)
-    }
-  } finally {
-    extending.value = false
-  }
-}
-
-async function retryAcceptance() {
-  if (!retryForm.value.login) return
-  retrying.value = true
-  const login = retryForm.value.login
-  try {
-    const token = getToken()
-
-    // R4-04: Validate login
-    const checkResult = await validateStudentLogin(login, form.value.id)
-    if (!checkResult.valid) {
-      if (checkResult.reason === 'not_exists') {
-        toast.error(`${login} isn't a GitHub login - check the spelling.`)
-      } else {
-        toast.error(`${login} exists but isn't on this assignment's roster/records.`)
-      }
-      return
-    }
-
-    const canonicalLogin = checkResult.canonicalLogin || login
-
-    const deadline = form.value?.deadline_at_local ? new Date(form.value.deadline_at_local) : (form.value?.deadline_at ? new Date(form.value.deadline_at) : null)
-    const opensAt = form.value?.opens_at_local ? new Date(form.value.opens_at_local) : (form.value?.opens_at ? new Date(form.value.opens_at) : null)
-    const now = new Date()
-    const isOutsideWindow = (deadline && now > deadline) || (opensAt && now < opensAt)
-    if (isOutsideWindow) {
-      if (!window.confirm(`Warning: The assignment window is currently closed (opens: ${opensAt ? opensAt.toLocaleString() : 'N/A'}, deadline: ${deadline ? deadline.toLocaleString() : 'N/A'}). Retrying will bypass these constraints. Proceed?`)) {
-        return
-      }
-    }
-
-    let initialRunId = null
-    try {
-      const runsRes = await getWorkflowRuns(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml')
-      if (runsRes.ok && runsRes.data?.workflow_runs) {
-        initialRunId = runsRes.data.workflow_runs[0]?.id || null
-      }
-    } catch (e) {
-      console.error('Failed to fetch initial workflow run:', e)
-    }
-
-    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
-      org: props.org,
-      assignment_id: form.value.id,
-      github_login: canonicalLogin,
-      bypass_window: "true",
-    })
-    if (res.ok || res.status === 204) {
-      const workflowUrl = `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml`
-      toast.success(`Retry triggered for ${canonicalLogin}. Watching workflow run progress…`, {
-        link: { text: 'View workflow run', href: workflowUrl }
-      })
-      
-      const pattern = form.value.repository_name_pattern || `${form.value.id}-{github_login}`
-      const repoName = pattern.replace('{github_login}', canonicalLogin)
-      startRetryWatch(canonicalLogin, repoName, initialRunId)
-      
-      retryForm.value = { login: '' }
-    } else {
-      toast.error(explainDispatchFailure(res, 'Retry failed'))
-    }
-  } finally {
-    retrying.value = false
-  }
-}
-
 // ---------------------------------------------------------------- lifecycle
 
 onMounted(async () => {
@@ -2541,9 +2353,10 @@ onMounted(async () => {
   window.addEventListener('beforeunload', onBeforeUnload)
   window.addEventListener('hashchange', onHashChange)
   document.addEventListener('click', handleClickOutside)
+  clockTimer = setInterval(() => { now.value = new Date() }, 60000)
   if (!isAuthenticated()) { loadingList.value = false; return }
   user.value = getUser()
-  await Promise.all([loadAssignments(), loadTemplates()])
+  await Promise.all([loadAssignments(), loadTemplates(), loadCohortSummary()])
 })
 
 onUnmounted(() => {
@@ -2552,13 +2365,9 @@ onUnmounted(() => {
   window.removeEventListener('hashchange', onHashChange)
   document.removeEventListener('click', handleClickOutside)
   stopPublishWatch()
-  if (retryPollTimer) {
-    clearTimeout(retryPollTimer)
-    retryPollTimer = null
-  }
-  if (extLookupTimeout) {
-    clearTimeout(extLookupTimeout)
-    extLookupTimeout = null
+  if (clockTimer) {
+    clearInterval(clockTimer)
+    clockTimer = null
   }
 })
 
@@ -2776,13 +2585,42 @@ details .field { padding: 0 var(--space-sm); }
 }
 
 .lifecycle {
-  margin-top: var(--space-lg);
-  padding-top: var(--space-lg);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
   border-top: 1px solid var(--border-default);
 }
 .lifecycle h4 { margin: 0 0 var(--space-md) 0; }
-.lifecycle-actions { display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md); }
-.lifecycle-section { margin-bottom: var(--space-sm); }
+.lifecycle-group {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+.lifecycle-group-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  min-width: 5.5ch;
+}
+/* A single-side rule is a divider, not a box (DESIGN.md §1.1): repair above
+   it, the transitions that change what the assignment IS below. */
+.lifecycle-repair {
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border-muted);
+}
+.lifecycle-repair small {
+  flex: 1 1 24ch;
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.lifecycle-transitions { margin-bottom: var(--space-md); }
+.lifecycle-moved {
+  font-size: 0.85rem;
+  margin: 0 0 var(--space-md) 0;
+}
 .autograde-summary small {
   display: block;
   background: var(--tint-accent-subtle);
@@ -2935,6 +2773,78 @@ details .field { padding: 0 var(--space-sm); }
   background: var(--tint-danger-subtle);
   border-color: var(--tint-danger-emphasis);
 }
+/* Tonal step, no border: the editor pane already draws one and the fieldsets
+   below draw another (DESIGN.md §1.1 - never nest three boxes). --bg-inset is
+   the recessed step that differs from --bg-surface in BOTH themes. */
+.cohort-card {
+  background: var(--bg-inset);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+.cohort-figures {
+  display: flex;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+.cohort-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cohort-value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+.cohort-of {
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.cohort-unknown { color: var(--text-secondary); }
+.cohort-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* Not a box: the editor pane already draws one and every fieldset inside
+   draws another, so a third would be DESIGN.md §1.1's prison. A single-side
+   rule is a divider, which is fine. */
+.settings-disclosure {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-muted);
+  margin-bottom: 0;
+}
+.settings-disclosure > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: var(--space-md) 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.settings-disclosure[open] > summary { margin-bottom: var(--space-sm); }
+.settings-caret { transition: transform 0.15s ease; }
+.settings-disclosure:not([open]) .settings-caret { transform: rotate(-90deg); }
+/* A draft has nothing to disclose - the fieldsets ARE the page, and the
+   details element is only here so there is one markup path. */
+.settings-disclosure.is-static { border-top: none; margin-bottom: 0; }
+.settings-disclosure.is-static > summary { display: none; }
+.settings-problems {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent-red);
+}
+
 .published-header {
   display: flex;
   align-items: center;
@@ -2983,10 +2893,6 @@ details .field { padding: 0 var(--space-sm); }
   font-size: 0.8rem;
   border-color: var(--border-default);
 }
-.btn-track {
-  white-space: nowrap;
-}
-
 /* Modal styles for Republish confirmation */
 .modal-overlay {
   position: fixed;

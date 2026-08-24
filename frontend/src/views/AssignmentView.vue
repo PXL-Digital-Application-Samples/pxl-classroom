@@ -370,6 +370,7 @@ import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from
 import { acceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
+import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
 import { toast } from '../lib/toast.js'
 
 const props = defineProps({
@@ -445,24 +446,14 @@ const isPastDeadline = computed(() => {
   return now.value > new Date(assignment.value.deadline_at)
 })
 
+// The header badge counts down the ASSIGNMENT's deadline; deadlineCountdown
+// below counts down this student's effective one. Different numbers, same
+// arithmetic - which is why it comes from the shared module rather than a
+// fourth copy of it.
 const timeRemainingStr = computed(() => {
-  if (!assignment.value?.deadline_at) return ''
-  const diffMs = new Date(assignment.value.deadline_at) - now.value
-  if (diffMs <= 0) return 'Closed'
-  
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  
-  if (diffDays > 0) {
-    const hoursPart = diffHours % 24
-    return `${diffDays}d ${hoursPart}h left`
-  }
-  if (diffHours > 0) {
-    const minsPart = diffMins % 60
-    return `${diffHours}h ${minsPart}m left`
-  }
-  return `${diffMins}m left`
+  const parts = countdownParts(assignment.value?.deadline_at, now.value)
+  if (!parts) return ''
+  return parts.passed ? 'Closed' : `${parts.duration} left`
 })
 
 const timeRemainingBadgeClass = computed(() => {
@@ -599,23 +590,7 @@ const effectiveDeadline = computed(() => {
   return assignment.value?.deadline_at ? new Date(assignment.value.deadline_at) : null
 })
 
-const deadlineCountdown = computed(() => {
-  if (!effectiveDeadline.value) return null
-  const diffMs = effectiveDeadline.value - now.value
-  if (diffMs <= 0) {
-    return `Deadline passed (${effectiveDeadline.value.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`
-  }
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffDays > 0) {
-    return `Closes in ${diffDays}d ${diffHours % 24}h`
-  }
-  if (diffHours > 0) {
-    return `Closes in ${diffHours}h ${diffMins % 60}m`
-  }
-  return `Closes in ${diffMins}m`
-})
+const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, now.value))
 
 const studentSubmissionStatus = computed(() => {
   if (!studentLatestCommit.value) return 'no-submission'

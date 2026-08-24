@@ -18,6 +18,8 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * Standard toolbar actions (`Refresh`, `Export`, `Sync`) must use neutral secondary styling (`.btn-secondary`).
    * Destructive actions (`Close acceptance`, `Freeze`) belong in a `··· More` overflow dropdown or use subtle danger outlines until confirmed in a modal dialog.
    * A **modal counts as its own view**. An action repeated per row or per card is never primary - one card per assignment meant one primary button per assignment before this was caught.
+   * **A form does not repeat its actions.** `AdminView`'s editor rendered `Cancel / Save as draft / Save & publish` in its header bar *and* again below the fieldsets - two solid buttons on screen at once, which is why the conformity test was scoped away from that view for two workstreams. The header bar is the form's action bar; there is no second row.
+   * **A pane-level CTA yields to the pane that has focus.** `New assignment` is solid while nothing is being edited and plain once an assignment is open, so the count is exactly one in both states rather than one per pane.
 
 3. **Status Dots over Bulky Pill Capsules:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
    * In data tables, student cards, and metric rows, prefer `.status-indicator` with a glowing `.status-dot` and clean mixed-case text (`● On-time`, `● Provisioned`, `● Accepting`).
@@ -337,6 +339,20 @@ shared base and each owner keeps its scoped override — which still wins on the
 
 **Use `.btn-link`, never `.link-btn`.** The latter was a scoped re-implementation
 of the §3 text-button in three components; it is gone.
+
+### A `<summary>` with `display: flex` loses its triangle
+
+Same family of silent failure. Setting any `display` other than `list-item` on a
+`<summary>` removes the native disclosure marker, with no warning — the control
+still toggles, it just stops looking like one, and a heading nobody thinks to
+click is worse than no disclosure at all. `AdminView`'s *Edit settings* summary
+needs flex to place its field-error count, so it carries its own
+`chevron-down` `Icon` and rotates it `-90deg` while closed.
+
+The other half of that control: **a disclosure is not a box.** `.settings-disclosure`
+overrides the scoped `details { border: … }` rule to a single `border-top`,
+because the editor pane already draws a border and every fieldset inside draws
+another — three, which is §1.1's prison.
 
 ## 8. Visual Sandbox & Interactive Testing
 

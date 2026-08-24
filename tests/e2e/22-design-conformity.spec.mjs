@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, inviteToken } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
 
 // DESIGN.md §1 is the half of the design system no static test can check: the
 // rules are about what is VISIBLE at once, and most of these views render their
@@ -127,13 +127,13 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
   // block. The banner holds NONE: the view's one solid button is Save, and a
   // section that is not the view does not get to add a second.
   //
-  // Scoped to that block on purpose. Opening an assignment reveals a
-  // pre-existing §1.2 backlog this workstream did not create and must not
-  // silently absorb: five visible primaries across the whole view - the list
-  // pane's `New assignment`, `Save & publish` twice (the form repeats its
-  // actions at top and bottom), `Grant extension` and `Retry acceptance`.
-  // UX_PLAN WS5 restructures this view; the count belongs there, with the
-  // decisions about which of those five survives.
+  // This was scoped to that block until WS5, because opening an assignment
+  // showed five visible primaries the banner had not caused: the list pane's
+  // `New assignment`, `Save & publish` twice (the form repeated its actions at
+  // top and bottom), `Grant extension` and `Retry acceptance`. WS5 answered
+  // all five - the duplicate row is gone, the two per-student operations moved
+  // to the tracking view, and `New assignment` yields while an assignment is
+  // open - so the check is the whole view now, like every other route here.
   test('Admin editor: the published banner adds no solid button of its own', async ({ page }) => {
     const base = {
       schema_version: 1,
@@ -166,9 +166,13 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
       await solid.count(),
       'DESIGN.md §1.2: the editor\'s one solid button is Save; the banner must not add another',
     ).toBe(0);
-    // And the status pills rule applies to it like anywhere else.
-    const pills = await page.evaluate(PILLS);
-    expect(pills).toEqual([]);
+
+    // And the whole view, collapsed and expanded - the duplicate action row
+    // lived below the fieldsets, so counting only the collapsed state would
+    // pass against a form nobody had opened.
+    await conforms(page, 'admin editor / published, settings collapsed');
+    await expandSettings(page);
+    await conforms(page, 'admin editor / published, settings open');
   });
 
   // And the detail page in the state a lecturer sees first: published, with
