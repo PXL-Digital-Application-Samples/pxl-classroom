@@ -13,6 +13,12 @@
 
 import { Command } from "commander";
 import { makeOctokit } from "../lib/octokit.mjs";
+import {
+  isAlreadyExists,
+  isNoCommitsBetween,
+  feedbackPrTitle,
+  feedbackPrBody,
+} from "../../../lib/feedback-pr.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
@@ -35,20 +41,20 @@ async function openDraftPr(octokit, { org, repo, head, base, title, body }) {
     });
     return { number: res.data.number, url: res.data.html_url, created: true };
   } catch (err) {
-    const message = err.response?.data?.message || err.message || "";
-    const errors = err.response?.data?.errors || [];
-    const errText = JSON.stringify(errors) + " " + message;
-    if (err.status === 422 && /No commits between|no commits between|already exists/i.test(errText)) {
-      // "already exists" -> find it; "no commits between" -> propagate as null
-      if (/already exists/i.test(errText)) {
-        const list = await octokit.request("GET /repos/{owner}/{repo}/pulls", {
-          owner: org, repo, head: `${org}:${head}`, base, state: "open", per_page: 1,
-        });
-        const pr = list.data[0];
-        return pr ? { number: pr.number, url: pr.html_url, created: false } : null;
-      }
-      return null;
+    // Classified by lib/feedback-pr.mjs, shared with the workflow script and
+    // the SPA. The three had drifted on exactly this: the SPA had no adopt
+    // path at all and counted "already exists" as a failure.
+    const data = err.response?.data ?? { message: err.message };
+    if (isAlreadyExists(err.status, data)) {
+      const list = await octokit.request("GET /repos/{owner}/{repo}/pulls", {
+        owner: org, repo, head: `${org}:${head}`, base, state: "open", per_page: 1,
+      });
+      const pr = list.data[0];
+      return pr ? { number: pr.number, url: pr.html_url, created: false } : null;
     }
+    // The student has not pushed yet, so main and the baseline are one commit.
+    // Not a failure - it is where every student starts.
+    if (isNoCommitsBetween(err.status, data)) return null;
     throw err;
   }
 }
@@ -89,15 +95,8 @@ export function registerFeedbackCommand(program) {
         process.exit(1);
       }
       const baseline = assignment.feedback_pr_baseline_branch || DEFAULT_BASELINE;
-      const title = `${assignment.title || opts.assignment} - Feedback`;
-      const body = [
-        "PXL Classroom feedback thread.",
-        "",
-        `Head: \`main\` · Base: \`${baseline}\` (frozen at provisioning).`,
-        "",
-        "Lecturers leave inline review comments here; the student keeps pushing to `main`.",
-        "The baseline branch is protected against force-push and delete.",
-      ].join("\n");
+      const title = feedbackPrTitle(assignment, opts.assignment);
+      const body = feedbackPrBody(baseline);
 
       const records = await listRepoRecords(octokit, { org, assignmentId: opts.assignment });
       const targets = opts.login ? records.filter((r) => r.doc.github_login === opts.login) : records;

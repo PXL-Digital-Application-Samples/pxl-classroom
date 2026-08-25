@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { isAlreadyExists, isNoCommitsBetween, feedbackPrTitle } from "../lib/feedback-pr.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = readFileSync(join(root, "scripts", "open-feedback-prs.mjs"), "utf8");
@@ -81,6 +82,75 @@ test("GitHub claiming a PR exists and then not listing it is recorded", () => {
   // failed, and no record written - so the student had a feedback PR the
   // control repo never knew about and the summary said neither.
   assert.match(code, /did not list it/);
+});
+
+test("the 422s are told apart by message, not by status", () => {
+  // The same 422 carries genuinely different problems. Keying on the status
+  // alone would adopt a pull request in response to "No commits between", which
+  // is where every student starts.
+  const exists = { message: "Validation Failed", errors: [{ message: "A pull request already exists for Org:main." }] };
+  const noCommits = { message: "Validation Failed", errors: [{ message: "No commits between pxl-baseline and main" }] };
+  const drafts = { message: "Draft pull requests are not supported in this repository." };
+
+  assert.equal(isAlreadyExists(422, exists), true);
+  assert.equal(isAlreadyExists(422, noCommits), false);
+  assert.equal(isAlreadyExists(422, drafts), false);
+  assert.equal(isAlreadyExists(404, exists), false, "only a 422 means this");
+
+  assert.equal(isNoCommitsBetween(422, noCommits), true);
+  assert.equal(isNoCommitsBetween(422, exists), false);
+
+  // Some responses put the text on `message` rather than `errors[]`.
+  assert.equal(isAlreadyExists(422, { message: "A pull request already exists for Org:main." }), true);
+  // Malformed bodies must not throw.
+  assert.equal(isAlreadyExists(422, null), false);
+  assert.equal(isAlreadyExists(422, { errors: "not an array" }), false);
+
+  assert.equal(feedbackPrTitle({ title: "Linux Processes" }, "linux"), "Linux Processes - Feedback");
+  assert.equal(feedbackPrTitle({}, "linux-processes"), "linux-processes - Feedback");
+});
+
+test("all three surfaces classify the 422 through the shared module", () => {
+  // The SPA had NO adopt path: "already exists" was counted as a failure, so a
+  // student whose record lost its PR number was reported broken on every run
+  // and never recorded - while the CLI adopted them and the script adopted the
+  // wrong one. One classifier now.
+  const surfaces = {
+    "scripts/open-feedback-prs.mjs": script,
+    "cli/src/commands/feedback.mjs": readFileSync(join(root, "cli", "src", "commands", "feedback.mjs"), "utf8"),
+    "frontend/src/views/AssignmentDetailView.vue": readFileSync(
+      join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8"),
+  };
+  for (const [name, src] of Object.entries(surfaces)) {
+    const body = stripComments(src);
+    assert.match(body, /isAlreadyExists\(/, `${name} must classify through lib/feedback-pr.mjs`);
+    // The phrase used as a PREDICATE, not merely mentioned - a log line that
+    // quotes GitHub back to the lecturer is fine and is not a second copy.
+    assert.doesNotMatch(
+      body,
+      // Both spellings the three surfaces actually used: the phrase inside a
+      // predicate call, and a regex literal built around it.
+      /(includes|test|match)\([^)]*already exists|\/[^/\n]*already exists[^/\n]*\/[a-z]*/i,
+      `${name} must not re-implement the "already exists" test`,
+    );
+  }
+});
+
+test("the SPA writes the whole cohort's records in ONE commit, and says when it cannot", () => {
+  // One commitFile() per student is 200 commits on a 200-student cohort,
+  // against a ~80 writes/min secondary limit - the arithmetic that made team
+  // seeding use gittree. And the failed write was a console.warn, so the PRs
+  // existed while the dashboard silently disagreed.
+  const view = stripComments(
+    readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8"));
+  const fn = view.slice(view.indexOf("async function executeOpenFeedbackPrs"));
+  const end = fn.indexOf("\n}\n");
+  const impl = fn.slice(0, end);
+
+  assert.match(impl, /commitFiles\(/, "records must go in one multi-file commit");
+  assert.doesNotMatch(impl, /commitFile\(/, "no per-student commit");
+  assert.doesNotMatch(impl, /console\.warn/, "a failed record write must reach the lecturer");
+  assert.match(impl, /recordsSaved/, "the commit result must be acted on");
 });
 
 test("the records are committed even when the run failed", () => {

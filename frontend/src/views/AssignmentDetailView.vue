@@ -1114,7 +1114,8 @@ const SortIcon = (props) => props.dir
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
-import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
+import { getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
+import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
 import { validateAgainst } from '../lib/validate.js'
 import { parseCheckRunScore, pickAutogradeCheckRun, fetchCheckRunAnnotations } from '../lib/check-run-score.js'
 import { formatDate } from '../lib/format.js'
@@ -1567,14 +1568,32 @@ async function executeOpenFeedbackPrs() {
 
   openingFeedbackPrs.value = true
   const baseline = assignment.value?.feedback_pr_baseline_branch || 'pxl-baseline'
-  const title = `${assignment.value?.title || props.assignmentId} - Feedback`
-  const body = 'PXL Classroom feedback thread for inline reviews.'
+  const title = feedbackPrTitle(assignment.value, props.assignmentId)
+  const body = feedbackPrBody(baseline)
 
-  let opened = 0
+  let created = 0
+  let adopted = 0
   let failed = 0
+  // Collected and committed in ONE commit at the end. This used to write each
+  // record with its own commitFile(), which on a 200-student cohort is 200
+  // commits against a ~80 writes/min secondary limit - the same arithmetic
+  // that made team seeding use gittree.
+  const changes = []
 
   for (const s of targets) {
     const repoName = s.repo_name?.split('/')[1] || s.repo_name
+    const record = async (pr) => {
+      s.feedback_pr_number = pr.number
+      s.feedback_pr_url = pr.html_url
+      const recPath = `repositories/${props.assignmentId}/${s.github_login}.json`
+      const existingContent = await getRepoContent(token, props.org, config.controlRepo, recPath)
+      if (!existingContent) return
+      const recDoc = JSON.parse(existingContent)
+      recDoc.feedback_pr_number = pr.number
+      recDoc.feedback_pr_url = pr.html_url
+      changes.push({ path: recPath, content: JSON.stringify(recDoc, null, 2) + '\n' })
+    }
+
     try {
       const prRes = await ghApi(token, 'POST', `/repos/${props.org}/${repoName}/pulls`, {
         title,
@@ -1585,28 +1604,24 @@ async function executeOpenFeedbackPrs() {
       })
 
       if (prRes.ok && prRes.data) {
-        opened++
-        s.feedback_pr_number = prRes.data.number
-        s.feedback_pr_url = prRes.data.html_url
-
-        try {
-          const recPath = `repositories/${props.assignmentId}/${s.github_login}.json`
-          const existingContent = await getRepoContent(token, props.org, config.controlRepo, recPath)
-          if (existingContent) {
-            const recDoc = JSON.parse(existingContent)
-            recDoc.feedback_pr_number = prRes.data.number
-            recDoc.feedback_pr_url = prRes.data.html_url
-            await commitFile(
-              token,
-              props.org,
-              config.controlRepo,
-              recPath,
-              JSON.stringify(recDoc, null, 2) + '\n',
-              `Record feedback PR #${prRes.data.number} for ${s.github_login}`
-            )
-          }
-        } catch (commitErr) {
-          console.warn(`Failed to commit repo record for ${s.github_login}:`, commitErr)
+        created++
+        await record(prRes.data)
+      } else if (isAlreadyExists(prRes.status, prRes.data)) {
+        // Adopt the pull request that is already open. There was no adopt path
+        // here at all: a student whose record had lost its PR number - which is
+        // what any interrupted run leaves behind - was counted as a failure on
+        // every subsequent run and never recorded, while the CLI adopted them.
+        // `state=open`, because a closed PR does not produce this 422.
+        const list = await ghApi(
+          token, 'GET',
+          `/repos/${props.org}/${repoName}/pulls?head=${props.org}:main&base=${baseline}&state=open`,
+        )
+        const found = list.ok ? list.data?.[0] : null
+        if (found) {
+          adopted++
+          await record(found)
+        } else {
+          failed++
         }
       } else {
         failed++
@@ -1616,10 +1631,32 @@ async function executeOpenFeedbackPrs() {
     }
   }
 
+  // One commit for the whole cohort. A failure here is SURFACED, not logged to
+  // a console nobody has open: the pull requests exist on GitHub either way, so
+  // silently losing the records leaves the dashboard permanently disagreeing
+  // with the repositories.
+  let recordsSaved = true
+  if (changes.length > 0) {
+    const res = await commitFiles(
+      token, props.org, config.controlRepo, changes,
+      `Record ${changes.length} feedback PR(s) for ${props.assignmentId}`,
+    )
+    recordsSaved = res.ok
+  }
+
   openingFeedbackPrs.value = false
   showFeedbackPrModal.value = false
-  if (opened > 0) {
-    toast.success(`Successfully opened ${opened} feedback PR(s).`)
+  if (created > 0 || adopted > 0) {
+    const parts = []
+    if (created > 0) parts.push(`${created} opened`)
+    if (adopted > 0) parts.push(`${adopted} already open, adopted`)
+    toast.success(`Feedback PRs: ${parts.join(', ')}.`)
+  }
+  if (!recordsSaved) {
+    toast.error(
+      'The pull requests were opened but could not be saved to the control repository. ' +
+      'Run this again - it will adopt them rather than open duplicates.',
+    )
   }
   if (failed > 0) {
     toast.warning(`${failed} PR creation(s) skipped or failed.`)

@@ -919,7 +919,9 @@ The lecturer (org owner) leaves inline review comments on the PR. Comments persi
 
 Created and adopted are counted **apart**, matching `pxl-classroom feedback open`: "12 opened" reads very differently when eleven were already there. A partial failure exits **non-zero**, and the workflow's commit step is therefore `if: always()` - the records for the PRs that did open are already written, and abandoning them makes the next run rediscover every one through the adopt path. Same rule as `daily-activity` committing its lockdown record after a failed leg (§6.2.1).
 
-Until 2026-08-25 none of this had ever executed: see §11.7.1 for the two faults - shared with the starter sync - that stopped both workflows before their scripts began.
+**Three surfaces, one classifier.** The SPA does **not** dispatch `open-feedback-prs.yml` - it opens the pull requests client-side - so there are three implementations, and they had drifted on the thing that matters: the CLI adopted with `state: "open"`, the workflow script adopted the wrong one, and the SPA had no adopt path at all. `lib/feedback-pr.mjs` owns the 422 classification and the PR title and body; all three import it. The classification is by **message**, never by status: the same 422 carries `A pull request already exists`, `No commits between …` (the student has not pushed - where every student starts) and a drafts-unsupported plan error, and only the message separates them. The SPA also writes the whole cohort's records in **one** `gittree` commit rather than one `commitFile()` per student, and surfaces a failed write instead of logging it to a console nobody has open.
+
+Until 2026-08-25 none of the headless path had ever executed: see §11.7.1 for the two faults - shared with the starter sync - that stopped both workflows before their scripts began.
 
 ### 11.5 Bulk submission download
 

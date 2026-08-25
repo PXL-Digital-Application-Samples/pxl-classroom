@@ -9,6 +9,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
+import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from "../lib/feedback-pr.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -41,15 +42,8 @@ async function main() {
   }
 
   const baseline = assignment.feedback_pr_baseline_branch || "pxl-baseline";
-  const title = `${assignment.title || cfg.assignmentId} - Feedback`;
-  const body = [
-    "PXL Classroom feedback thread.",
-    "",
-    `Head: \`main\` · Base: \`${baseline}\` (frozen at provisioning).`,
-    "",
-    "Lecturers leave inline review comments here; the student keeps pushing to `main`.",
-    "The baseline branch is protected against force-push and delete.",
-  ].join("\n");
+  const title = feedbackPrTitle(assignment, cfg.assignmentId);
+  const body = feedbackPrBody(baseline);
 
   const reposDir = join(cfg.dataDir, "repositories", cfg.assignmentId);
   let files = [];
@@ -122,7 +116,7 @@ async function main() {
       rec.feedback_pr_number = prRes.data.number;
       rec.feedback_pr_url = prRes.data.html_url;
       await writeFile(filePath, JSON.stringify(rec, null, 2) + "\n");
-    } else if (prRes.status === 422 && String(prRes.data?.errors?.[0]?.message).includes("A pull request already exists")) {
+    } else if (isAlreadyExists(prRes.status, prRes.data)) {
       // Adopt the pull request that already exists. `state=open`, not `all`:
       // "already exists" can only be an OPEN one - a closed pull request does
       // not block a new one, verified live - and asking for `all` and taking
