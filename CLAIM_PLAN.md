@@ -82,6 +82,52 @@ that already carries usernames, and `claim` is simply "enforced, with a way in".
 | `open` | anybody inside the window and under the cap |
 | ~~`org_member`~~ | withdrawn |
 
+### One claim, three behaviours
+
+The claim is not roster machinery - it is a single payload the student presents,
+and the mode decides what the hub does with it:
+
+| Mode | What the hub does with the claim |
+|---|---|
+| `enforced` | nothing - the login is already bound |
+| `claim` | the digest must **match a roster entry** -> binds to that student |
+| `open` | the domain must be **allowed**, the digest must be **unused** -> binds pseudonymously |
+
+The student's experience is identical in all three: type your PXL address.
+
+**This makes `open` strictly better than it is today.** Today `open` admits any
+GitHub account on earth and yields a bare login, which is the whole reason
+`roster promote` had to exist. With a claim it gains:
+
+- **a weak gate** - the account must present an address in an allowed domain;
+- **uniqueness** - one address, one repository. Today `max_acceptances` is the
+  only limit and one person can burn several slots;
+- **retroactive identity** - the hub stores digests, so a roster imported later
+  can be digested with the same key and matched **backwards**.
+
+### Allowed domains
+
+`claim_domains` on the **assignment** - an optional list, resolved against a
+central default that ships **empty**, mirroring `limits.yml`'s documented
+resolution order (per-assignment > global default; a per-org tier could slot
+into `participating-orgs.yml`'s existing `overrides` later, if anyone ever wants
+one).
+
+- **Empty or absent means no domain restriction** - any address is accepted.
+  That is the default, deliberately, and most assignments will never set it.
+- The domain travels in **plaintext** alongside the digest. It is identical for
+  every student in a cohort, so it is not personal data and is safe on the
+  public broker - and it is the only reason `open` can be checked at all, since
+  there is no roster to match a digest against.
+- Checked **server-side**. A browser-side shape check is UX; this is the control.
+
+**The security model is GitHub Classroom's, deliberately.** An open assignment
+is an accepted risk: the invitation link, the `opens_at..deadline_at` window and
+`max_acceptances` are the real guardrails, and the address is self-declared. A
+non-PXL address in the cohort list is obvious on inspection, and the lecturer
+asks that person what they are doing. Configurable rather than hard-coded
+because other institutions have other domains.
+
 ### The flow
 
 1. Lecturer imports a roster CSV carrying `email` (plus `student_number`,
@@ -155,6 +201,11 @@ assignment in that org recognises them.
 | Two roster entries share an email | Ambiguous. Refused at **import**, so it cannot be discovered at acceptance time |
 | Roster unreadable / unparseable | `fail:*`, never a rejection - same rule as `enforced` |
 | No claim payload supplied | `rejected:no-claim`, with copy asking for the address |
+| `claim_domains` empty or absent | **No restriction** - any address accepted. The default |
+| Address outside `claim_domains` | `rejected:claim-domain`, naming the domains that are accepted |
+| Domain differs only in case | Normalized - domains are case-insensitive |
+| Under `open`, the digest is already used | `rejected:claim-taken`. One address, one repository |
+| Under `open`, no roster exists at all | Fine - the digest binds pseudonymously and a roster imported later matches backwards |
 
 ### Conflicts
 
@@ -328,7 +379,9 @@ on claim instead of created. Therefore keep, in this shape:
 
 1. `lib/claim.mjs` - isomorphic normalize + digest (`globalThis.crypto.subtle`,
    available in Node 24 and the browser), plus the pure matcher.
-2. `schemas/claim.schema.json`; `roster_mode: claim` in the assignment schema.
+2. `schemas/claim.schema.json`; `roster_mode: claim` and the optional
+   `claim_domains` list in the assignment schema; the central default, shipped
+   empty.
 3. `accept.mjs`: the claim branch, four reject reasons (`no-claim`,
    `no-claim-match`, `claim-taken`, `claim-blocked`), fail-closed, positioned at
    step 4.5 so a rejection never reaches provisioning.
@@ -342,7 +395,20 @@ on claim instead of created. Therefore keep, in this shape:
 8. Withdraw `org_member` (§6).
 9. Docs: ARCHITECTURE §15, RUNBOOK §12.4, CLAUDE.md.
 
-## 10. Open questions
+## 10. Decided, and still open
+
+**Decided (2026-08-25):**
+
+- **`claim_domains` is per assignment**, over a central default that ships
+  **empty**. Empty means no restriction, and most assignments will never set it.
+- **The claim is one mechanism across all three modes**, not roster machinery.
+- **The security model is GitHub Classroom's** and the risk of an open
+  assignment is accepted deliberately - guarded by the invitation link, the
+  window and the cap, with the cohort list eyeballed afterwards.
+- **`enforced` survives** alongside `claim`; it is the right mode for a roster
+  that already carries usernames.
+
+**Still open:**
 
 - **Does the roster schema require `email` under `claim`?** It cannot be
   enforced in the assignment schema (different file), so it belongs in a
@@ -350,5 +416,11 @@ on claim instead of created. Therefore keep, in this shape:
 - **Should a claim be revocable by the student?** Classroom says no. An unlink
   the lecturer controls is probably right; a student-facing one invites the
   mislinking-by-accident problem back in.
-- **Does `claim` want a cap?** Membership was itself a limit; the roster is too.
-  Probably optional, as with `enforced`.
+- **Does `claim` want a cap?** The roster is itself a limit. Probably optional,
+  as with `enforced`.
+- **Cross-assignment digests.** The key is the assignment's invite token, so the
+  same student produces unrelated digests in two assignments - retroactive
+  matching works per assignment, but the same person cannot be deduped across
+  them. An org-level salt would fix it, but the SPA cannot read one (students
+  cannot read the control repo) and publishing it makes it not a salt. Left
+  unsolved; revisit only if it actually hurts.
