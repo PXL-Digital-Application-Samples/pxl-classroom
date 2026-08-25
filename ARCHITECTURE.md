@@ -915,6 +915,12 @@ The Feedback PR itself (head `main` -> base `pxl-baseline`, draft) cannot be ope
 
 The lecturer (org owner) leaves inline review comments on the PR. Comments persist as the student continues to push; the PR head tracks `main`.
 
+**Idempotence has three cases, and each is verified live (2026-08-25).** A student whose record already carries `feedback_pr_number` is skipped. A student who has an open PR the record does not know about - which is what a failed run leaves behind - is **adopted**: `POST /pulls` answers `422 A pull request already exists`, and the open one is looked up and recorded. `state=open` and not `all`: a *closed* PR does not block a new one, so "already exists" can only mean an open one, and taking `[0]` of an `all` listing leant on GitHub's default sort to avoid recording a closed PR as the assignment's feedback thread. GitHub claiming a PR exists and then not listing it is counted as a failure rather than falling through recording nothing - which is what it used to do, leaving a student with a feedback PR the control repo never knew about and a summary reporting neither.
+
+Created and adopted are counted **apart**, matching `pxl-classroom feedback open`: "12 opened" reads very differently when eleven were already there. A partial failure exits **non-zero**, and the workflow's commit step is therefore `if: always()` - the records for the PRs that did open are already written, and abandoning them makes the next run rediscover every one through the adopt path. Same rule as `daily-activity` committing its lockdown record after a failed leg (§6.2.1).
+
+Until 2026-08-25 none of this had ever executed: see §11.7.1 for the two faults - shared with the starter sync - that stopped both workflows before their scripts began.
+
 ### 11.5 Bulk submission download
 
 Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI Download" command inside the "Export" dropdown on `AssignmentDetailView` - the browser can't clone Git, so the actual bulk op stays on the CLI.

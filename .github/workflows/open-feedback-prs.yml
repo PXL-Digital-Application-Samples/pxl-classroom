@@ -56,7 +56,13 @@ jobs:
         run: |
           node scripts/open-feedback-prs.mjs
 
+      # `always()`: the script exits non-zero on partial failure, and the
+      # records for the pull requests that DID open are already on disk.
+      # Abandoning them would make the next run rediscover every one through
+      # the adopt path - the same reason daily-activity commits its lockdown
+      # record after a failed leg.
       - name: Commit updated repository records
+        if: always()
         working-directory: control
         env:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}

@@ -901,7 +901,7 @@ pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        #
 pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
 ```
 
-The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
+The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
 
 `feedback list`'s answer is in the app too: **··· More → Refresh feedback PR status** fills the same column with each PR's state (Draft / Open / Merged / Closed) and its inline review-comment count. It is an on-demand read - one request per open PR - so nothing is fetched until you ask, and it reports how many it could not read rather than quietly showing fewer.
 

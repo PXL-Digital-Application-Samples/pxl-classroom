@@ -60,7 +60,11 @@ async function main() {
     process.exit(0);
   }
 
-  let opened = 0;
+  // Created and adopted are counted apart, the same way `pxl-classroom feedback
+  // open` reports them: "12 opened" reads very differently when eleven of them
+  // were already there.
+  let created = 0;
+  let adopted = 0;
   let existing = 0;
   let skipped = 0;
   let failed = 0;
@@ -84,7 +88,10 @@ async function main() {
     // Check if main has commits ahead of baseline
     const compRes = await gh("GET", `/repos/${cfg.org}/${repoName}/compare/${baseline}...main`, null, { token: cfg.token });
     if (!compRes.ok) {
-      console.log(`[skip] ${login}: could not compare ${baseline}...main (HTTP ${compRes.status})`);
+      // Labelled `fail`, not `skip`: it is counted as a failure and it makes
+      // the run exit non-zero, so calling it a skip in the log is the one line
+      // a lecturer would read to decide it was fine.
+      console.log(`[fail] ${login}: could not compare ${baseline}...main (HTTP ${compRes.status})`);
       failed++;
       continue;
     }
@@ -110,21 +117,32 @@ async function main() {
     );
 
     if (prRes.ok && prRes.data) {
-      opened++;
+      created++;
       console.log(`[ok] ${login}: opened PR #${prRes.data.number} (${prRes.data.html_url})`);
       rec.feedback_pr_number = prRes.data.number;
       rec.feedback_pr_url = prRes.data.html_url;
       await writeFile(filePath, JSON.stringify(rec, null, 2) + "\n");
     } else if (prRes.status === 422 && String(prRes.data?.errors?.[0]?.message).includes("A pull request already exists")) {
-      // Adopt existing PR
-      const listPrs = await gh("GET", `/repos/${cfg.org}/${repoName}/pulls?head=${cfg.org}:main&base=${baseline}&state=all`, null, { token: cfg.token });
-      if (listPrs.ok && listPrs.data?.[0]) {
-        const found = listPrs.data[0];
-        opened++;
+      // Adopt the pull request that already exists. `state=open`, not `all`:
+      // "already exists" can only be an OPEN one - a closed pull request does
+      // not block a new one, verified live - and asking for `all` and taking
+      // [0] leant on GitHub's default sort to avoid recording a closed pull
+      // request as this assignment's feedback thread.
+      const listPrs = await gh("GET", `/repos/${cfg.org}/${repoName}/pulls?head=${cfg.org}:main&base=${baseline}&state=open`, null, { token: cfg.token });
+      const found = listPrs.ok ? listPrs.data?.[0] : null;
+      if (found) {
+        adopted++;
         console.log(`[ok] ${login}: adopted existing PR #${found.number}`);
         rec.feedback_pr_number = found.number;
         rec.feedback_pr_url = found.html_url;
         await writeFile(filePath, JSON.stringify(rec, null, 2) + "\n");
+      } else {
+        // GitHub said one exists and then did not list it. Counted, not
+        // swallowed: this branch used to fall through recording nothing at
+        // all, so the student had a feedback PR the control repo never knew
+        // about and the summary said neither opened nor failed.
+        failed++;
+        console.log(`[fail] ${login}: GitHub reports a pull request already exists but did not list it (HTTP ${listPrs.status})`);
       }
     } else {
       console.log(`[fail] ${login}: PR creation failed (HTTP ${prRes.status}): ${prRes.data?.message || ""}`);
@@ -135,7 +153,21 @@ async function main() {
     await sleep(250);
   }
 
-  console.log(`\nFeedback PR summary: ${opened} opened/adopted, ${existing} existing, ${skipped} skipped (no commits), ${failed} failed.`);
+  console.log(
+    `\nFeedback PR summary: ${created} opened, ${adopted} adopted, ${existing} already recorded, ` +
+    `${skipped} skipped (no commits), ${failed} failed.`,
+  );
+
+  // Non-zero on partial failure, matching `pxl-classroom feedback open`. A run
+  // that could not open a PR for four students out of forty is not a success,
+  // and a lecturer reading a green tick would never go looking.
+  //
+  // This is why the workflow's commit step is `if: always()`: the records for
+  // the PRs that DID open are already written, and abandoning them means the
+  // next run has to rediscover every one of them through the adopt path.
+  if (failed > 0) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((e) => {
