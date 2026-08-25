@@ -133,7 +133,7 @@
             <th>Repository</th>
             <th>Commits</th>
             <th>Status</th>
-            <th v-if="isGitHubActionsAutograde">CI Status</th>
+            <th v-if="ciStatusColumn">CI Status</th>
             <th v-if="autogradeEnabled">Score</th>
             <th>Preserved</th>
             <th class="col-actions"><span class="sr-only">Actions</span></th>
@@ -210,7 +210,7 @@
             </td>
 
             <!-- CI Status column (Autograding) -->
-            <td v-if="isGitHubActionsAutograde">
+            <td v-if="ciStatusColumn">
               <button
                 v-if="team.ci_status"
                 type="button"
@@ -227,15 +227,15 @@
             <!-- Score column (Autograding) -->
             <td v-if="autogradeEnabled">
               <button
-                v-if="team.earned_points != null || team.score"
+                v-if="team.earned_points != null"
                 type="button"
                 class="badge"
-                :class="(team.earned_points != null ? team.earned_points >= (team.total_points || 30) : !String(team.score).includes('0/')) ? 'badge-success' : 'badge-warning'"
+                :class="team.earned_points >= team.total_points && team.total_points > 0 ? 'badge-success' : (team.earned_points > 0 ? 'badge-warning' : 'badge-error')"
                 @click="openTeamAutogradeModal(team)"
-                title="Click to view team test breakdown"
+                title="Click to view the score and open the CI run"
                 style="cursor: pointer; border: none; font-size: 0.75rem;"
               >
-                {{ team.score || `${team.earned_points}/${team.total_points || 30} pts` }}
+                {{ team.earned_points }}/{{ team.total_points }} pts
               </button>
               <span v-else class="text-muted text-xs">-</span>
             </td>
@@ -443,7 +443,9 @@
             <div>
               <div class="text-xs text-secondary uppercase font-semibold">Team Score</div>
               <div class="text-xl font-bold" style="font-size: 1.4rem;">
-                {{ activeTeamAutograde.earned_points != null ? `${activeTeamAutograde.earned_points} / ${activeTeamAutograde.total_points || assignment?.autograde?.points_possible || 100} pts` : (activeTeamAutograde.score || activeTeamAutograde.ci_status || 'Graded') }}
+                <!-- No invented denominator: `points_possible` is not a schema
+                     field, so the 100 was a number nobody set. -->
+                {{ activeTeamAutograde.earned_points != null ? `${activeTeamAutograde.earned_points} / ${activeTeamAutograde.total_points} pts` : (activeTeamAutograde.ci_status || 'No score read yet') }}
               </div>
             </div>
             <div>
@@ -471,11 +473,16 @@
               </div>
             </div>
           </div>
+          <!-- Check-run annotations carry the grand total only; the per-check
+               breakdown exists in the run and nowhere else. -->
           <div v-else class="text-secondary text-sm">
-            <p v-if="activeTeamAutograde.repo_url" style="margin: 0;">
-              View full test runs and workflow logs on GitHub Actions:
-              <a :href="`${activeTeamAutograde.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link" style="text-decoration: underline;">
-                Open Team GitHub Actions logs →
+            <p style="margin: 0;">
+              The per-check breakdown is in the grading run itself.
+              <a v-if="activeTeamAutograde.ci_run_url" :href="activeTeamAutograde.ci_run_url" target="_blank" rel="noopener" class="btn-link">
+                Open the run →
+              </a>
+              <a v-else-if="activeTeamAutograde.repo_url" :href="`${activeTeamAutograde.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link">
+                Open GitHub Actions →
               </a>
             </p>
           </div>
@@ -529,11 +536,21 @@ const newTeamForm = ref({
 
 const maxTeamSize = computed(() => props.assignment?.group_config?.max_team_size || 3)
 
-const autogradeEnabled = computed(() => props.assignment?.autograde?.enabled === true)
+// Same rule as AssignmentDetailView: the Score column keys on grades EXISTING,
+// not on the assignment declaring autograding here. Grades produced by a
+// workflow that shipped inside the template repository are still grades, and a
+// column that can only ever be blank is C4.
+const hasGrades = computed(() => (props.teams || []).some((t) => t.earned_points != null))
+const autogradeEnabled = computed(() => hasGrades.value)
 
+// Whether the assignment declares Actions-run autograding here - which is what
+// makes `refreshLiveStatus` fill ci_status, independently of any score. So the
+// CI column has two ways to be populated and the Score column has one.
 const isGitHubActionsAutograde = computed(
-  () => autogradeEnabled.value && props.assignment?.autograde?.execution_environment === 'github_actions'
+  () => props.assignment?.autograde?.enabled === true &&
+        props.assignment?.autograde?.execution_environment === 'github_actions'
 )
+const ciStatusColumn = computed(() => hasGrades.value || isGitHubActionsAutograde.value)
 
 const activeTeamAutograde = ref(null)
 

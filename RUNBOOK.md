@@ -986,20 +986,32 @@ When `execution_environment` is `github_actions`, the tests run automatically on
 
 To pull the grades back into the control repository:
 1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment (or run `pxl-classroom grade --assignment <id>`).
-2. Click the **Sync CI results from GitHub** button in the Autograder panel.
-3. The system fetches the Checks API outputs for all students (supporting both preserved and active commit SHAs), parses granular `Points <earned>/<total>` results, and writes `grading/<id>/summary.json` to the control repository.
+2. Choose **··· More → Read scores from GitHub Actions**. Once there are grades on screen the same action also sits in the Autograder panel.
+3. The system fetches the Checks API at each student's preserved or latest observed SHA, reads the score from the check run's **annotations**, and writes `grading/<id>/summary.json` to the control repository. The Score and CI Status columns fill in immediately, and the CSV export carries them.
 
-### 12.10 Starter Code Resynchronization & Updates
+**This works for an assignment whose autograding came with the template.** If the template repository ships its own `classroom.yml` - the ordinary GitHub Classroom setup - the assignment does not need an `autograde` block in the Admin Panel, and you do not need to re-enter the exercises or their points: the reporter's annotation carries the maximum. The action is offered on any assignment that has not explicitly chosen a lecturer-local runner.
 
-If you need to distribute template fixes, new test assertions, or additional scaffolding after students have already accepted an assignment:
+**Where the number comes from, and what it is not.** A check run created by GitHub Actions has an empty output body; the reporter emits `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` as annotations, and that is what is read. A run with no such annotation is recorded from the run's conclusion instead - full marks or zero - and marked `score_source: "conclusion"` so it can be told apart from a real score. There is **no per-test breakdown** on this path: annotations carry the grand total only, so the drill-down links to the run rather than inventing a table. For a per-test breakdown, grade locally with `pxl-classroom grade --runner docker`, which writes `grading/<id>/<login>.json`.
+
+### 12.10 Correcting an assignment after students have accepted
+
+Spotted a mistake in the assignment? Fix it in the **template repository**, commit, and push. The sync distributes **that commit**.
+
+> Commit the fix on its own. The sync offers the files your *latest* template commit touched, so a commit that mixes a correction with three unrelated edits offers all four.
+>
+> And be careful what the last commit contains: if you have been solving the exercises in the template to check them, the sync will happily offer your solution as the starter code. Solve in a scratch repository, or revert before syncing.
 
 #### Option A: Web UI (Interactive Modal)
-1. On `AssignmentDetailView`, click the **Sync Starter Code** button in the action bar.
-2. **Inspect Diff & Select Files:** Review template commits and select which modified files to synchronize using checkboxes (e.g. sync only `tests/` and leave project files untouched).
-3. **Pre-Flight Conflict Analysis:** The modal automatically checks student repositories in the background with a live progress bar, categorizing repositories into:
-   - **Clean Auto-Merges:** Repositories that haven't modified the target files will receive clean direct merges.
-   - **Potential Conflicts:** Repositories with custom changes on the target files will receive isolated Pull Requests.
-4. **Customize & Dispatch:** Adjust the commit/PR title, custom instructions, and choose whether to open a tracking issue in each student repository. Click **Apply Starter Update** to trigger the workflow.
+1. On `AssignmentDetailView`, choose **··· More → Sync Starter Code**.
+2. **Review the commit and pick files.** The modal shows the template's latest commit and the files it changed, each with its diff. Everything is ticked; untick anything you do not want to send.
+3. **Pre-flight.** Each student repository is read once and sorted into:
+   - **Updated in place** - they have not touched these files, so the new version is committed straight to their `main` and arrives on their next `git pull`.
+   - **Pull request** - they have changed at least one of them, so those files arrive as a PR and their work is not overwritten.
+   - **Nothing to do** / **Could not read**.
+   Ticking and unticking files re-sorts the cohort instantly; it does not re-scan.
+4. **Customize & Dispatch:** adjust the commit/PR title, the student-facing instructions, and whether to open a tracking issue. Click **Apply Starter Update**.
+
+The split is **per file**: a student who edited one of four corrected files still gets the other three directly, and a PR for the one. That is why a sync record can say `merged-and-pr` for the same student.
 
 #### Option B: CLI Companion
 
@@ -1007,7 +1019,7 @@ If you need to distribute template fixes, new test assertions, or additional sca
 # Preview what would be updated across the cohort
 pxl-classroom sync-starter --assignment linux-processes-2026 --dry-run
 
-# Sync all template changes with automatic conflict fallback
+# Send every file the latest template commit changed
 pxl-classroom sync-starter --assignment linux-processes-2026
 
 # Selectively sync specific files and customize the message
@@ -1017,7 +1029,8 @@ pxl-classroom sync-starter --assignment linux-processes-2026 \
                            --message "Updated test suite with corrected edge case assertion."
 ```
 
-- **Smart Auto-Merge Mechanics:** Clean repositories have the template commit merged directly into `main` (zero friction for students; changes arrive on their next `git pull`). Conflicted repositories receive an isolated branch `refs/heads/starter-update-<timestamp>` with an open Pull Request into `main`, ensuring student work is never overwritten.
+- **Mechanics:** the sync copies file content; it never merges the template's history into a student repository, because a repository created from a template shares no commits with it. Files the student has not touched are committed directly to `main`; files they have changed go onto `refs/heads/starter-update-<timestamp>` with a pull request into `main`, so their work is never overwritten.
+- `--dry-run` reads only. No commits, no branches, no pull requests, no issues.
 - **Audit Records:** Complete execution summaries are stored in the control repo at `syncs/<assignment-id>/<sync-id>.json`.
 
 ### 12.11 Pre-Flight Diagnostics, System Health & 1-Click Auto-Fixes

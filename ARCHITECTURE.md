@@ -251,7 +251,8 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `participating-orgs.schema.json` | Hub-side registry of participating orgs |
 | `limits.schema.json` | Global and per-org weekly usage limits |
 | `limits-overrides.schema.json` | Per-repository SKU threshold overrides |
-| `grading-result.schema.json` | Autograder run result record |
+| `grading-result.schema.json` | Per-student autograder result, with the test breakdown |
+| `grading-summary.schema.json` | Cohort grading roll-up, joined onto the report by login |
 | `download-manifest.schema.json` | Preserved submission archive download manifest |
 
 ### 5.4 Assignment definition
@@ -924,7 +925,15 @@ Assignment YAML may carry an `autograde` block (`enabled`, `execution_environmen
 
 **1. Lecturer-side (CLI-only):** When `execution_environment` is `lecturer_local`, tests execute on the **lecturer's** machine via `pxl-classroom grade --runner docker|host` against archive SHAs - never on the platform - keeping Wave 8 minimal-minutes intact. Results land in `grading/<assignment-id>/<login>.json` plus `summary.json` (validated against `schemas/grading-result.schema.json`). The Docker runner sandboxes each test with `--network=none`, read-only bind mount, `--memory=512m`, and per-test wall-clock timeouts; the host runner is host-direct and intended for trusted-code use only.
 
-**2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions on every student push. During provisioning, if the template repository already provides its own `.github/workflows/autograding.yml` or `classroom.yml`, it is preserved without overwrite; otherwise, provisioning injects a workflow composed of `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter` actions (or calls a private reusable workflow in the control repo if `visibility` is `private`). Grades are synced via the SPA using the "Sync CI results from GitHub" button (or CLI `pxl-classroom grade`), which queries the GitHub Checks API at each student's preserved or latest observed commit SHA, parses granular `Points <earned>/<total>` strings from check-run outputs, and commits the aggregated results to `grading/<id>/summary.json`.
+**2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions on every student push. During provisioning, if the template repository already provides its own `.github/workflows/autograding.yml` or `classroom.yml`, it is preserved without overwrite; otherwise, provisioning injects a workflow composed of `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter` actions (or calls a private reusable workflow in the control repo if `visibility` is `private`). Grades are read via the SPA's **Read scores from GitHub Actions** action (or CLI `pxl-classroom grade`), which queries the Checks API at each student's preserved or latest observed commit SHA and commits the results to `grading/<id>/summary.json` (validated against `schemas/grading-summary.schema.json`).
+
+**The score is in the check run's ANNOTATIONS, not its output body.** `lib/check-run-score.mjs` is the one parser. A check run created by GitHub Actions has `output.title` and `output.summary` set to `null`; the reporter calls `core.notice()`, so `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` arrive as annotations, fetched separately from `GET /repos/{o}/{r}/check-runs/{id}/annotations` and paginated (the default page size is 30 and a grader emitting a notice per exercise scrolls the score off page one). Both the CLI and the SPA previously held a byte-identical private copy that searched `output.*` only, never matched, and fell back to the run's conclusion - full marks for a green run, zero for anything else, and never a partial score: a 15/20 was recorded as 0.
+
+**Reading CI scores needs no configuration.** An assignment whose autograding ships inside the template repository - the GitHub Classroom shape, where `classroom.yml` arrives with the starter code - declares no `autograde` block here, and the annotation carries `maxPoints`, so even the denominator is known without anybody entering it. The action is therefore offered on any assignment that has not declared a *local* runner. What gates the Score column is **grades existing**, never the assignment's configuration: the column and the CI Status column keyed on `autograde.enabled` before, while nothing in the system ever wrote `earned_points` onto a report row, so every cell under them was empty for as long as they existed.
+
+**The per-check breakdown is not available on this path.** Annotations carry a grand total and nothing else, so the drill-down shows the score, the run's conclusion and a link to the run - it does not synthesise a per-test table out of one number.
+
+`AssignmentDetailView` joins `grading/<id>/summary.json` onto the report by login at load time. The grades stay in their own document because two surfaces write them and neither owns `reports/<id>.json`; joining at render keeps one writer, needs no report-schema change, and the client-side CSV export picks the columns up for free.
 
 **Configuring them is one line in the assignment form and a modal behind it.** `AutogradeModal.vue` asks the two questions that are actually decisions - *where do they run* (two cards carrying the trade-off: Actions minutes, what students see, whether the checks land in their repository) and, only when the answer is *in each student's repo*, *can students read them* - and then lists the checks in a table with a running points total. Checks are added from named presets that arrive pre-filled and schema-valid, rather than as an empty row plus a type dropdown. `frontend/src/lib/autograde.js` holds the pure half (presets, per-row problems, the schema shape, the summary line) and is shared by the modal, the form and the tests. `autograde.enabled` has no control of its own: the configuration's existence is the flag, so an `enabled: true` block with no checks - which `tests.minItems: 1` makes unsaveable - is read as off rather than preserved.
 
@@ -932,17 +941,20 @@ Assignment YAML may carry an `autograde` block (`enabled`, `execution_environmen
 
 In both modes, `AssignmentDetailView` shows a read-only Autograder panel rendering the latest summary.
 
-### 11.7 Smart Starter Code Synchronization
+### 11.7 Starter Code Synchronization
 
-If an instructor updates starter code or test suites after students have accepted repositories:
+The case this exists for is small and common: a lecturer spots a mistake in the assignment after students have accepted, fixes it in the template, and wants that fix in every student repository. So the unit of a sync is **one template commit**, and the default selection is the files that commit changed.
 
-1. **Selective File Picking & Diff Inspection:** `StarterSyncModal.vue` allows instructors to inspect new template commits and select specific files to synchronize via checkboxes.
-2. **Pre-Flight Conflict Scanner:** The SPA runs a background conflict analysis against student repositories with a live progress bar, categorizing the cohort into Clean Auto-Merges vs. Potential Conflicts.
-3. **Smart Auto-Merge Algorithm:**
-   - **Clean non-conflicting student repositories (90%+):** Executes a direct three-way merge into `main`. Friction for students is zero; the fix arrives automatically on their next `git pull`.
-   - **Conflicted repositories:** Safely aborts mutating `main`, creates an isolated branch `refs/heads/starter-update-<timestamp>`, and opens a Pull Request into `main` so student work is never overwritten.
-4. **Student Tracking Issues:** Automatically opens an informational Issue in each student repository with clear instructions.
-5. **Execution & Records:** Triggered via the Web UI modal, CLI `pxl-classroom sync-starter`, or `.github/workflows/sync-starter-code.yml`. Sync results are committed to `syncs/<assignment-id>/<sync-id>.json` (validated by `schemas/sync-record.schema.json`).
+**It copies content; it does not merge history.** Student repositories are created with `POST /repos/{tpl}/generate` (§7.1), which produces a repository holding a single squashed commit and **no objects in common with the template**. The original implementation asked each student repository to `compare/{templateSha}...main` and then `POST /merges { head: templateSha }` - a SHA that does not exist there, which GitHub answers with **404**, not the 409 the PR fallback keyed on. Every student was recorded as `failed`, and the PR path was unreachable. The feature could not work for any repository this system provisions, and the tests missed it by building their students with `git clone` of the template.
+
+1. **The plan is decided by blob SHAs.** `lib/starter-sync.mjs` compares three git trees - the template at the commit (`head`), the template at its parent (`base`), and the student's default branch - read with `GET /git/trees/{ref}?recursive=1`, one request each. Git blob SHAs are content addresses, identical in every repository for identical bytes, so this compares content exactly without fetching a single file. Per path: matching `head` is already done, matching `base` means the student never touched it, anything else is theirs.
+2. **The split is per file, not per student.** Files the student has not touched are written straight to `main` in one `lib/gittree.mjs` commit; files they have changed go onto `refs/heads/starter-update-<timestamp>` - branched from **their own** `main`, so no foreign SHA is involved - and are offered as a pull request. One edited file no longer holds back every other correction, which is why the sync record's outcome vocabulary includes `merged-and-pr`.
+3. **The file selection is load-bearing.** It used to be recorded in the sync record and pasted into the PR body while the operation merged the entire template HEAD regardless - the modal said *"Files to Synchronize (1/1)"* over an operation carrying everything. `selected_files` now records the paths actually applied.
+4. **One planner, three surfaces.** `StarterSyncModal.vue`'s pre-flight, `scripts/sync-starter.mjs` and `pxl-classroom sync-starter` all import `lib/starter-sync.mjs`, so the modal's preview and the workflow's behaviour cannot drift. The modal reads each student's tree once and re-decides locally as files are ticked, instead of re-scanning the cohort on every checkbox.
+5. **Student Tracking Issues:** an informational Issue in each student repository, naming the pull request where there is one.
+6. **Execution & Records:** triggered via the Web UI modal, CLI `pxl-classroom sync-starter`, or `.github/workflows/sync-starter-code.yml`. Results are committed to `syncs/<assignment-id>/<sync-id>.json` (validated by `schemas/sync-record.schema.json`).
+
+Bounds that must stay honest: a truncated tree listing **fails** rather than being read as "the student deleted everything", and a commit touching more than 300 files is reported as capped, because GitHub's commit API lists no more than that.
 
 ---
 

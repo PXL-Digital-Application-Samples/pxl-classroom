@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
-import { parseCheckRunScore } from "../cli/src/commands/grade.mjs";
+import { parseCheckRunScore } from "../lib/check-run-score.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
 test("autograde workflow: parses valid YAML with multi-step commands and custom timeout", () => {
@@ -123,7 +123,7 @@ test("parseCheckRunScore: handles realistic markdown tables from autograding-gra
     }
   };
 
-  const parsed = parseCheckRunScore(run, 65);
+  const parsed = parseCheckRunScore(run, [], 65);
   assert.equal(parsed.earned, 45);
   assert.equal(parsed.total, 65);
   assert.equal(parsed.matched, true);
@@ -141,7 +141,7 @@ test("parseCheckRunScore: handles decimals in Points (e.g. 19.5/20)", () => {
     }
   };
 
-  const parsed = parseCheckRunScore(run, 20);
+  const parsed = parseCheckRunScore(run, [], 20);
   assert.equal(parsed.earned, 19.5);
   assert.equal(parsed.total, 20);
   assert.equal(parsed.matched, true);
@@ -158,7 +158,7 @@ test("parseCheckRunScore: handles zero total points (Points 0/0)", () => {
     }
   };
 
-  const parsed = parseCheckRunScore(run, 0);
+  const parsed = parseCheckRunScore(run, [], 0);
   assert.equal(parsed.earned, 0);
   assert.equal(parsed.total, 0);
   assert.equal(parsed.matched, true);
@@ -176,7 +176,7 @@ test("parseCheckRunScore: non-matching summary falls back to binary conclusion",
     }
   };
 
-  const parsedSuccess = parseCheckRunScore(successRun, 100);
+  const parsedSuccess = parseCheckRunScore(successRun, [], 100);
   assert.equal(parsedSuccess.earned, 100);
   assert.equal(parsedSuccess.total, 100);
   assert.equal(parsedSuccess.passed, true);
@@ -192,7 +192,7 @@ test("parseCheckRunScore: non-matching summary falls back to binary conclusion",
     }
   };
 
-  const parsedFail = parseCheckRunScore(failRun, 100);
+  const parsedFail = parseCheckRunScore(failRun, [], 100);
   assert.equal(parsedFail.earned, 0);
   assert.equal(parsedFail.total, 100);
   assert.equal(parsedFail.passed, false);

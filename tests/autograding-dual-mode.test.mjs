@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCheckRunScore } from '../cli/src/commands/grade.mjs';
+import { parseCheckRunScore } from '../lib/check-run-score.mjs';
 import { buildAutogradingWorkflow } from '../provisioning/provision.mjs';
 import { validateAgainst } from '../lib/validate.mjs';
 
@@ -67,7 +67,7 @@ test('Autograding Check-Run Parser: Team 1 Full Pass (30/30 pts)', () => {
     },
   };
 
-  const parsed = parseCheckRunScore(fullPassRun, 30);
+  const parsed = parseCheckRunScore(fullPassRun, [], 30);
   assert.equal(parsed.earned, 30);
   assert.equal(parsed.total, 30);
   assert.equal(parsed.passed, true);
@@ -90,7 +90,7 @@ test('Autograding Check-Run Parser: Team 2 Partial Fail (20/30 pts)', () => {
     },
   };
 
-  const parsed = parseCheckRunScore(partialFailRun, 30);
+  const parsed = parseCheckRunScore(partialFailRun, [], 30);
   assert.equal(parsed.earned, 20);
   assert.equal(parsed.total, 30);
   assert.equal(parsed.passed, false);

@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/grading-summary.schema.json",
+  "title": "Grading Summary",
+  "description": "Cohort grading roll-up, written to grading/<assignment-id>/summary.json in the control repo. TWO surfaces write this file - `pxl-classroom grade` (local docker/host runners) and the Admin Panel's read of GitHub Actions check runs - and until this schema existed neither validated it. The Assignment detail view joins it onto reports/<assignment-id>.json by login to fill the Score and CI Status columns.",
+  "type": "object",
+  "required": ["schema_version", "assignment_id", "generated_at", "runner", "students"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "graded_by": {
+      "type": ["string", "null"],
+      "description": "GitHub login of the lecturer who ran it. Null when the session had no user on hand."
+    },
+    "runner": {
+      "type": "string",
+      "enum": ["docker", "host", "github_actions"]
+    },
+    "students": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["login", "earned_points", "total_points"],
+        "additionalProperties": false,
+        "properties": {
+          "login": { "type": "string", "minLength": 1 },
+          "earned_points": { "type": "number", "minimum": 0 },
+          "total_points": { "type": "number", "minimum": 0 },
+          "graded_at": { "type": "string", "format": "date-time" },
+          "ci_status": {
+            "type": ["string", "null"],
+            "description": "The check run's conclusion (success | failure | cancelled | timed_out | …). Recorded because '0 out of 20' and 'the run never finished' are different facts, and the student table shows them differently."
+          },
+          "ci_run_url": {
+            "type": ["string", "null"],
+            "description": "Link to the Actions run the score was read from. The per-test breakdown lives there and nowhere else - check-run annotations carry only the grand total."
+          },
+          "score_source": {
+            "type": "string",
+            "enum": ["annotation-json", "points", "conclusion"],
+            "description": "Where the number came from. `conclusion` means no reporter annotation was found and the grade is all-or-nothing, which is not the same kind of fact as a parsed score."
+          }
+        }
+      }
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["login", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "login": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

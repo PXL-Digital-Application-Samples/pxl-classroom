@@ -109,7 +109,7 @@
               </button>
               <button
                 v-if="unpreservedCount > 0"
-                class="btn btn-sm btn-primary btn-with-icon"
+                class="btn btn-sm btn-secondary btn-with-icon"
                 type="button"
                 @click="retryPreservation"
                 :disabled="retryingPreservation"
@@ -343,6 +343,26 @@
                   </div>
                 </button>
 
+                <!-- The only way in for an assignment whose autograding ships
+                     inside the template repository: there is no Autograder
+                     section to hold the button until the first read has
+                     produced grades. Maintenance actions live here per
+                     DESIGN.md §1.2. -->
+                <button
+                  v-if="ciGradingAvailable"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleSyncGrades"
+                  :disabled="syncingGrades"
+                >
+                  <Icon name="check-circle" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">{{ syncingGrades ? `Reading scores (${syncedGradesCount}/${totalGradesToSync})` : 'Read scores from GitHub Actions' }}</span>
+                    <span class="dropdown-item-sub">Pull each student's autograding result into the table</span>
+                  </div>
+                </button>
+
                 <button
                   v-if="feedbackPrEnabled"
                   class="export-dropdown-item"
@@ -461,8 +481,8 @@
                 <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')">
                   <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
-                <th v-if="isGitHubActionsAutograde" class="col-ci">CI Status</th>
-                <th v-if="autogradeEnabled" class="col-score">Score</th>
+                <th v-if="ciStatusColumn" class="col-ci">CI Status</th>
+                <th v-if="hasGrades" class="col-score">Score</th>
                 <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
                 <th v-if="hasWarnings" class="col-warnings">Warnings</th>
                 <th v-if="hasSubmitTags" @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
@@ -530,7 +550,7 @@
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
                   <span v-else class="text-muted">-</span>
                 </td>
-                <td v-if="isGitHubActionsAutograde" class="col-ci">
+                <td v-if="ciStatusColumn" class="col-ci">
                   <button
                     v-if="s.ci_status"
                     type="button"
@@ -543,17 +563,17 @@
                   </button>
                   <span v-else class="text-muted">-</span>
                 </td>
-                <td v-if="autogradeEnabled" class="col-score">
+                <td v-if="hasGrades" class="col-score">
                   <button
                     v-if="s.earned_points != null"
                     type="button"
                     class="badge"
-                    :class="s.earned_points >= (s.total_points || 30) ? 'badge-success' : 'badge-warning'"
+                    :class="s.earned_points >= s.total_points && s.total_points > 0 ? 'badge-success' : (s.earned_points > 0 ? 'badge-warning' : 'badge-error')"
                     @click="openAutogradeModal(s)"
-                    title="Click to view autograding test breakdown"
+                    title="Click to view the score and open the CI run"
                     style="cursor: pointer; border: none; font-size: 0.75rem;"
                   >
-                    {{ s.earned_points }}/{{ s.total_points || assignment?.autograde?.points_possible || 30 }} pts
+                    {{ s.earned_points }}/{{ s.total_points }} pts
                   </button>
                   <span v-else class="text-muted text-xs">-</span>
                 </td>
@@ -697,12 +717,13 @@
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted" :title="commitMsg(s) || null">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
-              <div v-if="isGitHubActionsAutograde" class="commit-row" style="margin-top: var(--space-xs, 4px); align-items: center;">
+              <div v-if="ciStatusColumn" class="commit-row" style="margin-top: var(--space-xs, 4px); align-items: center;">
                 <span>CI Status:</span>
                 <span v-if="s.ci_status" :class="['badge', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']" style="font-size: 0.7rem; padding: 1px 6px;">
                   {{ s.ci_status }}
                 </span>
                 <span v-else class="text-muted">-</span>
+                <span v-if="s.earned_points != null" class="text-muted">· {{ s.earned_points }}/{{ s.total_points }} pts</span>
               </div>
               <div v-if="feedbackPrEnabled" class="commit-row" style="margin-top: var(--space-xs, 4px);">
                 <span>Feedback PR:</span>
@@ -746,14 +767,22 @@
             </span>
           </header>
           <div class="autograde-banner">
-            Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
-            Total points: <strong>{{ autogradeTotalPoints }}</strong>.
-            <template v-if="isGitHubActionsAutograde">
-              Sync reads CI check-run summaries and point scores directly from GitHub Actions.
+            <template v-if="autogradeDeclared">
+              Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
+              Total points: <strong>{{ autogradeTotalPoints }}</strong>.
             </template>
-            <button v-if="!isGitHubActionsAutograde" class="btn-link" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
-            <button v-else class="btn btn-primary" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
-              {{ syncingGrades ? `Syncing (${syncedGradesCount}/${totalGradesToSync})` : 'Sync CI results from GitHub' }}
+            <template v-else>
+              The checks are defined by a workflow inside the template repository, not here.
+            </template>
+            <template v-if="ciGradingAvailable">
+              Reads the score annotation each grading run leaves on the student's commit.
+            </template>
+            <!-- Secondary, not primary: DESIGN.md §1.2 names Sync among the
+                 toolbar actions, and the invitation link is this view's one
+                 solid button. -->
+            <button v-if="localRunnerDeclared" class="btn-link" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
+            <button v-else class="btn btn-secondary btn-sm" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
+              {{ syncingGrades ? `Reading (${syncedGradesCount}/${totalGradesToSync})` : 'Read scores from GitHub Actions' }}
             </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
@@ -773,8 +802,15 @@
                   <td class="num">{{ row.earned_points }}</td>
                   <td class="num">{{ row.total_points }}</td>
                   <td v-if="summaryIsCiBased">
-                    <span :class="['badge', row.earned_points >= row.total_points && row.total_points > 0 ? 'badge-success' : (row.earned_points > 0 ? 'badge-warning' : 'badge-error')]">
-                      {{ row.earned_points >= row.total_points && row.total_points > 0 ? 'passed' : (row.earned_points > 0 ? 'partial' : 'failed') }}
+                    <!-- The run's own conclusion where it was recorded. Deriving
+                         "passed / partial / failed" from the score alone reads a
+                         cancelled or timed-out run as a legitimate zero. -->
+                    <a v-if="row.ci_run_url" :href="row.ci_run_url" target="_blank" rel="noopener"
+                       :class="['badge', row.ci_status === 'success' ? 'badge-success' : row.ci_status === 'failure' ? 'badge-error' : 'badge-warning']">
+                      {{ row.ci_status || 'completed' }}
+                    </a>
+                    <span v-else :class="['badge', row.earned_points >= row.total_points && row.total_points > 0 ? 'badge-success' : (row.earned_points > 0 ? 'badge-warning' : 'badge-error')]">
+                      {{ row.ci_status || (row.earned_points >= row.total_points && row.total_points > 0 ? 'passed' : (row.earned_points > 0 ? 'partial' : 'failed')) }}
                     </span>
                   </td>
                   <td>{{ fmt(row.graded_at) }}</td>
@@ -923,7 +959,10 @@
               <div>
                 <div class="text-xs text-secondary uppercase font-semibold">Total Score</div>
                 <div class="text-xl font-bold" style="font-size: 1.4rem;">
-                  {{ activeAutogradeItem.earned_points != null ? `${activeAutogradeItem.earned_points} / ${activeAutogradeItem.total_points || assignment?.autograde?.points_possible || 100} pts` : (activeAutogradeItem.score || activeAutogradeItem.ci_status || 'Graded') }}
+                  <!-- No invented denominator. `points_possible` is not a
+                       schema field and never existed; the 100 was the same
+                       class of guess as the `?? 150` acceptance cap. -->
+                  {{ activeAutogradeItem.earned_points != null ? `${activeAutogradeItem.earned_points} / ${activeAutogradeItem.total_points} pts` : (activeAutogradeItem.ci_status || 'No score read yet') }}
                 </div>
               </div>
               <div>
@@ -951,11 +990,18 @@
                 </div>
               </div>
             </div>
+            <!-- A check run's annotations carry the grand total and nothing
+                 else - there is no per-test data to show here, and inventing a
+                 breakdown out of one number would be worse than pointing at
+                 the run that has the real one. -->
             <div v-else class="text-secondary text-sm">
-              <p v-if="activeAutogradeItem.repo_url" style="margin: 0;">
-                View full workflow logs on GitHub Actions:
-                <a :href="`${activeAutogradeItem.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link" style="text-decoration: underline;">
-                  Open GitHub Actions logs →
+              <p style="margin: 0;">
+                The per-check breakdown is in the grading run itself.
+                <a v-if="activeAutogradeItem.ci_run_url" :href="activeAutogradeItem.ci_run_url" target="_blank" rel="noopener" class="btn-link">
+                  Open the run →
+                </a>
+                <a v-else-if="activeAutogradeItem.repo_url" :href="`${activeAutogradeItem.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link">
+                  Open GitHub Actions →
                 </a>
               </p>
             </div>
@@ -1070,6 +1116,7 @@ import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepoContent, listRepoDir, ghApi, commitFile, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
+import { parseCheckRunScore, pickAutogradeCheckRun, fetchCheckRunAnnotations } from '../lib/check-run-score.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { extensionFrom } from '../lib/deadline.js'
@@ -1221,8 +1268,43 @@ const onTimeCount = computed(() => report.value?.students.filter((s) => s.submis
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
 const noSubCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'no-submission').length || 0)
 const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
-const autogradeEnabled = computed(() => assignment.value?.autograde?.enabled === true)
-const isGitHubActionsAutograde = computed(() => autogradeEnabled.value && assignment.value?.autograde?.execution_environment === 'github_actions')
+
+// Three separate questions, and conflating them is what hid scores from every
+// assignment whose autograding ships INSIDE the template repository - the
+// GitHub Classroom shape, where `.github/workflows/classroom.yml` arrives with
+// the starter code and the Admin Panel knows nothing about it.
+//
+//  - autogradeDeclared:  this assignment configures checks HERE, so the
+//                        Autograder section has something to describe.
+//  - localRunnerDeclared: those checks run on the lecturer's machine via the
+//                        CLI, so offering to read GitHub check runs would be
+//                        describing behaviour this assignment does not have.
+//  - ciGradingAvailable: nothing rules out reading check runs. Requires no
+//                        configuration at all: the reporter's annotation
+//                        carries `maxPoints`, so even the denominator is known
+//                        without anybody declaring it.
+const autogradeDeclared = computed(() => assignment.value?.autograde?.enabled === true)
+const localRunnerDeclared = computed(
+  () => autogradeDeclared.value && assignment.value?.autograde?.execution_environment !== 'github_actions',
+)
+const ciGradingAvailable = computed(() => !localRunnerDeclared.value)
+const isGitHubActionsAutograde = computed(
+  () => autogradeDeclared.value && assignment.value?.autograde?.execution_environment === 'github_actions',
+)
+
+// Grades on screen, whatever produced them. The Score and CI Status columns
+// key on THIS and never on the assignment's configuration: they rendered off
+// `autograde.enabled` before, and since nothing ever wrote `earned_points`
+// onto a report row, every cell under them was empty for as long as they
+// existed. A column that can only ever be blank is C4 - the UI describing
+// behaviour the system does not have.
+const hasGrades = computed(() => (autogradeSummary.value?.students?.length || 0) > 0)
+const autogradeEnabled = computed(() => autogradeDeclared.value || hasGrades.value)
+
+// `refreshLiveStatus` fills ci_status from the check run at each student's
+// latest commit without reading any score, so the CI column has a second way
+// to be populated and outlives the grades.
+const ciStatusColumn = computed(() => hasGrades.value || isGitHubActionsAutograde.value)
 const preservedCount = computed(() =>
   (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' || s.preserved_sha).length
 )
@@ -1610,9 +1692,13 @@ const hasWarnings = computed(() =>
 const hasSubmitTags = computed(() =>
   (report.value?.students || []).some(s => !!s.tagged_submission_tag))
 
+// Two optional grading columns, not one. This counted `isGitHubActionsAutograde`
+// once and the Score column rendered off a different condition entirely, so the
+// empty-state colspan was short by one whenever they disagreed.
 const tableColumnCount = computed(() =>
   7 +
-  (isGitHubActionsAutograde.value ? 1 : 0) +
+  (ciStatusColumn.value ? 1 : 0) +
+  (hasGrades.value ? 1 : 0) +
   (feedbackPrEnabled.value ? 1 : 0) +
   (hasWarnings.value ? 1 : 0) +
   (hasSubmitTags.value ? 1 : 0))
@@ -1753,6 +1839,11 @@ function toggleMoreActions() {
 function handleSyncStarterCode() {
   moreActionsOpen.value = false
   showStarterSyncModal.value = true
+}
+
+function handleSyncGrades() {
+  moreActionsOpen.value = false
+  syncGradesFromGitHub()
 }
 
 function handleOpenFeedbackPrs() {
@@ -1926,12 +2017,14 @@ async function loadAll() {
     if (report.value && assignment.value?.feedback_pr === true) {
       await mergeRepoRecordsIntoReport(token)
     }
-    if (assignment.value?.autograde?.enabled === true) {
-      const sum = await getRepoContent(token, props.org, config.controlRepo, `grading/${props.assignmentId}/summary.json`)
-      if (sum) {
-        try { autogradeSummary.value = JSON.parse(sum) } catch { /* malformed */ }
-      }
+    // Read unconditionally. Gating this on `autograde.enabled` meant an
+    // assignment graded by a workflow that shipped with the template - the
+    // GitHub Classroom shape - had its grades on disk and never on screen.
+    const sum = await getRepoContent(token, props.org, config.controlRepo, `grading/${props.assignmentId}/summary.json`)
+    if (sum) {
+      try { autogradeSummary.value = JSON.parse(sum) } catch { /* malformed */ }
     }
+    mergeGradesIntoReport()
     await Promise.all([
       loadOverrides(token),
       fetchRateLimit(token),
@@ -2271,8 +2364,13 @@ async function refreshOne(token, s) {
       if (isGitHubActionsAutograde.value) {
         const checkRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
         if (checkRes.ok && checkRes.data?.check_runs) {
-          const run = checkRes.data.check_runs.find(r => r.name.toLowerCase().includes('grade') || r.name.toLowerCase().includes('autograde')) || checkRes.data.check_runs[0]
-          if (run) s.ci_status = run.conclusion || run.status
+          // Shared picker: this had its own `includes('grade')` variant, which
+          // misses the `classroom` naming the other copy matched.
+          const run = pickAutogradeCheckRun(checkRes.data.check_runs)
+          if (run) {
+            s.ci_status = run.conclusion || run.status
+            s.ci_run_url = run.html_url || run.details_url || s.ci_run_url || null
+          }
         }
       }
     } else if (res.ok && res.data && res.data.length === 0) {
@@ -2388,32 +2486,41 @@ async function refreshLiveStatus() {
   }
 }
 
-function parseCheckRunScore(run, defaultTotal = 0) {
-  const title = run?.output?.title || ''
-  const summary = run?.output?.summary || ''
-  const text = run?.output?.text || ''
-  const fullText = `${title}\n${summary}\n${text}`
+// Join grading/<id>/summary.json onto the rows already on screen, by login.
+//
+// The grades live in their own document because two surfaces write them (this
+// view and `pxl-classroom grade`) and neither owns reports/<id>.json. Joining
+// at render time keeps it that way - no second writer, no report schema
+// change, and the CSV export picks the columns up for free because it is built
+// from what is on screen.
+function mergeGradesIntoReport() {
+  const rows = report.value?.students
+  if (!Array.isArray(rows)) return
 
-  const match = fullText.match(/Points\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*\/\s*([0-9]+(?:\.[0-9]+)?)/i)
-  if (match) {
-    const earned = parseFloat(match[1])
-    const total = parseFloat(match[2])
-    return {
-      earned,
-      total,
-      passed: earned >= total && total > 0,
-      matched: true,
-      summaryText: summary || text || title,
-    }
+  const byLogin = new Map()
+  for (const row of autogradeSummary.value?.students || []) {
+    if (row?.login) byLogin.set(String(row.login).toLowerCase(), row)
   }
 
-  const passed = run?.conclusion === 'success'
-  return {
-    earned: passed ? defaultTotal : 0,
-    total: defaultTotal,
-    passed,
-    matched: false,
-    summaryText: summary || text || title,
+  for (const s of rows) {
+    const g = s.github_login ? byLogin.get(String(s.github_login).toLowerCase()) : null
+    // Assigned rather than spread over the row: a student who has no grade
+    // must not keep a stale one from a previous merge.
+    s.earned_points = g?.earned_points ?? null
+    s.total_points = g?.total_points ?? null
+    s.ci_status = g?.ci_status ?? null
+    s.ci_run_url = g?.ci_run_url ?? null
+    s.graded_at = g?.graded_at ?? null
+  }
+
+  // A group shares one repository, so its grade is its first member's - the
+  // same rule mergeTeamManifests already uses for repo_url.
+  for (const team of report.value?.teams || []) {
+    const first = rows.find((s) => s.team_slug && s.team_slug === team.team_slug && s.earned_points != null)
+    team.earned_points = first?.earned_points ?? null
+    team.total_points = first?.total_points ?? null
+    team.ci_status = first?.ci_status ?? null
+    team.ci_run_url = first?.ci_run_url ?? null
   }
 }
 
@@ -2450,7 +2557,7 @@ async function syncGradesFromGitHub() {
         }
         const checkRuns = checksReq.data?.check_runs || []
         const totalFallback = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0)
-        
+
         if (checkRuns.length === 0) {
           summary.failed.push({
             login: s.github_login,
@@ -2459,13 +2566,48 @@ async function syncGradesFromGitHub() {
           continue
         }
 
-        const run = checkRuns.find(r => /grad|classroom/i.test(r.name)) || checkRuns[0]
-        const parsed = parseCheckRunScore(run, totalFallback)
-        
+        const run = pickAutogradeCheckRun(checkRuns)
+
+        // The score is an ANNOTATION, not an output body: a check run created
+        // by GitHub Actions has `output.summary === null` and carries
+        // `Points X/Y` plus `{"totalPoints":…,"maxPoints":…}` as notices. This
+        // used to parse `output.*` only, never match, and fall through to
+        // "green means full marks, anything else means zero" - so a 15/20 was
+        // recorded as 0. Skipped when the run declares no annotations, so the
+        // ordinary case costs no second request.
+        let annotations = []
+        let annotationsComplete = true
+        if (run?.output?.annotations_count) {
+          const res = await fetchCheckRunAnnotations(
+            (path) => ghApi(token, 'GET', path),
+            { repoFullName: s.repo_name, checkRunId: run.id },
+          )
+          annotations = res.annotations
+          annotationsComplete = res.complete
+        }
+
+        const parsed = parseCheckRunScore(run, annotations, totalFallback)
+
+        // An incomplete annotation read that still had to guess from the
+        // conclusion is not a grade, it is a failed read. Saying so beats
+        // writing a plausible number nobody can tell apart from a real one.
+        if (!parsed.matched && !annotationsComplete) {
+          summary.failed.push({
+            login: s.github_login,
+            reason: `could not read the score annotations on the CI run at ${targetSha.slice(0, 7)}`,
+          })
+          continue
+        }
+
         summary.graded.push({
           login: s.github_login,
           earned_points: parsed.earned,
           total_points: parsed.total > 0 ? parsed.total : totalFallback,
+          // Recorded because the student table renders it, and because
+          // "0 out of 20" and "the run never finished" are different facts.
+          ci_status: run?.conclusion || run?.status || 'completed',
+          ci_run_url: run?.html_url || run?.details_url || null,
+          score_source: parsed.source,
           graded_at: new Date().toISOString()
         })
       } catch (err) {
@@ -2503,13 +2645,27 @@ async function syncGradesFromGitHub() {
       failed: summary.failed,
     }
     
+    // Validated before it is committed, not after somebody notices. Two
+    // surfaces write this file and neither checked it until the schema existed.
+    const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
+    if (!valid) {
+      console.error('grading summary failed schema', errors)
+      toast.error('The grade summary came out malformed and was not saved. Nothing was overwritten.')
+      syncingGrades.value = false
+      return
+    }
+
     const path = `grading/${props.assignmentId}/summary.json`
     const body = JSON.stringify(summaryDoc, null, 2) + '\n'
     const res = await commitFile(token, props.org, config.controlRepo, path, body, `Sync grades for ${props.assignmentId}`)
     
     if (res.ok) {
       autogradeSummary.value = summaryDoc
-      toast.success(`Grades synced successfully (${summary.graded.length} graded)`)
+      mergeGradesIntoReport()
+      const partial = summary.failed.length
+        ? ` ${summary.failed.length} could not be read.`
+        : ''
+      toast.success(`Read ${summary.graded.length} score(s) from GitHub Actions.${partial}`)
     } else {
       toast.error(`Save failed: ${res.data?.message}`)
     }

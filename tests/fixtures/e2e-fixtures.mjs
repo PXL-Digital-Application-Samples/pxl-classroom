@@ -105,6 +105,53 @@ export async function injectAuth(page, user) {
   }, { data: authData });
 }
 
+// The template commit the starter-sync modal reads, and the two shas around it.
+// Hoisted because the commit-detail route and the git-tree route have to agree:
+// the sync decides clean-vs-conflict by comparing blob shas across the template
+// at HEAD, the template at its parent, and the student repository.
+export const TEMPLATE_HEAD_SHA = 'c0ffee1234567890abcdef1234567890abcdef12';
+export const TEMPLATE_PARENT_SHA = 'beefcafe567890abcdef1234567890abcdef1234';
+
+export const TEMPLATE_COMMIT_FILES = [
+  {
+    filename: 'README.md',
+    status: 'modified',
+    additions: 15,
+    deletions: 3,
+    patch: '@@ -10,7 +10,12 @@\n-Old instructions from 2025\n+Updated Assignment Guidelines for 2026\n+Ensure all tests in tests/ pass before deadline',
+  },
+  {
+    filename: 'tests/test_validation.py',
+    status: 'added',
+    additions: 35,
+    deletions: 0,
+    patch: '@@ -0,0 +1,35 @@\n+import unittest\n+class TestValidation(unittest.TestCase):\n+    def test_run(self):\n+        self.assertTrue(True)',
+  },
+  {
+    filename: 'config.json',
+    status: 'modified',
+    additions: 4,
+    deletions: 1,
+    patch: '@@ -1,4 +1,7 @@\n-{\n-  "env": "dev"\n-}\n+{\n+  "env": "prod",\n+  "strict": true\n+}',
+  },
+];
+
+// Default trees, derived from that commit so a spec that does not care about
+// the split gets the ordinary case: a student who has not touched any of these
+// files, and is therefore updated in place. `added` files are absent from the
+// parent AND from the student, which is what makes them a clean add.
+function defaultTree(kind) {
+  const tree = [];
+  for (const f of TEMPLATE_COMMIT_FILES) {
+    if (kind === 'head') {
+      tree.push({ path: f.filename, type: 'blob', sha: `head-${f.filename}` });
+    } else if (f.status !== 'added') {
+      tree.push({ path: f.filename, type: 'blob', sha: `base-${f.filename}` });
+    }
+  }
+  return tree;
+}
+
 /**
  * Standard route interceptor for deterministic frontend testing.
  */
@@ -115,6 +162,16 @@ export async function setupStandardMockRoutes(page, {
   allOrgAssignments = {},
   teams = {},
   reports = {},
+  // grading/<assignment-id>/summary.json, keyed by assignment id. Scores reach
+  // the student table by being joined onto the report from HERE - putting
+  // earned_points straight into a `reports` fixture describes a document the
+  // backend has never written.
+  gradingSummaries = {},
+  // Blob shas per repository, keyed "<owner>/<repo>@<ref>" -> { path: sha }.
+  // Supply one to make a student conflict (a sha matching neither the template
+  // head nor its parent) or already up to date (matching the head). Anything
+  // absent falls back to the pristine default above.
+  gitTrees = {},
   usageReports = {},
   currentUser = STUDENT_2,
   userRepos = [],
@@ -474,6 +531,24 @@ export async function setupStandardMockRoutes(page, {
         return;
       }
 
+      // grading/<assignment-id>/summary.json - the document `pxl-classroom
+      // grade` and the Admin Panel's "Read scores from GitHub Actions" both
+      // write, and the ONLY source of a per-student score. Report documents
+      // never carry earned_points; a fixture that puts one there is describing
+      // a file no backend produces.
+      if (url.includes('/pxl-classroom-control/contents/grading/')) {
+        const match = url.match(/\/grading\/([^/?#]+)\/summary\.json/);
+        const asgnId = match ? match[1] : null;
+        const doc = asgnId && gradingSummaries[asgnId] ? gradingSummaries[asgnId] : null;
+        if (doc) {
+          const contentBase64 = Buffer.from(JSON.stringify(doc)).toString('base64');
+          await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+        } else {
+          await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        }
+        return;
+      }
+
       if (url.includes('/pxl-classroom-control/contents/reports/')) {
         const match = url.match(/\/reports\/([^/?#]+)\.json/);
         const asgnId = match ? match[1] : null;
@@ -632,17 +707,21 @@ export async function setupStandardMockRoutes(page, {
         workflowDispatches.push({ workflow: wf ? decodeURIComponent(wf[1]) : null, inputs });
         await route.fulfill({ status: 204, body: '' });
         return;
-      } else if (url.includes('/compare/')) {
-        // Compare API for pre-flight scan
+      } else if (url.includes('/git/trees/')) {
+        // path -> blob sha for a ref. This is what the sync compares; it does
+        // NOT merge a template SHA into a student repo, because a repository
+        // created with `POST /generate` has no objects in common with its
+        // template and that call is a 404 for every student.
+        const m = url.match(/\/repos\/([^/]+)\/([^/]+)\/git\/trees\/([^/?#]+)/);
+        const repoFullName = m ? `${m[1]}/${m[2]}` : '';
+        const ref = m ? m[3] : 'main';
+        const explicit = gitTrees[`${repoFullName}@${ref}`];
+        const tree = explicit
+          ? Object.entries(explicit).map(([path, sha]) => ({ path, type: 'blob', sha }))
+          : defaultTree(ref === TEMPLATE_HEAD_SHA ? 'head' : 'base');
         await route.fulfill({
           status: 200,
-          body: JSON.stringify({
-            status: 'behind',
-            ahead_by: 0,
-            behind_by: 1,
-            total_commits: 1,
-            files: [],
-          }),
+          body: JSON.stringify({ sha: ref, truncated: false, tree }),
         });
         return;
       } else if (url.includes('/commits/') && !url.includes('/check-runs')) {
@@ -652,33 +731,12 @@ export async function setupStandardMockRoutes(page, {
           status: 200,
           body: JSON.stringify({
             sha,
+            parents: [{ sha: TEMPLATE_PARENT_SHA }],
             commit: {
               message: 'docs: update lab instructions in README.md and add validation tests',
               author: { name: 'Lecturer Alice', date: new Date().toISOString() },
             },
-            files: [
-              {
-                filename: 'README.md',
-                status: 'modified',
-                additions: 15,
-                deletions: 3,
-                patch: '@@ -10,7 +10,12 @@\n-Old instructions from 2025\n+Updated Assignment Guidelines for 2026\n+Ensure all tests in tests/ pass before deadline',
-              },
-              {
-                filename: 'tests/test_validation.py',
-                status: 'added',
-                additions: 35,
-                deletions: 0,
-                patch: '@@ -0,0 +1,35 @@\n+import unittest\n+class TestValidation(unittest.TestCase):\n+    def test_run(self):\n+        self.assertTrue(True)',
-              },
-              {
-                filename: 'config.json',
-                status: 'modified',
-                additions: 4,
-                deletions: 1,
-                patch: '@@ -1,4 +1,7 @@\n-{\n-  "env": "dev"\n-}\n+{\n+  "env": "prod",\n+  "strict": true\n+}',
-              },
-            ],
+            files: TEMPLATE_COMMIT_FILES,
           }),
         });
         return;
@@ -707,7 +765,7 @@ export async function setupStandardMockRoutes(page, {
           status: 200,
           body: JSON.stringify([
             {
-              sha: 'c0ffee1234567890abcdef1234567890abcdef12',
+              sha: TEMPLATE_HEAD_SHA,
               commit: {
                 message: 'docs: update lab instructions in README.md and add validation tests',
                 author: { name: 'Lecturer Alice', date: new Date(Date.now() - 3600 * 1000 * 48).toISOString() },

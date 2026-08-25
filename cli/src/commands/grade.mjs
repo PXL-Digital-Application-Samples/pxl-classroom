@@ -23,6 +23,8 @@ import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { getAssignment, getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
+import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
+import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 const ARCHIVE_REPO = "pxl-classroom-archive";
@@ -116,35 +118,6 @@ function parseConcurrency(val) {
     throw new Error("Concurrency must be a positive integer.");
   }
   return parsed;
-}
-
-export function parseCheckRunScore(run, defaultTotal = 0) {
-  const title = run?.output?.title || "";
-  const summary = run?.output?.summary || "";
-  const text = run?.output?.text || "";
-  const fullText = `${title}\n${summary}\n${text}`;
-
-  const match = fullText.match(/Points\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*\/\s*([0-9]+(?:\.[0-9]+)?)/i);
-  if (match) {
-    const earned = parseFloat(match[1]);
-    const total = parseFloat(match[2]);
-    return {
-      earned,
-      total,
-      passed: earned >= total && total > 0,
-      matched: true,
-      summaryText: summary || text || title,
-    };
-  }
-
-  const passed = run?.conclusion === "success";
-  return {
-    earned: passed ? defaultTotal : 0,
-    total: defaultTotal,
-    passed,
-    matched: false,
-    summaryText: summary || text || title,
-  };
 }
 
 export function registerGradeCommand(program) {
@@ -249,8 +222,14 @@ export function registerGradeCommand(program) {
               return;
             }
             const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
-            const run = checkRuns.find(r => /grad|classroom/i.test(r.name)) || checkRuns[0];
-            const parsedScore = parseCheckRunScore(run, totalFallback);
+            const run = pickAutogradeCheckRun(checkRuns);
+            // The score is in the annotations, not in `output.summary` - see
+            // lib/check-run-score.mjs. Skipped when the run declares none, so
+            // the ordinary case costs no extra request.
+            const { annotations } = run?.output?.annotations_count
+              ? await fetchCheckRunAnnotations(octokit, { repoFullName: s.repo_name, checkRunId: run.id })
+              : { annotations: [] };
+            const parsedScore = parseCheckRunScore(run, annotations, totalFallback);
             const earned = parsedScore.earned;
             const total = parsedScore.total > 0 ? parsedScore.total : totalFallback;
             const passed = parsedScore.passed;

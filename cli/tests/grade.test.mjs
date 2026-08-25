@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { registerGradeCommand, parseCheckRunScore } from "../src/commands/grade.mjs";
+import { registerGradeCommand } from "../src/commands/grade.mjs";
+// The parser moved to lib/check-run-score.mjs and is covered by
+// tests/check-run-score.test.mjs. What belongs HERE is the wiring: that the
+// command fetches annotations and hands them over.
 
 function runGitSync(args, cwd) {
   const res = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -230,121 +233,6 @@ autograde:
     globalThis.fetch = originalFetch;
     Object.defineProperty(process, 'platform', originalPlatform);
   }
-});
-
-test("parseCheckRunScore: extracts Points X/Y from summary, text, or title", () => {
-  // Scenario 1: Partial score from reporter summary
-  const run1 = {
-    output: {
-      title: "Autograding",
-      summary: "### Test Results\n\n| Test | Points |\n|---|---|\n| Task 1 | 5/5 |\n\nPoints 18/20",
-      text: ""
-    },
-    conclusion: "failure"
-  };
-  const res1 = parseCheckRunScore(run1, 20);
-  assert.equal(res1.earned, 18);
-  assert.equal(res1.total, 20);
-  assert.equal(res1.matched, true);
-  assert.equal(res1.passed, false);
-
-  // Scenario 2: Perfect score
-  const run2 = {
-    output: {
-      title: "Autograding Tests",
-      summary: "Points 20/20",
-      text: ""
-    },
-    conclusion: "success"
-  };
-  const res2 = parseCheckRunScore(run2, 20);
-  assert.equal(res2.earned, 20);
-  assert.equal(res2.total, 20);
-  assert.equal(res2.matched, true);
-  assert.equal(res2.passed, true);
-
-  // Scenario 3: Decimals / colon formatting
-  const run3 = {
-    output: {
-      title: "Points: 7.5/10",
-      summary: "",
-      text: ""
-    },
-    conclusion: "failure"
-  };
-  const res3 = parseCheckRunScore(run3, 10);
-  assert.equal(res3.earned, 7.5);
-  assert.equal(res3.total, 10);
-  assert.equal(res3.matched, true);
-
-  // Scenario 4: Output in output.text
-  const runText = {
-    output: {
-      title: "CI",
-      summary: "Completed",
-      text: "Detailed output:\nPoints 14/20\nDone."
-    },
-    conclusion: "failure"
-  };
-  const resText = parseCheckRunScore(runText, 20);
-  assert.equal(resText.earned, 14);
-  assert.equal(resText.total, 20);
-  assert.equal(resText.matched, true);
-
-  // Scenario 5: Case insensitivity & extra whitespace
-  const runCase = {
-    output: {
-      title: "",
-      summary: "POINTS   35   /   50",
-      text: ""
-    },
-    conclusion: "failure"
-  };
-  const resCase = parseCheckRunScore(runCase, 50);
-  assert.equal(resCase.earned, 35);
-  assert.equal(resCase.total, 50);
-  assert.equal(resCase.matched, true);
-
-  // Scenario 6: Zero score
-  const runZero = {
-    output: {
-      title: "Points 0/25",
-      summary: "",
-      text: ""
-    },
-    conclusion: "failure"
-  };
-  const resZero = parseCheckRunScore(runZero, 25);
-  assert.equal(resZero.earned, 0);
-  assert.equal(resZero.total, 25);
-  assert.equal(resZero.matched, true);
-  assert.equal(resZero.passed, false);
-
-  // Scenario 7: Fallback to binary conclusion when no Points string
-  const runFallback = {
-    output: {
-      title: "CI build",
-      summary: "All tests passed",
-      text: ""
-    },
-    conclusion: "success"
-  };
-  const resFallback = parseCheckRunScore(runFallback, 50);
-  assert.equal(resFallback.earned, 50);
-  assert.equal(resFallback.total, 50);
-  assert.equal(resFallback.matched, false);
-  assert.equal(resFallback.passed, true);
-
-  // Scenario 8: Null / undefined output
-  const runNull = {
-    output: null,
-    conclusion: "failure"
-  };
-  const resNull = parseCheckRunScore(runNull, 30);
-  assert.equal(resNull.earned, 0);
-  assert.equal(resNull.total, 30);
-  assert.equal(resNull.matched, false);
-  assert.equal(resNull.passed, false);
 });
 
 test("grade command: github_actions successfully syncs Check Run with Points and commits to control repo", async () => {
