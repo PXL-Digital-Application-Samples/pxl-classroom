@@ -8,7 +8,7 @@ schema_version: 2
 students:
   - student_number: "0123456"
     full_name: Student Name
-    email: student.name@stud.pxl.be
+    email: student.name@student.pxl.be
     class_group: 3A
     github_login: null
     active: true

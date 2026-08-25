@@ -2,7 +2,7 @@ schema_version: 2
 students:
   - student_number: "0123456"
     full_name: Alice Example
-    email: alice@stud.pxl.be
+    email: alice@student.pxl.be
     class_group: 3A
     github_login: alice-test
     active: true
@@ -13,7 +13,7 @@ students:
     active: true
   - student_number: "0789012"
     full_name: Charlie Example
-    email: charlie@stud.pxl.be
+    email: charlie@student.pxl.be
     class_group: 3B
     github_login: charlie-test
     active: false

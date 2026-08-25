@@ -232,7 +232,7 @@ students".
   "schema_version": 1,
   "github_login": "alice-pxl",
   "github_id": 12345678,
-  "email": "alice.example@stud.pxl.be",
+  "email": "alice.example@student.pxl.be",
   "claim_verified": true,
   "student_number": "0123456",
   "claimed_at": "2026-09-01T10:00:00.000Z",
@@ -254,15 +254,23 @@ students".
 `claim_domains` on the **assignment**, resolved over a central default,
 mirroring `limits.yml`'s documented resolution order.
 
-- **This deployment ships the default as `["stud.pxl.be", "pxl.be"]`**,
+- **This deployment ships the default as `["student.pxl.be", "pxl.be"]`**,
   documented as the single line another institution edits on a fork. Simpler
   than inventing a per-deployment mechanism.
+- **`pxl.be` is there on purpose**: it lets a lecturer accept their own
+  assignment, which is how you check a link actually works before handing it to
+  a cohort. Dropping it would make self-testing impossible on a
+  domain-restricted assignment.
+- Note the student domain is **`student.pxl.be`**, not `stud.pxl.be`. The repo
+  carried both - seven placeholders and the shipped roster template said
+  `stud.pxl.be`, two said `student.pxl.be` - and the wrong one was copied into
+  the first draft of this plan. Corrected repo-wide alongside it.
 - **Empty means no restriction.** An assignment can opt out deliberately.
 - Checked **server-side**, case-insensitively. A browser-side shape check is UX.
 
 **Be honest about what this buys.** Under `open` there is no roster, so nothing
-checks that the address *exists* - `jan.jansen@stud.pxl.be` passes, and so does
-`asdf@stud.pxl.be`. The domain check gives **detection and accounting**, not
+checks that the address *exists* - `jan.jansen@student.pxl.be` passes, and so does
+`asdf@student.pxl.be`. The domain check gives **detection and accounting**, not
 prevention:
 
 - an intruder appears carrying a fabricated address and `verified: false`,
@@ -356,7 +364,7 @@ roster, where a fabricated address matches nothing.
 ## 6. Rate limiting and abuse protection
 
 Under `claim`, the claim step is a **guessing oracle**: whoever holds the link
-can submit addresses, and `firstname.lastname@stud.pxl.be` is enumerable.
+can submit addresses, and `firstname.lastname@student.pxl.be` is enumerable.
 Unbounded, somebody could iterate until one matched a roster entry.
 
 Two costs, and the second bites first:
@@ -524,13 +532,26 @@ Each phase is independently shippable and independently valuable.
 
 - Encrypt the address; do not hash it. The lecturer needs a readable address.
 - `claim_domains` per assignment over a central default, shipping
-  `["stud.pxl.be", "pxl.be"]` **here** and documented as the fork point.
+  `["student.pxl.be", "pxl.be"]` **here** and documented as the fork point.
 - The claim is one mechanism across all modes, not roster machinery.
 - `enforced` survives alongside `claim`.
 - ECDSA P-256 for anything a browser signs.
 - A long invitation URL is acceptable.
 - `open` remains genuinely open; its guardrails are the cap, the window and the
   token not leaking. The domain check is detection, not prevention.
+- **Phase F is wanted**: the claim applies to `open` as well as `claim`, for the
+  detection and one-address-one-repo accounting - understood not to be a gate.
+- **A student with no GitHub-verified PXL address may type one**, recorded
+  `claim_verified: false`. Nobody is locked out; the flag carries the
+  distinction. Requiring a verified address was considered and rejected: it
+  blocks a real fraction of students, creates a support burden, and stops
+  nothing determined, because the page is public JavaScript either way.
+- **Build order: Phase A first.** It is the only item with a clock on it.
+
+**Done (2026-08-25):** the exposed token on `2526-sysex-ek2-test2` was rotated
+(`2225151a` -> `4fae7666`, assignment and broker in step). The harvested token
+is **still in the public events feed and always will be** - rotation kills a
+token, it cannot unpublish it. That asymmetry is the whole argument for Phase A.
 
 **Still open:**
 

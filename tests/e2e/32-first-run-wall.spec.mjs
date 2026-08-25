@@ -66,7 +66,7 @@ async function serveRoster(page, { students = null, status = 200 } = {}) {
 const student = (n) => ({
   student_number: `S${n}`,
   full_name: `Student ${n}`,
-  email: `s${n}@stud.pxl.be`,
+  email: `s${n}@student.pxl.be`,
   github_login: `student-${n}`,
 });
 

@@ -83,7 +83,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
     await page.goto(`/dashboard/${ORG}/admin`);
     await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
 
-    const csvData = `student_number,full_name,email,class_group,github_login\n0123456,Alice Enrolled,alice@stud.pxl.be,2TIN,student-enrolled\n0123457,Bob Enrolled,bob@stud.pxl.be,2TIN,bob-enrolled`;
+    const csvData = `student_number,full_name,email,class_group,github_login\n0123456,Alice Enrolled,alice@student.pxl.be,2TIN,student-enrolled\n0123457,Bob Enrolled,bob@student.pxl.be,2TIN,bob-enrolled`;
     await page.locator('.roster-tab textarea').fill(csvData);
 
     // Verify diff calculation
@@ -101,8 +101,8 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
     await setupStandardMockRoutes(page, {
       currentUser: STUDENT_ENROLLED,
       roster: [
-        { student_number: '0123456', full_name: 'Alice Enrolled', email: 'alice@stud.pxl.be', github_login: 'student-enrolled' },
-        { student_number: '0123457', full_name: 'Bob Enrolled', email: 'bob@stud.pxl.be', github_login: 'bob-enrolled' },
+        { student_number: '0123456', full_name: 'Alice Enrolled', email: 'alice@student.pxl.be', github_login: 'student-enrolled' },
+        { student_number: '0123457', full_name: 'Bob Enrolled', email: 'bob@student.pxl.be', github_login: 'bob-enrolled' },
       ],
       assignments: {
         'lab-enforced': {

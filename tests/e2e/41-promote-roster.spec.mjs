@@ -237,7 +237,7 @@ test.describe('41 - the bytes written to the control repo', () => {
     const existing = {
       student_number: '0123456',
       full_name: 'Bob Example',
-      email: 'bob@stud.pxl.be',
+      email: 'bob@student.pxl.be',
       class_group: '3A',
       github_login: 'bob-pxl',
     };

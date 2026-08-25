@@ -62,7 +62,7 @@ function roster(students) {
 const IMPORTED = {
   student_number: "0123456",
   full_name: "Alice Example",
-  email: "alice@stud.pxl.be",
+  email: "alice@student.pxl.be",
   class_group: "3A",
   github_login: "alice-pxl",
 };

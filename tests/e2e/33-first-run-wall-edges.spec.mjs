@@ -89,7 +89,7 @@ async function serveRoster(page, { students = null, status = 200, body = null } 
 const student = (n, over = {}) => ({
   student_number: `S${n}`,
   full_name: `Student ${n}`,
-  email: `s${n}@stud.pxl.be`,
+  email: `s${n}@student.pxl.be`,
   github_login: `student-${n}`,
   ...over,
 });
@@ -331,8 +331,8 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await page.locator('.primer-tab', { hasText: 'Roster' }).click();
     await page.locator('textarea').first().fill(
       'student_number,full_name,email,github_login\n' +
-        '0001,Alice Example,alice@stud.pxl.be,alice-test\n' +
-        '0002,Bob Example,bob@stud.pxl.be,bob-test\n',
+        '0001,Alice Example,alice@student.pxl.be,alice-test\n' +
+        '0002,Bob Example,bob@student.pxl.be,bob-test\n',
     );
     const commit = page.getByRole('button', { name: /Commit roster/i });
     await expect(commit).toBeEnabled({ timeout: 10000 });

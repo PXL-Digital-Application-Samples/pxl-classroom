@@ -30,7 +30,7 @@
           <textarea
             v-model="csvText"
             rows="10"
-            placeholder="student_number,full_name,email,class_group,github_login,team_slug,team_name&#10;0123456,Alice Example,alice@stud.pxl.be,3A,alice-test,team-alpha,Alpha Team"
+            placeholder="student_number,full_name,email,class_group,github_login,team_slug,team_name&#10;0123456,Alice Example,alice@student.pxl.be,3A,alice-test,team-alpha,Alpha Team"
             @input="onCsvInput"
           ></textarea>
         </div>
@@ -540,8 +540,8 @@ function downloadBlob(text, filename, type) {
 function downloadSampleCsv() {
   const sample = [
     CSV_COLUMNS.join(','),
-    '0123456,Alice Example,alice@stud.pxl.be,3A,alice-gh,,true,team-alpha,Alpha Team',
-    '0123457,Bob Example,bob@stud.pxl.be,3B,,,true,team-alpha,Alpha Team',
+    '0123456,Alice Example,alice@student.pxl.be,3A,alice-gh,,true,team-alpha,Alpha Team',
+    '0123457,Bob Example,bob@student.pxl.be,3B,,,true,team-alpha,Alpha Team',
   ].join('\n') + '\n'
   downloadBlob(sample, 'roster-sample.csv', 'text/csv')
 }
