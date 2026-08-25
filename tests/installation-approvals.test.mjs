@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { installationApprovalGaps } from "../lib/audit.mjs";
+import { installationApprovalGaps, ACCOUNT_LEVEL_PERMISSIONS } from "../lib/audit.mjs";
 import { generateAppJwt, MAX_LIFETIME_S, BACKDATE_S } from "../lib/app-jwt.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -135,6 +135,44 @@ test("gaps: a non-numeric installation id becomes null rather than leaking a str
     { id: "abc", account: { login: "OrgA" }, permissions: {} },
   ]);
   assert.equal(gaps[0].installationId, null);
+});
+
+test("gaps: account-level permissions are never counted against an installation", () => {
+  // The first live run reported 14 of 14 installations "unapproved" because
+  // `plan` and `starring` are ACCOUNT permissions - an org installation cannot
+  // carry them, ever - which buried the 5 orgs that genuinely had not approved.
+  // These are the exact permissions the live App declares.
+  const declared = {
+    members: "write",
+    organization_administration: "write",
+    plan: "read",
+    starring: "write",
+  };
+  const approved = { members: "write", organization_administration: "write" };
+  assert.deepEqual(installationApprovalGaps(declared, [installation("OrgA", approved)]), []);
+});
+
+test("gaps: an App declaring ONLY account-level permissions can have no gaps", () => {
+  const gaps = installationApprovalGaps({ plan: "read", starring: "write" }, [
+    installation("OrgA", {}),
+  ]);
+  assert.deepEqual(gaps, []);
+});
+
+test("gaps: a real org-level gap survives alongside account-level noise", () => {
+  // The other half: filtering must not become a blanket amnesty.
+  const declared = { members: "write", plan: "read", starring: "write" };
+  const gaps = installationApprovalGaps(declared, [installation("Lagging", {})]);
+  assert.deepEqual(gaps[0].missing, [{ permission: "members", declared: "write", actual: null }]);
+});
+
+test("gaps: every name in ACCOUNT_LEVEL_PERMISSIONS is actually ignored", () => {
+  // Asserts the list is wired in, not merely exported - the sampling trap from
+  // CLAUDE.md: a test can pass because it never reached the case it names.
+  assert.ok(ACCOUNT_LEVEL_PERMISSIONS.includes("plan"));
+  assert.ok(ACCOUNT_LEVEL_PERMISSIONS.includes("starring"));
+  const declared = Object.fromEntries(ACCOUNT_LEVEL_PERMISSIONS.map((p) => [p, "write"]));
+  assert.deepEqual(installationApprovalGaps(declared, [installation("OrgA", {})]), []);
 });
 
 test("gaps: the inputs are not mutated", () => {
