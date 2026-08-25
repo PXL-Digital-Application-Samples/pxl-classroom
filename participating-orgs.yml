@@ -24,3 +24,5 @@ orgs:
     budget_owner_login: dhoubrechts
   - login: PXL-2TIN-NetAdv-26-27
     budget_owner_login: arnobarzan
+  - login: PXL-Research-Project
+    budget_owner_login: tomcoolpxl
