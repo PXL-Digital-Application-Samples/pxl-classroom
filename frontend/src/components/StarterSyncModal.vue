@@ -450,9 +450,10 @@ async function fetchTemplateData() {
 }
 
 // Read each student's tree ONCE, then classify locally. The scan used to ask
-// `compare/{templateSha}...main` on every student repository, which is a 404 for
-// every repository created from a template - no shared objects, so that SHA is
-// not in it - and the catch-all put all of them under "conflicts".
+// `compare/{templateSha}...main` on every student repository, which answers
+// `404 No common ancestor` for every repository created from a template -
+// verified live - and the catch-all put all of them under "conflicts". So the
+// preview said "everyone conflicts" whatever the cohort had actually done.
 async function runPreFlightScan() {
   scanning.value = true
   const token = getToken()

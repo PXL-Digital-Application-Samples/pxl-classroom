@@ -6,10 +6,10 @@
 //
 // The plan comes from lib/starter-sync.mjs, shared with scripts/sync-starter.mjs
 // and the Admin Panel's pre-flight, so all three classify a student the same
-// way. That module also records why this copies content instead of merging
-// history: a repository created with `POST /generate` shares no objects with
-// its template, so the old `POST /merges { head: templateSha }` was a 404 for
-// every student this system provisions.
+// way. That module records what the old merge-based version actually did: the
+// merge itself worked, but it carried the whole template tree and grafted its
+// history, while the `compare` beside it was a 404 - so the up-to-date skip
+// never fired and the pre-flight called every student a conflict.
 
 import { resolveOrg } from "../lib/org.mjs";
 import { makeOctokit } from "../lib/octokit.mjs";
@@ -21,6 +21,8 @@ import {
   resolveSelection,
   planStarterSync,
   outcomeFor,
+  syncMarker,
+  findExistingSyncPr,
 } from "../../../lib/starter-sync.mjs";
 
 const CONCURRENCY = 4;
@@ -195,6 +197,24 @@ export function registerSyncStarterCommand(program) {
           }
 
           if (plan.conflicts.length > 0) {
+            // Adopt the pull request a previous run of this same sync already
+            // opened, rather than adding another. `paginate` walks the whole
+            // list: one page of it is not the list, and a missed marker is a
+            // duplicate PR rather than a visible error.
+            const openPulls = await octokit.paginate(octokit.rest.pulls.list, {
+              owner: org,
+              repo: repoName,
+              state: "open",
+              per_page: 100,
+            });
+            const existing = findExistingSyncPr(openPulls, templateSha);
+            if (existing) {
+              row.prNumber = existing.number;
+              row.prUrl = existing.html_url;
+              row.prAdopted = true;
+              return row;
+            }
+
             const branchName = `starter-update-${Date.now().toString(36)}`;
             const { data: head } = await octokit.rest.git.getRef({ owner: org, repo: repoName, ref: "heads/main" });
             await octokit.rest.git.createRef({
@@ -214,7 +234,7 @@ export function registerSyncStarterCommand(program) {
               owner: org,
               repo: repoName,
               title: syncTitle,
-              body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}`,
+              body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
               head: branchName,
               base: "main",
             });
@@ -259,7 +279,9 @@ export function registerSyncStarterCommand(program) {
         } else if (res.dryRun) {
           process.stdout.write(`  ? ${pad(res.login, 20)} would ${res.outcome} (${files})\n`);
         } else {
-          const pr = res.prNumber ? ` PR #${res.prNumber} (${res.prUrl})` : "";
+          const pr = res.prNumber
+            ? ` PR #${res.prNumber}${res.prAdopted ? " (already open)" : ""} (${res.prUrl})`
+            : "";
           const sha = res.sha ? ` ${res.sha.slice(0, 7)}` : "";
           process.stdout.write(`  + ${pad(res.login, 20)} ${res.outcome}${sha}${pr} - ${files}\n`);
         }

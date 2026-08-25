@@ -1029,7 +1029,8 @@ pxl-classroom sync-starter --assignment linux-processes-2026 \
                            --message "Updated test suite with corrected edge case assertion."
 ```
 
-- **Mechanics:** the sync copies file content; it never merges the template's history into a student repository, because a repository created from a template shares no commits with it. Files the student has not touched are committed directly to `main`; files they have changed go onto `refs/heads/starter-update-<timestamp>` with a pull request into `main`, so their work is never overwritten.
+- **Mechanics:** the sync copies file content; it never merges the template's history into a student repository. Files the student has not touched are committed directly to `main`; files they have changed go onto `refs/heads/starter-update-<timestamp>` with a pull request into `main`, so their work is never overwritten.
+- **Re-running is safe.** A second run of the same sync skips students who already have the change and reuses the pull request it already opened, rather than adding another.
 - `--dry-run` reads only. No commits, no branches, no pull requests, no issues.
 - **Audit Records:** Complete execution summaries are stored in the control repo at `syncs/<assignment-id>/<sync-id>.json`.
 

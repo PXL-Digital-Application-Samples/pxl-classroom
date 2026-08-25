@@ -28,6 +28,8 @@ import {
   planStarterSync,
   outcomeFor,
   summarize,
+  syncMarker,
+  findExistingSyncPr,
 } from "../lib/starter-sync.mjs";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -165,7 +167,7 @@ test("schemas/sync-record.schema.json rejects invalid sync IDs or missing fields
 // 2. The fixture: a generated repository, not a clone
 // -----------------------------------------------------------------------------
 
-test("a repository created from a template shares no history with it", () => {
+test("identical bytes have identical blob shas in unrelated repositories", () => {
   const root = mkdtempSync(join(tmpdir(), "pxl-sync-generate-"));
   try {
     const template = initRepo(join(root, "template"));
@@ -180,14 +182,21 @@ test("a repository created from a template shares no history with it", () => {
     writeFileSync(join(student, "README.md"), "# Starter\n");
     commitAll(student, "Initial commit");
 
-    // The template's commit is simply not an object in the student repository.
-    // This is what the old `POST /merges { head: templateSha }` was asking for,
-    // and why GitHub answered 404 for every student rather than 409.
-    assert.throws(() => git(["cat-file", "-e", `${templateSha}^{commit}`], student));
+    // No shared ancestry: `git merge-base` finds nothing, which is the local
+    // equivalent of what live GitHub says about a generated repository -
+    // `404 No common ancestor`, which is what broke the old up-to-date check
+    // and made the modal preview every student as a conflict.
+    //
+    // NOT a claim that the old merge 404'd. Measured on 2026-08-25, GitHub
+    // keeps a generated repository in its template's object network, so
+    // `POST /merges { head: templateSha }` succeeded - carrying the whole tree
+    // and grafting the template's history. Git cannot model that here, and a
+    // fixture that pretends to would be the same mistake this file already
+    // made once by using `git clone`.
+    assert.throws(() => git(["merge-base", templateSha, "main"], student));
 
-    // Blob shas, however, match exactly - they are content addresses, so they
-    // are the same in every repository holding the same bytes. That identity is
-    // what the whole plan rests on.
+    // What the planner actually rests on: blob shas are content addresses, so
+    // they match exactly across repositories with no relationship at all.
     const tplTree = treeOf(template);
     const stuTree = treeOf(student);
     assert.equal(stuTree.get("bmi_calculator.py"), tplTree.get("bmi_calculator.py"));
@@ -348,6 +357,46 @@ test("summarize counts a merged-and-pr student under both headings", () => {
   assert.ok(summary.auto_merged + summary.pr_opened + summary.skipped + summary.failed > summary.total);
 });
 
+test("re-running the same sync adopts its pull request instead of opening another", () => {
+  // Observed live on the second run of a rehearsal: the same one-file
+  // correction opened PR #1 and then PR #3 in the same student repository.
+  // Re-running is the first thing a lecturer does when a sync looks like it did
+  // nothing, so this has to be idempotent or it litters every repo that has an
+  // edit in it.
+  const sha = "a".repeat(40);
+  const other = "b".repeat(40);
+
+  const pulls = [
+    { number: 7, html_url: "https://example/7", body: "unrelated student PR" },
+    { number: 9, html_url: "https://example/9", body: `Starter update\n\n${syncMarker(sha)}` },
+  ];
+
+  assert.equal(findExistingSyncPr(pulls, sha).number, 9);
+
+  // A DIFFERENT correction is a different pull request, not an adoption.
+  assert.equal(findExistingSyncPr(pulls, other), null);
+
+  // No open PRs, a null body, an absent list: all "nothing to adopt", never a throw.
+  assert.equal(findExistingSyncPr([], sha), null);
+  assert.equal(findExistingSyncPr([{ number: 1 }], sha), null);
+  assert.equal(findExistingSyncPr(undefined, sha), null);
+});
+
+test("both executors walk the whole PR list before deciding to open one", () => {
+  // One page is not the list, and here a missed marker is a duplicate pull
+  // request rather than a visible error - so it fails silently, which is
+  // exactly the shape CLAUDE.md's pagination rule exists for.
+  const script = readFileSync(join(process.cwd(), "scripts/sync-starter.mjs"), "utf8");
+  const cli = readFileSync(join(process.cwd(), "cli/src/commands/sync-starter.mjs"), "utf8");
+
+  assert.match(script, /ghAll\(`\/repos\/\$\{[^}]*\}\/pulls\?state=open/);
+  assert.match(cli, /octokit\.paginate\(octokit\.rest\.pulls\.list/);
+  for (const [name, src] of [["scripts", script], ["cli", cli]]) {
+    assert.match(src, /findExistingSyncPr/, `${name} must check for an existing sync PR`);
+    assert.match(src, /syncMarker\(/, `${name} must stamp the marker it later looks for`);
+  }
+});
+
 test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself", () => {
   // Same guard as tests/effective-deadline.test.mjs: the pre-flight in the
   // modal, the workflow script and the CLI must reach the same verdict, or the
@@ -367,7 +416,7 @@ test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself"
       // already had to fix once.
       stripComments(src),
       /compare\/\$\{[^}]*\}\.\.\.main|repos\.merge\(|["'`]\/merges/,
-      `${file} must not merge a template SHA into a student repo - it does not exist there`,
+      `${file} must not merge or compare a template SHA against a student repo: the compare 404s and the merge carries the whole tree`,
     );
   }
 });

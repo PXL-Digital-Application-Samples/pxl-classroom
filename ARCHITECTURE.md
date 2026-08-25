@@ -945,7 +945,14 @@ In both modes, `AssignmentDetailView` shows a read-only Autograder panel renderi
 
 The case this exists for is small and common: a lecturer spots a mistake in the assignment after students have accepted, fixes it in the template, and wants that fix in every student repository. So the unit of a sync is **one template commit**, and the default selection is the files that commit changed.
 
-**It copies content; it does not merge history.** Student repositories are created with `POST /repos/{tpl}/generate` (§7.1), which produces a repository holding a single squashed commit and **no objects in common with the template**. The original implementation asked each student repository to `compare/{templateSha}...main` and then `POST /merges { head: templateSha }` - a SHA that does not exist there, which GitHub answers with **404**, not the 409 the PR fallback keyed on. Every student was recorded as `failed`, and the PR path was unreachable. The feature could not work for any repository this system provisions, and the tests missed it by building their students with `git clone` of the template.
+**It copies content; it does not merge history.** Student repositories are created with `POST /repos/{tpl}/generate` (§7.1). The original implementation asked each student repository to `compare/{templateSha}...main` and then `POST /merges { head: templateSha }`. Measured against live GitHub on 2026-08-25, on generated repositories, same-owner and cross-owner alike, those two calls disagree:
+
+* the **merge succeeds** (201), and the resulting commit carries the template's own root commit as a second parent - a generated repository stays in its template's object network, so the SHA resolves;
+* the **compare is a 404**: `No common ancestor between <sha> and main`.
+
+That asymmetry is the bug. The compare fed the `status === "identical"` check, so the *already up to date* skip could never fire and every re-run re-merged; and in the modal's pre-flight a non-ok compare fell to the catch-all, so **every** student was previewed as a conflict whatever the cohort had done. Meanwhile the merge that did work carried the **whole template tree** - making the file selection decorative - and grafted the template's entire history into each student repository. The tests missed all of it by building their students with `git clone` of the template, which is not what provisioning produces either.
+
+In practice neither executor reached any of this: the workflow could not mint an App token (`client-id` passed to an action version that takes `app-id`) and the script handed `loadYaml` file text instead of a path without awaiting it, so `assignment.template` was `undefined`. See §11.7.1.
 
 1. **The plan is decided by blob SHAs.** `lib/starter-sync.mjs` compares three git trees - the template at the commit (`head`), the template at its parent (`base`), and the student's default branch - read with `GET /git/trees/{ref}?recursive=1`, one request each. Git blob SHAs are content addresses, identical in every repository for identical bytes, so this compares content exactly without fetching a single file. Per path: matching `head` is already done, matching `base` means the student never touched it, anything else is theirs.
 2. **The split is per file, not per student.** Files the student has not touched are written straight to `main` in one `lib/gittree.mjs` commit; files they have changed go onto `refs/heads/starter-update-<timestamp>` - branched from **their own** `main`, so no foreign SHA is involved - and are offered as a pull request. One edited file no longer holds back every other correction, which is why the sync record's outcome vocabulary includes `merged-and-pr`.
@@ -954,7 +961,15 @@ The case this exists for is small and common: a lecturer spots a mistake in the 
 5. **Student Tracking Issues:** an informational Issue in each student repository, naming the pull request where there is one.
 6. **Execution & Records:** triggered via the Web UI modal, CLI `pxl-classroom sync-starter`, or `.github/workflows/sync-starter-code.yml`. Results are committed to `syncs/<assignment-id>/<sync-id>.json` (validated by `schemas/sync-record.schema.json`).
 
+7. **Re-running adopts, it does not duplicate.** Each sync pull request carries `<!-- pxl-starter-sync: <templateSha> -->` in its body; a later run of the same sync finds it and reuses that pull request. Re-running is the first thing a lecturer does when a sync looks like it did nothing, and without this each run added another pull request to every repository that had an edit - observed on the second run of a live rehearsal, where one correction opened `#1` and then `#3`. The open-pull-request list is walked in full, because a missed marker is a duplicate rather than a visible error.
+
 Bounds that must stay honest: a truncated tree listing **fails** rather than being read as "the student deleted everything", and a commit touching more than 300 files is reported as capped, because GitHub's commit API lists no more than that.
+
+#### 11.7.1 Two faults that meant neither script had ever run
+
+`sync-starter-code.yml` and `open-feedback-prs.yml` were the only two workflows on the floating `actions/create-github-app-token@v1`, which takes `app-id` and has no `client-id` input, so their **first step** failed with `Input required and not supplied: app-id`. Behind that, both scripts called `loadYaml(<file text>)` without `await` - `loadYaml` takes a **path** and is `async` - so the assignment was a `Promise`, every field read as `undefined`, and `sync-starter.mjs` exited "Assignment has no template repository configured" while `open-feedback-prs.mjs` exited "does not have feedback_pr enabled". Both were also the only two still pinned to `node-version: "20"`.
+
+Nothing caught any of it: the token fault lives inside the action's own input validation, the `loadYaml` fault only surfaces when the script actually runs, and both workflows are `workflow_dispatch`-only, so no nightly ever went red. **A dispatch-only workflow that nothing exercises is untested code, and a green Actions tab says nothing about it.**
 
 ---
 

@@ -5,13 +5,13 @@
 // straight onto `main` for every file the student has not touched, and onto a
 // `starter-update-<ts>` branch with a pull request for the ones they have.
 //
-// It copies content and never merges history - see lib/starter-sync.mjs for why
-// the merge-based implementation this replaced could not work against a
-// repository created from a template.
+// It copies content and never merges history - see lib/starter-sync.mjs for
+// what the merge-based implementation this replaced actually did to a
+// repository created from a template, and which half of it was a 404.
 
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { gh } from "../lib/gh.mjs";
+import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import {
@@ -20,6 +20,8 @@ import {
   planStarterSync,
   outcomeFor,
   summarize,
+  syncMarker,
+  findExistingSyncPr,
 } from "../lib/starter-sync.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -78,10 +80,16 @@ async function main() {
     requestedFiles = ["*"];
   }
 
-  // 1. Read assignment YAML
+  // 1. Read assignment YAML.
+  //
+  // `loadYaml` takes a PATH and is async. This passed it the file's text and
+  // did not await it, so `assignment` was a Promise, `assignment.template` was
+  // undefined, and the script died on the line below with "Assignment has no
+  // template repository configured" - for every assignment, always. Found by
+  // running it: nothing had, because the workflow could not mint a token in
+  // the first place.
   const asgnPath = join(cfg.dataDir, "assignments", `${cfg.assignmentId}.yml`);
-  const asgnYaml = await readFile(asgnPath, "utf8");
-  const assignment = loadYaml(asgnYaml);
+  const assignment = await loadYaml(asgnPath);
 
   const tplOwner = assignment.template?.owner || cfg.org;
   const tplRepo = assignment.template?.repository;
@@ -211,6 +219,20 @@ async function main() {
       // 3b. Files they did touch go onto a branch off THEIR OWN main, so no
       //     foreign SHA is ever involved, and are offered as a pull request.
       if (plan.conflicts.length > 0) {
+        // Adopt the pull request a previous run of this same sync already
+        // opened. Re-running is the first thing a lecturer does when a sync
+        // looks like it did nothing, and without this each run adds another.
+        const openPulls = await ghAll(`/repos/${studentFullName}/pulls?state=open&per_page=100`, { token: cfg.token });
+        const existing = findExistingSyncPr(openPulls, templateSha);
+        if (existing) {
+          row.pr_number = existing.number;
+          row.pr_url = existing.html_url;
+          console.log(`[pr-exists] ${login}: #${existing.number} already open for this update`);
+          results.push(row);
+          await sleep(300);
+          continue;
+        }
+
         const branchName = `starter-update-${Date.now().toString(36)}`;
         const head = await gh("GET", `/repos/${studentFullName}/git/ref/heads/main`, null, { token: cfg.token });
         if (!head.ok) throw new Error(`could not read main (HTTP ${head.status})`);
@@ -232,7 +254,7 @@ async function main() {
 
         const prRes = await gh("POST", `/repos/${studentFullName}/pulls`, {
           title: syncTitle,
-          body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}`,
+          body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
           head: branchName,
           base: "main",
         }, { token: cfg.token });

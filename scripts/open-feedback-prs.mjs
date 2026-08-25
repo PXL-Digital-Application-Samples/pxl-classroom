@@ -27,10 +27,13 @@ async function main() {
   if (!cfg.org) throw new Error("ORG is required");
   if (!cfg.assignmentId) throw new Error("ASSIGNMENT_ID is required");
 
-  // Read assignment YAML
+  // Read assignment YAML. `loadYaml` takes a PATH and is async - passing it the
+  // text and not awaiting it made `assignment` a Promise, so `feedback_pr` was
+  // undefined and this exited "does not have feedback_pr enabled" for every
+  // assignment. Same fault as scripts/sync-starter.mjs had, in the same two
+  // scripts that also could not mint a token: nothing had ever run either.
   const asgnPath = join(cfg.dataDir, "assignments", `${cfg.assignmentId}.yml`);
-  const asgnYaml = await readFile(asgnPath, "utf8");
-  const assignment = loadYaml(asgnYaml);
+  const assignment = await loadYaml(asgnPath);
 
   if (assignment.feedback_pr !== true) {
     console.log(`Assignment ${cfg.assignmentId} does not have feedback_pr enabled.`);
