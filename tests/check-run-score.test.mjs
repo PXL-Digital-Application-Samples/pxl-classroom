@@ -68,6 +68,25 @@ test("without the annotations the same run grades 0/20 - the bug, pinned", () =>
   assert.equal(parsed.source, "conclusion");
 });
 
+test("the runner's deprecation warning is not the student's grading summary", () => {
+  // Live, the first annotation on every one of these runs is a multi-line Node
+  // deprecation notice. With no output body to fall back on it became the whole
+  // summaryText - which the CLI writes into the student's grading result as the
+  // test's stdout. It is still parsed for a score, just not displayed as one.
+  const parsed = parseCheckRunScore(LIVE_RUN, LIVE_ANNOTATIONS, 20);
+  assert.doesNotMatch(parsed.summaryText, /Node\.js 20 is deprecated/);
+  assert.match(parsed.summaryText, /Points 12\/20/);
+
+  // A reporter that emits its score at `warning` level is still read.
+  const warned = parseCheckRunScore(
+    LIVE_RUN,
+    [{ annotation_level: "warning", title: "", message: "Points 9/20" }],
+    20,
+  );
+  assert.equal(warned.earned, 9);
+  assert.equal(warned.matched, true);
+});
+
 test("a `Points X/Y` annotation is read when the JSON report one is absent", () => {
   const annotations = LIVE_ANNOTATIONS.filter((a) => a.title !== "Autograding report");
   const parsed = parseCheckRunScore(LIVE_RUN, annotations, 20);
