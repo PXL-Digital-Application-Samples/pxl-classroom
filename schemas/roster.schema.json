@@ -17,8 +17,25 @@
       "description": "List of enrolled students.",
       "items": {
         "type": "object",
-        "required": ["student_number", "full_name"],
         "additionalProperties": false,
+        "allOf": [
+          {
+            "description": "An imported entry carries an institutional identity; a promoted one cannot. Under roster_mode: open the system only ever learns a GitHub login - deriving a full_name from it would put a guess in a graded field, and a synthesised student_number would collide with real SIS numbering.",
+            "if": {
+              "properties": { "source": { "const": "accepted" } },
+              "required": ["source"]
+            },
+            "then": {
+              "required": ["github_login"],
+              "properties": {
+                "github_login": { "type": "string", "minLength": 1 }
+              }
+            },
+            "else": {
+              "required": ["student_number", "full_name"]
+            }
+          }
+        ],
         "properties": {
           "student_number": {
             "type": "string",
@@ -65,6 +82,38 @@
             "type": "object",
             "additionalProperties": { "type": "string" },
             "description": "Map of assignment_id to pre-assigned team_slug."
+          },
+          "source": {
+            "type": "string",
+            "enum": ["import", "accepted"],
+            "description": "How the entry reached the roster. 'import' (the default when absent) came from a CSV or the Admin Panel and carries an institutional identity. 'accepted' was promoted from an acceptance record under roster_mode: open, where the system learns a GitHub login and nothing else."
+          },
+          "promoted_from": {
+            "type": "object",
+            "required": ["assignment_id", "promoted_at"],
+            "additionalProperties": false,
+            "description": "Provenance of a promoted entry, so a later CSV import can reconcile it against a real student.",
+            "properties": {
+              "assignment_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Assignment whose acceptance produced this entry."
+              },
+              "accepted_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the student accepted, copied from the acceptance record."
+              },
+              "promoted_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the promotion ran."
+              },
+              "promoted_by": {
+                "type": "string",
+                "description": "Who ran the promotion."
+              }
+            }
           }
         }
       }

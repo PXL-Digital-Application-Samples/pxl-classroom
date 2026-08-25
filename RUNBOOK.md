@@ -860,6 +860,34 @@ Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The C
 
 Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits. The cap is therefore **required** with open enrollment - the form will not save without it, and `accept.mjs` rejects a hand-edited uncapped open assignment with `fail:config`. Keep it close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
 
+#### 12.4a Promoting accepted students onto the roster
+
+After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.
+
+```bash
+pxl-classroom roster promote --org <org> --assignment <id> --dry-run   # preview
+pxl-classroom roster promote --org <org> --assignment <id>             # commit
+```
+
+What a promoted entry does and does not carry:
+
+| Field | Promoted? | Why |
+|---|---|---|
+| `github_login`, `github_id` | Yes | The only identity GitHub gives us |
+| `source: accepted` | Yes | Marks it as not-yet-identified so a later CSV import can reconcile it |
+| `promoted_from` | Yes | `assignment_id`, `accepted_at`, `promoted_at`, `promoted_by` |
+| `student_number`, `full_name`, `email`, `class_group` | **No** | GitHub never learns them. A guessed name lands in a graded field; a synthesised student number collides with real SIS numbering |
+| `team_slug` / `team_name` | **No** | Membership belongs to the assignment, and a CSV re-import would wipe it (§5.8) |
+
+Rules worth knowing before you run it:
+
+- **It only adds.** A student already on the roster is left exactly as they are - promotion never overwrites a student number, name or class group with the little it knows. Matching is case-insensitive, the same way `accept.mjs`'s gate matches.
+- **Re-running is free.** A second run finds nothing to add and commits nothing.
+- **It refuses rather than guesses.** A roster that is a bare list of students (no `students:` key) is rejected with an explanation, not rewritten - that shape already lets nobody accept, and you need to know.
+- **Promoting an `enforced` assignment** is normally a no-op. If it does add somebody, they accepted and were removed from the roster afterwards; the command says so and names them.
+
+Afterwards, fill in the real identities by exporting the roster, adding `student_number`/`full_name` columns, and re-importing - the `source: accepted` marker is how you spot which rows still need it.
+
 Symptom this fixes: with `roster_mode: enforced` and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 
 ### 12.5 Auditing an org's install

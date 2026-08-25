@@ -80,23 +80,16 @@ export function csvToRoster(csvText) {
   return { schema_version: 2, students }
 }
 
-export function diffRosters(current, next) {
-  const currentMap = new Map((current?.students ?? []).map((s) => [s.student_number, s]))
-  const nextMap = new Map(next.students.map((s) => [s.student_number, s]))
-
-  const added = []
-  const updated = []
-  const removed = []
-
-  for (const [num, entry] of nextMap) {
-    const prev = currentMap.get(num)
-    if (!prev) added.push(entry)
-    else if (JSON.stringify(prev) !== JSON.stringify(entry)) {
-      updated.push({ before: prev, after: entry })
-    }
-  }
-  for (const [num, entry] of currentMap) {
-    if (!nextMap.has(num)) removed.push(entry)
-  }
-  return { added, updated, removed }
-}
+// Re-exported rather than re-implemented, the same way frontend/src/lib/deadline.js
+// brings in lib/effective-deadline.mjs.
+//
+// The copy that used to live here had already forked from the CLI's in two
+// ways, and both were silent. It compared entries with JSON.stringify, which is
+// key-order sensitive, so a roster whose YAML happened to serialise its keys in
+// another order showed EVERY student as "updated" in the Admin Panel while the
+// CLI reported the same file unchanged. And both keyed the diff on
+// student_number alone - which a promoted entry (source: "accepted") does not
+// have, so every one of them mapped to the key `undefined`: fifty students
+// collapsed into one diff row, and the import that followed would have silently
+// removed forty-nine of them.
+export { diffRosters, rosterKey, describeRosterEntry } from '../../../lib/roster-entries.mjs'

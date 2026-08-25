@@ -116,6 +116,43 @@ export async function listAssignments(octokit, { org }) {
   return docs;
 }
 
+/**
+ * Full acceptance records for an assignment.
+ *
+ * listAcceptedLogins below reads only the directory listing, which carries
+ * names and no content. Promotion needs `github_id` and `accepted_at`, which
+ * live inside each file, so this costs one request per accepted student -
+ * acceptable behind an explicit command, the same trade the Feedback PR column
+ * makes, and not something to put on a render path.
+ */
+export async function listAcceptances(octokit, { org, assignmentId }) {
+  let files = [];
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: `acceptances/${assignmentId}`,
+    });
+    files = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    if (e.status === 404) return [];
+    throw e;
+  }
+  const records = [];
+  for (const f of files) {
+    if (f.type !== "file" || !f.name.endsWith(".json")) continue;
+    const r = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: f.path,
+    });
+    // A record that will not parse is skipped rather than failing the whole
+    // promotion: one corrupt file must not strand a cohort of 200.
+    try {
+      records.push(JSON.parse(Buffer.from(r.data.content, "base64").toString("utf8")));
+    } catch {
+      records.push({ __unparseable: f.path });
+    }
+  }
+  return records;
+}
+
 /** Logins with an acceptance record for an assignment. */
 export async function listAcceptedLogins(octokit, { org, assignmentId }) {
   try {

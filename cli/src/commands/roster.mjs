@@ -21,11 +21,24 @@ import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { makeOctokit } from "../lib/octokit.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { stableStringify } from "../lib/stable.mjs";
 import { resolveOrg } from "../lib/org.mjs";
+// Shared with frontend/src/lib/csv.js. The two copies had already forked - this
+// one compared entries with a stable stringify, the SPA's with JSON.stringify -
+// and both keyed the diff on student_number alone, which a promoted entry does
+// not have. See lib/roster-entries.mjs.
+import {
+  ROSTER_PATH,
+  diffRosters,
+  describeRosterEntry,
+} from "../../../lib/roster-entries.mjs";
+import {
+  planPromotion,
+  promoteCommitMessage,
+  promotionChangesAnything,
+} from "../../../lib/promote-roster.mjs";
+import { getAssignment, listAcceptances } from "../lib/control-repo.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
-const ROSTER_PATH = "students/roster.yml";
 
 
 
@@ -126,29 +139,6 @@ async function fetchExistingRoster(octokit, { org }) {
   }
 }
 
-function diffRosters(current, next) {
-  const currentMap = new Map((current?.students ?? []).map((s) => [s.student_number, s]));
-  const nextMap = new Map(next.students.map((s) => [s.student_number, s]));
-
-  const added = [];
-  const updated = [];
-  const removed = [];
-
-  for (const [num, entry] of nextMap) {
-    const prev = currentMap.get(num);
-    if (!prev) {
-      added.push(entry);
-    } else if (stableStringify(prev) !== stableStringify(entry)) {
-      updated.push({ before: prev, after: entry });
-    }
-  }
-  for (const [num, entry] of currentMap) {
-    if (!nextMap.has(num)) removed.push(entry);
-  }
-
-  return { added, updated, removed };
-}
-
 function printDiff(diff, { org }) {
   process.stdout.write(`\nDiff for ${org}/${CONTROL_REPO}:${ROSTER_PATH}\n`);
   process.stdout.write(
@@ -156,15 +146,25 @@ function printDiff(diff, { org }) {
     `  ~ updated: ${diff.updated.length}\n` +
     `  - removed: ${diff.removed.length}\n`,
   );
+  // describeRosterEntry, not `${student_number}  ${full_name}`: a promoted
+  // entry has neither, and printing "undefined undefined" in the REMOVED list -
+  // the one place a lecturer is asked to confirm a destructive change - is how
+  // a student gets dropped without anyone recognising the row.
   for (const s of diff.added) {
-    process.stdout.write(`    + ${s.student_number}  ${s.full_name}${s.github_login ? ` (@${s.github_login})` : ""}\n`);
+    process.stdout.write(`    + ${describeRosterEntry(s)}\n`);
   }
   for (const u of diff.updated) {
     const changed = Object.keys(u.after).filter((k) => JSON.stringify(u.after[k]) !== JSON.stringify(u.before[k]));
-    process.stdout.write(`    ~ ${u.after.student_number}  ${u.after.full_name}  [${changed.join(", ")}]\n`);
+    process.stdout.write(`    ~ ${describeRosterEntry(u.after)}  [${changed.join(", ")}]\n`);
   }
   for (const s of diff.removed) {
-    process.stdout.write(`    - ${s.student_number}  ${s.full_name}\n`);
+    process.stdout.write(`    - ${describeRosterEntry(s)}\n`);
+  }
+  const unkeyed = diff.unkeyed.current.length + diff.unkeyed.next.length;
+  if (unkeyed > 0) {
+    process.stdout.write(
+      `  ! ${unkeyed} entr(ies) identify nobody (no student_number, no github_login) and could not be matched.\n`,
+    );
   }
 }
 
@@ -263,6 +263,68 @@ export function registerRosterCommand(program) {
         );
       }
       process.stdout.write(`\n${rows.length} student(s) in ${org}/${CONTROL_REPO}.\n`);
+    });
+
+  roster
+    .command("promote")
+    .description("Add students who accepted an assignment to the roster (roster_mode: open).")
+    .requiredOption("--assignment <id>", "Assignment whose acceptances to promote")
+    .option("--org <login>", "GitHub org login (defaults to last used)")
+    .option("--dry-run", "Show the plan without committing", false)
+    .action(async (opts) => {
+      const org = resolveOrg(opts.org);
+      const octokit = makeOctokit();
+
+      const assignment = await getAssignment(octokit, { org, assignmentId: opts.assignment });
+      const acceptances = await listAcceptances(octokit, { org, assignmentId: opts.assignment });
+      const { roster: existing } = await fetchExistingRoster(octokit, { org });
+
+      const plan = planPromotion({
+        acceptances,
+        roster: existing,
+        assignment: { ...assignment, id: assignment.id || opts.assignment },
+        actor: "pxl-classroom-cli",
+      });
+
+      for (const w of plan.warnings) process.stdout.write(`  ! ${w.message}\n`);
+
+      if (!plan.ok) {
+        for (const e of plan.errors) process.stderr.write(`Cannot promote: ${e.message}\n`);
+        process.exit(1);
+      }
+
+      process.stdout.write(
+        `\n${plan.stats.acceptances} acceptance(s) for ${opts.assignment}: ` +
+        `${plan.stats.added} to add, ${plan.stats.already_on_roster} already on the roster.\n`,
+      );
+      for (const s of plan.added) process.stdout.write(`    + ${describeRosterEntry(s)}\n`);
+
+      // Validate before writing, not after: the roster is what acceptance reads
+      // to decide who gets a repository. A clone, because ajv runs with
+      // useDefaults and would otherwise inject values into what we serialise.
+      const { valid, errors } = validateAgainst("roster", structuredClone(plan.nextRoster));
+      if (!valid) {
+        process.stderr.write(`Refusing to write an invalid roster:\n${formatAjvErrors(errors)}\n`);
+        process.exit(1);
+      }
+
+      if (opts.dryRun) {
+        process.stdout.write(`\n(--dry-run; no commit made.)\n`);
+        return;
+      }
+      if (!promotionChangesAnything(plan)) {
+        process.stdout.write(`\nRoster unchanged - nothing to commit.\n`);
+        return;
+      }
+
+      // Promotion only ever appends, so there is nothing destructive to confirm
+      // - unlike `roster import`, which replaces the file wholesale.
+      const result = await commitWithRebase(octokit, {
+        owner: org, repo: CONTROL_REPO, branch: "main",
+        message: promoteCommitMessage(plan, { assignmentId: opts.assignment }),
+        changes: [{ path: ROSTER_PATH, content: yamlStringify(plan.nextRoster) }],
+      });
+      process.stdout.write(`\nCommitted ${result.commitSha} (${result.attempts} attempt${result.attempts === 1 ? "" : "s"}).\n`);
     });
 
   program.addCommand(roster);

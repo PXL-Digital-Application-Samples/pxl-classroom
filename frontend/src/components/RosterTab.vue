@@ -119,11 +119,14 @@
               <tbody>
                 <tr
                   v-for="s in filteredRosterStudents"
-                  :key="s.student_number"
+                  :key="rosterKey(s)"
                   style="border-bottom: 1px solid var(--border-default);"
                 >
-                  <td style="padding: 6px 8px;"><code>{{ s.student_number }}</code></td>
-                  <td style="padding: 6px 8px; font-weight: 500;">{{ s.full_name }}</td>
+                  <td style="padding: 6px 8px;"><code>{{ s.student_number || '-' }}</code></td>
+                  <td style="padding: 6px 8px; font-weight: 500;">
+                    <span v-if="s.full_name">{{ s.full_name }}</span>
+                    <span v-else class="text-muted">Not yet identified</span>
+                  </td>
                   <td style="padding: 6px 8px; color: var(--text-secondary);">{{ s.email || '-' }}</td>
                   <td style="padding: 6px 8px; color: var(--text-muted);">{{ s.class_group || '-' }}</td>
                   <td style="padding: 6px 8px;">
@@ -155,9 +158,8 @@
           <details v-if="diff.added.length" open>
             <summary>Added ({{ diff.added.length }})</summary>
             <ul>
-              <li v-for="s in diff.added" :key="s.student_number">
-                <code>{{ s.student_number }}</code> {{ s.full_name }}
-                <span v-if="s.github_login"> · @{{ s.github_login }}</span>
+              <li v-for="s in diff.added" :key="rosterKey(s)">
+                {{ describeRosterEntry(s) }}
                 <span v-if="s.class_group"> · {{ s.class_group }}</span>
               </li>
             </ul>
@@ -166,8 +168,8 @@
           <details v-if="diff.updated.length">
             <summary>Updated ({{ diff.updated.length }})</summary>
             <ul>
-              <li v-for="u in diff.updated" :key="u.after.student_number">
-                <code>{{ u.after.student_number }}</code> {{ u.after.full_name }}
+              <li v-for="u in diff.updated" :key="rosterKey(u.after)">
+                {{ describeRosterEntry(u.after) }}
                 <span class="changed-fields">[{{ changedFields(u).join(', ') }}]</span>
               </li>
             </ul>
@@ -177,8 +179,8 @@
           <details v-if="diff.removed.length" open>
             <summary>Removed ({{ diff.removed.length }})</summary>
             <ul>
-              <li v-for="s in diff.removed" :key="s.student_number">
-                <code>{{ s.student_number }}</code> {{ s.full_name }}
+              <li v-for="s in diff.removed" :key="rosterKey(s)">
+                {{ describeRosterEntry(s) }}
               </li>
             </ul>
           </details>
@@ -286,7 +288,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { csvToRoster, diffRosters } from '../lib/csv.js'
+import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { getToken } from '../lib/auth.js'
 import { commitFile, getRepoContent } from '../lib/api.js'
