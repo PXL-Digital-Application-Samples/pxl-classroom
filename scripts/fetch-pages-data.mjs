@@ -1,28 +1,11 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import crypto from "node:crypto";
 import { parse } from "yaml";
-
-// Helper to sign JWT using Node's crypto
-function generateJwt(clientId, privateKeyPem) {
-  const header = { alg: "RS256", typ: "JWT" };
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iat: now - 60,
-    exp: now + 600,
-    iss: clientId,
-  };
-  const stringifiedHeader = JSON.stringify(header);
-  const stringifiedPayload = JSON.stringify(payload);
-  const base64Header = Buffer.from(stringifiedHeader).toString("base64url");
-  const base64Payload = Buffer.from(stringifiedPayload).toString("base64url");
-  const signatureInput = `${base64Header}.${base64Payload}`;
-  const sign = crypto.createSign("RSA-SHA256");
-  sign.update(signatureInput);
-  const signature = sign.sign(privateKeyPem, "base64url");
-  return `${signatureInput}.${signature}`;
-}
+// Shared with scripts/check-installation-approvals.mjs. It was a private helper
+// here until a second caller needed it; two copies of a signing routine drift
+// into an intermittently invalid credential rather than a visible error.
+import { generateAppJwt } from "../lib/app-jwt.mjs";
 
 async function request(url, options = {}) {
   const res = await fetch(url, {
@@ -76,7 +59,7 @@ async function main() {
   // 2. Generate JWT for the GitHub App
   let jwt;
   try {
-    jwt = generateJwt(clientId, privateKey);
+    jwt = generateAppJwt(clientId, privateKey);
   } catch (err) {
     console.error("[fail] Failed to generate JWT:", err.message);
     process.exit(1);

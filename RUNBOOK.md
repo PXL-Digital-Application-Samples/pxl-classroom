@@ -742,6 +742,14 @@ Whenever the App's permission set widens - for example, adding `organization_adm
 
 Verify with `node scripts/check-app-declaration.mjs` (compares the live App against `MANIFEST_APP_PERMISSIONS`, no token needed) or `gh api /app` - `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` -> PXL Classroom Provisioner.
 
+**Verifying step 2 - who has actually approved.** The declaration check above says what the App *asks* for; it cannot say who granted it. An org that never clicked **Review request** keeps the old permission set, so a feature is live on the App and dead on that org with nothing red anywhere. `gh api orgs/<org>/installations` answers only for an owner **of that org**, so chasing it by hand stalls at the orgs you do not own - on the 2026-08-25 `members` + `organization_administration: write` rollout that was 4 of 11.
+
+Run **Actions -> Weekly Usage Report** and read the `installation-approvals` job, or wait for the Sunday cron. It mints an App JWT, walks `GET /app/installations` (every org at once), compares each installation against the App's live declaration, and fails naming each lagging org and the URL its owner needs. It reports `DID NOT RUN` rather than a false all-clear when the credentials are absent or the API is unreadable. Locally:
+
+```bash
+PXL_APP_CLIENT_ID=... PXL_APP_PRIVATE_KEY="$(cat key.pem)" node scripts/check-installation-approvals.mjs
+```
+
 **Recent re-approval triggers in this project:**
 - `organization_administration: read` - current Enhanced Billing endpoint requirement, used by the weekly usage report. This is an organization permission and is distinct from repository `administration: write`.
 - `actions: write` - `workflow_dispatch` from the Admin UI / Usage view. Without it the SPA's "Generate now", "Publish", and "Retry acceptance" buttons return 403 (`Resource not accessible by integration`).

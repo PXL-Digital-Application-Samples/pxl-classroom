@@ -37,6 +37,27 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/check-app-declaration.mjs
 
+  # The declaration check above says what the App ASKS for. It cannot say who
+  # granted it: widening an App's permissions leaves every existing installation
+  # on the old set until that org's owner accepts the request, so a feature can
+  # be live on the App and dead on half the orgs with nothing red anywhere.
+  # GET /orgs/{org}/installations only answers for an owner of that org, so
+  # before this job the only route was asking each colleague by hand - on the
+  # 2026-08-25 rollout that left 4 of 11 orgs unverifiable. GET /app/installations
+  # answers for all of them, and needs the App JWT, hence `provisioning`.
+  installation-approvals:
+    environment: provisioning
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - run: npm ci --omit=dev
+      - name: Check which orgs have approved the App's current permissions
+        env:
+          PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
+          PXL_APP_PRIVATE_KEY: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+        run: node scripts/check-installation-approvals.mjs
+
   find-orgs:
     uses: ./.github/workflows/_find-orgs.reusable.yml
     with:
