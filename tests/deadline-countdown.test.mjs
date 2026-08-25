@@ -28,7 +28,10 @@ test("nothing re-implements the countdown instead of importing it", () => {
   // about to be written for the cohort card.
   const walk = (dir, out = []) => {
     for (const entry of readdirSync(dir)) {
-      if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools") continue;
+      // `.claude` holds git worktrees - a full second checkout of this repo.
+      // Walking into one finds a copy of every module and reports it as a fork,
+      // so the suite goes red because a sibling checkout exists.
+      if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools" || entry === ".claude") continue;
       const p = join(dir, entry);
       if (statSync(p).isDirectory()) walk(p, out);
       else if (/\.(mjs|js|vue)$/.test(entry)) out.push(p);

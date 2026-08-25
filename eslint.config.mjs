@@ -43,6 +43,12 @@ export default [
       'playwright-report/**',
       'control-repo-template/**',
       'templates/**',
+      // Git worktrees. A worktree is a full second checkout of this repo, so
+      // linting it reports every file twice - and under the wrong config, since
+      // the per-directory overrides below are anchored at the repo root. CI
+      // never has one, so this only ever shows up locally, where `npm run lint`
+      // is the command CLAUDE.md says to trust.
+      '.claude/**',
     ],
   },
 

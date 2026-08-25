@@ -55,7 +55,9 @@ test("nothing re-implements the rule instead of importing it", async () => {
 
   const walk = (dir, out = []) => {
     for (const entry of readdirSync(dir)) {
-      if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools") continue;
+      // `.claude` holds git worktrees - a full second checkout of this repo,
+      // whose copy of this very module would read as a second implementation.
+      if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools" || entry === ".claude") continue;
       const p = join(dir, entry);
       if (statSync(p).isDirectory()) walk(p, out);
       else if (/\.(mjs|js|vue)$/.test(entry)) out.push(p);

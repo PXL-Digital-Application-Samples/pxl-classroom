@@ -769,6 +769,7 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).
 - [ ] Each participating org has `budget_owner_login` set in `participating-orgs.yml`.
 - [ ] App permissions include `organization_administration: read` and System Health reports **Enhanced Billing Usage API** healthy.
+- [ ] Every participating org's **base repository permission** is `none` (`gh api orgs/<org> --jq .default_repository_permission`). System Health Tier 1 reports it: `read` is a warning, `write`/`admin` a failure. It grants students nothing today - they are repository collaborators, not org members - but it is a floor beneath lock-down's demotion the moment anyone is enrolled through membership, and at `read` it exposes the private control repo (roster, reports) to every member. Fix under **Settings → Member privileges → Base permissions**, or `gh api -X PATCH orgs/<org> -f default_repository_permission=none`.
 - [ ] App permissions include `actions: write` (required for `workflow_dispatch` from the Admin UI / Usage view).
 - [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
 - [ ] Cold-load an invitation link `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>` lands on AssignmentView with the right assignment resolved.

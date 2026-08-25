@@ -203,7 +203,9 @@ test("nothing outside the module parses a points string of its own", () => {
     join(root, "lib", "check-run-score.mjs"),
     join(root, "tests", "check-run-score.test.mjs"),
   ]);
-  const skipDirs = new Set(["node_modules", ".git", "dist", ".tools", "test-results"]);
+  // `.claude` holds git worktrees - a full second checkout, whose copy of the
+  // module under test would read as somebody re-implementing it.
+  const skipDirs = new Set(["node_modules", ".git", "dist", ".tools", "test-results", ".claude"]);
   const offenders = [];
 
   const walk = (dir) => {

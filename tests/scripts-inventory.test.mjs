@@ -12,7 +12,8 @@ function findFiles(dir, filter) {
   try {
     const items = readdirSync(dir);
     for (const item of items) {
-      if (item === "node_modules" || item === ".git") continue;
+      // `.claude` holds git worktrees - a full second checkout of this repo.
+      if (item === "node_modules" || item === ".git" || item === ".claude") continue;
       const fullPath = join(dir, item);
       if (statSync(fullPath).isDirectory()) {
         res = res.concat(findFiles(fullPath, filter));

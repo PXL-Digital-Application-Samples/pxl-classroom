@@ -51,7 +51,8 @@ function declaredInputs() {
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry === "dist") continue;
+    // `.claude` holds git worktrees - a full second checkout of this repo.
+    if (entry === "node_modules" || entry === "dist" || entry === ".claude") continue;
     const p = join(dir, entry);
     if (statSync(p).isDirectory()) walk(p, out);
     else if (/\.(vue|js)$/.test(entry)) out.push(p);
