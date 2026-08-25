@@ -52,6 +52,17 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: npm ci --omit=dev
+
+      # The App is publicly listed - the hub-and-spoke model requires it, since
+      # each course org is a separate organization and a private App installs
+      # only on its owner - so anyone can install it, and one stranger has. The
+      # roster of orgs that are actually ours is what separates a real approval
+      # gap from a permanent false positive.
+      - name: Fetch participating-orgs.yml
+        run: |
+          git fetch origin participating-orgs:participating-orgs
+          git show participating-orgs:participating-orgs.yml > participating-orgs.yml
+
       - name: Check which orgs have approved the App's current permissions
         env:
           PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}

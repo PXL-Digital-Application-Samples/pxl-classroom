@@ -26,10 +26,14 @@
 // reporting "all approved" off a failed read is the exact mistake this file
 // exists to catch.
 
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { generateAppJwt } from "../lib/app-jwt.mjs";
 import { installationApprovalGaps } from "../lib/audit.mjs";
+import { parseYaml } from "../lib/yaml.mjs";
 
 const apiUrl = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/$/, "");
+const PARTICIPATING_FILE = process.env.PARTICIPATING_FILE || "participating-orgs.yml";
 const clientId = process.env.PXL_APP_CLIENT_ID;
 const privateKey = process.env.PXL_APP_PRIVATE_KEY;
 
@@ -95,31 +99,114 @@ try {
   skip(`could not list installations (${err.message}).`);
 }
 
+// Which accounts are actually ours? The App is publicly listed - the hub-and-
+// spoke model needs it to be, since each course org is a separate organization
+// and a private App can only be installed on its owner - so ANY GitHub account
+// can install it. One did on 2026-08-22. Reporting a stranger's org as
+// "unapproved" every Sunday is a permanent false positive sitting beside the
+// real ones, which is how a weekly check stops being read.
+//
+// An unreadable list must NOT downgrade a real gap to a footnote, so it fails
+// safe the other way: treat every installation as participating and say the
+// classification was unavailable. "Could not read it" is not "it is fine" -
+// the same rule the App-declaration checks follow.
+// Matched case-insensitively (an org login is case-preserving but not
+// case-sensitive, and treating our own org as a stranger would silently
+// downgrade a real gap) while REPORTING the spelling the file uses - naming a
+// lowercased `forgotten` sends a lecturer looking for an org that, as spelled,
+// does not exist.
+let participating = null;
+try {
+  if (existsSync(PARTICIPATING_FILE)) {
+    const doc = parseYaml(await readFile(PARTICIPATING_FILE, "utf8"));
+    const entries = (doc?.orgs || [])
+      .map((o) => String(o?.login ?? "").trim())
+      .filter(Boolean)
+      .map((login) => [login.toLowerCase(), login]);
+    // An EMPTY list is an answer ("no orgs are enrolled yet" - the
+    // participating-orgs branch really does start as `orgs: []`); only a failed
+    // read is an absence. Conflating them would turn every installation into a
+    // third party and silence every real approval gap.
+    participating = new Map(entries);
+  }
+} catch {
+  participating = null;
+}
+if (!participating) {
+  console.log(
+    `::warning::Could not read ${PARTICIPATING_FILE}, so installations cannot be split into participating and third-party. ` +
+      `Every installation is reported as if it were ours - which over-reports rather than under-reports.`,
+  );
+}
+
+const ours = (login) => participating === null || participating.has(String(login).toLowerCase());
+
 const gaps = installationApprovalGaps(declared, installations);
+const blocking = gaps.filter((g) => ours(g.account));
+const thirdParty = gaps.filter((g) => !ours(g.account));
+
 const declaredLabel = Object.entries(declared)
   .map(([k, v]) => `${k}=${v}`)
   .sort()
   .join(", ");
 
-if (gaps.length === 0) {
-  console.log(
-    `All ${installations.length} installation(s) of "${slug}" have approved its current permissions (${declaredLabel}).`,
-  );
-  process.exit(0);
-}
+const describe = (gap) =>
+  gap.missing.map((m) => `${m.permission}: has ${m.actual ?? "no access"}, App declares ${m.declared}`).join("; ");
 
-for (const gap of gaps) {
-  const missing = gap.missing
-    .map((m) => `${m.permission}: has ${m.actual ?? "no access"}, App declares ${m.declared}`)
-    .join("; ");
+// A participating org with NO installation at all cannot be provisioned for -
+// nothing else in the system notices, and RUNBOOK section 11 has carried it as
+// a manual checklist item.
+const installedAccounts = new Set(
+  installations.map((i) => String(i?.account?.login ?? "").toLowerCase()).filter(Boolean),
+);
+const notInstalled = participating
+  ? [...participating.entries()]
+      .filter(([key]) => !installedAccounts.has(key))
+      .map(([, login]) => login)
+      .sort()
+  : [];
+
+for (const gap of blocking) {
   console.log(
-    `::error title=Unapproved App permissions on ${gap.account}::${gap.account} has not approved the current permission set for "${slug}" - ${missing}. ` +
+    `::error title=Unapproved App permissions on ${gap.account}::${gap.account} has not approved the current permission set for "${slug}" - ${describe(gap)}. ` +
       `An org owner accepts at https://github.com/organizations/${gap.account}/settings/installations -> ${slug} -> Review request. ` +
       `Until then that org keeps the old permissions and any feature relying on the new ones silently does nothing there. See RUNBOOK.md section 10.6.`,
   );
 }
 
+for (const org of notInstalled) {
+  console.log(
+    `::error title=App not installed on ${org}::${org} is in ${PARTICIPATING_FILE} but "${slug}" is not installed on it, ` +
+      `so nothing can be provisioned there. Install it at https://github.com/apps/${slug}/installations/new.`,
+  );
+}
+
+// Named, never silent - an installation we do not recognise is worth a look
+// even though it grants its owner nothing of ours - but it does not fail the
+// run, because we cannot make a stranger approve anything.
+for (const gap of thirdParty) {
+  console.log(
+    `::notice title=Third-party installation: ${gap.account}::${gap.account} has "${slug}" installed but is not in ${PARTICIPATING_FILE}. ` +
+      `It is on an older permission set (${describe(gap)}), which is not actionable by us. ` +
+      `The App is publicly listed, so any account can install it; this grants them nothing in a PXL organization.`,
+  );
+}
+if (participating) {
+  const strangers = installations.filter((i) => !ours(i?.account?.login)).length;
+  if (strangers > 0) {
+    console.log(`${strangers} installation(s) are not in ${PARTICIPATING_FILE} (informational).`);
+  }
+}
+
+const failures = blocking.length + notInstalled.length;
+if (failures === 0) {
+  const scope = participating ? `${participating.size} participating org(s)` : `all ${installations.length} installation(s)`;
+  console.log(`${scope} have "${slug}" installed and have approved its current permissions (${declaredLabel}).`);
+  process.exit(0);
+}
+
 console.log(
-  `${gaps.length} of ${installations.length} installation(s) of "${slug}" have not approved its current permissions.`,
+  `${blocking.length} participating org(s) have not approved the current permissions, ` +
+    `and ${notInstalled.length} have no installation at all.`,
 );
 process.exit(1);

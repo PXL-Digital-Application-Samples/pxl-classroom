@@ -231,9 +231,24 @@ function runScript({
   listStatus = 200,
   creds = true,
   privateKey = PRIVATE_KEY,
+  // null = no participating-orgs.yml at all (the unreadable case).
+  participating = undefined,
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-inst-approvals-"));
   const stub = join(dir, "stub-fetch.mjs");
+  const participatingFile = join(dir, "participating-orgs.yml");
+  if (participating !== null) {
+    // Default: every account in the fixture is one of ours and none is missing,
+    // so a test that says nothing about participation exercises only the
+    // approval logic.
+    const orgs =
+      participating ??
+      pages.flat().map((i) => i?.account?.login).filter(Boolean);
+    writeFileSync(
+      participatingFile,
+      "schema_version: 1\norgs:\n" + orgs.map((o) => `  - login: ${o}\n`).join(""),
+    );
+  }
   writeFileSync(
     stub,
     [
@@ -258,6 +273,7 @@ function runScript({
     PATH: process.env.PATH,
     SystemRoot: process.env.SystemRoot,
     PXL_ECHO_CALLS: "1",
+    PARTICIPATING_FILE: participatingFile,
   };
   if (creds) {
     env.PXL_APP_CLIENT_ID = "Iv1.test";
@@ -294,7 +310,7 @@ test("script: a lagging installation is an error, names the org and the fix", ()
     res.stdout,
     /organizations\/PXL-2TIN-NetAdv-26-27\/settings\/installations/,
   );
-  assert.match(res.stdout, /1 of 1 installation\(s\)/);
+  assert.match(res.stdout, /1 participating org\(s\) have not approved/);
 });
 
 test("script: one lagging org among approved ones still fails the run", () => {
@@ -306,7 +322,7 @@ test("script: one lagging org among approved ones still fails the run", () => {
     ]],
   });
   assert.equal(res.code, 1);
-  assert.match(res.stdout, /1 of 3 installation\(s\)/);
+  assert.match(res.stdout, /1 participating org\(s\) have not approved/);
   assert.match(res.stdout, /members: has read, App declares write/);
   assert.doesNotMatch(res.stdout, /Good1/);
 });
@@ -323,7 +339,7 @@ test("script: WALKS PAST PAGE 1 - a gap on page 2 is found", () => {
   });
   assert.equal(res.code, 1, "a gap on the second page must fail the run");
   assert.match(res.stdout, /LateOrg/);
-  assert.match(res.stdout, /1 of 101 installation\(s\)/);
+  assert.match(res.stdout, /1 participating org\(s\) have not approved/);
   assert.match(res.stdout, /LIST_CALLS=2/);
 });
 
@@ -333,7 +349,7 @@ test("script: a full page followed by an empty one terminates", () => {
   );
   const res = runScript({ pages: [fullPage, []] });
   assert.equal(res.code, 0);
-  assert.match(res.stdout, /All 100 installation\(s\)/);
+  assert.match(res.stdout, /100 participating org\(s\) have/);
   assert.match(res.stdout, /LIST_CALLS=2/);
 });
 
@@ -391,10 +407,94 @@ test("script: an App declaring nothing cannot produce gaps", () => {
   assert.equal(res.code, 0);
 });
 
-test("script: zero installations is reported, not silently passed over", () => {
-  const res = runScript({ pages: [[]] });
+test("script: an EMPTY participating list is an answer, not an unreadable one", () => {
+  // The participating-orgs branch genuinely starts as `orgs: []`. Treating that
+  // as "could not read" would turn every installation into a third party and
+  // silence every real approval gap at once.
+  const res = runScript({ participating: [], pages: [[installation("kolfadser1", {})]] });
   assert.equal(res.code, 0);
-  assert.match(res.stdout, /All 0 installation\(s\)/);
+  assert.doesNotMatch(res.stdout, /Could not read/);
+  assert.match(res.stdout, /0 participating org\(s\) have/);
+  assert.match(res.stdout, /::notice title=Third-party installation: kolfadser1/);
+});
+
+test("script: zero installations is reported, not silently passed over", () => {
+  const res = runScript({ participating: [], pages: [[]] });
+  assert.equal(res.code, 0);
+  assert.match(res.stdout, /0 participating org\(s\) have/);
+});
+
+// --------------------------------------------------------------------------
+// Ours, theirs, and missing
+// --------------------------------------------------------------------------
+
+test("script: a THIRD-PARTY installation is named but does not fail the run", () => {
+  // The App is publicly listed - the hub-and-spoke model needs it to be - so
+  // any account can install it, and one did on 2026-08-22. Failing every Sunday
+  // over an org we cannot make approve anything is a permanent false positive
+  // sitting beside the real ones.
+  const res = runScript({
+    participating: ["OrgA"],
+    pages: [[installation("OrgA", { ...DECLARED }), installation("kolfadser1", {})]],
+  });
+  assert.equal(res.code, 0, "a stranger's stale installation must not fail the run");
+  assert.match(res.stdout, /::notice title=Third-party installation: kolfadser1/);
+  assert.doesNotMatch(res.stdout, /::error/);
+});
+
+test("script: a PARTICIPATING org that has not approved still fails, beside a third party", () => {
+  // The half that matters: filtering must not become a blanket amnesty.
+  const res = runScript({
+    participating: ["Lagging"],
+    pages: [[installation("Lagging", {}), installation("kolfadser1", {})]],
+  });
+  assert.equal(res.code, 1);
+  assert.match(res.stdout, /::error title=Unapproved App permissions on Lagging/);
+  assert.match(res.stdout, /::notice title=Third-party installation: kolfadser1/);
+});
+
+test("script: a participating org with NO installation is an error", () => {
+  // Nothing else in the system notices this; RUNBOOK section 11 carried it as a
+  // manual checklist item.
+  const res = runScript({
+    participating: ["OrgA", "Forgotten"],
+    pages: [[installation("OrgA", { ...DECLARED })]],
+  });
+  assert.equal(res.code, 1);
+  assert.match(res.stdout, /::error title=App not installed on Forgotten/);
+  assert.match(res.stdout, /nothing can be provisioned there/);
+});
+
+test("script: participation matching is case-insensitive", () => {
+  // participating-orgs.yml and GitHub's account login can differ in case, and
+  // treating our own org as a stranger would silently downgrade a real gap.
+  const res = runScript({
+    participating: ["pxl-2tin-netadv-26-27"],
+    pages: [[installation("PXL-2TIN-NetAdv-26-27", {})]],
+  });
+  assert.equal(res.code, 1);
+  assert.match(res.stdout, /::error title=Unapproved App permissions on PXL-2TIN-NetAdv-26-27/);
+});
+
+test("script: an UNREADABLE participating list over-reports rather than under-reports", () => {
+  // "Could not read it" is not "it is fine". Treating everything as third-party
+  // would silence every real approval gap at once.
+  const res = runScript({
+    participating: null,
+    pages: [[installation("Lagging", {})]],
+  });
+  assert.equal(res.code, 1);
+  assert.match(res.stdout, /::warning::Could not read/);
+  assert.match(res.stdout, /::error title=Unapproved App permissions on Lagging/);
+});
+
+test("script: everything in order reports against the participating count", () => {
+  const res = runScript({
+    participating: ["OrgA"],
+    pages: [[installation("OrgA", { ...DECLARED }), installation("kolfadser1", { ...DECLARED })]],
+  });
+  assert.equal(res.code, 0);
+  assert.match(res.stdout, /1 participating org\(s\) have/);
 });
 
 test("script: the success line names the permissions that were checked", () => {

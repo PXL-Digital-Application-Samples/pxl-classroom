@@ -744,7 +744,17 @@ Verify with `node scripts/check-app-declaration.mjs` (compares the live App agai
 
 **Verifying step 2 - who has actually approved.** The declaration check above says what the App *asks* for; it cannot say who granted it. An org that never clicked **Review request** keeps the old permission set, so a feature is live on the App and dead on that org with nothing red anywhere. `gh api orgs/<org>/installations` answers only for an owner **of that org**, so chasing it by hand stalls at the orgs you do not own - on the 2026-08-25 `members` + `organization_administration: write` rollout that was 4 of 11.
 
-Run **Actions -> Weekly Usage Report** and read the `installation-approvals` job, or wait for the Sunday cron. It mints an App JWT, walks `GET /app/installations` (every org at once), compares each installation against the App's live declaration, and fails naming each lagging org and the URL its owner needs. It reports `DID NOT RUN` rather than a false all-clear when the credentials are absent or the API is unreadable. Locally:
+Run **Actions -> Weekly Usage Report** and read the `installation-approvals` job, or wait for the Sunday cron. It mints an App JWT, walks `GET /app/installations` (every org at once), compares each installation against the App's live declaration, and sorts the result into three:
+
+| Class | Reported as |
+|---|---|
+| A **participating** org that has not approved | `::error` naming the org and its Review-request URL — fails the run |
+| A participating org with **no installation at all** | `::error` — nothing can be provisioned there |
+| An installation **not in `participating-orgs.yml`** | `::notice` — named, but does not fail the run |
+
+The third class exists because the App is publicly **listed**: hub-and-spoke needs it to be, since each course org is a separate organization and a private App can only be installed on the account that owns it. So any GitHub account can install it, and one unrelated org did on 2026-08-22. It grants them nothing in a PXL org, and failing every Sunday over an org nobody can make approve anything would make the check unreadable.
+
+It reports `DID NOT RUN` rather than a false all-clear when the credentials are absent or the API is unreadable, and if `participating-orgs.yml` itself cannot be read it warns and treats **every** installation as participating — over-reporting rather than silencing real gaps. Locally:
 
 ```bash
 PXL_APP_CLIENT_ID=... PXL_APP_PRIVATE_KEY="$(cat key.pem)" node scripts/check-installation-approvals.mjs
