@@ -9,6 +9,7 @@ Working conventions for this repo (`PXL-Digital-Application-Samples/pxl-classroo
 ## Working style
 - Be terse and concrete. Do things rather than explain them; give exact values/clicks when the user must act.
 - Don't ask for command approval - permissions are set to bypass in `.claude/settings.local.json`.
+- **No backticks in a double-quoted `git commit -m`.** The shell runs them as command substitution *before* git sees the string, so the quoted code fragment vanishes silently and the commit lands with a hole in it - `437dda0` lost three of them from one paragraph and `main` blocks force-push (RUNBOOK §1.5), so it cannot be amended. Use single quotes for any `-m` containing backticks, `$`, or `!`. Same family as the heredoc rule below: the shell processes the text before the tool does.
 - **NEVER edit a file through a shell heredoc.** No `python3 - <<'EOF'`, no `cat > file <<'EOF'`, no `node -e`. Use the **Edit** tool for targeted replacements and **Write** for whole files. The shell and the interpreter both process escapes before the code runs, so regexes and string literals are silently mangled - `[^\n]*` becomes a literal newline, `\.` loses its backslash, `\s` and `\$` raise SyntaxWarnings. It has produced broken code in this repo many times over. If a scripted transform is genuinely unavoidable (a repo-wide sweep), **Write** the script to a real file, run it, then delete it. Bash remains correct for reading, searching, git, and running tests.
 
 ## Linting
