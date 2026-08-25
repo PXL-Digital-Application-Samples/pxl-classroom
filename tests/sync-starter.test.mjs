@@ -1,22 +1,34 @@
-// PXL Classroom - sync-starter.test.mjs
+// PXL Classroom - starter code synchronization.
 //
-// Comprehensive unit and integration tests for Starter Code Synchronization:
-// 1. JSON Schema validation (valid and invalid documents).
-// 2. Smart Auto-Merge (three-way Git merge with non-overlapping student work).
-// 3. Sequential multiple starter code updates.
-// 4. Merge conflict detection & safe isolated branch creation (`starter-update-<ts>`).
-// 5. Selective file syncing (applying only specified files from template commit).
-// 6. Group assignment team repository sync.
-// 7. Notification issue generator for clean merges vs PR fallbacks.
+// 1. JSON Schema validation of the sync record.
+// 2. The fixture that matters: a repository created the way `POST /generate`
+//    creates one - NO shared history with its template - and what that means
+//    for the merge-based implementation this replaced.
+// 3. lib/starter-sync.mjs: which files land in place, which raise a PR.
+// 4. Selection, outcomes and the summary roll-up.
+//
+// The old version of this file built its "student" repositories with
+// `git clone` of the template, so they shared every object and a plain
+// `git merge <templateSha>` succeeded. That is not a repository this system
+// ever produces, and it is why a feature that could not work for a single
+// student passed nine tests for months.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
+
+import {
+  changedPaths,
+  resolveSelection,
+  planStarterSync,
+  outcomeFor,
+  summarize,
+} from "../lib/starter-sync.mjs";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
@@ -24,17 +36,50 @@ addFormats(ajv);
 const git = (args, cwd) =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
 
-const fileUrl = (p) => `file:///${p.replace(/\\/g, "/").replace(/^\//, "")}`;
-
 const schemaPath = join(process.cwd(), "schemas", "sync-record.schema.json");
 const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
 const validateSyncRecord = ajv.compile(schema);
 
+// `git ls-tree -r` is the same path -> blob sha mapping the GitHub tree API
+// returns, so a fixture built here exercises the real comparison.
+function treeOf(dir, ref = "HEAD") {
+  const out = git(["ls-tree", "-r", ref], dir);
+  const map = new Map();
+  for (const line of out.split("\n").filter(Boolean)) {
+    const [meta, path] = line.split("\t");
+    const [, type, sha] = meta.split(/\s+/);
+    if (type === "blob") map.set(path, sha);
+  }
+  return map;
+}
+
+// `//` lines, `/* … */` blocks and `<!-- … -->` markup comments.
+function stripComments(src) {
+  return src
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
+function initRepo(dir) {
+  mkdirSync(dir, { recursive: true });
+  git(["init", "--initial-branch=main", "."], dir);
+  git(["config", "user.email", "t@example.com"], dir);
+  git(["config", "user.name", "Test"], dir);
+  return dir;
+}
+
+function commitAll(dir, message) {
+  git(["add", "-A"], dir);
+  git(["commit", "-m", message], dir);
+  return git(["rev-parse", "HEAD"], dir);
+}
+
 // -----------------------------------------------------------------------------
-// 1. Schema Validation Tests
+// 1. Schema Validation
 // -----------------------------------------------------------------------------
 
-test("schemas/sync-record.schema.json validates correct sync documents", () => {
+test("schemas/sync-record.schema.json validates a correct sync document", () => {
   const validDoc = {
     schema_version: 1,
     sync_id: "sync-20261015T120000Z-a1b2c3",
@@ -43,34 +88,32 @@ test("schemas/sync-record.schema.json validates correct sync documents", () => {
     synced_by: "lecturer-alice",
     template_repo: "PXLAutomation/template-linux-processes",
     template_sha: "a".repeat(40),
+    template_base_sha: "b".repeat(40),
     selected_files: ["tests/test_processes.py"],
     pr_title: "Starter Code Update: Fix test assertions",
     pr_body: "Updated test assertions from template.",
     created_issues: true,
-    summary: {
-      total: 50,
-      auto_merged: 46,
-      pr_opened: 3,
-      skipped: 1,
-      failed: 0,
-    },
+    summary: { total: 50, auto_merged: 46, pr_opened: 3, skipped: 1, failed: 0 },
     results: [
       {
         github_login: "student-bob",
         repo_name: "PXLAutomation/linux-processes-student-bob",
         outcome: "auto-merged",
-        commit_sha: "b".repeat(40),
+        files_merged: 1,
+        files_conflicted: 0,
+        commit_sha: "c".repeat(40),
         issue_number: 2,
         issue_url: "https://github.com/PXLAutomation/linux-processes-student-bob/issues/2",
       },
       {
         github_login: "student-carol",
         repo_name: "PXLAutomation/linux-processes-student-carol",
-        outcome: "pr-opened",
+        outcome: "merged-and-pr",
+        files_merged: 2,
+        files_conflicted: 1,
+        commit_sha: "d".repeat(40),
         pr_number: 1,
         pr_url: "https://github.com/PXLAutomation/linux-processes-student-carol/pull/1",
-        issue_number: 2,
-        issue_url: "https://github.com/PXLAutomation/linux-processes-student-carol/issues/2",
       },
       {
         github_login: "student-dave",
@@ -80,405 +123,251 @@ test("schemas/sync-record.schema.json validates correct sync documents", () => {
     ],
   };
 
-  const valid = validateSyncRecord(validDoc);
-  assert.ok(valid, `Validation errors: ${JSON.stringify(validateSyncRecord.errors)}`);
+  assert.equal(validateSyncRecord(validDoc), true, JSON.stringify(validateSyncRecord.errors));
 });
 
 test("schemas/sync-record.schema.json rejects invalid sync IDs or missing fields", () => {
-  const invalidDoc = {
-    schema_version: 1,
-    sync_id: "bad-id-format",
-    assignment_id: "linux-processes",
-    synced_at: "invalid-date",
-  };
-  const valid = validateSyncRecord(invalidDoc);
-  assert.equal(valid, false);
-  assert.ok(validateSyncRecord.errors.length > 0);
+  assert.equal(
+    validateSyncRecord({
+      schema_version: 1,
+      sync_id: "not-a-sync-id",
+      assignment_id: "x",
+      synced_at: "2026-10-15T12:00:00Z",
+      synced_by: "a",
+      template_repo: "o/r",
+      template_sha: "a".repeat(40),
+      selected_files: [],
+      summary: { total: 0, auto_merged: 0, pr_opened: 0, skipped: 0, failed: 0 },
+      results: [],
+    }),
+    false,
+  );
+
+  // An outcome the executors do not produce must not validate.
+  assert.equal(
+    validateSyncRecord({
+      schema_version: 1,
+      sync_id: "sync-20261015T120000Z-a1b2c3",
+      assignment_id: "x",
+      synced_at: "2026-10-15T12:00:00Z",
+      synced_by: "a",
+      template_repo: "o/r",
+      template_sha: "a".repeat(40),
+      selected_files: [],
+      summary: { total: 1, auto_merged: 0, pr_opened: 0, skipped: 0, failed: 0 },
+      results: [{ github_login: "x", repo_name: "o/r", outcome: "rebased" }],
+    }),
+    false,
+  );
 });
 
 // -----------------------------------------------------------------------------
-// 2. Smart Auto-Merge: Non-Overlapping Files
+// 2. The fixture: a generated repository, not a clone
 // -----------------------------------------------------------------------------
 
-test("Smart Auto-Merge: cleanly merges template update into student repo when files do not overlap", () => {
-  const root = mkdtempSync(join(tmpdir(), "pxl-sync-clean-"));
-  const templateDir = join(root, "template");
-  const studentDir = join(root, "student");
+test("a repository created from a template shares no history with it", () => {
+  const root = mkdtempSync(join(tmpdir(), "pxl-sync-generate-"));
+  try {
+    const template = initRepo(join(root, "template"));
+    writeFileSync(join(template, "bmi_calculator.py"), "def bmi():\n    pass\n");
+    writeFileSync(join(template, "README.md"), "# Starter\n");
+    const templateSha = commitAll(template, "Add Python assignments");
 
-  mkdirSync(templateDir);
-  mkdirSync(studentDir);
+    // What `POST /repos/{tpl}/generate` produces: the template's files in a
+    // brand-new repository with ONE commit and no ancestry.
+    const student = initRepo(join(root, "student"));
+    writeFileSync(join(student, "bmi_calculator.py"), "def bmi():\n    pass\n");
+    writeFileSync(join(student, "README.md"), "# Starter\n");
+    commitAll(student, "Initial commit");
 
-  // 1. Initial shared starter template
-  git(["init", "--initial-branch=main", "."], templateDir);
-  git(["config", "user.email", "t@example.com"], templateDir);
-  git(["config", "user.name", "Test"], templateDir);
-  writeFileSync(join(templateDir, "README.md"), "# Starter Code\n");
-  writeFileSync(join(templateDir, "solution.py"), "# Write solution here\n");
-  writeFileSync(join(templateDir, "test.py"), "def test_answer(): assert 1 == 1\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Initial starter template"], templateDir);
+    // The template's commit is simply not an object in the student repository.
+    // This is what the old `POST /merges { head: templateSha }` was asking for,
+    // and why GitHub answered 404 for every student rather than 409.
+    assert.throws(() => git(["cat-file", "-e", `${templateSha}^{commit}`], student));
 
-  // 2. Student clones and modifies solution.py
-  git(["clone", fileUrl(templateDir), "."], studentDir);
-  git(["config", "user.email", "student@example.com"], studentDir);
-  git(["config", "user.name", "Student"], studentDir);
-  writeFileSync(join(studentDir, "solution.py"), "def solve(): return 42\n");
-  git(["add", "solution.py"], studentDir);
-  git(["commit", "-m", "Student solution progress"], studentDir);
-
-  // 3. Lecturer updates test.py in template
-  writeFileSync(join(templateDir, "test.py"), "def test_answer(): assert 1 == 1\ndef test_two(): assert 2 == 2\n");
-  git(["add", "test.py"], templateDir);
-  git(["commit", "-m", "Add test_two in template"], templateDir);
-  const updatedTemplateSha = git(["rev-parse", "HEAD"], templateDir);
-
-  // 4. Student repo fetches and merges template update
-  git(["fetch", fileUrl(templateDir), "main"], studentDir);
-  git(["merge", updatedTemplateSha, "-m", "Update starter code from template"], studentDir);
-
-  // Verify both changes exist cleanly
-  const mergedSolution = readFileSync(join(studentDir, "solution.py"), "utf8");
-  const mergedTest = readFileSync(join(studentDir, "test.py"), "utf8");
-
-  assert.match(mergedSolution, /def solve\(\): return 42/);
-  assert.match(mergedTest, /def test_two\(\): assert 2 == 2/);
-});
-
-// -----------------------------------------------------------------------------
-// 3. Sequential Multiple Updates
-// -----------------------------------------------------------------------------
-
-test("Sequential multiple starter updates merge cleanly over time", () => {
-  const root = mkdtempSync(join(tmpdir(), "pxl-sync-seq-"));
-  const templateDir = join(root, "template");
-  const studentDir = join(root, "student");
-
-  mkdirSync(templateDir);
-  mkdirSync(studentDir);
-
-  // Initial template
-  git(["init", "--initial-branch=main", "."], templateDir);
-  git(["config", "user.email", "t@example.com"], templateDir);
-  git(["config", "user.name", "Test"], templateDir);
-  writeFileSync(join(templateDir, "README.md"), "# Initial\n");
-  writeFileSync(join(templateDir, "task1.py"), "# Task 1\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "v1"], templateDir);
-
-  // Student clones
-  git(["clone", fileUrl(templateDir), "."], studentDir);
-  git(["config", "user.email", "s@example.com"], studentDir);
-  git(["config", "user.name", "Student"], studentDir);
-
-  // Update 1: Lecturer adds helper.py
-  writeFileSync(join(templateDir, "helper.py"), "# Helper\n");
-  git(["add", "helper.py"], templateDir);
-  git(["commit", "-m", "Add helper"], templateDir);
-  const sha1 = git(["rev-parse", "HEAD"], templateDir);
-
-  git(["fetch", fileUrl(templateDir), "main"], studentDir);
-  git(["merge", sha1, "-m", "Sync update 1"], studentDir);
-
-  // Student makes progress on task1.py
-  writeFileSync(join(studentDir, "task1.py"), "print('task1 done')\n");
-  git(["add", "task1.py"], studentDir);
-  git(["commit", "-m", "Student working on task 1"], studentDir);
-
-  // Update 2: Lecturer adds task2.py in template
-  writeFileSync(join(templateDir, "task2.py"), "# Task 2\n");
-  git(["add", "task2.py"], templateDir);
-  git(["commit", "-m", "Add task2"], templateDir);
-  const sha2 = git(["rev-parse", "HEAD"], templateDir);
-
-  git(["fetch", fileUrl(templateDir), "main"], studentDir);
-  git(["merge", sha2, "-m", "Sync update 2"], studentDir);
-
-  assert.ok(readFileSync(join(studentDir, "helper.py"), "utf8").includes("Helper"));
-  assert.ok(readFileSync(join(studentDir, "task1.py"), "utf8").includes("task1 done"));
-  assert.ok(readFileSync(join(studentDir, "task2.py"), "utf8").includes("Task 2"));
-});
-
-// -----------------------------------------------------------------------------
-// 4. Conflict Detection & PR Fallback
-// -----------------------------------------------------------------------------
-
-test("Conflict fallback: creates dedicated update branch when student touched conflicting file", () => {
-  const root = mkdtempSync(join(tmpdir(), "pxl-sync-conflict-"));
-  const templateDir = join(root, "template");
-  const studentDir = join(root, "student");
-
-  mkdirSync(templateDir);
-  mkdirSync(studentDir);
-
-  // Initial template
-  git(["init", "--initial-branch=main", "."], templateDir);
-  git(["config", "user.email", "t@example.com"], templateDir);
-  git(["config", "user.name", "Test"], templateDir);
-  writeFileSync(join(templateDir, "test.py"), "def test_calc(): assert False\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Initial template"], templateDir);
-
-  // Student modifies test.py directly
-  git(["clone", fileUrl(templateDir), "."], studentDir);
-  git(["config", "user.email", "student@example.com"], studentDir);
-  git(["config", "user.name", "Student"], studentDir);
-  writeFileSync(join(studentDir, "test.py"), "def test_calc(): assert student_fix()\n");
-  git(["add", "test.py"], studentDir);
-  git(["commit", "-m", "Student edited test.py"], studentDir);
-  const studentHeadBefore = git(["rev-parse", "HEAD"], studentDir);
-
-  // Lecturer modifies the exact same line in template
-  writeFileSync(join(templateDir, "test.py"), "def test_calc(): assert lecturer_fix()\n");
-  git(["add", "test.py"], templateDir);
-  git(["commit", "-m", "Lecturer updated test.py"], templateDir);
-  const templateUpdateSha = git(["rev-parse", "HEAD"], templateDir);
-
-  // In student repo, test branch creation instead of breaking main
-  git(["fetch", fileUrl(templateDir), "main"], studentDir);
-  
-  const branchName = "starter-update-conflict-test";
-  git(["branch", branchName, templateUpdateSha], studentDir);
-
-  // Verify student main was NOT mutated
-  const studentHeadAfter = git(["rev-parse", "HEAD"], studentDir);
-  assert.equal(studentHeadAfter, studentHeadBefore);
-
-  // Verify the update branch has the template content
-  const branchSha = git(["rev-parse", branchName], studentDir);
-  assert.equal(branchSha, templateUpdateSha);
-});
-
-// -----------------------------------------------------------------------------
-// 5. Selective File Syncing
-// -----------------------------------------------------------------------------
-
-test("Selective file syncing applies only specified files from template", () => {
-  const root = mkdtempSync(join(tmpdir(), "pxl-sync-selective-"));
-  const templateDir = join(root, "template");
-  const studentDir = join(root, "student");
-
-  mkdirSync(templateDir);
-  mkdirSync(studentDir);
-
-  // Initial
-  git(["init", "--initial-branch=main", "."], templateDir);
-  git(["config", "user.email", "t@example.com"], templateDir);
-  git(["config", "user.name", "Test"], templateDir);
-  writeFileSync(join(templateDir, "tests.py"), "# Tests v1\n");
-  writeFileSync(join(templateDir, "draft.md"), "# Draft notes\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Initial"], templateDir);
-
-  git(["clone", fileUrl(templateDir), "."], studentDir);
-  git(["config", "user.email", "s@example.com"], studentDir);
-  git(["config", "user.name", "Student"], studentDir);
-
-  // Template updates both files
-  writeFileSync(join(templateDir, "tests.py"), "# Tests v2 FIXED\n");
-  writeFileSync(join(templateDir, "draft.md"), "# Secret lecturer draft\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Update tests and draft"], templateDir);
-  const tplSha = git(["rev-parse", "HEAD"], templateDir);
-
-  // Student repo only wants tests.py
-  git(["fetch", fileUrl(templateDir), "main"], studentDir);
-  git(["checkout", tplSha, "--", "tests.py"], studentDir);
-  git(["commit", "-m", "Selective sync: tests.py"], studentDir);
-
-  assert.equal(readFileSync(join(studentDir, "tests.py"), "utf8").replace(/\r\n/g, "\n"), "# Tests v2 FIXED\n");
-  assert.equal(readFileSync(join(studentDir, "draft.md"), "utf8").replace(/\r\n/g, "\n"), "# Draft notes\n");
-});
-
-// -----------------------------------------------------------------------------
-// 6. Group Assignment Team Repositories
-// -----------------------------------------------------------------------------
-
-test("Group assignment team repositories sync properly", () => {
-  const root = mkdtempSync(join(tmpdir(), "pxl-sync-team-"));
-  const templateDir = join(root, "template");
-  const teamDir = join(root, "team-alpha");
-
-  mkdirSync(templateDir);
-  mkdirSync(teamDir);
-
-  git(["init", "--initial-branch=main", "."], templateDir);
-  git(["config", "user.email", "t@example.com"], templateDir);
-  git(["config", "user.name", "Test"], templateDir);
-  writeFileSync(join(templateDir, "config.yml"), "version: 1\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Initial team template"], templateDir);
-
-  git(["clone", fileUrl(templateDir), "."], teamDir);
-  git(["config", "user.email", "team@example.com"], teamDir);
-  git(["config", "user.name", "Team Alpha"], teamDir);
-
-  // Template updates config
-  writeFileSync(join(templateDir, "config.yml"), "version: 2\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Bump config"], templateDir);
-  const tplSha = git(["rev-parse", "HEAD"], templateDir);
-
-  git(["fetch", fileUrl(templateDir), "main"], teamDir);
-  git(["merge", tplSha, "-m", "Sync team config"], teamDir);
-
-  assert.equal(readFileSync(join(teamDir, "config.yml"), "utf8").replace(/\r\n/g, "\n"), "version: 2\n");
-});
-
-// -----------------------------------------------------------------------------
-// 7. Notification Issue Formatting
-// -----------------------------------------------------------------------------
-
-function generateSyncNotificationIssue(outcome, commitTitle, commitSha, prNumber, prUrl) {
-  if (outcome === "auto-merged") {
-    return {
-      title: `[Notice] Starter Code Updated: ${commitTitle}`,
-      body: `The starter code was updated from template commit \`${commitSha.slice(0, 7)}\`.\n\nRun \`git pull\` in your workspace to get the latest fixes.`,
-    };
+    // Blob shas, however, match exactly - they are content addresses, so they
+    // are the same in every repository holding the same bytes. That identity is
+    // what the whole plan rests on.
+    const tplTree = treeOf(template);
+    const stuTree = treeOf(student);
+    assert.equal(stuTree.get("bmi_calculator.py"), tplTree.get("bmi_calculator.py"));
+    assert.equal(stuTree.get("README.md"), tplTree.get("README.md"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
-  return {
-    title: `[Action Required] Starter Code Update Available in PR #${prNumber}`,
-    body: `A starter code update is available in Pull Request [#${prNumber}](${prUrl}). Please review and merge it.`,
-  };
-}
-
-test("Notification issue formatting produces actionable messages for auto-merge and PR fallback", () => {
-  const autoMergeIssue = generateSyncNotificationIssue("auto-merged", "Fix test case 3", "1234567890abcdef1234567890abcdef12345678");
-  assert.equal(autoMergeIssue.title, "[Notice] Starter Code Updated: Fix test case 3");
-  assert.ok(autoMergeIssue.body.includes("git pull"));
-
-  const prIssue = generateSyncNotificationIssue("pr-opened", "Fix test case 3", "1234567890abcdef1234567890abcdef12345678", 4, "https://github.com/org/repo/pull/4");
-  assert.equal(prIssue.title, "[Action Required] Starter Code Update Available in PR #4");
-  assert.ok(prIssue.body.includes("[#4](https://github.com/org/repo/pull/4)"));
 });
 
 // -----------------------------------------------------------------------------
-// 8. Batch Cohort Synchronization Simulation
+// 3. planStarterSync over a real correction
 // -----------------------------------------------------------------------------
 
-test("Batch cohort sync correctly processes mixed outcomes (clean, conflict, up-to-date, unaccepted)", () => {
-  const root = mkdtempSync(join(tmpdir(), "pxl-sync-batch-"));
-  const templateDir = join(root, "template");
-  const studentClean = join(root, "student-clean");
-  const studentConflict = join(root, "student-conflict");
-  const studentUpToDate = join(root, "student-uptodate");
+test("a correction lands in place for students who never touched the file, and as a PR for those who did", () => {
+  const root = mkdtempSync(join(tmpdir(), "pxl-sync-plan-"));
+  try {
+    const template = initRepo(join(root, "template"));
+    writeFileSync(join(template, "bmi_calculator.py"), "def bmi():\n    pass\n");
+    writeFileSync(join(template, "README.md"), "# Starter\n");
+    commitAll(template, "Add Python assignments");
+    const baseTree = treeOf(template);
 
-  mkdirSync(templateDir);
-  mkdirSync(studentClean);
-  mkdirSync(studentConflict);
-  mkdirSync(studentUpToDate);
+    // The lecturer corrects a mistake in the assignment - the case the whole
+    // feature exists for.
+    writeFileSync(join(template, "bmi_calculator.py"), "def bmi(w, h):\n    return w / h ** 2\n");
+    commitAll(template, "Fix bmi signature");
+    const headTree = treeOf(template);
+    const paths = ["bmi_calculator.py"];
 
-  // Template initial
-  git(["init", "--initial-branch=main", "."], templateDir);
-  git(["config", "user.email", "t@example.com"], templateDir);
-  git(["config", "user.name", "Test"], templateDir);
-  writeFileSync(join(templateDir, "README.md"), "# Initial\n");
-  writeFileSync(join(templateDir, "task.py"), "def run(): pass\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Initial"], templateDir);
+    // Student A generated their repo and has not opened the file.
+    const untouched = initRepo(join(root, "untouched"));
+    writeFileSync(join(untouched, "bmi_calculator.py"), "def bmi():\n    pass\n");
+    writeFileSync(join(untouched, "README.md"), "# Starter\n");
+    commitAll(untouched, "Initial commit");
 
-  // Student 1: Clean (modified other file)
-  git(["clone", fileUrl(templateDir), "."], studentClean);
-  git(["config", "user.email", "s1@example.com"], studentClean);
-  git(["config", "user.name", "S1"], studentClean);
-  writeFileSync(join(studentClean, "my_work.py"), "# Clean work\n");
-  git(["add", "."], studentClean);
-  git(["commit", "-m", "S1 progress"], studentClean);
+    const planA = planStarterSync({ headTree, baseTree, studentTree: treeOf(untouched), paths });
+    assert.deepEqual(planA.clean, [{ path: "bmi_calculator.py", action: "write" }]);
+    assert.deepEqual(planA.conflicts, []);
+    assert.equal(outcomeFor(planA), "auto-merged");
 
-  // Student 2: Conflict (modified task.py)
-  git(["clone", fileUrl(templateDir), "."], studentConflict);
-  git(["config", "user.email", "s2@example.com"], studentConflict);
-  git(["config", "user.name", "S2"], studentConflict);
-  writeFileSync(join(studentConflict, "task.py"), "def run(): return 'student-custom'\n");
-  git(["add", "."], studentConflict);
-  git(["commit", "-m", "S2 edited task"], studentConflict);
+    // Student B has started solving it.
+    const working = initRepo(join(root, "working"));
+    writeFileSync(join(working, "bmi_calculator.py"), "def bmi():\n    return 'my attempt'\n");
+    writeFileSync(join(working, "README.md"), "# Starter\n");
+    commitAll(working, "Initial commit");
 
-  // Template gets update
-  writeFileSync(join(templateDir, "task.py"), "def run(): return 'lecturer-fix'\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Lecturer update task"], templateDir);
-  const tplSha = git(["rev-parse", "HEAD"], templateDir);
+    const planB = planStarterSync({ headTree, baseTree, studentTree: treeOf(working), paths });
+    assert.deepEqual(planB.clean, []);
+    assert.deepEqual(planB.conflicts, [{ path: "bmi_calculator.py", action: "write" }]);
+    assert.equal(outcomeFor(planB), "pr-opened");
 
-  // Student 3: Up-to-date (already has tplSha)
-  git(["clone", fileUrl(templateDir), "."], studentUpToDate);
-  git(["config", "user.email", "s3@example.com"], studentUpToDate);
-  git(["config", "user.name", "S3"], studentUpToDate);
+    // Student C already has the corrected file - a re-run must do nothing.
+    const current = initRepo(join(root, "current"));
+    writeFileSync(join(current, "bmi_calculator.py"), "def bmi(w, h):\n    return w / h ** 2\n");
+    writeFileSync(join(current, "README.md"), "# Starter\n");
+    commitAll(current, "Initial commit");
 
-  // Simulate Batch Processor
-  const cohort = [
-    { login: "student-clean", dir: studentClean, repo: "org/repo-clean" },
-    { login: "student-conflict", dir: studentConflict, repo: "org/repo-conflict" },
-    { login: "student-uptodate", dir: studentUpToDate, repo: "org/repo-uptodate" },
-    { login: "student-unaccepted", dir: null, repo: null },
+    const planC = planStarterSync({ headTree, baseTree, studentTree: treeOf(current), paths });
+    assert.deepEqual(planC.clean, []);
+    assert.deepEqual(planC.conflicts, []);
+    assert.deepEqual(planC.upToDate, ["bmi_calculator.py"]);
+    assert.equal(outcomeFor(planC), "skipped-up-to-date");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the split is per file, so one student can get both a direct commit and a PR", () => {
+  const headTree = new Map([["a.py", "head-a"], ["b.py", "head-b"]]);
+  const baseTree = new Map([["a.py", "base-a"], ["b.py", "base-b"]]);
+  // Touched b.py only.
+  const studentTree = new Map([["a.py", "base-a"], ["b.py", "student-b"]]);
+
+  const plan = planStarterSync({ headTree, baseTree, studentTree, paths: ["a.py", "b.py"] });
+  assert.deepEqual(plan.clean, [{ path: "a.py", action: "write" }]);
+  assert.deepEqual(plan.conflicts, [{ path: "b.py", action: "write" }]);
+  assert.equal(outcomeFor(plan), "merged-and-pr");
+});
+
+test("added, deleted and renamed paths are planned correctly", () => {
+  const headTree = new Map([["new.py", "sha-new"], ["renamed.py", "sha-moved"]]);
+  const baseTree = new Map([["gone.py", "sha-gone"], ["old.py", "sha-moved"]]);
+
+  // A student who has exactly what the template said before the commit.
+  const pristine = new Map([["gone.py", "sha-gone"], ["old.py", "sha-moved"]]);
+  const plan = planStarterSync({
+    headTree,
+    baseTree,
+    studentTree: pristine,
+    paths: ["new.py", "gone.py", "renamed.py", "old.py"],
+  });
+
+  assert.deepEqual(plan.clean, [
+    { path: "new.py", action: "write" },     // added: absent in base AND in the student
+    { path: "gone.py", action: "delete" },   // removed from the template
+    { path: "renamed.py", action: "write" }, // the rename's new path
+    { path: "old.py", action: "delete" },    // ...and its old one, or both survive
+  ]);
+  assert.deepEqual(plan.conflicts, []);
+
+  // A student who wrote their own file at the path the template is adding must
+  // not have it silently overwritten.
+  const collides = new Map([["new.py", "student-wrote-this"]]);
+  const plan2 = planStarterSync({ headTree, baseTree, studentTree: collides, paths: ["new.py"] });
+  assert.deepEqual(plan2.conflicts, [{ path: "new.py", action: "write" }]);
+
+  // A file the commit deletes that this student never had is nothing to do,
+  // not a deletion to apply.
+  const never = new Map();
+  const plan3 = planStarterSync({ headTree, baseTree, studentTree: never, paths: ["gone.py"] });
+  assert.deepEqual(plan3.upToDate, ["gone.py"]);
+  assert.deepEqual(plan3.clean, []);
+});
+
+// -----------------------------------------------------------------------------
+// 4. Selection, outcomes, summary
+// -----------------------------------------------------------------------------
+
+test("changedPaths includes a rename's previous filename", () => {
+  const files = [
+    { filename: "src/new_name.py", previous_filename: "src/old_name.py", status: "renamed" },
+    { filename: "README.md", status: "modified" },
+    { filename: "README.md", status: "modified" },
   ];
+  assert.deepEqual(changedPaths(files), ["src/new_name.py", "src/old_name.py", "README.md"]);
+});
 
-  const outcomes = [];
+test("the file selection is honoured - it used to be decorative", () => {
+  // The old script recorded `selected_files` in the sync record and in the PR
+  // body, then merged the entire template HEAD regardless. The modal said
+  // "Files to Synchronize (1/1)" while the operation carried every file.
+  const changed = ["a.py", "b.py", "c.py"];
 
-  for (const s of cohort) {
-    if (!s.dir || !s.repo) {
-      outcomes.push({ login: s.login, outcome: "skipped-no-repo" });
-      continue;
-    }
+  assert.deepEqual(resolveSelection(changed, ["b.py"]), ["b.py"]);
+  assert.deepEqual(resolveSelection(changed, ["*"]), changed);
+  assert.deepEqual(resolveSelection(changed, []), changed);
+  assert.deepEqual(resolveSelection(changed, undefined), changed);
 
-    const currentHead = git(["rev-parse", "HEAD"], s.dir);
-    if (currentHead === tplSha) {
-      outcomes.push({ login: s.login, outcome: "skipped-up-to-date" });
-      continue;
-    }
+  // A path that is not part of this commit has no content to copy and no base
+  // to compare against, so it is dropped rather than acted on.
+  assert.deepEqual(resolveSelection(changed, ["b.py", "not-in-commit.py"]), ["b.py"]);
+});
 
-    git(["fetch", fileUrl(templateDir), "main"], s.dir);
+test("summarize counts a merged-and-pr student under both headings", () => {
+  const summary = summarize([
+    { outcome: "auto-merged" },
+    { outcome: "merged-and-pr" },
+    { outcome: "pr-opened" },
+    { outcome: "skipped-up-to-date" },
+    { outcome: "skipped-no-repo" },
+    { outcome: "failed" },
+  ]);
 
-    try {
-      git(["merge", tplSha, "-m", "Auto-merge template update"], s.dir);
-      outcomes.push({ login: s.login, outcome: "auto-merged" });
-    } catch {
-      // Merge conflict -> abort merge and create PR branch
-      git(["merge", "--abort"], s.dir);
-      const prBranch = `starter-update-batch-test`;
-      git(["branch", prBranch, tplSha], s.dir);
-      outcomes.push({ login: s.login, outcome: "pr-opened", branch: prBranch });
-    }
+  assert.deepEqual(summary, { total: 6, auto_merged: 2, pr_opened: 2, skipped: 2, failed: 1 });
+
+  // Deliberately not asserted to sum to `total`: the counters describe what
+  // happened, and one student can be in two of them.
+  assert.ok(summary.auto_merged + summary.pr_opened + summary.skipped + summary.failed > summary.total);
+});
+
+test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself", () => {
+  // Same guard as tests/effective-deadline.test.mjs: the pre-flight in the
+  // modal, the workflow script and the CLI must reach the same verdict, or the
+  // modal promises one thing and the workflow does another.
+  const consumers = [
+    "scripts/sync-starter.mjs",
+    "cli/src/commands/sync-starter.mjs",
+    "frontend/src/components/StarterSyncModal.vue",
+  ];
+  for (const file of consumers) {
+    const src = readFileSync(join(process.cwd(), file), "utf8");
+    assert.match(src, /planStarterSync/, `${file} must plan through lib/starter-sync.mjs`);
+    assert.doesNotMatch(
+      // Comments stripped first: every one of these files explains the removed
+      // `POST /merges` by quoting it, and a scanner that reads the explanation
+      // as the code is the failure mode tests/student-wait-copy.test.mjs
+      // already had to fix once.
+      stripComments(src),
+      /compare\/\$\{[^}]*\}\.\.\.main|repos\.merge\(|["'`]\/merges/,
+      `${file} must not merge a template SHA into a student repo - it does not exist there`,
+    );
   }
-
-  assert.equal(outcomes[0].outcome, "auto-merged");
-  assert.equal(outcomes[1].outcome, "pr-opened");
-  assert.equal(outcomes[2].outcome, "skipped-up-to-date");
-  assert.equal(outcomes[3].outcome, "skipped-no-repo");
 });
-
-// -----------------------------------------------------------------------------
-// 9. Dry-Run Safety Invariant
-// -----------------------------------------------------------------------------
-
-test("Dry-run sync simulation performs zero mutations on student repository", () => {
-  const root = mkdtempSync(join(tmpdir(), "pxl-sync-dryrun-"));
-  const templateDir = join(root, "template");
-  const studentDir = join(root, "student");
-
-  mkdirSync(templateDir);
-  mkdirSync(studentDir);
-
-  git(["init", "--initial-branch=main", "."], templateDir);
-  git(["config", "user.email", "t@example.com"], templateDir);
-  git(["config", "user.name", "Test"], templateDir);
-  writeFileSync(join(templateDir, "file.txt"), "v1\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Initial"], templateDir);
-
-  git(["clone", fileUrl(templateDir), "."], studentDir);
-  git(["config", "user.email", "s@example.com"], studentDir);
-  git(["config", "user.name", "Student"], studentDir);
-  const studentHeadBefore = git(["rev-parse", "HEAD"], studentDir);
-
-  // Template updates
-  writeFileSync(join(templateDir, "file.txt"), "v2\n");
-  git(["add", "."], templateDir);
-  git(["commit", "-m", "Update"], templateDir);
-
-  // Dry-run only checks diff without git merge or branch push
-  const branchesBefore = git(["branch", "--list"], studentDir);
-  const studentHeadAfter = git(["rev-parse", "HEAD"], studentDir);
-
-  assert.equal(studentHeadAfter, studentHeadBefore, "HEAD must not move during dry run");
-  assert.equal(git(["branch", "--list"], studentDir), branchesBefore, "No branches must be created during dry run");
-});
-

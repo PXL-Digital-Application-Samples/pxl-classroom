@@ -49,10 +49,15 @@
       "pattern": "^[0-9a-f]{40}$",
       "description": "Commit SHA from the template repository that was synchronized."
     },
+    "template_base_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "That commit's parent. A student whose file still matches the base has not touched it, which is how the sync decides between writing to main and opening a pull request. Absent for a root commit."
+    },
     "selected_files": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "List of file paths selectively synced from the template, or ['*'] for full commit tree."
+      "description": "The paths actually applied. Previously the raw request, recorded as ['*'] while the operation merged the entire template tree regardless of what the lecturer had ticked."
     },
     "pr_title": {
       "type": "string"
@@ -88,7 +93,18 @@
           "repo_name": { "type": "string" },
           "outcome": {
             "type": "string",
-            "enum": ["auto-merged", "pr-opened", "skipped-up-to-date", "skipped-no-repo", "failed"]
+            "enum": ["auto-merged", "pr-opened", "merged-and-pr", "skipped-up-to-date", "skipped-no-repo", "failed"],
+            "description": "`merged-and-pr` exists because the clean/conflict split is per FILE: one sync can put three corrections straight onto a student's main and raise a pull request for the fourth. Such a student is counted in both auto_merged and pr_opened, so the summary counters deliberately do not sum to total."
+          },
+          "files_merged": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Files written directly to main because the student had not touched them."
+          },
+          "files_conflicted": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Files the student had changed, offered as a pull request instead."
           },
           "commit_sha": { "type": ["string", "null"] },
           "pr_number": { "type": ["integer", "null"] },

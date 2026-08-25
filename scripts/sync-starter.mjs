@@ -1,13 +1,26 @@
 #!/usr/bin/env node
 // PXL Classroom - smart starter code synchronization.
 //
-// Fetches the latest updates from the assignment template repository and applies
-// them to student repositories using Smart Auto-Merge (with safe PR fallback on conflicts).
+// Copies the changes from ONE template commit into student repositories:
+// straight onto `main` for every file the student has not touched, and onto a
+// `starter-update-<ts>` branch with a pull request for the ones they have.
+//
+// It copies content and never merges history - see lib/starter-sync.mjs for why
+// the merge-based implementation this replaced could not work against a
+// repository created from a template.
 
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
+import { commitWithRebase } from "../lib/gittree.mjs";
+import {
+  changedPaths,
+  resolveSelection,
+  planStarterSync,
+  outcomeFor,
+  summarize,
+} from "../lib/starter-sync.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -34,17 +47,35 @@ function generateSyncId() {
   return `sync-${ts}-${rand}`;
 }
 
+// path -> blob sha for every file in a tree. `?recursive=1` is one request for
+// the whole repository instead of one per directory, and the blob shas are all
+// the comparison needs - no file content is fetched for any student.
+async function readTree(repoFullName, ref) {
+  const res = await gh("GET", `/repos/${repoFullName}/git/trees/${ref}?recursive=1`, null, { token: cfg.token });
+  if (!res.ok) throw new Error(`could not read tree ${repoFullName}@${ref.slice(0, 7)} (HTTP ${res.status})`);
+  // A tree over 100k entries comes back truncated. Saying so beats treating a
+  // partial listing as the repository: every unlisted path would look absent,
+  // which reads as "the student deleted it" and would restore files nobody
+  // touched.
+  if (res.data?.truncated) throw new Error(`tree listing for ${repoFullName} was truncated - too many files to sync safely`);
+  const map = new Map();
+  for (const entry of res.data?.tree || []) {
+    if (entry.type === "blob") map.set(entry.path, entry.sha);
+  }
+  return map;
+}
+
 async function main() {
   if (!cfg.token) throw new Error("GITHUB_TOKEN is required");
   if (!cfg.org) throw new Error("ORG is required");
   if (!cfg.assignmentId) throw new Error("ASSIGNMENT_ID is required");
 
-  let filesList = ["*"];
+  let requestedFiles = ["*"];
   try {
-    filesList = JSON.parse(cfg.selectedFiles);
-    if (!Array.isArray(filesList) || filesList.length === 0) filesList = ["*"];
+    const parsed = JSON.parse(cfg.selectedFiles);
+    if (Array.isArray(parsed) && parsed.length > 0) requestedFiles = parsed;
   } catch {
-    filesList = ["*"];
+    requestedFiles = ["*"];
   }
 
   // 1. Read assignment YAML
@@ -59,29 +90,59 @@ async function main() {
   const templateFullName = `${tplOwner}/${tplRepo}`;
   console.log(`[sync] Template repository: ${templateFullName}`);
 
-  // 2. Fetch latest commit from template default branch
-  const tplCommits = await gh("GET", `/repos/${tplOwner}/${tplRepo}/commits?per_page=1`, null, { token: cfg.token });
+  // 2. The commit being synced, and the one before it.
+  const tplCommits = await gh("GET", `/repos/${templateFullName}/commits?per_page=1`, null, { token: cfg.token });
   if (!tplCommits.ok || !tplCommits.data?.[0]) {
     throw new Error(`Could not fetch commits from template ${templateFullName} (HTTP ${tplCommits.status})`);
   }
 
-  const latestCommit = tplCommits.data[0];
-  const templateSha = latestCommit.sha;
-  const commitMsgTitle = (latestCommit.commit?.message || "").split("\n")[0] || "Update starter code";
+  const templateSha = tplCommits.data[0].sha;
+  const detail = await gh("GET", `/repos/${templateFullName}/commits/${templateSha}`, null, { token: cfg.token });
+  if (!detail.ok) throw new Error(`Could not read template commit ${templateSha.slice(0, 7)} (HTTP ${detail.status})`);
+
+  const commitMsgTitle = (detail.data.commit?.message || "").split("\n")[0] || "Update starter code";
+  const parentSha = detail.data.parents?.[0]?.sha || null;
   console.log(`[sync] Target template commit: ${templateSha.slice(0, 7)} - "${commitMsgTitle}"`);
+
+  // GitHub returns at most 300 entries in `files`. A capped read may not
+  // present itself as a whole one.
+  if ((detail.data.files || []).length >= 300) {
+    console.log("[warn] this commit changed more than 300 files; GitHub lists only the first 300, and only those are synced.");
+  }
+
+  const changed = changedPaths(detail.data.files);
+  const paths = resolveSelection(changed, requestedFiles);
+  if (paths.length === 0) {
+    console.log("[sync] The selected files are not part of this commit - nothing to sync.");
+  }
+  console.log(`[sync] ${paths.length} of ${changed.length} changed file(s) selected.`);
+
+  const headTree = await readTree(templateFullName, templateSha);
+  // A root commit has no parent: every path in it is new, so an empty base
+  // makes "the student never touched it" mean "the student does not have it".
+  const baseTree = parentSha ? await readTree(templateFullName, parentSha) : new Map();
+
+  // Content is fetched ONCE per path here, not once per student.
+  const contentByPath = new Map();
+  for (const path of paths) {
+    const sha = headTree.get(path);
+    if (!sha) continue; // deletion - nothing to fetch
+    const blob = await gh("GET", `/repos/${templateFullName}/git/blobs/${sha}`, null, { token: cfg.token });
+    if (!blob.ok) throw new Error(`could not read ${path} from the template (HTTP ${blob.status})`);
+    // Kept as a Buffer so binary starter files (images, fixtures, archives)
+    // survive; gittree base64-encodes a Buffer unchanged.
+    contentByPath.set(path, Buffer.from(blob.data.content || "", blob.data.encoding || "base64"));
+  }
 
   const syncTitle = cfg.prTitle || `Starter Code Update: ${commitMsgTitle}`;
   const syncBody = cfg.prBody || [
     "### Starter Code Update",
     "",
-    `An update from the starter template repository (\`${templateFullName}\`) is available.`,
+    `A correction from the starter template (\`${templateFullName}\`) is available.`,
     "",
     `- **Commit:** \`${templateSha.slice(0, 7)}\` - ${commitMsgTitle}`,
-    `- **Selected Files:** ${filesList.includes("*") ? "All changed files" : filesList.join(", ")}`,
     "",
-    "#### What you need to do:",
-    "- If this update merged cleanly, run `git pull` in your local workspace to get the latest files.",
-    "- If this is a Pull Request, review the diff tab on GitHub and click **Merge pull request**.",
+    "You changed these files, so they were not overwritten. Review the diff and merge when you are ready.",
   ].join("\n");
 
   // 3. Read student repository records
@@ -95,163 +156,113 @@ async function main() {
 
   const syncId = generateSyncId();
   const results = [];
-  let autoMerged = 0;
-  let prOpened = 0;
-  let skipped = 0;
-  let failed = 0;
 
   for (const file of repoFiles) {
-    const filePath = join(reposDir, file);
-    const rec = JSON.parse(await readFile(filePath, "utf8"));
+    const rec = JSON.parse(await readFile(join(reposDir, file), "utf8"));
     const login = rec.github_login;
     const teamSlug = rec.team_slug;
     const repoNameFull = rec.repo_name;
     const repoName = repoNameFull?.split("/")[1] || repoNameFull;
 
     if (!repoName) {
-      skipped++;
       results.push({ github_login: login, team_slug: teamSlug, repo_name: "unknown", outcome: "skipped-no-repo" });
       continue;
     }
 
+    const studentFullName = `${cfg.org}/${repoName}`;
+    const row = { github_login: login, repo_name: studentFullName };
+    if (teamSlug) row.team_slug = teamSlug;
+
     try {
-      // Check if student repo main is already at or ahead of this template commit
-      const compRes = await gh("GET", `/repos/${cfg.org}/${repoName}/compare/${templateSha}...main`, null, { token: cfg.token });
-      if (compRes.ok && compRes.data?.status === "identical") {
-        console.log(`[skip] ${login}: already up to date with ${templateSha.slice(0, 7)}`);
-        skipped++;
-        results.push({ github_login: login, team_slug: teamSlug, repo_name: `${cfg.org}/${repoName}`, outcome: "skipped-up-to-date" });
+      const studentTree = await readTree(studentFullName, "main");
+      const plan = planStarterSync({ headTree, baseTree, studentTree, paths });
+      const outcome = outcomeFor(plan);
+      row.outcome = outcome;
+      row.files_merged = plan.clean.length;
+      row.files_conflicted = plan.conflicts.length;
+
+      if (outcome === "skipped-up-to-date") {
+        console.log(`[skip] ${login}: already has every selected change`);
+        results.push(row);
+        await sleep(200);
         continue;
       }
 
-      // Strategy 1: Attempt Smart Direct Merge into main
-      const mergeRes = await gh(
-        "POST",
-        `/repos/${cfg.org}/${repoName}/merges`,
-        {
-          base: "main",
-          head: templateSha,
-          commit_message: `Update starter code from template: ${commitMsgTitle}`,
-        },
-        { token: cfg.token }
-      );
+      const toChanges = (entries) =>
+        entries.map(({ path, action }) => ({
+          path,
+          content: action === "delete" ? null : contentByPath.get(path),
+        }));
 
-      if (mergeRes.ok || mergeRes.status === 204) {
-        // Direct merge succeeded cleanly
-        autoMerged++;
-        const newSha = mergeRes.data?.sha || templateSha;
-        console.log(`[auto-merged] ${login}: cleanly merged ${templateSha.slice(0, 7)} into main -> ${newSha.slice(0, 7)}`);
-
-        let issueNum = null;
-        let issueUrl = null;
-        if (cfg.createIssue) {
-          const issueRes = await gh(
-            "POST",
-            `/repos/${cfg.org}/${repoName}/issues`,
-            {
-              title: `[Notice] Starter Code Updated: ${commitMsgTitle}`,
-              body: `The starter code in this repository was automatically updated with latest template changes.\n\nRun \`git pull\` in your workspace to get the latest fixes.`,
-            },
-            { token: cfg.token }
-          );
-          if (issueRes.ok) {
-            issueNum = issueRes.data.number;
-            issueUrl = issueRes.data.html_url;
-          }
-        }
-
-        results.push({
-          github_login: login,
-          team_slug: teamSlug,
-          repo_name: `${cfg.org}/${repoName}`,
-          outcome: "auto-merged",
-          commit_sha: newSha,
-          issue_number: issueNum,
-          issue_url: issueUrl,
+      // 3a. Files the student never touched go straight onto main.
+      if (plan.clean.length > 0) {
+        const commit = await commitWithRebase({
+          token: cfg.token,
+          owner: cfg.org,
+          repo: repoName,
+          branch: "main",
+          message: `Update starter code from template: ${commitMsgTitle}`,
+          changes: toChanges(plan.clean),
         });
-      } else if (mergeRes.status === 409) {
-        // Merge conflict: Safely fall back to a Pull Request branch
-        console.log(`[conflict -> PR] ${login}: conflict detected on main, creating safe update branch & PR`);
-        const branchName = `starter-update-${Date.now().toString(36)}`;
-        
-        // Create ref pointing to templateSha in student repo
-        const createRefRes = await gh(
-          "POST",
-          `/repos/${cfg.org}/${repoName}/git/refs`,
-          {
-            ref: `refs/heads/${branchName}`,
-            sha: templateSha,
-          },
-          { token: cfg.token }
-        );
-
-        if (!createRefRes.ok) {
-          throw new Error(`Failed to create update branch ${branchName} (HTTP ${createRefRes.status})`);
-        }
-
-        // Open Pull Request
-        const prRes = await gh(
-          "POST",
-          `/repos/${cfg.org}/${repoName}/pulls`,
-          {
-            title: syncTitle,
-            body: `${syncBody}\n\n> Note: A merge conflict occurred when attempting to apply this update directly. Please review the modified files and resolve any conflicts.`,
-            head: branchName,
-            base: "main",
-          },
-          { token: cfg.token }
-        );
-
-        if (!prRes.ok) {
-          throw new Error(`Failed to open sync PR (HTTP ${prRes.status}): ${prRes.data?.message || ""}`);
-        }
-
-        prOpened++;
-        const prNum = prRes.data.number;
-        const prUrl = prRes.data.html_url;
-        console.log(`[pr-opened] ${login}: opened PR #${prNum} (${prUrl})`);
-
-        let issueNum = null;
-        let issueUrl = null;
-        if (cfg.createIssue) {
-          const issueRes = await gh(
-            "POST",
-            `/repos/${cfg.org}/${repoName}/issues`,
-            {
-              title: `[Action Required] Starter Code Update Available in PR #${prNum}`,
-              body: `A starter code update is available in Pull Request [#${prNum}](${prUrl}). Please review and merge it.`,
-            },
-            { token: cfg.token }
-          );
-          if (issueRes.ok) {
-            issueNum = issueRes.data.number;
-            issueUrl = issueRes.data.html_url;
-          }
-        }
-
-        results.push({
-          github_login: login,
-          team_slug: teamSlug,
-          repo_name: `${cfg.org}/${repoName}`,
-          outcome: "pr-opened",
-          pr_number: prNum,
-          pr_url: prUrl,
-          issue_number: issueNum,
-          issue_url: issueUrl,
-        });
-      } else {
-        throw new Error(`Merge attempt returned HTTP ${mergeRes.status}: ${mergeRes.data?.message || ""}`);
+        row.commit_sha = commit.commitSha;
+        console.log(`[auto-merged] ${login}: ${plan.clean.length} file(s) -> ${commit.commitSha.slice(0, 7)}`);
       }
+
+      // 3b. Files they did touch go onto a branch off THEIR OWN main, so no
+      //     foreign SHA is ever involved, and are offered as a pull request.
+      if (plan.conflicts.length > 0) {
+        const branchName = `starter-update-${Date.now().toString(36)}`;
+        const head = await gh("GET", `/repos/${studentFullName}/git/ref/heads/main`, null, { token: cfg.token });
+        if (!head.ok) throw new Error(`could not read main (HTTP ${head.status})`);
+
+        const ref = await gh("POST", `/repos/${studentFullName}/git/refs`, {
+          ref: `refs/heads/${branchName}`,
+          sha: head.data.object.sha,
+        }, { token: cfg.token });
+        if (!ref.ok) throw new Error(`could not create ${branchName} (HTTP ${ref.status})`);
+
+        await commitWithRebase({
+          token: cfg.token,
+          owner: cfg.org,
+          repo: repoName,
+          branch: branchName,
+          message: `Starter code update: ${commitMsgTitle}`,
+          changes: toChanges(plan.conflicts),
+        });
+
+        const prRes = await gh("POST", `/repos/${studentFullName}/pulls`, {
+          title: syncTitle,
+          body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}`,
+          head: branchName,
+          base: "main",
+        }, { token: cfg.token });
+        if (!prRes.ok) throw new Error(`could not open the sync PR (HTTP ${prRes.status}): ${prRes.data?.message || ""}`);
+
+        row.pr_number = prRes.data.number;
+        row.pr_url = prRes.data.html_url;
+        console.log(`[pr-opened] ${login}: #${prRes.data.number} for ${plan.conflicts.length} file(s) (${prRes.data.html_url})`);
+      }
+
+      if (cfg.createIssue) {
+        const body = plan.conflicts.length
+          ? `A starter code update is available in Pull Request [#${row.pr_number}](${row.pr_url}). Please review and merge it.`
+          : "The starter code in this repository was updated with the latest template changes.\n\nRun `git pull` in your workspace to get them.";
+        const issueRes = await gh("POST", `/repos/${studentFullName}/issues`, {
+          title: plan.conflicts.length
+            ? `[Action Required] Starter Code Update Available in PR #${row.pr_number}`
+            : `[Notice] Starter Code Updated: ${commitMsgTitle}`,
+          body,
+        }, { token: cfg.token });
+        if (issueRes.ok) {
+          row.issue_number = issueRes.data.number;
+          row.issue_url = issueRes.data.html_url;
+        }
+      }
+
+      results.push(row);
     } catch (err) {
-      failed++;
       console.log(`[fail] ${login}: ${err.message}`);
-      results.push({
-        github_login: login,
-        team_slug: teamSlug,
-        repo_name: `${cfg.org}/${repoName}`,
-        outcome: "failed",
-        error: err.message,
-      });
+      results.push({ ...row, outcome: "failed", error: err.message });
     }
 
     // Rate-limit throttle
@@ -267,17 +278,15 @@ async function main() {
     synced_by: cfg.actor,
     template_repo: templateFullName,
     template_sha: templateSha,
-    selected_files: filesList,
+    ...(parentSha ? { template_base_sha: parentSha } : {}),
+    // The paths actually applied, not the raw request. `["*"]` used to be
+    // recorded verbatim while the operation merged the whole template tree
+    // regardless of what was ticked.
+    selected_files: paths,
     pr_title: syncTitle,
     pr_body: syncBody,
     created_issues: cfg.createIssue,
-    summary: {
-      total: repoFiles.length,
-      auto_merged: autoMerged,
-      pr_opened: prOpened,
-      skipped,
-      failed,
-    },
+    summary: summarize(results),
     results,
   };
 
@@ -285,7 +294,8 @@ async function main() {
   await mkdir(syncDir, { recursive: true });
   await writeFile(join(syncDir, `${syncId}.json`), JSON.stringify(syncRecord, null, 2) + "\n");
 
-  console.log(`\nSync complete (${syncId}): ${autoMerged} auto-merged, ${prOpened} PRs opened, ${skipped} skipped, ${failed} failed.`);
+  const s = syncRecord.summary;
+  console.log(`\nSync complete (${syncId}): ${s.auto_merged} updated in place, ${s.pr_opened} pull request(s), ${s.skipped} skipped, ${s.failed} failed.`);
 }
 
 main().catch((e) => {

@@ -121,14 +121,14 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
 
     // Deselect all files
     await modal.locator('button', { hasText: 'Deselect all' }).click();
-    await expect(modal.locator('.file-selector-box')).toContainText('Files to Synchronize (0/3)');
+    await expect(modal.locator('.file-selector-box')).toContainText('Files this commit changed (0/3 selected)');
 
     // Select only 'tests/test_validation.py'
     const validationRow = modal.locator('.file-row', { hasText: 'tests/test_validation.py' });
     await validationRow.locator('input[type="checkbox"]').check();
 
     // Verify counter increments to 1/3
-    await expect(modal.locator('.file-selector-box')).toContainText('Files to Synchronize (1/3)');
+    await expect(modal.locator('.file-selector-box')).toContainText('Files this commit changed (1/3 selected)');
 
     // Dispatch update
     await modal.locator('button', { hasText: /Apply Starter Update/i }).click();
@@ -167,20 +167,19 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
           ],
         },
       },
-    });
-
-    // Mock compare API to report overlapping modified files (causing conflict classification)
-    await page.route('https://api.github.com/repos/**/compare/**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        body: JSON.stringify({
-          status: 'diverged',
-          ahead_by: 2,
-          behind_by: 1,
-          total_commits: 3,
-          files: [{ filename: 'config.json', status: 'modified' }],
-        }),
-      });
+      // This student edited config.json - its blob matches neither the
+      // template's head nor its parent - and left README.md and the (new)
+      // test file alone. The conflict is decided by comparing blob shas, not
+      // by a compare API the student's repository cannot answer: a repository
+      // created with `POST /generate` shares no objects with its template, so
+      // `compare/{templateSha}...main` is a 404 there. This spec used to mock
+      // that call returning `diverged`, which is a response GitHub never gives.
+      gitTrees: {
+        [`${ORG}/lab-config-conflict-${STUDENT_1.login}@main`]: {
+          'README.md': 'base-README.md',
+          'config.json': 'student-edited-config',
+        },
+      },
     });
 
     await page.goto(`/dashboard/${ORG}/lab-config-conflict`);
@@ -189,11 +188,23 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
     const modal = page.locator('.modal.card.modal-wide');
     await expect(modal).toBeVisible();
 
-    // Pre-flight scan should classify student as conflict / Safe PR
+    // config.json goes to a pull request...
     const conflictCard = modal.locator('.preflight-card.conflict');
     await expect(conflictCard).toBeVisible();
     await expect(conflictCard.locator('.preflight-count')).toContainText('1');
-    await expect(conflictCard.locator('.preflight-desc')).toContainText('Conflicting edits detected; opens PR to protect student code');
+    await expect(conflictCard.locator('.preflight-desc')).toContainText('Has changed at least one of them');
+
+    // ...while README.md and the new test file still land in place. The split
+    // is per FILE, so the same student appears under both headings and one
+    // edited file no longer holds back every other correction.
+    const cleanCard = modal.locator('.preflight-card.clean');
+    await expect(cleanCard.locator('.preflight-count')).toContainText('1');
+
+    // Untick config.json and the conflict goes away - the selection is real
+    // now, where it used to be recorded and then ignored.
+    const configRow = modal.locator('.file-row-box', { hasText: 'config.json' });
+    await configRow.locator('input[type="checkbox"]').uncheck();
+    await expect(conflictCard.locator('.preflight-count')).toContainText('0');
   });
 
   test('Scenario 4 (Group Assignment Sync): Syncs starter updates across shared team repositories', async ({ page }) => {

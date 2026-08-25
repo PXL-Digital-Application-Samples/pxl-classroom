@@ -43,7 +43,7 @@
             <div class="file-selector-box">
               <div class="flex justify-between items-center mb-xs">
                 <span class="text-xs font-semibold uppercase text-secondary">
-                  Files to Synchronize ({{ selectedFileCount }}/{{ templateFiles.length }})
+                  Files this commit changed ({{ selectedFileCount }}/{{ templateFiles.length }} selected)
                 </span>
                 <div class="flex gap-xs">
                   <button type="button" class="btn-link text-xs" @click="selectAllFiles(true)">Select all</button>
@@ -51,6 +51,10 @@
                   <button type="button" class="btn-link text-xs" @click="selectAllFiles(false)">Deselect all</button>
                 </div>
               </div>
+
+              <p v-if="truncatedCommit" class="text-xs stat-yellow" style="margin: 0 0 var(--space-xs) 0;">
+                This commit changed more than 300 files; GitHub lists only the first 300. Only the files below can be synced.
+              </p>
 
               <div class="file-list-scrollable flex flex-col gap-xs">
                 <div
@@ -108,7 +112,7 @@
 
           <div v-if="scanning" class="scanning-box flex flex-col gap-xs">
             <div class="flex justify-between text-xs text-secondary">
-              <span>Analyzing student branches for conflicts…</span>
+              <span>Reading student repositories…</span>
               <span>{{ scanProgress.current }} / {{ scanProgress.total }}</span>
             </div>
             <div class="progress-bar-container">
@@ -124,29 +128,48 @@
               <span class="preflight-count stat-green">{{ scanResults.autoMerged.length }}</span>
               <span class="status-indicator" style="margin-top: 4px;">
                 <span class="status-dot dot-success"></span>
-                <strong class="preflight-label">Clean Auto-Merge</strong>
+                <strong class="preflight-label">Updated in place</strong>
               </span>
-              <span class="preflight-desc">Merges cleanly to main (Zero student action required)</span>
+              <span class="preflight-desc">Has not touched these files, so they are written straight to main</span>
             </div>
 
             <div class="preflight-card conflict">
               <span class="preflight-count stat-yellow">{{ scanResults.conflicts.length }}</span>
               <span class="status-indicator" style="margin-top: 4px;">
                 <span class="status-dot dot-warning"></span>
-                <strong class="preflight-label">Safe Pull Requests</strong>
+                <strong class="preflight-label">Pull request</strong>
               </span>
-              <span class="preflight-desc">Conflicting edits detected; opens PR to protect student code</span>
+              <span class="preflight-desc">Has changed at least one of them; their work is not overwritten</span>
             </div>
 
             <div class="preflight-card skipped">
               <span class="preflight-count text-muted">{{ scanResults.skipped.length }}</span>
               <span class="status-indicator" style="margin-top: 4px;">
                 <span class="status-dot dot-neutral"></span>
-                <strong class="preflight-label">Up to Date / Skipped</strong>
+                <strong class="preflight-label">Nothing to do</strong>
               </span>
-              <span class="preflight-desc">Already at target SHA or repository unprovisioned</span>
+              <span class="preflight-desc">Already has every selected change</span>
+            </div>
+
+            <!-- A repository that could not be read is not "nothing to do".
+                 The scan used to fold every failed request into the conflict
+                 bucket, so an unreachable repo looked like a student who had
+                 edited the file. -->
+            <div v-if="scanResults.failed.length" class="preflight-card">
+              <span class="preflight-count stat-red">{{ scanResults.failed.length }}</span>
+              <span class="status-indicator" style="margin-top: 4px;">
+                <span class="status-dot dot-danger"></span>
+                <strong class="preflight-label">Could not read</strong>
+              </span>
+              <span class="preflight-desc">{{ scanResults.failed[0].reason }}</span>
             </div>
           </div>
+          <!-- Only once the template actually loaded: `baseSha` starts null, so
+               gating on it alone claims "first commit" over a failed read. -->
+          <p v-if="!scanning && !loadingTemplate && !templateError && templateCommits.length && baseSha === null"
+             class="text-xs text-muted" style="margin-top: var(--space-xs);">
+            This is the template's first commit, so every file in it counts as new.
+          </p>
         </section>
 
         <!-- Step 3: Message, Options & Dispatch -->
@@ -222,6 +245,7 @@ import Icon from './Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { ghApi, triggerWorkflow } from '../lib/api.js'
+import { changedPaths, planStarterSync, outcomeFor } from '../lib/starter-sync.js'
 import { toast } from '../lib/toast.js'
 
 const props = defineProps({
@@ -249,7 +273,17 @@ const scanResults = ref({
   autoMerged: [],
   conflicts: [],
   skipped: [],
+  failed: [],
 })
+
+// The two template trees and every student tree, read once per open. Blob shas
+// only - no file content is fetched for any student repository.
+const baseSha = ref(null)
+const headTree = ref(new Map())
+const baseTree = ref(new Map())
+const studentTrees = ref(new Map())
+const unreadable = ref(new Map())
+const truncatedCommit = ref(false)
 
 const templateFullName = computed(() => {
   const owner = props.assignment.template?.owner || props.org
@@ -278,8 +312,13 @@ const scanPercent = computed(() => {
   return Math.round((scanProgress.value.current / scanProgress.value.total) * 100)
 })
 
+// Students touched, not rows added up: the same student appears under both
+// headings when some of their files land in place and others need a PR.
 const targetStudentCount = computed(() => {
-  return scanResults.value.autoMerged.length + scanResults.value.conflicts.length
+  const seen = new Set()
+  for (const s of scanResults.value.autoMerged) seen.add(s.repo_name)
+  for (const s of scanResults.value.conflicts) seen.add(s.repo_name)
+  return seen.size
 })
 
 function formatRelativeDate(isoStr) {
@@ -321,8 +360,24 @@ function selectAllFiles(val) {
 }
 
 function onFilesChanged() {
-  // Re-run fast classification
+  // Free: the trees are already in hand, so changing the selection re-decides
+  // locally instead of re-reading every student repository. This used to fire a
+  // full scan - one API call per student - on every checkbox click.
   classifyStudents()
+}
+
+// path -> blob sha for a whole ref, in one request. Blob shas are content
+// addresses, identical across repositories for identical bytes, so this
+// compares content without fetching any file.
+async function readTree(token, repoFullName, ref) {
+  const res = await ghApi(token, 'GET', `/repos/${repoFullName}/git/trees/${ref}?recursive=1`)
+  if (!res.ok) throw new Error(`Could not read ${repoFullName}@${String(ref).slice(0, 7)} (HTTP ${res.status})`)
+  if (res.data?.truncated) throw new Error(`${repoFullName} has too many files to scan safely`)
+  const map = new Map()
+  for (const entry of res.data?.tree || []) {
+    if (entry.type === 'blob') map.set(entry.path, entry.sha)
+  }
+  return map
 }
 
 async function fetchTemplateData() {
@@ -347,24 +402,45 @@ async function fetchTemplateData() {
     const latest = commitsRes.data[0]
     targetSha.value = latest.sha
     customPrTitle.value = `Starter Code Update: ${latest.commit?.message?.split('\n')[0] || 'Template fixes'}`
-    customPrBody.value = `### Starter Code Update\n\nThis update synchronizes fixes from \`${owner}/${repo}\` (commit \`${latest.sha.slice(0, 7)}\`).\n\n- Run \`git pull\` in your workspace to pull the latest changes.\n- If this is a PR, review the diff and click **Merge pull request**.`
+    customPrBody.value = `### Starter Code Update\n\nA correction from \`${owner}/${repo}\` (commit \`${latest.sha.slice(0, 7)}\`).\n\nYou changed these files, so they were not overwritten. Review the diff and merge when you are ready.`
 
     // 2. Fetch commit details for changed files
     const detailRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/commits/${latest.sha}`)
-    if (detailRes.ok && detailRes.data?.files) {
-      templateFiles.value = detailRes.data.files.map((f) => ({
-        filename: f.filename,
-        status: f.status,
-        additions: f.additions,
-        deletions: f.deletions,
-        patch: f.patch || null,
-        selected: true,
-      }))
-    } else {
-      templateFiles.value = [{ filename: 'All template files', selected: true, additions: 0, deletions: 0, patch: null }]
+    if (!detailRes.ok || !detailRes.data) {
+      throw new Error(`Failed to read template commit ${latest.sha.slice(0, 7)} (HTTP ${detailRes.status})`)
     }
 
-    // 3. Trigger initial scan
+    // A rename is an add plus a delete, and the old path has to be in the
+    // selection or it survives in every student repository beside the new one.
+    const renames = new Map()
+    for (const f of detailRes.data.files || []) {
+      if (f.previous_filename) renames.set(f.previous_filename, f.filename)
+    }
+    // GitHub returns at most 300 entries in `files`. Saying so beats offering
+    // a list that silently stops - the same rule the pagination sweep applies:
+    // where a read is capped, the capped case may not report itself as whole.
+    truncatedCommit.value = (detailRes.data.files || []).length >= 300
+
+    const byName = new Map((detailRes.data.files || []).map((f) => [f.filename, f]))
+    templateFiles.value = changedPaths(detailRes.data.files).map((path) => {
+      const f = byName.get(path)
+      return {
+        filename: path,
+        status: f ? f.status : (renames.has(path) ? 'removed' : 'modified'),
+        additions: f?.additions || 0,
+        deletions: f?.deletions || 0,
+        patch: f?.patch || null,
+        selected: true,
+      }
+    })
+
+    // 3. The two template trees the plan compares against. Read once, here,
+    //    and reused for every student and every change of selection.
+    baseSha.value = detailRes.data.parents?.[0]?.sha || null
+    headTree.value = await readTree(token, `${owner}/${repo}`, latest.sha)
+    baseTree.value = baseSha.value ? await readTree(token, `${owner}/${repo}`, baseSha.value) : new Map()
+
+    // 4. Trigger initial scan
     await runPreFlightScan()
   } catch (err) {
     templateError.value = err.message
@@ -373,70 +449,70 @@ async function fetchTemplateData() {
   }
 }
 
+// Read each student's tree ONCE, then classify locally. The scan used to ask
+// `compare/{templateSha}...main` on every student repository, which is a 404 for
+// every repository created from a template - no shared objects, so that SHA is
+// not in it - and the catch-all put all of them under "conflicts".
 async function runPreFlightScan() {
   scanning.value = true
   const token = getToken()
   const activeStudents = (props.students || []).filter((s) => s.repo_name)
   scanProgress.value = { current: 0, total: activeStudents.length }
 
-  const clean = []
-  const conflicted = []
-  const skipped = []
-
   const CONCURRENCY = 4
   let cursor = 0
 
   async function worker() {
     while (cursor < activeStudents.length) {
-      const idx = cursor++
-      const s = activeStudents[idx]
-      const repoName = s.repo_name?.split('/')[1] || s.repo_name
-
+      const s = activeStudents[cursor++]
       try {
-        const compRes = await ghApi(token, 'GET', `/repos/${props.org}/${repoName}/compare/${targetSha.value}...main`)
-        if (compRes.ok && compRes.data) {
-          if (compRes.data.status === 'identical') {
-            skipped.push(s)
-          } else if (compRes.data.status === 'behind') {
-            // Student has no commits beyond template baseline
-            clean.push(s)
-          } else {
-            // Check if student modified overlapping files
-            const studentFiles = (compRes.data.files || []).map((f) => f.filename)
-            const selectedTemplateFiles = templateFiles.value.filter((f) => f.selected).map((f) => f.filename)
-            const overlap = studentFiles.some((f) => selectedTemplateFiles.includes(f))
-
-            if (overlap) {
-              conflicted.push(s)
-            } else {
-              clean.push(s)
-            }
-          }
-        } else {
-          // If compare fails, default to safe PR
-          conflicted.push(s)
-        }
-      } catch {
-        conflicted.push(s)
+        studentTrees.value.set(s.repo_name, await readTree(token, s.repo_name, 'main'))
+      } catch (err) {
+        // Unreadable is its own answer, and it is not "no changes needed".
+        unreadable.value.set(s.repo_name, err.message)
       }
-
       scanProgress.value.current++
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, activeStudents.length) }, worker))
 
-  scanResults.value = {
-    autoMerged: clean,
-    conflicts: conflicted,
-    skipped,
-  }
+  classifyStudents()
   scanning.value = false
 }
 
+// Pure, from data already in hand - no requests, so the lecturer can tick and
+// untick files and watch the split move.
 function classifyStudents() {
-  // Fast re-scan with updated file selections
-  runPreFlightScan()
+  const paths = templateFiles.value.filter((f) => f.selected).map((f) => f.filename)
+  const clean = []
+  const conflicted = []
+  const skipped = []
+  const failed = []
+
+  for (const s of (props.students || []).filter((x) => x.repo_name)) {
+    if (unreadable.value.has(s.repo_name)) {
+      failed.push({ ...s, reason: unreadable.value.get(s.repo_name) })
+      continue
+    }
+    const studentTree = studentTrees.value.get(s.repo_name)
+    if (!studentTree) continue
+
+    const plan = planStarterSync({
+      headTree: headTree.value,
+      baseTree: baseTree.value,
+      studentTree,
+      paths,
+    })
+    const outcome = outcomeFor(plan)
+    if (outcome === 'skipped-up-to-date') skipped.push(s)
+    // A student can be in both: three corrections land in place and the fourth
+    // needs a PR. Listed under each, and the counts are of students touched.
+    if (plan.clean.length) clean.push(s)
+    if (plan.conflicts.length) conflicted.push(s)
+  }
+
+  scanResults.value = { autoMerged: clean, conflicts: conflicted, skipped, failed }
 }
 
 async function handleDispatchSync() {
@@ -542,7 +618,10 @@ onMounted(() => {
 
 .preflight-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* auto-fit so the fourth card (unreadable repositories) only takes a column
+     when it is rendered, and minmax(0, …) per DESIGN.md §7 - a bare 1fr floors
+     at its content's min-content width and pushes the modal sideways. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: var(--space-sm);
   margin-top: var(--space-sm);
 }
