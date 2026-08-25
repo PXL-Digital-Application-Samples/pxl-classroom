@@ -10,6 +10,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { validateAgainst } from "../lib/validate.mjs";
+import { normalizeRosterMode, ROSTER_MODES } from "../lib/roster-mode.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -343,11 +344,31 @@ test("the backend still fails CLOSED for an unrecognised roster_mode", () => {
   // typo'd or absent value must still be treated as `enforced` - that is a
   // rule about garbage, not about what a lecturer gets by default, and
   // flipping the default must not have relaxed it.
+  //
+  // Asserted as BEHAVIOUR, not as source text. This used to grep accept.mjs for
+  // the literal ternary `roster_mode === "open" ? "open" : "enforced"`, which
+  // pinned one spelling rather than the rule: the moment the rule moved into
+  // lib/roster-mode.mjs - shared so the gate, the Pages generator and the Admin
+  // Panel could not disagree - the test went red while the behaviour was
+  // identical. Worse, it would have stayed green for any other file that kept
+  // the ternary while the gate itself changed.
+  for (const junk of ["Open", "OPEN", "openn", "", " ", null, undefined, 0, false, true, {}, ["open"]]) {
+    assert.equal(
+      normalizeRosterMode(junk),
+      "enforced",
+      `roster_mode ${JSON.stringify(junk)} must fall back to enforced`,
+    );
+  }
+  // ...and every mode the system actually implements survives normalisation.
+  for (const mode of ROSTER_MODES) assert.equal(normalizeRosterMode(mode), mode);
+
+  // The gate must be the thing applying that rule.
   const src = readFileSync(join(root, "acceptance", "accept.mjs"), "utf8");
-  assert.match(
+  assert.match(src, /normalizeRosterMode\(assignment\.roster_mode\)/);
+  assert.doesNotMatch(
     src,
-    /assignment\.roster_mode === "open" \? "open" : "enforced"/,
-    "anything that is not exactly 'open' is enforced",
+    /roster_mode === "open" \? "open" : "enforced"/,
+    "accept.mjs must not carry its own copy of the rule",
   );
 });
 

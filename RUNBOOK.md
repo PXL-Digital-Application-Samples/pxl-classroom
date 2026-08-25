@@ -861,6 +861,26 @@ Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The C
 
 Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits. The cap is therefore **required** with open enrollment - the form will not save without it, and `accept.mjs` rejects a hand-edited uncapped open assignment with `fail:config`. Keep it close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
 
+#### Running an assignment from a list of email addresses
+
+Set **Who may accept** to `org members` (`roster_mode: org_member`) when you have students' PXL email addresses but not their GitHub usernames.
+
+1. Invite the addresses to the organization: `https://github.com/orgs/<org>/people` → **Invite member** → paste the address. GitHub connects each invitation to whichever account accepts it, so you never need the usernames.
+2. Students accept the invitation, then open the assignment link as usual.
+
+What the gate does, per student:
+
+| `GET /orgs/{org}/memberships/{login}` | Outcome |
+|---|---|
+| `state: "active"` | accepted |
+| `state: "pending"` | `rejected:membership-pending` - they were invited and have not accepted yet |
+| `404` | `rejected:not-org-member` |
+| `403` / `5xx` | `fail:membership-check` - the run goes red; this is an API problem, not a statement about the student |
+
+**The precondition nothing can check for you:** the student must have the invited address **verified on their GitHub account** (Settings → Emails). Otherwise GitHub cannot connect the invitation to their account, no membership record exists, and they look exactly like someone who was never invited. If a student insists they accepted, that is the first thing to check.
+
+Requires the App's organization **Members** permission, approved on that org (§10.6). Without it every acceptance fails with `fail:membership-check` naming the permission. A cap is optional here - membership is already a limit - unlike `open`, where it is mandatory.
+
 #### 12.4a Promoting accepted students onto the roster
 
 After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.

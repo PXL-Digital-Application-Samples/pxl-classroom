@@ -16,6 +16,7 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
+import { normalizeRosterMode } from "../lib/roster-mode.mjs";
 import { inviteFileFor } from "../lib/invite-token.mjs";
 import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.mjs";
 
@@ -127,7 +128,7 @@ async function main() {
       acceptance_mode: def.acceptance_mode || "self-service",
       // Policy flag, not student data - the SPA uses it to explain accurately
       // why an acceptance may not complete. Never carries roster contents.
-      roster_mode: def.roster_mode === "open" ? "open" : "enforced",
+      roster_mode: normalizeRosterMode(def.roster_mode),
       // Pattern is public - it's a template, not student data. SPA needs it
       // to compute the expected repo URL after acceptance (P0-10).
       repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,

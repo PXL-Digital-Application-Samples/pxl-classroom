@@ -56,6 +56,9 @@ jobs:
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          # Reuses the token minted above rather than minting a second one.
+          # Only roster_mode: org_member reads it.
+          github-token: ${{ steps.token.outputs.token }}
           org: ${{ github.event.client_payload.org }}
           control-repo: pxl-classroom-control
           data-dir: control

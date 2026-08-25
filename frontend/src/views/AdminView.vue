@@ -620,6 +620,7 @@
               <select v-model="form.roster_mode">
                 <option value="open">open: anyone with the invitation link</option>
                 <option value="enforced">enforced: only students on the roster</option>
+                <option value="org_member">org members: only people who joined this organization</option>
               </select>
               <!-- A roster is still worth importing under `open`: report.mjs
                    builds the population from the union of acceptances and the
@@ -633,11 +634,25 @@
                   the report - it just does not decide who may accept.
                 </template>
               </small>
+              <!-- Gates on ORGANIZATION MEMBERSHIP, so the roster is not
+                   load-bearing here and the roster-status block below must not
+                   claim it is. The precondition is on the student's own
+                   account, which this form cannot check, so it is stated
+                   plainly rather than implied. -->
+              <small v-else-if="form.roster_mode === 'org_member'">
+                Invite students to
+                <a :href="`https://github.com/orgs/${props.org}/people`" target="_blank" rel="noopener">{{ props.org }}</a>
+                by email address - GitHub connects each invitation to whichever account accepts it,
+                so you never need their GitHub usernames. Only members who have <strong>accepted</strong>
+                can claim a repository; a pending invitation is told to check their mail.
+                <strong>They must have that email address verified on their GitHub account</strong>,
+                or GitHub cannot connect the invitation and they will look like an outsider.
+              </small>
               <!-- `enforced` makes students/roster.yml load-bearing, so the
                    form says whether anyone can accept at all rather than
                    naming a tab it does not link to (UX_PLAN §5.2). The count
                    comes from RosterTab, which has already read the file. -->
-              <small v-if="form.roster_mode !== 'open'" class="roster-status">
+              <small v-if="form.roster_mode === 'enforced'" class="roster-status">
                 <span v-if="rosterCount === 0" class="status-indicator">
                   <span class="status-dot dot-warning"></span>
                   <span>No students imported yet - nobody can accept.</span>
@@ -1036,6 +1051,9 @@ import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import AutogradeModal from '../components/AutogradeModal.vue'
 import Icon from '../components/Icon.vue'
+// Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
+// disagree about which mode an assignment is actually in.
+import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
 
 const props = defineProps({ org: { type: String, required: true } })
 const route = useRoute()
@@ -1870,7 +1888,10 @@ function editAssignment(a) {
     submission_ref: a.submission_ref || 'refs/heads/main',
     student_permission: a.student_permission || 'admin',
     acceptance_mode: a.acceptance_mode || 'self-service',
-    roster_mode: a.roster_mode === 'open' ? 'open' : 'enforced',
+    // normalizeRosterMode, not a hand-written ternary: the ternary rewrote any
+    // mode it predated to 'enforced' on load, and buildDoc saved the rewrite
+    // back - the same silent field-loss as the invitation tokens.
+    roster_mode: normalizeRosterMode(a.roster_mode),
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
     // 50 is the default for a NEW assignment (emptyForm), not a value to
