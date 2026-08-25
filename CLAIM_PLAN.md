@@ -210,7 +210,80 @@ assignment in that org recognises them.
   available. The page must say so plainly if it is not, rather than failing
   silently.
 
-## 5. What to turn off
+## 5. Rate limiting and abuse protection
+
+The claim step is a **guessing oracle**. Whoever holds the invitation link holds
+the HMAC key, so they can compute a digest for any address they care to guess -
+and PXL addresses are `firstname.lastname@stud.pxl.be`, which is enumerable from
+a class list or a lucky guess. Unbounded, a student with the link could iterate
+plausible addresses until one matched and claim a classmate's entry.
+
+Two costs, and the second bites first:
+
+- **Identity** - a successful guess binds somebody else's roster entry.
+- **Minutes** - every attempt is an acceptance issue and a hub workflow run, on
+  a system whose design goal is billing zero minutes when idle. A bored student
+  with a loop is a bigger bill than a security incident.
+
+### The limit
+
+`students/claim-attempts/<github_id>.json`, one file per account:
+
+```json
+{
+  "schema_version": 1,
+  "github_id": 12345678,
+  "github_login": "alice-pxl",
+  "failures": 3,
+  "first_at": "2026-09-01T10:00:00.000Z",
+  "last_at": "2026-09-01T10:04:00.000Z"
+}
+```
+
+- Every failed claim increments it. At `MAX_CLAIM_ATTEMPTS` (**5**) the answer
+  becomes `rejected:claim-blocked`, telling the student to contact their
+  lecturer - not how many attempts remain.
+- A successful claim **deletes** the counter, so a student who eventually gets
+  their own address right is not left one typo from being locked out next term.
+- **Serialized for free**: the acceptance concurrency group is already keyed per
+  login (`accept-${org}-${id}-${team_hint || github_login}`), so a student
+  cannot race their own counter by firing several acceptances at once.
+- Cleared by the lecturer through the same surface as unlink.
+
+Five is chosen to be generous for a genuine typo and useless for enumeration: a
+cohort of 200 addresses is not reachable in five guesses, and the worst case
+cost is 5 x cohort short-lived runs.
+
+### Ordering is where the cost is actually saved
+
+The claim check belongs exactly where the roster gate sits today - step 4.5,
+after the state, window and cap checks and **before** any repository work. A
+rejected claim must never reach provisioning, never create a repository and
+never mint a second token. The cheapest rejection is the one that happens
+earliest, and the guardrails above it are all free.
+
+### What already protects this, unchanged
+
+- the **signed invitation** (§4.3.2) - an outsider cannot ring the bell at all,
+  so this threat model is a student with a legitimate link, not the internet;
+- `INVITE_NONCE` - retires leaked links wholesale;
+- the `opens_at..deadline_at` window and `max_acceptances`;
+- per-login concurrency - one acceptance at a time per student.
+
+### Deliberately not done
+
+- **`no-claim-match` and `claim-taken` stay distinguishable**, even though that
+  reveals which addresses exist. The real student being told "already claimed"
+  *is* the impersonation detector, and the attempt cap makes enumeration
+  impractical. Revisit only if five proves too loose.
+- **No client-side-only limit.** The SPA should check the address *shape* before
+  sending - it costs nothing and saves wasted runs - but shape checking in a
+  browser is UX, never a control. The counter is server-side or it is not a
+  limit.
+- **No global per-assignment attempt cap.** `max_acceptances` already bounds
+  successes, and a global failure cap would let one abuser lock out a cohort.
+
+## 6. What to turn off
 
 None of this has touched a cohort; all of it is reversible.
 
@@ -221,7 +294,7 @@ None of this has touched a cohort; all of it is reversible.
   `acceptance-handler.yml` - added solely for the membership call.
 - `lib/org-members.mjs` (uncommitted; Phase B never went further).
 
-## 6. What to remove, and what it costs
+## 7. What to remove, and what it costs
 
 | Remove | Consequence |
 |---|---|
@@ -229,7 +302,7 @@ None of this has touched a cohort; all of it is reversible.
 | The `members` App permission | **None functionally** - nothing else reads it. But it is approved on 11 orgs, and relinquishing means another approval round. **Leave it granted, remove the code**: cheap to keep, expensive to re-acquire. An unused *write* permission is surface area, so revisit if `claim` proves itself |
 | Base-permission diagnostic | **Keep.** Rationale rewritten: the lock-down-floor argument weakens once students are never org members, but a base permission above `none` still exposes the private control repo - roster, reports - to every non-owner member, and org membership remains how staff are added |
 
-## 7. Keep deliberately - pre-provisioned repositories
+## 8. Keep deliberately - pre-provisioned repositories
 
 A future feature: create N repositories up front and assign them to the students
 who turn up. It is blocked today because `repository_name_pattern` is
@@ -251,20 +324,25 @@ on claim instead of created. Therefore keep, in this shape:
 - **`lib/roster-mode.mjs`**, and the `!== "open"` -> `=== "enforced"` guard
   corrections - right regardless of which modes exist.
 
-## 8. Build order
+## 9. Build order
 
 1. `lib/claim.mjs` - isomorphic normalize + digest (`globalThis.crypto.subtle`,
    available in Node 24 and the browser), plus the pure matcher.
 2. `schemas/claim.schema.json`; `roster_mode: claim` in the assignment schema.
-3. `accept.mjs`: the claim branch, three reject reasons, fail-closed.
-4. Issue-body payload: extend the validated team-payload channel.
-5. SPA: the address prompt on `AssignmentView`, and the copy for each rejection.
-6. Lecturer surfaces: Roster tab binding column + **unlink**; CLI `roster
+3. `accept.mjs`: the claim branch, four reject reasons (`no-claim`,
+   `no-claim-match`, `claim-taken`, `claim-blocked`), fail-closed, positioned at
+   step 4.5 so a rejection never reaches provisioning.
+4. The attempt counter (§5) - it ships **with** the gate, not after it; an
+   unbounded guessing oracle is not a thing to leave open for a follow-up.
+5. Issue-body payload: extend the validated team-payload channel.
+6. SPA: the address prompt on `AssignmentView`, a client-side shape check, and
+   the copy for each rejection.
+7. Lecturer surfaces: Roster tab binding column + **unlink**; CLI `roster
    unlink`; the unclaimed-students diagnostic.
-7. Withdraw `org_member` (§5).
-8. Docs: ARCHITECTURE §15, RUNBOOK §12.4, CLAUDE.md.
+8. Withdraw `org_member` (§6).
+9. Docs: ARCHITECTURE §15, RUNBOOK §12.4, CLAUDE.md.
 
-## 9. Open questions
+## 10. Open questions
 
 - **Does the roster schema require `email` under `claim`?** It cannot be
   enforced in the assignment schema (different file), so it belongs in a
