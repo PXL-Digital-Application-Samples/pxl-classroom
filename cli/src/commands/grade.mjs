@@ -246,17 +246,15 @@ export function registerGradeCommand(program) {
               runner: "github_actions",
               total_points: total,
               earned_points: earned,
-              tests: tests.length > 0 ? tests.map(t => ({
-                id: t.id,
-                passed: passed,
-                points: t.points,
-                earned: parsedScore.matched && totalFallback > 0 ? Math.round((t.points / totalFallback) * earned * 100) / 100 : (passed ? t.points : 0),
-                duration_ms: 0,
-                exit_code: passed ? 0 : 1,
-                timed_out: false,
-                stdout: summaryOutput,
-                stderr: ""
-              })) : [{
+              // ONE row, always, on the Actions path. This used to spread the
+              // total across the configured tests proportionally - a student on
+              // 12/20 was recorded as having scored 60% of the points on every
+              // individual check, which is a number nobody measured and is
+              // almost never what happened. A check run's annotations carry the
+              // grand total and nothing else (lib/check-run-score.mjs), so a
+              // per-test breakdown does not exist to report. For a real one,
+              // grade locally with --runner docker.
+              tests: [{
                 id: "ci-autograding",
                 passed: passed,
                 points: total,

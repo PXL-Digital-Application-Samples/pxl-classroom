@@ -43,11 +43,12 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
   - One-click repository provisioning in 15-30s.
   - Acceptance is gated by a signed invitation link, verified on the public broker before any credential is used, so a caller without the link cannot cause work.
   - Students can form teams, join groups under capacity limits, or switch teams before deadlines.
-- **Smart Starter Code Synchronization:**
-  - Distribute template fixes or new test suites to active student repositories with one click.
-  - Interactive file diff picker with selective file syncing.
+- **Starter Code Synchronization:**
+  - Correct a mistake in the assignment after students have accepted: fix it in the template, and the sync distributes that commit.
+  - Interactive file diff picker; the selection is applied per file. Files a student has not touched land directly on their `main`, files they have edited arrive as a pull request, so their work is never overwritten.
 - **Dual-Mode Autograding & Feedback PRs:**
   - Automated feedback on push via GitHub Actions or local CLI grading in sandboxed Docker containers (0 Actions minutes billed).
+  - Per-student scores read back into the dashboard - including from a template that ships its own GitHub Classroom workflow, with nothing to configure.
   - 1-click Web UI button to lazily open Feedback Pull Requests (`main` -> `pxl-baseline`) once students push code.
 - **DevOps-Ready Student Admin:**
   - Students get repository Admin rights to manage Secrets, Environments, and Runners
@@ -74,7 +75,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 | **Team Formation Self-Service** | Basic team selection from preset list | Basic team repository creation | Full self-service team creation, capacity limits, and team switching |
 | **Assignment Creation Flow** | Multi-step web form | Web configuration form | 1-Click publish from web Admin Panel with instant validation |
 | **Lecturer Dashboard & UI** | Standard web portal (basic list) | Web portal + terminal views | Real-time web dashboard with live commit sync and student hover cards |
-| **Starter Code Resync & Updates** | Manual pull or forks only | Manual Git upstream pulling | Smart Auto-Merge with PR fallback, pre-flight scanner & tracking issues |
+| **Starter Code Resync & Updates** | Manual pull or forks only | Manual Git upstream pulling | Per-file: lands directly where untouched, PR where the student edited it |
 | **CLI Companion Tooling** | `gh classroom` extension (clone, list) | `classroom50` CLI | `@pxl-classroom/cli` (Local Docker grading, starter sync, audit checks) |
 | **Autograding: Cloud Actions** | Runs in student repo on push (`classroom-resources/*`) | Runs in student repo on push (Actions + `check50`) | Automatic Actions grading with score harvesting into dashboard |
 | **Autograding: Local Sandboxing**| Not supported natively | Not supported natively (grades live repos) | Sandboxed Local Docker CLI (Zero cloud Actions minutes billed) |

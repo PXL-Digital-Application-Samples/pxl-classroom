@@ -172,7 +172,11 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
           assignment_type: 'group',
           autograde: {
             enabled: true,
-            execution_environment: 'docker',
+            // `lecturer_local`, not `docker` - the schema's enum is
+            // lecturer_local | github_actions, and `docker` is the --runner
+            // flag one layer down. A fixture in a shape the schema rejects is
+            // the same fault this suite was just fixed for.
+            execution_environment: 'lecturer_local',
             tests: [
               { id: 'build', type: 'command', command: 'docker build .', points: 25 },
               { id: 'integration', type: 'command', command: 'pytest tests/', points: 25 },
