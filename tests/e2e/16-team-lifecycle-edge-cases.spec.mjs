@@ -351,17 +351,13 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       teams: { [assignmentId]: mockReport.teams },
       userRepos: studentRepos,
       currentUser: STUDENT_1,
-      acceptances: {
-        [assignmentId]: {
-          [STUDENT_1.login]: {
-            status: 'provisioned',
-            team_slug: 'team-red',
-            team_name: 'Team Red',
-            repo_name: `${ORG}/${assignmentId}-team-red`,
-            repo_url: `https://github.com/${ORG}/${assignmentId}-team-red`,
-          },
-        },
-      },
+      // No acceptance records: this is the STUDENT surface, and a student
+      // cannot read the control repo. `GroupAcceptanceCard` decides the
+      // provisioned state from the public teams payload (`teams`) plus a live
+      // `GET /repos/{org}/{name}` (`userRepos`) - nothing here reads
+      // `acceptances/<id>/<login>.json`. An `acceptances` option was passed
+      // here for months; the fixture never destructured it, so it was
+      // discarded, and replacing it with garbage left the test green.
     });
 
     await page.goto(inviteUrl(ORG, assignmentId));

@@ -188,10 +188,12 @@ export async function setupStandardMockRoutes(page, {
   // as a 500, so a spec can reproduce a partial read - the case where promoting
   // anyway would quietly leave students off the roster while reporting success.
   //
-  // Named `controlAcceptances`, like `controlTeams`, and NOT `acceptances`:
-  // spec 16 already passes an `acceptances` option in a different shape
-  // (keyed by login), which the fixture has never destructured and therefore
-  // never read. Claiming the name turned that dead input into a crash.
+  // Named `controlAcceptances`, like `controlTeams`. Spec 16 used to pass an
+  // `acceptances` option in a different shape (keyed by login) which the
+  // fixture never destructured, so it was discarded - the student surface it
+  // was written for cannot read the control repo at all, and replacing the
+  // whole payload with garbage left the test green. It is deleted; the name
+  // stays distinct so a revived one cannot be silently swallowed here again.
   controlAcceptances = {},
   // Caller-owned sinks. The fixture pushes one entry per Git Data API commit
   // ({ message, files: [{ path, content }] }) and per workflow_dispatch
