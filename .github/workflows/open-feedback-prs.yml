@@ -25,7 +25,10 @@ jobs:
       
       - name: Mint App token for Org
         id: token
-        uses: actions/create-github-app-token@v1
+        # Same fault as sync-starter-code.yml: v1 has no `client-id` input, so
+        # this failed with "Input required and not supplied: app-id" before the
+        # job could start. Pinned to the SHA every other workflow uses.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}

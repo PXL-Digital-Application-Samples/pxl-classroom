@@ -130,6 +130,49 @@ test("a failed publish reverts the assignment rather than stranding it", () => {
   );
 });
 
+test("every App-token step uses one pinned action version, and its inputs", () => {
+  // `sync-starter-code.yml` and `open-feedback-prs.yml` were the only two
+  // workflows on the floating `actions/create-github-app-token@v1` tag, and v1
+  // has no `client-id` input - it takes `app-id`. So the very first step of
+  // both died with "Input required and not supplied: app-id", and neither
+  // workflow ever ran once. Nothing caught it because the failure is in the
+  // action's own input validation, which lives outside every schema and lint
+  // this repo has, and because both are dispatch-only: no cron ever went red.
+  //
+  // Pinning them all to one SHA is what makes "these inputs are the right
+  // inputs" a single fact rather than a per-file guess.
+  const versions = new Set();
+  const offenders = [];
+
+  for (const { file, doc } of workflows()) {
+    for (const [jobId, job] of Object.entries(doc?.jobs ?? {})) {
+      for (const step of job?.steps ?? []) {
+        const uses = typeof step?.uses === "string" ? step.uses : "";
+        if (!uses.startsWith("actions/create-github-app-token@")) continue;
+
+        versions.add(uses);
+        if (!/@[0-9a-f]{40}$/.test(uses)) {
+          offenders.push(`${file}:${jobId} is not pinned to a SHA (${uses})`);
+        }
+        const withKeys = Object.keys(step.with ?? {});
+        if (!withKeys.includes("client-id")) {
+          offenders.push(`${file}:${jobId} must mint with client-id`);
+        }
+        if (withKeys.includes("app-id")) {
+          offenders.push(`${file}:${jobId} mixes app-id with the client-id form`);
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+  assert.equal(
+    versions.size,
+    1,
+    `all App-token steps must agree on one version, found: ${[...versions].join(", ")}`,
+  );
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys

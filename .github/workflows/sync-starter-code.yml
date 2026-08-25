@@ -45,7 +45,11 @@ jobs:
       
       - name: Mint App token for Org
         id: token
-        uses: actions/create-github-app-token@v1
+        # v1 takes `app-id` and has no `client-id` input, so this step died with
+        # "Input required and not supplied: app-id" on every run - the workflow
+        # never once reached the sync. Pinned to the same SHA as every other
+        # workflow in the repo, which is v3.2.0 and does take `client-id`.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
