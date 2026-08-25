@@ -397,7 +397,21 @@
                   </div>
                 </button>
 
-                <div v-if="assignment && (assignment.template || feedbackPrEnabled)" class="dropdown-divider"></div>
+                <button
+                  v-if="canPromoteRoster"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handlePromoteRoster"
+                >
+                  <Icon name="users" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Add accepted students to roster</span>
+                    <span class="dropdown-item-sub">Reuse this cohort on your next assignment</span>
+                  </div>
+                </button>
+
+                <div v-if="assignment && (assignment.template || feedbackPrEnabled || canPromoteRoster)" class="dropdown-divider"></div>
 
                 <button
                   v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
@@ -1013,6 +1027,15 @@
         </div>
       </div>
 
+      <!-- Roster promotion: turns this assignment's acceptances into roster
+           entries a later assignment can enforce against. -->
+      <PromoteRosterModal
+        v-if="showPromoteRosterModal && assignment"
+        :assignment="assignment"
+        :org="org"
+        @close="showPromoteRosterModal = false"
+      />
+
       <!-- Starter Code Sync Modal -->
       <StarterSyncModal
         v-if="showStarterSyncModal && assignment"
@@ -1105,6 +1128,7 @@ import Icon from '../components/Icon.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
+import PromoteRosterModal from '../components/PromoteRosterModal.vue'
 
 // Tiny render helper - keeps the table markup readable. `dir` is "asc" |
 // "desc" | null; null renders nothing so non-active columns stay quiet.
@@ -1383,6 +1407,22 @@ async function bumpCapacity(delta) {
 }
 
 const showStarterSyncModal = ref(false)
+const showPromoteRosterModal = ref(false)
+
+// Offered only under `open`, and only once somebody has accepted. Under
+// `enforced` every acceptor was already on the roster, so the action would be a
+// no-op menu item on every assignment - and DESIGN.md's C4 rule is that the UI
+// must not offer behaviour the system does not have here. The one genuine
+// `enforced` case (a student removed from the roster after accepting) is rare
+// and `pxl-classroom roster promote` still covers it.
+const canPromoteRoster = computed(() =>
+  assignment.value?.roster_mode === 'open' && acceptedStudentsCount.value > 0
+)
+
+function handlePromoteRoster() {
+  moreActionsOpen.value = false
+  showPromoteRosterModal.value = true
+}
 const openingFeedbackPrs = ref(false)
 const retryingPreservation = ref(false)
 const showFreezeConfirmModal = ref(false)

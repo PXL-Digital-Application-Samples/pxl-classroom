@@ -181,6 +181,18 @@ export async function setupStandardMockRoutes(page, {
   // Team manifests as they exist in the CONTROL repo (teams/<id>/<slug>.json),
   // as opposed to `teams`, which is the generated public Pages payload.
   controlTeams = {},
+  // Acceptance records as they exist in the CONTROL repo
+  // (acceptances/<id>/<login>.json), keyed by assignment id -> array of records.
+  // Roster promotion reads these to learn github_id and accepted_at, which the
+  // report does not carry. A record given as the string 'UNREADABLE' is served
+  // as a 500, so a spec can reproduce a partial read - the case where promoting
+  // anyway would quietly leave students off the roster while reporting success.
+  //
+  // Named `controlAcceptances`, like `controlTeams`, and NOT `acceptances`:
+  // spec 16 already passes an `acceptances` option in a different shape
+  // (keyed by login), which the fixture has never destructured and therefore
+  // never read. Claiming the name turned that dead input into a crash.
+  controlAcceptances = {},
   // Caller-owned sinks. The fixture pushes one entry per Git Data API commit
   // ({ message, files: [{ path, content }] }) and per workflow_dispatch
   // ({ workflow, inputs }), so a spec can assert what was actually written.
@@ -247,6 +259,20 @@ export async function setupStandardMockRoutes(page, {
   for (const [asgnId, list] of Object.entries(controlTeams)) {
     for (const team of list) {
       dynamicFiles.set(`teams/${asgnId}/${team.team_slug}.json`, JSON.stringify(team, null, 2));
+    }
+  }
+  const unreadableAcceptances = new Set();
+  for (const [asgnId, list] of Object.entries(controlAcceptances)) {
+    for (const record of list) {
+      if (record === 'UNREADABLE') {
+        unreadableAcceptances.add(`acceptances/${asgnId}/broken.json`);
+        dynamicFiles.set(`acceptances/${asgnId}/broken.json`, '');
+        continue;
+      }
+      dynamicFiles.set(
+        `acceptances/${asgnId}/${record.github_login}.json`,
+        JSON.stringify(record, null, 2),
+      );
     }
   }
   if (roster) {
@@ -563,6 +589,34 @@ export async function setupStandardMockRoutes(page, {
         if (dynamicRoster) {
           const contentBase64 = Buffer.from(dynamicRoster).toString('base64');
           await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: 'roster_sha_1' }) });
+          return;
+        }
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      } else if (/\/pxl-classroom-control\/contents\/acceptances\/[^/?#]+(\?|$)/.test(url)) {
+        // Directory listing for acceptances/<assignment-id>
+        const dirMatch = url.match(/\/contents\/acceptances\/([^/?#]+)/);
+        const asgnId = dirMatch ? dirMatch[1] : null;
+        const entries = [];
+        for (const [path] of dynamicFiles.entries()) {
+          if (!path.startsWith(`acceptances/${asgnId}/`) || !path.endsWith('.json')) continue;
+          entries.push({ name: path.split('/').pop(), path, type: 'file' });
+        }
+        await route.fulfill({ status: 200, body: JSON.stringify(entries) });
+        return;
+      } else if (url.includes('/pxl-classroom-control/contents/acceptances/')) {
+        const match = url.match(/\/contents\/acceptances\/([^/?#]+)\/([^/?#]+)\.json/);
+        const key = match ? `acceptances/${match[1]}/${match[2]}.json` : null;
+        if (key && unreadableAcceptances.has(key)) {
+          await route.fulfill({ status: 500, body: JSON.stringify({ message: 'Server Error' }) });
+          return;
+        }
+        const content = key ? dynamicFiles.get(key) : null;
+        if (content) {
+          await route.fulfill({
+            status: 200,
+            body: JSON.stringify({ content: Buffer.from(content).toString('base64'), encoding: 'base64', sha: 'acc_sha_1' }),
+          });
           return;
         }
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });

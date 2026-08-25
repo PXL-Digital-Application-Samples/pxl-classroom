@@ -375,6 +375,46 @@ export async function listTeams(token, org, controlRepo, assignmentId, { concurr
 }
 
 /**
+ * Full acceptance records for an assignment, for roster promotion.
+ *
+ * Returns `{ records, failed }`. `failed` is not decoration: promotion writes
+ * the roster the acceptance gate reads, and a silently short list under-promotes
+ * a cohort while reporting success - "197 students added" over 200 acceptances,
+ * with the three the lecturer will hear about in a week. The caller must refuse
+ * to write while `failed > 0` rather than round down.
+ *
+ * One request per accepted student, so it belongs behind an explicit action -
+ * the same trade the Feedback PR column makes - and never on a render path.
+ */
+export async function listAcceptances(token, org, controlRepo, assignmentId, { concurrency = 6 } = {}) {
+  let files = []
+  try {
+    files = await listRepoDir(token, org, controlRepo, `acceptances/${assignmentId}`)
+  } catch (e) {
+    if (e.status === 404) return { records: [], failed: 0 }
+    throw e
+  }
+  const jsons = files.filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+  const records = []
+  let failed = 0
+  let cursor = 0
+  async function worker() {
+    while (cursor < jsons.length) {
+      const f = jsons[cursor++]
+      try {
+        const text = await getRepoContent(token, org, controlRepo, f.path)
+        if (text) records.push(JSON.parse(text))
+        else failed++
+      } catch {
+        failed++
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, jsons.length || 1) }, worker))
+  return { records, failed }
+}
+
+/**
  * Delete a file from a repository. Returns { ok: false } when the file
  * doesn't exist (nothing to delete).
  */

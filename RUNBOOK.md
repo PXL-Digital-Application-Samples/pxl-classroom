@@ -864,6 +864,10 @@ Any GitHub account can then claim a repo while the assignment is open, so the de
 
 After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.
 
+**SPA flow:** open the assignment's tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add accepted students to roster**. The modal previews exactly who would be added before anything is written. It is offered only on an `open` assignment that somebody has accepted — under `enforced` every acceptor was already on the roster, so the action would be a no-op on every assignment.
+
+**CLI flow:**
+
 ```bash
 pxl-classroom roster promote --org <org> --assignment <id> --dry-run   # preview
 pxl-classroom roster promote --org <org> --assignment <id>             # commit
