@@ -38,11 +38,69 @@ async function summary(md) {
 //
 // `git add public/` stages deletions, so removing the file here is enough for
 // regenerate-dashboard.yml to publish the removal.
-async function pruneStalePublicFiles(outputDir, expected) {
+//
+// But a card at a digest we no longer publish is not always rubbish. It is
+// usually a link that just stopped working - `regenerate_invite` minted a fresh
+// keypair, or the assignment migrated - and the student holding it did nothing
+// wrong. Deleting it sends them to the not-found page, whose only honest
+// wording is a guess between three causes.
+//
+// The card names its own assignment, so the generator can tell the difference
+// without being told: if that assignment is still being published, the file
+// becomes a superseded marker instead of disappearing. That is what makes
+// rotation as survivable as migration, and it needs no record of retired
+// secrets anywhere - which is the point, because a list of them on the
+// assignment would be one more field `buildDoc` could silently drop.
+/**
+ * Turn an unexpected invitation file into a superseded marker, or say no.
+ *
+ * @returns true when the file was kept (as a marker), false to let the caller
+ *          prune it.
+ */
+async function retireInvitationFile(inviteDir, name, liveAssignmentIds) {
+  // A teams file is the cohort by another name (§4.3.3). A superseded link must
+  // not be able to fetch one, so these are always pruned, never retired.
+  if (!name.endsWith(".json") || name.endsWith(".teams.json")) return false;
+
+  let doc;
+  try {
+    doc = JSON.parse(await readFile(join(inviteDir, name), "utf8"));
+  } catch {
+    return false;
+  }
+
+  // Already a marker from an earlier run. Keep it while its assignment is still
+  // published, so the wording survives repeated regenerations - and let it be
+  // pruned once the assignment is gone, or these would accumulate forever.
+  if (doc?.superseded) return liveAssignmentIds.has(doc.assignment_id);
+
+  const assignment = doc?.assignment;
+  if (!assignment?.id || !liveAssignmentIds.has(assignment.id)) return false;
+
+  await writeFile(
+    join(inviteDir, name),
+    JSON.stringify(
+      {
+        schema_version: 1,
+        superseded: true,
+        assignment_id: assignment.id,
+        title: assignment.title,
+        organization: assignment.organization,
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  console.log(`[ok] Retired invitation file ${name} - the link it served no longer opens this assignment`);
+  return true;
+}
+
+async function pruneStalePublicFiles(outputDir, expected, liveAssignmentIds) {
   const inviteDir = join(outputDir, "i");
   if (existsSync(inviteDir)) {
     for (const name of await readdir(inviteDir)) {
       if (expected.has(name)) continue;
+      if (await retireInvitationFile(inviteDir, name, liveAssignmentIds)) continue;
       await rm(join(inviteDir, name), { force: true });
       console.log(`[ok] Pruned stale invitation file ${name}`);
     }
@@ -293,7 +351,10 @@ async function main() {
     JSON.stringify(output, null, 2) + "\n"
   );
 
-  await pruneStalePublicFiles(outputDir, expectedInviteFiles);
+  // Only the assignments this run actually published. An orphaned card for one
+  // that has been archived or deleted is pruned as before; one for an
+  // assignment still on the site is a retired link, and keeps a page to land on.
+  await pruneStalePublicFiles(outputDir, expectedInviteFiles, new Set(Object.keys(assignments)));
 
   const count = Object.keys(assignments).length;
   await setOutput("generated_count", String(count));

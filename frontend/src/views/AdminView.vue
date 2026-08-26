@@ -995,6 +995,11 @@
               <strong>Every link already handed out stops working.</strong>
               Students who have not accepted yet will need the new link; anyone who already accepted keeps their repository.
               Do this if the current link has leaked.
+              <!-- True since the generator retires a rotated-away card instead
+                   of deleting it. Worth saying, because it changes what the
+                   lecturer has to do next: field a page that explains itself,
+                   rather than a queue of "your link is broken" messages. -->
+              Anyone following an old link lands on a page telling them it is out of date and to ask you for the current one.
             </div>
           </div>
         </div>

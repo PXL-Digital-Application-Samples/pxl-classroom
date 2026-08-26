@@ -18,6 +18,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
 import { parse } from "yaml";
 
 import { validateAgainst } from "../lib/validate.mjs";
@@ -471,6 +472,44 @@ test("a migrated link signs, and does not fall back to pasting the secret", asyn
     "the key must never reach the title - that is the whole point of the change",
   );
   assert.equal((await verifyAcceptanceTitle({ title: out, publicKey: (await keypair()).publicKey })).ok, true);
+});
+
+// ======================================================= P-256 interop
+//
+// The module signs and verifies with WebCrypto, because it has to run in a
+// browser. The e2e fixture mints its keypairs with node:crypto instead, since
+// inviteToken() is called inline at dozens of sites and keygen there cannot be
+// async. Two implementations of the same curve, and the whole suite rests on
+// them producing interchangeable keys - so prove it rather than assume it.
+
+test("a node:crypto keypair is usable by the WebCrypto path, and vice versa", async () => {
+  const b64url = (buf) =>
+    Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  const pair = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const nodeKeys = {
+    privateKey: b64url(pair.privateKey.export({ type: "pkcs8", format: "der" })),
+    publicKey: b64url(pair.publicKey.export({ type: "spki", format: "der" })),
+  };
+
+  // Same wire length, or the link parser would reject what the fixture mints.
+  assert.equal(nodeKeys.privateKey.length, (await keypair()).privateKey.length);
+
+  const t = await signAcceptanceTitle({
+    privateKey: nodeKeys.privateKey,
+    kid: KID,
+    subject: SUBJECT,
+    githubId: GITHUB_ID,
+    nonce: "0badc0de",
+  });
+  const res = await verifyAcceptanceTitle({ title: t, publicKey: nodeKeys.publicKey });
+  assert.equal(res.ok, true, `node-minted keypair did not round-trip: ${res.reason}`);
+  assert.equal(res.payload.githubId, GITHUB_ID);
+
+  // And the halves are not interchangeable between keypairs, which is what
+  // makes "a signature from a rotated-away keypair" fail.
+  const other = await verifyAcceptanceTitle({ title: t, publicKey: (await keypair()).publicKey });
+  assert.equal(other.ok, false);
 });
 
 // ======================================================= THE TEAM HINT

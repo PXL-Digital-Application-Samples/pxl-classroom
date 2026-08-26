@@ -235,3 +235,134 @@ test("a group assignment's teams file follows the live card, not the marker", as
   );
   assert.equal(teams.teams[0].team_slug, "alpha");
 });
+
+// ============================================================ ROTATION
+//
+// `regenerate_invite` mints a fresh keypair, which is how a lecturer answers a
+// leaked link. Migration is not the only way a link dies, and it is not even the
+// common one - rotation is the recurring case.
+//
+// The generator used to prune the old card, so a rotated-away link landed on the
+// not-found page: "It may be out of date, incomplete, or the assignment isn't
+// open yet" - a guess between three causes, one of which is right. The card
+// names its own assignment, so the generator can tell without being told: if
+// that assignment is still published, the file becomes a marker instead of
+// disappearing. No record of retired secrets is kept anywhere, which matters,
+// because a list of them on the assignment is one more field `buildDoc` could
+// silently drop.
+
+/** Run the generator twice over the same output dir, rotating in between. */
+async function rotate({ archiveAfter = false, group = false } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-rotate-"));
+  mkdirSync(join(dir, "assignments"));
+  const outDir = join(dir, "public");
+  const base = readFileSync(fix("valid-assignment.yml"), "utf8");
+
+  const write = (token, key, state = "published") => {
+    let text = `${base}\ninvite_token: ${token}\ninvite_nonce: "0badc0de"\n` +
+      `invite_key: ${key.privateKey}\ninvite_pubkey: ${key.publicKey}\n`;
+    if (group) {
+      text += "assignment_type: group\ngroup_config:\n  max_team_size: 3\n";
+    }
+    if (state !== "published") text = text.replace(/^state:.*$/m, `state: ${state}`);
+    writeFileSync(join(dir, "assignments", `${ID}.yml`), text);
+  };
+  const run = () => {
+    const res = spawnSync("node", [generator], {
+      env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir },
+      encoding: "utf8",
+    });
+    assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+    return res;
+  };
+
+  if (group) {
+    mkdirSync(join(dir, "teams", ID), { recursive: true });
+    writeFileSync(
+      join(dir, "teams", ID, "alpha.json"),
+      JSON.stringify({ team_slug: "alpha", team_name: "Alpha", members: ["stud-a"], max_members: 3 })
+    );
+  }
+
+  const oldToken = mintToken();
+  const oldKey = await generateAcceptanceKeypair();
+  write(oldToken, oldKey);
+  run();
+  const before = readdirSync(join(outDir, "i")).sort();
+
+  const newToken = mintToken(`${ID}-rotated`);
+  const newKey = await generateAcceptanceKeypair();
+  write(newToken, newKey, archiveAfter ? "archived" : "published");
+  run();
+
+  return {
+    outDir,
+    before,
+    after: readdirSync(join(outDir, "i")).sort(),
+    oldKey,
+    newKey,
+    oldToken,
+    newToken,
+    read: (n) => JSON.parse(readFileSync(join(outDir, "i", `${n}.json`), "utf8")),
+  };
+}
+
+test("a rotated-away link still resolves, and says it was replaced", async () => {
+  const r = await rotate();
+  const retired = r.read(inviteFileFor(r.oldKey.privateKey));
+  assert.equal(retired.superseded, true);
+  assert.equal(retired.assignment_id, ID);
+  assert.ok(retired.title, "the student has to know which link went out of date");
+  assert.equal(retired.assignment, undefined, "a marker must not look like an assignment");
+});
+
+test("and the new link is the live one", async () => {
+  const r = await rotate();
+  const live = r.read(inviteFileFor(r.newKey.privateKey));
+  assert.equal(live.assignment?.id, ID);
+  assert.ok(!live.superseded);
+});
+
+test("the retired card carries no secret, old or new", async () => {
+  const r = await rotate();
+  const text = readFileSync(join(r.outDir, "i", `${inviteFileFor(r.oldKey.privateKey)}.json`), "utf8");
+  for (const secret of [r.oldKey.privateKey, r.newKey.privateKey, r.oldToken, r.newToken]) {
+    assert.ok(!text.includes(secret), "a retired card must not carry any invitation");
+  }
+});
+
+test("a retired GROUP link cannot fetch the cohort list", async () => {
+  // The teams file is the roster by another name. It is pruned rather than
+  // retired, so an old link resolves to the marker and nothing else.
+  const r = await rotate({ group: true });
+  assert.ok(
+    r.after.includes(`${inviteFileFor(r.oldKey.privateKey)}.json`),
+    "the old card should have been retired",
+  );
+  assert.ok(
+    !r.after.includes(`${inviteFileFor(r.oldKey.privateKey)}.teams.json`),
+    "but its teams file must be gone",
+  );
+  assert.ok(r.after.includes(`${inviteFileFor(r.newKey.privateKey)}.teams.json`));
+});
+
+test("markers do not survive the assignment itself", async () => {
+  // Otherwise every rotation leaves a file behind for ever, including for
+  // assignments that have been archived and pruned from the site.
+  const r = await rotate({ archiveAfter: true });
+  assert.deepEqual(r.after, [], "an archived assignment publishes nothing at all");
+});
+
+test("retiring is idempotent across regenerations", async () => {
+  // regenerate-dashboard runs on every acceptance. A marker that got rewritten,
+  // renamed or dropped on the second pass would be a link that worked once.
+  const r = await rotate();
+  const first = r.read(inviteFileFor(r.oldKey.privateKey));
+  const res = spawnSync("node", [generator], {
+    env: { ...process.env, DATA_DIR: dirname(dirname(r.outDir)), OUTPUT_DIR: r.outDir },
+    encoding: "utf8",
+  });
+  // The data dir is the parent of public/, which is how the helper laid it out.
+  assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+  assert.deepEqual(r.read(inviteFileFor(r.oldKey.privateKey)), first);
+});
