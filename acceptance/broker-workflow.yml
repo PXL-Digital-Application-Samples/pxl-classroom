@@ -29,6 +29,12 @@
 #   CONTROL_ORG            - e.g. "PXLAutomation" (the org owning the control repo)
 #   INVITE_NONCE           - current invitation generation; rotating it retires
 #                            every link issued before it
+#   INVITE_PUBKEY          - the assignment's acceptance PUBLIC key (P-256, SPKI,
+#                            base64url). Public by design. The student signs with
+#                            the private half, which lives only in their link, so
+#                            the title carries a signature rather than a
+#                            credential - see CLAIM_PLAN Phase A. Absent means
+#                            reject, never "accept anything"
 #   INVITE_ENABLED         - "false" turns acceptance off without deleting anything
 
 name: Acceptance trigger
@@ -84,20 +90,21 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          TOKEN=""
           HINT=""
           NUMBER=""
-          # pxl-accept:<token>[ team:<slug>] - nothing else is accepted.
-          RE='^pxl-accept:([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})( team:([a-z0-9][a-z0-9-]{0,63}))?$'
+          # Only the TEAM HINT is parsed here. The title itself is handed to the
+          # verifier untouched, because deciding which invitation format a title
+          # is belongs in one place, in JS - a bash regex that matched only the
+          # new shape would make an out-of-date link fail to match at all, and
+          # the student would be told their link was malformed rather than old.
+          RE='^pxl-accept:[A-Za-z0-9_.-]+( team:([a-z0-9][a-z0-9-]{0,63}))?$'
           if [[ "$ISSUE_TITLE" =~ $RE ]]; then
-            TOKEN="${BASH_REMATCH[1]}"
-            HINT="${BASH_REMATCH[3]}"
+            HINT="${BASH_REMATCH[2]}"
           fi
           if [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
             NUMBER="$ISSUE_NUMBER"
           fi
           {
-            echo "token=$TOKEN"
             echo "team_hint=$HINT"
             echo "number=$NUMBER"
           } >> "$GITHUB_OUTPUT"
@@ -118,7 +125,15 @@ jobs:
         id: verify
         shell: bash
         env:
-          TOKEN: ${{ steps.parse.outputs.token }}
+          # The title carries a SIGNATURE, not a credential. Read through env,
+          # never interpolated into a script.
+          TITLE: ${{ github.event.issue.title }}
+          INVITE_PUBKEY: ${{ vars.INVITE_PUBKEY }}
+          # The anti-replay check: the signature names the account that made it,
+          # and anyone replaying it out of the public archive is authoring the
+          # issue as themselves, so the two disagree. GitHub sets this; it is
+          # not student-supplied.
+          ISSUE_AUTHOR_ID: ${{ github.event.issue.user.id }}
           ORG: ${{ vars.CONTROL_ORG }}
           ASSIGNMENT_ID: ${{ vars.ASSIGNMENT_ID }}
           INVITE_NONCE: ${{ vars.INVITE_NONCE }}

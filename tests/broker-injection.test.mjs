@@ -188,11 +188,36 @@ test("the broker reads the issue title only through env, against one strict patt
   const titleSteps = steps.filter((step) =>
     JSON.stringify(step.env || {}).includes("github.event.issue.title")
   );
-  assert.equal(titleSteps.length, 1, "exactly one step may take the issue title, and only via env:");
+
+  // TWO steps read it since CLAIM_PLAN Phase A: `parse` takes the team hint,
+  // and `verify` hands the whole title to the JS verifier. Both through env:,
+  // which is the property that matters - test 1 above proves no `run:` body
+  // interpolates it. Pinned at two so a third cannot appear unnoticed.
+  assert.equal(titleSteps.length, 2, "only the parse and verify steps may take the issue title, and only via env:");
+
+  const parseStep = titleSteps.find((s) => typeof s.run === "string" && s.run.includes("BASH_REMATCH"));
+  assert.ok(parseStep, "one step must extract the team hint in bash");
+
+  // The bash side may extract the TEAM HINT and nothing else. It deliberately
+  // no longer parses the invitation itself: deciding which format a title is
+  // belongs in one place, in JS, where an out-of-date link can be named as such
+  // instead of silently failing to match a regex.
   assert.match(
-    titleSteps[0].run,
-    /RE='\^pxl-accept:\(\[A-Za-z0-9_-\]\{35\}\\\.\[A-Za-z0-9_-\]\{86\}\)\( team:\(\[a-z0-9\]\[a-z0-9-\]\{0,63\}\)\)\?\$'/,
-    "the title may only be matched against the exact token+slug pattern"
+    parseStep.run,
+    /RE='\^pxl-accept:\[A-Za-z0-9_\.-\]\+\( team:\(\[a-z0-9\]\[a-z0-9-\]\{0,63\}\)\)\?\$'/,
+    "the bash pattern may only extract a team slug",
+  );
+  assert.doesNotMatch(parseStep.run, /token=/, "the broker must not extract a credential from the title");
+
+  // ...and the verifier must actually receive it, or nothing checks the
+  // signature at all.
+  const verifyStep = titleSteps.find((s) => typeof s.run === "string" && s.run.includes("verify-invite-token.mjs"));
+  assert.ok(verifyStep, "the title must reach scripts/verify-invite-token.mjs");
+  assert.equal(verifyStep.env.TITLE, "${{ github.event.issue.title }}");
+  assert.equal(
+    verifyStep.env.ISSUE_AUTHOR_ID,
+    "${{ github.event.issue.user.id }}",
+    "the anti-replay check needs the author GitHub sets, not one the student supplies",
   );
 });
 
