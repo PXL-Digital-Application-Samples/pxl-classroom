@@ -16,7 +16,9 @@
 //
 // Inputs via env: DATA_DIR, ASSIGNMENT_ID, ORG, INVITE_SIGNING_KEY, INVITE_KID,
 //                 REGENERATE, EXPIRES_AT
-// Outputs via GITHUB_OUTPUT: token, nonce, file, regenerated
+// Outputs via GITHUB_OUTPUT: nonce, file, regenerated, pubkey
+//
+// NOT the token. See the note beside setOutput("pubkey", ...) below.
 
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
@@ -137,13 +139,27 @@ if (isYaml) {
   writeFileSync(file, JSON.stringify(doc, null, 2) + "\n");
 }
 
-setOutput("token", token);
 setOutput("nonce", nonce);
 setOutput("file", file);
 setOutput("regenerated", reuse ? "false" : "true");
 // The workflow copies this onto the broker as INVITE_PUBKEY. The PRIVATE half
 // is never an output: outputs are readable in the run log, and this one is the
 // link secret.
+//
+// THE TOKEN IS NOT AN OUTPUT EITHER, for exactly the same reason, and it was
+// one until 2026-08-26 - four lines above this comment, contradicting it.
+// On a MIGRATED assignment the token is not the link and the exposure is
+// bounded; on an unmigrated one the token IS the bearer credential, and those
+// are still live (acceptanceIssueTitle stays until none are). It was written
+// unmasked - nothing here calls ::add-mask:: - from a workflow on the PUBLIC
+// hub. Nothing consumed it: publish-assignment.yml declared it in a step's
+// `env:` and the script never read it, and dropping that dead reference is
+// what showed this one had no consumer left at all.
+//
+// The token's home is the assignment file in the PRIVATE control repo, which
+// this script has already written. Anything that needs it reads it from there
+// with parseInviteFields - including tests/invite-token.test.mjs, which used
+// this output as an observation channel.
 setOutput("pubkey", keypair.publicKey);
 
 const what = reuse ? "kept the existing" : "minted a new";

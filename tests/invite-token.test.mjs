@@ -205,6 +205,53 @@ test("the hub checkout carries no credentials", () => {
   assert.equal(checkout.with.repository, "PXL-Digital-Application-Samples/pxl-classroom");
 });
 
+test("the invitation token is never a workflow output", () => {
+  // It was one until 2026-08-26, four lines above the comment saying the link
+  // secret must never be an output because outputs are readable in the run
+  // log. Unmasked, from a workflow on the PUBLIC hub, with no consumer: the
+  // only reference was a dead `env:` entry in publish-assignment.yml that the
+  // step's script never read.
+  //
+  // Asserted on behaviour, not on the source text: the script is run for real
+  // and its GITHUB_OUTPUT file is read, so re-adding the export under any
+  // spelling fails this.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-invite-out-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  const file = join(dir, "assignments", `${ID}.yml`);
+  writeFileSync(file, `schema_version: 1\nid: ${ID}\nstate: draft\n`);
+  const outFile = join(dir, "out.txt");
+  writeFileSync(outFile, "");
+
+  execFileSync(process.execPath, [join(root, "scripts", "set-assignment-invite.mjs")], {
+    env: {
+      ...process.env,
+      DATA_DIR: dir,
+      ASSIGNMENT_ID: ID,
+      ORG,
+      INVITE_SIGNING_KEY: kp.privateKeyPem,
+      GITHUB_OUTPUT: outFile,
+    },
+    stdio: "pipe",
+  });
+
+  const outputs = readFileSync(outFile, "utf8");
+  const token = parseInviteFields(readFileSync(file, "utf8")).invite_token;
+
+  assert.ok(token, "the token must still be written to the assignment file");
+  assert.doesNotMatch(outputs, /^token=/m, "the token must not be exported as a step output");
+  assert.ok(!outputs.includes(token), "no output may carry the token's value under any name");
+
+  // The private key is the same rule, already held. Pinned here beside it so
+  // the pair cannot drift apart again.
+  const key = parseInviteFields(readFileSync(file, "utf8")).invite_key;
+  if (key) assert.ok(!outputs.includes(key), "the private half must never be an output");
+
+  // The outputs the workflow genuinely consumes must survive - a guard that
+  // passes by exporting nothing at all would be worse than the bug.
+  assert.match(outputs, /^nonce=[0-9a-f]{8}$/m);
+  assert.match(outputs, /^pubkey=/m);
+});
+
 // --- publish: republish must not silently retire a live link ----------------
 
 test("republishing keeps the link, regenerating retires it", () => {
@@ -228,12 +275,20 @@ test("republishing keeps the link, regenerating retires it", () => {
       },
       stdio: "pipe",
     });
-    return Object.fromEntries(
+    const outputs = Object.fromEntries(
       readFileSync(outFile, "utf8")
         .split("\n")
         .filter(Boolean)
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)])
     );
+    // The token comes from the ASSIGNMENT FILE, not from a step output.
+    // set-assignment-invite.mjs deliberately stopped exporting it: on an
+    // unmigrated assignment the token is the bearer credential, and the note
+    // beside its `pubkey` output says outputs are readable in the run log.
+    // This is also the more honest channel - the file in the private control
+    // repo is where the token actually lives, and parseInviteFields is the one
+    // sanctioned reader (CLAUDE.md), shared with the SPA.
+    return { ...outputs, token: parseInviteFields(readFileSync(file, "utf8")).invite_token };
   };
 
   const first = run(false);
