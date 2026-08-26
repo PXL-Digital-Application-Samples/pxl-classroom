@@ -335,7 +335,23 @@ async function main() {
         : preservation
           ? "failed"
           : "not-required",
-      preserved_sha: preservation?.preserved_sha ?? null,
+      // `source_sha`, which is what preserve.mjs actually writes. It read
+      // `preservation.preserved_sha` - a field that has never existed in that
+      // document - so `preserved_sha` was null on EVERY report ever generated,
+      // including the one real preservation in production, whose
+      // preservation.json carries `source_sha: a7655427…` beside
+      // `preservation_status: "preserved"` and a null sha.
+      //
+      // The name is right and the source was wrong: preserve pushes this exact
+      // commit to the archive and verifies the remote SHA equals it, so the
+      // preserved SHA and the source SHA are the same object by construction.
+      //
+      // Everything gated on the field being truthy was dead: the archive link
+      // in the student table, `pxl-classroom download`, `pxl-classroom grade`,
+      // and the export manifest. Same class as the `earned_points` bug already
+      // recorded in CLAUDE.md - a report field every consumer reads and nothing
+      // writes - and it survived for the same reason: the fixtures supplied it.
+      preserved_sha: preservation?.source_sha ?? null,
       warnings,
     });
 

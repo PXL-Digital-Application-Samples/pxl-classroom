@@ -28,6 +28,7 @@ function runReport({
   acceptances = [],
   repositories = [],
   observations = {},
+  preservations = {},
   overrides = [],
   teams = [],
   roster = [],
@@ -82,6 +83,12 @@ function runReport({
         JSON.stringify(obs[i])
       );
     }
+  }
+
+  // preservation.json sits beside the snapshots, written by preserve.mjs.
+  for (const [login, doc] of Object.entries(preservations)) {
+    mkdirSync(join(dir, "observations", id, login), { recursive: true });
+    writeFileSync(join(dir, "observations", id, login, "preservation.json"), JSON.stringify(doc));
   }
 
   if (teams.length) {
