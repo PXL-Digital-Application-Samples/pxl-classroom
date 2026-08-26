@@ -71,6 +71,18 @@ export async function signedAcceptanceIssueTitle({ inviteSecret, assignmentId, g
   // a fixed-length key without one.
   if (TOKEN_PATTERN.test(inviteSecret)) return acceptanceIssueTitle(inviteSecret, teamSlug)
 
+  // The signature names this account, and the broker refuses it unless it
+  // matches the issue's author - so an absent id is not a detail, it is an
+  // acceptance that cannot succeed. Said here, in words a student can act on:
+  // the module below throws too, but "not a usable GitHub account id" reads
+  // like a problem with their link.
+  if (!Number.isInteger(githubId) || githubId <= 0) {
+    throw new Error(
+      'Your GitHub account id is missing from this session, so this acceptance cannot be signed. ' +
+        'Sign out and sign in again, then try once more.',
+    )
+  }
+
   const title = await signAcceptanceTitle({
     privateKey: inviteSecret,
     kid: ACCEPTANCE_FORMAT,
@@ -93,9 +105,15 @@ export async function signedAcceptanceIssueTitle({ inviteSecret, assignmentId, g
   return withTeam
 }
 
-/** Distinct per acceptance, so two attempts by one student differ. */
+/**
+ * Distinct per acceptance, so two attempts by one student differ.
+ *
+ * Four bytes, matching the payload's nonce field. It is not a security value -
+ * replay is stopped by binding the signature to the account - so the width is
+ * chosen for the title budget, not for collision resistance.
+ */
 function randomNonce() {
-  const bytes = new Uint8Array(6)
+  const bytes = new Uint8Array(4)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }

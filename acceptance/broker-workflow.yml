@@ -48,7 +48,9 @@ permissions:
   issues: write
 
 concurrency:
-  group: accept-${{ github.actor }}
+  # Serialised per accepting account, and keyed on the same field the signature
+  # and the dispatch use. `github.actor` is a third reading of the same fact.
+  group: accept-${{ github.event.issue.user.login }}
   cancel-in-progress: false
 
 jobs:
@@ -66,8 +68,17 @@ jobs:
         id: validate
         shell: bash
         env:
-          ACTOR: ${{ github.actor }}
-          ACTOR_ID: ${{ github.event.sender.id }}
+          # THE ISSUE'S AUTHOR, not `github.actor` and not `sender`.
+          #
+          # The signature is verified against `issue.user.id`, so provisioning
+          # for anyone else would mean the account we checked and the account we
+          # act for are two different facts read from two different fields. For
+          # a freshly opened issue they agree, which is exactly why a divergence
+          # would be invisible until it was not - an issue opened through an App
+          # on a user's behalf reports the App as `sender` and the user as
+          # `issue.user`.
+          ACTOR: ${{ github.event.issue.user.login }}
+          ACTOR_ID: ${{ github.event.issue.user.id }}
         run: |
           [[ -n "$ACTOR" && -n "$ACTOR_ID" ]] \
             || { echo "::error::Missing actor"; exit 1; }

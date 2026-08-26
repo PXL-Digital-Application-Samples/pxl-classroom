@@ -214,6 +214,31 @@ test("a healthy migrated assignment is quiet, and says nothing about the nonce",
   assert.equal(r["invite-key"], undefined);
 });
 
+test("A BROKER SIGNING FOR AN ASSIGNMENT THAT HAS NO KEYPAIR is caught", async () => {
+  // The inverse, and the more dangerous half, because everything else looks
+  // healthy: the token, the key id and the nonce all still check out.
+  //
+  // publish-assignment.yml sets INVITE_PUBKEY and pushes the broker workflow in
+  // one step, then commits the assignment. A failure in between - an org
+  // ruleset rejecting the push - leaves a broker verifying signatures for an
+  // assignment whose keypair was never committed, and republishing an
+  // already-published assignment does not revert. Every student's link is then
+  // the older kind and every acceptance is refused as out of date.
+  const r = await run(healthy, {
+    vars: { INVITE_NONCE: NONCE, INVITE_ENABLED: "true", INVITE_PUBKEY: KEY.public },
+  });
+  assert.equal(r["invite-pubkey"].severity, "fail");
+  assert.match(r["invite-pubkey"].message, /no keypair/);
+  assert.equal(r["invite-pubkey"].fixAction?.type, "publish_broker");
+});
+
+test("an unmigrated assignment on a broker with no pubkey stays quiet about it", async () => {
+  // The ordinary state of every assignment today. It must raise nothing.
+  const r = await run(healthy);
+  assert.equal(r["invite-pubkey"], undefined);
+  assert.equal(r["invite-nonce"].severity, "ok");
+});
+
 test("a truncated invite_key is still caught", async () => {
   // The check that replaces parseToken for this shape. An email client wrapping
   // a URL, or a hand-edited YAML.

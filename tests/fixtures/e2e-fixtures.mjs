@@ -6,6 +6,7 @@ import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
 import { generateKeyPairSync } from 'node:crypto'
 import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
 import { linkSecretFrom } from '../../lib/invite-token-format.mjs'
+import { verifyAcceptanceTitle } from '../../lib/acceptance-signature.mjs'
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -17,26 +18,34 @@ if (existsSync('.env.test')) {
 export const ORG = process.env.TEST_ORG || 'PXL-2TIN-CloudEssentials-2627';
 export const ASSIGNMENT_ID = process.env.TEST_ASSIGNMENT_ID || 'test-groepsopdracht-2';
 
+// Each persona carries a DISTINCT numeric id, because the acceptance signature
+// names one and the anti-replay check is "is this the account that signed".
+// A shared id would make a replay by another persona indistinguishable from the
+// real thing, which is precisely the property under test.
 export const LECTURER = {
   login: process.env.TEST_LECTURER_LOGIN || 'tomcoolpxl-lecturer1',
+  id: 900001,
   name: 'Lecturer One',
   token: process.env.TEST_LECTURER_TOKEN || 'mock_lecturer_token',
 };
 
 export const LECTURER_2 = {
   login: process.env.TEST_LECTURER2_LOGIN || 'tomcoolpxl-lecturer2',
+  id: 900002,
   name: 'Lecturer Two',
   token: process.env.TEST_LECTURER2_TOKEN || 'mock_lecturer2_token',
 };
 
 export const STUDENT_1 = {
   login: process.env.TEST_STUDENT1_LOGIN || 'tomcoolpxl-student1',
+  id: 900011,
   name: 'Student One',
   token: process.env.TEST_STUDENT1_TOKEN || 'mock_student1_token',
 };
 
 export const STUDENT_2 = {
   login: process.env.TEST_STUDENT2_LOGIN || 'tomcoolpxl-student2',
+  id: 900012,
   name: 'Student Two',
   token: process.env.TEST_STUDENT2_TOKEN || 'mock_student2_token',
 };
@@ -79,6 +88,65 @@ const acceptanceKeys = new Map()
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/**
+ * What the real broker would decide about an acceptance title.
+ *
+ * Mirrors scripts/verify-invite-token.mjs's two paths, chosen the same way: an
+ * assignment carrying `invite_key` is verified as a signature, one carrying
+ * only `invite_token` is expected to paste the token, and one with neither has
+ * nothing to check.
+ *
+ * Never throws. A fixture that blew up here would fail specs for reasons that
+ * have nothing to do with what they are testing.
+ */
+async function verifyAcceptanceTitleForBroker(url, request, { org, assignments, allOrgAssignments }) {
+  let title = '';
+  try {
+    title = JSON.parse(request.postData() || '{}').title || '';
+  } catch {
+    return { ok: false, reason: 'unreadable request body', title: '', url };
+  }
+
+  // /repos/<owner>/<repo>/issues -> which assignment does this broker serve?
+  const m = url.match(/\/repos\/([^/]+)\/([^/]+)\/issues/);
+  if (!m) return { ok: true, reason: 'not a broker url', title, url };
+  const [, owner, repo] = m;
+  const pool = allOrgAssignments[owner] || (owner === org ? assignments : {});
+  const entry = Object.entries(pool).find(
+    ([id, def]) => (def?.broker_repo || `broker-${id}`) === repo,
+  );
+  if (!entry) return { ok: true, reason: 'no assignment for this broker', title, url };
+  const [id, def] = entry;
+
+  if (def?.invite_key) {
+    const { publicKey } = acceptanceKeypair(owner, id);
+    let res;
+    try {
+      res = await verifyAcceptanceTitle({ title, publicKey, expectedSubject: id });
+    } catch (e) {
+      return { ok: false, reason: `verifier threw: ${e.message}`, title, url, assignmentId: id };
+    }
+    // The broker checks the signer against the issue author too, but the
+    // fixture has no author to compare against - the SPA signs with the id it
+    // holds for the session, which is the same one by construction.
+    return { ok: res.ok, reason: res.reason || 'signed', title, url, assignmentId: id, signed: true };
+  }
+
+  if (def?.invite_token) {
+    const expected = new RegExp(`^pxl-accept:${def.invite_token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( team:[a-z0-9][a-z0-9-]{0,63})?$`);
+    return {
+      ok: expected.test(title),
+      reason: expected.test(title) ? 'legacy' : 'legacy title does not match the assignment token',
+      title,
+      url,
+      assignmentId: id,
+      signed: false,
+    };
+  }
+
+  return { ok: true, reason: 'assignment carries no invitation', title, url, assignmentId: id };
 }
 
 export function acceptanceKeypair(org, assignmentId) {
@@ -132,10 +200,40 @@ export async function expandSettings(page) {
     .waitFor({ state: 'visible', timeout: 10000 });
 }
 
+/**
+ * A stable numeric id for a persona a spec invented inline.
+ *
+ * Many specs build `{ login, name, token }` by hand, and a real session always
+ * carries an id - so storing `undefined` models a state GitHub cannot produce.
+ * Derived from the login so two personas never collide: the acceptance
+ * signature names this id, and the anti-replay check is "is this the account
+ * that signed", which a shared id would make untestable.
+ */
+export function personaId(login) {
+  let h = 0;
+  for (const ch of String(login)) h = (h * 31 + ch.charCodeAt(0)) % 100000;
+  return 800000 + h;
+}
+
 export async function injectAuth(page, user) {
   const authData = JSON.stringify({
     access_token: user.token,
-    user: { login: user.login, name: user.name, email: user.email },
+    // The SAME SHAPE auth.js persists, `id` included. It was missing here, and
+    // getUser() reads this object rather than re-fetching - so every e2e
+    // acceptance signed with `githubId: undefined`. That produced a payload
+    // claiming no account at all, which the real broker rejects and this
+    // fixture's mocked one used to accept, so the suite stayed green over a
+    // title production would refuse.
+    //
+    // `'id' in user` rather than `user.id ?? …`, so a spec can still say
+    // `{ ...STUDENT_1, id: undefined }` and get the sessionless-id case it is
+    // deliberately testing.
+    user: {
+      login: user.login,
+      id: 'id' in user ? user.id : personaId(user.login),
+      name: user.name,
+      email: user.email,
+    },
     expires_at: new Date(Date.now() + 86400000).toISOString(),
   });
 
@@ -234,6 +332,11 @@ export async function setupStandardMockRoutes(page, {
   // whole payload with garbage left the test green. It is deleted; the name
   // stays distinct so a revived one cannot be silently swallowed here again.
   controlAcceptances = {},
+  // Every acceptance title the SPA posted, with the verdict the REAL broker
+  // verifier gave it: { ok, reason, title, assignmentId, signed }. Pass an
+  // array to assert on the seam directly; the fixture rejects an unverifiable
+  // title with 422 whether or not anybody is looking.
+  acceptanceTitles = [],
   // Caller-owned sinks. The fixture pushes one entry per Git Data API commit
   // ({ message, files: [{ path, content }] }) and per workflow_dispatch
   // ({ workflow, inputs }), so a spec can assert what was actually written.
@@ -491,7 +594,7 @@ export async function setupStandardMockRoutes(page, {
     } else if (url.includes('/user')) {
       await route.fulfill({
         status: 200,
-        body: JSON.stringify({ login: currentUser.login, id: 999999, name: currentUser.name, email: currentUser.email }),
+        body: JSON.stringify({ login: currentUser.login, id: currentUser.id ?? personaId(currentUser.login), name: currentUser.name, email: currentUser.email }),
       });
     } else if (url.includes('/issues') && url.includes('/comments') && method === 'POST') {
       await route.fulfill({
@@ -504,6 +607,34 @@ export async function setupStandardMockRoutes(page, {
         body: JSON.stringify(brokerIssues),
       });
     } else if (url.includes('/issues') && method === 'POST') {
+      // THE MOCKED BROKER VERIFIES, because a broker that accepts anything
+      // tests nothing.
+      //
+      // Every group acceptance was rejected by the real broker for months and
+      // the whole e2e suite stayed green, because this route returned 201 for
+      // any title at all. The SPA appends the team hint AFTER signing and the
+      // broker splits the title on ".", so the signature arrived as
+      // `<signature> team:alpha` - not base64url - and every join failed as
+      // malformed while individual acceptance worked perfectly.
+      //
+      // Running the REAL verifier here closes the seam: any spec that accepts
+      // now proves the title the SPA built is one the broker would take.
+      const check = await verifyAcceptanceTitleForBroker(url, route.request(), {
+        org,
+        assignments,
+        allOrgAssignments,
+      });
+      acceptanceTitles.push(check);
+      if (!check.ok) {
+        // Loud, because the SPA only surfaces the status code. This line is
+        // what tells you which of the two halves is wrong.
+        console.warn(`[e2e broker] rejected acceptance title: ${check.reason} - ${check.title}`);
+        await route.fulfill({
+          status: 422,
+          body: JSON.stringify({ message: `broker would reject this title: ${check.reason}` }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 201,
         body: JSON.stringify({ id: 101, number: 1, state: 'open' }),

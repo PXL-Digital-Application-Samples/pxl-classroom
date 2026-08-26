@@ -73,24 +73,35 @@ if (String(process.env.TITLE || "").trim() && String(process.env.INVITE_PUBKEY |
     process.exit(0);
   }
 
-  const verified = await verifyAcceptanceTitle({ title, publicKey });
+  // expectedSubject turns a broker holding the wrong INVITE_PUBKEY into
+  // `wrong-assignment` instead of `bad-signature`. It is only meaningful when
+  // the broker knows which assignment it serves; an unset ASSIGNMENT_ID is a
+  // deployment fault of its own, so skip the comparison rather than fail every
+  // student on it.
+  const expectedSubject = String(process.env.ASSIGNMENT_ID || "").trim() || null;
+  const verified = await verifyAcceptanceTitle({ title, publicKey, expectedSubject });
   if (!verified.ok) {
     finish(false, verified.reason);
     process.exit(0);
   }
 
-  // The anti-replay check. A signature lifted out of the public archive names
-  // the account that made it; anyone replaying it authors the issue as
-  // themselves, so the two disagree. The hub checks this again - neither being
-  // skipped may open the hole.
+  // The anti-replay check, and it is the ONLY one. A signature lifted out of
+  // the public archive names the account that made it; anyone replaying it
+  // authors the issue as themselves, so the two disagree.
+  //
+  // This comment used to say the hub checks it again. It does not, and cannot -
+  // the dispatch carries a login and an id, never the title - so relaxing
+  // anything here on the strength of a second check would have opened the hole
+  // outright.
   const author = process.env.ISSUE_AUTHOR_ID;
   if (!signerMatchesAuthor(verified.payload, author)) {
     finish(false, "signer-mismatch");
     process.exit(0);
   }
 
+  // The dispatch downstream must carry THIS id, not the one the workflow read
+  // from a different field of the same event.
   setOutput("github_id", String(verified.payload.githubId));
-  setOutput("subject", verified.payload.subject);
   finish(true, "signed");
   process.exit(0);
 }

@@ -29,6 +29,7 @@ import {
   signAcceptanceTitle,
   verifyAcceptanceTitle,
   signerMatchesAuthor,
+  subjectDigest,
   toBase64Url,
   fromBase64Url,
   TITLE_PREFIX,
@@ -52,7 +53,7 @@ async function title(over = {}) {
     kid: KID,
     subject: SUBJECT,
     githubId: GITHUB_ID,
-    nonce: "abc123",
+    nonce: "0badc0de",
     ...over,
   });
 }
@@ -68,8 +69,11 @@ test("a signed title verifies, and carries the signer's account", async () => {
   const res = await verify(await title());
   assert.equal(res.ok, true);
   assert.equal(res.kid, KID);
-  assert.equal(res.payload.subject, SUBJECT);
   assert.equal(res.payload.githubId, GITHUB_ID);
+  // The subject is a truncated digest now, not the id itself - that is what
+  // makes the title's length independent of what a lecturer named the
+  // assignment. Compared, never read back.
+  assert.deepEqual(res.payload.subjectBytes, await subjectDigest(SUBJECT));
 });
 
 test("the title keeps the pxl-accept: prefix the broker filters on", async () => {
@@ -90,16 +94,51 @@ test("THE PRIVATE KEY NEVER APPEARS IN THE TITLE", async () => {
   }
 });
 
-test("the title fits inside GitHub's 256-character limit", async () => {
+test("the title fits inside the 256-character budget", async () => {
   const t = await title();
   assert.ok(t.length <= MAX_TITLE_LENGTH, `title was ${t.length} chars`);
 });
 
-test("an over-long title is refused at signing rather than by GitHub", async () => {
-  await assert.rejects(
-    () => title({ subject: "x".repeat(400) }),
-    /over GitHub's 256/,
+// ======================================================= the budget
+//
+// The JSON payload blew it, and the failure landed on the STUDENT at accept
+// time for a reason the lecturer chose months earlier when naming the
+// assignment. Measured 2026-08-26 against GitHub: an issue title of 1024
+// characters is accepted and 1025 is refused, while GitHub's own 422 message
+// says "maximum is 256". We keep 256, because building on the undocumented
+// 1024 means building on something GitHub's own validator calls invalid - but
+// the title must then FIT in 256 with room for the longest team hint.
+
+test("the title length does not depend on how the assignment was named", async () => {
+  // This is the property, not the number. Hashing the subject is what buys it.
+  const lengths = new Set();
+  for (const subject of [
+    "a",
+    "hw-1",
+    "linux-processes-2026",
+    "2526-automation-scripting-practicum-exam-2",
+    "x".repeat(200),
+  ]) {
+    lengths.add((await title({ subject })).length);
+  }
+  assert.equal(lengths.size, 1, `title length varied with the assignment id: ${[...lengths]}`);
+});
+
+test("the longest possible group title still fits", async () => {
+  // A team slug is `[a-z0-9][a-z0-9-]{0,63}`, so 64 characters, and the hint is
+  // appended AFTER signing - signAcceptanceTitle's own check never sees it.
+  const t = await title({ subject: "2526-automation-scripting-practicum-exam-2" });
+  const worst = `${t} team:${"a".repeat(64)}`;
+  assert.ok(
+    worst.length <= MAX_TITLE_LENGTH,
+    `worst-case group title is ${worst.length} chars, over the ${MAX_TITLE_LENGTH} budget`,
   );
+});
+
+test("a kid at its maximum width still fits", async () => {
+  const t = await title({ kid: "k".repeat(32) });
+  const worst = `${t} team:${"a".repeat(64)}`;
+  assert.ok(worst.length <= MAX_TITLE_LENGTH, `worst case with a 32-char kid was ${worst.length}`);
 });
 
 // ======================================================= what a harvester gets
@@ -135,7 +174,7 @@ test("a tampered payload fails", async () => {
     kid: KID,
     subject: SUBJECT,
     githubId: 99999999,
-    nonce: "abc123",
+    nonce: "0badc0de",
   });
   const forgedPayload = forged.slice(TITLE_PREFIX.length).split(".")[1];
   // Someone else's payload, this signature.
@@ -164,7 +203,7 @@ test("a signature from a DIFFERENT keypair fails", async () => {
     kid: KID,
     subject: SUBJECT,
     githubId: GITHUB_ID,
-    nonce: "abc123",
+    nonce: "0badc0de",
   });
   const res = await verify(t);
   assert.equal(res.ok, false);
@@ -289,26 +328,35 @@ test("a kid must be short and URL-safe", async () => {
   }
 });
 
-// ======================================================= issued_at is advisory
+// ======================================================= issued_at is GONE
+//
+// It was carried and, by its own documentation, never enforced - a signature is
+// already bound to one account, so a stale one only lets that student accept
+// again, which is idempotent. Enforcing it would have added a clock-skew
+// failure mode for no security gain.
+//
+// Unenforced is one thing; free is another. A full ISO-8601 string cost 32
+// characters of a 256-character title, and the title did not fit. Removing dead
+// data is what made room for the team hint.
 
-test("issued_at is carried but NEVER enforced", async () => {
-  // A signature is already bound to one account, so a stale one only lets that
-  // student accept again - which is idempotent. Rejecting on time would add a
-  // clock-skew failure mode for no security gain: a student with a wrong
-  // system clock would simply be unable to accept.
-  const ancient = await title({ issuedAt: "2001-01-01T00:00:00.000Z" });
-  const future = await title({ issuedAt: "2099-01-01T00:00:00.000Z" });
-  assert.equal((await verify(ancient)).ok, true);
-  assert.equal((await verify(future)).ok, true);
+test("issued_at is not part of the payload at all", async () => {
+  const res = await verify(await title());
+  assert.equal(res.ok, true);
+  assert.equal("issuedAt" in res.payload, false, "issued_at came back - it should be gone");
 });
 
-test("a payload with no issued_at still verifies", async () => {
-  // `null`, not `undefined`: a default parameter fires on an explicit
-  // undefined, so that spelling silently tests the DEFAULT timestamp and never
-  // reaches the absent case at all.
-  const res = await verify(await title({ issuedAt: null }));
-  assert.equal(res.ok, true);
-  assert.equal(res.payload.issuedAt, null);
+test("passing an issuedAt is ignored rather than silently signed", async () => {
+  // A caller still sending it must not change the bytes.
+  //
+  // The PAYLOAD, not the title: ECDSA is randomised, so signing identical bytes
+  // twice gives two different signatures. That is also why the nonce is not
+  // what makes two acceptances differ - it makes the signed PAYLOAD differ,
+  // which is the part anything downstream could dedupe on.
+  const payloadOf = (t) => t.slice(TITLE_PREFIX.length).split(".")[1];
+  const a = await title({ nonce: "0badc0de" });
+  const b = await title({ nonce: "0badc0de", issuedAt: "2001-01-01T00:00:00.000Z" });
+  assert.equal(payloadOf(a), payloadOf(b));
+  assert.notEqual(a, b, "two ECDSA signatures over the same bytes should still differ");
 });
 
 // ======================================================= the nonce
@@ -333,11 +381,20 @@ test("a minted keypair is storable in an assignment document", async () => {
 });
 
 test("two acceptances by the same account produce different titles", async () => {
-  const a = await title({ nonce: "one" });
-  const b = await title({ nonce: "two" });
+  const a = await title({ nonce: "00000001" });
+  const b = await title({ nonce: "00000002" });
   assert.notEqual(a, b);
   assert.equal((await verify(a)).ok, true);
   assert.equal((await verify(b)).ok, true);
+});
+
+test("a nonce that is not four bytes of hex is refused at signing", async () => {
+  // It rides in a fixed-width binary field, so a wrong width would either
+  // truncate silently or throw somewhere less obvious. The SPA generates it, so
+  // this is a contract between two halves of our own code, not user input.
+  for (const bad of ["abc123", "", null, undefined, "0badc0d", "0badc0de0", "zzzzzzzz"]) {
+    await assert.rejects(() => title({ nonce: bad }), /nonce must be 8 hex/, `accepted ${JSON.stringify(bad)}`);
+  }
 });
 
 // --- the migration, from the accept button's side ---------------------------
@@ -414,4 +471,156 @@ test("a migrated link signs, and does not fall back to pasting the secret", asyn
     "the key must never reach the title - that is the whole point of the change",
   );
   assert.equal((await verifyAcceptanceTitle({ title: out, publicKey: (await keypair()).publicKey })).ok, true);
+});
+
+// ======================================================= THE TEAM HINT
+//
+// The broker is handed `github.event.issue.title` VERBATIM, and the hint is
+// appended AFTER signing. verifyAcceptanceTitle split the whole title on ".",
+// so the signature part came out as `<signature> team:alpha` - not base64url -
+// and EVERY group acceptance was rejected as `malformed`, on every group
+// assignment, forever. Individual acceptance worked perfectly, which is why it
+// went unnoticed: not one test had ever verified a title carrying a hint.
+//
+// These run the real signer and the real verifier over the real title the SPA
+// builds, because that is the only arrangement that would have caught it.
+
+test("a group acceptance verifies with the team hint still attached", async () => {
+  const { privateKey, publicKey } = await keypair();
+  const withHint = await signedAcceptanceIssueTitle({
+    inviteSecret: privateKey,
+    assignmentId: SUBJECT,
+    githubId: GITHUB_ID,
+    teamSlug: "alpha",
+  });
+
+  assert.match(withHint, / team:alpha$/, "the SPA must still emit the hint");
+  const res = await verifyAcceptanceTitle({ title: withHint, publicKey });
+  assert.equal(res.ok, true, `group acceptance rejected: ${res.reason}`);
+  assert.equal(res.payload.githubId, GITHUB_ID);
+});
+
+test("the hint is not signed, and changing it does not break verification", async () => {
+  // Deliberate: the hint is a concurrency key, never an authoritative value
+  // (§5.8). The hub re-derives the real team from the issue body and
+  // teamHintMatches refuses one that disagrees - so signing it here would add a
+  // second place for the same rule to live.
+  const { privateKey, publicKey } = await keypair();
+  const base = await title();
+  for (const suffix of [" team:alpha", " team:a-very-long-team-slug", " team:x", "  team:alpha"]) {
+    const res = await verifyAcceptanceTitle({ title: base + suffix, publicKey });
+    assert.equal(res.ok, true, `rejected with suffix ${JSON.stringify(suffix)}: ${res.reason}`);
+  }
+  assert.ok(privateKey);
+});
+
+test("trailing junk does not let a title through that would otherwise fail", async () => {
+  // The cut has to happen before the signature check, never instead of it.
+  const { publicKey } = await keypair();
+  const other = await generateAcceptanceKeypair();
+  const foreign = await signAcceptanceTitle({
+    privateKey: other.privateKey,
+    kid: KID,
+    subject: SUBJECT,
+    githubId: GITHUB_ID,
+    nonce: "0badc0de",
+  });
+  const res = await verifyAcceptanceTitle({ title: `${foreign} team:alpha`, publicKey });
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, "bad-signature");
+});
+
+test("a title that is only a hint is refused", async () => {
+  const { publicKey } = await keypair();
+  const res = await verifyAcceptanceTitle({ title: `${TITLE_PREFIX} team:alpha`, publicKey });
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, "malformed");
+});
+
+// ======================================================= wrong assignment
+
+test("a signature for another assignment is named, not called a bad signature", async () => {
+  // With a per-assignment keypair this cannot happen by attack - a foreign
+  // signature does not verify at all. It happens when a broker holds the wrong
+  // INVITE_PUBKEY, which RUNBOOK §1.3.2 calls out as a real deployment fault,
+  // and the two need different messages.
+  const { privateKey, publicKey } = await keypair();
+  const t = await signAcceptanceTitle({
+    privateKey,
+    kid: KID,
+    subject: "some-other-assignment",
+    githubId: GITHUB_ID,
+    nonce: "0badc0de",
+  });
+
+  const res = await verifyAcceptanceTitle({ title: t, publicKey, expectedSubject: SUBJECT });
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, "wrong-assignment");
+
+  // And the matching one passes, so the check is not simply always-fail.
+  const good = await verifyAcceptanceTitle({ title: await title(), publicKey, expectedSubject: SUBJECT });
+  assert.equal(good.ok, true);
+});
+
+test("the subject check runs after the signature, never instead of it", async () => {
+  // Ordering matters: an unsigned caller must not be able to probe which
+  // assignment a broker serves by watching the reason change.
+  const other = await generateAcceptanceKeypair();
+  const foreign = await signAcceptanceTitle({
+    privateKey: other.privateKey,
+    kid: KID,
+    subject: "some-other-assignment",
+    githubId: GITHUB_ID,
+    nonce: "0badc0de",
+  });
+  const res = await verifyAcceptanceTitle({
+    title: foreign,
+    publicKey: (await keypair()).publicKey,
+    expectedSubject: SUBJECT,
+  });
+  assert.equal(res.reason, "bad-signature", "a forged title must not reveal the subject mismatch");
+});
+
+// ======================================================= a missing account id
+
+test("a missing github id fails at signing, where the cause is still visible", async () => {
+  // It used to become `Number(undefined)` -> NaN -> JSON null, minting a title
+  // every broker rejects with a deliberately generic "this link is not valid" -
+  // sending the student to hunt for a problem with their link when the cause
+  // was their session.
+  for (const bad of [undefined, null, "", 0, -1, "abc", 1.5, NaN]) {
+    await assert.rejects(
+      () => title({ githubId: bad }),
+      /not a usable GitHub account id/,
+      `accepted githubId ${JSON.stringify(bad)}`,
+    );
+  }
+});
+
+test("a large github id round-trips", async () => {
+  // 48 bits. GitHub is at ~2e8; this is the headroom, and getting the split
+  // between the high 16 and low 32 bits wrong would corrupt exactly the large
+  // ids nobody tests with.
+  const { publicKey } = await keypair();
+  for (const id of [1, 71908551, 4294967295, 4294967296, 281474976710655]) {
+    const t = await title({ githubId: id });
+    const res = await verifyAcceptanceTitle({ title: t, publicKey });
+    assert.equal(res.ok, true, `id ${id} did not verify`);
+    assert.equal(res.payload.githubId, id, `id ${id} came back as ${res.payload.githubId}`);
+    assert.equal(signerMatchesAuthor(res.payload, String(id)), true);
+  }
+});
+
+test("an id past 48 bits is refused rather than silently truncated", async () => {
+  await assert.rejects(() => title({ githubId: 281474976710656 }), /not a usable GitHub account id/);
+});
+
+test("signerMatchesAuthor refuses an empty author id against a zero payload", async () => {
+  // Number("") and Number(null) are both 0, so without a lower bound an absent
+  // ISSUE_AUTHOR_ID matched a payload claiming account 0.
+  assert.equal(signerMatchesAuthor({ githubId: 0 }, ""), false);
+  assert.equal(signerMatchesAuthor({ githubId: 0 }, null), false);
+  assert.equal(signerMatchesAuthor({ githubId: 0 }, 0), false);
+  assert.equal(signerMatchesAuthor({ githubId: 1 }, ""), false);
+  assert.equal(signerMatchesAuthor({ githubId: 1 }, undefined), false);
 });

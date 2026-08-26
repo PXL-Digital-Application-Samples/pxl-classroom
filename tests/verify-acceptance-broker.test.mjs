@@ -70,9 +70,12 @@ async function signedFixture() {
   const title = await signAcceptanceTitle({
     privateKey: keys.privateKey,
     kid: "k1",
-    subject: "wSbLd9k2Qn0aVjF3xRt7Zg",
+    // The assignment this broker serves. The subject is a truncated digest of
+    // it, and the script compares it against ASSIGNMENT_ID - so a fixture
+    // signing some other string tests `wrong-assignment`, not the happy path.
+    subject: ASSIGNMENT,
     githubId: GITHUB_ID,
-    nonce: "n1",
+    nonce: "0badc0de",
   });
   signed = { keys, title };
   return signed;
@@ -85,6 +88,82 @@ test("a signed title from the right account is accepted", async () => {
   assert.equal(res.outputs.valid, "true");
   assert.equal(res.outputs.reason, "signed");
   assert.equal(res.outputs.github_id, String(GITHUB_ID));
+});
+
+test("A GROUP ACCEPTANCE IS ACCEPTED - the team hint rides on the title", async () => {
+  // The bug this catches broke EVERY group acceptance on the signed path, and
+  // nothing else in the suite would have seen it: the hint is appended after
+  // signing, the broker hands the title over verbatim, and the verifier split
+  // the whole thing on "." - so the signature came out as `<sig> team:alpha`
+  // and every join was rejected as malformed. Individual acceptance was fine
+  // throughout.
+  //
+  // Driven through the real script, because the fault was in the seam between
+  // the SPA's title and the broker's reading of it.
+  const { keys, title } = await signedFixture();
+  const res = run({
+    TITLE: `${title} team:alpha`,
+    INVITE_PUBKEY: keys.publicKey,
+    ISSUE_AUTHOR_ID: String(GITHUB_ID),
+    ASSIGNMENT_ID: ASSIGNMENT,
+  });
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.valid, "true", `group acceptance rejected: ${res.outputs.reason}`);
+  assert.equal(res.outputs.reason, "signed");
+  assert.equal(res.outputs.github_id, String(GITHUB_ID));
+});
+
+test("the longest team slug a broker will parse still verifies", async () => {
+  // The broker's own regex allows `[a-z0-9][a-z0-9-]{0,63}`, so this is the
+  // widest hint that can reach the verifier at all.
+  const { keys, title } = await signedFixture();
+  const slug = `a${"b".repeat(63)}`;
+  const res = run({
+    TITLE: `${title} team:${slug}`,
+    INVITE_PUBKEY: keys.publicKey,
+    ISSUE_AUTHOR_ID: String(GITHUB_ID),
+    ASSIGNMENT_ID: ASSIGNMENT,
+  });
+  assert.equal(res.outputs.valid, "true", `rejected: ${res.outputs.reason}`);
+  assert.ok(
+    `${title} team:${slug}`.length <= 256,
+    "and it has to fit the budget, or GitHub never delivers the issue in the first place",
+  );
+});
+
+test("a broker holding the wrong assignment says so", async () => {
+  // A mismatched INVITE_PUBKEY is a real deployment fault (RUNBOOK §1.3.2), and
+  // "bad-signature" would send a lecturer looking for a forged link instead.
+  const { keys, title } = await signedFixture();
+  const res = run({
+    TITLE: title,
+    INVITE_PUBKEY: keys.publicKey,
+    ISSUE_AUTHOR_ID: String(GITHUB_ID),
+    ASSIGNMENT_ID: "some-other-assignment",
+  });
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.valid, "false");
+  assert.equal(res.outputs.reason, "wrong-assignment");
+});
+
+test("the matching assignment id verifies, so the check is not always-fail", async () => {
+  const { keys, title } = await signedFixture();
+  const res = run({
+    TITLE: title,
+    INVITE_PUBKEY: keys.publicKey,
+    ISSUE_AUTHOR_ID: String(GITHUB_ID),
+    ASSIGNMENT_ID: ASSIGNMENT,
+  });
+  assert.equal(res.outputs.valid, "true", `rejected: ${res.outputs.reason}`);
+});
+
+test("an unset ASSIGNMENT_ID skips the subject check rather than failing everyone", async () => {
+  // A broker that does not know which assignment it serves is broken in its own
+  // right, but turning that into a rejection for every student would make one
+  // deployment fault look like a cohort of forged links.
+  const { keys, title } = await signedFixture();
+  const res = run({ TITLE: title, INVITE_PUBKEY: keys.publicKey, ISSUE_AUTHOR_ID: String(GITHUB_ID) });
+  assert.equal(res.outputs.valid, "true");
 });
 
 test("THE REPLAY IS REFUSED - a different author with the same title", async () => {

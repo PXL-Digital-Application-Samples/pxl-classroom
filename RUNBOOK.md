@@ -99,6 +99,8 @@ An assignment moves across when it is next published. Nothing is automatic and n
 
 **Verify it worked** with *Troubleshoot* on the assignment. Tier 4 checks the assignment's `invite_key` and that the broker's `INVITE_PUBKEY` matches it. A missing or mismatched public key fails **every** acceptance in silence, and is exactly what a half-completed republish leaves behind - so check it rather than assuming.
 
+It also catches the inverse, which is the more dangerous half: a broker that has `INVITE_PUBKEY` for an assignment whose keypair was never committed. The publish workflow sets that variable and pushes the broker's workflow in one step and commits the assignment afterwards, so a failure in between - an org ruleset rejecting the push - leaves the broker verifying signatures while every student's link is still the older kind. Every acceptance is then refused as out of date, and the token, key id and nonce all still check out, so nothing else says a word. Republishing fixes it.
+
 **Do not** hand-edit `invite_key` or `invite_pubkey` in a control repo. They are one pair; changing either half alone locks the cohort out.
 
 **Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
