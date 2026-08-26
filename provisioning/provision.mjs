@@ -164,7 +164,15 @@ export function buildAutogradingWorkflow(assignment, org) {
     });
   }
 
-  const steps = [{ name: "Checkout code", uses: "actions/checkout@v4" }];
+  // v4 runs on Node 20, which GitHub has deprecated - every student's grading
+  // run carried a warning annotation saying so, measured live 2026-08-26. A
+  // FLOATING major here, unlike the hub's pinned SHAs: this workflow is written
+  // into every student repository, so a pin freezes hundreds of copies at a
+  // commit somebody has to remember to bump, and those repos hold no credential
+  // beyond their own GITHUB_TOKEN. The classroom-resources graders below are
+  // still v1 and still on Node 20 - upstream has published nothing newer, so
+  // that warning is not ours to remove.
+  const steps = [{ name: "Checkout code", uses: "actions/checkout@v7" }];
   const runnerIds = [];
   const env = {};
 

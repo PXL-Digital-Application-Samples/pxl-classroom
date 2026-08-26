@@ -173,6 +173,59 @@ test("every App-token step uses one pinned action version, and its inputs", () =
   );
 });
 
+test("every hub checkout agrees on one pinned version", () => {
+  // The same two workflows the test above is about - sync-starter-code.yml and
+  // open-feedback-prs.yml - were also the last two on actions/checkout@v4 while
+  // every other hub workflow had moved to a pinned v7. They were written at a
+  // different time and swept by nothing since, which is the whole reason that
+  // pair keeps appearing in these tests.
+  //
+  // v4 runs on Node 20, which GitHub has deprecated: a live autograding run on
+  // 2026-08-26 carried a warning annotation naming it. Agreeing on one SHA is
+  // what stops a third straggler appearing.
+  const versions = new Set();
+  const offenders = [];
+
+  for (const { file, doc } of workflows()) {
+    for (const [jobId, job] of Object.entries(doc?.jobs ?? {})) {
+      for (const step of job?.steps ?? []) {
+        const uses = typeof step?.uses === "string" ? step.uses : "";
+        if (!uses.startsWith("actions/checkout@")) continue;
+        versions.add(uses);
+        if (!/@[0-9a-f]{40}$/.test(uses)) {
+          offenders.push(`${file}:${jobId} is not pinned to a SHA (${uses})`);
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+  assert.equal(
+    versions.size,
+    1,
+    `all hub checkouts must agree on one version, found: ${[...versions].join(", ")}`,
+  );
+});
+
+test("the workflow written into student repositories is not on a deprecated Node", () => {
+  // This one is NOT pinned to a SHA, deliberately: it is written into every
+  // student repository, so a pin freezes hundreds of copies at a commit
+  // somebody has to remember to bump, and those repos hold no credential beyond
+  // their own GITHUB_TOKEN. What it must not do is ship a major GitHub has
+  // deprecated - v4 put a Node 20 warning annotation on every student's grading
+  // run, which is noise on the one screen a student reads for their mark.
+  const src = readFileSync(join(root, "provisioning", "provision.mjs"), "utf8");
+  const uses = [...src.matchAll(/actions\/checkout@(v\d+|[0-9a-f]{40})/g)].map((m) => m[1]);
+  assert.ok(uses.length > 0, "the generated workflow must still check the repository out");
+  for (const v of uses) {
+    const major = Number(String(v).replace("v", ""));
+    assert.ok(
+      Number.isNaN(major) || major >= 5,
+      `actions/checkout@${v} runs on Node 20, which GitHub has deprecated`,
+    );
+  }
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys

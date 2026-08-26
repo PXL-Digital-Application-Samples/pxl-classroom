@@ -60,7 +60,12 @@ test("autograde workflow: parses valid YAML with multi-step commands and custom 
   // checkout + 4 tests + reporter, and the python test writes its script first
   assert.equal(steps.length, 7);
 
-  assert.equal(steps[0].uses, "actions/checkout@v4");
+  // Not v4: it runs on Node 20, which GitHub has deprecated, and a live run on
+  // 2026-08-26 put a warning annotation about it on a student's grading result.
+  // Asserted as "not a deprecated major" rather than as an exact tag, so the
+  // next bump does not have to touch this line - tests/workflow-hardening.mjs
+  // owns the rule.
+  assert.match(steps[0].uses, /^actions\/checkout@v([5-9]|\d{2,})$/);
   
   // Step 1
   assert.equal(steps[1].id, "step-1-compile");
