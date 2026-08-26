@@ -161,6 +161,50 @@ async function readPriorLockdown() {
   }
 }
 
+/**
+ * When the deadline sentinel already stopped this cohort, and at what instant.
+ *
+ * The sentinel deliberately writes NO lockdown record - one with empty results
+ * would strand the assignment forever - so the nightly that follows has no way
+ * to know writes stopped hours ago and stamps `lockdown_at` with its own clock.
+ * The record then claims the cohort was frozen at 00:00 for a 20:00 deadline,
+ * and `uncertainty_seconds` reports four hours where the sentinel achieved
+ * seconds. That number is the evidence a lecturer would cite in a dispute, and
+ * it was understating the system against them.
+ *
+ * The timeline sits beside the record as `sentinel-<key>.json`. Only a sentinel
+ * that actually reached its instant counts: `gave-up:runtime` means the nightly
+ * really is what stopped the cohort.
+ *
+ * @returns an ISO instant, or null.
+ */
+async function readSentinelStop() {
+  const dir = join(cfg.dataDir, "lockdowns", cfg.assignmentId);
+  let names;
+  try {
+    names = await readdir(dir);
+  } catch {
+    return null;
+  }
+
+  let earliest = null;
+  for (const name of names) {
+    if (!/^sentinel-.*\.json$/.test(name)) continue;
+    try {
+      const doc = JSON.parse(await readFile(join(dir, name), "utf8"));
+      if (doc?.outcome !== "fired" || !doc?.deadline_at) continue;
+      const at = new Date(doc.deadline_at);
+      if (Number.isNaN(at.getTime())) continue;
+      // A cohort can be armed more than once - a deadline moved forward, say.
+      // The earliest instant that actually fired is when writes first stopped.
+      if (!earliest || at < earliest) earliest = at;
+    } catch (e) {
+      console.error(`Unreadable sentinel timeline ${name}: ${e.message}`);
+    }
+  }
+  return earliest ? earliest.toISOString() : null;
+}
+
 // --- Phase 0: plan -----------------------------------------------------------
 /**
  * Split the cohort into repositories this run acts on and repositories it
@@ -256,7 +300,7 @@ async function demote(t) {
  * Idempotent in every mode: re-running re-locks anyone who regained access.
  * Returns per-target outcomes plus the instant the phase fired.
  */
-async function applySubmissionLock({ targets, method, submissionRef, appId, priorByLogin }) {
+async function applySubmissionLock({ targets, method, submissionRef, appId, priorByLogin, sentinelStoppedAt, deadlineFor }) {
   const lockedAt = new Date().toISOString();
   const byRepo = new Map();
 
@@ -264,7 +308,21 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // Frozen on retry: lockdown_at is a historical fact about when this student
     // stopped being able to push, not about when this run happened.
     const priorRec = priorByLogin.get(t.login);
-    const lockdownAt = priorRec?.snapshot_sha ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
+    let lockdownAt = priorRec?.snapshot_sha ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
+
+    // The sentinel already stopped this cohort at the deadline instant, hours
+    // before this run. Crediting it is what keeps `uncertainty_seconds` honest.
+    //
+    // Per target, NOT for the whole cohort: a student whose extension was still
+    // running when the sentinel fired was deferred then and is only being
+    // stopped now, so the sentinel's instant is not their history. Their own
+    // effective deadline is the discriminator - it is later than the instant
+    // precisely when they were deferred past it.
+    if (!priorRec?.snapshot_sha && sentinelStoppedAt) {
+      const own = deadlineFor?.(t);
+      const stoppedThen = !own || new Date(own) <= new Date(sentinelStoppedAt);
+      if (stoppedThen) lockdownAt = sentinelStoppedAt;
+    }
 
     if (method === "none") {
       byRepo.set(t, { locked: false, permissionAfter: null, lockdownAt: null, method: "none" });
@@ -533,8 +591,24 @@ async function main() {
     else if (demoteToo) lockMethod = "demotion";
   }
 
+  // Every comparison against "the deadline" is the deadline for THAT student
+  // (lib/effective-deadline.mjs). Hoisted above the lock because the lock now
+  // needs it too, to tell a student the sentinel stopped from one it deferred.
+  const deadlineFor = (t) =>
+    effectiveDeadlineFor(assignment, t.login, { overrides, team: { members: t.members } })
+      .deadline?.toISOString() ?? null;
+
+  // Null unless a sentinel actually reached this assignment's instant. Read
+  // even under STOP_ONLY: a second sentinel armed by an overlapping firing must
+  // not restamp the first one's work with its own clock.
+  const sentinelStoppedAt = await readSentinelStop();
+  if (sentinelStoppedAt) {
+    log("sentinel", { ok: true, note: `writes already stopped at ${sentinelStoppedAt} - crediting it` });
+  }
+
   const lock = await applySubmissionLock({
     targets, method: lockMethod, submissionRef, appId, priorByLogin,
+    sentinelStoppedAt, deadlineFor,
   });
 
   // Stop-only: the sentinel's job is the instant, not the bookkeeping. The
@@ -562,10 +636,8 @@ async function main() {
   //
   // The deadline to reconstruct against is the student's own, so an extension
   // that has already run out still widens their window to the granted instant
-  // rather than the assignment's.
-  const deadlineFor = (t) =>
-    effectiveDeadlineFor(assignment, t.login, { overrides, team: { members: t.members } })
-      .deadline?.toISOString() ?? null;
+  // rather than the assignment's. `deadlineFor` is defined above Phase 1, which
+  // needs the same per-student answer.
   const recorded = await recordCohortState({
     targets, submissionRef, priorByLogin, prior,
     // Only `block` discards late work. Under `report` a late commit is part of

@@ -278,3 +278,103 @@ test("an empty cohort stops nothing and still writes a record", async () => {
     assert.deepEqual(calls.filter((c) => c.includes("/collaborators/")), []);
   });
 });
+
+// --- The sentinel already stopped them ---------------------------------------
+//
+// The sentinel fires at the deadline instant and deliberately writes NO lockdown
+// record - one with empty results would strand the assignment forever. So the
+// nightly hours later had no way to know writes had already stopped, and stamped
+// `lockdown_at` with its own clock: for a 20:00 deadline the record claimed the
+// cohort was frozen at 00:00 and `uncertainty_seconds` reported four hours where
+// the sentinel had achieved seconds.
+//
+// That number is what a lecturer would cite in a dispute, and it was
+// understating the system against them.
+
+/** A fired sentinel timeline beside the record it explains. */
+function writeSentinel(dir, { at, outcome = "fired", key = "k1" } = {}) {
+  const d = join(dir, "lockdowns", "exam");
+  mkdirSync(d, { recursive: true });
+  writeFileSync(
+    join(d, `sentinel-${key}.json`),
+    JSON.stringify({ schema_version: 1, assignment_id: "exam", outcome, deadline_at: at, samples: [] }),
+  );
+}
+
+test("a fired sentinel's instant becomes lockdown_at, not the nightly's clock", async () => {
+  await withStubApi(async (api) => {
+    const dir = makeControlDir(["alice"]);
+    writeSentinel(dir, { at: DEADLINE });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+
+    const row = res.record.results[0];
+    assert.equal(row.lockdown_at, DEADLINE, "writes stopped at the deadline, and the record must say so");
+    assert.equal(row.uncertainty_seconds, 0, "which is what makes the uncertainty honest");
+    assert.equal(res.record.max_uncertainty_seconds, 0);
+  });
+});
+
+test("a sentinel that gave up is not credited", async () => {
+  // `gave-up:runtime` means it never reached the instant - the nightly really is
+  // what stopped the cohort, and claiming otherwise would invent precision.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir(["alice"]);
+    writeSentinel(dir, { at: DEADLINE, outcome: "gave-up:runtime" });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.notEqual(res.record.results[0].lockdown_at, DEADLINE);
+    assert.ok(res.record.results[0].uncertainty_seconds > 0, "the nightly's delay is real and must show");
+  });
+});
+
+test("no sentinel at all still stamps the nightly's own clock", async () => {
+  await withStubApi(async (api) => {
+    const dir = makeControlDir(["alice"]);
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.notEqual(res.record.results[0].lockdown_at, DEADLINE);
+    assert.ok(res.record.results[0].uncertainty_seconds > 0);
+  });
+});
+
+test("a student the sentinel DEFERRED is not backdated to its instant", async () => {
+  // The discriminator is the student's own effective deadline. Someone whose
+  // extension was still running when the sentinel fired was deferred then and is
+  // only being stopped now - crediting the sentinel would claim they lost write
+  // access hours before they actually did, against work the lecturer allowed.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir(["alice"]);
+    writeSentinel(dir, { at: DEADLINE });
+
+    // An extension that ran out between the sentinel and this run.
+    const granted = new Date(new Date(DEADLINE).getTime() + 1800_000).toISOString();
+    mkdirSync(join(dir, "overrides", "exam"), { recursive: true });
+    writeFileSync(
+      join(dir, "overrides", "exam", "alice.json"),
+      // The append-only shape override.schema.json requires. The flat
+      // `deadline_at` form is dead - a fixture built that way is read as no
+      // extension at all, which is the exact failure CLAUDE.md records.
+      JSON.stringify({
+        schema_version: 1,
+        assignment_id: "exam",
+        github_login: "alice",
+        overrides: [
+          {
+            type: "deadline_extension",
+            value: granted,
+            reason: "medical extension",
+            overridden_by: "admin-panel",
+            overridden_at: DEADLINE,
+          },
+        ],
+      }),
+    );
+
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    const row = res.record.results[0];
+    assert.equal(row.github_login, "alice");
+    assert.notEqual(row.lockdown_at, DEADLINE, "she could still push after the sentinel fired");
+  });
+});
