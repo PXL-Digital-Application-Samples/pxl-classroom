@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { gh } from "../lib/gh.mjs";
+import { archiveRepoName } from "../lib/archive-repo.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -20,7 +21,10 @@ const cfg = {
   org: env("ORG"),
   assignmentId: env("ASSIGNMENT_ID"),
   dataDir: env("DATA_DIR"),
-  archiveRepo: "pxl-classroom-archive",
+  // Per assignment, not per org. Resolved in validate(), once ASSIGNMENT_ID has
+  // been checked - archiveRepoName returns null for an id it cannot use, and a
+  // preservation must fail loudly rather than land somewhere unexpected.
+  archiveRepo: null,
   apiBase: env("GITHUB_API_URL", "https://api.github.com"),
   serverUrl: env("GITHUB_SERVER_URL", "https://github.com"),
   runUrl: `${env("GITHUB_SERVER_URL", "https://github.com")}/${env("GITHUB_REPOSITORY", "_")}` +
@@ -54,6 +58,8 @@ function validate() {
   if (!cfg.org || !NAME.test(cfg.org)) return `ORG="${cfg.org}" is not a valid GitHub name`;
   if (!cfg.assignmentId || !SLUG.test(cfg.assignmentId)) return `ASSIGNMENT_ID="${cfg.assignmentId}" is not a valid slug`;
   if (!cfg.dataDir || !PATH.test(cfg.dataDir)) return `DATA_DIR="${cfg.dataDir}" is not a valid path`;
+  cfg.archiveRepo = archiveRepoName(cfg.assignmentId);
+  if (!cfg.archiveRepo) return `ASSIGNMENT_ID="${cfg.assignmentId}" does not yield a usable archive repository name`;
   return null;
 }
 
@@ -106,12 +112,18 @@ async function main() {
   log("auth", { ok: true, note: "installation token accepted" });
 
   // 2. Ensure archive repo exists (create if missing)
+  //
+  // One archive per assignment, created on its first preservation. The archive
+  // used to be a single per-org repository that only ever grew - see
+  // lib/archive-repo.mjs for the numbers. Per assignment it dies with the
+  // cohort: retiring a course year is its student repos and its archive, and
+  // nothing else is in the blast radius.
   const arcCheck = await gh("GET", `/repos/${cfg.org}/${cfg.archiveRepo}`);
   if (arcCheck.status === 404) {
     const create = await gh("POST", `/orgs/${cfg.org}/repos`, {
       name: cfg.archiveRepo,
       private: true,
-      description: "PXL Classroom preservation archive",
+      description: `PXL Classroom preservation archive for ${cfg.assignmentId}. Delete with the assignment's student repositories.`,
       auto_init: true,
     });
     if (!create.ok) await fail("fail:create-archive", `create archive HTTP ${create.status} ${create.data?.message ?? ""}`);

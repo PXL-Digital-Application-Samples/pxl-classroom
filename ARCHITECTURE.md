@@ -55,7 +55,7 @@ graph TD
 
     ControlRepo[&lt;org&gt;/pxl-classroom-control<br/>PRIVATE, data only] -.-> Hub
     StudentRepo[&lt;org&gt;/&lt;assignment&gt;-&lt;login&gt;<br/>PRIVATE, student admin]
-    Archive[&lt;org&gt;/pxl-classroom-archive<br/>PRIVATE, preserved SHAs]
+    Archive[&lt;org&gt;/pxl-classroom-archive-&lt;assignment-id&gt;<br/>PRIVATE, preserved SHAs]
 
     App[(PXL Classroom Provisioner<br/>GitHub App)] -.installed.-> ControlRepo
     App -.installed.-> Hub
@@ -70,7 +70,7 @@ Five repository roles, one App, one Pages site.
 | **Central hub** - `PXL-Digital-Application-Samples/pxl-classroom` | Public | 1 | All workflows, composite actions, scripts, frontend source, schemas |
 | **Control repo** - `<org>/pxl-classroom-control` | Private | 1 per org | Assignments, roster, acceptances, repositories, observations, reports, overrides, errors |
 | **Broker repo** - `<org>/broker-<assignment-id>` | Public | 1 per assignment | A single workflow that verifies a signed invitation and dispatches to the hub |
-| **Archive repo** - `<org>/pxl-classroom-archive` | Private | 1 per org | Preserved submission SHAs as branches |
+| **Archive repo** - `<org>/pxl-classroom-archive-<assignment-id>` | Private | 1 per assignment | Preserved submission SHAs as branches |
 | **Student repo** - `<org>/<repository_name_pattern>` | Private | 1 per accepted student | The student's own work |
 
 Workflows live **only** in the central hub. Control repos hold data; they contain no `.github/workflows/` directory. This is what makes the system upgradable in one place and keeps participating-org Actions budgets near zero.
@@ -882,7 +882,7 @@ Confirmed against a live repository before it shipped: the App pushes straight t
 
 Two failure paths, both degrading to the old behaviour rather than to no lock: an unresolvable App id (a ruleset the App cannot bypass would lock the system out with no way back) and a ruleset call that fails, per repository. `lock_method` on each result says which actually applied.
 
-The trade the ruleset makes is that the student stays repo admin and could delete the repository outright, or delete the ruleset. Phase ordering answers the first: by the time that matters, preservation has pushed a copy to `pxl-classroom-archive`, which they cannot touch. The second is a deliberate, visible act in their own repository settings - *"you committed at 22:31"* is arguable, *"you disabled the deadline enforcement on your repository"* is not. `lock_down_enabled` remains available for anyone who wants admin gone as well.
+The trade the ruleset makes is that the student stays repo admin and could delete the repository outright, or delete the ruleset. Phase ordering answers the first: by the time that matters, preservation has pushed a copy to the assignment's archive repository, which they cannot touch. The second is a deliberate, visible act in their own repository settings - *"you committed at 22:31"* is arguable, *"you disabled the deadline enforcement on your repository"* is not. `lock_down_enabled` remains available for anyone who wants admin gone as well.
 
 **Organization scope is the version that closes both, and it is a rollout rather than a design problem.** Measured live: one organization ruleset with `conditions.repository_name.include: ["<pattern>-*"]` locks a whole cohort and leaves other repos alone, `PUT /orgs/{org}/rulesets/{id}` flips all of them in **one** call regardless of cohort size, and each student's repository lists it as `source_type: "Organization"` - visible to them, manageable only by an org owner. The blocker is that the App declares `organization_administration: read` and the call needs `write`; that permission lives on the App, so it takes a declaration change plus approval by every installed org (RUNBOOK §6.7, §10.6). Until then repository rulesets do the job with no permission change, and `applySubmissionLock` is the one function that would gain the new scope.
 
@@ -935,13 +935,28 @@ Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). 
 
 ### 11.3 Preservation & Summary Banner
 
-`preserve.mjs` pushes the candidate SHA into `<org>/pxl-classroom-archive` as a branch under `preserved/<assignment-id>/<login>` (or `preserved/<assignment-id>/<team-slug>` for group assignments). The hash is verified via `git ls-remote`. Force-push or history rewrite of the source repository cannot remove the preserved object, because it lives in a different repository the student cannot administer.
+`preserve.mjs` pushes the candidate SHA into `<org>/pxl-classroom-archive-<assignment-id>` as a branch under `preserved/<assignment-id>/<login>` (or `preserved/<assignment-id>/<team-slug>` for group assignments). The hash is verified via `git ls-remote`. Force-push or history rewrite of the source repository cannot remove the preserved object, because it lives in a different repository the student cannot administer.
 
 Without preservation, a SHA recorded in `observations/` could become unreachable if the student rewrites history. With preservation, the reachable object survives.
 
+#### 11.3.1 One archive per assignment
+
+The archive was a single per-org repository until 2026-08-26, and it only ever grew. Measured on real PXL cohorts: student repositories on the automation and systems courses run 400 KB to 58 MB each, because people commit build artifacts; git dedups the shared template but not what students add. At four assignments a year and forty students that is roughly 800 MB per org per year in one repository, against GitHub's ~1 GB soft warning. The one thing that would shrink it - retiring a finished cohort - was impossible without taking every other cohort with it.
+
+Per assignment, the archive dies with the cohort: retiring a three-year-old assignment is its student repositories and `pxl-classroom-archive-<id>`, one gesture, with nothing else in the blast radius. The repository is created by `preserve.mjs` on that assignment's first preservation - there is nothing to scaffold at org setup and nothing to clean up for an assignment that was never finalized.
+
+`lib/archive-repo.mjs` is the single source of truth and is dependency-free and isomorphic (the SPA imports it through `frontend/src/lib/archive-repo.js`). It draws a line the rest of the system must not cross:
+
+- **`archiveRepoName(id)`** answers *where does a new preservation go*. It is the only function permitted to derive a name, and it truncates with a digest of the whole id when the prefix would push a schema-legal 100-character assignment id past GitHub's 100-character repository limit - unhandled, that lands as `fail:create-archive` for the whole cohort at the deadline.
+- **`resolveArchiveRepo({org, recorded})`** answers *where is this one*, and it takes no assignment id at all, so it cannot derive by accident. `preserve.mjs` has always written `archive_repo` and `preserved_ref` into `preservation.json`; `report.mjs` now propagates them onto every row as `archive_repo` / `archive_ref`, and every consumer reads those. An absent `archive_repo` on a preserved row is not ambiguity - it predates this change, and everything preserved then went to `<org>/pxl-classroom-archive`, so that is the fallback. Deriving instead would 404 every submission archived before the change, including the only real preservation in production.
+
+`archive_ref` closed a second bug at the same time: the SPA reconstructed `preserved/<id>/<login>` unconditionally, so every **group** submission linked to a branch that does not exist - a team shares one repository and is preserved under its team slug.
+
+`tests/archive-repo.test.mjs` fails if anything outside the module composes an archive repository name or a `preserved/` URL of its own.
+
 **The tracking page always renders header → share block → summary → actions bar.** An assignment nobody has accepted yet has no `reports/<id>.json`, and that used to replace the entire view with a *"No report yet"* page - the header, the invitation link, Teams, Export, Sync Starter Code, Feedback PRs and Freeze all vanished with the table, at exactly the moment the link is the only thing that matters. An absent report is now stood in for by an empty one, so there is one render path and only the *table* swaps for an empty state. The preservation banner is additionally gated on there being students, since "Preservation Pending 0/0" is a status about nothing.
 
-On `AssignmentDetailView.vue`, the Post-Deadline Preservation Summary Banner provides real-time verification of preserved vs eligible student records, displays the measured uncertainty delay interval (`uncertainty_seconds = lockdown_at - deadline_at`), provides 1-click targeted retries for any failed records, and links directly to `<org>/pxl-classroom-archive`. Student and team rows render direct hyperlinks to their specific archive branch.
+On `AssignmentDetailView.vue`, the Post-Deadline Preservation Summary Banner provides real-time verification of preserved vs eligible student records, displays the measured uncertainty delay interval (`uncertainty_seconds = lockdown_at - deadline_at`), provides 1-click targeted retries for any failed records, and links directly to the assignment's archive repository. That link is resolved from the report rather than derived, and is **absent until something is actually preserved** - before the first preservation no archive repository exists, and a button to one is the page guessing. Student and team rows render direct hyperlinks to their specific archive branch.
 
 ### 11.4 Feedback PR (optional)
 
@@ -964,7 +979,7 @@ Until 2026-08-25 none of the headless path had ever executed: see §11.7.1 for t
 
 ### 11.5 Bulk submission download
 
-Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive`) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI Download" command inside the "Export" dropdown on `AssignmentDetailView` - the browser can't clone Git, so the actual bulk op stays on the CLI.
+Archive-backed bulk download: `pxl-classroom download --org X --assignment Y --dir ./Y` clones each preserved branch (`preserved/<assignment-id>/<login>` in `<org>/pxl-classroom-archive-<assignment-id>`, resolved per row from the report so a cohort archived before §11.3.1 still downloads) into a per-student directory and writes `_manifest.json` with the SHA + branch URL. Resumable (re-runs skip students whose checkout already matches). The SPA exposes the same manifest as a JSON download plus a "Copy CLI Download" command inside the "Export" dropdown on `AssignmentDetailView` - the browser can't clone Git, so the actual bulk op stays on the CLI.
 
 ### 11.6 Autograding (Lecturer-side & Student-side)
 

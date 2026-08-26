@@ -25,9 +25,9 @@ import { getAssignment, getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
+import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
-const ARCHIVE_REPO = "pxl-classroom-archive";
 
 
 
@@ -46,10 +46,14 @@ function runGit(args, cwd) {
 
 
 
-async function checkoutArchive({ org, assignmentId, login, teamSlug, sha, token }) {
+// The archive repository and ref come off the report row, never from the
+// assignment id: archives are per assignment now, and a cohort preserved before
+// that change is in the org's old shared pxl-classroom-archive.
+async function checkoutArchive({ org, assignmentId, login, teamSlug, archiveRepo, archiveRef, sha, token }) {
   const workdir = await mkdtemp(join(tmpdir(), `pxl-grade-${login}-`));
-  const branch = teamSlug ? `preserved/${assignmentId}/${teamSlug}` : `preserved/${assignmentId}/${login}`;
-  const url = `https://x-access-token:${token}@github.com/${org}/${ARCHIVE_REPO}.git`;
+  const branch = archiveBranchName({ assignmentId, login, teamSlug, recordedRef: archiveRef });
+  const repo = resolveArchiveRepo({ org, recorded: archiveRepo });
+  const url = `https://x-access-token:${token}@github.com/${repo}.git`;
   await runGit(["init", "--quiet"], workdir);
   await runGit(["remote", "add", "origin", url], workdir);
   await runGit(["fetch", "--depth=1", "origin", branch], workdir);
@@ -240,7 +244,12 @@ export function registerGradeCommand(program) {
               assignment_id: assignment.id,
               github_login: s.github_login,
               archive_sha: s.preserved_sha,
-              archive_branch: `preserved/${opts.assignment}/${s.github_login}`,
+              archive_branch: archiveBranchName({
+                assignmentId: opts.assignment,
+                login: s.github_login,
+                teamSlug: s.team_slug,
+                recordedRef: s.archive_ref,
+              }),
               graded_at: new Date().toISOString(),
               graded_by: gradedBy,
               runner: "github_actions",
@@ -279,7 +288,8 @@ export function registerGradeCommand(program) {
           try {
             archive = await checkoutArchive({
               org, assignmentId: opts.assignment, login: s.github_login,
-              teamSlug: s.team_slug, sha: s.preserved_sha, token,
+              teamSlug: s.team_slug, archiveRepo: s.archive_repo, archiveRef: s.archive_ref,
+              sha: s.preserved_sha, token,
             });
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: archive fetch failed - ${err.message}\n`);

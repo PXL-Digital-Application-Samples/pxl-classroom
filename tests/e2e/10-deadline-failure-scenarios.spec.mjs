@@ -261,6 +261,12 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
               submission_status: 'on-time',
               preservation_status: 'preserved',
               preserved_sha: 'c0ffee1234567890abcdef1234567890abcdef12',
+              // What report.mjs propagates out of preservation.json. The
+              // archive is per assignment, and which one holds a submission is
+              // read off the record rather than derived - so the fixture has to
+              // carry it, or this spec only ever exercises the legacy fallback.
+              archive_repo: `${ORG}/pxl-classroom-archive-lab-preservation`,
+              archive_ref: 'refs/heads/preserved/lab-preservation/student-1',
               repo_name: `${ORG}/lab-preservation-student-1`,
               lock_down_at: lockdownTime,
               // How long after the deadline writes were still possible. NOT
@@ -295,10 +301,20 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     // demoted late is exactly what this number exists to surface.
     await expect(banner).toContainText('(delay: 22s)');
 
-    // 2. Inspect Student 1 archive link
+    // 2. Inspect Student 1 archive link - the ASSIGNMENT's archive, from the
+    //    report row, not a name rebuilt from the assignment id.
     const s1Row = page.locator('tr', { hasText: 'student-1' });
-    const archiveLink = s1Row.locator('a[href*="pxl-classroom-archive/tree/preserved"]');
+    const archiveLink = s1Row.locator('a[href*="/tree/preserved"]');
     await expect(archiveLink).toBeVisible();
+    expect(await archiveLink.getAttribute('href')).toBe(
+      `https://github.com/${ORG}/pxl-classroom-archive-lab-preservation/tree/preserved%2Flab-preservation%2Fstudent-1`,
+    );
+
+    // The banner's own link resolves the same way.
+    await expect(banner.locator('a', { hasText: 'Archive Repo' })).toHaveAttribute(
+      'href',
+      `https://github.com/${ORG}/pxl-classroom-archive-lab-preservation`,
+    );
 
     // 3. Retry Preservation Button for Student 2 (unpreserved)
     const retryBtn = banner.locator('button', { hasText: 'Retry Preservation (1)' });

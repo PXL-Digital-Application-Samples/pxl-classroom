@@ -1,9 +1,15 @@
 // PXL Classroom CLI - `download` command.
 //
-// Pulls preserved submissions out of <org>/pxl-classroom-archive into a local
-// tree. Archive-backed so post-deadline rewrites of the live student repo
-// cannot affect what's downloaded; we only read `preserved/<assignment>/<login>`
-// refs that lockdown wrote on deadline night.
+// Pulls preserved submissions out of the assignment's archive repository into a
+// local tree. Archive-backed so post-deadline rewrites of the live student repo
+// cannot affect what's downloaded; we only read the `preserved/...` refs that
+// lockdown wrote on deadline night.
+//
+// The archive repo and ref come off each report row (`archive_repo` /
+// `archive_ref`), not from the assignment id. Archives are per assignment now,
+// but a cohort preserved before that change is in the org's old shared
+// `pxl-classroom-archive` - and a targeted retry after the change can leave one
+// report with rows in both. Per row, that resolves itself.
 //
 // Resumable: skips a student whose target dir already contains the expected
 // SHA. Writes a manifest at <dir>/_manifest.json with {login, sha, branch,
@@ -19,8 +25,7 @@ import { requireToken } from "../lib/auth.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
-
-const ARCHIVE_REPO = "pxl-classroom-archive";
+import { archiveBranchName, archiveBranchUrl, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 
 
 
@@ -43,22 +48,23 @@ function runGit(args, opts = {}) {
 
 
 
-function authedArchiveUrl(org, token) {
-  return `https://x-access-token:${token}@github.com/${org}/${ARCHIVE_REPO}.git`;
+function authedArchiveUrl(archiveRepo, token) {
+  return `https://x-access-token:${token}@github.com/${archiveRepo}.git`;
 }
 
 // Single-student fetch: clone-or-update the archive into a per-student dir
 // and checkout the preserved ref. Returns { login, sha, branch, status }.
-async function fetchOne({ org, assignmentId, login, teamSlug, expectedSha, token, dir }) {
+async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archiveRef, expectedSha, token, dir }) {
   const target = join(dir, login);
-  const branch = teamSlug ? `preserved/${assignmentId}/${teamSlug}` : `preserved/${assignmentId}/${login}`;
-  const url = authedArchiveUrl(org, token);
+  const branch = archiveBranchName({ assignmentId, login, teamSlug, recordedRef: archiveRef });
+  const repo = resolveArchiveRepo({ org, recorded: archiveRepo });
+  const url = authedArchiveUrl(repo, token);
 
   if (existsSync(join(target, ".git"))) {
     try {
       const cur = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
       if (cur === expectedSha) {
-        return { login, sha: cur, branch, status: "cached" };
+        return { login, sha: cur, branch, repo, status: "cached" };
       }
     } catch { /* re-clone */ }
   }
@@ -74,10 +80,10 @@ async function fetchOne({ org, assignmentId, login, teamSlug, expectedSha, token
     await runGit(["fetch", "--depth=1", "origin", branch], { cwd: target });
     await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], { cwd: target });
     const sha = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
-    return { login, sha, branch, status: "downloaded" };
+    return { login, sha, branch, repo, status: "downloaded" };
   } finally {
     try {
-      await runGit(["remote", "set-url", "origin", `https://github.com/${org}/${ARCHIVE_REPO}.git`], { cwd: target });
+      await runGit(["remote", "set-url", "origin", `https://github.com/${repo}.git`], { cwd: target });
     } catch { /* ignore clean url errors */ }
   }
 }
@@ -93,7 +99,7 @@ function parseConcurrency(val) {
 export function registerDownloadCommand(program) {
   program
     .command("download")
-    .description("Download all preserved submissions for an assignment from <org>/pxl-classroom-archive.")
+    .description("Download all preserved submissions for an assignment from its archive repository.")
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .requiredOption("--assignment <id>", "Assignment ID")
     .option("--dir <path>", "Destination directory", "submissions")
@@ -131,7 +137,9 @@ export function registerDownloadCommand(program) {
       const results = await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
         return await fetchOne({
           org, assignmentId: opts.assignment,
-          login: s.github_login, teamSlug: s.team_slug, expectedSha: s.preserved_sha, token, dir,
+          login: s.github_login, teamSlug: s.team_slug,
+          archiveRepo: s.archive_repo, archiveRef: s.archive_ref,
+          expectedSha: s.preserved_sha, token, dir,
         });
       });
 
@@ -160,7 +168,7 @@ export function registerDownloadCommand(program) {
           login: r.login,
           archive_sha: r.sha,
           archive_branch: r.branch,
-          archive_branch_url: `https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(r.branch)}`,
+          archive_branch_url: archiveBranchUrl({ org, recorded: r.repo, recordedRef: r.branch }),
           downloaded_at: new Date().toISOString(),
         }));
 
@@ -173,7 +181,7 @@ export function registerDownloadCommand(program) {
               login: s.login,
               archive_sha: s.archive_sha || s.sha,
               archive_branch: s.archive_branch || s.branch,
-              archive_branch_url: s.archive_branch_url || `https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(s.archive_branch || s.branch)}`,
+              archive_branch_url: s.archive_branch_url || archiveBranchUrl({ org, recordedRef: s.archive_branch || s.branch }),
               downloaded_at: s.downloaded_at || null,
             }));
             for (const r of studentsList) {

@@ -396,6 +396,22 @@ async function main() {
       // recorded in CLAUDE.md - a report field every consumer reads and nothing
       // writes - and it survived for the same reason: the fixtures supplied it.
       preserved_sha: preservation?.source_sha ?? null,
+      // Which archive repository holds it. Archives are per assignment now
+      // (`pxl-classroom-archive-<id>`), so "the org's archive" is no longer a
+      // thing any consumer can assume - and a submission preserved before that
+      // change is in the old per-org repository and must keep resolving there.
+      //
+      // preserve.mjs has always written this field; nothing had ever read it,
+      // which is the `preserved_sha` shape one field over. The record is the
+      // authority, not lib/archive-repo.mjs's naming rule: derive the name and
+      // every pre-change archive link 404s.
+      archive_repo: preservation?.archive_repo ?? null,
+      // The ref the push actually targeted. Reconstructing it from the login is
+      // what every archive link in the SPA did, and it is wrong for a group
+      // assignment: a team shares one repository and preserve.mjs pushes to
+      // `preserved/<id>/<team-slug>`, so every group submission linked to a
+      // branch that does not exist.
+      archive_ref: preservation?.preserved_ref ?? null,
       warnings,
     });
 
@@ -474,6 +490,8 @@ async function main() {
       lock_down_at: firstMember?.lock_down_at || null,
       preservation_status: firstMember?.preservation_status || null,
       preserved_sha: firstMember?.preserved_sha || null,
+      archive_repo: firstMember?.archive_repo || null,
+      archive_ref: firstMember?.archive_ref || null,
       under_capacity: underCapacity,
       ...(t.seeded_from ? { seeded_from: t.seeded_from } : {}),
       warnings,
@@ -534,6 +552,8 @@ async function main() {
       "lockdown_delay_seconds",
       "preservation_status",
       "preserved_sha",
+      "archive_repo",
+      "archive_ref",
       "warnings",
     ];
 

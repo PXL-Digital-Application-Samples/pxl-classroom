@@ -243,8 +243,8 @@
             <!-- Preserved column -->
             <td>
               <a
-                v-if="team.preservation_status === 'preserved'"
-                :href="`https://github.com/${org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${assignment.id}/${team.team_slug}`)}`"
+                v-if="team.preservation_status === 'preserved' && teamArchiveUrl(team)"
+                :href="teamArchiveUrl(team)"
                 target="_blank"
                 rel="noopener"
                 class="badge badge-success archive-link"
@@ -505,6 +505,7 @@ import { commitFile, commitFiles, deleteFile, addCollaborator, removeCollaborato
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { planUnseed } from '../../../lib/seed-teams.mjs'
+import { archiveBranchUrl } from '../lib/archive-repo.js'
 
 const props = defineProps({
   teams: { type: Array, required: true },
@@ -519,6 +520,20 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['refresh'])
+
+// Archives are per assignment (`pxl-classroom-archive-<id>`), and which one a
+// preserved team is in is read off the report row, never derived - a cohort
+// preserved before that change is in the org's old shared archive and must keep
+// resolving there. lib/archive-repo.mjs is the only place either rule lives.
+function teamArchiveUrl(team) {
+  return archiveBranchUrl({
+    org: props.org,
+    assignmentId: props.assignment?.id,
+    teamSlug: team?.team_slug,
+    recorded: team?.archive_repo,
+    recordedRef: team?.archive_ref,
+  })
+}
 
 const searchQuery = ref('')
 const teamStatusFilter = ref('')

@@ -126,6 +126,20 @@
               "null"
             ]
           },
+          "archive_repo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "owner/name of the archive repository holding this team's preserved branch. Per assignment (pxl-classroom-archive-<id>); null on rows preserved before per-assignment archives, which are in the org's pxl-classroom-archive."
+          },
+          "archive_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ref preserve.mjs pushed to, e.g. refs/heads/preserved/<id>/<team-slug>. Authoritative over reconstructing the branch name."
+          },
           "under_capacity": {
             "type": "boolean"
           },
@@ -404,6 +418,20 @@
               "null"
             ],
             "description": "SHA of the preserved deadline snapshot."
+          },
+          "archive_repo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "owner/name of the archive repository holding this student's preserved branch. Per assignment (pxl-classroom-archive-<id>); null on rows preserved before per-assignment archives, which are in the org's pxl-classroom-archive."
+          },
+          "archive_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ref preserve.mjs pushed to, e.g. refs/heads/preserved/<id>/<login>. Authoritative over reconstructing the branch name, which is wrong for group assignments (a team shares one repository and is preserved under its team slug)."
           },
           "warnings": {
             "type": "array",

@@ -253,8 +253,15 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     const preservedLink = preservedTeamRow.locator('a.archive-link');
     await expect(preservedLink).toBeVisible();
     await expect(preservedLink).toContainText('Preserved');
+    // No archive_repo on this fixture ON PURPOSE: it is the pre-change report
+    // shape, and a preserved row without the field must keep resolving to the
+    // org's old shared archive. Deriving today's per-assignment name here would
+    // 404 every submission archived before the change. The new shape is covered
+    // in tests/e2e/10-deadline-failure-scenarios.spec.mjs.
     const href = await preservedLink.getAttribute('href');
-    expect(href).toContain('pxl-classroom-archive/tree/preserved%2Flab-status-preserved%2Fteam-preserved');
+    expect(href).toBe(
+      `https://github.com/${ORG}/pxl-classroom-archive/tree/preserved%2Flab-status-preserved%2Fteam-preserved`,
+    );
 
     // Verify Team Locked renders "Locked" badge
     const lockedTeamRow = page.locator('tr', { hasText: 'Team Locked' });

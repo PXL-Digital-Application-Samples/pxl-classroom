@@ -513,7 +513,7 @@ gh api repos/<org>/<repo>/rulesets --jq '.[] | select(.name=="pxl-classroom-dead
 
 then `gh api -X DELETE repos/<org>/<repo>/rulesets/<id>`.
 
-**A student can delete that ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to `pxl-classroom-archive`, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. If you want a lock they cannot reach, that is an **organization** ruleset, and it needs an App permission the App does not yet declare:
+**A student can delete that ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. If you want a lock they cannot reach, that is an **organization** ruleset, and it needs an App permission the App does not yet declare:
 
 1. The App owner changes *Organization permissions → Administration* to **Read and write** at `https://github.com/settings/apps/pxl-classroom-provisioner/permissions`.
 2. Every installed org approves the new request (§10.6 - the same re-approval flow as any permission change).
@@ -652,9 +652,30 @@ The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, 
 1. Edit `participating-orgs.yml` on the `participating-orgs` branch - remove the org's entry, commit.
 2. Uninstall the App from the org (org owner) -> org Settings -> Integrations -> PXL Classroom Provisioner -> Uninstall.
 3. Decide what to do with the data:
-   - **Keep:** leave `<org>/pxl-classroom-control` and `<org>/pxl-classroom-archive` in place. They remain readable to org members.
+   - **Keep:** leave `<org>/pxl-classroom-control` and every `<org>/pxl-classroom-archive-<assignment-id>` in place. They remain readable to org members.
    - **Archive:** rename them to indicate they're decommissioned.
    - **Delete:** delete the repos. Preserved submission evidence is lost - be sure.
+
+   Archives are per assignment, so `pxl-classroom-archive-` is the prefix to list:
+
+   ```bash
+   gh repo list <org> --limit 200 --json name --jq '.[].name | select(startswith("pxl-classroom-archive"))'
+   ```
+
+   A pre-2026-08-26 org may also hold the single `pxl-classroom-archive`, which holds every cohort finalized before that date. It has no prefix suffix, so the command above still lists it - and it is the one archive that cannot be retired per cohort.
+
+---
+
+## 8a. Retiring a finished assignment
+
+The reason archives are per assignment (ARCHITECTURE §11.3.1): retiring a cohort is one gesture, and nothing else is in the blast radius.
+
+1. Confirm the grades are out of the system and into wherever they live long-term. Deleting the archive destroys the preserved submission evidence for that cohort - `lockdowns/<id>/lockdown-record.json` in the control repo still holds each student's `snapshot_sha` and GitHub's own `pushed_at`, which is the record of *what* was submitted and *when*, but the content is gone.
+2. Delete the student repositories for the assignment (`<repository_name_pattern>`).
+3. Delete `<org>/pxl-classroom-archive-<assignment-id>`.
+4. Leave the control repo alone. `assignments/<id>.yml`, `reports/<id>.json` and the lockdown record are small and are the audit trail; they are not what grows.
+
+Do **not** delete an archive for an assignment whose deadline has passed but whose finalize has not completed - `find-finalizable.mjs` re-queues an assignment while any student with a `snapshot_sha` lacks a verified `preservation.json` (ARCHITECTURE §6.2.1), and it would push the branches back.
 
 ---
 
@@ -1023,7 +1044,7 @@ Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Co
 
 ### 12.8 Bulk Submission Download & Preservation Status
 
-`pxl-classroom download` clones each preserved submission out of `<org>/pxl-classroom-archive` (the archive-backed evidence layer, immune to post-deadline rewrites of the student repo).
+`pxl-classroom download` clones each preserved submission out of `<org>/pxl-classroom-archive-<assignment-id>` (the archive-backed evidence layer, immune to post-deadline rewrites of the student repo). The repository and ref come off each report row, so a cohort finalized before archives went per assignment still downloads from the org's old shared archive without a flag.
 
 ```bash
 pxl-classroom download --org PXLAutomation \
@@ -1035,7 +1056,7 @@ pxl-classroom download --org PXLAutomation \
 - Resumable: a re-run skips students whose checkout already matches the archive SHA.
 - Writes `./submissions/_manifest.json` with `{login, archive_sha, archive_branch, archive_branch_url, downloaded_at}` rows for plagiarism tools / local CI.
 - **Preservation Summary Banner:** When an assignment's deadline has passed, `AssignmentDetailView` renders a top banner displaying live preserved counts vs eligible students, lockdown execution timestamp, and measured uncertainty delay (`uncertainty_seconds = lockdown_at - deadline_at`). Quick buttons allow 1-click targeted retries, downloading the SHA manifest, navigating to the archive repo, and copying the CLI download command.
-- **Direct Archive Links:** The student table and teams table display direct clickable hyperlinks to `https://github.com/<org>/pxl-classroom-archive/tree/preserved/<assignment-id>/<login>` (or team slug) for every preserved submission.
+- **Direct Archive Links:** The student table and teams table display direct clickable hyperlinks to `https://github.com/<org>/pxl-classroom-archive-<assignment-id>/tree/preserved/<assignment-id>/<login>` (or team slug) for every preserved submission. The repository and ref are read off the report row, so links to cohorts archived before ARCHITECTURE §11.3.1 keep working.
 
 ### 12.9 Autograding
 

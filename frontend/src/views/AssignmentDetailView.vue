@@ -85,11 +85,18 @@
 
           <div class="preservation-banner-body">
             <p class="text-sm text-secondary" style="margin: 0;">
-              Submission commit snapshots are preserved in the private organization archive repository.
+              Submission commit snapshots are preserved in a private archive repository for this assignment,
+              <code v-if="archiveRepoSlug" class="mono">{{ archiveRepoSlug.split('/')[1] }}</code><span v-else>created on the first preservation</span>.
             </p>
             <div class="preservation-banner-actions">
+              <!-- Only once something is actually preserved: before that the
+                   archive repository does not exist, and a button to it is the
+                   page guessing. The href comes off the report, never from the
+                   assignment id - a cohort archived before per-assignment
+                   archives is in the org's old shared one. -->
               <a
-                :href="`https://github.com/${props.org}/pxl-classroom-archive`"
+                v-if="archiveRepoHref"
+                :href="archiveRepoHref"
                 target="_blank"
                 rel="noopener"
                 class="btn btn-sm btn-secondary btn-with-icon"
@@ -530,9 +537,9 @@
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
                     ext -> {{ fmt(extensionFor(s.github_login).value) }}
                   </div>
-                  <div v-if="s.preservation_status === 'preserved' && s.preserved_sha" class="archive-link-wrap" style="margin-top: 3px;">
+                  <div v-if="s.preservation_status === 'preserved' && s.preserved_sha && studentArchiveUrl(s)" class="archive-link-wrap" style="margin-top: 3px;">
                     <a
-                      :href="`https://github.com/${props.org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${props.assignmentId}/${s.github_login}`)}`"
+                      :href="studentArchiveUrl(s)"
                       target="_blank"
                       rel="noopener"
                       class="mono text-xs"
@@ -876,13 +883,13 @@
             </button>
           </section>
 
-          <section v-if="actionStudent.preservation_status === 'preserved' && actionStudent.preserved_sha" class="modal-section">
+          <section v-if="actionStudent.preservation_status === 'preserved' && actionStudent.preserved_sha && studentArchiveUrl(actionStudent)" class="modal-section">
             <h4>Preserved Submission Archive</h4>
             <p class="text-secondary">
               Preserved commit SHA: <code class="mono">{{ actionStudent.preserved_sha }}</code>
             </p>
             <a
-              :href="`https://github.com/${props.org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${props.assignmentId}/${actionStudent.github_login}`)}`"
+              :href="studentArchiveUrl(actionStudent)"
               target="_blank"
               rel="noopener"
               class="btn btn-secondary btn-with-icon"
@@ -1082,7 +1089,7 @@
                 <div>
                   <strong>Snapshots Immutable Archive Commits:</strong>
                   <p class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                    The current <code>HEAD</code> commit of each student repository is cloned and committed into the private organization archive (<code>pxl-classroom-archive</code>) as the authoritative grading snapshot.
+                    The current <code>HEAD</code> commit of each student repository is cloned and committed into this assignment's private archive repository (<code>{{ plannedArchiveRepoName }}</code>) as the authoritative grading snapshot.
                   </p>
                 </div>
               </div>
@@ -1145,6 +1152,7 @@ import { parseCheckRunScore, pickAutogradeCheckRun, fetchCheckRunAnnotations } f
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { extensionFrom } from '../lib/deadline.js'
+import { archiveBranchName, archiveBranchUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
@@ -1344,6 +1352,32 @@ const unpreservedCount = computed(() =>
 const allPreserved = computed(() =>
   eligiblePreservationCount.value > 0 && preservedCount.value >= eligiblePreservationCount.value
 )
+// The archive repository this cohort is in, read off the report rather than
+// derived from the assignment id: archives are per assignment now, and a cohort
+// preserved before that change lives in the org's old shared archive. Null
+// until something is actually preserved - at which point no archive repository
+// exists yet, and offering a link to one is the page guessing (the same rule
+// the provisioning wait screen is held to).
+const archiveRepoSlug = computed(() =>
+  reportArchiveRepo({ org: props.org, students: report.value?.students })
+)
+const archiveRepoHref = computed(() =>
+  archiveRepoSlug.value ? archiveRepoUrl({ recorded: archiveRepoSlug.value }) : null
+)
+// What "Freeze & Preserve Now" would create. Derived, not resolved: this one is
+// about the archive that does not exist yet, which is the only question
+// archiveRepoName may answer.
+const plannedArchiveRepoName = computed(() => archiveRepoName(props.assignmentId))
+function studentArchiveUrl(s) {
+  return archiveBranchUrl({
+    org: props.org,
+    assignmentId: props.assignmentId,
+    login: s?.github_login,
+    teamSlug: s?.team_slug,
+    recorded: s?.archive_repo,
+    recordedRef: s?.archive_ref,
+  })
+}
 const preservationLockdownTime = computed(() => {
   const s = (report.value?.students || []).find((s) => s.lock_down_at)
   return s?.lock_down_at || report.value?.lockdown_at || null
@@ -2352,8 +2386,13 @@ function downloadManifest() {
   const rows = eligible.map((s) => ({
     login: s.github_login,
     archive_sha: s.preserved_sha,
-    archive_branch: `preserved/${props.assignmentId}/${s.github_login}`,
-    archive_branch_url: `https://github.com/${props.org}/pxl-classroom-archive/tree/${encodeURIComponent(`preserved/${props.assignmentId}/${s.github_login}`)}`,
+    archive_branch: archiveBranchName({
+      assignmentId: props.assignmentId,
+      login: s.github_login,
+      teamSlug: s.team_slug,
+      recordedRef: s.archive_ref,
+    }),
+    archive_branch_url: studentArchiveUrl(s),
     downloaded_at: null,
   }))
   const manifest = {

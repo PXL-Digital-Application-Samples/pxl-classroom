@@ -20,25 +20,34 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { archiveRepoName } from "../lib/archive-repo.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const preserveScript = join(here, "..", "preserve", "preserve.mjs");
 
+// The archive is per assignment. The stub answers that path and NOTHING else,
+// so preserve.mjs asking for the wrong repository shows up as
+// `fail:create-archive` rather than passing quietly: a stub that accepts any
+// path tests nothing, which is what the e2e broker fixture taught.
+const ARCHIVE_PATH = `/repos/TestOrg/${archiveRepoName("exam")}`;
+
 /** Stub GitHub API: enough for the auth ping and the archive-repo probe. */
 async function withStubApi(fn) {
+  const seen = [];
   const server = createServer((req, res) => {
     const send = (code, body) => {
       res.writeHead(code, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
     const url = req.url.split("?")[0];
+    seen.push(url);
     if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
-    if (url === "/repos/TestOrg/pxl-classroom-archive") return send(200, { id: 7 });
+    if (url === ARCHIVE_PATH) return send(200, { id: 7 });
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   try {
-    return await fn(`http://127.0.0.1:${server.address().port}`);
+    return await fn(`http://127.0.0.1:${server.address().port}`, seen);
   } finally {
     await new Promise((r) => server.close(r));
   }
@@ -208,5 +217,53 @@ test("the deferred and no-submission guards still run before the shape check", a
     assert.match(res.outputs, /error_count=0/);
     assert.match(res.outputs, /outcome=preserved/);
     assert.ok(good.snapshot_sha);
+  });
+});
+
+test("preservation targets the assignment's own archive, not the org's", async () => {
+  // The archive used to be one repository per org holding every cohort for
+  // ever, which only grew and could not be retired without taking other
+  // cohorts with it. Per assignment it dies with the cohort.
+  await withStubApi(async (api, seen) => {
+    const res = await runPreserve(makeControlDir([deferred]), api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(
+      seen.includes(`/repos/TestOrg/${archiveRepoName("exam")}`),
+      `expected a probe for the per-assignment archive, saw: ${seen.join(", ")}`,
+    );
+    assert.ok(
+      !seen.includes("/repos/TestOrg/pxl-classroom-archive"),
+      "must not touch the old per-org archive",
+    );
+  });
+});
+
+test("an assignment id with no usable archive name fails validation, not the push", async () => {
+  // archiveRepoName returns null rather than throwing, so preserve.mjs has to
+  // check it. Without that the name reaches the API as "undefined" and the run
+  // dies somewhere less legible than validation.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir([deferred]);
+    const res = await new Promise((resolve, reject) => {
+      const child = spawn("node", [preserveScript], {
+        env: {
+          ...process.env,
+          GITHUB_TOKEN: "stub-token",
+          GITHUB_API_URL: api,
+          ORG: "TestOrg",
+          ASSIGNMENT_ID: "---",
+          DATA_DIR: dir,
+          GITHUB_OUTPUT: join(dir, "bad.env"),
+        },
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.on("error", reject);
+      child.on("close", (status) =>
+        resolve({ status, stdout, outputs: existsSync(join(dir, "bad.env")) ? readFileSync(join(dir, "bad.env"), "utf8") : "" }),
+      );
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.outputs, /outcome=fail:validation/);
   });
 });
