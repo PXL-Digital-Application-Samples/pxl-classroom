@@ -107,6 +107,42 @@ pxl-accept:  <kid>  .  <payload>  .  <signature>
 The link grows (it now carries a 32-byte private key, ~43 base64url chars plus
 subject and kid). **A long URL is acceptable** - it is copied, not typed.
 
+### The SPA surface it touches
+
+Mapped from the code, 2026-08-25. The secret in the URL reaches exactly four
+places, plus the paste-a-link box:
+
+| Use | Where | Change |
+|---|---|---|
+| `inviteDataUrl(org, secret)` -> `data/<org>/i/<sha256>.json` | AdminView, AssignmentView | hash the key instead of the token - same shape |
+| `inviteTeamsUrl(org, secret)` | GroupAcceptanceCard | same |
+| `invitationUrl(org, secret)` | InvitationShare, AssignmentView, GroupAcceptanceCard | same |
+| `acceptanceIssueTitle(secret, teamSlug)` | AssignmentView, GroupAcceptanceCard | **becomes async signing** - the one structural change |
+| `parseInvitationLink` | HomeView's "have a link?" box | must accept both shapes during migration |
+
+Three exports of `frontend/src/lib/invite.js` have **zero consumers** and go:
+`resolveAssignmentFromToken`, `tokenExpiry`, `isInviteToken`.
+
+`resolveAssignmentFromToken` being dead is the useful discovery: it existed to
+match a token's embedded subject against candidate assignments, and nothing ever
+needed to, because **the card is found by hashing the URL secret and the card
+already carries the assignment**. So the link does not need to carry a subject -
+it can be the bare key.
+
+Two facts that make the rest cheap, both verified rather than assumed:
+
+- **The SPA already holds the student's numeric id.** `auth.js` returns
+  `{login, id, ...}` from `GET /user`, so signing with `github_id` costs no
+  extra call.
+- **`auth.js` already attempts `GET /user/emails`** and swallows the failure, so
+  Phase D's plumbing partly exists.
+
+The signed payload's `subject` is the **assignment id**, in the clear. It is
+already public - the broker repository is literally named
+`broker-<assignment-id>` - and readable beats opaque in a log a lecturer reads.
+Cross-assignment replay is prevented by the keypair being per assignment, not by
+hiding the id.
+
 ### Canonical encoding is mandatory
 
 A 32-byte key and a 64-byte signature do not divide into 6-bit groups, so the
@@ -350,11 +386,12 @@ roster, where a fabricated address matches nothing.
 - The address is never written to the public broker, an Actions log, a step
   summary, or a workflow output. Only ciphertext travels.
 - `students/claims/` is private and must never reach Pages.
-- **`pages/scan.mjs` does not currently match an `"email"` field at all.**
-  Nothing publishes one today, so this is pre-existing - but it must be closed
-  before a feature starts handling addresses routinely. Check first that no
-  generated artefact legitimately contains `"email":`, or the publish gate will
-  start failing on good data.
+- **Correction to an earlier draft of this plan:** it claimed `pages/scan.mjs`
+  does not match email addresses. It does. The scanner has two kinds of rule -
+  file-shaped ones matching JSON field NAMES (`"student_number"`, `"full_name"`)
+  and `PUBLIC_TEXT_RULES` matching CONTENT anywhere in a generated artefact -
+  and the latter carries an `email-address` rule. So an address reaching Pages
+  in any form already fails the publish gate. Nothing to close.
 - The scanner's `claim-token-field` pattern guards `"claim_token"`, which
   appears **nowhere else in the repository** - vestigial from an earlier design.
   Repoint it at this feature's records or drop it.
