@@ -101,11 +101,31 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           GITHUB_LOGIN: ${{ inputs.github_login }}
         run: |
-          ID=$(gh api "users/${GITHUB_LOGIN}" --jq .id)
-          if [ -z "$ID" ]; then
-            echo "::error::Could not resolve GitHub ID for ${GITHUB_LOGIN}"
+          # `gh` WRITES API ERRORS TO STDOUT. Measured 2026-08-26: a 404 exits 1
+          # and prints {"message":"Not Found",...,"status":"404"} on stdout,
+          # with only the human-readable line on stderr. So the captured value
+          # is NON-EMPTY for a mistyped login and `[ -z "$ID" ]` could never
+          # fire - the guard that used to be here was unreachable.
+          #
+          # Actions runs this with `bash -e`, so the assignment did abort the
+          # step, which is why this never produced a wrong id. It produced the
+          # wrong MESSAGE: a lecturer retrying an acceptance for a colleague
+          # they had misspelled got `gh: Not Found (HTTP 404)` instead of being
+          # told which login does not exist.
+          #
+          # The exit code is the only reliable signal, and the shape is the only
+          # reliable check on what came back - `--jq` prints the string "null"
+          # for a field GitHub omits, which is non-empty too.
+          if ! ID=$(gh api "users/${GITHUB_LOGIN}" --jq .id 2>"${RUNNER_TEMP}/lookup.err"); then
+            echo "::error::No GitHub account named ${GITHUB_LOGIN}, or it could not be looked up: $(tr '\n\r' '  ' < "${RUNNER_TEMP}/lookup.err" | cut -c1-200). Check the spelling."
             exit 1
           fi
+          case "$ID" in
+            ''|*[!0-9]*)
+              echo "::error::GitHub returned no numeric account id for ${GITHUB_LOGIN}."
+              exit 1
+              ;;
+          esac
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
       - name: Wipe half-done acceptance state

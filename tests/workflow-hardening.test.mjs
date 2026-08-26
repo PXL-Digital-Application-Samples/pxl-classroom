@@ -226,6 +226,38 @@ test("the workflow written into student repositories is not on a deprecated Node
   }
 });
 
+test("no workflow trusts gh's stdout instead of its exit code", () => {
+  // `gh` writes API ERRORS TO STDOUT. Measured 2026-08-26 against the live API:
+  //
+  //   $ gh api users/does-not-exist --jq .id   # exit 1
+  //   stdout: {"message":"Not Found","documentation_url":"...","status":"404"}
+  //   stderr: gh: Not Found (HTTP 404)
+  //
+  // So a captured value is non-empty on failure, and `[ -z "$VAR" ]` is not a
+  // check - it is a guard that can never fire. retry-acceptance.yml had exactly
+  // that, and only Actions' default `bash -e` kept it from writing a JSON error
+  // blob into $GITHUB_OUTPUT as a student's account id.
+  //
+  // The rule: a capture must be guarded by the exit code, either `if ! VAR=$(gh
+  // ...)` or `VAR=$(gh ...) || ...`. What it then does with the value is its own
+  // business, but it may not assume success from the text.
+  const offenders = [];
+  for (const file of readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f))) {
+    const raw = readFileSync(join(WORKFLOW_DIR, file), "utf8");
+    raw.split("\n").forEach((line, i) => {
+      if (!/\$\(gh\s/.test(line)) return;
+      if (/^\s*#/.test(line)) return;
+      const guarded = /\bif\s+!\s+\w+=\$\(gh\s/.test(line) || /\)\s*\|\|/.test(line);
+      if (!guarded) offenders.push(`${file}:${i + 1} ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `gh output captured without checking the exit code:\n${offenders.join("\n")}`,
+  );
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys
