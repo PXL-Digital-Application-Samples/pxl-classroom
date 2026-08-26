@@ -42,8 +42,32 @@ export async function notifyEvent({ org, controlRepo, eventType, assignmentId, d
     "GET",
     `/repos/${org}/${controlRepo}/issues?labels=pxl-tracking&state=open&per_page=1`
   );
-  if (search.ok && search.data.length > 0) {
-    issueNumber = search.data[0].number;
+
+  // A FAILED LOOKUP IS NOT EVIDENCE THERE IS NO TRACKING ISSUE.
+  //
+  // `search.ok && length > 0` sent a 403, a 404, a rate limit and a 5xx down
+  // the same branch as "none found", so every transient failure created another
+  // `[NOTICE] PXL Classroom - Instructor Notifications` issue. Two costs, and
+  // the second is the worse one: the control repo fills with duplicates, and the
+  // dedup history splits across them - every alert that had already been posted
+  // to the old issue gets posted again to the new one, because the marker it
+  // looks for lives on comments the new issue does not have.
+  //
+  // The same "unreadable is not evidence" rule the diagnostic engine applies to
+  // `/apps/{slug}`, where a permission it cannot see yields no check rather than
+  // a green one.
+  if (!search.ok) {
+    throw new Error(
+      `Could not look up the tracking issue in ${org}/${controlRepo}: HTTP ${search.status}. ` +
+        `Not creating one - a failed lookup is not evidence that none exists.`
+    );
+  }
+
+  // `.length` on a non-array is undefined, which is falsy, which is the create
+  // branch again. Be explicit about the shape rather than relying on that.
+  const open = Array.isArray(search.data) ? search.data : [];
+  if (open.length > 0) {
+    issueNumber = open[0].number;
   } else {
     // Create tracking issue
     const create = await gh(

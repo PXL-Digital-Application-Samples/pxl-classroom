@@ -90,6 +90,14 @@ jobs:
       # closed door updates one comment instead of adding another.
       - name: Notify the lecturer of a rejected acceptance
         if: startsWith(steps.accept.outputs.outcome, 'rejected:')
+        # A REJECTION IS AN OUTCOME, NOT A FAILURE, and that has to survive the
+        # notification about it. accept.mjs exits 0 for `rejected:*` precisely so
+        # a student who is not on the roster does not paint the hub's Actions tab
+        # red - but notify.mjs throws on an API error, so a rate-limited comment
+        # would have turned that same rejection into a failed run and buried real
+        # failures beside it. The step still shows as failed, which is where a
+        # broken notifier should be visible; the job does not.
+        continue-on-error: true
         uses: ./notify
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -108,6 +116,10 @@ jobs:
 
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
+        # The provisioning failure is the thing to report; failing to report it
+        # must not replace that signal with a different one. The steps after this
+        # still have to run - the repository record is written by one of them.
+        continue-on-error: true
         uses: ./notify
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}

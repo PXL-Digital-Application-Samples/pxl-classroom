@@ -220,6 +220,86 @@ test("an unreadable comment list posts rather than dropping the alert", async ()
   }
 });
 
+// --- a failed lookup is not evidence the issue does not exist ----------------
+//
+// `if (search.ok && search.data.length > 0) … else create` sent a 403, a rate
+// limit and a 5xx down the same branch as "none found", so every transient
+// failure created another `[NOTICE] PXL Classroom - Instructor Notifications`
+// issue. The duplicates are the visible cost; the dedup history splitting across
+// them is the worse one, because every alert already posted to the old issue
+// gets posted again to the new one.
+
+/** Stub where the tracking-issue LOOKUP answers with `status`. */
+function stubLookup(status, { creates = [] } = {}) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = new URL(url);
+    const method = init.method || "GET";
+    const json = (data, code = 200) =>
+      new Response(JSON.stringify(data), {
+        status: code,
+        headers: { "content-type": "application/json" },
+      });
+
+    if (u.pathname.endsWith("/issues") && method === "GET") {
+      if (status !== 200) return json({ message: "Forbidden" }, status);
+      return json([]);
+    }
+    if (u.pathname.endsWith("/issues") && method === "POST") {
+      creates.push(JSON.parse(init.body).title);
+      return json({ number: 99 });
+    }
+    if (u.pathname.endsWith("/issues/99/comments")) return json(method === "POST" ? { id: 1 } : []);
+    return json({});
+  };
+  return () => { globalThis.fetch = original; };
+}
+
+for (const status of [403, 404, 500, 502]) {
+  test(`a tracking-issue lookup that answers ${status} does not create a duplicate`, async () => {
+    const creates = [];
+    const restore = stubLookup(status, { creates });
+    try {
+      await assert.rejects(
+        () => notifyEvent({
+          org: "TestOrg",
+          controlRepo: "pxl-classroom-control",
+          eventType: "late-activity",
+          assignmentId: "exam",
+          details: "x",
+          dedupKey: "late-exam-alice",
+        }),
+        /not evidence/,
+        "it must say why it refused rather than quietly carrying on",
+      );
+      assert.deepEqual(creates, [], "nothing may be created off a failed lookup");
+    } finally {
+      restore();
+    }
+  });
+}
+
+test("a genuinely empty result still creates the tracking issue once", async () => {
+  // The other half: refusing on failure must not turn into refusing always.
+  const creates = [];
+  const restore = stubLookup(200, { creates });
+  try {
+    const outcome = await notifyEvent({
+      org: "TestOrg",
+      controlRepo: "pxl-classroom-control",
+      eventType: "late-activity",
+      assignmentId: "exam",
+      details: "x",
+      dedupKey: "late-exam-alice",
+    });
+    assert.equal(outcome, "notified");
+    assert.equal(creates.length, 1);
+    assert.match(creates[0], /Instructor Notifications/);
+  } finally {
+    restore();
+  }
+});
+
 test("hitting the page cap warns rather than claiming an all-clear", async () => {
   // The cap exists so a pathological broker cannot spin forever. What it must
   // never do is come back saying "no invitation is exposed" - it did not look
