@@ -51,7 +51,13 @@ function finish(valid, reason) {
 // assignment had been republished. So: a broker that sends TITLE + PUBLIC_KEY
 // gets the new path, and one that sends TOKEN keeps the old one until it is
 // republished.
-if (String(process.env.TITLE || "").trim()) {
+// BOTH, deliberately. The broker template sends TITLE as soon as it is
+// republished, but an assignment only has a keypair once publish mints one. If
+// the signed path activated on TITLE alone, republishing a broker before the
+// keypair existed would reject every acceptance - so an assignment without
+// INVITE_PUBKEY keeps the token path until it is migrated, and the switch
+// happens exactly when the key appears.
+if (String(process.env.TITLE || "").trim() && String(process.env.INVITE_PUBKEY || "").trim()) {
   const title = process.env.TITLE;
   const publicKey = String(process.env.INVITE_PUBKEY || "").trim();
 
@@ -67,8 +73,11 @@ if (String(process.env.TITLE || "").trim()) {
     process.exit(0);
   }
 
+  // Defence in depth only - the gate above already required a non-empty key, so
+  // this is unreachable unless that condition is loosened. Kept deliberately:
+  // the failure it guards against is "accept everything", which is what an
+  // absent INVITE_NONCE once did.
   if (!publicKey) {
-    // Same class as a missing nonce: a deployment fault, not a forged title.
     console.error(
       "::error::INVITE_PUBKEY is not set on this broker, so no acceptance can be verified. Republish the assignment to set it.",
     );

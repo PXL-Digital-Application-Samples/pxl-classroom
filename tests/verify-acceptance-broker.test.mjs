@@ -105,16 +105,35 @@ test("a missing author id is a mismatch, not a pass", async () => {
   assert.equal(res.outputs.reason, "signer-mismatch");
 });
 
-test("an ABSENT INVITE_PUBKEY fails closed and names the deployment fault", async () => {
-  // The INVITE_NONCE precedent: an absent value once accepted every token ever
-  // issued. It must reject, and it must not read like a forged title.
+test("a CORRUPT INVITE_PUBKEY fails closed rather than throwing", async () => {
+  // An empty one is unreachable by design - the migration gate below routes
+  // that to the token path - so the reachable deployment fault is a key that is
+  // present but unusable. It must reject, and it must not crash: a hard failure
+  // on a public broker holding the App key would take the reject path with it.
   const { title } = await signedFixture();
-  const res = run({ TITLE: title, ISSUE_AUTHOR_ID: String(GITHUB_ID) });
-  assert.equal(res.status, 0);
-  assert.equal(res.outputs.valid, "false");
-  assert.equal(res.outputs.reason, "no-public-key");
-  assert.match(res.stderr, /INVITE_PUBKEY is not set/);
-  assert.match(res.stderr, /Republish/);
+  for (const bad of ["not-a-key", "AAAA", "!!!!"]) {
+    const res = run({ TITLE: title, INVITE_PUBKEY: bad, ISSUE_AUTHOR_ID: String(GITHUB_ID) });
+    assert.equal(res.status, 0, `${bad} must exit 0`);
+    assert.equal(res.outputs.valid, "false", `${bad} must not verify`);
+    assert.equal(res.outputs.reason, "no-public-key");
+  }
+});
+
+test("MIGRATION - a republished broker with no keypair yet keeps the token path", async () => {
+  // The template starts sending TITLE the moment a broker is republished, but
+  // an assignment only gets a keypair when publish mints one. If the signed
+  // path activated on TITLE alone, that window would reject every acceptance.
+  // The switch must happen exactly when the key appears, not before.
+  const { token, keysFile } = legacyFixture();
+  const res = run({
+    TITLE: "pxl-accept:whatever-the-spa-sent",
+    TOKEN: token,
+    ORG,
+    ASSIGNMENT_ID: ASSIGNMENT,
+    INVITE_NONCE: "0badc0de",
+    KEYS_FILE: keysFile,
+  });
+  assert.equal(res.outputs.valid, "true", "no keypair yet must mean the token path, not a rejection");
 });
 
 test("a signature from a rotated-away keypair is refused", async () => {
