@@ -15,7 +15,6 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { gh } from "../lib/gh.mjs";
 import { normalizeRosterMode } from "../lib/roster-mode.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -131,9 +130,9 @@ async function main() {
       roster = await loadYaml(rosterPath);
     } catch (err) {
       // Only `enforced` is stopped by an unreadable roster, because only there
-      // is the roster the gate. Under `open` and `org_member` the file is read
-      // for team pre-assignment columns; losing that is a degraded group
-      // resolution, not grounds to refuse every student in the cohort.
+      // is the roster the gate. Under `open` the file is read for team
+      // pre-assignment columns; losing that is a degraded group resolution, not
+      // grounds to refuse every student in the cohort.
       if (rosterMode === "enforced") {
         await fail("fail:exception", `roster YAML parsing failed: ${err.message}`);
       }
@@ -150,66 +149,6 @@ async function main() {
     log("roster", {
       ok: true,
       note: `roster_mode=open - roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
-    });
-  } else if (rosterMode === "org_member") {
-    // The lecturer invited a list of EMAIL ADDRESSES; GitHub performed the
-    // email-to-account binding and we gate on the result. Nothing here is
-    // student-supplied, which is the whole point: an installation token cannot
-    // read a user's email addresses, so any email the browser sent us would be
-    // a claim, not a credential (ARCHITECTURE §4.3).
-    //
-    // /memberships/{username}, NOT /members/{username}: the latter answers a
-    // bare 204/404 and cannot tell "invited, waiting on them" from "never
-    // invited". Verified live 2026-08-25 - an invited-but-unaccepted account
-    // reports state "pending" here and 404 there. That difference is the entire
-    // student-facing message, and guessing it is the waiting-screen bug again.
-    const membership = await gh("GET", `/orgs/${org}/memberships/${login}`);
-
-    if (membership.status === 404) {
-      // Two causes, and we cannot tell them apart, so the message names both.
-      // An invitation to an address no GitHub account has verified leaves
-      // `login: null` on the invitation and produces no membership record at
-      // all - indistinguishable from never having been invited.
-      await reject(
-        "rejected:not-org-member",
-        `@${login} is not a member of the ${org} organization. Either no invitation was sent to them, ` +
-          `or they were invited at an email address their GitHub account has not verified - ` +
-          `the address has to be on the account (Settings -> Emails) for GitHub to connect the invitation to it.`
-      );
-    }
-
-    // 404 is handled above, so anything else that is not ok is an API problem -
-    // a missing `members: read` approval, a 5xx, an exhausted rate limit. None
-    // of those is a statement about this student, and admitting or rejecting a
-    // whole cohort on one is exactly what the reject/fail split exists to stop.
-    if (!membership.ok) {
-      await fail(
-        "fail:membership-check",
-        `could not read organization membership for @${login} (HTTP ${membership.status}: ${membership.data?.message ?? "no message"}). ` +
-          `If this says "Resource not accessible by integration", the App's Members permission is not approved on ${org} - RUNBOOK §10.6.`
-      );
-    }
-
-    const state = membership.data?.state;
-    if (state === "pending") {
-      await reject(
-        "rejected:membership-pending",
-        `@${login} has been invited to the ${org} organization but has not accepted yet. ` +
-          `The invitation is in their inbox and on https://github.com/orgs/${org}/invitation - once accepted, the link works.`
-      );
-    }
-    if (state !== "active") {
-      // Fails closed on anything unrecognised, for the same reason the mode
-      // itself does.
-      await reject(
-        "rejected:not-org-member",
-        `@${login}'s membership of ${org} is "${state ?? "unknown"}", not "active".`
-      );
-    }
-
-    log("roster", {
-      ok: true,
-      note: `roster_mode=org_member - @${login} is an active ${org} member (role ${membership.data?.role ?? "?"})`,
     });
   } else {
     if (!roster) {

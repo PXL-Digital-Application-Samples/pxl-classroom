@@ -11,15 +11,6 @@ inputs:
   app-private-key:
     description: GitHub App private key (PEM)
     required: true
-  github-token:
-    description: >-
-      App installation token scoped to the target org. Required only by
-      roster_mode: org_member, which asks GitHub whether the student is an
-      active member. Passed in rather than minted here because the calling
-      workflow already has one, and minting a second would double the
-      installation-token churn on every acceptance.
-    required: false
-    default: ''
   org:
     description: Target organization
     required: true
@@ -140,5 +131,4 @@ runs:
         TEAM_SLUG: ${{ inputs.team-slug }}
         TEAM_NAME: ${{ inputs.team-name }}
         TEAM_ACTION: ${{ inputs.team-action }}
-        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: node "$GITHUB_ACTION_PATH/accept.mjs"

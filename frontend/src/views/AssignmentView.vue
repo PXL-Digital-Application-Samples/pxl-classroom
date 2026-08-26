@@ -369,16 +369,7 @@
             </p>
             <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
               <li>The assignment registration cap has been reached.</li>
-              <!-- Named per mode. Under org_member the roster is not the gate,
-                   so blaming it would send the student to their lecturer with
-                   the wrong question - and the real cause is one they can
-                   check and fix themselves. -->
               <li v-if="rosterMode === 'enforced'">You are not on the lecturer's roster for this course.</li>
-              <li v-else-if="rosterMode === 'org_member'">
-                You have not accepted the invitation to join the
-                <code>{{ props.org }}</code> organization - or it was sent to an email address that
-                is not verified on your GitHub account, so GitHub could not connect it to you.
-              </li>
               <li>GitHub is currently experiencing high load or rate limits.</li>
             </ul>
             <p class="text-secondary">
@@ -488,7 +479,7 @@ const rosterStatus = ref('enrolled') // 'enrolled' | 'missing' | 'unknown'
 const rosterMode = computed(() => normalizeRosterMode(assignment.value?.roster_mode))
 
 async function checkRosterStatus() {
-  // Only `enforced` gates on the roster. Under `open` and `org_member` a
+  // Only `enforced` gates on the roster. Under `open` a
   // student who is not on it is not blocked by it, so checking would report a
   // problem that does not exist.
   if (!user.value || normalizeRosterMode(assignment.value?.roster_mode) !== 'enforced') {

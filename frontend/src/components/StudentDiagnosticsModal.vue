@@ -60,7 +60,7 @@
           </div>
 
           <!-- Check 2: Roster Status. Only `enforced` gates on the roster -
-               under `org_member` membership decides, so reporting a roster
+               under `open` nobody is blocked by it, so reporting a roster
                problem would point the student at the wrong thing entirely. -->
           <div v-if="normalizeRosterMode(assignment?.roster_mode) === 'enforced'" class="check-item flex items-start gap-sm">
             <Icon

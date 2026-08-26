@@ -193,11 +193,10 @@
       "type": "string",
       "enum": [
         "enforced",
-        "open",
-        "org_member"
+        "open"
       ],
       "default": "enforced",
-      "description": "Who may accept. 'enforced' (default) requires the student's login in students/roster.yml. 'open' allows any GitHub account within the opens_at..deadline_at window and below max_acceptances; the lecturer reconciles logins to students afterward. 'org_member' requires an ACTIVE organization membership - the lecturer invites students by email and GitHub performs the email-to-account binding, so it gates on a list of addresses without ever needing to know their GitHub usernames. A pending invitation does not admit."
+      "description": "Who may accept. 'enforced' (default) requires the student's login in students/roster.yml. 'open' allows any GitHub account within the opens_at..deadline_at window and below max_acceptances; the lecturer reconciles logins to students afterward. A third mode, 'org_member', gated on an ACTIVE organization membership so a lecturer could enrol by email address and let GitHub perform the email-to-account binding; it was withdrawn without ever being used on a cohort, because binding a student to an address should not require putting them in the organization."
     },
     "late_policy": {
       "type": "string",

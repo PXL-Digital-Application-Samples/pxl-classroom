@@ -620,7 +620,6 @@
               <select v-model="form.roster_mode">
                 <option value="open">open: anyone with the invitation link</option>
                 <option value="enforced">enforced: only students on the roster</option>
-                <option value="org_member">org members: only people who joined this organization</option>
               </select>
               <!-- A roster is still worth importing under `open`: report.mjs
                    builds the population from the union of acceptances and the
@@ -633,20 +632,6 @@
                   Your roster still names {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} in
                   the report - it just does not decide who may accept.
                 </template>
-              </small>
-              <!-- Gates on ORGANIZATION MEMBERSHIP, so the roster is not
-                   load-bearing here and the roster-status block below must not
-                   claim it is. The precondition is on the student's own
-                   account, which this form cannot check, so it is stated
-                   plainly rather than implied. -->
-              <small v-else-if="form.roster_mode === 'org_member'">
-                Invite students to
-                <a :href="`https://github.com/orgs/${props.org}/people`" target="_blank" rel="noopener">{{ props.org }}</a>
-                by email address - GitHub connects each invitation to whichever account accepts it,
-                so you never need their GitHub usernames. Only members who have <strong>accepted</strong>
-                can claim a repository; a pending invitation is told to check their mail.
-                <strong>They must have that email address verified on their GitHub account</strong>,
-                or GitHub cannot connect the invitation and they will look like an outsider.
               </small>
               <!-- `enforced` makes students/roster.yml load-bearing, so the
                    form says whether anyone can accept at all rather than
