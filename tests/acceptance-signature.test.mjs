@@ -17,6 +17,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { parse } from "yaml";
+
+import { validateAgainst } from "../lib/validate.mjs";
 
 import {
   generateAcceptanceKeypair,
@@ -306,6 +310,25 @@ test("a payload with no issued_at still verifies", async () => {
 });
 
 // ======================================================= the nonce
+
+test("a minted keypair is storable in an assignment document", async () => {
+  // assignment.schema.json is additionalProperties: false, so a field the
+  // schema does not know about makes the whole document invalid and the Admin
+  // Panel refuses to save it. The keypair is written by
+  // scripts/set-assignment-invite.mjs, so its shape has to be legal there -
+  // and the pattern has to match what generateAcceptanceKeypair actually emits,
+  // not what it was assumed to emit.
+  const { privateKey, publicKey } = await generateAcceptanceKeypair();
+  const base = parse(readFileSync(new URL("./fixtures/valid-assignment.yml", import.meta.url), "utf8"));
+
+  const withKeys = { ...base, invite_key: privateKey, invite_pubkey: publicKey };
+  const { valid, errors } = validateAgainst("assignment", withKeys);
+  assert.equal(valid, true, JSON.stringify(errors));
+
+  // And an assignment without them is still valid - migration is per
+  // assignment, so most documents will not have a keypair for a while.
+  assert.equal(validateAgainst("assignment", { ...base }).valid, true);
+});
 
 test("two acceptances by the same account produce different titles", async () => {
   const a = await title({ nonce: "one" });

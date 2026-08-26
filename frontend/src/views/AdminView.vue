@@ -1904,6 +1904,8 @@ function editAssignment(a) {
     invite_token: a.invite_token || '',
     invite_nonce: a.invite_nonce || '',
     invite_expires_at: a.invite_expires_at || '',
+    invite_key: a.invite_key || '',
+    invite_pubkey: a.invite_pubkey || '',
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
     // The configuration's existence is the flag (UX_PLAN §6.1), so
@@ -2025,6 +2027,12 @@ function buildDoc(state = null) {
     ...(form.value.invite_token ? { invite_token: form.value.invite_token } : {}),
     ...(form.value.invite_nonce ? { invite_nonce: form.value.invite_nonce } : {}),
     ...(form.value.invite_expires_at ? { invite_expires_at: form.value.invite_expires_at } : {}),
+    // The signed-acceptance keypair. invite_key is the link secret and
+    // invite_pubkey is what the broker verifies against - dropping either on a
+    // save breaks every student's acceptance, the same way dropping the token
+    // used to retire every link.
+    ...(form.value.invite_key ? { invite_key: form.value.invite_key } : {}),
+    ...(form.value.invite_pubkey ? { invite_pubkey: form.value.invite_pubkey } : {}),
     ...(form.value.assignment_type ? { assignment_type: form.value.assignment_type } : {}),
     ...(form.value.assignment_type === 'group'
       ? {

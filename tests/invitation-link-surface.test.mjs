@@ -86,7 +86,11 @@ test("what the publish script writes, the SPA reads back", () => {
     expiresAt: "2027-09-27T14:01:00.000Z",
   });
 
+  // Derived from INVITE_FIELDS rather than hardcoded, so adding a field to the
+  // document cannot leave this test asserting a shape the system stopped using.
+  // Absent fields read as "" - that is the documented contract.
   assert.deepEqual(parseInviteFields(yaml), {
+    ...Object.fromEntries(INVITE_FIELDS.map((f) => [f, ""])),
     invite_token: token,
     invite_nonce: "0badc0de",
     invite_expires_at: "2027-09-27T14:01:00.000Z",
@@ -148,12 +152,9 @@ test("the reader tolerates a control repo checked out with CRLF endings", () => 
 });
 
 test("a missing or unreadable document yields empty fields, never a crash", () => {
+  const allEmpty = Object.fromEntries(INVITE_FIELDS.map((f) => [f, ""]));
   for (const input of [null, undefined, "", "id: x\nstate: draft\n", 42, {}]) {
-    assert.deepEqual(parseInviteFields(input), {
-      invite_token: "",
-      invite_nonce: "",
-      invite_expires_at: "",
-    });
+    assert.deepEqual(parseInviteFields(input), allEmpty);
   }
 });
 

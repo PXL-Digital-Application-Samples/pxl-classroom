@@ -584,6 +584,19 @@ Each phase is independently shippable and independently valuable.
   blocks a real fraction of students, creates a support burden, and stops
   nothing determined, because the page is public JavaScript either way.
 - **Build order: Phase A first.** It is the only item with a clock on it.
+- **The card stays at `sha256(<link secret>)`** - now the private key. Identical
+  property to today: findable only by someone holding the link, and a leaked
+  filename is not a usable credential.
+- **Migration is per assignment**, as each is next published. No flag day: the
+  gate switches on `INVITE_PUBKEY` appearing, so an assignment keeps the token
+  path until its keypair is minted. `net-advanced-guts-2627` runs untouched to
+  January unless deliberately republished.
+- **An out-of-date link gets a page that says so.** A card is still written for
+  the superseded token, carrying a marker, so the old URL resolves to "this
+  invitation has been replaced - ask your lecturer for the current link" rather
+  than the same "not found" a typo produces. Costs one small JSON per migrated
+  assignment, and it is the difference between a student who knows what happened
+  and a lecturer who never learns a republish caused it.
 
 **Done (2026-08-25):** the exposed token on `2526-sysex-ek2-test2` was rotated
 (`2225151a` -> `4fae7666`, assignment and broker in step). The harvested token

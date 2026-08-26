@@ -23,6 +23,7 @@ import { join } from "node:path";
 
 import { signInviteToken, newNonce } from "../lib/invite-token.mjs";
 import { readInviteField, quoteInviteValue } from "../lib/invite-token-format.mjs";
+import { generateAcceptanceKeypair } from "../lib/acceptance-signature.mjs";
 
 function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT) {
@@ -98,12 +99,31 @@ const expiresAt = reuse
 
 const token = signInviteToken({ org, assignmentId, expiresAt, nonce, kid, privateKeyPem });
 
+// The signed-acceptance keypair (CLAIM_PLAN Phase A). The PRIVATE half becomes
+// the link secret; the PUBLIC half is copied to the broker as INVITE_PUBKEY,
+// where the student's signature is checked. The old token is still written, so
+// an assignment that has not migrated keeps working and an out-of-date link
+// still resolves to a page that says so.
+//
+// Reused on republish for exactly the reason the nonce is: republish is a
+// repair operation and must not silently invalidate every link handed out. Only
+// REGENERATE mints a new pair, and that retires them deliberately.
+const existingKey = readField("invite_key");
+const existingPubkey = readField("invite_pubkey");
+const keypairOk = Boolean(existingKey) && Boolean(existingPubkey);
+const keypair =
+  !regenerate && keypairOk
+    ? { privateKey: existingKey, publicKey: existingPubkey }
+    : await generateAcceptanceKeypair();
+
 if (isYaml) {
   let next = raw;
   for (const [key, value] of [
     ["invite_token", token],
     ["invite_nonce", nonce],
     ["invite_expires_at", expiresAt],
+    ["invite_key", keypair.privateKey],
+    ["invite_pubkey", keypair.publicKey],
   ]) {
     next = upsertYamlField(next, key, quoteInviteValue(key, value));
   }
@@ -112,6 +132,8 @@ if (isYaml) {
   doc.invite_token = token;
   doc.invite_nonce = nonce;
   doc.invite_expires_at = expiresAt;
+  doc.invite_key = keypair.privateKey;
+  doc.invite_pubkey = keypair.publicKey;
   writeFileSync(file, JSON.stringify(doc, null, 2) + "\n");
 }
 
@@ -119,6 +141,10 @@ setOutput("token", token);
 setOutput("nonce", nonce);
 setOutput("file", file);
 setOutput("regenerated", reuse ? "false" : "true");
+// The workflow copies this onto the broker as INVITE_PUBKEY. The PRIVATE half
+// is never an output: outputs are readable in the run log, and this one is the
+// link secret.
+setOutput("pubkey", keypair.publicKey);
 
 const what = reuse ? "kept the existing" : "minted a new";
 console.log(`[ok] ${what} invitation for ${org}/${assignmentId} (kid ${kid}, expires ${expiresAt})`);

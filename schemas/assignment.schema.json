@@ -364,6 +364,16 @@
       "type": "string",
       "format": "date-time",
       "description": "Expiry embedded in invite_token. Recorded so republishing reproduces the same token instead of minting a new link."
+    },
+    "invite_key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "PRIVATE half of the acceptance keypair (ECDSA P-256, PKCS#8, base64url), minted at publish time. This is the link secret: the student's browser signs a fresh assertion naming their own GitHub id, so the public acceptance event carries a signature rather than a reusable credential. Never publish to Pages output."
+    },
+    "invite_pubkey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "PUBLIC half of the acceptance keypair (SPKI, base64url), mirrored to the broker's INVITE_PUBKEY variable. Public by design. Its presence is what switches an assignment from the legacy token to signed acceptance."
     }
   }
 }
