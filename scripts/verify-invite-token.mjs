@@ -73,18 +73,6 @@ if (String(process.env.TITLE || "").trim() && String(process.env.INVITE_PUBKEY |
     process.exit(0);
   }
 
-  // Defence in depth only - the gate above already required a non-empty key, so
-  // this is unreachable unless that condition is loosened. Kept deliberately:
-  // the failure it guards against is "accept everything", which is what an
-  // absent INVITE_NONCE once did.
-  if (!publicKey) {
-    console.error(
-      "::error::INVITE_PUBKEY is not set on this broker, so no acceptance can be verified. Republish the assignment to set it.",
-    );
-    finish(false, "no-public-key");
-    process.exit(0);
-  }
-
   const verified = await verifyAcceptanceTitle({ title, publicKey });
   if (!verified.ok) {
     finish(false, verified.reason);
