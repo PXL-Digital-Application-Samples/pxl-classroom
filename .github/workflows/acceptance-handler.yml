@@ -200,7 +200,7 @@ jobs:
           # Not fatal - the acceptance itself already happened, and the broker
           # has redacted the title. But the rename is still in the timeline, so
           # somebody has to know.
-          echo "::warning::Could not delete the trigger issue on ${BROKER_REPO}. deleteIssue needs Administration: write on the organization; without it the invitation stays recoverable from the issue timeline. Grant the permission and regenerate this assignment's invitation - see RUNBOOK §1.3.2."
+          echo "::warning::Could not delete the trigger issue on ${BROKER_REPO}. deleteIssue needs Administration: write on the organization; without it the invitation stays recoverable from the issue timeline. Grant the permission and regenerate this assignment's invitation - see RUNBOOK §1.3.1."
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')

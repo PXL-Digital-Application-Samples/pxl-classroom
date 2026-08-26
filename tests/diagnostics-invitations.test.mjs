@@ -214,6 +214,29 @@ test("a healthy migrated assignment is quiet, and says nothing about the nonce",
   assert.equal(r["invite-key"], undefined);
 });
 
+test("a leftover title on an UNMIGRATED assignment is an exposed link", async () => {
+  const r = await run(healthy, {
+    exposedIssues: [{ number: 7, title: `pxl-accept:${TOKEN}`, state: "closed" }],
+  });
+  assert.equal(r["invite-exposure"].severity, "fail");
+  assert.match(r["invite-exposure"].message, /effectively public/);
+  assert.match(r["invite-exposure"].message, /regenerate/i);
+});
+
+test("the same leftover on a MIGRATED assignment is a failed cleanup, not an exposed link", async () => {
+  // The title is a signature naming one account there - useless to anyone else.
+  // Calling it an exposed invitation would be false, and the advice would be
+  // actively harmful: regenerating retires every student's link to fix nothing.
+  const r = await run(migrated, {
+    ...migratedVars(),
+    exposedIssues: [{ number: 7, title: "pxl-accept:a1.abc.def", state: "closed" }],
+  });
+  assert.equal(r["invite-exposure"].severity, "warn");
+  assert.match(r["invite-exposure"].message, /signatures, not links/i);
+  assert.match(r["invite-exposure"].message, /Administration: write/);
+  assert.match(r["invite-exposure"].message, /Do NOT regenerate/);
+});
+
 test("A BROKER SIGNING FOR AN ASSIGNMENT THAT HAS NO KEYPAIR is caught", async () => {
   // The inverse, and the more dangerous half, because everything else looks
   // healthy: the token, the key id and the nonce all still check out.

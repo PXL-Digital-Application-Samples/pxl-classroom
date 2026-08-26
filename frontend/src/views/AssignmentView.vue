@@ -563,14 +563,21 @@ const timeRemainingBadgeClass = computed(() => {
 
 // Lifecycle
 onMounted(async () => {
-  await loadAssignment()
-  if (isAuthenticated()) {
-    user.value = getUser()
-    await checkExistingState()
-  }
+  // The ticking clock is started FIRST, and on purpose. It drives the deadline
+  // countdown, and it used to sit after two awaits with no error handling
+  // between - so a single rejected lookup left the hook dead, the countdown
+  // frozen at whatever it said on load, and a Vue warning in a console nobody
+  // is reading. Nothing above it can now stop it.
   nowInterval = setInterval(() => {
     now.value = new Date()
   }, 30000)
+
+  // loadAssignment already calls checkExistingState (beside checkRosterStatus)
+  // once the card has loaded and the student is signed in. Calling it again
+  // here ran BOTH of a student's lookups twice on every page load - measured:
+  // two GET /repos/<org>/<repo> and two GET /user/repository_invitations - for
+  // no result the first pair had not already produced.
+  await loadAssignment()
 })
 
 const notFoundPollCount = ref(0)
@@ -642,16 +649,33 @@ async function loadAssignment(isRetry = false) {
       } else if (data?.assignment?.id) {
         assignment.value = { ...data.assignment }
         stopNotFoundPolling()
-        if (isAuthenticated()) {
-          user.value = getUser()
-          await Promise.all([checkExistingState(), checkRosterStatus()])
-        }
       }
     }
   } catch (e) {
     error.value = `Couldn't load the assignment data (${e.message}). Check your connection and try again.`
     stopNotFoundPolling()
   }
+
+  // THE STUDENT'S OWN STATE IS A SEPARATE QUESTION, and its failure must not
+  // take the assignment down with it.
+  //
+  // These two ran inside the fetch's try, so a rejected repository or
+  // invitation lookup - one aborted request is enough - replaced a perfectly
+  // well-loaded assignment with a full-page "couldn't load the assignment data,
+  // check your connection". The assignment data was already in hand. Same rule
+  // as the tracking page: a secondary failure may not remove the primary
+  // content.
+  //
+  // Swallowed rather than surfaced, because the honest fallback IS the default
+  // view: not knowing whether a student already has a repository shows them the
+  // Accept button, and accepting again is idempotent.
+  if (assignment.value && isAuthenticated()) {
+    user.value = getUser()
+    try {
+      await Promise.all([checkExistingState(), checkRosterStatus()])
+    } catch { /* the page works without it */ }
+  }
+
   loading.value = false
 
   // Auto-poll when assignment is not yet present on Pages (e.g. freshly
