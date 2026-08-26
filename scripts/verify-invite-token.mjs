@@ -20,6 +20,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { verifyInviteToken } from "../lib/invite-token.mjs";
+import { verifyAcceptanceTitle, signerMatchesAuthor } from "../lib/acceptance-signature.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_KEYS = join(here, "..", "acceptance", "invite-keys.json");
@@ -34,6 +35,67 @@ function finish(valid, reason) {
   setOutput("valid", valid ? "true" : "false");
   setOutput("reason", reason);
   console.log(valid ? `[ok] invitation token accepted` : `[reject] invitation token ${reason}`);
+}
+
+// --- Signed acceptance (CLAIM_PLAN Phase A) ---------------------------------
+//
+// The old invitation token is a BEARER credential that lands in a PUBLIC event:
+// measured 2026-08-25, one unauthenticated GET against a broker's events feed
+// returned a full, still-valid token on an issue that had already been deleted.
+// The signed form replaces it - the title now carries a signature naming the
+// account that made it, useless to anyone else.
+//
+// BACKWARD COMPATIBILITY IS NOT OPTIONAL HERE. Every broker checks the hub out
+// at `ref: main`, so an old broker runs THIS file. Changing the input contract
+// would break every live acceptance the moment this merged, before a single
+// assignment had been republished. So: a broker that sends TITLE + PUBLIC_KEY
+// gets the new path, and one that sends TOKEN keeps the old one until it is
+// republished.
+if (String(process.env.TITLE || "").trim()) {
+  const title = process.env.TITLE;
+  const publicKey = String(process.env.INVITE_PUBKEY || "").trim();
+
+  // A link minted before this change. It cannot verify here, and saying
+  // "malformed" would send the student hunting for a typo in a link that is
+  // simply out of date.
+  if (/^pxl-accept:[A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86}( |$)/.test(title)) {
+    console.error(
+      "::error::This invitation link predates the signed-acceptance change and can no longer be used. " +
+        "Republish the assignment to mint new links (CLAIM_PLAN Phase A).",
+    );
+    finish(false, "legacy-link");
+    process.exit(0);
+  }
+
+  if (!publicKey) {
+    // Same class as a missing nonce: a deployment fault, not a forged title.
+    console.error(
+      "::error::INVITE_PUBKEY is not set on this broker, so no acceptance can be verified. Republish the assignment to set it.",
+    );
+    finish(false, "no-public-key");
+    process.exit(0);
+  }
+
+  const verified = await verifyAcceptanceTitle({ title, publicKey });
+  if (!verified.ok) {
+    finish(false, verified.reason);
+    process.exit(0);
+  }
+
+  // The anti-replay check. A signature lifted out of the public archive names
+  // the account that made it; anyone replaying it authors the issue as
+  // themselves, so the two disagree. The hub checks this again - neither being
+  // skipped may open the hole.
+  const author = process.env.ISSUE_AUTHOR_ID;
+  if (!signerMatchesAuthor(verified.payload, author)) {
+    finish(false, "signer-mismatch");
+    process.exit(0);
+  }
+
+  setOutput("github_id", String(verified.payload.githubId));
+  setOutput("subject", verified.payload.subject);
+  finish(true, "signed");
+  process.exit(0);
 }
 
 let publicKeys;
