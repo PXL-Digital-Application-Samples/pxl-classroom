@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
 import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
+import { generateKeyPairSync } from 'node:crypto'
 import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
 
 // Auto-load .env.test if present
@@ -59,7 +60,44 @@ const digestIndex = new Map()
 // run in four.
 const E2E_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z'
 
+// The link secret is now an acceptance PRIVATE KEY, not a bearer token: the
+// student's browser signs a fresh assertion with it, so the public event
+// carries a signature instead of a credential (CLAIM_PLAN Phase A).
+//
+// Generated with node:crypto SYNCHRONOUSLY, and that is the whole point.
+// lib/acceptance-signature.mjs uses WebCrypto because it has to run in a
+// browser, and WebCrypto keygen is async - but inviteToken() is called inline
+// at 67 sites across 22 spec files, and making it async would rewrite every one
+// of them. The fixture only ever runs in Node, and both paths emit the same
+// PKCS#8 DER, so the key this mints verifies against the real module.
+//
+// One keypair per (org, assignment), cached: distinct assignments must have
+// distinct secrets, because the acceptance card is named sha256(secret) and a
+// shared key would collide two cards onto one filename.
+const acceptanceKeys = new Map()
+
+function b64url(buf) {
+  return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export function acceptanceKeypair(org, assignmentId) {
+  const cacheKey = `${org}/${assignmentId}`
+  if (!acceptanceKeys.has(cacheKey)) {
+    const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+    acceptanceKeys.set(cacheKey, {
+      privateKey: b64url(privateKey.export({ type: 'pkcs8', format: 'der' })),
+      publicKey: b64url(publicKey.export({ type: 'spki', format: 'der' })),
+    })
+  }
+  return acceptanceKeys.get(cacheKey)
+}
+
 export function inviteToken(org, assignmentId) {
+  return acceptanceKeypair(org, assignmentId).privateKey
+}
+
+/** The pre-Phase-A bearer token, for specs that exercise the migration path. */
+export function legacyInviteToken(org, assignmentId) {
   return signInviteToken({
     org,
     assignmentId,

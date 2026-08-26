@@ -40,7 +40,7 @@ function publishedAssignment(overrides = {}) {
     repository_name_pattern: `${ID}-{github_login}`,
     template: { owner: ORG, repository: 'linux-template' },
     broker_repo: `broker-${ID}`,
-    invite_token: inviteToken(ORG, ID),
+    invite_key: inviteToken(ORG, ID),
     invite_nonce: 'e2e00001',
     invite_expires_at: '2099-01-01T00:00:00.000Z',
     ...overrides,
@@ -116,7 +116,7 @@ test.describe('27 - The invitation link, end to end', () => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
-      assignments: { [ID]: publishedAssignment({ invite_token: undefined, invite_nonce: undefined }) },
+      assignments: { [ID]: publishedAssignment({ invite_key: undefined, invite_nonce: undefined }) },
       userRepos: [brokerRepo],
     });
 
@@ -131,7 +131,7 @@ test.describe('27 - The invitation link, end to end', () => {
         'state: published',
       ];
       if (tokenMinted) {
-        lines.push(`invite_token: ${doc.invite_token}`);
+        lines.push(`invite_key: ${doc.invite_key}`);
         lines.push(`invite_nonce: "${doc.invite_nonce}"`);
         lines.push(`invite_expires_at: ${doc.invite_expires_at}`);
       }
@@ -169,7 +169,7 @@ test.describe('27 - The invitation link, end to end', () => {
     // The honest failure. Before the fix BOTH cases produced this message,
     // which is why nobody noticed the healthy one was broken too.
     const noToken = publishedAssignment();
-    delete noToken.invite_token;
+    delete noToken.invite_key;
     delete noToken.invite_nonce;
     await openEditor(page, noToken);
 
@@ -186,7 +186,7 @@ test.describe('27 - The invitation link, end to end', () => {
     // without one it warns, continues, and still lists the id. So the index is
     // true while every student gets a 404.
     const noToken = publishedAssignment();
-    delete noToken.invite_token;
+    delete noToken.invite_key;
 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {

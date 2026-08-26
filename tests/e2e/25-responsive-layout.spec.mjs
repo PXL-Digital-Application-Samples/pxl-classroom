@@ -80,7 +80,7 @@ test.describe('25 - Responsive layout', () => {
           repository_name_pattern: `${ID}-{github_login}`,
           // Without a token the share block never renders its link, which is
           // the element that caused this.
-          invite_token: inviteToken(ORG, ID),
+          invite_key: inviteToken(ORG, ID),
           invite_nonce: '0badc0de',
         },
       },

@@ -360,7 +360,7 @@ import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
-import { acceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
+import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 
@@ -708,8 +708,15 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
     // is all the broker reads - it holds App credentials and must never parse
     // the body (ARCHITECTURE §4.3.1). The body carries the rest, and the HUB
     // fetches and validates it (scripts/read-team-payload.mjs).
+    const title = await signedAcceptanceIssueTitle({
+      inviteSecret: props.inviteToken,
+      assignmentId: props.assignment.id,
+      githubId: props.user?.id,
+      teamSlug,
+    })
+
     const issueRes = await ghApi(token, 'POST', `/repos/${props.org}/${brokerRepo}/issues`, {
-      title: acceptanceIssueTitle(props.inviteToken, teamSlug),
+      title,
       body: JSON.stringify({
         team_slug: teamSlug,
         team_name: teamName,

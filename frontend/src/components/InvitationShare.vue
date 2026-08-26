@@ -73,7 +73,7 @@ import Icon from './Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { getRepoContent } from '../lib/api.js'
-import { invitationUrl, parseInviteFields } from '../lib/invite.js'
+import { invitationUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 
@@ -106,7 +106,10 @@ const busy = ref(false)
 const copied = ref(false)
 let copiedTimer = null
 
-const token = computed(() => props.assignment?.invite_token || fetched.value || null)
+// linkSecretFrom, not invite_token: a migrated assignment's link carries the
+// acceptance private key, an unmigrated one still carries the token, and which
+// it is must be decided in one place.
+const token = computed(() => linkSecretFrom(props.assignment) || fetched.value || null)
 const expiresAt = computed(() => props.assignment?.invite_expires_at || fetchedExpiry.value || null)
 const link = computed(() => (token.value ? invitationUrl(props.org, token.value) : null))
 
@@ -190,7 +193,7 @@ async function ensureToken() {
       auth, props.org, config.controlRepo, `assignments/${props.assignment.id}.yml`,
     )
     const fields = parseInviteFields(yaml)
-    fetched.value = fields.invite_token || null
+    fetched.value = linkSecretFrom(fields) || null
     fetchedExpiry.value = fields.invite_expires_at || null
     return fetched.value
   } catch {

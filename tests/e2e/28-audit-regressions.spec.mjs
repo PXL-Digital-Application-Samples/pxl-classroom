@@ -24,7 +24,7 @@ function publishedAssignment() {
     repository_name_pattern: `${ID}-{github_login}`,
     template: { owner: ORG, repository: 'linux-template' },
     broker_repo: `broker-${ID}`,
-    invite_token: inviteToken(ORG, ID),
+    invite_key: inviteToken(ORG, ID),
     invite_nonce: 'e2e00001',
     invite_expires_at: '2099-01-01T00:00:00.000Z',
   };

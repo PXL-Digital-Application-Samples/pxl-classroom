@@ -1,67 +1,88 @@
 // PXL Classroom - invitation links, browser side.
 //
-// The SPA never verifies a token: verification belongs on the broker, which is
-// the thing with something to protect. Here the token is only a bearer string
-// to carry into the acceptance issue, plus enough of the wire format to work
-// out WHICH assignment a link refers to - the subject is a hash, so the id is
-// not readable from the link.
+// The SPA never verifies anything: verification belongs on the broker, which is
+// the thing with something to protect. What it does now is SIGN.
 //
-// The format module is shared with the broker and the hub deliberately. A
-// second copy of the subject rule here would be a token format that forks in
-// half the first time either side changed.
+// The old link carried a bearer token that the student pasted into the issue
+// title - and a title lands in a public event that GH Archive keeps forever, so
+// the credential was world-readable (CLAIM_PLAN Phase A). The link now carries a
+// private key instead, and the browser signs a fresh assertion naming this
+// student's own account. Only the signature is published, and it is useless to
+// anyone else.
+//
+// The crypto lives in lib/acceptance-signature.mjs, shared with the broker and
+// the hub. A second copy here would be a format that forks in half the first
+// time either side changed.
 
+import { TOKEN_PATTERN, inviteFileName } from '../../../lib/invite-token-format.mjs'
 import {
-  TOKEN_PATTERN,
-  parseToken,
-  subjectInput,
-  subjectFromDigest,
-  subjectsMatch,
-  inviteFileName,
-} from '../../../lib/invite-token-format.mjs'
+  signAcceptanceTitle,
+  ACCEPTANCE_KEY_LENGTH,
+  MAX_TITLE_LENGTH,
+} from '../../../lib/acceptance-signature.mjs'
 
 export { TOKEN_PATTERN }
+
+// A format version rather than a key id: the keypair is per assignment, so
+// there is nothing to select between. It exists so a future change to what is
+// signed can be told apart from this one.
+export const ACCEPTANCE_FORMAT = 'a1'
 
 // Re-exported rather than re-implemented. Reading the invitation back out of an
 // assignment document has broken three times now, always the same way: a second
 // copy of the parse drifts from the writer. There is one copy, it lives beside
 // scripts/set-assignment-invite.mjs's writer, and both views import it.
-export { parseInviteFields } from '../../../lib/invite-token-format.mjs'
+export { parseInviteFields, linkSecretFrom } from '../../../lib/invite-token-format.mjs'
 
-export function isInviteToken(value) {
-  return typeof value === 'string' && TOKEN_PATTERN.test(value)
-}
-
-async function subjectFor(org, assignmentId) {
-  const bytes = new TextEncoder().encode(subjectInput(org, assignmentId))
-  return subjectFromDigest(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
-}
+// resolveAssignmentFromToken, tokenExpiry and isInviteToken lived here and had
+// ZERO consumers. The first is the interesting one: it existed to match a
+// token's embedded subject against candidate assignments, and nothing ever
+// needed to, because the acceptance card is found by hashing the URL secret and
+// already carries the assignment. That is why the new link can be a bare key
+// with no subject in it.
 
 /**
- * Find which of an org's published assignments a token was minted for.
+ * The issue title the broker parses, SIGNED.
  *
- * The token carries sha256("<org>/<id>") truncated to 16 bytes, so the id
- * cannot be read back out - it has to be matched against the candidates. That
- * is the point: a link does not advertise what it opens.
+ * The old form pasted the invitation itself into the title - and the title
+ * lands in a public event that GH Archive keeps forever, so the credential was
+ * world-readable (CLAIM_PLAN Phase A; measured live 2026-08-25 with one
+ * unauthenticated curl). Now the link carries a private key, the browser signs
+ * a fresh assertion naming THIS student's account, and only the signature is
+ * published. Replaying it requires being that account.
  *
- * @returns the matching assignment, or null.
+ * Everything the broker needs is still in the title: it never reads the body of
+ * an issue on a repository holding App credentials, and the `pxl-accept:`
+ * prefix is its job-level filter, evaluated before a runner is allocated.
  */
-export async function resolveAssignmentFromToken(token, org, assignments) {
-  const parsed = parseToken(token)
-  if (!parsed?.canonical) return null
+export async function signedAcceptanceIssueTitle({ inviteSecret, assignmentId, githubId, teamSlug }) {
+  const title = await signAcceptanceTitle({
+    privateKey: inviteSecret,
+    kid: ACCEPTANCE_FORMAT,
+    subject: assignmentId,
+    githubId,
+    nonce: randomNonce(),
+  })
+  if (!teamSlug) return title
 
-  const candidates = Array.isArray(assignments) ? assignments : Object.values(assignments || {})
-  for (const assignment of candidates) {
-    if (!assignment?.id) continue
-    if (subjectsMatch(await subjectFor(org, assignment.id), parsed.payload.subject)) {
-      return assignment
-    }
+  // The team hint is appended AFTER signing - it is a concurrency key, never an
+  // authoritative value, and the hub re-derives the real team from the issue
+  // body. That means signAcceptanceTitle's own length check has not seen it, so
+  // the combined title is checked here or GitHub rejects the issue at 256.
+  const withTeam = `${title} team:${teamSlug}`
+  if (withTeam.length > MAX_TITLE_LENGTH) {
+    throw new Error(
+      `acceptance title is ${withTeam.length} characters with the team hint, over GitHub's ${MAX_TITLE_LENGTH} limit`,
+    )
   }
-  return null
+  return withTeam
 }
 
-/** Expiry is readable without the key; it is a claim, not a secret. */
-export function tokenExpiry(token) {
-  return parseToken(token)?.payload?.expiresAt ?? null
+/** Distinct per acceptance, so two attempts by one student differ. */
+function randomNonce() {
+  const bytes = new Uint8Array(6)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /**
@@ -99,12 +120,27 @@ export function parseInvitationLink(input) {
 
   // Regex literals, not strings: building these with `new RegExp` swallowed the
   // backslashes in \. and \?, which turned the separator into a bare quantifier.
+  //
+  // BOTH shapes are accepted, deliberately. The new secret is a bare base64url
+  // key; the old one is `<35>.<86>`. Migration is per assignment, so during it
+  // a student may hold either - and refusing the old shape here would tell them
+  // their link is not a link at all, when it is simply out of date. The page
+  // they land on is what explains that (it looks the card up and finds it
+  // superseded); this function's job is only to get them there.
+  // Strict on BOTH shapes: the new key is a fixed-length PKCS#8 export and the
+  // old token is `<35>.<86>`. A truncated link therefore still fails here and
+  // is told it is not a link, rather than being sent to a page whose only
+  // answer would be "not found". ACCEPTANCE_KEY_LENGTH is asserted at mint
+  // time, so the parser and the generator cannot drift apart.
+  const SECRET =
+    `(?:[A-Za-z0-9_-]{35}\\.[A-Za-z0-9_-]{86}|[A-Za-z0-9_-]{${ACCEPTANCE_KEY_LENGTH}})`
+
   const withSegment = clean.match(
-    /(?:^|\/)([a-zA-Z0-9_-]+)\/i\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})(?:$|\/|\?|#)/,
+    new RegExp(`(?:^|/)([a-zA-Z0-9_-]+)/i/(${SECRET})(?:$|/|\\?|#)`),
   )
   if (withSegment) return { org: withSegment[1], inviteToken: withSegment[2] }
 
-  const bare = clean.match(/^([a-zA-Z0-9_-]+)\/([A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86})$/)
+  const bare = clean.match(new RegExp(`^([a-zA-Z0-9_-]+)/(${SECRET})$`))
   if (bare) return { org: bare[1], inviteToken: bare[2] }
 
   return null

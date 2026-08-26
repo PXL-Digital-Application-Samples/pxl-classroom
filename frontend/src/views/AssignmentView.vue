@@ -410,7 +410,7 @@ import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
-import { acceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
+import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
@@ -795,8 +795,18 @@ async function acceptAssignment() {
     // §4.3.1), and the `pxl-accept:` prefix is its job-level filter - GitHub
     // evaluates that before allocating a runner, so an issue carrying no valid
     // invitation costs nothing at all.
+    // SIGNED, not pasted. The title lands in a public event that GH Archive
+    // keeps forever, so the old form published a reusable credential. This
+    // signs a fresh assertion naming this student's own account - see
+    // CLAIM_PLAN Phase A.
+    const title = await signedAcceptanceIssueTitle({
+      inviteSecret: props.inviteToken,
+      assignmentId: resolvedId.value,
+      githubId: user.value?.id,
+    })
+
     const res = await ghApi(token, 'POST', `/repos/${org}/${brokerRepo}/issues`, {
-      title: acceptanceIssueTitle(props.inviteToken),
+      title,
       body: '',
     })
     if (!res.ok) {

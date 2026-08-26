@@ -1039,7 +1039,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { cleanChecks, summariseAutograde } from '../lib/autograde.js'
 import { toast } from '../lib/toast.js'
-import { parseInviteFields, inviteDataUrl } from '../lib/invite.js'
+import { parseInviteFields, inviteDataUrl, linkSecretFrom } from '../lib/invite.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { formatDate } from '../lib/format.js'
 import { countdownParts } from '../lib/countdown.js'
@@ -1230,7 +1230,12 @@ const shareAssignment = computed(() => ({
   id: form.value.id,
   state: form.value.state,
   timezone: form.value.timezone,
+  // Both, and InvitationShare decides which is the link via linkSecretFrom.
+  // This object is built field by field, so a field omitted here is invisible
+  // to the share block - which is how a migrated assignment would show
+  // "no invitation link yet" over a perfectly good one.
   invite_token: form.value.invite_token || null,
+  invite_key: form.value.invite_key || null,
   invite_expires_at: form.value.invite_expires_at || null,
   opens_at: form.value.opens_at_local ? localToUtc(form.value.opens_at_local) : null,
   deadline_at: form.value.deadline_at_local ? localToUtc(form.value.deadline_at_local) : null,
@@ -2186,14 +2191,14 @@ async function refreshInvitation(assignmentId) {
   if (!token) return ''
   const yaml = await getRepoContent(token, props.org, config.controlRepo, `assignments/${assignmentId}.yml`)
   const fields = parseInviteFields(yaml)
-  if (!fields.invite_token) return ''
+  if (!linkSecretFrom(fields)) return ''
   // These three are system-owned - a lecturer never edits them - so filling
   // them in must not make a clean form look unsaved and prompt "Discard
   // unsaved changes?" on the way out.
   const wasClean = !hasUnsavedEdits()
   Object.assign(form.value, fields)
   if (wasClean) snapshotForm()
-  return fields.invite_token
+  return linkSecretFrom(fields)
 }
 
 // Is the page a student would open actually there?
@@ -2309,9 +2314,14 @@ async function confirmRepublish() {
   if (ok) {
     showRepublishModal.value = false
     if (regenerateInvite.value) {
-      // The old token is still in the form until the workflow writes the new
+      // The old secret is still in the form until the workflow writes the new
       // one; clear it so nothing can copy a link the broker is about to reject.
+      // BOTH halves: clearing only the token would leave a migrated
+      // assignment's key in place and the panel would go on offering a link
+      // that regeneration has just retired.
       form.value.invite_token = ''
+      form.value.invite_key = ''
+      form.value.invite_pubkey = ''
       toast.info('Regenerating - the new link appears here once the workflow finishes. The old one stops working now.')
     }
     regenerateInvite.value = false

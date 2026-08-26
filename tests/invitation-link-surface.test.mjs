@@ -313,7 +313,31 @@ test("every reader imports the one parser rather than re-implementing it", () =>
   for (const src of [ADMIN(), SHARE()]) {
     assert.match(src, /parseInviteFields/, "readers must use the shared parser");
   }
-  assert.match(INVITE_LIB(), /export \{ parseInviteFields \}/, "invite.js re-exports it");
+  // Matched as a re-export from the shared module rather than as an exact
+  // export list, so adding a second shared helper does not fail a test about
+  // the first one.
+  assert.match(
+    INVITE_LIB(),
+    /export \{[^}]*\bparseInviteFields\b[^}]*\} from '\.\.\/\.\.\/\.\.\/lib\/invite-token-format\.mjs'/,
+    "invite.js re-exports the shared parser",
+  );
+  assert.doesNotMatch(INVITE_LIB(), /function parseInviteFields/, "and does not keep a copy");
+});
+
+test("which field IS the link is decided in one place", () => {
+  // A migrated assignment's link is invite_key; an unmigrated one is still
+  // invite_token. Every surface that builds, copies or verifies a link has to
+  // agree, and three of them already read it independently - the exact shape
+  // that made diffRosters and the effective deadline fork.
+  assert.match(INVITE_LIB(), /\blinkSecretFrom\b/, "invite.js must re-export the rule");
+  for (const [name, src] of [["AdminView", ADMIN()], ["InvitationShare", SHARE()]]) {
+    assert.match(src, /\blinkSecretFrom\(/, `${name} must ask linkSecretFrom which field is the link`);
+    assert.doesNotMatch(
+      src,
+      /fields\.invite_token\b/,
+      `${name} must not decide the link from invite_token itself`,
+    );
+  }
 });
 
 // --- The link format --------------------------------------------------------

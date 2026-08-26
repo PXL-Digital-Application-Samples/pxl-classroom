@@ -48,7 +48,7 @@ function assignment(id, overrides = {}) {
     deadline_at: DEADLINE,
     template: { owner: ORG, repository: 'linux-template' },
     repository_name_pattern: `${id}-{github_login}`,
-    invite_token: inviteToken(ORG, id),
+    invite_key: inviteToken(ORG, id),
     invite_nonce: '0badc0de',
     ...overrides,
   };

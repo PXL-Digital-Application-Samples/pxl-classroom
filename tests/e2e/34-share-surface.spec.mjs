@@ -42,7 +42,7 @@ function assignment(over = {}) {
     state: 'published',
     assignment_type: 'individual',
     max_acceptances: 50,
-    invite_token: inviteToken(ORG, ID),
+    invite_key: inviteToken(ORG, ID),
     invite_nonce: '0badc0de',
     ...over,
   };

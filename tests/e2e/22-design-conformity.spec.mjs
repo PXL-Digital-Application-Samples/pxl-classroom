@@ -149,7 +149,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
       // Without a token the banner never reaches its "Live & Verified" state,
       // which is the one holding the buttons this test is about - it sat on
       // "Checking live status" and asserted nothing.
-      invite_token: inviteToken(ORG, 'lab'),
+      invite_key: inviteToken(ORG, 'lab'),
       invite_nonce: '0badc0de',
     };
     await injectAuth(page, LECTURER);
