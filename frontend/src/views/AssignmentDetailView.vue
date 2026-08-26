@@ -1348,9 +1348,28 @@ const preservationLockdownTime = computed(() => {
   const s = (report.value?.students || []).find((s) => s.lock_down_at)
   return s?.lock_down_at || report.value?.lockdown_at || null
 })
+// How long after the deadline a student could still push - which is what the
+// banner beside it says it is.
+//
+// It used to read `uncertainty_interval_seconds`, which is the OTHER SIDE of the
+// deadline: the gap between the last observation and the deadline, i.e. how
+// stale the evidence was going in. With a nightly collect that is routinely
+// hours, so the banner reported a large "delay between deadline and lockdown
+// execution" on a cohort frozen at the instant by the sentinel - understating
+// the system on the one screen a lecturer would cite in a dispute.
+//
+// `lockdown_delay_seconds` comes from the lockdown record, which is the only
+// document that knows when writes actually stopped. The maximum across the
+// cohort, not the first non-null: one student demoted late is exactly what this
+// number is for.
 const preservationUncertaintySeconds = computed(() => {
-  const s = (report.value?.students || []).find((s) => s.uncertainty_interval_seconds != null)
-  return s?.uncertainty_interval_seconds ?? report.value?.uncertainty_seconds ?? null
+  const delays = (report.value?.students || [])
+    .map((s) => s.lockdown_delay_seconds)
+    .filter((d) => typeof d === 'number')
+  if (delays.length) return Math.max(...delays)
+  // A report generated before this field existed. Null rather than the evidence
+  // gap: showing the wrong quantity is what this replaced.
+  return null
 })
 
 // Capacity Alert & 1-Click Bumper Logic (2.D)
@@ -2278,7 +2297,8 @@ const CSV_HEADERS = [
   'feedback_pr_number', 'feedback_pr_url',
   'uncertainty_interval_seconds', 'tagged_submission_tag',
   'tagged_submission_sha', 'tagged_submission_observed_at',
-  'tagged_submission_declared_at', 'lock_down_at', 'preservation_status',
+  'tagged_submission_declared_at', 'lock_down_at', 'lockdown_delay_seconds',
+  'preservation_status',
   'preserved_sha', 'warnings',
 ]
 

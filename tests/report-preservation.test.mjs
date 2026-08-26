@@ -72,10 +72,18 @@ function preservationDoc(login) {
   };
 }
 
-function runReport({ preservation }) {
+function runReport({ preservation, lockdownRecord, lockdownObservedAt }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-report-pres-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(join(dir, "assignments", `${ID}.yml`), BASE_YAML);
+
+  if (lockdownRecord) {
+    mkdirSync(join(dir, "lockdowns", ID), { recursive: true });
+    writeFileSync(
+      join(dir, "lockdowns", ID, "lockdown-record.json"),
+      JSON.stringify(lockdownRecord),
+    );
+  }
 
   mkdirSync(join(dir, "acceptances", ID), { recursive: true });
   writeFileSync(
@@ -92,6 +100,18 @@ function runReport({ preservation }) {
     writeFileSync(
       join(dir, "observations", ID, "alice", "preservation.json"),
       JSON.stringify(preservation),
+    );
+  }
+  if (lockdownObservedAt) {
+    // What lockdown.mjs's phase 2 writes: an observation stamped with when the
+    // nightly LOOKED, which is not when the student was stopped.
+    writeFileSync(
+      join(dir, "observations", ID, "alice", "2026-09-11T00-00-00Z.json"),
+      JSON.stringify({
+        observed_at: lockdownObservedAt,
+        sha: PRESERVED_SHA,
+        collection_type: "lockdown",
+      }),
     );
   }
 
@@ -122,6 +142,68 @@ test("no preservation document still means not-required and a null sha", () => {
   const alice = report.students.find((s) => s.github_login === "alice");
   assert.equal(alice.preservation_status, "not-required");
   assert.equal(alice.preserved_sha, null);
+});
+
+// --- When writes actually stopped --------------------------------------------
+//
+// Two instants get confused here, and they can be hours apart:
+//
+//   lockdown-record.json  results[].lockdown_at  - when the student stopped
+//                                                  being able to push
+//   the lockdown OBSERVATION observed_at         - when the nightly looked
+//
+// The report took the second. With a deadline sentinel the first is the deadline
+// instant and the second is the nightly hours later, so `lock_down_at` said the
+// cohort was frozen at 00:00 for a 20:00 deadline. And the preservation banner's
+// "delay between deadline and lockdown execution" was reading
+// `uncertainty_interval_seconds`, which is the OTHER side of the deadline
+// entirely - the gap between the last observation and the deadline.
+
+const DEADLINE = "2026-09-10T23:59:59Z";
+
+test("lock_down_at comes from the record, not from when the nightly looked", () => {
+  const report = runReport({
+    lockdownObservedAt: "2026-09-11T04:00:00Z",
+    lockdownRecord: {
+      schema_version: 1,
+      assignment_id: ID,
+      results: [
+        { github_login: "alice", lockdown_at: DEADLINE, uncertainty_seconds: 0, snapshot_sha: PRESERVED_SHA },
+      ],
+    },
+  });
+  const alice = report.students.find((s) => s.github_login === "alice");
+  assert.equal(alice.lock_down_at, DEADLINE, "the sentinel stopped her at the deadline");
+  assert.equal(alice.lockdown_delay_seconds, 0, "and the delay was none");
+});
+
+test("the freeze delay is carried, and is not the evidence gap", () => {
+  // A nightly-only freeze: stopped four hours after the deadline. The two
+  // numbers must not be the same value, or the banner is showing the wrong one
+  // again without anybody noticing.
+  const report = runReport({
+    lockdownRecord: {
+      schema_version: 1,
+      assignment_id: ID,
+      results: [
+        { github_login: "alice", lockdown_at: "2026-09-11T04:00:00Z", uncertainty_seconds: 14401, snapshot_sha: PRESERVED_SHA },
+      ],
+    },
+  });
+  const alice = report.students.find((s) => s.github_login === "alice");
+  assert.equal(alice.lockdown_delay_seconds, 14401);
+  assert.notEqual(
+    alice.lockdown_delay_seconds,
+    alice.uncertainty_interval_seconds,
+    "these measure opposite sides of the deadline and must stay distinct",
+  );
+});
+
+test("no lockdown record leaves both fields null rather than inventing them", () => {
+  const report = runReport({});
+  const alice = report.students.find((s) => s.github_login === "alice");
+  assert.equal(alice.lock_down_at, null);
+  assert.equal(alice.lockdown_delay_seconds, null);
 });
 
 test("report.mjs only reads preservation fields preserve.mjs actually writes", () => {

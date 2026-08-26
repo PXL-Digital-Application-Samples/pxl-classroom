@@ -248,8 +248,11 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
           schema_version: 1,
           generated_at: new Date().toISOString(),
           assignment_id: 'lab-preservation',
-          lockdown_at: lockdownTime,
-          uncertainty_seconds: 22,
+          // PER STUDENT, because that is what report.mjs writes. The top-level
+          // `lockdown_at` / `uncertainty_seconds` this fixture used to carry
+          // appear in no report the backend has ever produced - they existed
+          // only because the view had a fallback that read them, so the test
+          // described an invented document and passed against it.
           students: [
             {
               github_login: 'student-1',
@@ -259,6 +262,11 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
               preservation_status: 'preserved',
               preserved_sha: 'c0ffee1234567890abcdef1234567890abcdef12',
               repo_name: `${ORG}/lab-preservation-student-1`,
+              lock_down_at: lockdownTime,
+              // How long after the deadline writes were still possible. NOT
+              // uncertainty_interval_seconds, which measures the other side of
+              // the deadline entirely.
+              lockdown_delay_seconds: 22,
             },
             {
               github_login: 'student-2',
@@ -268,6 +276,8 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
               preservation_status: 'failed',
               preserved_sha: null,
               repo_name: `${ORG}/lab-preservation-student-2`,
+              lock_down_at: lockdownTime,
+              lockdown_delay_seconds: 18,
             },
           ],
         },
@@ -281,6 +291,8 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     await expect(banner).toBeVisible();
     await expect(banner.locator('.preservation-banner-title')).toContainText('Preservation & Lockdown Status');
     await expect(banner).toContainText('1/2 Preserved');
+    // The WORST delay across the cohort, not the first non-null: one student
+    // demoted late is exactly what this number exists to surface.
     await expect(banner).toContainText('(delay: 22s)');
 
     // 2. Inspect Student 1 archive link

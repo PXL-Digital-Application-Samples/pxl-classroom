@@ -114,6 +114,26 @@ async function main() {
   );
   const overrideByLogin = indexOverrides(overrides);
 
+  // THE LOCKDOWN RECORD IS THE AUTHORITY ON WHEN WRITES STOPPED.
+  //
+  // The report used to take `lock_down_at` from the lockdown OBSERVATION's
+  // `observed_at` - which is when the nightly happened to look, not when the
+  // student stopped being able to push. Those are the same only when the
+  // nightly is what froze them; with a deadline sentinel they are hours apart,
+  // and the record already carries the right instant (per target, credited to a
+  // fired sentinel). Nothing read it, so that correctness was invisible.
+  //
+  // It also carries the freeze DELAY, which is the number the preservation
+  // banner claims to show and did not have.
+  const lockdownRecord = await readJsonSafe(
+    join(dataDir, "lockdowns", assignmentId, "lockdown-record.json")
+  );
+  const lockdownByLogin = new Map(
+    (lockdownRecord?.results || [])
+      .filter((r) => r.github_login)
+      .map((r) => [r.github_login, r])
+  );
+
   // Load teams (for group assignments)
   const teams = await readDirJsonFiles(
     join(dataDir, "teams", assignmentId)
@@ -277,6 +297,7 @@ async function main() {
 
     // Find lockdown info from observations
     const lockdownObs = observations.find((o) => o.collection_type === "lockdown");
+    const lockdownRow = lockdownByLogin.get(login);
 
     // Find preservation info
     const preservationPath = join(obsDir, login, "preservation.json");
@@ -328,8 +349,17 @@ async function main() {
       tagged_submission_sha: latestTagObservation?.tagged_sha ?? null,
       tagged_submission_observed_at: latestTagObservation?.observed_at ?? null,
       tagged_submission_declared_at: latestTagObservation?.declared_at ?? null,
-      lock_down_at: lockdownObs?.observed_at ?? null,
-      lock_down_outcome: lockdownObs ? "locked" : null,
+      // The record first: it is when writes actually stopped. The observation's
+      // timestamp is only when the nightly looked, and falls back to it for a
+      // control repo whose record predates this field.
+      lock_down_at: lockdownRow?.lockdown_at ?? lockdownObs?.observed_at ?? null,
+      lock_down_outcome: lockdownObs || lockdownRow ? "locked" : null,
+      // How long after their own deadline this student could still push. NOT
+      // `uncertainty_interval_seconds` below, which is the opposite side of the
+      // deadline - the gap between the last observation and the deadline, i.e.
+      // how stale the evidence was going in. The preservation banner promised
+      // this one and was showing that one.
+      lockdown_delay_seconds: lockdownRow?.uncertainty_seconds ?? null,
       preservation_status: preservation?.verified
         ? "preserved"
         : preservation
@@ -462,6 +492,7 @@ async function main() {
       "tagged_submission_observed_at",
       "tagged_submission_declared_at",
       "lock_down_at",
+      "lockdown_delay_seconds",
       "preservation_status",
       "preserved_sha",
       "warnings",
