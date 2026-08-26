@@ -233,8 +233,17 @@ test("the same leftover on a MIGRATED assignment is a failed cleanup, not an exp
   });
   assert.equal(r["invite-exposure"].severity, "warn");
   assert.match(r["invite-exposure"].message, /signatures, not links/i);
-  assert.match(r["invite-exposure"].message, /Administration: write/);
   assert.match(r["invite-exposure"].message, /Do NOT regenerate/);
+
+  // And it must not name a cause it does not know. "The App lacks
+  // Administration: write" was measured false on 2026-08-26 - the org grants
+  // it - so the message points at the run that has GitHub's own reason instead.
+  assert.doesNotMatch(
+    r["invite-exposure"].message,
+    /Administration: write/,
+    "the sweep must not diagnose a permission it cannot see",
+  );
+  assert.match(r["invite-exposure"].message, /acceptance-handler/i);
 });
 
 test("A BROKER SIGNING FOR AN ASSIGNMENT THAT HAS NO KEYPAIR is caught", async () => {

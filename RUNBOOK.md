@@ -85,13 +85,21 @@ node scripts/generate-invite-keypair.mjs 1
 
 **"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the signed invitation. The broker redacts that title within seconds and the hub deletes the issue once it has read the body, so under normal operation there is nothing to find. A leftover means one of three things, and all of them leave the assignment's link readable by anyone:
 
-1. **The App lacks `Administration: write` on that organization.** `deleteIssue` is a GraphQL mutation that requires repository admin; `issues: write` is not enough. Check what the App declares and what the org approved:
+1. **The deletion failed - read the reason before acting on it.** The handler's warning now carries GitHub's own error text; look at the *Delete the trigger issue* step of the `acceptance-handler` run. It used to assert a cause instead ("the App lacks `Administration: write`"), and measured 2026-08-26 that was **wrong**: the App is granted `administration: write` on the org where the deletion failed, the same token had just read the issue body, and the mutation succeeds with a user token that has repository admin. Do not chase the permission on the strength of the old wording.
+
+   Check the grant if you want to rule it out - what the App asks for, and what one org approved:
 
    ```bash
    gh api apps/pxl-classroom-provisioner --jq .permissions
+   gh api orgs/<org>/installations --jq '.installations[] | select(.app_slug=="pxl-classroom-provisioner") | .permissions'
    ```
 
-   Grant it, then re-run the acceptance handler or delete the leftovers by hand.
+   The second needs org-owner access. If the permission is there and the deletion still fails, the leftovers have to be removed by hand - the broker's redaction has already taken the title out of view, so this is tidying rather than an emergency:
+
+   ```bash
+   gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title pxl-accept' --json number
+   gh api graphql -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' -F id=<issue node id>
+   ```
 
 2. **`INVITE_ENABLED` is `false`.** The job-level `if` skips the whole run, cleanup included, so an issue opened while acceptance was switched off simply sits there.
 

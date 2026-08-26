@@ -191,16 +191,29 @@ jobs:
           # $id is a GraphQL variable, bound by -F below. It must reach the API
           # unexpanded, so the single quotes are the point rather than an
           # oversight.
-          if gh api graphql \
+          # The error is CAPTURED, not discarded. It used to go to /dev/null and
+          # the warning below asserted a cause instead: "deleteIssue needs
+          # Administration: write on the organization". Measured 2026-08-26,
+          # that is false - the App is granted administration: write on the org
+          # where this failed, the same token had just read the issue body, and
+          # the mutation succeeds with a user token that has repository admin.
+          # So the real cause was unknown, unrecorded, and misattributed in the
+          # one line anybody would read. Whatever GitHub says, it says here.
+          #
+          # Actions masks registered secrets in annotations, and the output is
+          # truncated, so this cannot turn into a credential in a run log.
+          if OUT=$(gh api graphql \
                -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' \
-               -F id="$NODE_ID" >/dev/null 2>&1; then
+               -F id="$NODE_ID" 2>&1); then
             echo "::notice::Deleted the trigger issue on ${BROKER_REPO}"
             exit 0
           fi
+          REASON=$(printf '%s' "$OUT" | tr '\n\r' '  ' | cut -c1-300)
           # Not fatal - the acceptance itself already happened, and the broker
           # has redacted the title. But the rename is still in the timeline, so
-          # somebody has to know.
-          echo "::warning::Could not delete the trigger issue on ${BROKER_REPO}. deleteIssue needs Administration: write on the organization; without it the invitation stays recoverable from the issue timeline. Grant the permission and regenerate this assignment's invitation - see RUNBOOK §1.3.1."
+          # somebody has to know, and they need the actual reason rather than a
+          # guess at one.
+          echo "::warning::Could not delete the trigger issue on ${BROKER_REPO}: ${REASON}. The broker has already redacted the title, but the rename remains in the issue timeline. See RUNBOOK §1.3.1."
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
