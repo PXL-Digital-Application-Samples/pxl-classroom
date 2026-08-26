@@ -591,6 +591,8 @@ check-idle: if no active assignments remain -> gh workflow disable daily-activit
 trigger-dashboard: dispatches regenerate-dashboard.yml
 ```
 
+**Only a run that covered every org may disable the nightly.** `active_count` is summed over the orgs *this run* examined, and `workflow_dispatch` takes an `org` input that narrows the matrix to one - so a scoped run's zero is a fact about that org, not about the hub. Both disable jobs (`disable-when-empty` and `check-idle`, and the identical job in `deadline-sentinel.yml`) are therefore gated on `github.event_name != 'workflow_dispatch' || inputs.org == ''`. Without it a single-org dispatch switched the nightly off for every organization, and since only a publish re-enables it, a live exam in an org that run never opened would never have been finalized - with no failed run anywhere, because a workflow that disables itself leaves nothing red behind. A scoped run may still collect, finalize and report; it may not make a statement about the hub as a whole.
+
 ### 9.3 Publish
 
 ```
