@@ -56,6 +56,21 @@ export { parseInviteFields, linkSecretFrom } from '../../../lib/invite-token-for
  * prefix is its job-level filter, evaluated before a runner is allocated.
  */
 export async function signedAcceptanceIssueTitle({ inviteSecret, assignmentId, githubId, teamSlug }) {
+  // MIGRATION IS PER ASSIGNMENT, AND THE LINK IS WHAT SAYS WHICH.
+  //
+  // A link handed out before Phase A carries a 122-character bearer token, not
+  // a key. Signing with it does not fail politely - `fromBase64Url` rejects the
+  // `.` separator and throws "not base64url", which the accept button renders
+  // verbatim. Every assignment live today is in that state, so without this
+  // branch the deploy that ships signing breaks acceptance for all of them at
+  // once, with a message about base64.
+  //
+  // Those assignments still have brokers that verify the old way, so the old
+  // title is the CORRECT one for them until a republish migrates both halves
+  // together. The two shapes cannot be confused: `<35>.<86>` with a dot, versus
+  // a fixed-length key without one.
+  if (TOKEN_PATTERN.test(inviteSecret)) return acceptanceIssueTitle(inviteSecret, teamSlug)
+
   const title = await signAcceptanceTitle({
     privateKey: inviteSecret,
     kid: ACCEPTANCE_FORMAT,
@@ -86,12 +101,15 @@ function randomNonce() {
 }
 
 /**
- * The issue title the broker parses.
+ * The PRE-MIGRATION issue title: the invitation itself, pasted in.
  *
- * Everything the broker needs lives in the title, so it never has to read the
- * issue body - the body is attacker-controlled text, and reading it on a
- * repository that holds App credentials is what ARCHITECTURE §4.3.1 forbids.
- * The `pxl-accept:` prefix is also the broker's job-level filter, which GitHub
+ * Reached only through signedAcceptanceIssueTitle, for an assignment that has
+ * not been republished since Phase A. Its broker still verifies a bearer token
+ * and this is the only title it accepts, so this is the right answer there -
+ * not a fallback, and not something to remove until no live assignment is on
+ * the old form.
+ *
+ * The `pxl-accept:` prefix is the broker's job-level filter, which GitHub
  * evaluates before allocating a runner.
  */
 export function acceptanceIssueTitle(token, teamSlug) {

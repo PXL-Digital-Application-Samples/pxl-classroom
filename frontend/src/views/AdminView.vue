@@ -852,7 +852,13 @@
                   <span>Republish broker</span>
                 </template>
               </button>
-              <small class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched, and links already handed out keep working.</small>
+              <!-- The reassurance is only true once this assignment has a
+                   keypair. The publish that mints one is the publish that
+                   retires every link issued in the old format, and promising
+                   otherwise is UX_PLAN C4 - the UI describing behaviour the
+                   system does not have. -->
+              <small v-if="migratesInvitation" class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched. This assignment still uses the old invitation format, so publishing upgrades it and links handed out so far stop working.</small>
+              <small v-else class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched, and links already handed out keep working.</small>
             </div>
 
             <div class="lifecycle-group lifecycle-transitions">
@@ -955,13 +961,33 @@
                break links already handed out. Rotating is the other thing a
                lecturer needs and had no way to ask for: the input existed on
                publish-assignment.yml and nothing in the app ever sent it. -->
+          <!-- The one case where a repair cannot preserve the links, and it is
+               not a choice: this assignment predates signed acceptance, so its
+               invitation is a bearer token that lands in a public event. The
+               publish mints a keypair, the broker starts checking signatures,
+               and the old titles are refused from that moment. Saying so here
+               is the difference between a lecturer redistributing the link and
+               a cohort quietly failing to accept. Students who follow an old
+               link get a page that says it was replaced, not a 404. -->
+          <div v-if="migratesInvitation" class="alert alert-warning text-sm">
+            <strong>Links handed out so far will stop working.</strong>
+            This assignment still uses the old invitation format, where the link itself was published
+            in GitHub's public event feed every time a student accepted. Publishing upgrades it. Copy
+            the new link afterwards and send it to anyone who has not accepted yet - their repositories,
+            if they already have one, are untouched.
+          </div>
+
           <div class="regen-choice">
             <div class="field checkbox">
               <label>
                 <input type="checkbox" v-model="regenerateInvite" :disabled="publishing" />
                 Regenerate the invitation link
               </label>
-              <small>
+              <small v-if="migratesInvitation">
+                The upgrade above already replaces the link. Tick this as well only if you also want to
+                retire the new one immediately - normally you do not.
+              </small>
+              <small v-else>
                 Leave this off to repair the broker while every link already handed out keeps working.
               </small>
             </div>
@@ -1241,6 +1267,21 @@ const shareAssignment = computed(() => ({
   deadline_at: form.value.deadline_at_local ? localToUtc(form.value.deadline_at_local) : null,
   max_acceptances: form.value.max_acceptances || null,
 }))
+
+// The one republish that CANNOT keep the links alive, and it is not optional.
+//
+// An assignment published before signed acceptance carries a token and no
+// keypair. Its next publish mints one, the broker gets INVITE_PUBKEY, and from
+// that moment it refuses the legacy title - so every link handed out in the old
+// format is dead, whatever the "Regenerate" box says. Two pieces of copy
+// promise the opposite, and leaving them to say it on this one publish is
+// UX_PLAN C4 exactly: the UI describing behaviour the system does not have.
+//
+// It is true only once, per assignment. After the migration the keypair is
+// reused on every republish, the same way the nonce is.
+const migratesInvitation = computed(
+  () => Boolean(form.value.invite_token) && !form.value.invite_key,
+)
 
 // Rotation had no affordance outside the Actions tab, and the one place it
 // belongs is beside the link it retires. handlePublishClick still resets the
@@ -3090,6 +3131,18 @@ details .field { padding: 0 var(--space-sm); }
   background: var(--tint-success-subtle);
   border: 1px solid var(--tint-success-emphasis);
   color: var(--accent-green);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+}
+/* Named for the alert family (info/success/danger), coloured from the
+   `attention` token family - the two vocabularies differ and only one of them
+   has a warning tint. Declaring it matters: an undeclared class renders as a
+   plain div with no error anywhere, which is how a warning-coloured button
+   variant shipped seven times across two components looking unstyled. */
+.alert-warning {
+  background: var(--tint-attention-subtle);
+  border: 1px solid var(--tint-attention-emphasis);
+  color: var(--accent-yellow);
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-md);
 }

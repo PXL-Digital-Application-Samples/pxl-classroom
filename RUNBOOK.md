@@ -79,7 +79,27 @@ node scripts/generate-invite-keypair.mjs 1
 
 **Rotation.** Generate with the next key id, keep the previous entry in `invite-keys.json` so links already in circulation keep verifying, and set the `INVITE_KID` repository *variable* on the hub to the new id so new links use it. Drop the old entry once every assignment signed with it is closed.
 
-**Retiring one assignment's links** does not need the key: republish it with `regenerate_invite: true`, which mints a new nonce and writes it to the broker's `INVITE_NONCE` variable. Every previously issued link for that assignment then reports `superseded`. Plain republishing keeps the existing link alive, so a repair does not silently break links the day before a deadline. In the Admin Panel this is **Regenerate link →**, in the share block beside the link it retires; it opens the republish dialog with the box already ticked and states the consequence before you confirm. The same dialog reached from *Lifecycle → Republish broker* arrives **unticked**, because that path is a repair.
+**Retiring one assignment's links** does not need the key: republish it with `regenerate_invite: true`, which mints a new nonce *and* a new acceptance keypair, and writes both to the broker's `INVITE_NONCE` and `INVITE_PUBKEY` variables. Every previously issued link for that assignment then stops working. Plain republishing keeps the existing link alive, so a repair does not silently break links the day before a deadline. In the Admin Panel this is **Regenerate link →**, in the share block beside the link it retires; it opens the republish dialog with the box already ticked and states the consequence before you confirm. The same dialog reached from *Lifecycle → Republish broker* arrives **unticked**, because that path is a repair.
+
+#### 1.3.2 Migrating an assignment to signed acceptance
+
+There is one republish per assignment that **cannot** keep its links alive, and it is not optional.
+
+Until signed acceptance shipped, the invitation itself travelled in the acceptance issue's title - and that title lands in GitHub's public event feed, which GH Archive mirrors permanently. Measured 2026-08-25: one unauthenticated `curl` against a broker's `/events` returned a live token on an issue that had already been deleted. The link now carries a private key and the student's browser signs with it, so the event carries a signature instead (ARCHITECTURE §4.3.2).
+
+An assignment moves across when it is next published. Nothing is automatic and nothing is scheduled: until you republish, that assignment keeps working exactly as before.
+
+**What to do, per published assignment:**
+
+1. Open it in the Admin Panel. If it still uses the old format, *Republish broker* carries a warning saying so - that warning is the migration flag.
+2. Republish. This mints the keypair, sets `INVITE_PUBKEY` on the broker, and rewrites the broker's workflow.
+3. **Copy the new link and send it to anyone who has not accepted yet.** This is the part nothing can do for you.
+
+**What students holding the old link see.** Not a 404: the old digest keeps resolving, to a page saying *"This invitation link is out of date - ask your lecturer for the current one."* Their repositories, if they already accepted, are untouched.
+
+**Verify it worked** with *Troubleshoot* on the assignment. Tier 4 checks the assignment's `invite_key` and that the broker's `INVITE_PUBKEY` matches it. A missing or mismatched public key fails **every** acceptance in silence, and is exactly what a half-completed republish leaves behind - so check it rather than assuming.
+
+**Do not** hand-edit `invite_key` or `invite_pubkey` in a control repo. They are one pair; changing either half alone locks the cohort out.
 
 **Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
 

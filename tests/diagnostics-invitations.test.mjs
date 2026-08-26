@@ -146,3 +146,78 @@ test("unreadable inputs degrade to info, never a false alarm", async () => {
   const varless = await run(healthy, { varsStatus: 403 });
   assert.equal(varless["invite-nonce"].severity, "info");
 });
+
+// --- a MIGRATED assignment --------------------------------------------------
+//
+// Signed acceptance changed what the four things are, and the engine was still
+// checking the old four. `linkSecretFrom` was swapped in without teaching the
+// parse about the new shape, so `parseToken` saw a 184-character key, returned
+// null, and the engine reported "invite_token is malformed. Republish to mint a
+// valid one." over a perfectly good link - then RETURNED, taking the nonce, the
+// pubkey and the acceptance switch with it. Every test here passed throughout,
+// because none of them had ever built a migrated assignment.
+//
+// The agreement that actually matters now is INVITE_PUBKEY, and nothing checked
+// it at all. A republished broker sends no legacy token, so a missing public key
+// does not fall back to the old behaviour - it rejects every student in silence.
+
+const KEY = {
+  private: "M".padEnd(184, "x"),
+  public: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE-e2e-public-half",
+};
+
+const migrated = {
+  ...healthy,
+  invite_key: KEY.private,
+  invite_pubkey: KEY.public,
+};
+
+const migratedVars = (over = {}) => ({
+  vars: { INVITE_NONCE: NONCE, INVITE_ENABLED: "true", INVITE_PUBKEY: KEY.public, ...over },
+});
+
+test("a migrated assignment is not reported as malformed", async () => {
+  const r = await run(migrated, migratedVars());
+  assert.equal(r["invite-token"].severity, "ok");
+  assert.match(r["invite-token"].message, /keypair/i);
+});
+
+test("and the checks below it still run", async () => {
+  // The regression was not only the false fail - it was the early return. An
+  // assignment with acceptance switched off would have gone unreported.
+  const r = await run(migrated, migratedVars({ INVITE_ENABLED: "false" }));
+  assert.equal(r["invite-enabled"].severity, "warn");
+});
+
+test("a missing INVITE_PUBKEY fails - it does not degrade to the old path", async () => {
+  const r = await run(migrated, { vars: { INVITE_NONCE: NONCE, INVITE_ENABLED: "true" } });
+  assert.equal(r["invite-pubkey"].severity, "fail");
+  assert.match(r["invite-pubkey"].message, /cannot verify a single acceptance/);
+});
+
+test("a broker holding somebody else's key fails", async () => {
+  // What a half-finished republish leaves behind: the assignment's link was
+  // minted from one keypair and the broker verifies against another.
+  const r = await run(migrated, migratedVars({ INVITE_PUBKEY: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE-a-different-key" }));
+  assert.equal(r["invite-pubkey"].severity, "fail");
+  assert.match(r["invite-pubkey"].message, /different acceptance key/);
+});
+
+test("a healthy migrated assignment is quiet, and says nothing about the nonce", async () => {
+  const r = await run(migrated, migratedVars());
+  assert.equal(r["invite-pubkey"].severity, "ok");
+  // The signed path never reads INVITE_NONCE. Judging it here would report a
+  // failure the system does not have - the same rule that keeps a missing
+  // permission from being reported as org drift.
+  assert.equal(r["invite-nonce"], undefined);
+  // And the hub's key file governs the legacy token only.
+  assert.equal(r["invite-key"], undefined);
+});
+
+test("a truncated invite_key is still caught", async () => {
+  // The check that replaces parseToken for this shape. An email client wrapping
+  // a URL, or a hand-edited YAML.
+  const r = await run({ ...migrated, invite_key: KEY.private.slice(0, 100) }, migratedVars());
+  assert.equal(r["invite-token"].severity, "fail");
+  assert.match(r["invite-token"].message, /expected 184/);
+});

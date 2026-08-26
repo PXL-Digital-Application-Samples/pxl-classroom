@@ -5,6 +5,7 @@ import { stringify as yamlStringify } from 'yaml';
 import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
 import { generateKeyPairSync } from 'node:crypto'
 import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
+import { linkSecretFrom } from '../../lib/invite-token-format.mjs'
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -353,23 +354,54 @@ export async function setupStandardMockRoutes(page, {
     const orgAssignmentMap =
       allOrgAssignments[requestedOrg] || (requestedOrg === org ? assignments : {});
 
-    let asgnId = digestIndex.get(`${requestedOrg}/${digest}`) ?? null;
-    if (asgnId === null) {
+    let entry = digestIndex.get(`${requestedOrg}/${digest}`) ?? null;
+    if (entry === null) {
       // Signing is not free, and this route is hit on every navigation. Derive
       // the whole org's digests once, then answer from the map.
-      for (const id of Object.keys(orgAssignmentMap)) {
-        digestIndex.set(`${requestedOrg}/${inviteFileFor(inviteToken(requestedOrg, id))}`, id);
+      for (const [id, def] of Object.entries(orgAssignmentMap)) {
+        // linkSecretFrom, not a rule of its own: whichever field the SPA and
+        // the generator call "the link" is the one this must answer for. A
+        // fixture that decided separately would serve a card at a digest no
+        // surface under test ever asks for.
+        const live = linkSecretFrom(def) || inviteToken(requestedOrg, id);
+        digestIndex.set(`${requestedOrg}/${inviteFileFor(live)}`, { id, superseded: false });
+        // pages/generate.mjs's rule, not a second one: a secret the document
+        // still carries but which is no longer the link resolves to a marker.
+        // Setting `invite_token` on a fixture assignment is therefore how a
+        // spec says "this assignment has migrated, and students are still
+        // holding the old link".
+        if (def?.invite_token && def.invite_token !== live) {
+          digestIndex.set(`${requestedOrg}/${inviteFileFor(def.invite_token)}`, {
+            id,
+            superseded: true,
+          });
+        }
       }
-      asgnId = digestIndex.get(`${requestedOrg}/${digest}`) ?? null;
+      entry = digestIndex.get(`${requestedOrg}/${digest}`) ?? null;
     }
-    if (!asgnId) {
+    if (!entry) {
       await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not found' }) });
       return;
     }
 
-    const body = isTeams
-      ? { schema_version: 1, assignment_id: asgnId, teams: teams[asgnId] || [] }
-      : { schema_version: 1, assignment: { id: asgnId, ...orgAssignmentMap[asgnId] } };
+    const asgnId = entry.id;
+    let body;
+    if (entry.superseded) {
+      // No `assignment` key, exactly as the generator writes it - a build
+      // cached from before this shape existed must fall through to not-found
+      // rather than render half an assignment.
+      body = {
+        schema_version: 1,
+        superseded: true,
+        assignment_id: asgnId,
+        title: orgAssignmentMap[asgnId]?.title,
+        organization: requestedOrg,
+      };
+    } else if (isTeams) {
+      body = { schema_version: 1, assignment_id: asgnId, teams: teams[asgnId] || [] };
+    } else {
+      body = { schema_version: 1, assignment: { id: asgnId, ...orgAssignmentMap[asgnId] } };
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

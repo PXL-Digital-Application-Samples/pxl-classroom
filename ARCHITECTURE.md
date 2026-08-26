@@ -141,15 +141,32 @@ Roster gating (§4.2) is that authorization, but it runs in the hub, *after* the
 
 - `publish-assignment.yml` signs `{version, key id, subject, expiry, nonce}` with the hub secret `PXL_INVITE_SIGNING_KEY` and records the token in the assignment YAML - in the **private** control repo. It must never reach Pages output; `pages/generate.mjs` selects fields explicitly and the privacy scanner is the backstop.
 - The subject is `sha256("<org lowercased>/<assignment-id>")` truncated to 16 bytes, so a link does not advertise what it opens and a token for one assignment cannot open another broker.
-- The whole token is 122 characters and travels in the **issue title**, not the body. That is what lets the broker read everything it needs without touching attacker-controlled body text (§4.3.1).
-- The broker checks out the public hub - no credentials - and verifies against `acceptance/invite-keys.json` before minting. **Verification is asymmetric because the verifier is public.** An HMAC would put the minting secret on every broker; a public key is safe to publish by definition. Encryption is the wrong primitive: the broker cannot hold a decryption key either, and on a public channel ciphertext replays exactly as well as plaintext.
+- Everything the broker needs travels in the **issue title**, not the body. That is what lets it read what it needs without touching attacker-controlled body text (§4.3.1).
+- The broker checks out the public hub - no credentials - and verifies before minting. **Verification is asymmetric because the verifier is public.** An HMAC would put the minting secret on every broker; a public key is safe to publish by definition. Encryption is the wrong primitive: the broker cannot hold a decryption key either, and on a public channel ciphertext replays exactly as well as plaintext.
 - `vars.INVITE_ENABLED` and the `pxl-accept:` title prefix are checked in the workflow's **job-level `if`**, which GitHub evaluates before allocating a runner.
+
+**What lands in the title is a signature, not the invitation.** This is the second version of the mechanism, and the reason for it was measured rather than reasoned about. On 2026-08-25 a single unauthenticated request -
+
+```
+curl -s https://api.github.com/repos/<org>/<broker>/events
+```
+
+\- returned a full, still-valid `pxl-accept:` token on an issue that had **already been deleted**. Every acceptance opens an issue on a public repository; GitHub emits an `IssuesEvent` carrying the title; GH Archive mirrors that firehose into a permanent public dataset. The three mitigations below - redact, delete, sweep - are all *after the fact*, because the `opened` event has already gone out. Rotation kills a token but cannot unpublish it.
+
+Hiding the title is not available. Every student-initiated trigger on a public repository emits a public event, and there is no private transport without self-hosting. So the fix is to make what lands in the event **insufficient on its own**:
+
+- **The link carries a private key**, minted per assignment by `publish-assignment.yml` and stored as `invite_key` in the private control repo. The public half goes onto the broker as the `INVITE_PUBKEY` variable, where it is not a secret at all.
+- **The student's browser signs** an assertion naming their own GitHub account - `{format, assignment id, github id, issued at, nonce}` - and only the signature reaches the title. Replaying it requires being that account; forging one requires the key, which appears in no event.
+- **Both ends check the signer against the issue author.** The broker compares the signed `github_id` to `github.event.issue.user.id` before minting, and the hub checks it again. Neither being skipped may open the hole.
+- **ECDSA P-256, not Ed25519.** Verified 2026-08-25: Ed25519 reached WebCrypto in Chrome only in May 2026, leaving roughly a fifth of browsers unable to sign at all. P-256 is universal in browsers and in Node's `crypto.subtle`, so `lib/acceptance-signature.mjs` serves the SPA, the broker and the hub from one module. Ed25519 stays on the Node-only paths it already owns - the invitation token itself is still signed with it.
+
+**Migration is per assignment, and the switch point is the key.** Every broker checks the hub out at `ref: main`, so an un-republished broker already runs the newest verifier. It takes the signed path only when it is sent **both** a title and a public key: a republished broker sends the title immediately, but the assignment has no keypair until a publish mints one, so activating on the title alone would reject every acceptance in between. A legacy title arriving at a migrated broker is refused as `legacy-link` - named, not called malformed, because the student's link is out of date rather than mistyped.
 
 The floor this leaves: a caller without a valid token costs one boot on a free public runner and touches nothing private. `tests/invite-token.test.mjs` pins the ordering - no step before verification may reference a secret.
 
-**The token is not a secret in the sharing sense.** Anyone the link reaches can accept; that is an accepted risk bounded by `max_acceptances` and closing the assignment (§15). What it prevents is an outsider who never had the link causing work to happen.
+**The invitation is not a secret in the sharing sense.** Anyone the link reaches can accept; that is an accepted risk bounded by `max_acceptances` and closing the assignment (§15). What it prevents is an outsider who never had the link causing work to happen. The signature changes only *where* that boundary holds: the link is still a capability, but it is no longer published by the act of using it.
 
-**The trigger issue has to be destroyed, not closed.** The token travels in the issue title, on a repository that is public by construction. Closing and locking an issue hides nothing: a closed, locked issue on a public repo is still readable, still listed, and still returned by GitHub's issue search. The first student to accept therefore *published* the assignment's token to anyone who looked - which is not the "someone forwards the link to a friend" residual above, but the property itself, gone. It took §4.3.3 with it: the acceptance card is named `sha256(invite_token)`, so a public token is a public card, and for a group assignment a public list of member logins.
+**The trigger issue still has to be destroyed, not closed** - now as defence in depth rather than as the property itself. A legacy token travels in the issue title, on a repository that is public by construction. Closing and locking an issue hides nothing: a closed, locked issue on a public repo is still readable, still listed, and still returned by GitHub's issue search. The first student to accept therefore *published* the assignment's token to anyone who looked - which is not the "someone forwards the link to a friend" residual above, but the property itself, gone. It took §4.3.3 with it: the acceptance card is named `sha256(invite_token)`, so a public token is a public card, and for a group assignment a public list of member logins.
 
 Three steps close it:
 
@@ -157,9 +174,13 @@ Three steps close it:
 - **The hub deletes the issue.** Deletion is GraphQL-only (`deleteIssue`) and needs **admin** on the repository, which `github.token` on a broker can never have and the App's `administration: write` does. It runs in `acceptance-handler.yml` rather than on the broker for a second reason: group acceptance reads the issue *body*, minutes after the dispatch, so deleting at the broker would race that read and break every team join. A failed delete warns rather than failing an acceptance that already succeeded.
 - **System Health sweeps for survivors.** Tier 4 lists the broker's issues and fails on any title still starting with `pxl-accept:` - which is what catches an App installed without `administration: write`, an `INVITE_ENABLED=false` that skips the job before cleanup, and a run that died mid-flight. It runs even when the assignment's own `invite_token` is missing or malformed, because a leftover issue is a published credential regardless.
 
-**Residual, accepted.** Between the student's POST and the broker's redaction the title is public - seconds, on a repository nobody is watching. A rename is also recorded in the issue timeline, so where deletion fails the token is recoverable by someone who goes looking; that is why the failure path tells the lecturer to regenerate the invitation rather than treating redaction as sufficient. `tests/invite-exposure.test.mjs` pins all three steps.
+**Residual, accepted.** For a legacy assignment, the window between the student's POST and the broker's redaction is not the residual - the `opened` event carries the title out of reach of all three steps, permanently, which is what made the signature necessary in the first place. What the three steps still buy is the *browsable* copy: the issue list, GitHub's search, and the timeline entry a rename leaves behind. Where deletion fails, the failure path tells the lecturer to regenerate rather than treating redaction as sufficient. `tests/invite-exposure.test.mjs` pins all three steps.
 
-**Revocation** is the nonce, mirrored to the broker's `INVITE_NONCE` variable. Republishing reuses it, so a repair does not break links already handed out; `regenerate_invite: true` mints a fresh one and every earlier link reports `superseded`. Key rotation is the `kid` field, with old public keys retained until their assignments close. See RUNBOOK §1.3.1.
+For a migrated assignment the published title is a signature over `{assignment id, github id}`. It is bound to the account that authored the issue, whose login is public on that issue anyway, so the residual is that an observer learns *who accepted what* - the same fact the issue itself already stated. It cannot be replayed by anyone else and cannot be turned back into the key.
+
+**Revocation** has two halves, retired together. The nonce is mirrored to the broker's `INVITE_NONCE` variable; the acceptance keypair's public half is mirrored to `INVITE_PUBKEY`. Republishing reuses **both**, so a repair does not break links already handed out - the same contract the nonce has always had, and for the same reason. `regenerate_invite: true` mints a fresh nonce *and* a fresh keypair, and every earlier link stops working. Invitation-signing key rotation is the separate `kid` field, with old public keys retained until their assignments close. See RUNBOOK §1.3.1.
+
+**A retired link resolves to a page that says it was retired.** Migration and rotation both take working links out of students' hands, and those students have done nothing wrong and cannot tell. So `pages/generate.mjs` writes a second, contentless card at the digest of the superseded secret - `{superseded: true, assignment_id, title, organization}`, no acceptance data, deliberately not shaped like an assignment - and the SPA renders "This invitation link is out of date. Ask your lecturer for the current one." Without it the student lands on the not-found page, whose only honest wording is a guess between three causes; a page may not guess why it is stuck - the same rule the provisioning wait screen is built on. The lecturer's half is the Admin Panel warning on the one republish that cannot preserve the links. `tests/superseded-invitation.test.mjs`, `tests/e2e/43-superseded-link.spec.mjs`.
 
 **Where the invitation is recorded, and who reads it back.** The token, nonce and expiry live as three lines in the assignment's YAML in the private control repo. `lib/invite-token-format.mjs` owns both halves of that - `readInviteField` / `parseInviteFields` for reading, `quoteInviteValue` for writing - because a reader that drifts from the writer is a lecturer holding an empty link box, which has now happened four times. Two rules fall out of it:
 
@@ -170,18 +191,20 @@ Three steps close it:
 
 GitHub Pages is public and access-controlled Pages is an Enterprise feature the system never uses (§2), so everything published is world-readable. Until signed invitations existed, `data/<org>/assignments.json` listed every published assignment - id, title, description, deadline, broker repo, roster mode, cap and acceptance count - which made "unlisted assignments" a UI convention rather than a property.
 
-The acceptance card now lives at `data/<org>/i/<sha256(invite_token)>.json`, and a group assignment's teams file beside it as `<sha256>.teams.json`. Consequences:
+The acceptance card now lives at `data/<org>/i/<sha256(link secret)>.json`, and a group assignment's teams file beside it as `<sha256>.teams.json`. The link secret is the assignment's `invite_key` once it has migrated to signed acceptance and its `invite_token` while it has not; `linkSecretFrom` in `lib/invite-token-format.mjs` is the single answer to which, shared by the generator, the Admin Panel and the diagnostic engine, because three copies of that rule would be a 404 for every student the first time they disagreed. Consequences:
 
-- **Finding the card requires the link.** The filename is a digest of the token, so it cannot be derived from an assignment id or guessed.
-- **A leaked filename is not a working link.** The digest is published; the token is not, and one does not yield the other.
-- **The teams file stops being a public cohort list.** It carries member logins, which is the roster by another name.
-- **The privacy scanner gates it.** `pages/scan.mjs` fails the publish on anything matching the token's wire shape, so a future field that carried one could not reach Pages quietly.
+- **Finding the card requires the link.** The filename is a digest of the secret, so it cannot be derived from an assignment id or guessed.
+- **A leaked filename is not a working link.** The digest is published; the secret is not, and one does not yield the other.
+- **The teams file stops being a public cohort list.** It carries member logins, which is the roster by another name. It sits behind the *live* digest only - a superseded link cannot fetch it.
+- **The privacy scanner gates it.** `pages/scan.mjs` fails the publish on anything matching either wire shape - the token's `<35>.<86>`, and the key's PKCS#8 header, which is byte-identical in every P-256 key and so catches a partial paste as well as a whole one. The public half is deliberately not matched: it lives on a public broker by design, and a permanent false positive beside the real findings is how a gate stops being read.
 
 `assignments.json` survives, reduced to `id`, `title`, `organization`, `opens_at`, `deadline_at`, `timezone`, `repository_name_pattern`, `assignment_type` and `state`. It exists for exactly one reason: the student portal at `/` matches a signed-in student's own repositories against assignments, and **students cannot read the control repo**, so that list has nowhere else to come from. Everything an outsider could use to size up or reach an assignment - broker repo, roster mode, cap, accepted count, description, group config - is on the invitation card instead. `tests/public-data-contract.test.mjs` pins both halves.
 
 **The residual is deliberate.** An outsider can still enumerate assignment titles and deadlines per org. After §4.3.2 that discloses course structure; it grants nothing, because acceptance needs a signed invitation. Removing it entirely would mean either breaking the student portal or writing per-student data to a public site, and neither is a trade worth making for a title.
 
-The invitation token is in the URL path, so `frontend/index.html` sets `<meta name="referrer" content="no-referrer">` - otherwise every cross-origin subresource, Google Fonts included, would receive it as a `Referer` header.
+A second card is written at the digest of a secret the document still carries but which is **no longer the link** - the pre-migration token, once a keypair exists. It holds `{superseded: true, assignment_id, title, organization}` and nothing else: no state, no deadline, no cap, no broker, and deliberately no `assignment` key, so a browser running a build cached from before this shape existed falls through to its own not-found state instead of rendering half an assignment with an Accept button. All three fields it does carry are already in `assignments.json`, so it discloses nothing new. See §4.3.2 for why it exists at all.
+
+The link secret is in the URL path, so `frontend/index.html` sets `<meta name="referrer" content="no-referrer">` - otherwise every cross-origin subresource, Google Fonts included, would receive it as a `Referer` header.
 
 #### 4.3.4 Hub defence in depth
 
@@ -282,14 +305,19 @@ state: published                      # draft|published|closed|archived
 max_acceptances: 50                   # optional; absent means NO cap
 lock_down_enabled: true
 
-# Written by publish-assignment.yml, never by hand. The token is a capability:
-# it stays in this PRIVATE repo and reaches Pages only as a sha256 filename
-# (§4.3.2, §4.3.3). Republishing reuses the nonce and expiry so links already
-# handed out keep working; regenerate_invite mints a new one and retires them.
-invite_token: AQGL...w9NAj9P              # signed, 122 chars
+# Written by publish-assignment.yml, never by hand. Both secrets are
+# capabilities: they stay in this PRIVATE repo and reach Pages only as sha256
+# filenames (§4.3.2, §4.3.3). Republishing reuses the nonce, the expiry AND the
+# keypair, so links already handed out keep working; regenerate_invite mints new
+# ones and retires them.
+invite_key: MIGHAgEAMBM...Rgsd            # P-256 private key, 184 chars - THE LINK
+invite_pubkey: MFkwEwYHKoZ...LHQ          # mirrored to the broker's INVITE_PUBKEY
+invite_token: AQGL...w9NAj9P              # legacy bearer token, 122 chars
 invite_nonce: 63ad9fbc                    # mirrored to the broker's INVITE_NONCE
 invite_expires_at: 2027-09-27T01:27:18Z
 ```
+
+**Two secrets, one of which is the link.** `invite_key` is the link on any assignment that has been published since signed acceptance shipped; `invite_token` is the link on one that has not. `linkSecretFrom` decides, once, for every surface (§4.3.3). The token is retained after migration for one reason: its digest is where a student's old link still lands, and that URL has to resolve to a page saying so rather than to a 404.
 
 **`acceptance_mode` has one implemented value.** A `pre-provisioned` mode - the lecturer creates repositories up front and GitHub sends its own repository invitations - was offered in the schema and the Admin Panel but implemented in no code path, so selecting it silently produced self-service behaviour. It has been removed rather than left as a trap; see §16. With one value left there is no decision to make, so the Admin Panel renders **no control** for it - a select with a single option asks a question the lecturer cannot answer. The field is still written by `buildDoc()` and published on the acceptance card; the schema is unchanged, so existing YAMLs keep validating.
 
@@ -497,13 +525,18 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
    the link - then shows title, opens_at, deadline, current state.
    - *Acceptance Gating:* The SPA gates the acceptance flow: if the assignment state is not 'published' (e.g., if it is 'closed' or 'draft') or if the current time is before `opens_at`, it displays a status warning message instead of the Accept button. If the student has already accepted and has a provisioned repository, they can still access their repository.
 3. Student clicks "Accept" -> device-flow auth (only if first time this session)
-4. SPA opens an issue on <org>/broker-<assignment-id> titled
-   `pxl-accept:<token>[ team:<slug>]`
+4. SPA SIGNS an assertion naming this student's own account with the private key
+   from the link, and opens an issue on <org>/broker-<assignment-id> titled
+   `pxl-accept:<kid>.<payload>.<signature>[ team:<slug>]`. The title lands in a
+   public event, so what it carries must be useless to anyone else (§4.3.2)
 5. Broker job-level `if` checks the title prefix and vars.INVITE_ENABLED, before
    GitHub allocates a runner
 6. Broker checks out the public hub (no credentials) and verifies the signature
-   against acceptance/invite-keys.json. An invalid token stops here - nothing
-   private has been touched and no credential has been minted (§4.3.2)
+   against vars.INVITE_PUBKEY, then checks the signed github_id against the
+   issue's author. An invalid or replayed signature stops here - nothing private
+   has been touched and no credential has been minted (§4.3.2). An assignment
+   with no keypair yet falls back to verifying a legacy token against
+   acceptance/invite-keys.json
 7. Only then: broker mints a token for the pxl-classroom-scoped App installation
    and POSTs /repos/PXL-DAS/pxl-classroom/dispatches type=acceptance
 8. acceptance-handler.yml in the hub:
@@ -725,7 +758,7 @@ A regression guard test (`tests/cors.test.mjs`) fails CI if `auth.js` ever direc
 ### 10.3 Data sources
 
 - **Invitation link, lecturer side:** `frontend/src/components/InvitationShare.vue` is the one place the link is presented, on four surfaces (publish banner, assignment detail header, admin list row, dashboard card). It is truncated on screen and whole in the `title` and the clipboard; its status line is the **student-facing** truth, gated on the same conditions `AssignmentView` uses to show an Accept button. The token itself lives only in the private control repo, so a caller holding only an id (a dashboard card, built from `dashboard.json`, which must not carry it) has the component read it **on click** rather than on render - twenty cards cost nothing. `:resolve="false"` marks a caller that is authoritative about the token instead: rotating an invitation deliberately clears it, and a lazy re-read of the not-yet-rewritten YAML would hand the retired link back.
-- **Acceptance card:** static Pages JSON at `/data/<org>/i/<sha256(invite_token)>.json`, one file per invitation, with a group assignment's teams file beside it as `<sha256>.teams.json`. Fetching it requires the link (§4.3.3). `pages/generate.mjs` writes these into each control repo's `public/`, and `scripts/fetch-pages-data.mjs` gathers them into the SPA at build time. **The card reports the assignment's own guardrails and never substitutes a default for one that is absent**: `max_acceptances` is published as `null` when the assignment has no cap, because `accept.mjs` gates on `if (maxAcceptances && ...)` and therefore enforces nothing. Both the generator and `AssignmentView` used `?? 150`, so an uncapped assignment showed "Registration cap reached" to student 151 while the server would have provisioned them.
+- **Acceptance card:** static Pages JSON at `/data/<org>/i/<sha256(link secret)>.json`, one file per invitation, with a group assignment's teams file beside it as `<sha256>.teams.json`. Fetching it requires the link (§4.3.3). A superseded secret gets a second, contentless card at its own digest, so an out-of-date link resolves to a page that says so. `pages/generate.mjs` writes these into each control repo's `public/`, and `scripts/fetch-pages-data.mjs` gathers them into the SPA at build time. **The card reports the assignment's own guardrails and never substitutes a default for one that is absent**: `max_acceptances` is published as `null` when the assignment has no cap, because `accept.mjs` gates on `if (maxAcceptances && ...)` and therefore enforces nothing. Both the generator and `AssignmentView` used `?? 150`, so an uncapped assignment showed "Registration cap reached" to student 151 while the server would have provisioned them.
 - **Portal index:** `/data/<org>/assignments.json`, reduced to the fields the student portal needs to match a signed-in student's own repositories against an assignment. It carries nothing that would let an outsider size up or reach one.
 - **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch - not N per-student calls. When that file is absent (a newly onboarded org, before the first publish or nightly), the view falls back to listing `assignments/` - and **counts drafts by reading each YAML's own `state`**, not by counting files. It counted files, so a lecturer who had just published two assignments was told they had two drafts and to *"publish to track them here"*; what is missing on that branch is the report, not the publish. The listing carries names only, so each file is fetched (6-way pool, fallback path only) and anything unreadable or unparseable is left out of the count rather than assumed to be a draft. With nothing in draft the copy says what is actually pending instead.
 - **Student status:** the student's own token reads `/repos/<org>/<expected-name>` and `/user/repository_invitations` - never the control repo.
@@ -1006,8 +1039,8 @@ The engine evaluates dependencies in strict hierarchical order:
 3. **Tier 2 (Control Repo):** Control repository existence, privacy (`private: true`), and canonical scaffold directory integrity.
 4. **Tier 3 (Assignment & Template):** YAML schema validation, starter template accessibility, `is_template: true` verification on GitHub, and enforced roster file presence.
 5. **Tier 4 (Acceptance Broker):** Broker repository existence, public visibility (`private: false`), and `.github/workflows/acceptance-trigger.yml` integrity.
-5b. **Tier 4 (Acceptance Broker) also verifies the invitation chain.** Four things must agree before a student can accept, and every mismatch fails silently - the broker skips or rejects, nothing is written to the control repo, and the lecturer sees a working page. The engine checks that the assignment holds an `invite_token`, that the hub publishes the key id it was signed with, that the broker's `INVITE_NONCE` matches the one the token carries, and that `INVITE_ENABLED` is not `false`. It also flags a broker still running a pre-invitation workflow. All of it stays silent for an unsaved Admin Panel form, which never carries a token.
-6. **Tier 5 (Student Edge & Pages):** Control repo `public/` compilation, GitHub Pages CDN propagation, and student invitation link readiness - an assignment published before signed invitations existed has no `invite_token`, so no acceptance card is generated and its link cannot resolve until it is republished.
+5b. **Tier 4 (Acceptance Broker) also verifies the invitation chain.** Several independent things must agree before a student can accept, and every mismatch fails silently - the broker skips or rejects, nothing is written to the control repo, and the lecturer sees a working page. **Which things depends on whether the assignment has migrated**, and conflating the two was a false failure on every migrated one: the link secret was parsed as a legacy token, a 184-character key came back malformed, and the engine reported "republish to mint a valid one" over a working link *and then stopped*, so everything below it went unchecked too. A migrated assignment is checked for a well-formed `invite_key` and for the broker's `INVITE_PUBKEY` matching the assignment's own public half - the one agreement the signed path actually rests on, and previously checked nowhere; its `INVITE_NONCE` is deliberately **not** judged, because the signed path never reads it. An unmigrated one is checked for a well-formed `invite_token`, for the hub publishing the key id it was signed with, and for the broker's `INVITE_NONCE` matching. `INVITE_ENABLED` and the exposure sweep apply to both. It also flags a broker still running a pre-invitation workflow. All of it stays silent for an unsaved Admin Panel form, which never carries an invitation.
+6. **Tier 5 (Student Edge & Pages):** Control repo `public/` compilation, GitHub Pages CDN propagation, and student invitation link readiness - an assignment published before signed invitations existed has no invitation at all, so no acceptance card is generated and its link cannot resolve until it is republished.
 
 The Web UI integrates 1-click self-healing automated repairs (`mark_template`, `publish_broker`, `make_broker_public`, `deploy_pages`, `regen_dashboard`, `setup_org`, `navigate_roster`) that execute immediate remediation and automatically re-run diagnostics. Exit codes mirror severity: `0` clean, `1` warnings, `2` failures.
 

@@ -18,6 +18,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { normalizeRosterMode } from "../lib/roster-mode.mjs";
 import { inviteFileFor } from "../lib/invite-token.mjs";
+import { linkSecretFrom } from "../lib/invite-token-format.mjs";
 import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.mjs";
 
 async function setOutput(name, value) {
@@ -164,7 +165,11 @@ async function main() {
       state: card.state,
     };
 
-    const inviteFile = def.invite_token ? inviteFileFor(def.invite_token) : null;
+    // Which of the two secrets is the link is decided in ONE place, shared with
+    // the Admin Panel and the diagnostic engine. A copy of that rule here would
+    // be a 404 for every student the first time the three disagreed.
+    const linkSecret = linkSecretFrom(def);
+    const inviteFile = linkSecret ? inviteFileFor(linkSecret) : null;
     if (inviteFile) {
       await mkdir(join(outputDir, "i"), { recursive: true });
       await writeFile(
@@ -175,7 +180,50 @@ async function main() {
     } else {
       // Published before signed invitations existed, or published by hand.
       // Republish mints one; until then the link cannot resolve.
-      console.warn(`[warning] ${def.id} has no invite_token - no invitation file generated`);
+      console.warn(`[warning] ${def.id} has no invitation secret - no invitation file generated`);
+    }
+
+    // The link a student was handed BEFORE this assignment migrated to signed
+    // acceptance is now dead: the broker has INVITE_PUBKEY, so it refuses a
+    // legacy `pxl-accept:<token>` title outright. Pruning that card would leave
+    // the student on a page whose only honest answer is a guess - "it may be
+    // out of date, incomplete, or not open yet". A page may not guess (the same
+    // rule that governs the provisioning wait screen), so the old digest keeps
+    // resolving, to a document that states the fact.
+    //
+    // Deliberately NOT nested under `assignment`: a browser holding a cached
+    // build from before this existed reads `data.assignment.id`, finds nothing,
+    // and falls through to its own not-found state rather than rendering an
+    // assignment with no deadline and no state.
+    // Phrased as "a secret that is no longer the link", not as "has both
+    // fields", so it tracks linkSecretFrom rather than restating it. On an
+    // assignment that has NOT migrated the token IS the link, and the two
+    // spellings differ exactly there: this writes nothing, where a both-fields
+    // test would replace that cohort's only working card with a tombstone.
+    const supersededSecret =
+      def.invite_token && def.invite_token !== linkSecret ? def.invite_token : null;
+    if (supersededSecret) {
+      const supersededFile = inviteFileFor(supersededSecret);
+      await mkdir(join(outputDir, "i"), { recursive: true });
+      await writeFile(
+        join(outputDir, "i", `${supersededFile}.json`),
+        JSON.stringify(
+          {
+            schema_version: 1,
+            superseded: true,
+            // All three are already in assignments.json, so naming the
+            // assignment here discloses nothing new - and without them the page
+            // cannot say WHICH link went out of date, which is the one thing a
+            // student needs in order to ask for the right replacement.
+            assignment_id: def.id,
+            title: def.title,
+            organization: def.organization,
+          },
+          null,
+          2
+        ) + "\n"
+      );
+      expectedInviteFiles.add(`${supersededFile}.json`);
     }
 
     // If group assignment, also generate sanitized public teams file
@@ -223,7 +271,7 @@ async function main() {
       }
 
       if (!inviteFile) {
-        console.warn(`[warning] ${def.id} has no invite_token - no teams file generated`);
+        console.warn(`[warning] ${def.id} has no invitation secret - no teams file generated`);
         continue;
       }
       await writeFile(

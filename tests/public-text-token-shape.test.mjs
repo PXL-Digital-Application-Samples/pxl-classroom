@@ -18,6 +18,10 @@ import assert from "node:assert/strict";
 
 import { PUBLIC_TEXT_RULES, findPublicTextViolation } from "../lib/public-text.mjs";
 import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
+import {
+  generateAcceptanceKeypair,
+  ACCEPTANCE_KEY_LENGTH,
+} from "../lib/acceptance-signature.mjs";
 
 const KEYPAIR = generateKeyPair();
 
@@ -128,6 +132,101 @@ test("the rule does not fire on ordinary published text", () => {
     "Deadline 2027-01-30. Submit on main.",
     "See https://github.com/PXL-2TIN-NetAdv-26-27/Guts-DotNetAdvanced-2627",
     "commit 3f2a9c1e8b7d6a5f4e3c2b1a0987654321fedcba",
+  ]) {
+    assert.equal(findPublicTextViolation(ok), null, `false positive on: ${ok}`);
+  }
+});
+
+// --- the invitation is a private key now ------------------------------------
+//
+// CLAIM_PLAN Phase A replaced the bearer token with a keypair: the link carries
+// the PRIVATE half, and the student's browser signs with it. The rule above is
+// keyed on the token's `<35>.<86>` shape and cannot see a key at all - so for
+// the length of that migration the publish gate would have waved a leaked
+// invitation straight through, silently, which is the failure mode the top of
+// this file is about.
+
+const keyRule = () => PUBLIC_TEXT_RULES.find((r) => r.name === "invitation-key");
+
+test("the key rule is anchored on something every minted key actually contains", async () => {
+  // The rule matches a DER header rather than a length, and that only works
+  // because a PKCS#8 P-256 key is a fixed structure. Pin it against real mints:
+  // change the curve or the export format and this goes red, instead of the
+  // gate quietly matching nothing.
+  const prefixes = new Set();
+  for (let i = 0; i < 25; i++) {
+    const { privateKey } = await generateAcceptanceKeypair();
+    assert.equal(privateKey.length, ACCEPTANCE_KEY_LENGTH);
+    prefixes.add(privateKey.slice(0, 36));
+  }
+  assert.equal(prefixes.size, 1, "the anchored prefix is no longer constant across mints");
+
+  const rule = keyRule();
+  assert.ok(rule, "the invitation-key rule must exist");
+  assert.ok(
+    rule.re.source.includes([...prefixes][0]),
+    `the rule anchors on a prefix keys no longer have (they start ${[...prefixes][0]})`,
+  );
+});
+
+test("every key is caught inside generated JSON", async () => {
+  // The real shape: a leak reaches the scanner as a JSON string value in a
+  // published artifact.
+  const missed = [];
+  for (let i = 0; i < 50; i++) {
+    const { privateKey } = await generateAcceptanceKeypair();
+    if (!findPublicTextViolation(`{"invite_key":"${privateKey}"}`)) missed.push(i);
+  }
+  assert.deepEqual(missed, [], `${missed.length} of 50 invitation keys passed the publish gate`);
+});
+
+test("the OLD rule could not see a key - which is why this one exists", async () => {
+  // The mutation, made permanent: if the token rule ever starts matching a key,
+  // the two rules overlap and one of them is redundant. Until then this records
+  // that adding the second rule was not defence in depth, it was the whole
+  // check.
+  const { privateKey } = await generateAcceptanceKeypair();
+  const token = mint(1);
+  const tokenOnly = new RegExp(tokenRule().re.source, tokenRule().re.flags);
+  assert.equal(tokenOnly.test(privateKey), false, "the token rule now matches a key too");
+
+  // And the reverse, so a future edit cannot collapse them into one.
+  const keyOnly = new RegExp(keyRule().re.source, keyRule().re.flags);
+  assert.equal(keyOnly.test(token), false, "the key rule now matches a token too");
+});
+
+test("a truncated key is still caught", async () => {
+  // A partial paste is still a leak, and a length-based rule would have missed
+  // it. Anything carrying the header is reported.
+  const { privateKey } = await generateAcceptanceKeypair();
+  for (const cut of [60, 100, 150, 183]) {
+    assert.ok(
+      findPublicTextViolation(`{"k":"${privateKey.slice(0, cut)}"}`),
+      `a key truncated to ${cut} characters passed the gate`,
+    );
+  }
+});
+
+test("the PUBLIC half is deliberately not flagged", async () => {
+  // It lives on a public broker as INVITE_PUBKEY and publishing it costs
+  // nothing. Flagging it would put a permanent false positive beside the real
+  // findings, which is how a gate stops being read.
+  for (let i = 0; i < 10; i++) {
+    const { publicKey } = await generateAcceptanceKeypair();
+    assert.equal(
+      findPublicTextViolation(`{"invite_pubkey":"${publicKey}"}`),
+      null,
+      "the public key must not trip the gate",
+    );
+  }
+});
+
+test("the key rule does not fire on ordinary published text", () => {
+  for (const ok of [
+    "Linux Processes 2026",
+    "Use MIGHTY_FLAG=1 to enable verbose output.",
+    "Base64 is not a cipher. MIGHAgEA is not a key on its own either.",
+    "See https://github.com/PXL-2TIN-NetAdv-26-27/Guts-DotNetAdvanced-2627",
   ]) {
     assert.equal(findPublicTextViolation(ok), null, `false positive on: ${ok}`);
   }

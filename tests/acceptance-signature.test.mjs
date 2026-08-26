@@ -21,6 +21,8 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 
 import { validateAgainst } from "../lib/validate.mjs";
+import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
+import { signedAcceptanceIssueTitle } from "../frontend/src/lib/invite.js";
 
 import {
   generateAcceptanceKeypair,
@@ -336,4 +338,80 @@ test("two acceptances by the same account produce different titles", async () =>
   assert.notEqual(a, b);
   assert.equal((await verify(a)).ok, true);
   assert.equal((await verify(b)).ok, true);
+});
+
+// --- the migration, from the accept button's side ---------------------------
+//
+// Signing is per assignment, and on the day it ships NO assignment has a
+// keypair - every live link is still a 122-character bearer token. The SPA
+// builds its title from whatever secret the URL carries, so an unbranched
+// `signAcceptanceTitle` is handed a token, `fromBase64Url` rejects the `.`
+// separator, and the accept button renders **"not base64url"** to the student.
+// That is every live cohort, on the deploy, at once.
+//
+// The old brokers those links point at still verify the old way, so the old
+// title is not a fallback - it is the correct output until a republish migrates
+// the broker and the assignment together.
+
+const LEGACY_SIGNING = generateKeyPair();
+const legacySecret = (id = "hw-1") =>
+  signInviteToken({
+    org: "PXLAutomation",
+    assignmentId: id,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    nonce: "0badc0de",
+    privateKeyPem: LEGACY_SIGNING.privateKeyPem,
+  });
+
+test("a pre-migration link still produces the title its broker understands", async () => {
+  const token = legacySecret();
+  const out = await signedAcceptanceIssueTitle({
+    inviteSecret: token,
+    assignmentId: "hw-1",
+    githubId: GITHUB_ID,
+  });
+
+  assert.equal(out, `${TITLE_PREFIX}${token}`);
+});
+
+test("a pre-migration link does not throw at the accept button", async () => {
+  // The specific regression: the student sees the exception text.
+  await assert.doesNotReject(() =>
+    signedAcceptanceIssueTitle({
+      inviteSecret: legacySecret(),
+      assignmentId: "hw-1",
+      githubId: GITHUB_ID,
+    }),
+  );
+});
+
+test("the team hint survives the legacy branch", async () => {
+  // It is the acceptance concurrency key, and per-team serialization is the
+  // only thing guarding max_team_size - dropping it on this path would let two
+  // joins read the same count.
+  const token = legacySecret("group-1");
+  const out = await signedAcceptanceIssueTitle({
+    inviteSecret: token,
+    assignmentId: "group-1",
+    githubId: GITHUB_ID,
+    teamSlug: "alpha",
+  });
+
+  assert.equal(out, `${TITLE_PREFIX}${token} team:alpha`);
+});
+
+test("a migrated link signs, and does not fall back to pasting the secret", async () => {
+  const { privateKey } = await keypair();
+  const out = await signedAcceptanceIssueTitle({
+    inviteSecret: privateKey,
+    assignmentId: SUBJECT,
+    githubId: GITHUB_ID,
+  });
+
+  assert.ok(out.startsWith(TITLE_PREFIX));
+  assert.ok(
+    !out.includes(privateKey),
+    "the key must never reach the title - that is the whole point of the change",
+  );
+  assert.equal((await verifyAcceptanceTitle({ title: out, publicKey: (await keypair()).publicKey })).ok, true);
 });

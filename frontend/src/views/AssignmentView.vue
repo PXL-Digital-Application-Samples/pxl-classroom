@@ -17,6 +17,32 @@
         <button class="btn btn-primary" @click="retry">Try again</button>
       </div>
 
+      <!-- The link is real, and out of date.
+           A student holding a pre-migration link cannot accept with it - the
+           broker refuses a legacy title once it has a public key - so the old
+           digest resolves to a card that says exactly that, rather than to the
+           "not found" state whose only honest wording is a guess. -->
+      <div v-else-if="superseded" class="center-card fade-in">
+        <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
+        <h2>This invitation link is out of date</h2>
+        <p class="text-secondary">
+          <template v-if="superseded.title">
+            The link you used for <strong>{{ superseded.title }}</strong> has been replaced with a new one.
+          </template>
+          <template v-else>
+            The link you used has been replaced with a new one.
+          </template>
+        </p>
+        <p class="text-secondary">
+          Ask your lecturer for the current invitation link. The assignment itself is unaffected -
+          if you have already accepted it, your repository is untouched and you can find it under
+          your GitHub account.
+        </p>
+        <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-md); justify-content: center;">
+          <router-link to="/" class="btn btn-primary">My assignments</router-link>
+        </div>
+      </div>
+
       <!-- Assignment not found -->
       <div v-else-if="!assignment" class="center-card fade-in">
         <template v-if="isPollingNotFound">
@@ -411,6 +437,7 @@ import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
+import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
@@ -435,6 +462,10 @@ const resolvedId = computed(() => assignment.value?.id || '')
 const loading = ref(true)
 const error = ref(null)
 const assignment = ref(null)
+// Set when the card at this digest says the link it came from has been
+// replaced. Distinct from `assignment` and from "not found", because the three
+// call for three different sentences.
+const superseded = ref(null)
 const user = ref(getUser())
 const acceptState = ref('ready')  // ready | pending | provisioned | invited | error
 const accepting = ref(false)
@@ -576,6 +607,22 @@ async function loadAssignment(isRetry = false) {
     loading.value = true
   }
   error.value = null
+  superseded.value = null
+
+  // Finding the card requires hashing the link secret, and signing needs the
+  // same API. Without this the failure arrives as a TypeError inside the fetch
+  // and reads as a network problem, sending the student to check a connection
+  // that is fine. Pages is HTTPS, so in practice this is a local http:// dev
+  // server or a browser without WebCrypto.
+  if (!hasWebCrypto()) {
+    error.value =
+      'This page needs Web Crypto, which your browser only provides over HTTPS. ' +
+      'Open the link over https://, or try a current version of Chrome, Firefox, Edge or Safari.'
+    loading.value = false
+    stopNotFoundPolling()
+    return
+  }
+
   try {
     // Fetched by the digest of the invitation, not by assignment id: the
     // org-wide index no longer carries the acceptance card, so holding the link
@@ -587,7 +634,12 @@ async function loadAssignment(isRetry = false) {
       // means there is no such invitation - that's "not found", not an error.
       let data = null
       try { data = await res.json() } catch { /* treat as not found */ }
-      if (data?.assignment?.id) {
+      // Checked BEFORE the assignment shape, and it carries no `assignment`
+      // key, so neither branch can be mistaken for the other.
+      if (data?.superseded) {
+        superseded.value = { id: data.assignment_id || null, title: data.title || null }
+        stopNotFoundPolling()
+      } else if (data?.assignment?.id) {
         assignment.value = { ...data.assignment }
         stopNotFoundPolling()
         if (isAuthenticated()) {
@@ -602,8 +654,11 @@ async function loadAssignment(isRetry = false) {
   }
   loading.value = false
 
-  // Auto-poll when assignment is not yet present on Pages (e.g. freshly published)
-  if (!assignment.value && !error.value) {
+  // Auto-poll when assignment is not yet present on Pages (e.g. freshly
+  // published). A superseded card is a definite answer, so polling it six times
+  // would only stall the student on a spinner before showing what the first
+  // response already said.
+  if (!assignment.value && !error.value && !superseded.value) {
     if (notFoundPollCount.value < maxNotFoundPolls) {
       isPollingNotFound.value = true
       notFoundPollCount.value++
