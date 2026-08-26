@@ -83,23 +83,22 @@ node scripts/generate-invite-keypair.mjs 1
 
 **Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
 
-**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the signed invitation. The broker redacts that title within seconds and the hub deletes the issue once it has read the body, so under normal operation there is nothing to find. A leftover means one of three things, and all of them leave the assignment's link readable by anyone:
+**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the invitation. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run.
 
-1. **The deletion failed - read the reason before acting on it.** The handler's warning now carries GitHub's own error text; look at the *Delete the trigger issue* step of the `acceptance-handler` run. It used to assert a cause instead ("the App lacks `Administration: write`"), and measured 2026-08-26 that was **wrong**: the App is granted `administration: write` on the org where the deletion failed, the same token had just read the issue body, and the mutation succeeds with a user token that has repository admin. Do not chase the permission on the strength of the old wording.
+The issue itself is never deleted, and cannot be: `deleteIssue` refuses an App installation token with `FORBIDDEN: Viewer not authorized to delete`, measured live 2026-08-26 in two organizations that both grant the App `administration: write`. Only a user token with repository admin can delete an issue, and this system holds no such credential by design. Deleting leftovers by hand is therefore a manual step, and after the move to signed acceptance it is tidying rather than an exposure - the title is a signature naming one account, not a link.
 
-   Check the grant if you want to rule it out - what the App asks for, and what one org approved:
+A leftover means one of these:
 
-   ```bash
-   gh api apps/pxl-classroom-provisioner --jq .permissions
-   gh api orgs/<org>/installations --jq '.installations[] | select(.app_slug=="pxl-classroom-provisioner") | .permissions'
-   ```
+1. **The broker's redaction step did not run or failed.** Check the broker's own Actions run for that acceptance - `Redact and close trigger issue` on the accepted path, `Reject invalid invitation` on the rejected one. Both need only `issues: write`, which `github.token` on the broker has, so a failure here is a dead run or a workflow that predates the step rather than a permission.
 
-   The second needs org-owner access. If the permission is there and the deletion still fails, the leftovers have to be removed by hand - the broker's redaction has already taken the title out of view, so this is tidying rather than an emergency:
+   Remove the leftovers with your **own** account, which must have repository admin (being an org owner is not automatically enough):
 
    ```bash
-   gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title pxl-accept' --json number
+   gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title pxl-accept' --json number,id
    gh api graphql -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' -F id=<issue node id>
    ```
+
+   Do **not** chase App permissions for this. An installation token cannot delete an issue whatever it is granted (see above), and older wording in this runbook sent people to approve `Administration: write` on organizations that already had it.
 
 2. **`INVITE_ENABLED` is `false`.** The job-level `if` skips the whole run, cleanup included, so an issue opened while acceptance was switched off simply sits there.
 

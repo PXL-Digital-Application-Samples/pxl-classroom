@@ -174,46 +174,36 @@ jobs:
       # acceptance card is named sha256(token), makes the card and its teams file
       # public too (§4.3.3).
       #
-      # The broker redacts the title within seconds; this removes the issue and
-      # its rename history. It runs HERE, not there, for two reasons: deleting
-      # needs ADMIN on the repository, which `github.token` on the broker never
-      # has and the App's `administration: write` does - and the body has to be
-      # read for group acceptance before the issue can go.
-      - name: Delete the trigger issue
-        if: always() && steps.team.outputs.issue_node_id != ''
-        shell: bash
-        env:
-          GH_TOKEN: ${{ steps.token.outputs.token }}
-          NODE_ID: ${{ steps.team.outputs.issue_node_id }}
-          BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
-        run: |
-          # shellcheck disable=SC2016
-          # $id is a GraphQL variable, bound by -F below. It must reach the API
-          # unexpanded, so the single quotes are the point rather than an
-          # oversight.
-          # The error is CAPTURED, not discarded. It used to go to /dev/null and
-          # the warning below asserted a cause instead: "deleteIssue needs
-          # Administration: write on the organization". Measured 2026-08-26,
-          # that is false - the App is granted administration: write on the org
-          # where this failed, the same token had just read the issue body, and
-          # the mutation succeeds with a user token that has repository admin.
-          # So the real cause was unknown, unrecorded, and misattributed in the
-          # one line anybody would read. Whatever GitHub says, it says here.
-          #
-          # Actions masks registered secrets in annotations, and the output is
-          # truncated, so this cannot turn into a credential in a run log.
-          if OUT=$(gh api graphql \
-               -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' \
-               -F id="$NODE_ID" 2>&1); then
-            echo "::notice::Deleted the trigger issue on ${BROKER_REPO}"
-            exit 0
-          fi
-          REASON=$(printf '%s' "$OUT" | tr '\n\r' '  ' | cut -c1-300)
-          # Not fatal - the acceptance itself already happened, and the broker
-          # has redacted the title. But the rename is still in the timeline, so
-          # somebody has to know, and they need the actual reason rather than a
-          # guess at one.
-          echo "::warning::Could not delete the trigger issue on ${BROKER_REPO}: ${REASON}. The broker has already redacted the title, but the rename remains in the issue timeline. See RUNBOOK §1.3.1."
+      # THE HUB DOES NOT DELETE THE ISSUE, AND CANNOT. Do not add it back.
+      #
+      # A `deleteIssue` step lived here for months and had never once succeeded.
+      # Measured live on 2026-08-26, twice, in two different organizations:
+      #
+      #   {"type":"FORBIDDEN","path":["deleteIssue"],
+      #    "message":"Viewer not authorized to delete"}
+      #
+      # It is NOT a missing permission, which is what the step's own warning
+      # asserted while sending the error to /dev/null. Both organizations grant
+      # the App `administration: write`; the same installation token had read
+      # this very issue two steps earlier; and in the publish run that created
+      # this broker the same token created the repository and wrote its secrets
+      # and variables, all of which need admin. The identical mutation succeeds
+      # immediately with a USER token holding repository admin.
+      #
+      # GitHub documents none of this - the mutation's schema description is
+      # "Deletes an Issue object." and neither the permissions reference nor the
+      # GraphQL limitations page mentions it - but its community answer for the
+      # same error on GITHUB_TOKEN, itself an installation token, is "use a
+      # personal access token". This system deliberately holds no PAT, and
+      # adding a long-lived user credential to the hub to tidy a public issue
+      # would trade §4.3.4 away for housekeeping.
+      #
+      # What actually protects the title is the broker REDACTING it within
+      # seconds (acceptance/broker-workflow.yml), and since §4.3.2's signed
+      # acceptance the title is a signature naming one account rather than a
+      # credential - so what remains in the issue timeline grants nobody
+      # anything. System Health Tier 4 still sweeps for titles that were never
+      # redacted, which is the signal that actually means something.
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')

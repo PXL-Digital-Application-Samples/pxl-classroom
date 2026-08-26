@@ -9,10 +9,13 @@
 // card is named sha256(token), it takes §4.3.3 with it: a public token is a
 // public card, and for a group assignment a public list of member logins.
 //
-// Three things close it, and this file pins all three:
+// Two things close it, and this file pins both - plus the third that never
+// worked and has been removed:
 //   1. the broker redacts the title within seconds, using no extra credential
-//   2. the hub deletes the issue, after reading the body group acceptance needs
-//   3. System Health flags any that survived, because deletion needs admin
+//   2. System Health flags any title that was never redacted
+//   3. the hub used to try to DELETE the issue. It cannot: an installation
+//      token gets FORBIDDEN "Viewer not authorized to delete", measured live in
+//      two orgs that both grant the App administration: write. See below.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -73,45 +76,51 @@ test("nothing on the broker deletes the issue, which would race the hub's read",
   assert.ok(!/deleteIssue/.test(runs), "the broker must not delete the trigger issue");
 });
 
-// --- 2. The hub deletes, after the read -------------------------------------
+// --- 2. NOBODY deletes, because nobody can ----------------------------------
+//
+// The hub ran `deleteIssue` here for months and it had never once worked.
+// Measured live 2026-08-26, twice, in two organizations:
+//
+//   {"type":"FORBIDDEN","path":["deleteIssue"],
+//    "message":"Viewer not authorized to delete"}
+//
+// Not a missing permission, which is what the step's own warning claimed while
+// discarding the error: both orgs grant the App `administration: write`, the
+// same token had just read the issue, and the same token creates repositories
+// and writes their secrets. A USER token with repository admin deletes it
+// immediately. An installation token cannot, and the system holds no PAT by
+// design (§4.3.4).
+//
+// So the control does not exist, and a step that warns on every acceptance
+// forever - naming a permission the org already has - costs more than the gap
+// it pretends to close. Redaction is the mitigation, and since §4.3.2 the title
+// is a signature rather than a credential.
 
-test("the hub deletes the trigger issue after reading the team payload", () => {
+test("nothing attempts a deletion that cannot succeed", () => {
+  const attempts = [...handlerSteps, ...brokerSteps]
+    .filter((s) => typeof s.run === "string" && /deleteIssue/.test(s.run))
+    .map((s) => s.name);
+  assert.deepEqual(
+    attempts,
+    [],
+    "deleteIssue is FORBIDDEN for an installation token - a step calling it warns on every acceptance and fixes nothing",
+  );
+});
+
+test("the reasoning is recorded where somebody would add it back", () => {
+  // The measurement is the only thing stopping this being re-added as an
+  // obvious omission. It has to live next to the hole it explains.
+  const raw = readFileSync(join(root, ".github", "workflows", "acceptance-handler.yml"), "utf8");
+  assert.match(raw, /Viewer not authorized to delete/, "the measured error must be quoted in the workflow");
+  assert.match(raw, /administration: write/, "and why a permission grant is not the answer");
+});
+
+test("the body is still read before anything else touches the issue", () => {
+  // Unchanged and still load-bearing: group acceptance reads the issue body in
+  // the hub, minutes after the dispatch, so nothing on the broker may remove
+  // the issue first.
   const names = handlerSteps.map((s) => s.name);
-  const readAt = names.indexOf("Read team payload from broker issue");
-  const deleteAt = names.indexOf("Delete the trigger issue");
-  assert.ok(readAt > -1, "the hub must read the payload");
-  assert.ok(deleteAt > -1, "the hub must delete the issue");
-  assert.ok(readAt < deleteAt, "the read must come first, or group acceptance breaks");
-});
-
-test("the delete runs whatever the acceptance outcome was", () => {
-  // A rejection leaves the same token in the same public title. Gating deletion
-  // on `accepted` would leave every rejected attempt's invitation on display.
-  const step = handlerSteps.find((s) => s.name === "Delete the trigger issue");
-  assert.match(step.if, /always\(\)/, "cleanup must not depend on the outcome");
-  assert.match(
-    step.if,
-    /steps\.team\.outputs\.issue_node_id != ''/,
-    "and must only run when there is an issue to delete"
-  );
-});
-
-test("the delete uses the App token and passes event data through env", () => {
-  const step = handlerSteps.find((s) => s.name === "Delete the trigger issue");
-  assert.match(step.env.GH_TOKEN, /steps\.token\.outputs\.token/, "deleteIssue needs admin, so the App token");
-  assert.ok(
-    !/\$\{\{/.test(step.run),
-    "no interpolation into the script body - client_payload reaches it via env: (§4.3.1)"
-  );
-  assert.match(step.run, /deleteIssue/, "it must actually delete");
-});
-
-test("a failed delete warns rather than failing the acceptance", () => {
-  // The student is already provisioned by this point. Failing the run would
-  // undo nothing and hide the real problem, which is a missing permission.
-  const step = handlerSteps.find((s) => s.name === "Delete the trigger issue");
-  assert.match(step.run, /::warning::/, "it must say something a lecturer can act on");
-  assert.ok(!/exit 1/.test(step.run), "but must not fail a completed acceptance");
+  assert.ok(names.includes("Read team payload from broker issue"), "the hub must read the payload");
 });
 
 // --- 3. System Health catches the ones that survived ------------------------
