@@ -44,11 +44,39 @@ const exe = (name) => (isWindows ? `${name}.exe` : name);
 const results = [];
 let failed = false;
 
+// A hang is worse than a failure, because it looks exactly like work in
+// progress. actionlint's shellcheck subprocess DEADLOCKS on Windows once a
+// `run:` block's script exceeds the ~4 KB anonymous-pipe buffer: actionlint
+// copies the script to shellcheck's stdin, the copy blocks on a full pipe, and
+// Wait() never returns. Linux pipes hold 64 KB, so CI is unaffected - which is
+// the worst shape for this, because the local command hangs for ever while
+// everything remote stays green. It cost an hour once and shipped a workflow
+// change with "local actionlint could not be run to completion" in its commit
+// message instead of a lint result; the next one gets a named failure in two
+// minutes. The whole suite runs in seconds, so this can never fire on
+// slowness alone.
+const STEP_TIMEOUT_MS = 120_000;
+
 function run(label, command, args, opts = {}) {
   process.stdout.write(`\n── ${label}\n`);
-  const res = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: false, ...opts });
+  const res = spawnSync(command, args, {
+    cwd: root,
+    stdio: "inherit",
+    shell: false,
+    timeout: STEP_TIMEOUT_MS,
+    ...opts,
+  });
   if (res.error) {
-    console.error(`[FAIL] ${label}: ${res.error.message}`);
+    const timedOut = res.error.code === "ETIMEDOUT" || res.signal !== null;
+    console.error(`[FAIL] ${label}: ${timedOut ? `timed out after ${STEP_TIMEOUT_MS / 1000}s` : res.error.message}`);
+    if (timedOut && label === "actionlint") {
+      console.error(
+        "       This is almost certainly a `run:` block whose script exceeds ~4 KB.\n" +
+          "       Split the step - platform-neutral, and the blocks read better anyway.\n" +
+          "       A Windows-only workaround would reintroduce the local-vs-CI drift\n" +
+          "       this script exists to end. See CLAUDE.md, Linting."
+      );
+    }
     results.push({ label, ok: false });
     failed = true;
     return false;

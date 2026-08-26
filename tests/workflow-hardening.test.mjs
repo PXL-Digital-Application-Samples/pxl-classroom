@@ -13,8 +13,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
@@ -268,4 +268,72 @@ test("publishing never force-pushes the broker", () => {
   const forcePush = /git push[^\r\n]*--force/;
   assert.ok(!forcePush.test(publish), "publish must not force-push the broker");
   assert.ok(!forcePush.test(broker), "the broker template must not force-push either");
+});
+
+// A `run:` block bigger than the pipe buffer deadlocks the linter on Windows.
+//
+// actionlint copies each script to shellcheck's stdin. Windows anonymous pipes
+// hold ~4 KB by default; once the script exceeds that, the copy blocks on a
+// full pipe and Wait() never returns - actionlint hangs for ever, with no
+// output and no exit. Linux pipes hold 64 KB, so CI stays green throughout,
+// which is the worst possible shape: `npm run lint` is the command CLAUDE.md
+// says to trust, and it silently stopped terminating on 2026-08-26 when one
+// step in publish-assignment.yml reached 4145 bytes. The commit that did it
+// shipped with "local actionlint could not be run to completion" in its
+// message instead of a lint result.
+//
+// scripts/lint.mjs now times that out and names the cause, but a two-minute
+// timeout is a diagnosis, not a guard. This is the guard: it runs in
+// milliseconds, on every platform, and points at the fix.
+//
+// The step that did it measured 4106 bytes and every other block in the repo
+// was under 3 KB, which puts the cliff exactly at the 4096-byte buffer rather
+// than somewhere near it. The limit is set well below anyway: actionlint
+// rewrites the script before handing it over, so the last few bytes of
+// headroom are not ours to spend.
+const MAX_RUN_BLOCK_BYTES = 3500;
+
+test("no run: block is large enough to deadlock actionlint's shellcheck", () => {
+  // Composite actions too - actionlint lints their run: blocks the same way,
+  // and tests/broker-injection.test.mjs already had to learn that lesson.
+  const files = [
+    ...readdirSync(WORKFLOW_DIR).filter((f) => f.endsWith(".yml")).map((f) => join(WORKFLOW_DIR, f)),
+    ...readdirSync(root, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith(".") && d.name !== "node_modules")
+      .map((d) => join(root, d.name, "action.yml"))
+      .filter((p) => existsSync(p)),
+  ];
+
+  const oversized = [];
+  let scanned = 0;
+
+  const visitSteps = (steps, label) => {
+    for (const step of steps || []) {
+      if (typeof step?.run !== "string") continue;
+      scanned++;
+      const bytes = Buffer.byteLength(step.run, "utf8");
+      if (bytes > MAX_RUN_BLOCK_BYTES) {
+        oversized.push(`${label} -> "${step.name || "(unnamed step)"}": ${bytes} bytes`);
+      }
+    }
+  };
+
+  for (const path of files) {
+    const doc = parse(readFileSync(path, "utf8"));
+    const label = relative(root, path);
+    for (const job of Object.values(doc?.jobs || {})) visitSteps(job?.steps, label);
+    visitSteps(doc?.runs?.steps, label); // composite action
+  }
+
+  // A walk that silently stops matching looks exactly like a clean repo.
+  assert.ok(scanned > 40, `expected to scan many run: blocks, saw ${scanned}`);
+
+  assert.deepEqual(
+    oversized,
+    [],
+    "these run: blocks will hang `npm run lint` on Windows. Split the step - it is " +
+      "platform-neutral and the blocks read better anyway; a Windows-only workaround " +
+      "would reintroduce the local-vs-CI drift scripts/lint.mjs exists to end:\n  " +
+      oversized.join("\n  ")
+  );
 });

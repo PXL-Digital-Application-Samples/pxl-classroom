@@ -117,7 +117,19 @@ jobs:
           REGENERATE: ${{ inputs.regenerate_invite }}
         run: node scripts/set-assignment-invite.mjs
 
-      - name: Publish broker
+      # Two steps, not one. This was a single 92-line `run:` block until
+      # 2026-08-26, and the script it produced crossed ~4 KB - which is the
+      # default Windows anonymous-pipe buffer, and the size at which
+      # actionlint's shellcheck subprocess DEADLOCKS on Windows: actionlint
+      # copies the script to shellcheck's stdin, the copy blocks on a full
+      # pipe, and Wait() never returns. Linux pipes hold 64 KB, so CI stayed
+      # green while `npm run lint` hung for ever locally - and a workflow
+      # change shipped with "local actionlint could not be run to completion"
+      # in its commit message rather than a lint result. Splitting is the
+      # platform-neutral fix; a Windows-only workaround would reintroduce
+      # exactly the local-vs-CI drift scripts/lint.mjs exists to end.
+      # Keep each block well under 4 KB. See CLAUDE.md, Linting.
+      - name: Create and configure broker repo
         if: inputs.dry_run != true
         shell: bash
         env:
@@ -125,7 +137,6 @@ jobs:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           ORG: ${{ inputs.org }}
           INVITE_NONCE: ${{ steps.invite.outputs.nonce }}
-          INVITE_TOKEN: ${{ steps.invite.outputs.token }}
           INVITE_PUBKEY: ${{ steps.invite.outputs.pubkey }}
           PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
           PXL_APP_PRIVATE_KEY: ${{ secrets.PXL_APP_PRIVATE_KEY }}
@@ -162,6 +173,15 @@ jobs:
           echo "$PXL_APP_CLIENT_ID" | gh secret set PXL_APP_CLIENT_ID --repo "${ORG}/${BROKER_REPO}"
           echo "$PXL_APP_PRIVATE_KEY" | gh secret set PXL_APP_PRIVATE_KEY --repo "${ORG}/${BROKER_REPO}"
 
+      - name: Push broker workflow
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          ORG: ${{ inputs.org }}
+        run: |
+          BROKER_REPO="broker-${ASSIGNMENT_ID}"
           TMPDIR=$(mktemp -d)
           cd "$TMPDIR"
           git init -q
