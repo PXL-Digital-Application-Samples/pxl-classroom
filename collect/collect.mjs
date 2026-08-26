@@ -294,7 +294,20 @@ async function main() {
         } catch (e) {
           log(`tag ${login}`, { ok: false, note: e.message });
         }
-        allRows.push(`| ${login} | \`${commitRes.data.sha.slice(0, 12)}\`${tagNote} | [OK] |`);
+        // `sha`, not `commitRes.data.sha`. The endpoint moved from
+        // `/commits/{ref}` (an object) to `/commits?sha=…&per_page=1` (a LIST)
+        // on 2026-08-18 to get the commit count out of the Link header, and
+        // every read was updated except this one - so `.sha` was undefined and
+        // `.slice` threw, on the very last line of a student's successful
+        // collection.
+        //
+        // The throw landed in the per-student catch AFTER the observation was
+        // written and `totalCollected++` had run, so every student was counted
+        // as collected AND as an error: "partial (1 ok, 1 err)" for one
+        // student, in every org, every night since. The data was always
+        // correct; what was broken was the report on it, which meant a real
+        // collect failure was indistinguishable from the noise.
+        allRows.push(`| ${login} | \`${sha.slice(0, 12)}\`${tagNote} | [OK] |`);
       } catch (e) {
         log(`snapshot ${login}`, { ok: false, note: e.message });
         totalErrors++;
