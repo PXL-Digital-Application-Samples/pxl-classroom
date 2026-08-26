@@ -320,6 +320,51 @@ test("a step dispatching a workflow with GITHUB_TOKEN declares actions: write", 
   );
 });
 
+test("a scoped dispatch can never disable a workflow for every org", () => {
+  // The minimal-minutes design lets the nightly switch ITSELF off when no
+  // assignment is active, and only a publish switches it back on. That makes
+  // `gh workflow disable` a statement about the whole hub - so it may only be
+  // reached by a run that actually looked at the whole hub.
+  //
+  // Both of daily-activity.yml's disable jobs decided on evidence scoped to
+  // whatever `inputs.org` narrowed the run to. Measured 2026-08-26: a drill
+  // dispatched as `-f org=PXLAutomation`, whose single published assignment had
+  // just passed its deadline, reported active_count == 0 and disabled the
+  // nightly for EVERY organization - four days before a live exam in an org
+  // that run never opened. Nothing but a publish re-enables it, so that exam
+  // would never have been finalized, silently.
+  //
+  // `disable-when-empty` had the same shape one step earlier: a typo'd or
+  // non-participating org name yields `orgs == '[]'`, which describes the
+  // INPUT, not the hub.
+  //
+  // The guard is the same in every case: a scheduled run may disable; a
+  // workflow_dispatch may only disable when it was not narrowed to one org.
+  const offenders = [];
+  for (const { file, doc } of workflows()) {
+    const takesOrgInput = doc?.on?.workflow_dispatch?.inputs?.org !== undefined;
+    if (!takesOrgInput) continue;
+
+    for (const [jobName, job] of Object.entries(doc?.jobs ?? {})) {
+      const disables = (job?.steps ?? []).some((s) =>
+        /gh\s+workflow\s+disable/.test(String(s?.run ?? "")),
+      );
+      if (!disables) continue;
+
+      const guard = String(job?.if ?? "").replace(/\s+/g, " ");
+      const scopeChecked =
+        /github\.event_name\s*!=\s*'workflow_dispatch'/.test(guard) &&
+        /inputs\.org\s*==\s*''/.test(guard);
+      if (!scopeChecked) offenders.push(`${file} job '${jobName}'`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "disables a workflow without proving the run covered every org:\n" + offenders.join("\n"),
+  );
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys

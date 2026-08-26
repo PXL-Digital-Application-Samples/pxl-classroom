@@ -16,7 +16,14 @@ jobs:
 
   disable-when-empty:
     needs: find-orgs
-    if: needs.find-orgs.outputs.orgs == '[]'
+    # ONLY A RUN THAT COVERED EVERY ORG MAY DISABLE THE NIGHTLY. A dispatch
+    # naming one org narrows find-orgs to that org, so a typo'd or
+    # non-participating name yields `[]` here - which is a statement about the
+    # input, not about the hub - and switching off the workflow for every
+    # organization on the strength of it is a decision made on a truncated read.
+    if: >-
+      needs.find-orgs.outputs.orgs == '[]'
+      && (github.event_name != 'workflow_dispatch' || inputs.org == '')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -243,10 +250,22 @@ jobs:
     # submission). Disabling the workflow here would strand it forever, since
     # nothing would re-run to retry - so stay enabled and let tomorrow's cron
     # pick it up. It self-disables once the retry succeeds or hits the ceiling.
+    #
+    # `active_count` is summed over THE ORGS THIS RUN COVERED, so a dispatch
+    # naming one org counts only that org's assignments. On 2026-08-26 a
+    # single-org drill run (`-f org=PXLAutomation`, whose one published
+    # assignment had just passed its deadline) reported active_count == 0 and
+    # disabled the nightly for EVERY organization - four days before a live exam
+    # in another org that this run never opened. Nothing re-enables it but a
+    # publish, so that exam would simply never have been finalized.
+    #
+    # A scoped run may finalize, collect and report; it may not make a statement
+    # about the hub as a whole.
     if: >-
       always() && needs.aggregate-finalizable.result == 'success'
       && needs.aggregate-finalizable.outputs.active_count == '0'
       && needs.finalize.result != 'failure'
+      && (github.event_name != 'workflow_dispatch' || inputs.org == '')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

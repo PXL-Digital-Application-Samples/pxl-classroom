@@ -37,7 +37,12 @@ jobs:
 
   disable-when-empty:
     needs: find-orgs
-    if: needs.find-orgs.outputs.orgs == '[]'
+    # Only a run that covered every org may disable the sentinel - see the same
+    # guard in daily-activity.yml. A dispatch naming one org narrows find-orgs
+    # to it, so `[]` there describes the input rather than the hub.
+    if: >-
+      needs.find-orgs.outputs.orgs == '[]'
+      && (github.event_name != 'workflow_dispatch' || inputs.org == '')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
