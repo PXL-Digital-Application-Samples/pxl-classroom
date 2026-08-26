@@ -91,7 +91,9 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 | Repository: Workflows | Read/Write | Yes | Provisioning Actions workflows in student repositories |
 | Organization: Administration | Read | Yes | Enhanced Billing endpoint used by the weekly usage report |
 | Account: Starring | Read/Write | No (Manual) | Legacy; acceptance no longer stars the broker (§4.3.2) |
-| Account: Email addresses | Read | No (Optional) | Reading verified student email during acceptance/login |
+| Account: Email addresses | Read | No (Manual) | **Required by the claim flow.** A student confirms one of their own GitHub-**verified** addresses, which is a user-to-server read of `/user/emails` - an installation token cannot do it at all |
+
+Account permissions are declared on the App and set by the App owner alone: they are **not** part of the manifest's `default_permissions` (measured for `starring`, which is why it has always been added by hand), and no organization owner approves them. They are tracked in `ACCOUNT_APP_PERMISSIONS` in `lib/audit.mjs`, kept separate from `MANIFEST_APP_PERMISSIONS` because `EXPECTED_APP_PERMISSIONS` spreads the latter and is compared against an **installation** — which never carries an account permission, so a name in the wrong constant reports every organization as permanently drifting on something nobody can approve. `GET /apps/{slug}` does list them (verified 2026-08-27: the App reports `starring: "write"` and `plan: "read"`), so that is where `missingAccountPermissions` checks. `scripts/check-app-declaration.mjs` reports a gap as a **warning** rather than a failure, because these need no approval round and `email_addresses` is declared ahead of the flow that consumes it.
 
 The App is installed:
 

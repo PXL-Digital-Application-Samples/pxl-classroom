@@ -15,7 +15,11 @@
 //   GITHUB_TOKEN  - optional, raises the rate limit
 //   GITHUB_API_URL- optional, defaults to https://api.github.com
 
-import { APP_SLUG as DEFAULT_SLUG, missingManifestPermissions } from "../lib/audit.mjs";
+import {
+  APP_SLUG as DEFAULT_SLUG,
+  missingManifestPermissions,
+  missingAccountPermissions,
+} from "../lib/audit.mjs";
 
 const slug = process.env.APP_SLUG || DEFAULT_SLUG;
 const apiUrl = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/$/, "");
@@ -32,6 +36,28 @@ if (!res.ok) {
 
 const declared = (await res.json()).permissions || {};
 const missing = missingManifestPermissions(declared);
+
+// Account permissions are reported but do NOT fail the run, and the split is
+// deliberate. A manifest permission missing here means a SHIPPED feature is
+// broken on every org - that is what the checks: read drift turned out to be.
+// An account permission is added by hand by the App owner alone (no org
+// approval round), and email_addresses is declared ahead of the claim flow
+// that will use it, so failing on it would put the weekly report permanently
+// red over a feature that does not exist yet. A check that is always red is
+// one nobody reads.
+const missingAccount = missingAccountPermissions(declared);
+if (missingAccount.length) {
+  const acct = missingAccount
+    .map((m) => `${m.permission}=${m.actual ?? "missing"} (want ${m.expected})`)
+    .join(", ");
+  console.log(
+    `::warning::The App "${slug}" does not declare the account permission(s): ${acct}. ` +
+      `These are set by the App owner alone, under the App's Permissions & events -> Account permissions; ` +
+      `they are NOT part of the manifest and no organization owner has to approve them. ` +
+      `email_addresses is required by the claim flow (student confirms one of their own GitHub-verified ` +
+      `addresses, a user-to-server read of /user/emails) and is declared ahead of it.`,
+  );
+}
 
 if (missing.length === 0) {
   console.log(`The App "${slug}" declares every permission in the manifest.`);
