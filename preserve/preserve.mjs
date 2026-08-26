@@ -145,8 +145,6 @@ async function main() {
 
   for (const rec of results) {
     const login = rec.github_login;
-    const repoNameFull = rec.repo_name;
-    const sourceRepo = repoNameFull.split("/")[1];
     const sourceSha = rec.snapshot_sha;
 
     // A student whose deadline extension is still running was skipped by
@@ -176,6 +174,31 @@ async function main() {
       log(`preserve ${login}`, { ok: false, note: "no snapshot_sha" });
       errorCount++;
       rows.push(`| ${login} | - | skipped (no SHA) |`);
+      continue;
+    }
+
+    // ONE BAD ROW MUST NOT FAIL THE WHOLE COHORT.
+    //
+    // `rec.repo_name.split("/")` used to run at the top of this loop, before
+    // every guard above it. A row without a repo name - a hand-edited record, a
+    // half-written one, a shape a future lockdown forgets to fill - threw a
+    // TypeError straight out of the loop into `fail:exception`, so nobody's
+    // submission was archived because one row was malformed. Preservation is
+    // the safety net the whole deadline flow rests on; it does not get to fail
+    // collectively over a single record. collect.mjs already reads the same
+    // field defensively, which is what made this look like an oversight rather
+    // than a decision.
+    //
+    // An error rather than a skip, deliberately: `login` is how
+    // find-finalizable.mjs matches a pending submission, so a row missing it is
+    // invisible to the retry logic and would otherwise leave the assignment
+    // looking finished. The run says `partial` and a human sees the row.
+    const sourceRepo = rec.repo_name?.split("/")?.[1] ?? rec.repo_name;
+    if (!login || !sourceRepo) {
+      const missing = [!login && "github_login", !sourceRepo && "repo_name"].filter(Boolean).join(" and ");
+      log(`preserve ${login ?? "(no login)"}`, { ok: false, note: `lockdown record row has no ${missing}` });
+      errorCount++;
+      rows.push(`| ${login ?? "(no login)"} | \`${sourceSha.slice(0, 12)}\` | fail: record row has no ${missing} |`);
       continue;
     }
 

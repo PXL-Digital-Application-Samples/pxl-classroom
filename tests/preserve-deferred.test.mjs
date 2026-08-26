@@ -146,3 +146,67 @@ test("one no-submission does not drag a whole cohort's run to partial", async ()
     assert.match(res.outputs, /no_submission_count=2/);
   });
 });
+
+// --- One malformed row must not fail the whole cohort ------------------------
+//
+// `rec.repo_name.split("/")` ran at the TOP of the loop, before every guard
+// above. A row without a repo name threw a TypeError straight out into
+// `fail:exception`, so nobody's submission was archived because one record was
+// malformed - and preservation is the safety net the whole deadline flow rests
+// on. collect.mjs already read the same field defensively, which is what made
+// this an oversight rather than a decision.
+//
+// Latent rather than live: every row lockdown writes today carries repo_name.
+// These pin the behaviour so it stays that way when the record shape next moves.
+
+const good = {
+  github_login: "alice",
+  repo_name: "TestOrg/exam-alice",
+  snapshot_sha: "a".repeat(40),
+};
+
+test("a row with no repo_name is ONE accounted error, not a dead loop", async () => {
+  // The distinction under test is `fail:exception` - the loop threw and nothing
+  // after that row ran - versus the ordinary per-row accounting. With nothing
+  // actually pushed the outcome is still a failure (`fail:all-errors`, exit 1),
+  // and that is correct: it just has to be a counted one, arrived at after every
+  // other row was given its turn.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir([{ github_login: "carol", snapshot_sha: "c".repeat(40) }, noSubmission]);
+    const res = await runPreserve(dir, api);
+
+    assert.doesNotMatch(res.outputs, /outcome=fail:exception/, `the loop died:\n${res.stdout}`);
+    assert.match(res.outputs, /outcome=fail:all-errors/);
+    assert.match(res.outputs, /error_count=1/);
+    assert.match(res.stdout, /repo_name/, "and it must say what was wrong with the row");
+    // The row BESIDE the bad one still got its turn - which is the whole point.
+    assert.match(res.outputs, /no_submission_count=1/);
+  });
+});
+
+test("a row with no github_login is an error too, not a crash", async () => {
+  // login is how find-finalizable.mjs matches a pending submission, so a row
+  // missing it is invisible to the retry logic - it has to be loud here or the
+  // assignment looks finished with a submission unarchived.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir([{ repo_name: "TestOrg/exam-x", snapshot_sha: "d".repeat(40) }]);
+    const res = await runPreserve(dir, api);
+
+    assert.equal(res.status, 1, "nothing preserved and one error is fail:all-errors");
+    assert.doesNotMatch(res.outputs, /outcome=fail:exception/);
+    assert.match(res.outputs, /error_count=1/);
+    assert.match(res.stdout, /github_login/);
+  });
+});
+
+test("the deferred and no-submission guards still run before the shape check", async () => {
+  // Order matters: a deferred row legitimately has no snapshot, and asking it
+  // for a repo name first would turn a lecturer's decision into an error.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir([{ github_login: "bob", snapshot_sha: null, deferred_until: deferred.deferred_until }]);
+    const res = await runPreserve(dir, api);
+    assert.match(res.outputs, /error_count=0/);
+    assert.match(res.outputs, /outcome=preserved/);
+    assert.ok(good.snapshot_sha);
+  });
+});
