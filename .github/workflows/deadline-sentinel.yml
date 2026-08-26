@@ -115,6 +115,23 @@ jobs:
 
   watch:
     environment: provisioning
+    # `Finalize now` dispatches daily-activity.yml on this repository with the
+    # job's own GITHUB_TOKEN, and dispatching needs `actions: write`. A
+    # job-level block REPLACES the workflow-level one, so `contents: read` has
+    # to be restated here or the checkout loses it.
+    #
+    # Without this the last step 403s with `Resource not accessible by
+    # integration` - measured live 2026-08-26 on the sentinel's first real
+    # firing, run 33013299689. It had never run: the step only executes when
+    # `fired == true`, which needs a sentinel to actually reach a deadline, so
+    # nothing before that firing had exercised it. Writes still stopped and the
+    # nightly still finalized (the documented degradation), but the job went
+    # red at every deadline - and a workflow that is red every time it does its
+    # job is one nobody reads. `workflow_dispatch` is one of the two events
+    # GITHUB_TOKEN is allowed to raise, so this does dispatch a real run.
+    permissions:
+      contents: read
+      actions: write
     needs: aggregate-armable
     if: needs.aggregate-armable.outputs.sentinels != '[]' && needs.aggregate-armable.outputs.sentinels != ''
     strategy:

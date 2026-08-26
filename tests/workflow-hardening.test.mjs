@@ -258,6 +258,68 @@ test("no workflow trusts gh's stdout instead of its exit code", () => {
   );
 });
 
+/** `actions: write` in effect, given a job-level or workflow-level block. */
+function grantsActionsWrite(perms) {
+  if (perms === "write-all") return true;
+  if (!perms || typeof perms !== "object") return false;
+  return perms.actions === "write";
+}
+
+/** True when the step dispatches with something other than GITHUB_TOKEN. */
+function usesForeignToken(job, step) {
+  const DEFAULT = /^\$\{\{\s*(github\.token|secrets\.GITHUB_TOKEN)\s*\}\}$/;
+  const given = step?.with?.["github-token"];
+  if (given && !DEFAULT.test(String(given).trim())) return true;
+  const env = { ...(job?.env ?? {}), ...(step?.env ?? {}) };
+  return ["GH_TOKEN", "GITHUB_TOKEN"].some(
+    (k) => env[k] && !DEFAULT.test(String(env[k]).trim()),
+  );
+}
+
+test("a step dispatching a workflow with GITHUB_TOKEN declares actions: write", () => {
+  // Dispatching a workflow needs `actions: write`, and both github-script and
+  // `gh` default to the job's own GITHUB_TOKEN. Its permissions come from the
+  // job's `permissions:` block or, when the job has none, from the workflow's.
+  //
+  // A job-level block REPLACES the workflow-level one rather than merging,
+  // which is the half that bites twice: omitting it leaves a dispatch under a
+  // read-only workflow default, and adding `actions: write` without restating
+  // `contents: read` silently breaks the job's own checkout.
+  //
+  // deadline-sentinel.yml's `Finalize now` shipped without one and 403'd with
+  // `Resource not accessible by integration` on the sentinel's FIRST REAL
+  // FIRING (2026-08-26, run 33013299689). Nothing had exercised it: the step
+  // is gated on `fired == true`, so only a sentinel actually reaching a
+  // deadline gets there - the same shape as sync-starter-code.yml and
+  // open-feedback-prs.yml, which had never run either. Writes still stopped
+  // and the nightly still finalized, so no data was at risk; what it cost was
+  // a red job at every single deadline, and a workflow that goes red whenever
+  // it does its job is one people stop reading.
+  const DISPATCHES = /createWorkflowDispatch|createDispatchEvent|gh\s+workflow\s+run|\/dispatches\b/;
+  const stripComments = (s) =>
+    s.split("\n").filter((l) => !/^\s*(#|\/\/)/.test(l)).join("\n");
+
+  const offenders = [];
+  for (const { file, doc } of workflows()) {
+    for (const [jobName, job] of Object.entries(doc?.jobs ?? {})) {
+      for (const step of job?.steps ?? []) {
+        const body = stripComments(
+          [step?.run, step?.with?.script].filter(Boolean).join("\n"),
+        );
+        if (!DISPATCHES.test(body)) continue;
+        if (usesForeignToken(job, step)) continue;
+        if (grantsActionsWrite(job?.permissions ?? doc?.permissions)) continue;
+        offenders.push(`${file} job '${jobName}' step '${step?.name ?? "(unnamed)"}'`);
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `dispatches a workflow with GITHUB_TOKEN but has no actions: write:\n${offenders.join("\n")}`,
+  );
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys
