@@ -13,9 +13,16 @@
 //   - unreadable is NOT evidence: no owner list yields NO check, never a green
 //     one (the rule Tier 1 applies to /apps/{slug});
 //   - a truncated owner list may not report `ok` - "one page is not the list";
-//   - the viewer's OWN account is a warn, not a fail, because a lecturer
-//     testing their own assignment is the ordinary case and a permanent red
-//     beside the real findings is how a check stops being read;
+//   - NO branch of this check is ever a failure. The first cut failed on any
+//     owner but the signed-in viewer, which assumed a non-self owner would be a
+//     student. It cannot be: provisioning adds students as repository
+//     COLLABORATORS, so a student is only an owner if somebody promoted them,
+//     and in practice every owner in an acceptance list is staff - the viewer,
+//     or a colleague testing the assignment. Failing put a permanent red on a
+//     live exam that nobody should act on, which is how a check stops being
+//     read (the reason a third-party installation is a notice). The wording
+//     still separates "that is you" from an account the reader may not know,
+//     and still spells out the case that IS actionable;
 //   - matching is case-insensitive (accept.mjs's gate is) but REPORTING uses
 //     the caller's spelling, or a lecturer is sent after an account that, as
 //     spelled, does not exist.
@@ -32,9 +39,10 @@ const root = join(here, "..");
 
 const ORG = "PXL-Automation-II";
 
-test("an owner among the acceptors fails, and is named", () => {
+test("an owner among the acceptors is named, and is never a failure", () => {
   // The real 2026-08-30 exam cohort, as measured: four plain collaborators and
-  // two org owners.
+  // two org owners, one of whom is the signed-in lecturer and the other a
+  // colleague.
   const f = unfreezableAcceptorsFinding({
     acceptors: ["IlkayDuranPXL", "LowieSerneelsPXL", "afx42", "rayaneW", "tomccargo", "tomcoolpxl"],
     owners: ["afx42", "tomcoolpxl"],
@@ -42,13 +50,34 @@ test("an owner among the acceptors fails, and is named", () => {
     viewerLogin: "tomcoolpxl",
   });
 
-  assert.equal(f.severity, "fail");
-  assert.deepEqual(f.unfreezable, ["afx42"], "the other owner is the finding");
+  // NEVER a fail. A student cannot become an org owner on their own -
+  // provisioning adds them as repository collaborators - so an owner in an
+  // acceptance list is staff, and a red on a live exam that nobody should act
+  // on is how a check stops being read.
+  assert.equal(f.severity, "warn");
+  assert.deepEqual(f.unfreezable, ["afx42"], "the other owner is still named");
   assert.deepEqual(f.self, ["tomcoolpxl"], "the viewer's own account is separated out");
   assert.match(f.message, /afx42/);
-  assert.match(f.message, /Every other student still freezes normally/,
+  assert.match(f.message, /Every actual student still freezes normally/,
     "a partial cohort still finalizes - the message must not read as a dead exam");
-  assert.doesNotMatch(f.message, /^\s*$/);
+  assert.match(f.message, /If one of these IS a student/,
+    "the genuinely actionable case still has to be spelled out");
+});
+
+test("no severity anywhere in this check is a failure", () => {
+  // Pinning the rule itself rather than one branch of it: a later pass must not
+  // reintroduce a red on a cohort that is behaving exactly as designed.
+  const cases = [
+    { acceptors: ["a"], owners: ["a"], viewerLogin: null },
+    { acceptors: ["a"], owners: ["a"], viewerLogin: "a" },
+    { acceptors: ["a", "b"], owners: ["a", "b"], viewerLogin: "a" },
+    { acceptors: ["a"], owners: [], ownersComplete: false, viewerLogin: null },
+    { acceptors: ["a"], owners: [], viewerLogin: null },
+  ];
+  for (const c of cases) {
+    const f = unfreezableAcceptorsFinding({ org: ORG, ...c });
+    assert.notEqual(f?.severity, "fail", `${JSON.stringify(c)} must not be a failure`);
+  }
 });
 
 test("only the viewer's own account is a warn, never a fail", () => {
@@ -64,16 +93,19 @@ test("only the viewer's own account is a warn, never a fail", () => {
   assert.match(f.message, /expected for a test acceptance/);
 });
 
-test("the same owner is a FAIL when it is not the viewer", () => {
-  // Same data, different viewer: the severity turns on whose account it is.
+test("an owner who is not the viewer is still reported, by name", () => {
+  // Same data, different viewer. The SEVERITY does not turn on whose account it
+  // is - both are warnings - but the wording does: one says "that is you", the
+  // other names an account the reader may not recognise.
   const f = unfreezableAcceptorsFinding({
     acceptors: ["studentA", "tomcoolpxl"],
     owners: ["tomcoolpxl"],
     org: ORG,
     viewerLogin: "someone-else",
   });
-  assert.equal(f.severity, "fail");
+  assert.equal(f.severity, "warn");
   assert.deepEqual(f.unfreezable, ["tomcoolpxl"]);
+  assert.doesNotMatch(f.message, /Your own account/);
 });
 
 test("an unreadable owner list yields NO check, not a green one", () => {
@@ -109,7 +141,7 @@ test("a truncated owner list may not report ok", () => {
     ownersComplete: false,
     org: ORG,
   });
-  assert.equal(hit.severity, "fail");
+  assert.equal(hit.severity, "warn");
 });
 
 test("a clean cohort is ok, and says how many it checked", () => {
@@ -131,12 +163,12 @@ test("matching is case-insensitive, reporting keeps the caller's spelling", () =
     org: ORG,
     viewerLogin: null,
   });
-  assert.equal(f.severity, "fail", "case must not let an owner through");
+  assert.equal(f.severity, "warn", "case must not let an owner through unreported");
   assert.deepEqual(f.unfreezable, ["TomCoolPXL"], "reported as the caller spelled it");
   assert.match(f.message, /TomCoolPXL/);
 });
 
-test("no viewer login still classifies owners as failures", () => {
+test("no viewer login still reports owners", () => {
   // viewerLogin is optional; without it there is no 'that's you' exemption to
   // apply, and the safe reading is that an owner is an owner.
   const f = unfreezableAcceptorsFinding({
@@ -144,7 +176,7 @@ test("no viewer login still classifies owners as failures", () => {
     owners: ["tomcoolpxl"],
     org: ORG,
   });
-  assert.equal(f.severity, "fail");
+  assert.equal(f.severity, "warn");
 });
 
 test("an empty cohort is ok rather than a claim about nobody", () => {
