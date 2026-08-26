@@ -591,6 +591,20 @@ yq -i 'if has("template_owner") then .template.owner = .template_owner | .templa
 
 Step 2 alone never works if step 1 was skipped: an org owner can only approve permissions the App declares. Until then `weekly-usage-report.yml` runs in degraded mode - it mints a token without the billing scope, annotates a warning, and skips the usage report for that org rather than failing every org's matrix leg.
 
+### 6.7a "CI results sync failed ... due to API errors"
+
+Reported live 2026-08-26 on `python-hacking-intro`, with **4,995 of 5,000** API calls still available - which is what ruled out the rate limit the wording implied.
+
+The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The App never declared it, and the Admin Panel authenticates with a *user-to-server* token from that App - which is capped by what the App asks for. So the sync could not work anywhere, for anyone, and said "try again later" about a state that would never change.
+
+1. **App owner**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions` -> **Repository permissions** -> **Checks: Read-only** -> **Save changes**. Confirm with `gh api apps/pxl-classroom-provisioner --jq .permissions.checks` (must print `read`).
+2. **Each org owner**: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve.
+3. Sign out of the Admin Panel and back in, so the device flow issues a token carrying the new permission. An existing session keeps the old one.
+
+`node scripts/check-app-declaration.mjs` answers step 1 immediately and needs no token; `scripts/check-installation-approvals.mjs` (the `installation-approvals` job in `weekly-usage-report.yml`) answers step 2 for every org at once.
+
+Until step 1 is done the panel says so directly rather than blaming the API. Nothing is ever written on a failed sync - the code refuses to save a partial result, so retrying after the fix is safe.
+
 ---
 
 ## 7. Manual workflow triggers (lecturer-runnable)

@@ -2620,6 +2620,10 @@ async function syncGradesFromGitHub() {
   const summary = { graded: [], failed: [] }
 
   let apiFailedCount = 0
+  // Set when GitHub refuses rather than fails. A missing App permission is not
+  // something waiting fixes, and it is the same for every student - so it gets
+  // its own sentence instead of being counted as N transient errors.
+  let permissionDenied = false
   let cursor = 0
 
   const syncWorker = async () => {
@@ -2627,9 +2631,27 @@ async function syncGradesFromGitHub() {
       const s = queue[cursor++]
       const targetSha = s.preserved_sha || s.latest_observed_sha || s.last_on_time_sha || s.tagged_submission_sha
       try {
+        // No commit on record is not an API failure. Without this the URL was
+        // built with `undefined` in it, GitHub answered 404, and a student who
+        // simply has not pushed yet was counted among "API errors".
+        if (!targetSha) {
+          summary.failed.push({
+            login: s.github_login,
+            reason: 'no commit on record to read a CI run from',
+          })
+          continue
+        }
+
         // s.repo_name is already the full org/repo name.
         const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${targetSha}/check-runs`)
         if (!checksReq.ok) {
+          // A 403 here is not transient, and "try again later" is advice that
+          // can never come true: both check-run endpoints are gated by the
+          // App's Checks permission, and a user-to-server token is capped by
+          // what the App declares. Name it, or a lecturer retries for ever.
+          if (checksReq.status === 403 || checksReq.status === 401) {
+            permissionDenied = true
+          }
           throw new Error(`checks API fetch failed - HTTP ${checksReq.status}`)
         }
         const checkRuns = checksReq.data?.check_runs || []
@@ -2699,6 +2721,15 @@ async function syncGradesFromGitHub() {
   try {
     const workers = Array.from({ length: Math.min(6, queue.length) }, syncWorker)
     await Promise.all(workers)
+
+    if (permissionDenied) {
+      toast.error(
+        'GitHub refused to show CI results: the PXL Classroom App needs the "Checks" permission (read), ' +
+          'and this organization has to approve it before scores can be read. Nothing was saved. See RUNBOOK §6.7.',
+      )
+      syncingGrades.value = false
+      return
+    }
 
     if (apiFailedCount > 0) {
       toast.error(`CI results sync failed for ${apiFailedCount} student(s) due to API errors. Nothing was saved; try again later.`)
