@@ -160,6 +160,9 @@ async function main() {
   let onTimeCount = 0;
   let lateCount = 0;
   let noSubCount = 0;
+  // The worst evidence gap in the cohort, for ONE notification at the end.
+  let worstUncertaintySeconds = 0;
+  let worstUncertaintyLogin = null;
 
   for (const login of [...allLogins].sort()) {
     const acceptance = acceptanceByLogin.get(login);
@@ -263,11 +266,22 @@ async function main() {
       latestObservedAt = latestTagObservation.observed_at;
     }
 
-    // Calculate uncertainty against the effective deadline
-    if (effectiveDeadline && lastOnTimeObservedAt) {
+    // How stale our last pre-deadline evidence was: the gap between the final
+    // on-time observation and the student's own deadline.
+    //
+    // ONLY ONCE THE DEADLINE HAS PASSED. Before it, this same subtraction is
+    // simply the time REMAINING - the deadline minus a recent observation - and
+    // calling that "uncertainty" was not a rounding error but a different
+    // quantity wearing the name. Live 2026-08-26: an assignment due on the 30th
+    // reported "116h" for every student, which was the four days left to run.
+    if (effectiveDeadline && lastOnTimeObservedAt && effectiveDeadline <= new Date()) {
       const lastOnTimeTime = new Date(lastOnTimeObservedAt);
       const gapMs = effectiveDeadline - lastOnTimeTime;
       uncertaintySeconds = Math.max(0, gapMs / 1000);
+      if (uncertaintySeconds > worstUncertaintySeconds) {
+        worstUncertaintySeconds = uncertaintySeconds;
+        worstUncertaintyLogin = login;
+      }
     }
 
     // Determine status using the effective (post-override) deadline.
@@ -388,16 +402,6 @@ async function main() {
     // Fire notifications for anomalies
     if (process.env.ORG && process.env.GITHUB_TOKEN) {
       const { notifyEvent } = await import("../notify/notify.mjs");
-      if (uncertaintySeconds && uncertaintySeconds > 3600) {
-        await notifyEvent({
-          org: process.env.ORG,
-          controlRepo: "pxl-classroom-control",
-          eventType: "deadline-gap",
-          assignmentId: assignmentId,
-          details: `Large uncertainty interval (${Math.round(uncertaintySeconds/3600)}h) for student \`${login}\`.`,
-          dedupKey: `gap-${assignmentId}-${login}`,
-        }).catch(e => console.error(`Failed to notify deadline gap for ${login}: ${e.message}`));
-      }
       if (firstLateSha) {
         await notifyEvent({
           org: process.env.ORG,
@@ -409,6 +413,41 @@ async function main() {
         }).catch(e => console.error(`Failed to notify late activity for ${login}: ${e.message}`));
       }
     }
+  }
+
+  // ONE deadline-gap notification for the cohort, not one per student.
+  //
+  // This fired at a 1-hour threshold, per student, on every report run - and
+  // the nightly collect only observes once a day, so the gap between the last
+  // pre-deadline observation and the deadline is routinely many hours by
+  // construction. It was therefore guaranteed to fire for everybody, always:
+  // measured live 2026-08-26, PXL-Automation-II's tracking issue held six
+  // comments for six students, every one of them a deadline-gap.
+  //
+  // An alarm that always fires is not an alarm. The threshold is now tied to
+  // the observation cadence, so it means the thing a lecturer would act on:
+  // a nightly did not run, and the evidence for this cohort is older than it
+  // should be. One comment, naming the worst case.
+  const NIGHTLY_MS = 24 * 3600;
+  const GAP_ALERT_SECONDS = NIGHTLY_MS + 2 * 3600; // a missed nightly, plus slack
+  if (
+    process.env.ORG &&
+    process.env.GITHUB_TOKEN &&
+    worstUncertaintySeconds > GAP_ALERT_SECONDS
+  ) {
+    const { notifyEvent } = await import("../notify/notify.mjs");
+    await notifyEvent({
+      org: process.env.ORG,
+      controlRepo: "pxl-classroom-control",
+      eventType: "deadline-gap",
+      assignmentId,
+      details:
+        `The last observation before the deadline was ${Math.round(worstUncertaintySeconds / 3600)}h ` +
+        `old (worst case: \`${worstUncertaintyLogin}\`). The nightly observes once a day, so a gap ` +
+        `this large means a run was missed - submission times for this cohort rest on GitHub's own ` +
+        `\`pushed_at\` in the lockdown record rather than on an observation close to the deadline.`,
+      dedupKey: `gap-${assignmentId}`,
+    }).catch((e) => console.error(`Failed to notify deadline gap: ${e.message}`));
   }
 
   const teamsReport = teams.map((t) => {

@@ -206,6 +206,53 @@ test("no lockdown record leaves both fields null rather than inventing them", ()
   assert.equal(alice.lockdown_delay_seconds, null);
 });
 
+// --- The evidence gap, and the alarm that always fired -----------------------
+//
+// `uncertainty_interval_seconds` is `deadline - lastOnTimeObservation`: how
+// stale our final pre-deadline evidence was. Before the deadline that same
+// subtraction is the time REMAINING, which is a different quantity wearing the
+// name - measured live 2026-08-26, an assignment due in four days reported
+// "116h" for every student, and alarmed on it at a one-hour threshold.
+
+test("no uncertainty is reported before the deadline has passed", () => {
+  // BASE_YAML's deadline is 2026-09-10, comfortably in the future here.
+  const report = runReport({});
+  const alice = report.students.find((s) => s.github_login === "alice");
+  assert.equal(
+    alice.uncertainty_interval_seconds,
+    null,
+    "before the deadline this number is the time remaining, not an uncertainty",
+  );
+});
+
+test("once the deadline has passed the gap is measured", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-report-gap-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(
+    join(dir, "assignments", `${ID}.yml`),
+    BASE_YAML.replace("2026-09-10T23:59:59Z", "2020-01-02T00:00:00Z"),
+  );
+  mkdirSync(join(dir, "acceptances", ID), { recursive: true });
+  writeFileSync(
+    join(dir, "acceptances", ID, "alice.json"),
+    JSON.stringify({ github_login: "alice", status: "accepted" }),
+  );
+  mkdirSync(join(dir, "observations", ID, "alice"), { recursive: true });
+  writeFileSync(
+    join(dir, "observations", ID, "alice", "2020-01-01T00-00-00Z.json"),
+    JSON.stringify({ observed_at: "2020-01-01T00:00:00Z", sha: PRESERVED_SHA, commit_count: 3 }),
+  );
+
+  const res = spawnSync("node", [reportScript], {
+    encoding: "utf8",
+    env: { ...process.env, ASSIGNMENT_ID: ID, DATA_DIR: dir, OUTPUT_FORMAT: "json" },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const report = JSON.parse(readFileSync(join(dir, "reports", `${ID}.json`), "utf8"));
+  const alice = report.students.find((s) => s.github_login === "alice");
+  assert.equal(alice.uncertainty_interval_seconds, 86400, "24h between the observation and the deadline");
+});
+
 test("report.mjs only reads preservation fields preserve.mjs actually writes", () => {
   // The class, not the instance. Two files, one document, no schema between
   // them - so the agreement is asserted directly rather than trusted.
