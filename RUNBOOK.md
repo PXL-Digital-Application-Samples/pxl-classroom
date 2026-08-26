@@ -844,6 +844,13 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] Each participating org has `budget_owner_login` set in `participating-orgs.yml`.
 - [ ] App permissions include `organization_administration: read` and System Health reports **Enhanced Billing Usage API** healthy.
 - [ ] Every participating org's **base repository permission** is `none` (`gh api orgs/<org> --jq .default_repository_permission`). System Health Tier 1 reports it: `read` is a warning, `write`/`admin` a failure. It grants students nothing today - they are repository collaborators, not org members - but it is a floor beneath lock-down's demotion the moment anyone is enrolled through membership, and at `read` it exposes the private control repo (roster, reports) to every member. Fix under **Settings → Member privileges → Base permissions**, or `gh api -X PATCH orgs/<org> -f default_repository_permission=none`.
+- [ ] **Before every exam deadline:** no accepted student is an **organization owner**. Open System Health on the assignment - Tier 3 carries *Cohort Can Be Frozen At The Deadline* - or check by hand:
+
+      gh api "repos/<org>/pxl-classroom-control/contents/acceptances/<id>" --jq '.[].name' | sed 's/\.json$//' > /tmp/a
+      gh api "orgs/<org>/members?role=admin&per_page=100" --jq '.[].login' > /tmp/o
+      grep -Fxi -f /tmp/o /tmp/a    # anything printed cannot be frozen
+
+  An owner keeps admin on every repository in the org, so lock-down writes `pull`, verifies, reads back `admin`, and records `verified: false`. **The exam is not at risk** - the outcome is `partial`, which exits 0, so preservation and reporting still run and every other student freezes correctly - but those accounts can keep pushing after the deadline. Either remove them from the cohort, or change their role to **Member** under **People → Role** before the deadline. Your own test acceptance is the common case and is reported as a warning rather than a failure.
 - [ ] App permissions include `actions: write` (required for `workflow_dispatch` from the Admin UI / Usage view).
 - [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
 - [ ] Cold-load an invitation link `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>` lands on AssignmentView with the right assignment resolved.
