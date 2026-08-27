@@ -381,6 +381,7 @@ import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
+import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 
 const props = defineProps({
@@ -458,7 +459,7 @@ function isMyTeam(team) {
     (team.members || []).some((m) => m.toLowerCase() === props.user.login.toLowerCase())
   )
 }
-const maxTeamSize = computed(() => props.assignment.group_config?.max_team_size || 3)
+const maxTeamSize = computed(() => teamMaxSize(props.assignment?.group_config))
 const allowTeamCreation = computed(() => props.assignment.group_config?.allow_team_creation !== false)
 
 const computedSlug = computed(() => {

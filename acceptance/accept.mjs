@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
+import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import {
   CLAIM_REJECTIONS,
   buildClaimRecord,
@@ -601,7 +602,7 @@ async function main() {
     }
 
     const teamFile = join(teamsDir, `${teamSlug}.json`);
-    const maxTeamSize = assignment.group_config?.max_team_size || 3;
+    const maxTeamSize = teamMaxSize(assignment.group_config);
 
     if (oldTeam) {
       if (oldTeam.team_slug === teamSlug) {

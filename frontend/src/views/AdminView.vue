@@ -1079,6 +1079,7 @@ import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
 // disagree about which mode an assignment is actually in.
 import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
+import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 
 const props = defineProps({ org: { type: String, required: true } })
 const route = useRoute()
@@ -1678,7 +1679,7 @@ function emptyForm() {
     autograde_tests: [],
     assignment_type: 'individual',
     group_config: {
-      max_team_size: 3,
+      max_team_size: DEFAULT_MAX_TEAM_SIZE,
       min_team_size: 2,
       formation_mode: 'self-service',
       allow_team_creation: true,
@@ -1968,7 +1969,7 @@ function editAssignment(a) {
     autograde_tests: a.autograde?.tests || [],
     assignment_type: a.assignment_type || 'individual',
     group_config: {
-      max_team_size: a.group_config?.max_team_size || 3,
+      max_team_size: teamMaxSize(a.group_config),
       min_team_size: a.group_config?.min_team_size || 2,
       formation_mode: a.group_config?.formation_mode || 'self-service',
       allow_team_creation: a.group_config?.allow_team_creation !== false,
@@ -2097,7 +2098,7 @@ function buildDoc(state = null) {
     ...(form.value.assignment_type === 'group'
       ? {
           group_config: {
-            max_team_size: Number(form.value.group_config?.max_team_size) || 3,
+            max_team_size: teamMaxSize(form.value.group_config),
             ...(form.value.group_config?.min_team_size ? { min_team_size: Number(form.value.group_config.min_team_size) } : {}),
             formation_mode: form.value.group_config?.formation_mode || 'self-service',
             allow_team_creation: form.value.group_config?.allow_team_creation !== false,

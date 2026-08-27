@@ -174,8 +174,8 @@
             <!-- Capacity column -->
             <td>
               <span class="status-indicator">
-                <span class="status-dot" :class="team.under_capacity ? 'dot-warning' : ((team.members?.length || 0) >= (assignment?.group_config?.max_team_size || 3) ? 'dot-neutral' : 'dot-success')"></span>
-                <span class="mono text-xs">{{ team.members ? team.members.length : 0 }}/{{ assignment?.group_config?.max_team_size || 3 }}<template v-if="team.under_capacity"> (low)</template></span>
+                <span class="status-dot" :class="team.under_capacity ? 'dot-warning' : ((team.members?.length || 0) >= maxTeamSize ? 'dot-neutral' : 'dot-success')"></span>
+                <span class="mono text-xs">{{ team.members ? team.members.length : 0 }}/{{ maxTeamSize }}<template v-if="team.under_capacity"> (low)</template></span>
               </span>
             </td>
 
@@ -503,6 +503,7 @@ import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { commitFile, commitFiles, deleteFile, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
 import { config } from '../lib/config.js'
+import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { toast } from '../lib/toast.js'
 import { planUnseed } from '../../../lib/seed-teams.mjs'
 import { archiveBranchUrl } from '../lib/archive-repo.js'
@@ -549,7 +550,7 @@ const newTeamForm = ref({
   members: [],
 })
 
-const maxTeamSize = computed(() => props.assignment?.group_config?.max_team_size || 3)
+const maxTeamSize = computed(() => teamMaxSize(props.assignment?.group_config))
 
 // Same rule as AssignmentDetailView: the Score column keys on grades EXISTING,
 // not on the assignment declaring autograding here. Grades produced by a
