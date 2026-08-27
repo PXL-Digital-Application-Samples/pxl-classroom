@@ -100,6 +100,44 @@ test("generate.mjs publishes roster_mode on the invitation card, defaulting to e
     return { mode: card.roster_mode, card, index, outDir, token };
   };
 
+  // claim_domains reaches the CARD, and absent stays different from empty.
+  //
+  // The student's browser filters their own verified addresses by this and
+  // refuses one outside it before sealing. Publishing nothing meant the page
+  // fell back to the deployment default and enforced THAT: a lecturer setting
+  // ["howest.be"] had students refused at the button for an address the hub
+  // would have accepted, and one setting [] to lift the restriction still had
+  // the defaults imposed on them.
+  {
+    const custom = run('\nroster_mode: claim\nclaim_domains: ["howest.be"]\n');
+    assert.deepEqual(custom.card.claim_domains, ["howest.be"]);
+
+    const optOut = run("\nroster_mode: claim\nclaim_domains: []\n");
+    assert.deepEqual(optOut.card.claim_domains, [], "an explicit [] is the opt-out and must survive");
+
+    const absent = run("\nroster_mode: claim\n");
+    assert.ok(
+      !("claim_domains" in absent.card),
+      "an absent key must be OMITTED so the browser falls back to the deployment default, not to no restriction",
+    );
+
+    // Card-only, exactly like roster_mode and broker_repo: the public index is
+    // what every student's portal reads for assignments they have not accepted,
+    // and it carries no configuration.
+    assert.ok(
+      !("claim_domains" in custom.index.assignments["test-valid"]),
+      "claim_domains must not reach the public index",
+    );
+
+    // Domains are not addresses - the email-address rule needs an `@` - so
+    // publishing them must not trip the privacy gate.
+    const scan = spawnSync("node", [scanner], {
+      env: { ...process.env, SCAN_DIR: custom.outDir },
+      encoding: "utf8",
+    });
+    assert.equal(scan.status, 0, `privacy scanner blocked claim_domains: ${scan.stdout}${scan.stderr}`);
+  }
+
   // Absent -> enforced; explicit open -> open; garbage -> fails closed.
   assert.equal(run("").mode, "enforced");
   assert.equal(run("\nroster_mode: open\n").mode, "open");

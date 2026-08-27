@@ -201,6 +201,21 @@ async function main() {
       accepted_count: acceptedCount,
       assignment_type: def.assignment_type || "individual",
       group_config: def.assignment_type === "group" ? (def.group_config || null) : undefined,
+      // The student's browser filters their own verified addresses by this and
+      // refuses one outside it before sealing. Without it the page fell back to
+      // the deployment default and enforced THAT: a lecturer who set
+      // `claim_domains: ["howest.be"]` had students refused at the button for
+      // an address the hub would have accepted, and one who set `[]` to lift
+      // the restriction still had the defaults imposed on them.
+      //
+      // ABSENT and EMPTY stay different answers on the wire, exactly as in the
+      // YAML: an array is published verbatim (including `[]`, the deliberate
+      // opt-out) and an absent key is OMITTED, so the browser falls back to the
+      // deployment default rather than to "no restriction".
+      //
+      // These are domains, not addresses - public by nature, and the scanner's
+      // email-address rule needs an `@`, so a bare domain cannot trip it.
+      claim_domains: Array.isArray(def.claim_domains) ? def.claim_domains : undefined,
     };
 
     // The full card is published under the DIGEST of the invitation token, so
