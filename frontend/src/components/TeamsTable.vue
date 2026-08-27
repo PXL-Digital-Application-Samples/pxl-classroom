@@ -501,7 +501,8 @@ import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
-import { commitFile, commitFiles, deleteFile, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
+import { commitFile, commitFiles, deleteFile, getRepoContent, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
+import { validateAgainst } from '../lib/validate.js'
 import { config } from '../lib/config.js'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { toast } from '../lib/toast.js'
@@ -838,6 +839,14 @@ async function submitCreateTeam() {
       created_by: 'lecturer',
     }
 
+    const { valid, errors } = await validateAgainst('team', teamDoc)
+    if (!valid) {
+      toast.error(
+        `Refusing to write an invalid team manifest: ${errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')}`
+      )
+      return
+    }
+
     const path = `teams/${props.assignment.id}/${slug}.json`
     const res = await commitFile(
       token,
@@ -870,6 +879,63 @@ async function saveTeamMembers() {
     const slug = managingTeam.value.team_slug
     const oldMembers = managingTeam.value.members || []
     const newMembers = manageMembers.value || []
+    const path = `teams/${props.assignment.id}/${slug}.json`
+
+    // READ the manifest we are about to edit, before touching anything.
+    //
+    // This used to rebuild the whole document from the row on screen, which is
+    // the `buildDoc` bug in a new place: `props.teams` is a DISPLAY shape built
+    // by mergeTeamManifests, so it carries `submission_status`, `commit_count`,
+    // `under_capacity` and `warnings` - none of which team.schema.json allows -
+    // and it never carries `repo_id` or `created_by` at all. Saving a member
+    // change therefore wrote a manifest that FAILS its own schema (created_by
+    // is required) and silently dropped `repo_id` and `seeded_from`. Losing
+    // seeded_from is the one a lecturer would feel: planUnseed and the
+    // "Undo seed" button both key on it, so editing one member of a seeded team
+    // quietly removed it from the bulk undo.
+    //
+    // Merge, never replace - the same rule promote-roster follows. Reading
+    // first also means an unreadable manifest refuses before any collaborator
+    // is touched, rather than leaving GitHub and the control repo disagreeing.
+    let existing = null
+    try {
+      const text = await getRepoContent(token, props.org, config.controlRepo, path)
+      if (text) existing = JSON.parse(text)
+    } catch {
+      existing = null
+    }
+    if (!existing || typeof existing !== 'object') {
+      toast.error(`Could not read ${path}. Nothing was changed.`)
+      return
+    }
+
+    // Only what this modal actually changes. Everything else - created_by,
+    // seeded_from, repo_id, and any field a later version adds - rides along
+    // untouched.
+    const teamDoc = {
+      ...existing,
+      members: newMembers,
+      vacant: newMembers.length === 0,
+    }
+
+    // Heal a manifest the old rebuild damaged instead of refusing it. Every
+    // team edited before this fix lost its required `created_by`, so validating
+    // without repairing would lock a lecturer out of exactly the teams the bug
+    // touched. "lecturer" is what the create path already writes, and it is the
+    // honest answer: the original value is gone and nothing can recover it.
+    if (typeof teamDoc.created_by !== 'string' || !teamDoc.created_by) {
+      teamDoc.created_by = 'lecturer'
+    }
+
+    // Validate BEFORE any collaborator write, so a manifest we cannot store
+    // never leaves GitHub and the control repo disagreeing about membership.
+    const { valid, errors } = await validateAgainst('team', teamDoc)
+    if (!valid) {
+      toast.error(
+        `Refusing to write an invalid team manifest: ${errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')}`
+      )
+      return
+    }
 
     // Determine added and removed members
     const removed = oldMembers.filter((m) => !newMembers.some((nm) => nm.toLowerCase() === m.toLowerCase()))
@@ -891,21 +957,6 @@ async function saveTeamMembers() {
       }
     }
 
-    const teamDoc = {
-      schema_version: 1,
-      assignment_id: props.assignment.id,
-      team_slug: slug,
-      team_name: managingTeam.value.team_name,
-      members: newMembers,
-      max_members: maxTeamSize.value,
-      created_at: managingTeam.value.created_at || new Date().toISOString(),
-      vacant: newMembers.length === 0,
-      repo_name: managingTeam.value.repo_name,
-      repo_id: managingTeam.value.repo_id,
-      repo_url: managingTeam.value.repo_url,
-    }
-
-    const path = `teams/${props.assignment.id}/${slug}.json`
     const res = await commitFile(
       token,
       props.org,
