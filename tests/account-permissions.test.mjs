@@ -47,11 +47,21 @@ test("no account permission leaks into the manifest or the installation set", ()
   );
 });
 
-test("the claim flow's email read is declared", () => {
-  // Phase D asks a student to confirm one of their own GitHub-verified
+test("the claim flow's email read is declared, under the name the API uses", () => {
+  // The claim asks a student to confirm one of their own GitHub-verified
   // addresses. That is a user-to-server read of /user/emails; an installation
   // token cannot do it at all.
-  assert.equal(ACCOUNT_APP_PERMISSIONS.email_addresses, "read");
+  //
+  // The key is `emails`. The App settings UI calls the toggle "Email
+  // addresses", and this constant said `email_addresses` until the permission
+  // was actually granted and GET /apps/{slug} came back saying `emails` -
+  // so the check warned "missing" over a permission that was plainly there.
+  assert.equal(ACCOUNT_APP_PERMISSIONS.emails, "read");
+  assert.equal(
+    ACCOUNT_APP_PERMISSIONS.email_addresses,
+    undefined,
+    "the settings-UI spelling is not the API spelling, and only the API's matters here",
+  );
 });
 
 test("starring is NOT required - acceptance stopped starring the broker", () => {
@@ -62,41 +72,49 @@ test("starring is NOT required - acceptance stopped starring the broker", () => 
 });
 
 test("missingAccountPermissions fails closed on absent and on too-low", () => {
-  assert.deepEqual(missingAccountPermissions({ email_addresses: "read" }), []);
-  assert.deepEqual(missingAccountPermissions({ email_addresses: "write" }), [],
+  assert.deepEqual(missingAccountPermissions({ emails: "read" }), []);
+  assert.deepEqual(missingAccountPermissions({ emails: "write" }), [],
     "write satisfies a read requirement");
 
   assert.deepEqual(missingAccountPermissions({}), [
-    { permission: "email_addresses", expected: "read", actual: null },
+    { permission: "emails", expected: "read", actual: null },
+  ]);
+
+  // The settings-UI spelling must NOT satisfy it - that is exactly the
+  // confusion that made this check warn over a granted permission.
+  assert.deepEqual(missingAccountPermissions({ email_addresses: "read" }), [
+    { permission: "emails", expected: "read", actual: null },
   ]);
 
   // An unreadable declaration is not evidence of compliance.
   assert.deepEqual(missingAccountPermissions(null), [
-    { permission: "email_addresses", expected: "read", actual: null },
+    { permission: "emails", expected: "read", actual: null },
   ]);
 
   // A junk level is not a level.
-  assert.deepEqual(missingAccountPermissions({ email_addresses: "sometimes" }), [
-    { permission: "email_addresses", expected: "read", actual: "sometimes" },
+  assert.deepEqual(missingAccountPermissions({ emails: "sometimes" }), [
+    { permission: "emails", expected: "read", actual: "sometimes" },
   ]);
 });
 
-test("the live App's real shape would be judged correctly", () => {
+test("the live App's real shape is judged correctly", () => {
   // Exactly what `gh api apps/pxl-classroom-provisioner --jq .permissions`
-  // returned on 2026-08-27, which is what proves account permissions appear on
-  // this endpoint at all: starring and plan are both account-level and both
-  // present. email_addresses was not yet added, so this must report it.
+  // returned on 2026-08-27, AFTER "Email addresses: Read" was switched on in
+  // the App settings. This is the measurement that matters: the toggle is
+  // labelled "Email addresses" and the API reports `emails`.
   const live = {
     actions: "write", actions_variables: "write", administration: "write",
-    checks: "read", contents: "write", issues: "write", members: "write",
-    metadata: "read", organization_administration: "write",
+    checks: "read", contents: "write", emails: "read", issues: "write",
+    members: "write", metadata: "read", organization_administration: "write",
     organization_plan: "read", plan: "read", pull_requests: "write",
     secrets: "write", starring: "write", workflows: "write",
   };
-  assert.deepEqual(missingAccountPermissions(live), [
-    { permission: "email_addresses", expected: "read", actual: null },
-  ]);
+  assert.deepEqual(missingAccountPermissions(live), [], "the granted App must read as clean");
 
-  // ...and once it is added by hand, clean.
-  assert.deepEqual(missingAccountPermissions({ ...live, email_addresses: "read" }), []);
+  // ...and the same App before the toggle, which must still be reported.
+  const { emails, ...before } = live;
+  assert.equal(emails, "read");
+  assert.deepEqual(missingAccountPermissions(before), [
+    { permission: "emails", expected: "read", actual: null },
+  ]);
 });

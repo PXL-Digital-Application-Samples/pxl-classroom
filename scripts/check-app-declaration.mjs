@@ -37,32 +37,36 @@ if (!res.ok) {
 const declared = (await res.json()).permissions || {};
 const missing = missingManifestPermissions(declared);
 
-// Account permissions are reported but do NOT fail the run, and the split is
-// deliberate. A manifest permission missing here means a SHIPPED feature is
-// broken on every org - that is what the checks: read drift turned out to be.
-// An account permission is added by hand by the App owner alone (no org
-// approval round), and email_addresses is declared ahead of the claim flow
-// that will use it, so failing on it would put the weekly report permanently
-// red over a feature that does not exist yet. A check that is always red is
-// one nobody reads.
+// Account permissions FAIL now, and that is a deliberate change: they were a
+// warning only while `emails` was declared ahead of the claim flow that would
+// consume it. The claim is live, so a missing one is a shipped feature quietly
+// degrading - every student falls back to the typed box and every binding
+// records claim_verified: false, with nothing red anywhere to say why.
+//
+// They are still set by the App owner ALONE - no organization approval round -
+// so unlike a manifest permission there is nobody to chase, and it can be
+// fixed in one toggle.
 const missingAccount = missingAccountPermissions(declared);
 if (missingAccount.length) {
   const acct = missingAccount
     .map((m) => `${m.permission}=${m.actual ?? "missing"} (want ${m.expected})`)
     .join(", ");
   console.log(
-    `::warning::The App "${slug}" does not declare the account permission(s): ${acct}. ` +
-      `These are set by the App owner alone, under the App's Permissions & events -> Account permissions; ` +
-      `they are NOT part of the manifest and no organization owner has to approve them. ` +
-      `email_addresses is required by the claim flow (student confirms one of their own GitHub-verified ` +
-      `addresses, a user-to-server read of /user/emails) and is declared ahead of it.`,
+    `::error::The App "${slug}" does not declare the account permission(s): ${acct}. ` +
+      `Set them under the App's Permissions & events -> Account permissions - they are NOT part of ` +
+      `the manifest and no organization owner has to approve them. ` +
+      `Note the API reports this one as "emails" while the settings toggle is labelled ` +
+      `"Email addresses". The claim flow needs it to show a student their own GitHub-verified ` +
+      `addresses (a user-to-server read of /user/emails); without it every claim degrades to the ` +
+      `typed box and records claim_verified: false. See RUNBOOK section 1.2.`,
   );
 }
 
-if (missing.length === 0) {
-  console.log(`The App "${slug}" declares every permission in the manifest.`);
+if (missing.length === 0 && missingAccount.length === 0) {
+  console.log(`The App "${slug}" declares every permission in the manifest, and every account permission.`);
   process.exit(0);
 }
+if (missing.length === 0) process.exit(1);
 
 const labels = missing.map((m) => `${m.permission}=${m.actual ?? "missing"} (want ${m.expected})`).join(", ");
 console.log(
