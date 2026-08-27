@@ -34,7 +34,7 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
 1. In a browser, open the Pages site at `https://<pages-host>/pxl-classroom/setup` (e.g. `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`).
 2. Enter the owning **organization** (recommended - leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
-   - Repository: **Actions RW**, **Administration RW**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Workflows RW**.
+   - Repository: **Actions RW**, **Administration RW**, **Checks R**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Workflows RW**.
    - Organization: **Administration R** (Enhanced Billing usage reports).
    - Device Flow: enabled.
    - Callback URLs: pre-filled for your Pages domain.
@@ -107,7 +107,7 @@ node scripts/generate-claim-keypair.mjs 1
 
 **Rotation.** Generate with the next key id and keep the previous entry in the file: claims already recorded are unaffected (they were decrypted long ago and are plaintext in the control repo), but a student whose browser cached the old public key would otherwise seal a claim the hub can no longer open. Point `current` at the new id, and drop the old entry once no assignment is still accepting.
 
-**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the invitation. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run.
+**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the `pxl-accept:` value - a signature naming one account on a migrated assignment, the invitation token itself on one still on the legacy format. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run. Which assignment it is decides the severity and the advice: the sweep **fails** on a legacy leftover, where the title is the credential and rotating the invitation is the fix, and **warns** on a migrated one, where regenerating would retire every student's link to fix nothing.
 
 The issue itself is never deleted, and cannot be: `deleteIssue` refuses an App installation token with `FORBIDDEN: Viewer not authorized to delete`, measured live 2026-08-26 in two organizations that both grant the App `administration: write`. Only a user token with repository admin can delete an issue, and this system holds no such credential by design. Deleting leftovers by hand is therefore a manual step, and after the move to signed acceptance it is tidying rather than an exposure - the title is a signature naming one account, not a link.
 
@@ -642,6 +642,8 @@ All under Actions in `pxl-classroom`.
 | `reconcile-registry.yml` | Quick drift check (deleted repos, revoked access) without waiting for nightly |
 | `daily-activity.yml` | Force one nightly cycle (collect + finalize) |
 | `deadline-sentinel.yml` | Arm the deadline watchers early, off-cadence (see §7.1) |
+| `sync-starter-code.yml` | Push a template correction out to student repositories (§12.10) |
+| `open-feedback-prs.yml` | Open the draft Feedback PRs headlessly instead of from the tracking page (§12.7) |
 | `weekly-usage-report.yml` | Force a usage report off-cadence |
 | `setup-org.yml` | Add a new org (admin only) |
 
@@ -857,7 +859,7 @@ PXL_APP_CLIENT_ID=... PXL_APP_PRIVATE_KEY="$(cat key.pem)" node scripts/check-in
 Run periodically, especially after touching workflows or App settings.
 
 - [ ] `pxl-classroom audit --org <org>` is clean - it now covers the two rows below automatically (App declaration and repository access).
-- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `contents: write`, `issues: write`, `metadata: read`, `organization_administration: read`, `pull_requests: write`, `secrets: write`, `workflows: write`) plus account `starring: write`.
+- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `checks: read`, `contents: write`, `issues: write`, `metadata: read`, `organization_administration: read`, `pull_requests: write`, `secrets: write`, `workflows: write`) plus account `starring: write` and `emails: read`.
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
