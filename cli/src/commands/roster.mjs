@@ -49,35 +49,11 @@ import {
   describeBinding,
 } from "../../../lib/claim-bindings.mjs";
 import { normalizeEmail } from "../../../lib/claim.mjs";
+import { rowsToRoster } from "../../../lib/roster-csv.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 
 
-
-// Coerce a single CSV cell into the JSON value expected by the schema.
-// Empty cells are dropped (undefined) so optional fields stay absent.
-function coerceCell(field, raw) {
-  if (raw === undefined || raw === null) return undefined;
-  const v = String(raw).trim();
-  if (v === "") return undefined;
-  if (field === "github_id") {
-    const n = Number(v);
-    if (!Number.isInteger(n)) throw new Error(`github_id must be an integer, got "${v}"`);
-    return n;
-  }
-  if (field === "active") {
-    if (/^(true|1|yes|y)$/i.test(v)) return true;
-    if (/^(false|0|no|n)$/i.test(v)) return false;
-    throw new Error(`active must be boolean-ish (true|false|1|0|yes|no), got "${v}"`);
-  }
-  return v;
-}
-
-const KNOWN_COLUMNS = new Set([
-  "student_number", "full_name", "email",
-  "class_group", "github_login", "github_id", "active",
-  "team_slug", "team_name",
-]);
 
 function csvToRoster(csvText, filename) {
   const parsed = Papa.parse(csvText, {
@@ -91,44 +67,9 @@ function csvToRoster(csvText, filename) {
     throw new Error(`CSV parse error at row ${e.row}: ${e.message}`);
   }
 
-  const headers = parsed.meta.fields ?? [];
-  const unknown = headers.filter((h) => !KNOWN_COLUMNS.has(h));
-  if (unknown.length) {
-    throw new Error(
-      `unknown column(s) in ${filename}: ${unknown.join(", ")}. ` +
-      `Known columns: ${[...KNOWN_COLUMNS].join(", ")}.`,
-    );
-  }
-  for (const required of ["student_number", "full_name"]) {
-    if (!headers.includes(required)) {
-      throw new Error(`required CSV column missing: ${required}`);
-    }
-  }
-
-  const students = [];
-  const seenNumbers = new Set();
-  for (let i = 0; i < parsed.data.length; i++) {
-    const row = parsed.data[i];
-    const lineNo = i + 2; // +1 for header, +1 for 1-based
-    const entry = {};
-    for (const field of KNOWN_COLUMNS) {
-      try {
-        const v = coerceCell(field, row[field]);
-        if (v !== undefined) entry[field] = v;
-      } catch (err) {
-        throw new Error(`line ${lineNo} (${field}): ${err.message}`);
-      }
-    }
-    if (!entry.student_number) throw new Error(`line ${lineNo}: student_number is required`);
-    if (!entry.full_name) throw new Error(`line ${lineNo}: full_name is required`);
-    if (seenNumbers.has(entry.student_number)) {
-      throw new Error(`line ${lineNo}: duplicate student_number "${entry.student_number}"`);
-    }
-    seenNumbers.add(entry.student_number);
-    students.push(entry);
-  }
-
-  return { schema_version: 2, students };
+  // The rule itself lives in lib/roster-csv.mjs, shared with the Admin
+  // Panel. Papa.parse stays here so that module keeps no dependency.
+  return rowsToRoster(parsed.data, parsed.meta.fields ?? [], { filename });
 }
 
 // Pretty-print the ajv errors so the user can find the bad row fast.

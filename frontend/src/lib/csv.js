@@ -5,29 +5,7 @@
 // Schema validation is the caller's responsibility (validateAgainst('roster')).
 
 import Papa from 'papaparse'
-
-const KNOWN_COLUMNS = new Set([
-  'student_number', 'full_name', 'email',
-  'class_group', 'github_login', 'github_id', 'active',
-  'team_slug', 'team_name',
-])
-
-function coerceCell(field, raw) {
-  if (raw === undefined || raw === null) return undefined
-  const v = String(raw).trim()
-  if (v === '') return undefined
-  if (field === 'github_id') {
-    const n = Number(v)
-    if (!Number.isInteger(n)) throw new Error(`github_id must be integer, got "${v}"`)
-    return n
-  }
-  if (field === 'active') {
-    if (/^(true|1|yes|y)$/i.test(v)) return true
-    if (/^(false|0|no|n)$/i.test(v)) return false
-    throw new Error(`active must be boolean-ish, got "${v}"`)
-  }
-  return v
-}
+import { rowsToRoster } from '../../../lib/roster-csv.mjs'
 
 export function csvToRoster(csvText) {
   const parsed = Papa.parse(csvText, {
@@ -41,43 +19,11 @@ export function csvToRoster(csvText) {
     throw new Error(`CSV parse error at row ${e.row}: ${e.message}`)
   }
 
-  const headers = parsed.meta.fields ?? []
-  const unknown = headers.filter((h) => !KNOWN_COLUMNS.has(h))
-  if (unknown.length) {
-    throw new Error(
-      `Unknown column(s): ${unknown.join(', ')}. Known: ${[...KNOWN_COLUMNS].join(', ')}.`,
-    )
-  }
-  for (const required of ['student_number', 'full_name']) {
-    if (!headers.includes(required)) {
-      throw new Error(`Required CSV column missing: ${required}`)
-    }
-  }
-
-  const students = []
-  const seen = new Set()
-  for (let i = 0; i < parsed.data.length; i++) {
-    const row = parsed.data[i]
-    const lineNo = i + 2
-    const entry = {}
-    for (const field of KNOWN_COLUMNS) {
-      try {
-        const v = coerceCell(field, row[field])
-        if (v !== undefined) entry[field] = v
-      } catch (err) {
-        throw new Error(`Line ${lineNo} (${field}): ${err.message}`)
-      }
-    }
-    if (!entry.student_number) throw new Error(`Line ${lineNo}: student_number is required`)
-    if (!entry.full_name) throw new Error(`Line ${lineNo}: full_name is required`)
-    if (seen.has(entry.student_number)) {
-      throw new Error(`Line ${lineNo}: duplicate student_number "${entry.student_number}"`)
-    }
-    seen.add(entry.student_number)
-    students.push(entry)
-  }
-
-  return { schema_version: 2, students }
+  // The rule itself lives in lib/roster-csv.mjs, shared with
+  // `pxl-classroom roster import`. Papa.parse stays here so that module keeps
+  // no dependency, and so both surfaces produce the identical document from
+  // the identical file - these two files are where diffRosters forked.
+  return rowsToRoster(parsed.data, parsed.meta.fields ?? [])
 }
 
 // Re-exported rather than re-implemented, the same way frontend/src/lib/deadline.js
