@@ -205,7 +205,7 @@ import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getInstallations, getInvitations, ghApi } from '../lib/api.js'
+import { getInstallations, getInvitations, getUserRepos } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 import { parseInvitationLink } from '../lib/invite.js'
 
@@ -331,9 +331,10 @@ async function loadStudentAssignments() {
       return
     }
 
-    // 3. Batch query user repos and invites (2 GitHub API calls total)
+    // 3. Batch query user repos and invites. Both paginate: a student past 100
+    //    repositories was silently losing assignments from this list.
     const [reposRes, invitesRes] = await Promise.all([
-      ghApi(token, 'GET', '/user/repos?affiliation=owner,collaborator&per_page=100'),
+      getUserRepos(token),
       getInvitations(token)
     ])
 

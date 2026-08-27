@@ -143,22 +143,35 @@ export async function getRepo(token, owner, repo) {
  * and the timeout state then tells them setup failed, which is the opposite of
  * what happened. A truncated success is worse here than an error would be.
  */
-export async function getInvitations(token) {
+/**
+ * Walk a paginated GitHub list endpoint through its Link header.
+ *
+ * ONE implementation. There were three - getInvitations, getInstallations and
+ * listOrgRepos each walked `rel="next"` themselves - and a fourth was about to
+ * be written for /user/repos, which is the shape that forked diffRosters into
+ * two implementations disagreeing on key order.
+ *
+ * Returns `{ res, merged }`. `merged` is null when a page failed, so the caller
+ * can hand the failing response back untouched: a partial list dressed up as a
+ * whole one is the bug this helper exists to prevent, and "one page is not the
+ * list" has already cost this repo three separate incidents.
+ *
+ * `seen` guards against a malformed or self-referential Link header spinning
+ * forever; `maxPages` is the belt to that braces.
+ */
+async function pagedGet(token, firstPath, { maxPages, extract = (d) => (Array.isArray(d) ? d : []) }) {
   const merged = []
-  let path = '/user/repository_invitations?per_page=100'
+  let path = firstPath
   let last = null
   const seen = new Set()
-  // A student is not in 2,000 pending invitations; the cap only stops a
-  // malformed or self-referential Link header spinning forever.
-  const MAX_PAGES = 20
 
-  for (let page = 0; path && page < MAX_PAGES; page++) {
+  for (let page = 0; path && page < maxPages; page++) {
     if (seen.has(path)) break
     seen.add(path)
     const res = await ghApi(token, 'GET', path)
-    if (!res.ok) return res
+    if (!res.ok) return { res, merged: null }
     last = res
-    merged.push(...(Array.isArray(res.data) ? res.data : []))
+    merged.push(...extract(res.data))
 
     const link = res.headers?.get?.('link') || ''
     const next = link.split(',').find((p) => /rel="next"/.test(p))
@@ -166,7 +179,40 @@ export async function getInvitations(token) {
     path = m ? m[1].replace('https://api.github.com', '') : null
   }
 
-  return { ...last, data: merged }
+  return { res: last, merged }
+}
+
+export async function getInvitations(token) {
+  // A student is not in 2,000 pending invitations; the cap only stops a
+  // malformed Link header spinning forever.
+  const { res, merged } = await pagedGet(token, '/user/repository_invitations?per_page=100', { maxPages: 20 })
+  if (!merged) return res
+  return { ...res, data: merged }
+}
+
+/**
+ * Every repository the signed-in user owns or collaborates on.
+ *
+ * ONE PAGE IS NOT THE LIST. This was a bare `per_page=100` read, chosen as part
+ * of a "2 GitHub API calls total" optimisation, and it drives the student
+ * portal's My Assignments: every repo is matched against every published
+ * assignment to decide what the student has accepted. A student past 100
+ * repositories - owner *and* collaborator, and every assignment in every course
+ * adds one - simply stopped seeing some of their assignments. No error, no
+ * empty state, and because /user/repos sorts by full_name the ones that vanish
+ * are the alphabetically late ones, consistently.
+ *
+ * Its sibling in the very same Promise.all (getInvitations) had already been
+ * fixed for this; only the repos half was left.
+ */
+export async function getUserRepos(token) {
+  const { res, merged } = await pagedGet(
+    token,
+    '/user/repos?affiliation=owner,collaborator&per_page=100&sort=full_name',
+    { maxPages: 30 },
+  )
+  if (!merged) return res
+  return { ...res, data: merged }
 }
 
 /**
@@ -190,29 +236,14 @@ export async function acceptInvitation(token, invitationId) {
  * so pages are merged on the inner list rather than concatenated wholesale.
  */
 export async function getInstallations(token) {
-  const merged = []
-  let path = '/user/installations?per_page=100'
-  let last = null
-  const seen = new Set()
-  // 100 per page; nobody is in 5000 installations. The cap exists so a
-  // malformed or self-referential Link header cannot spin forever.
-  const MAX_PAGES = 50
-
-  for (let page = 0; path && page < MAX_PAGES; page++) {
-    if (seen.has(path)) break
-    seen.add(path)
-    const res = await ghApi(token, 'GET', path)
-    if (!res.ok) return res
-    last = res
-    merged.push(...(res.data?.installations || []))
-
-    const link = res.headers?.get?.('link') || ''
-    const next = link.split(',').find((p) => /rel="next"/.test(p))
-    const m = next && next.match(/<([^>]+)>/)
-    path = m ? m[1].replace('https://api.github.com', '') : null
-  }
-
-  return { ...last, data: { total_count: merged.length, installations: merged } }
+  // Nobody is in 5,000 installations; the cap only bounds a malformed Link
+  // header. The response is an OBJECT, so pages merge on the inner list.
+  const { res, merged } = await pagedGet(token, '/user/installations?per_page=100', {
+    maxPages: 50,
+    extract: (d) => d?.installations || [],
+  })
+  if (!merged) return res
+  return { ...res, data: { total_count: merged.length, installations: merged } }
 }
 
 /**
