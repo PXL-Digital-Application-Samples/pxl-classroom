@@ -5,7 +5,7 @@
 //
 // The old link carried a bearer token that the student pasted into the issue
 // title - and a title lands in a public event that GH Archive keeps forever, so
-// the credential was world-readable (CLAIM_PLAN Phase A). The link now carries a
+// the credential was world-readable (ARCHITECTURE §4.3.2). The link now carries a
 // private key instead, and the browser signs a fresh assertion naming this
 // student's own account. Only the signature is published, and it is useless to
 // anyone else.
@@ -46,7 +46,7 @@ export { parseInviteFields, linkSecretFrom } from '../../../lib/invite-token-for
  *
  * The old form pasted the invitation itself into the title - and the title
  * lands in a public event that GH Archive keeps forever, so the credential was
- * world-readable (CLAIM_PLAN Phase A; measured live 2026-08-25 with one
+ * world-readable (ARCHITECTURE §4.3.2; measured live 2026-08-25 with one
  * unauthenticated curl). Now the link carries a private key, the browser signs
  * a fresh assertion naming THIS student's account, and only the signature is
  * published. Replaying it requires being that account.

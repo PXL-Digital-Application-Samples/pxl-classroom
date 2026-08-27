@@ -2,7 +2,7 @@
 //
 // GitHub Classroom's mistake was making a wrong binding unfixable. A wrong
 // binding a lecturer cannot SEE is the same mistake one step earlier, which is
-// why the column and the Unlink control ship together (CLAIM_PLAN phase E).
+// why the column and the Unlink control ship together (ARCHITECTURE §15).
 //
 // The fixture models an ABSENT claims directory as a 404, exactly as GitHub
 // does, rather than an empty array - that distinction is what caught the read

@@ -101,7 +101,7 @@ const expiresAt = reuse
 
 const token = signInviteToken({ org, assignmentId, expiresAt, nonce, kid, privateKeyPem });
 
-// The signed-acceptance keypair (CLAIM_PLAN Phase A). The PRIVATE half becomes
+// The signed-acceptance keypair (ARCHITECTURE §4.3.2). The PRIVATE half becomes
 // the link secret; the PUBLIC half is copied to the broker as INVITE_PUBKEY,
 // where the student's signature is checked. The old token is still written, so
 // an assignment that has not migrated keeps working and an out-of-date link

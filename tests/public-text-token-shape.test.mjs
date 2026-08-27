@@ -139,7 +139,7 @@ test("the rule does not fire on ordinary published text", () => {
 
 // --- the invitation is a private key now ------------------------------------
 //
-// CLAIM_PLAN Phase A replaced the bearer token with a keypair: the link carries
+// ARCHITECTURE §4.3.2 replaced the bearer token with a keypair: the link carries
 // the PRIVATE half, and the student's browser signs with it. The rule above is
 // keyed on the token's `<35>.<86>` shape and cannot see a key at all - so for
 // the length of that migration the publish gate would have waved a leaked

@@ -33,7 +33,7 @@
 #                            base64url). Public by design. The student signs with
 #                            the private half, which lives only in their link, so
 #                            the title carries a signature rather than a
-#                            credential - see CLAIM_PLAN Phase A. Absent means
+#                            credential - see ARCHITECTURE §4.3.2. Absent means
 #                            reject, never "accept anything"
 #   INVITE_ENABLED         - "false" turns acceptance off without deleting anything
 

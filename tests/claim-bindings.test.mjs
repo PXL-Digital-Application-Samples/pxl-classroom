@@ -63,7 +63,7 @@ test("the address match is case-insensitive, exactly as the claim gate is", () =
 });
 
 test("an unverified claim still binds, and says so", () => {
-  // A typed address is a real binding - CLAIM_PLAN decided nobody is locked
+  // A typed address is a real binding - ARCHITECTURE §15 records nobody is locked
   // out - but the distinction is the whole point of the flag.
   const r = roster({ email: "bob@student.pxl.be" });
   const rows = rosterBindings(r, [claim("bob-pxl", 222, "bob@student.pxl.be", false)]);
@@ -121,7 +121,7 @@ test("a claim agreeing with the roster login is not a conflict, whatever the cas
 
 test("a claim matching no roster entry is an orphan, and is never deleted here", () => {
   // A student removed from the roster, or an address corrected in the CSV.
-  // CLAIM_PLAN: reported, never silently deleted.
+  // ARCHITECTURE §17: reported, never silently deleted.
   const r = roster({ email: "alice@student.pxl.be" });
   const orphans = orphanClaims(r, [
     claim("alice-pxl", 111, "alice@student.pxl.be"),

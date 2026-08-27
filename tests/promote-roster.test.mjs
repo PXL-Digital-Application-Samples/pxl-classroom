@@ -610,7 +610,7 @@ for (const rel of DIFF_CONSUMERS) {
 }
 
 // --------------------------------------------------------------------------
-// Folding claims into the roster (CLAIM_PLAN phase E)
+// Folding claims into the roster (ARCHITECTURE §15)
 // --------------------------------------------------------------------------
 //
 // The opposite operation from promotion, which is why it is a separate planner

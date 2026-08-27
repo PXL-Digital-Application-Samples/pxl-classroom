@@ -189,7 +189,7 @@ test("the broker reads the issue title only through env, against one strict patt
     JSON.stringify(step.env || {}).includes("github.event.issue.title")
   );
 
-  // TWO steps read it since CLAIM_PLAN Phase A: `parse` takes the team hint,
+  // TWO steps read it since ARCHITECTURE §4.3.2: `parse` takes the team hint,
   // and `verify` hands the whole title to the JS verifier. Both through env:,
   // which is the property that matters - test 1 above proves no `run:` body
   // interpolates it. Pinned at two so a third cannot appear unnoticed.

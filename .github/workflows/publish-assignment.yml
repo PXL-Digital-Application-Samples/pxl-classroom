@@ -165,7 +165,7 @@ jobs:
           # The acceptance PUBLIC key. Its presence is what switches this
           # assignment from the legacy bearer token to signed acceptance, so
           # migration is per assignment rather than a flag day - see
-          # CLAIM_PLAN Phase A. Public by design; the private half stays in the
+          # ARCHITECTURE §4.3.2. Public by design; the private half stays in the
           # control repo and in the student's link.
           gh variable set INVITE_PUBKEY --body "${INVITE_PUBKEY}" --repo "${ORG}/${BROKER_REPO}"
 

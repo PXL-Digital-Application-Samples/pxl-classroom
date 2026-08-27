@@ -1,6 +1,6 @@
 // 43 - The link a student was handed before the assignment migrated
 //
-// CLAIM_PLAN Phase A replaced the bearer token in the invitation with a private
+// ARCHITECTURE §4.3.2 replaced the bearer token in the invitation with a private
 // key the browser signs with. The migration happens on a republish, and from
 // that moment the broker holds a public key and refuses a legacy
 // `pxl-accept:<token>` title outright. Every link already handed out is dead.

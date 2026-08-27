@@ -37,7 +37,7 @@ function finish(valid, reason) {
   console.log(valid ? `[ok] invitation token accepted` : `[reject] invitation token ${reason}`);
 }
 
-// --- Signed acceptance (CLAIM_PLAN Phase A) ---------------------------------
+// --- Signed acceptance (ARCHITECTURE §4.3.2) ---------------------------------
 //
 // The old invitation token is a BEARER credential that lands in a PUBLIC event:
 // measured 2026-08-25, one unauthenticated GET against a broker's events feed
@@ -67,7 +67,7 @@ if (String(process.env.TITLE || "").trim() && String(process.env.INVITE_PUBKEY |
   if (/^pxl-accept:[A-Za-z0-9_-]{35}\.[A-Za-z0-9_-]{86}( |$)/.test(title)) {
     console.error(
       "::error::This invitation link predates the signed-acceptance change and can no longer be used. " +
-        "Republish the assignment to mint new links (CLAIM_PLAN Phase A).",
+        "Republish the assignment to mint new links (ARCHITECTURE §4.3.2).",
     );
     finish(false, "legacy-link");
     process.exit(0);

@@ -93,7 +93,7 @@ const E2E_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z'
 
 // The link secret is now an acceptance PRIVATE KEY, not a bearer token: the
 // student's browser signs a fresh assertion with it, so the public event
-// carries a signature instead of a credential (CLAIM_PLAN Phase A).
+// carries a signature instead of a credential (ARCHITECTURE §4.3.2).
 //
 // Generated with node:crypto SYNCHRONOUSLY, and that is the whole point.
 // lib/acceptance-signature.mjs uses WebCrypto because it has to run in a

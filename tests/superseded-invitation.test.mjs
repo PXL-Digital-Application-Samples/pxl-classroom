@@ -1,5 +1,5 @@
 // What happens to a link that was handed out BEFORE the assignment migrated to
-// signed acceptance (CLAIM_PLAN Phase A).
+// signed acceptance (ARCHITECTURE §4.3.2).
 //
 // That link is dead, and not by choice: the migration puts INVITE_PUBKEY on the
 // broker, and from that moment a legacy `pxl-accept:<token>` title is refused.

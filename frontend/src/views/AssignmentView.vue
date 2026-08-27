@@ -917,7 +917,7 @@ async function acceptAssignment() {
     // SIGNED, not pasted. The title lands in a public event that GH Archive
     // keeps forever, so the old form published a reusable credential. This
     // signs a fresh assertion naming this student's own account - see
-    // CLAIM_PLAN Phase A.
+    // ARCHITECTURE §4.3.2.
     const title = await signedAcceptanceIssueTitle({
       inviteSecret: props.inviteToken,
       assignmentId: resolvedId.value,

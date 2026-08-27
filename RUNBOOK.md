@@ -1061,6 +1061,21 @@ pxl-classroom roster promote --org <org> --claims             # commit
 
 `promote` now takes exactly one source, and the two are opposites: `--assignment <id>` **adds** entries for logins the roster has never heard of (open mode, §12.4a), `--claims` **updates** entries it already has with the account the student bound. It writes only into an **empty** `github_login` - a value you set yourself is never overwritten, and a claim that disagrees with it is reported as a conflict for you to unlink. Nothing else is copied off the claim: the address is already the join, and `claim_verified` is evidence about one acceptance rather than a roster fact.
 
+#### 12.4c Which addresses a claim assignment accepts
+
+`claim_domains` on the assignment decides which email domains a student may bind. Absent, it falls back to the deployment default - `student.pxl.be` and `pxl.be`, set in `lib/claim.mjs` as `CLAIM_DEFAULT_DOMAINS`, which is the one place to change it for a different institution.
+
+```yaml
+claim_domains: ["student.pxl.be"]     # this assignment only accepts student addresses
+claim_domains: []                     # deliberate opt-out: any domain passes the filter
+```
+
+**Absent and empty are different answers.** No key means the default; an explicit `[]` means you turned the filter off on purpose. Matching is on the **whole domain label**, never a suffix - anyone can register `notstudent.pxl.be`.
+
+It is a filter, not proof. Nothing checks that a claimed address *exists*, so `asdf@student.pxl.be` passes the domain test - it is the roster match that refuses it. A student with no PXL address on their GitHub account may still type one; the binding is recorded with `claim_verified: false` and shows as *unverified* on the Roster tab. That is by design: requiring a GitHub-verified address locks out a real fraction of students and stops nothing determined, because the page is public JavaScript either way.
+
+A student who has spent their five attempts is refused with `rejected:claim-blocked` and told to contact you - deliberately without a countdown, since that is a progress bar for whoever is enumerating addresses. Clear it by unlinking them (§12.4b), which removes the counter as well as any binding.
+
 Symptom this fixes: with `roster_mode: enforced` and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 
 ### 12.5 Auditing an org's install
