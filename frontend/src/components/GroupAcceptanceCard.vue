@@ -577,12 +577,38 @@ async function loadTeams() {
 
   // 3. Reconcile with live issues on public broker repository (Real-time live fallback)
   try {
-    const issuesRes = token
-      ? await ghApi(token, 'GET', `/repos/${props.org}/${brokerRepo}/issues?state=all&per_page=100`)
-      : await fetch(`https://api.github.com/repos/${props.org}/${brokerRepo}/issues?state=all&per_page=100`).then(r => r.json().then(data => ({ ok: r.ok, data })))
-    
-    if (issuesRes.ok && Array.isArray(issuesRes.data)) {
-      for (const issue of issuesRes.data) {
+    // ONE PAGE IS NOT THE LIST. This read `per_page=100` and stopped, so on a
+    // cohort past a hundred acceptances - and one acceptance is one issue, so
+    // a 200-student group assignment is 200 issues - every team formed after
+    // the hundredth was invisible here. A student would then see a team as
+    // having room, or not existing at all, and create a duplicate.
+    //
+    // Bounded rather than unbounded: this is a fallback behind the Pages teams
+    // file and the control repo, and a student's own rate limit pays for it.
+    // Five pages covers any cohort this system is designed for, and a short
+    // page ends the walk early in the ordinary case - most brokers never reach
+    // the second request.
+    const MAX_PAGES = 5
+    const issues = []
+    let complete = true
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const path = `/repos/${props.org}/${brokerRepo}/issues?state=all&per_page=100&page=${page}`
+      const res = token
+        ? await ghApi(token, 'GET', path)
+        : await fetch(`https://api.github.com${path}`).then(r => r.json().then(data => ({ ok: r.ok, data })))
+      if (!res.ok || !Array.isArray(res.data)) { complete = false; break }
+      issues.push(...res.data)
+      if (res.data.length < 100) break
+      if (page === MAX_PAGES) complete = false
+    }
+    if (!complete) {
+      // Said out loud rather than swallowed: the team list below is built from
+      // what was read, and a truncated read is not evidence a team is absent.
+      console.warn('[teams] broker issue list was truncated; the live team reconciliation may be incomplete')
+    }
+
+    {
+      for (const issue of issues) {
         if (!issue.title || !issue.title.startsWith('team:')) continue
         try {
           const bodyData = typeof issue.body === 'string' ? JSON.parse(issue.body) : (issue.body || {})
