@@ -540,11 +540,11 @@ gh api repos/<org>/<repo>/rulesets --jq '.[] | select(.name=="pxl-classroom-dead
 
 then `gh api -X DELETE repos/<org>/<repo>/rulesets/<id>`.
 
-**A student can delete that ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. If you want a lock they cannot reach, that is an **organization** ruleset, and it needs an App permission the App does not yet declare:
+**A student can delete that ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. If you want a lock they cannot reach, that is an **organization** ruleset. The App declaration is already in place; what remains is org approval and the code:
 
-1. The App owner changes *Organization permissions → Administration* to **Read and write** at `https://github.com/settings/apps/pxl-classroom-provisioner/permissions`.
-2. Every installed org approves the new request (§10.6 - the same re-approval flow as any permission change).
-3. The system then locks a cohort with one API call instead of one per student.
+1. ~~The App owner raises *Organization permissions → Administration* to **Read and write**.~~ **Done** - `GET /apps/pxl-classroom-provisioner` reports `organization_administration: write`. (`MANIFEST_APP_PERMISSIONS` still asks only for `read`, which it needs for Enhanced Billing; the App holding more than the manifest requires is not drift, so `check-app-declaration.mjs` passes.)
+2. **Outstanding:** every installed org approves the widened request (§10.6). `check-installation-approvals.mjs` is what tells you which have not - it is the `installation-approvals` job on the Sunday cron, and a red run there names the orgs.
+3. **Not built:** nothing creates an organization ruleset yet. `lib/submission-lock.mjs` applies a *repository* ruleset per student; a cohort-wide org ruleset would replace that with one API call.
 
 Measured before recommending it: one org ruleset matching `exam2026-*` blocked pushes to both cohort repos and left an unrelated repo alone, and one `PUT` released them all.
 
