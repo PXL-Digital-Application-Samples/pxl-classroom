@@ -133,6 +133,34 @@ jobs:
             [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           dedup-key: prov-fail-${{ steps.accept.outputs.assignment_id }}-${{ steps.accept.outputs.github_login }}
           
+      # A REJECTED claim still wrote something that has to survive: the
+      # failed-attempt counter. The only commit step in this workflow is gated
+      # on an ACCEPTED outcome, so every failure was written into the runner's
+      # checkout and discarded - which makes MAX_CLAIM_ATTEMPTS unenforceable
+      # and leaves the guessing oracle unbounded, the exact thing CLAIM_PLAN
+      # insisted must ship WITH the gate rather than after it.
+      #
+      # continue-on-error, for the same reason the notify steps carry it: a
+      # rejection is an outcome and exits 0 on purpose, and a failed push about
+      # one must not turn it into a red run.
+      - name: Persist a failed claim attempt
+        if: always() && startsWith(steps.accept.outputs.outcome, 'rejected:')
+        continue-on-error: true
+        env:
+          LOGIN: ${{ github.event.client_payload.github_login }}
+          OUTCOME: ${{ steps.accept.outputs.outcome }}
+        run: |
+          set -e
+          git -C control add "students/"
+          if git -C control diff --cached --quiet; then
+            echo "nothing to persist for $OUTCOME"
+            exit 0
+          fi
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          git -C control commit -m "Record failed claim attempt for ${LOGIN} (${OUTCOME})"
+          scripts/git-push-with-retry.sh control
+
       - name: Write repository record into control checkout, push
         if: (success() || failure()) && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && steps.prov.outputs.outcome != ''
         env:
@@ -172,6 +200,13 @@ jobs:
             fi
             git -C control add "acceptances/"
           fi
+
+          # students/ holds the claim binding (students/claims/<id>.json). It
+          # was not staged, so the binding was written into the runner's
+          # checkout and thrown away: the claim worked once and bound nothing.
+          # Found by running it - the drill's acceptance succeeded and the
+          # binding 404'd afterwards.
+          git -C control add "students/"
 
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
