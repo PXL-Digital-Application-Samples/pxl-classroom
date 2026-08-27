@@ -369,7 +369,7 @@
             </p>
             <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
               <li>The assignment registration cap has been reached.</li>
-              <li v-if="rosterMode === 'enforced'">You are not on the lecturer's roster for this course.</li>
+              <li v-if="rosterMatchesLogin(rosterMode)">You are not on the lecturer's roster for this course.</li>
               <li>GitHub is currently experiencing high load or rate limits.</li>
             </ul>
             <p class="text-secondary">
@@ -435,7 +435,7 @@ import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
 import { toast } from '../lib/toast.js'
 // Shared with acceptance/accept.mjs, so the page and the gate agree on which
 // mode is in force - fail-closed fallback included.
-import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
+import { normalizeRosterMode, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
 
 const props = defineProps({
   org: { type: String, required: true },

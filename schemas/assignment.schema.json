@@ -193,10 +193,19 @@
       "type": "string",
       "enum": [
         "enforced",
+        "claim",
         "open"
       ],
       "default": "enforced",
-      "description": "Who may accept. 'enforced' (default) requires the student's login in students/roster.yml. 'open' allows any GitHub account within the opens_at..deadline_at window and below max_acceptances; the lecturer reconciles logins to students afterward. A third mode, 'org_member', gated on an ACTIVE organization membership so a lecturer could enrol by email address and let GitHub perform the email-to-account binding; it was withdrawn without ever being used on a cohort, because binding a student to an address should not require putting them in the organization."
+      "description": "Who may accept. 'enforced' (default) requires the student's login in students/roster.yml. 'claim' is enforced with a way in: the student proves an institutional email address, which must match a roster entry - for the ordinary case where a lecturer holds addresses and not GitHub usernames. 'open' allows any GitHub account within the opens_at..deadline_at window and below max_acceptances; the lecturer reconciles logins to students afterward. A fourth mode, 'org_member', gated on an ACTIVE organization membership so GitHub performed the email-to-account binding; it was withdrawn without ever being used on a cohort, because binding a student to an address should not require putting them in the organization."
+    },
+    "claim_domains": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "$comment": "ABSENT and EMPTY are different answers. Omit the field to get the deployment default (CLAIM_DEFAULT_DOMAINS in lib/claim.mjs, shipped here as student.pxl.be and pxl.be); set it to [] to deliberately opt out of any domain restriction. A truthy check would turn that opt-out back into the default.",
+      "description": "Email domains a claimed address may belong to, matched on the whole domain label and case-insensitively - never as a suffix, since anyone can register notstudent.pxl.be. Omit for the deployment default; set to [] for no restriction. Under 'claim' the roster match is the real gate and this is a cheap early filter; the honest limit is that nothing checks the address EXISTS, so it buys detection and one-address-one-repo accounting rather than prevention."
     },
     "late_policy": {
       "type": "string",

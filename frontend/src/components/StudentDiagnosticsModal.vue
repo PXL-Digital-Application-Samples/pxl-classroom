@@ -59,10 +59,11 @@
             </div>
           </div>
 
-          <!-- Check 2: Roster Status. Only `enforced` gates on the roster -
-               under `open` nobody is blocked by it, so reporting a roster
-               problem would point the student at the wrong thing entirely. -->
-          <div v-if="normalizeRosterMode(assignment?.roster_mode) === 'enforced'" class="check-item flex items-start gap-sm">
+          <!-- Check 2: Roster Status. Only `enforced` looks the student's LOGIN
+               up in the roster. Under `claim` the key is the ADDRESS, so a
+               student listed by email would be told they are missing; under
+               `open` nobody is blocked by the roster at all. -->
+          <div v-if="rosterMatchesLogin(assignment?.roster_mode)" class="check-item flex items-start gap-sm">
             <Icon
               :name="rosterStatus === 'enrolled' ? 'check-circle' : rosterStatus === 'missing' ? 'x-circle' : 'clock'"
               :size="16"
@@ -189,7 +190,7 @@ import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { clearAuth, getUser } from '../lib/auth.js'
 import { toast } from '../lib/toast.js'
-import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
+import { rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
 
 const props = defineProps({
   show: { type: Boolean, default: false },

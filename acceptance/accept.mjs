@@ -10,12 +10,25 @@
 // Outputs via GITHUB_OUTPUT:  assignment_id, github_login, github_id, outcome,
 //                              target_repo
 
-import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, rm } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { normalizeRosterMode } from "../lib/roster-mode.mjs";
+import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
+import {
+  CLAIM_REJECTIONS,
+  buildClaimRecord,
+  claimAttemptsExhausted,
+  claimAttemptsPath,
+  claimPath,
+  decryptClaim,
+  domainAllowed,
+  normalizeEmail,
+  recordFailedAttempt,
+  resolveClaimDomains,
+  rosterEntryForEmail,
+} from "../lib/claim.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -71,6 +84,194 @@ function validate(assignmentId, login, id) {
   return null;
 }
 
+// --- the claim gate ----------------------------------------------------------
+//
+// ORDERING IS WHERE THE COST IS SAVED. Under `claim` this step is a guessing
+// oracle: whoever holds the link can submit addresses, and
+// firstname.lastname@student.pxl.be is enumerable. Every attempt is an issue
+// and a hub workflow run, on a system whose design goal is billing zero when
+// idle - so the bill from a bored student with a loop bites well before the
+// identity risk does.
+//
+// The checks are therefore ordered cheapest-refusal-first, and the two that
+// cost nothing at all come before anything is decrypted or read:
+//
+//   1. already claimed  - idempotent, no re-prompt, no counter touched
+//   2. attempts spent   - refuse before decrypting, before reading the roster
+//   3. no payload       - does NOT count; an absent claim is a stale link or a
+//                         client that did not prompt, not a guess
+//   4. decrypt          - counts
+//   5. author mismatch  - counts; this is the replay check
+//   6. domain           - counts
+//   7. roster match     - counts
+//   8. address taken    - counts
+//
+// Nothing here touches a repository. A rejected claim must never reach
+// provisioning, which is the expensive half.
+async function runClaimGate({ assignment, assignmentId, roster, login, githubId, dataDir, now }) {
+  const claimFile = join(dataDir, claimPath(githubId));
+  const attemptsFile = join(dataDir, claimAttemptsPath(githubId));
+  const iso = now.toISOString();
+
+  const readJson = async (path) => {
+    if (!existsSync(path)) return null;
+    try {
+      return JSON.parse(await readFile(path, "utf8"));
+    } catch {
+      // A corrupt record is not evidence. Treated as absent everywhere here:
+      // an unreadable counter must never lock a student out, and an unreadable
+      // binding is re-established by the claim they are making right now.
+      return null;
+    }
+  };
+
+  // 1. Already bound. Org-scoped, so a second assignment never re-prompts.
+  const existing = await readJson(claimFile);
+  if (existing?.email) {
+    log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
+    return { email: existing.email, verified: Boolean(existing.claim_verified), reused: true };
+  }
+
+  // 2. The counter, before any work at all.
+  const attempts = await readJson(attemptsFile);
+  if (claimAttemptsExhausted(attempts)) {
+    await reject(
+      CLAIM_REJECTIONS.BLOCKED,
+      `too many failed attempts to confirm an email address. Ask your lecturer to reset it.`,
+    );
+  }
+
+  const countFailure = async () => {
+    await mkdir(join(dataDir, "students", "claim-attempts"), { recursive: true });
+    await writeFile(attemptsFile, JSON.stringify(recordFailedAttempt(attempts, iso), null, 2) + "\n");
+  };
+
+  // 3. No payload at all. Deliberately does NOT count against the limit: this
+  //    is a link issued before the assignment moved to `claim`, or a client
+  //    that never showed the prompt, and burning a student's attempts for a
+  //    deployment fault is the `no-nonce` mistake in a new place.
+  const payload = env("CLAIM_PAYLOAD", "").trim();
+  if (!payload) {
+    await reject(
+      CLAIM_REJECTIONS.NO_CLAIM,
+      `this assignment needs your school email address, and the acceptance did not carry one. Open the invitation link again and confirm your address.`,
+    );
+  }
+
+  const privateKey = env("CLAIM_PRIVATE_KEY", "").trim();
+  if (!privateKey) {
+    // A deployment fault, never the student's. Fail (red) rather than reject,
+    // and do not count it: without the key NOBODY can claim, and silently
+    // spending every student's attempts would turn a missing secret into a
+    // cohort locked out for good.
+    await fail(
+      "fail:config",
+      `roster_mode is claim but PXL_CLAIM_PRIVATE_KEY is not set on the hub - no claim can be decrypted. See RUNBOOK 1.3.2.`,
+    );
+  }
+
+  // 4. Decrypt. Every kind of failure is one failure on purpose.
+  let opened = null;
+  try {
+    opened = await decryptClaim({ privateKey, payload });
+  } catch {
+    await countFailure();
+    await reject(
+      CLAIM_REJECTIONS.NO_CLAIM,
+      `the email address could not be read from your acceptance. Open the invitation link again and confirm your address.`,
+    );
+  }
+
+  // 5. The anti-replay check. A ciphertext copied out of the public event
+  //    archive still decrypts - the hub holds the key - but it names the
+  //    account it was minted for.
+  if (opened.githubId !== githubId) {
+    await countFailure();
+    await reject(
+      CLAIM_REJECTIONS.NO_CLAIM,
+      `the confirmation did not come from this GitHub account. Open the invitation link again while signed in as @${login}.`,
+    );
+  }
+
+  // 6. Domain. Absent claim_domains means the deployment default; an explicit
+  //    [] means the lecturer opted out.
+  const domains = resolveClaimDomains(assignment);
+  if (!domainAllowed(opened.email, domains)) {
+    await countFailure();
+    await reject(
+      CLAIM_REJECTIONS.DOMAIN,
+      `${opened.email} is not an accepted address for this assignment. Use your ${domains.join(" or ")} address.`,
+    );
+  }
+
+  // 7. The roster IS the gate here - a fabricated address matches nothing.
+  const entry = rosterEntryForEmail(roster, opened.email);
+  if (!entry) {
+    await countFailure();
+    await reject(
+      CLAIM_REJECTIONS.NO_MATCH,
+      `${opened.email} is not on the roster for this course. Check the address, or ask your lecturer which one they registered.`,
+    );
+  }
+
+  // 8. First come wins, and the real student complaining is the detector.
+  const taken = await findClaimForEmail(dataDir, opened.email, githubId);
+  if (taken) {
+    await countFailure();
+    await reject(
+      CLAIM_REJECTIONS.TAKEN,
+      `${opened.email} has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.`,
+    );
+  }
+
+  // Bound. The counter is deleted rather than zeroed: an absent file and a
+  // zeroed one read identically, and one fewer file is one fewer thing to
+  // explain in the control repo.
+  const record = buildClaimRecord({
+    githubLogin: login,
+    githubId,
+    email: opened.email,
+    // Client-supplied and NOT verifiable here - the hub cannot read a user's
+    // email addresses, the same wall that killed org_member. Recorded as
+    // evidence: the ordinary path sets it truthfully because the page lists
+    // the student's own GitHub-verified addresses, and anyone crafting an
+    // issue by hand can assert it. What it buys is that a cohort review can
+    // see which bindings GitHub had already vouched for.
+    claimVerified: env("CLAIM_VERIFIED", "") === "true",
+    studentNumber: entry.student_number ?? null,
+    assignmentId,
+    now: iso,
+  });
+  await mkdir(join(dataDir, "students", "claims"), { recursive: true });
+  await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
+  if (existsSync(attemptsFile)) await rm(attemptsFile);
+
+  log("claim", {
+    ok: true,
+    note: `@${login} claimed ${opened.email}${entry.student_number ? ` (${entry.student_number})` : ""}, verified=${record.claim_verified}`,
+  });
+  return { email: opened.email, verified: record.claim_verified, reused: false };
+}
+
+/** Is this address already bound to a DIFFERENT account? */
+async function findClaimForEmail(dataDir, email, exceptGithubId) {
+  const dir = join(dataDir, "students", "claims");
+  if (!existsSync(dir)) return null;
+  for (const name of await readdir(dir)) {
+    if (!name.endsWith(".json")) continue;
+    if (name === `${exceptGithubId}.json`) continue;
+    try {
+      const rec = JSON.parse(await readFile(join(dir, name), "utf8"));
+      if (normalizeEmail(rec?.email) === email) return rec;
+    } catch {
+      // A record we cannot read cannot be shown to hold this address. It is
+      // reported by the orphan diagnostic rather than silently blocking a
+      // student who has done nothing wrong.
+    }
+  }
+  return null;
+}
+
 async function main() {
   const assignmentId = env("ASSIGNMENT_ID");
   const login = env("GITHUB_LOGIN");
@@ -123,6 +324,7 @@ async function main() {
   // and max_acceptances remain the guardrails. Absent/unknown values are
   // treated as "enforced" so existing assignments stay roster-gated.
   const rosterMode = normalizeRosterMode(assignment.roster_mode);
+  let claimResult = null;
   let roster = null;
   const rosterPath = join(dataDir, "students", "roster.yml");
   if (existsSync(rosterPath)) {
@@ -133,7 +335,7 @@ async function main() {
       // is the roster the gate. Under `open` the file is read for team
       // pre-assignment columns; losing that is a degraded group resolution, not
       // grounds to refuse every student in the cohort.
-      if (rosterMode === "enforced") {
+      if (rosterGatesAcceptance(rosterMode)) {
         await fail("fail:exception", `roster YAML parsing failed: ${err.message}`);
       }
     }
@@ -149,6 +351,13 @@ async function main() {
     log("roster", {
       ok: true,
       note: `roster_mode=open - roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
+    });
+  } else if (rosterMode === "claim") {
+    if (!roster) {
+      await reject("rejected:no-roster", `roster file not found: ${rosterPath}`);
+    }
+    claimResult = await runClaimGate({
+      assignment, assignmentId, roster, login, githubId: Number(githubId), dataDir, now,
     });
   } else {
     if (!roster) {
@@ -415,6 +624,20 @@ async function main() {
     star_event_ref: workflowRunUrl || null,
     status: "accepted",
     ...(isGroup ? { team_slug: teamSlug, team_name: teamName } : {}),
+    // Only under `claim`. Written here as well as in students/claims/<id>.json
+    // because the two answer different questions: the claim file is the
+    // ORG-SCOPED binding ("who is this account"), and this is what THIS
+    // acceptance was admitted on. They can legitimately differ later - a
+    // lecturer unlinks and the student rebinds - and a report that silently
+    // rewrote history would lose which address let them in at the time.
+    //
+    // The address is not secret from the lecturer; it is the thing they asked
+    // for. It must never reach Pages, which pages/scan.mjs already enforces:
+    // PUBLIC_TEXT_RULES carries an email-address rule that matches content
+    // anywhere in a generated artefact.
+    ...(claimResult
+      ? { claimed_email: claimResult.email, claim_verified: claimResult.verified }
+      : {}),
   };
   await writeFile(acceptFile, JSON.stringify(record, null, 2) + "\n");
   log("record", { ok: true, note: `wrote ${acceptFile}` });

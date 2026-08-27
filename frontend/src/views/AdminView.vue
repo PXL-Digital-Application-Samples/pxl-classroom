@@ -619,7 +619,8 @@
               <label>Who may accept</label>
               <select v-model="form.roster_mode">
                 <option value="open">open: anyone with the invitation link</option>
-                <option value="enforced">enforced: only students on the roster</option>
+                <option value="enforced">enforced: only students on the roster (matched by GitHub username)</option>
+                <option value="claim">claim: students confirm their school email address, matched to the roster</option>
               </select>
               <!-- A roster is still worth importing under `open`: report.mjs
                    builds the population from the union of acceptances and the
@@ -633,20 +634,28 @@
                   the report - it just does not decide who may accept.
                 </template>
               </small>
-              <!-- `enforced` makes students/roster.yml load-bearing, so the
-                   form says whether anyone can accept at all rather than
-                   naming a tab it does not link to (UX_PLAN §5.2). The count
+              <!-- `enforced` and `claim` both make students/roster.yml
+                   load-bearing, so the form says whether anyone can accept at
+                   all rather than naming a tab it does not link to (UX_PLAN
+                   §5.2). The count
                    comes from RosterTab, which has already read the file. -->
-              <small v-if="form.roster_mode === 'enforced'" class="roster-status">
+              <small v-if="rosterGatesAcceptance(form.roster_mode)" class="roster-status">
                 <span v-if="rosterCount === 0" class="status-indicator">
                   <span class="status-dot dot-warning"></span>
                   <span>No students imported yet - nobody can accept.</span>
                   <button type="button" class="btn-link" @click="setTab('roster')">Import roster →</button>
                 </span>
-                <span v-else-if="rosterCount > 0 && rosterLinked === 0" class="status-indicator">
+                <span
+                  v-else-if="rosterMatchesLogin(form.roster_mode) && rosterCount > 0 && rosterLinked === 0"
+                  class="status-indicator"
+                >
                   <!-- github_login is the optional column and the only thing
-                       accept.mjs matches on, so a roster imported before anyone
-                       handed in a username stops every acceptance. -->
+                       accept.mjs matches on UNDER `enforced`, so a roster
+                       imported before anyone handed in a username stops every
+                       acceptance there. Under `claim` it is exactly the column
+                       a lecturer is not expected to have - that is the whole
+                       reason the mode exists - so warning about it would be
+                       describing a problem the cohort does not have. -->
                   <span class="status-dot dot-warning"></span>
                   <span>
                     {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} on the roster, but
@@ -658,7 +667,7 @@
                   <span class="status-dot dot-success"></span>
                   <span>
                     {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} on the roster<template
-                      v-if="rosterLinked < rosterCount"
+                      v-if="rosterMatchesLogin(form.roster_mode) && rosterLinked < rosterCount"
                     >, {{ rosterCount - rosterLinked }} without a GitHub username yet</template>.
                   </span>
                   <button type="button" class="btn-link" @click="setTab('roster')">Manage →</button>
@@ -1069,7 +1078,7 @@ import AutogradeModal from '../components/AutogradeModal.vue'
 import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
 // disagree about which mode an assignment is actually in.
-import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
+import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
 
 const props = defineProps({ org: { type: String, required: true } })
 const route = useRoute()
