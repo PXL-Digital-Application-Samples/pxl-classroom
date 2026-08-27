@@ -52,6 +52,18 @@ const RULES = [
   // artefact fails the gate even if the address inside it somehow did not.
   { name: "claim-record-field", re: /"(claim_verified|claimed_via|claimed_at)"\s*:/g },
   { name: "roster-field", re: /"(display_name|full_name|class_group|institutional_id)"\s*:/g },
+  // A student's REAL NAME, taken from the git author of their commits and
+  // propagated into reports (report.mjs -> report.schema.json). It was guarded
+  // by nothing.
+  //
+  // The `email-address` content rule in PUBLIC_TEXT_RULES catches an address
+  // wherever it appears, so `author_email` and `claimed_email` VALUES were
+  // already covered - but no content rule can recognise an arbitrary human
+  // name, so `author_name` had neither a field guard nor a value guard. The
+  // field names go here alongside it: a whole record copied into a public
+  // artefact then fails the gate on its shape, even when the values inside it
+  // happen to look innocuous.
+  { name: "identity-field", re: /"(author_name|author_email|claimed_email|email)"\s*:/g },
   { name: "github-app-key", re: /\bv[0-9]+\.[0-9a-f]{40}\b/g },
   { name: "jwt-token", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./g },
 ];

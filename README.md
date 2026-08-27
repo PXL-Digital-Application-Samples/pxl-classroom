@@ -40,9 +40,10 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
   - 100% serverless on GitHub Pages, Actions, and a single GitHub App.
   - Workflows sleep when idle, and weekly audits monitor SKU billing limits.
 - **Student & Team Self-Service:**
-  - One-click repository provisioning in 15-30s.
-  - Acceptance is gated by a signed invitation link, verified on the public broker before any credential is used, so a caller without the link cannot cause work.
-  - Students can form teams, join groups under capacity limits, or switch teams before deadlines.
+  - One-click repository provisioning - 20 to 40 seconds from Accept to a ready repository.
+  - The invitation link carries a private signing key: the student's browser signs an assertion naming their own GitHub account, and the public broker verifies it before a single credential is minted. A link somebody else has seen is not enough to accept with.
+  - Three enrolment modes per assignment - an enforced roster of GitHub logins, an email claim (the student proves an institutional address, encrypted to the hub), or open signup capped by `max_acceptances`.
+  - Students form teams, join under capacity limits, or switch teams before the deadline; an existing grouping can be carried forward into the next assignment.
 - **Starter Code Synchronization:**
   - Correct a mistake in the assignment after students have accepted: fix it in the template, and the sync distributes that commit.
   - Interactive file diff picker; the selection is applied per file. Files a student has not touched land directly on their `main`, files they have edited arrive as a pull request, so their work is never overwritten.
@@ -51,12 +52,12 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
   - Per-student scores read back into the dashboard - including from a template that ships its own GitHub Classroom workflow, with nothing to configure.
   - 1-click Web UI button to lazily open Feedback Pull Requests (`main` -> `pxl-baseline`) once students push code.
 - **DevOps-Ready Student Admin:**
-  - Students get repository Admin rights to manage Secrets, Environments, and Runners
-  - backed by automated deadline lockdown and commit archival.
-- **Automated Archival:**
-  - Nightly automation demotes student permissions to read-only at deadlines.
-  - Clones and preserves verified commit SHAs as immutable branches in `<org>/pxl-classroom-archive-<assignment-id>`, one archive per assignment so a finished cohort can be retired on its own.
-  - Guarantees an unalterable record for grade disputes, examination boards, and institutional accreditation.
+  - Students get repository Admin rights to manage Secrets, Environments, Runners and OIDC - the subject matter of the courses this runs.
+- **Deadline Enforcement & Archival:**
+  - A sentinel arms ahead of the deadline and stops writes at the instant it passes; the nightly finalize is the fallback, and every failure degrades to it.
+  - `late_policy: block` freezes the submission ref with a repository ruleset the App bypasses; `lock_down_enabled` additionally demotes students to read.
+  - Verified commit SHAs are preserved as immutable branches in `<org>/pxl-classroom-archive-<assignment-id>`, one archive per assignment so a finished cohort can be retired on its own.
+  - An unalterable record for grade disputes, examination boards, and institutional accreditation.
 
 ---
 
