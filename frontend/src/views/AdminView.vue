@@ -1951,6 +1951,10 @@ function editAssignment(a) {
     invite_expires_at: a.invite_expires_at || '',
     invite_key: a.invite_key || '',
     invite_pubkey: a.invite_pubkey || '',
+    // Absent stays absent and [] stays [], so buildDoc can tell a deliberate
+    // opt-out from a lecturer who never set one. Loaded purely so the save
+    // carries it back out - there is no control for it.
+    claim_domains: Array.isArray(a.claim_domains) ? a.claim_domains : undefined,
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
     // The configuration's existence is the flag (UX_PLAN §6.1), so
@@ -2078,6 +2082,17 @@ function buildDoc(state = null) {
     // used to retire every link.
     ...(form.value.invite_key ? { invite_key: form.value.invite_key } : {}),
     ...(form.value.invite_pubkey ? { invite_pubkey: form.value.invite_pubkey } : {}),
+    // Carried, not authored. There is no control for claim_domains yet, so the
+    // only way to set one is by hand - and buildDoc rebuilds the whole document
+    // field by field, so a field it does not carry is DELETED on the next save.
+    // That is the invite_token bug exactly: a lecturer who narrowed the allowed
+    // domains would have them silently reverted to the deployment default by
+    // editing anything else on the assignment, and students accepted under the
+    // narrowed list would start being refused.
+    //
+    // Array.isArray, not a truthy check, so an explicit [] - the deliberate
+    // opt-out - survives a save as well.
+    ...(Array.isArray(form.value.claim_domains) ? { claim_domains: form.value.claim_domains } : {}),
     ...(form.value.assignment_type ? { assignment_type: form.value.assignment_type } : {}),
     ...(form.value.assignment_type === 'group'
       ? {

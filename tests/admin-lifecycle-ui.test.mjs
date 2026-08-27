@@ -295,6 +295,32 @@ test("saving an edited assignment preserves its invitation", () => {
   }
 });
 
+// Same shape, different field, and the same consequence. There is no control
+// for claim_domains, so a lecturer who narrows the allowed addresses does it by
+// hand - which is precisely what makes it easy for buildDoc to drop. Losing it
+// reverts the cohort to the deployment default, and students accepted under the
+// narrowed list start being refused at the button.
+test("saving an edited assignment preserves claim_domains, including an empty one", () => {
+  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+
+  assert.ok(
+    src.includes("...(Array.isArray(form.value.claim_domains) ? { claim_domains: form.value.claim_domains } : {})"),
+    "buildDoc must carry claim_domains through, or saving an edit deletes it from the YAML",
+  );
+  assert.ok(
+    src.includes("claim_domains: Array.isArray(a.claim_domains) ? a.claim_domains : undefined"),
+    "the edit form must load claim_domains, or buildDoc has nothing to preserve",
+  );
+
+  // Array.isArray rather than a truthy check, in BOTH directions: `[]` is the
+  // deliberate opt-out from any domain restriction, and a truthy test would
+  // silently drop it and re-impose the deployment default.
+  assert.ok(
+    !/form\.value\.claim_domains \?\s*\{/.test(src),
+    "a truthy check would discard an explicit [] - the opt-out - on every save",
+  );
+});
+
 test("opening an assignment for edit loads its invitation", () => {
   // Without this the field never reaches the form, so buildDoc has nothing to
   // preserve and "Copy invitation link" has nothing to copy.
