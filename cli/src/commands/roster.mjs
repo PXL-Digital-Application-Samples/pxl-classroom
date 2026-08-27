@@ -35,6 +35,9 @@ import {
   planPromotion,
   promoteCommitMessage,
   promotionChangesAnything,
+  planClaimPromotion,
+  claimPromoteCommitMessage,
+  claimPromotionChangesAnything,
 } from "../../../lib/promote-roster.mjs";
 import { getAssignment, listAcceptances, listClaims, deleteClaim } from "../lib/control-repo.mjs";
 // The one join between a claim and a roster entry. Four surfaces read it; see
@@ -394,13 +397,74 @@ export function registerRosterCommand(program) {
 
   roster
     .command("promote")
-    .description("Add students who accepted an assignment to the roster (roster_mode: open).")
-    .requiredOption("--assignment <id>", "Assignment whose acceptances to promote")
+    .description("Fold student identities into the roster: --assignment for open-mode acceptances, --claims for claim bindings.")
+    .option("--assignment <id>", "Assignment whose acceptances to promote (roster_mode: open)")
+    .option("--claims", "Fold students/claims/*.json into the roster instead (roster_mode: claim)", false)
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .option("--dry-run", "Show the plan without committing", false)
     .action(async (opts) => {
+      // Two sources, one command, and it must name which - the operations are
+      // opposites. --assignment ADDS entries for logins the roster has never
+      // heard of; --claims UPDATES entries it already has with the account the
+      // student bound. Defaulting to either would guess.
+      if (Boolean(opts.claims) === Boolean(opts.assignment)) {
+        process.stderr.write("Give exactly one of --assignment <id> or --claims.\n");
+        process.exit(1);
+      }
       const org = resolveOrg(opts.org);
       const octokit = makeOctokit();
+
+      if (opts.claims) {
+        const { records, unreadable } = await listClaims(octokit, { org });
+        // Rewriting the roster off a partial read would leave the students
+        // whose files did not load without their account, reported as done.
+        if (unreadable.length) {
+          process.stderr.write(
+            `Refusing to fold: ${unreadable.length} claim file(s) could not be read:\n  ${unreadable.join("\n  ")}\n`,
+          );
+          process.exit(1);
+        }
+        const { roster: existing } = await fetchExistingRoster(octokit, { org });
+        const plan = planClaimPromotion({ claims: records, roster: existing, actor: "pxl-classroom-cli" });
+
+        for (const w of plan.warnings) process.stdout.write(`  ! ${w.message}\n`);
+        if (!plan.ok) {
+          for (const e of plan.errors) process.stderr.write(`Cannot fold claims: ${e.message}\n`);
+          process.exit(1);
+        }
+
+        process.stdout.write(
+          `\n${plan.stats.claims} claim(s): ${plan.stats.updated} to write onto the roster, ` +
+          `${plan.stats.unchanged} already matching, ${plan.stats.conflicts} in conflict.\n`,
+        );
+        for (const s of plan.updated) process.stdout.write(`    + ${describeRosterEntry(s)} -> @${s.github_login}\n`);
+        for (const c of plan.conflicts) {
+          process.stdout.write(`    ! ${c.full_name || c.email}: roster says @${c.roster_login}, claim says @${c.claim_login}\n`);
+        }
+
+        const { valid, errors } = validateAgainst("roster", structuredClone(plan.nextRoster));
+        if (!valid) {
+          process.stderr.write(`Refusing to write an invalid roster:\n${formatAjvErrors(errors)}\n`);
+          process.exit(1);
+        }
+        if (opts.dryRun) {
+          process.stdout.write(`\n(--dry-run; no commit made.)\n`);
+          return;
+        }
+        if (!claimPromotionChangesAnything(plan)) {
+          process.stdout.write(`\nRoster unchanged - nothing to commit.\n`);
+          return;
+        }
+        // Only ever fills an EMPTY github_login, so like promotion there is
+        // nothing destructive to confirm.
+        const result = await commitWithRebase(octokit, {
+          owner: org, repo: CONTROL_REPO, branch: "main",
+          message: claimPromoteCommitMessage(plan),
+          changes: [{ path: ROSTER_PATH, content: yamlStringify(plan.nextRoster) }],
+        });
+        process.stdout.write(`\nCommitted ${result.commitSha} (${result.attempts} attempt${result.attempts === 1 ? "" : "s"}).\n`);
+        return;
+      }
 
       const assignment = await getAssignment(octokit, { org, assignmentId: opts.assignment });
       const acceptances = await listAcceptances(octokit, { org, assignmentId: opts.assignment });

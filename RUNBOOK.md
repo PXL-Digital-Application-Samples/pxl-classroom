@@ -1052,6 +1052,15 @@ pxl-classroom roster unlink --org <org> --email <address>             # by addre
 
 When a student **deletes and recreates their GitHub account**, their new `github_id` is a different student as far as the binding is concerned - unlink the old one and let them claim again.
 
+**Folding claims into the roster.** The binding already governs acceptance, so this is optional - what it buys is a self-contained roster, so the *next* assignment can run `enforced` against a cohort whose usernames are now known, and an exported CSV carries them:
+
+```bash
+pxl-classroom roster promote --org <org> --claims --dry-run   # preview
+pxl-classroom roster promote --org <org> --claims             # commit
+```
+
+`promote` now takes exactly one source, and the two are opposites: `--assignment <id>` **adds** entries for logins the roster has never heard of (open mode, §12.4a), `--claims` **updates** entries it already has with the account the student bound. It writes only into an **empty** `github_login` - a value you set yourself is never overwritten, and a claim that disagrees with it is reported as a conflict for you to unlink. Nothing else is copied off the claim: the address is already the join, and `claim_verified` is evidence about one acceptance rather than a roster fact.
+
 Symptom this fixes: with `roster_mode: enforced` and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 
 ### 12.5 Auditing an org's install

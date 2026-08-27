@@ -41,7 +41,16 @@ const RULES = [
   // publish gate, and keeping both keeps it defensive against leftover legacy
   // data in archived control repos.
   { name: "institutional-id-field", re: /"(student_id|student_number)"\s*:/g },
-  { name: "claim-token-field", re: /"claim_token"\s*:/g },
+  // Repointed 2026-08-27. This guarded `"claim_token"`, a field name that
+  // appeared nowhere else in the repository - vestigial from a design that was
+  // never built, so it could never have fired. The claim feature that did ship
+  // writes `students/claims/<github_id>.json` holding an `email` and a
+  // `claim_verified` flag, and that record is PRIVATE: it must never reach
+  // Pages. The address itself is already covered by the `email-address` rule in
+  // PUBLIC_TEXT_RULES, which matches content rather than field names; this one
+  // catches the record's own shape, so a whole claim file copied into a public
+  // artefact fails the gate even if the address inside it somehow did not.
+  { name: "claim-record-field", re: /"(claim_verified|claimed_via|claimed_at)"\s*:/g },
   { name: "roster-field", re: /"(display_name|full_name|class_group|institutional_id)"\s*:/g },
   { name: "github-app-key", re: /\bv[0-9]+\.[0-9a-f]{40}\b/g },
   { name: "jwt-token", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./g },

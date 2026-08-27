@@ -26,7 +26,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 
-import { planPromotion, promotionChangesAnything, promoteCommitMessage, ROSTER_PATH } from "../lib/promote-roster.mjs";
+import {
+  planPromotion,
+  promotionChangesAnything,
+  promoteCommitMessage,
+  planClaimPromotion,
+  claimPromotionChangesAnything,
+  ROSTER_PATH,
+} from "../lib/promote-roster.mjs";
 import { rosterKey, diffRosters, describeRosterEntry, isPromotedEntry } from "../lib/roster-entries.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -601,3 +608,135 @@ for (const rel of DIFF_CONSUMERS) {
     );
   });
 }
+
+// --------------------------------------------------------------------------
+// Folding claims into the roster (CLAIM_PLAN phase E)
+// --------------------------------------------------------------------------
+//
+// The opposite operation from promotion, which is why it is a separate planner
+// rather than a flag: promotion ADDS entries for logins the roster has never
+// heard of, folding UPDATES entries it already has. Under `claim` the student
+// was always on the roster - matched by address - and what the claim supplies
+// is the GitHub account, the column the mode exists to avoid asking for.
+
+const claimRec = (login, id, email) => ({
+  schema_version: 1,
+  github_login: login,
+  github_id: id,
+  email,
+  claim_verified: true,
+  claimed_at: NOW,
+  claimed_via: "hw-1",
+});
+
+const claimRoster = (...students) => ({ schema_version: 2, students });
+
+test("folding writes the claimed account onto the entry that address belongs to", () => {
+  const plan = planClaimPromotion({
+    roster: claimRoster({ student_number: "0123456", full_name: "Alice", email: "alice@student.pxl.be" }),
+    claims: [claimRec("alice-gh", 111, "alice@student.pxl.be")],
+  });
+
+  assert.equal(plan.ok, true);
+  assert.equal(plan.stats.updated, 1);
+  assert.equal(plan.nextRoster.students[0].github_login, "alice-gh");
+  assert.equal(plan.nextRoster.students[0].github_id, 111);
+  // Rule 1: the columns the lecturer imported survive.
+  assert.equal(plan.nextRoster.students[0].student_number, "0123456");
+  assert.equal(plan.nextRoster.students[0].full_name, "Alice");
+});
+
+test("nothing else is copied off the claim", () => {
+  // Rule 2. `email` is already the join, and claim_verified is evidence about
+  // one acceptance rather than a roster fact - putting it in a graded document
+  // is the same mistake as inventing a full_name from a login.
+  const plan = planClaimPromotion({
+    roster: claimRoster({ email: "alice@student.pxl.be" }),
+    claims: [claimRec("alice-gh", 111, "alice@student.pxl.be")],
+  });
+  assert.deepEqual(Object.keys(plan.nextRoster.students[0]).sort(), ["email", "github_id", "github_login"]);
+});
+
+test("a github_login the lecturer already set is NEVER overwritten", () => {
+  // The sharper form of merge-never-replace. One of the two is wrong and only a
+  // human knows which, so it is reported for unlink rather than resolved by
+  // whichever ran last.
+  const plan = planClaimPromotion({
+    roster: claimRoster({ full_name: "Dave", email: "dave@student.pxl.be", github_login: "dave-pxl" }),
+    claims: [claimRec("someone-else", 222, "dave@student.pxl.be")],
+  });
+
+  assert.equal(plan.stats.updated, 0);
+  assert.equal(plan.stats.conflicts, 1);
+  assert.equal(plan.nextRoster.students[0].github_login, "dave-pxl", "the lecturer's value stands");
+  assert.equal(plan.conflicts[0].claim_login, "someone-else");
+  assert.match(plan.warnings.find((w) => w.code === "claim-conflicts").message, /unlink/);
+});
+
+test("a claim agreeing with the roster changes nothing and is not a conflict", () => {
+  const plan = planClaimPromotion({
+    roster: claimRoster({ email: "bob@student.pxl.be", github_login: "Bob-PXL" }),
+    claims: [claimRec("bob-pxl", 222, "bob@student.pxl.be")],
+  });
+  assert.equal(plan.stats.conflicts, 0, "case-insensitive, as every other login comparison is");
+  assert.equal(plan.stats.unchanged, 1);
+  assert.equal(claimPromotionChangesAnything(plan), false);
+});
+
+test("an address claimed twice is left alone rather than picking a winner", () => {
+  // accept.mjs refuses to create this, so it is a hand-edited or restored file.
+  const plan = planClaimPromotion({
+    roster: claimRoster({ email: "shared@student.pxl.be" }),
+    claims: [claimRec("first", 111, "shared@student.pxl.be"), claimRec("second", 222, "shared@student.pxl.be")],
+  });
+  assert.equal(plan.stats.updated, 0);
+  assert.equal(plan.stats.ambiguous, 1);
+  assert.equal(plan.nextRoster.students[0].github_login, undefined);
+});
+
+test("an orphan claim adds nobody", () => {
+  // Folding updates; it never invents a roster entry from a binding.
+  const plan = planClaimPromotion({
+    roster: claimRoster({ email: "alice@student.pxl.be" }),
+    claims: [claimRec("zoe-gh", 999, "zoe@student.pxl.be")],
+  });
+  assert.equal(plan.stats.updated, 0);
+  assert.equal(plan.nextRoster.students.length, 1);
+});
+
+test("an absent roster refuses rather than being created", () => {
+  // Unlike promotion, which creates one. A claim can only exist because it
+  // matched a roster entry, so an absent roster here means the roster went away
+  // underneath the bindings - and folding into a file we would have to invent
+  // is the guess this module refuses to make.
+  const plan = planClaimPromotion({ roster: null, claims: [claimRec("a", 1, "a@student.pxl.be")] });
+  assert.equal(plan.ok, false);
+  assert.equal(plan.errors[0].code, "no-roster");
+});
+
+test("an array-shaped roster refuses, and says why it already lets nobody accept", () => {
+  const plan = planClaimPromotion({
+    roster: [{ email: "alice@student.pxl.be" }],
+    claims: [claimRec("alice-gh", 111, "alice@student.pxl.be")],
+  });
+  assert.equal(plan.ok, false);
+  assert.equal(plan.errors[0].code, "roster-array-shaped");
+});
+
+test("the folded roster still validates against the real schema", () => {
+  // The roster is what acceptance reads to decide who gets a repository.
+  const plan = planClaimPromotion({
+    roster: claimRoster({ student_number: "0123456", full_name: "Alice", email: "alice@student.pxl.be" }),
+    claims: [claimRec("alice-gh", 111, "alice@student.pxl.be")],
+  });
+  const { valid, errors } = validateAgainst("roster", structuredClone(plan.nextRoster));
+  assert.equal(valid, true, JSON.stringify(errors));
+});
+
+test("sibling keys on the roster document survive the fold", () => {
+  const plan = planClaimPromotion({
+    roster: { schema_version: 2, generated_by: "csv-import", students: [{ email: "a@student.pxl.be" }] },
+    claims: [claimRec("a-gh", 1, "a@student.pxl.be")],
+  });
+  assert.equal(plan.nextRoster.generated_by, "csv-import");
+});
