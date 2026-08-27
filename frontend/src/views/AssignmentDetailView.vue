@@ -1145,7 +1145,7 @@ const SortIcon = (props) => props.dir
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
-import { getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
+import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
 import { validateAgainst } from '../lib/validate.js'
 import { parseCheckRunScore, pickAutogradeCheckRun, fetchCheckRunAnnotations } from '../lib/check-run-score.js'
@@ -3066,9 +3066,34 @@ function startRetryWatch(login, repoName, initialRunId) {
         if (latestRun && latestRun.id !== initialRunId) {
           if (latestRun.status === 'completed') {
             if (latestRun.conclusion === 'success') {
-              toast.success(`Retry succeeded: repository is live.`, {
-                link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
-              })
+              // A GREEN RUN IS NOT A REPOSITORY. accept.mjs exits 0 for every
+              // `rejected:*` outcome on purpose - a student who is not on the
+              // roster is the system working, and painting the hub red for that
+              // teaches people to ignore red. But it means the retry concludes
+              // `success` when it REFUSED, and this used to announce "Retry
+              // succeeded: repository is live" with a link to a repository that
+              // does not exist - to a lecturer whose most likely reason for
+              // retrying is a student the roster rejects.
+              //
+              // So verify the claim being made rather than the run asked to
+              // make it, the same way acceptanceCardIsLive fetches the card
+              // instead of trusting the assignments index.
+              const check = await getRepo(token, props.org, repoName)
+              if (check.ok) {
+                toast.success(`Retry succeeded: repository is live.`, {
+                  link: { text: repoName, href: `https://github.com/${props.org}/${repoName}` }
+                })
+                await loadAll()
+                return
+              }
+              // The run finished and created nothing, which is what a rejection
+              // looks like from here. Do not guess WHICH rejection - the reason
+              // is in the run log, and naming the wrong one is worse than
+              // naming none.
+              toast.error(
+                `The retry ran, but ${login} still has no repository - the acceptance was refused.`,
+                { link: { text: 'Open the run to see why.', href: latestRun.html_url } }
+              )
               await loadAll()
               return
             } else {
