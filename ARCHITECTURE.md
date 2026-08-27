@@ -244,18 +244,24 @@ Whichever applies, it runs through the org-level App installation - which outran
 
 ```
 <org>/pxl-classroom-control/
-├── assignments/<id>.yml               # source: assignment definition
-├── students/roster.yml                # source: roster
-├── teams/<id>/<team-slug>.json        # source: team definition & members (group assignments)
-├── acceptances/<id>/<login>.json      # observation: who accepted, when
-├── repositories/<id>/<login>.json     # fact: provisioned repo id, name, url, state
-├── observations/<id>/<login>/*.json   # observations: snapshot (sha, ref, time)
-├── lockdowns/<id>/lockdown-record.json # fact: lock-down outcome per assignment
-├── reports/<id>.json                  # calculated: per-assignment report
-├── reports/dashboard.json             # calculated: aggregate for the SPA dashboard
-├── overrides/<id>/<login>.json        # lecturer override (append-only)
-├── errors/<id>.json                   # error records
-└── public/                            # GENERATED public metadata for Pages
+├── assignments/<id>.yml                  # source: assignment definition
+├── students/roster.yml                   # source: roster
+├── students/claims/<github_id>.json      # fact: account-to-address binding
+├── students/claim-attempts/<github_id>.json # counter behind MAX_CLAIM_ATTEMPTS
+├── teams/<id>/<team-slug>.json           # source: team definition & members (group assignments)
+├── acceptances/<id>/<login>.json         # observation: who accepted, when
+├── repositories/<id>/<login>.json        # fact: provisioned repo id, name, url, state
+├── observations/<id>/<login>/*.json      # observations: snapshot (sha, ref, time), preservation.json
+├── lockdowns/<id>/lockdown-record.json   # fact: lock-down outcome per assignment
+├── lockdowns/<id>/sentinel-<key>.json    # observation: the sentinel's push timeline
+├── grading/<id>/<login>.json             # calculated: per-student autograder result
+├── grading/<id>/summary.json             # calculated: cohort roll-up, joined onto the report by login
+├── syncs/<id>/<sync-id>.json             # fact: one starter-code sync run
+├── reports/<id>.json                     # calculated: per-assignment report
+├── reports/dashboard.json                # calculated: aggregate for the SPA dashboard
+├── overrides/<id>/<login>.json           # lecturer override (append-only)
+├── errors/<id>.json                      # error records
+└── public/                               # GENERATED public metadata for Pages
 ```
 
 ### 5.2 Distinguish facts, observations, calculations, overrides
@@ -288,6 +294,7 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `limits-overrides.schema.json` | Per-repository SKU threshold overrides |
 | `grading-result.schema.json` | Per-student autograder result, with the test breakdown |
 | `grading-summary.schema.json` | Cohort grading roll-up, joined onto the report by login |
+| `sync-record.schema.json` | One starter-code sync run (`syncs/<id>/<sync-id>.json`) |
 | `download-manifest.schema.json` | Preserved submission archive download manifest |
 
 ### 5.4 Assignment definition
@@ -535,9 +542,9 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 
 ```
 1. Student opens the invitation link, https://<pages-host>/pxl-classroom/<org>/i/<token>
-2. SPA matches the token's subject against the org's published assignments to
-   learn which one it is - the id is a hash inside the token, not readable from
-   the link - then shows title, opens_at, deadline, current state.
+2. SPA fetches the acceptance card at data/<org>/i/<sha256(link secret)>.json -
+   resolution is by digest, so holding the link is what finds the assignment -
+   then shows title, opens_at, deadline, current state.
    - *Acceptance Gating:* The SPA gates the acceptance flow: if the assignment state is not 'published' (e.g., if it is 'closed' or 'draft') or if the current time is before `opens_at`, it displays a status warning message instead of the Accept button. If the student has already accepted and has a provisioned repository, they can still access their repository.
 3. Student clicks "Accept" -> device-flow auth (only if first time this session)
 4. SPA SIGNS an assertion naming this student's own account with the private key
@@ -560,9 +567,11 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
    b2. For a group assignment, runs scripts/read-team-payload.mjs - fetches the
       broker issue by number and validates the team payload here rather than
       on the public broker (§4.3.1)
-   c. Runs ./acceptance - validates payload, checks roster registration (unless
-      roster_mode: open), checks opens_at..deadline_at, checks max_acceptances,
-      writes acceptances/<id>/<login>.json
+   c. Runs ./acceptance - validates payload; under enforced and claim checks the
+      roster (by login, or by the claimed address under claim); checks
+      opens_at..deadline_at and max_acceptances; writes
+      acceptances/<id>/<login>.json, and students/claims/<github_id>.json
+      when the payload carries a claim
    d. If accepted/already-accepted, runs ./provisioning - creates the repo
       from template (idempotent on existing) and grants student admin
    e. If provisioning failed, runs ./notify with event-type=provisioning-failed
@@ -612,11 +621,17 @@ SPA dispatches publish-assignment.yml with {org, assignment_id}
 publish-assignment.yml:
    a. Mints App token for org, checks out control repo
    b. Validates assignments/<id>.yml exists
-   c. Creates or updates <org>/broker-<id> public repo
-   d. Sets ASSIGNMENT_ID and CONTROL_ORG variables on the broker
-   e. Pushes acceptance/broker-workflow.yml as .github/workflows/acceptance-trigger.yml
-   f. Flips state: draft -> published in assignments/<id>.yml
-   g. gh workflow enable daily-activity.yml      <- wakes the nightly job
+   c. Records the prior state, so a failure can revert it
+   d. Mints the invitation: a P-256 keypair and a nonce, written to
+      assignments/<id>.yml as invite_key / invite_pubkey / invite_nonce.
+      Reused on republish so live links survive; regenerate_invite: true
+      rotates it and retires them
+   e. Creates or updates <org>/broker-<id> public repo
+   f. Sets ASSIGNMENT_ID, CONTROL_ORG, INVITE_PUBKEY, INVITE_NONCE and
+      INVITE_ENABLED variables on the broker
+   g. Pushes acceptance/broker-workflow.yml as .github/workflows/acceptance-trigger.yml
+   h. Flips state: draft -> published in assignments/<id>.yml
+   i. gh workflow enable daily-activity.yml + deadline-sentinel.yml
 ```
 
 ### 9.4 Override (deadline extension)
@@ -652,10 +667,15 @@ Admin triggers Setup Organization workflow in hub (workflow_dispatch)
    with input: target_org=<org>
    v
 setup-org.yml:
-   a. Mints App token for <org>
-   b. Creates <org>/pxl-classroom-control (private) if missing
-   c. Pushes initial directory scaffold (no workflows)
-   d. Appends to participating-orgs.yml on participating-orgs branch
+   a. Rejects a dispatch from a [bot] actor
+   b. Verifies the App can read the org's billing, and probes the Enhanced
+      Billing usage endpoint - both before any org state is created
+   c. Mints App token for <org>
+   d. Creates <org>/pxl-classroom-control (private) if missing
+   e. Pushes initial directory scaffold (no workflows)
+   f. Appends to participating-orgs.yml on participating-orgs branch,
+      with the budget owner
+   g. Dispatches deploy-frontend.yml so the org appears in the SPA
    v
 Admin sets Actions spending limit + budget alerts on <org>
    (mandatory - see RUNBOOK §3)
@@ -971,7 +991,7 @@ Per assignment, the archive dies with the cohort: retiring a three-year-old assi
 
 **The tracking page always renders header → share block → summary → actions bar.** An assignment nobody has accepted yet has no `reports/<id>.json`, and that used to replace the entire view with a *"No report yet"* page - the header, the invitation link, Teams, Export, Sync Starter Code, Feedback PRs and Freeze all vanished with the table, at exactly the moment the link is the only thing that matters. An absent report is now stood in for by an empty one, so there is one render path and only the *table* swaps for an empty state. The preservation banner is additionally gated on there being students, since "Preservation Pending 0/0" is a status about nothing.
 
-On `AssignmentDetailView.vue`, the Post-Deadline Preservation Summary Banner provides real-time verification of preserved vs eligible student records, displays the measured lock-down delay - the report's `lockdown_delay_seconds`, taken from the lockdown record as `lockdown_at - deadline_at` and shown as the **maximum** across the cohort, since one student demoted late is what the number is for. It is deliberately **not** `uncertainty_interval_seconds`, which measures the other side of the deadline (how stale the evidence was going in) and is routinely hours with a nightly collect; reading it here understated a cohort the sentinel had frozen to the second. It provides 1-click targeted retries for any failed records, and links directly to the assignment's archive repository. That link is resolved from the report rather than derived, and is **absent until something is actually preserved** - before the first preservation no archive repository exists, and a button to one is the page guessing. Student and team rows render direct hyperlinks to their specific archive branch.
+On `AssignmentDetailView.vue`, the Post-Deadline Preservation Summary Banner provides real-time verification of preserved vs eligible student records, displays the measured lock-down delay - the report's `lockdown_delay_seconds`, which is `lockdown_at - deadline_at` from the lockdown record, shown as the **maximum** across the cohort, since one student demoted late is what the number is for. Not `uncertainty_interval_seconds`, which measures the other side of the deadline: how stale the evidence was going in. It provides 1-click targeted retries for any failed records, and links directly to the assignment's archive repository. That link is resolved from the report rather than derived, and is **absent until something is actually preserved** - before the first preservation no archive repository exists, and a button to one is the page guessing. Student and team rows render direct hyperlinks to their specific archive branch.
 
 ### 11.4 Feedback PR (optional)
 
@@ -1090,7 +1110,7 @@ Target scale: 500 active students, 20 active assignments, 10,000 managed reposit
 
 **Bursts.** The secondary rate limit (≈80 content writes/min, 500/hr per token) is the bottleneck. Per-org App tokens are scoped per-installation, so two orgs can burst in parallel. Within one org: a 250-student burst issues ~500 writes (create + grant). The synchronous acceptance model trades retries for queue complexity - students who fail get a clear "try again in 15 minutes" and the retry is a free reopen of the same link.
 
-**Per-org concurrency.** `acceptance-handler.yml` uses `concurrency: accept-${org}-${assignment_id}-${github_login}` so duplicate stars from the same user never run in parallel.
+**Per-org concurrency.** `acceptance-handler.yml` uses `concurrency: accept-${org}-${assignment_id}-${team_hint || github_login}`, so duplicate acceptance issues from one student never run in parallel, and joins to one team serialise against each other - which is what guards `max_team_size` without a distributed lock (§5.8). Acceptances by different students still run in parallel, which is why `max_acceptances` can overshoot (§5.4).
 
 **Repository identity.** The immutable repository ID (not the name) is the primary external identifier. Repositories can be renamed; the ID can't.
 

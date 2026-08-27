@@ -107,7 +107,9 @@ node scripts/generate-claim-keypair.mjs 1
 
 **Rotation.** Generate with the next key id and keep the previous entry in the file: claims already recorded are unaffected (they were decrypted long ago and are plaintext in the control repo), but a student whose browser cached the old public key would otherwise seal a claim the hub can no longer open. Point `current` at the new id, and drop the old entry once no assignment is still accepting.
 
-**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the `pxl-accept:` value - a signature naming one account on a migrated assignment, the invitation token itself on one still on the legacy format. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run. Which assignment it is decides the severity and the advice: the sweep **fails** on a legacy leftover, where the title is the credential and rotating the invitation is the fix, and **warns** on a migrated one, where regenerating would retire every student's link to fix nothing.
+**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries a `pxl-accept:` value. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run.
+
+The severity depends on the assignment's invitation format, and so does the fix. On a signed assignment (`invite_key`) the title is a signature naming one account, useless to anyone else: the sweep **warns**, and you must **not** regenerate - that retires every student's link and fixes nothing. On one still carrying only `invite_token` the title *is* the credential: the sweep **fails**, and regenerating the invitation is the fix.
 
 The issue itself is never deleted, and cannot be: `deleteIssue` refuses an App installation token with `FORBIDDEN: Viewer not authorized to delete`, measured live 2026-08-26 in two organizations that both grant the App `administration: write`. Only a user token with repository admin can delete an issue, and this system holds no such credential by design. Deleting leftovers by hand is therefore a manual step, and after the move to signed acceptance it is tidying rather than an exposure - the title is a signature naming one account, not a link.
 
@@ -278,8 +280,9 @@ The workflow:
 - Mints a least-privilege token and probes the Enhanced Billing Usage API. Onboarding stops with an actionable error if Organization Administration has not been approved or Enhanced Billing is unavailable.
 - Mints the full provisioning token for the new org's App installation.
 - Creates `<org>/pxl-classroom-control` (private) if it doesn't already exist.
-- Pushes an initial scaffold (`assignments/`, `acceptances/`, `repositories/`, `observations/`, `lockdowns/`, `reports/`, `public/`).
-- Adds the org to `participating-orgs.yml` on the `participating-orgs` branch.
+- Pushes the initial scaffold - `CONTROL_SCAFFOLD_DIRS` in `lib/control-layout.mjs`: `assignments/`, `students/`, `teams/`, `acceptances/`, `repositories/`, `observations/`, `lockdowns/`, `reports/`, `overrides/`, `errors/`, `public/`.
+- Adds the org to `participating-orgs.yml` on the `participating-orgs` branch, with the budget owner.
+- Dispatches `deploy-frontend.yml`, which is what makes the org appear in the SPA's switcher.
 
 ### 2.3 Configure the org's Actions budget
 
