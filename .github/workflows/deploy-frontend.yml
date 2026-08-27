@@ -3,10 +3,19 @@ name: Deploy frontend to Pages
 on:
   push:
     branches: ["main"]
+    # EVERY PATH THE BUNDLE READS BELONGS HERE, or a change ships to main and
+    # never reaches a student. `frontend/src/lib/claim.js` imports
+    # `acceptance/claim-keys.json` at build time, and that path was missing:
+    # minting the hub's claim keypair touched only that file, so no deploy fired
+    # and the live SPA kept serving a bundle whose key list was empty - which
+    # renders "claiming is not set up for this course yet" on a course where it
+    # very much is. A rotation would have failed the same way, silently, with
+    # nothing red anywhere.
     paths:
       - 'frontend/**'
       - 'lib/**'
       - 'schemas/**'
+      - 'acceptance/claim-keys.json'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
