@@ -59,7 +59,12 @@ Two readers, because the runtimes genuinely differ and neither should be pretend
 
 One source file, no generated copy to drift.
 
-**Isomorphic modules take configuration as a parameter, never by importing it.** `lib/claim.mjs` is shared byte-for-byte between the hub and the browser, so importing a `node:fs` reader into it would break the bundle; `resolveClaimDomains(assignment, defaults)` requires its defaults from the caller and throws a message naming both readers when they are absent. Configuration belongs to the runtime, not to a module that both runtimes share.
+**Isomorphic modules must never statically import a Node builtin.** The modules under `lib/` are shared byte-for-byte between the hub and the browser, and Vite *externalizes* node builtins rather than failing the build — so a `node:fs` import produces a clean build and a blank page on the first route that loads the chunk. Two sanctioned ways to hold the line:
+
+- **Take the configuration as a parameter.** `resolveClaimDomains(assignment, defaults)` requires its defaults from the caller and throws a message naming both readers when they are absent.
+- **Import `#deployment`.** Node resolves it to `lib/deployment.mjs` through the root `package.json` `imports` field; the browser resolves it to `frontend/src/lib/deployment.js` through `resolve.alias` in `frontend/vite.config.js`. One `deployment.yml`, two loaders, identical export surfaces. This is what `lib/audit.mjs` and `lib/archive-repo.mjs` use, because their functions are called from too many places to thread a parameter through.
+
+A builtin behind a **dynamic** `await import(...)` inside a function is deferred and therefore safe — `lib/yaml.mjs` relies on this so `parseYaml` can be bundled while `loadYaml` stays Node-only. `tests/spa-bundle-safety.test.mjs` walks the SPA's import graph transitively and fails on any static builtin.
 
 `deploy-frontend.yml`'s path filter names `deployment.yml`, because the SPA bakes these values in at build time — a configuration file the build reads but the filter does not name is a change that ships to `main` and reaches nobody. `tests/deploy-paths.test.mjs` fails if any build-time import escapes the filter.
 
