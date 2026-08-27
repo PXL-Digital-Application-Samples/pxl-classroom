@@ -1057,6 +1057,15 @@ select:focus {
   color: var(--text-muted);
   margin-top: 4px;
 }
+/* Shown when an assignment is set to `claim` but the deployment has no claim
+   keypair yet. Used by BOTH acceptance flows (individual and group), so it is
+   global rather than scoped - a class declared in one component's scoped block
+   renders unstyled in the other, with no build error (DESIGN.md §7). */
+.claim-unavailable {
+  color: var(--accent-red);
+  margin: var(--space-sm) 0 0;
+}
+
 .invitation-hint {
   display: flex;
   flex-direction: column;

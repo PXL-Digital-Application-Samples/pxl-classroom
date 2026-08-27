@@ -168,10 +168,26 @@
       <div class="flow-header">
         <h2>Group Assignment: Team Selection</h2>
         <p class="text-secondary">
-          You are signed in as <strong>@{{ user.login }}</strong>. 
+          You are signed in as <strong>@{{ user.login }}</strong>.
           Join an existing team or create a new team for this assignment (max {{ maxTeamSize }} members).
         </p>
       </div>
+
+      <!-- Asked once, above the team UI. The claim binds the ACCOUNT and is
+           org-scoped, so it is orthogonal to which team is picked - putting it
+           on each team action instead would ask the same question three times
+           in three places. -->
+      <ClaimAddressCard
+        v-if="needsClaim"
+        :assignment="assignment"
+        :org="org"
+        :token="claimToken"
+        @update:claim="claim = $event"
+      />
+      <p v-if="needsClaim && !claimKeyReady" class="text-sm claim-unavailable">
+        Claiming is not set up for this course yet. Ask your lecturer to finish
+        setting up the assignment.
+      </p>
 
       <!-- The group you are already in: pre-assigned, or carried over from an
            earlier assignment. One click confirms it; switching stays open
@@ -197,7 +213,7 @@
               @{{ m }}
             </span>
           </div>
-          <button class="btn btn-primary btn-lg" :disabled="accepting" @click="confirmJoinTeam(myCurrentTeam)">
+          <button class="btn btn-primary btn-lg" :disabled="accepting || claimBlocked" @click="confirmJoinTeam(myCurrentTeam)">
             {{ accepting ? 'Joining…' : 'Accept & Join Team' }}
           </button>
           <div v-if="canChooseAnother" class="alt-group-action">
@@ -293,7 +309,7 @@
               <button
                 class="btn btn-sm"
                 :class="isMyTeam(team) ? 'btn-primary' : 'btn-secondary'"
-                :disabled="(team.is_full && !isMyTeam(team)) || accepting"
+                :disabled="(team.is_full && !isMyTeam(team)) || accepting || claimBlocked"
                 @click="confirmJoinTeam(team)"
               >
                 {{ isMyTeam(team) ? 'My group' : team.is_full ? 'Full' : 'Join Team' }}
@@ -329,7 +345,7 @@
           <button 
             type="submit" 
             class="btn btn-primary btn-lg"
-            :disabled="!computedSlug || slugConflict || accepting"
+            :disabled="!computedSlug || slugConflict || accepting || claimBlocked"
           >
             <span v-if="accepting">Creating…</span>
             <span v-else>Create & Join Team</span>
@@ -363,6 +379,9 @@ import { toast } from '../lib/toast.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
+import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
+import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
+import ClaimAddressCard from './ClaimAddressCard.vue'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
@@ -372,6 +391,15 @@ const props = defineProps({
   // title; without it the broker rejects before touching a credential.
   inviteToken: { type: String, default: '' },
 })
+
+// Under `claim` a group student proves an address exactly as an individual one
+// does - the claim binds the ACCOUNT to a person and is org-scoped, so it is
+// orthogonal to which team they join.
+const claim = ref(null)
+const needsClaim = computed(() => normalizeRosterMode(props.assignment?.roster_mode) === 'claim')
+const claimKeyReady = computed(() => Boolean(hubClaimKey()))
+const claimBlocked = computed(() => needsClaim.value && (!claim.value || !claimKeyReady.value))
+const claimToken = ref('')
 
 const tabMode = ref('join')
 const teamSearchQuery = ref('')
@@ -478,6 +506,7 @@ const showInvitationGuess = computed(
 )
 
 onMounted(async () => {
+  claimToken.value = getToken() || ""
   await loadTeams()
   await checkExistingState()
 })
@@ -715,12 +744,36 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
       teamSlug,
     })
 
+    // One builder for both acceptance flows: the hub reads a single body with
+    // two readers (team fields and claim fields), and two callers assembling
+    // that JSON by hand is the shape that forked diffRosters.
+    let claimField = null
+    if (needsClaim.value) {
+      const hubKey = hubClaimKey()
+      if (!hubKey) {
+        throw new Error(
+          'Claiming is not set up for this course yet. Ask your lecturer to finish setting up the assignment.',
+        )
+      }
+      if (!claim.value) {
+        throw new Error('Confirm your school email address before joining a team.')
+      }
+      claimField = {
+        payload: await encryptClaim({
+          publicKey: hubKey.publicKey,
+          email: claim.value.email,
+          githubId: props.user?.id,
+          assignmentId: props.assignment.id,
+        }),
+        verified: claim.value.verified,
+      }
+    }
+
     const issueRes = await ghApi(token, 'POST', `/repos/${props.org}/${brokerRepo}/issues`, {
       title,
-      body: JSON.stringify({
-        team_slug: teamSlug,
-        team_name: teamName,
-        team_action: teamAction,
+      body: buildAcceptanceBody({
+        team: { team_slug: teamSlug, team_name: teamName, team_action: teamAction },
+        claim: claimField,
       }),
     })
 

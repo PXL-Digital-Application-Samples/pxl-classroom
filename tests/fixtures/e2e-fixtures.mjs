@@ -60,6 +60,27 @@ export const STUDENT_2 = {
 // key. One pair per run keeps every token in a spec file mutually consistent.
 const E2E_KEYPAIR = generateKeyPair()
 
+/**
+ * The claim keypair the e2e suite uses. TEST-ONLY, and it protects nothing:
+ * it seals email addresses invented by this suite.
+ *
+ * The PUBLIC half is handed to the dev server as VITE_CLAIM_PUBLIC_KEY in
+ * playwright.config.mjs, so the browser seals to it; the PRIVATE half is here
+ * so a spec can decrypt exactly what the browser posted and assert on the
+ * address inside. That closes the same seam Phase A's team-hint bug lived in -
+ * both halves had unit tests and the join between them had none.
+ *
+ * FIXED rather than generated at import time: the config process and the spec
+ * process would otherwise mint different keys, which is the flake class the
+ * comment below this one describes.
+ */
+export const E2E_CLAIM_KEYPAIR = Object.freeze({
+  publicKey:
+    'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE5G7dKlveZqzrCbiKJio4qdp-2yRGEPoPkuI7f6T3hhdCu7En-0hAUpMw3LKaCXd33LnUNe3tO-SLlld57y1uQQ',
+  privateKey:
+    'MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgqxh6oMJiy667mPZIkmteZyKTDm2ACfBAR4Br5BWdntuhRANCAATkbt0qW95mrOsJuIomKjip2n7bJEYQ-g-S4jt_pPeGF0K7sSf7SEBSkzDcspoJd3fcudQ17e075IuWV3nvLW5B',
+})
+
 // digest -> assignment id, per org. Built lazily, shared across the run.
 const digestIndex = new Map()
 
@@ -337,6 +358,13 @@ export async function setupStandardMockRoutes(page, {
   // array to assert on the seam directly; the fixture rejects an unverifiable
   // title with 422 whether or not anybody is looking.
   acceptanceTitles = [],
+  // The acceptance issue BODY, one raw string per POST. The claim rides here
+  // (sealed) alongside the team payload, and the hub reads one body with two
+  // readers - so a spec can run the REAL parser and the REAL decrypt over the
+  // exact bytes the browser produced. Asserting on a body the fixture invented
+  // would describe a document the SPA does not send, which is the fixture trap
+  // this file has hit three times (earned_points, preserved_sha, lockdown_at).
+  acceptanceBodies = [],
   // Caller-owned sinks. The fixture pushes one entry per Git Data API commit
   // ({ message, files: [{ path, content }] }) and per workflow_dispatch
   // ({ workflow, inputs }), so a spec can assert what was actually written.
@@ -625,6 +653,11 @@ export async function setupStandardMockRoutes(page, {
         allOrgAssignments,
       });
       acceptanceTitles.push(check);
+      try {
+        acceptanceBodies.push(route.request().postDataJSON()?.body ?? '');
+      } catch {
+        acceptanceBodies.push('');
+      }
       if (!check.ok) {
         // Loud, because the SPA only surfaces the status code. This line is
         // what tells you which of the two halves is wrong.

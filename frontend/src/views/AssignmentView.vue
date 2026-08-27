@@ -156,7 +156,24 @@
                 You're signed in as <strong>{{ user.login }}</strong>.
                 Click below to accept this assignment and get your repository.
               </p>
-              <button class="btn btn-success btn-lg btn-with-icon" @click="acceptAssignment" :disabled="accepting">
+              <!-- Under `claim` the address IS the enrolment, so it is asked
+                   for before the button rather than behind it. -->
+              <ClaimAddressCard
+                v-if="needsClaim"
+                :assignment="assignment"
+                :org="org"
+                :token="authToken"
+                @update:claim="claim = $event"
+              />
+              <p v-if="needsClaim && !claimKeyReady" class="text-sm claim-unavailable">
+                Claiming is not set up for this course yet. Ask your lecturer to
+                finish setting up the assignment.
+              </p>
+              <button
+                class="btn btn-success btn-lg btn-with-icon"
+                @click="acceptAssignment"
+                :disabled="accepting || (needsClaim && (!claim || !claimKeyReady))"
+              >
                 <template v-if="accepting">
                   <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
                   <span>Accepting…</span>
@@ -370,6 +387,21 @@
             <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
               <li>The assignment registration cap has been reached.</li>
               <li v-if="rosterMatchesLogin(rosterMode)">You are not on the lecturer's roster for this course.</li>
+              <!-- Named per mode, like the roster cause above. Under `claim`
+                   the roster is still the gate but the key is the ADDRESS, so
+                   "you are not on the roster" would send a student to check
+                   the wrong thing - and these are causes they can actually
+                   check themselves. -->
+              <template v-if="needsClaim">
+                <li>
+                  The address you confirmed is not the one your lecturer registered
+                  for you - check for a typo, or ask which address they used.
+                </li>
+                <li>
+                  Someone has already claimed that address. If that was not you,
+                  tell your lecturer - they can unlink it.
+                </li>
+              </template>
               <li>GitHub is currently experiencing high load or rate limits.</li>
             </ul>
             <p class="text-secondary">
@@ -423,11 +455,13 @@ import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import GroupAcceptanceCard from '../components/GroupAcceptanceCard.vue'
 import StudentDiagnosticsModal from '../components/StudentDiagnosticsModal.vue'
+import ClaimAddressCard from '../components/ClaimAddressCard.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
+import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
@@ -477,6 +511,14 @@ const rosterStatus = ref('enrolled') // 'enrolled' | 'missing' | 'unknown'
 // including its fail-closed fallback, so the page never promises a student
 // looser access than the gate will grant.
 const rosterMode = computed(() => normalizeRosterMode(assignment.value?.roster_mode))
+
+// Under `claim` the student proves an institutional address before they can
+// accept. The key is bundled at build time, so `claimKeyReady` is a fact about
+// this deployment rather than a request that can fail at the button.
+const claim = ref(null)
+const authToken = ref('')
+const needsClaim = computed(() => rosterMode.value === 'claim')
+const claimKeyReady = computed(() => Boolean(hubClaimKey()))
 
 async function checkRosterStatus() {
   // Only `enforced` gates on the roster. Under `open` a
@@ -662,6 +704,7 @@ async function loadAssignment(isRetry = false) {
   // Accept button, and accepting again is idempotent.
   if (assignment.value && isAuthenticated()) {
     user.value = getUser()
+    authToken.value = getToken() || ""
     try {
       await Promise.all([checkExistingState(), checkRosterStatus()])
     } catch { /* the page works without it */ }
@@ -839,6 +882,7 @@ async function checkExistingState() {
 // fine, so the page-level error state (which replaces it) is wrong here.
 async function onAuthenticated(authedUser) {
   user.value = authedUser
+  authToken.value = getToken() || ''
   await checkExistingState()
 }
 
@@ -846,6 +890,11 @@ async function onAuthenticated(authedUser) {
 function handleLogout() {
   clearAuth()
   user.value = null
+  // The claim is bound to the account that made it, so it must not survive a
+  // sign-out: the next student on this browser would otherwise inherit a
+  // half-filled address and seal it under their own id.
+  authToken.value = ''
+  claim.value = null
   acceptState.value = 'ready'
 }
 
@@ -875,9 +924,34 @@ async function acceptAssignment() {
       githubId: user.value?.id,
     })
 
+    // Seal the address to the hub's public key. Only ciphertext travels: the
+    // title and body land in a public event GH Archive keeps forever, which is
+    // the whole reason this is encrypted rather than sent in the clear.
+    let claimField = null
+    if (needsClaim.value) {
+      const hubKey = hubClaimKey()
+      if (!hubKey) {
+        throw new Error(
+          'Claiming is not set up for this course yet. Ask your lecturer to finish setting up the assignment.',
+        )
+      }
+      if (!claim.value) {
+        throw new Error('Confirm your school email address before accepting.')
+      }
+      claimField = {
+        payload: await encryptClaim({
+          publicKey: hubKey.publicKey,
+          email: claim.value.email,
+          githubId: user.value?.id,
+          assignmentId: resolvedId.value,
+        }),
+        verified: claim.value.verified,
+      }
+    }
+
     const res = await ghApi(token, 'POST', `/repos/${org}/${brokerRepo}/issues`, {
       title,
-      body: '',
+      body: buildAcceptanceBody({ claim: claimField }),
     })
     if (!res.ok) {
       if (res.status === 404) {
