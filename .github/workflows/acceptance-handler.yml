@@ -151,7 +151,12 @@ jobs:
           OUTCOME: ${{ steps.accept.outputs.outcome }}
         run: |
           set -e
-          git -C control add "students/"
+          # Each `run:` block is its own shell, so the stage() helper in the
+          # step below does not exist here. `git add <dir>/` is fatal when the
+          # directory is absent - see that step for the whole story.
+          if [ -d "control/students" ]; then
+            git -C control add "students/"
+          fi
           if git -C control diff --cached --quiet; then
             echo "nothing to persist for $OUTCOME"
             exit 0
@@ -176,6 +181,32 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -e
+
+          # `git add <dir>/` is FATAL when the directory does not exist - exit
+          # 128, and nothing at all is staged, not even the pathspecs that did
+          # match. Under `set -e` that kills this whole step, so the student's
+          # repository is created and then the repository record, the
+          # acceptance status update AND the claim binding are all discarded.
+          #
+          # It is latent rather than theoretical: `teams/` was added to the
+          # staging list on 2026-08-19 with group assignments, and a control
+          # repo that has never run a group assignment has no teams/ directory
+          # (git cannot store an empty one). PXL-Automation-II is exactly that
+          # - its six exam acceptances were provisioned on 2026-08-03, before
+          # the change, and no acceptance has run there since. The next one
+          # would have been the first to hit it.
+          #
+          # Guarded rather than made unconditional (`git add -A`): staging only
+          # the directories this job writes is what stops a stray file being
+          # committed into a course's control repository.
+          stage() {
+            for d in "$@"; do
+              if [ -d "control/$d" ]; then
+                git -C control add "$d/"
+              fi
+            done
+          }
+
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             node scripts/write-repository-record.mjs \
               --assignment-id "$ASSIGNMENT_ID" \
@@ -188,7 +219,7 @@ jobs:
               --baseline-sha "$BASELINE_SHA" \
               --run-url "$RUN_URL" \
               --data-dir control
-            git -C control add "repositories/" "teams/"
+            stage repositories teams
           fi
 
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
@@ -198,7 +229,7 @@ jobs:
             else
               node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "failed"
             fi
-            git -C control add "acceptances/"
+            stage acceptances
           fi
 
           # students/ holds the claim binding (students/claims/<id>.json). It
@@ -206,7 +237,7 @@ jobs:
           # checkout and thrown away: the claim worked once and bound nothing.
           # Found by running it - the drill's acceptance succeeded and the
           # binding 404'd afterwards.
-          git -C control add "students/"
+          stage students
 
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"

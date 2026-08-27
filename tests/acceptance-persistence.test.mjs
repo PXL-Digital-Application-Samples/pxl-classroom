@@ -65,11 +65,16 @@ test("every directory the acceptance writes is staged by the workflow", () => {
   assert.ok(written.length >= 3, `expected several written directories, found ${written.join(", ")}`);
   assert.ok(written.includes("students"), "students/ is where the claim binding and counter live");
 
-  // One `git add` can carry several paths (`add "repositories/" "teams/"`), so
-  // collect every quoted argument rather than looking for a one-path spelling.
+  // Two spellings reach the index, and both count. A raw `git add` can carry
+  // several paths (`add "repositories/" "teams/"`), and the stage() helper
+  // takes bare directory names (`stage repositories teams`) so it can skip the
+  // ones that do not exist - see the fatal-pathspec test below.
   const staged = new Set();
   for (const m of allRun.matchAll(/git -C control add((?:\s+"[^"]+")+)/g)) {
     for (const p of m[1].matchAll(/"([^"]+)"/g)) staged.add(p[1].replace(/\/$/, ""));
+  }
+  for (const m of allRun.matchAll(/^\s*stage ([a-z ]+)$/gm)) {
+    for (const d of m[1].trim().split(/\s+/)) staged.add(d);
   }
   const unstaged = written.filter((d) => !staged.has(d));
   assert.deepEqual(
@@ -101,12 +106,77 @@ test("a REJECTED acceptance still commits what it wrote", () => {
   assert.equal(step["continue-on-error"], true, "must not turn a rejection into a failure");
 });
 
+test("no git add can be fatal on a directory that does not exist", () => {
+  // `git add <dir>/` exits 128 when the directory is absent, and stages
+  // NOTHING - not even the pathspecs that did match. Under `set -e` that kills
+  // the whole step, so the student's repository is created and then the
+  // repository record, the acceptance status and the claim binding are all
+  // discarded.
+  //
+  // Latent, not theoretical: `teams/` joined the staging list on 2026-08-19
+  // with group assignments, and a control repo that has never run a group
+  // assignment has no teams/ (git cannot store an empty directory).
+  // PXL-Automation-II is exactly that - its exam acceptances were provisioned
+  // on 2026-08-03, before the change, and none has run there since. The next
+  // one would have been the first to hit it, three days before the deadline.
+  const offenders = [];
+  for (const step of steps) {
+    const run = String(step?.run ?? "");
+    if (!run.includes("git -C control add")) continue;
+
+    for (const line of run.split("\n")) {
+      if (!/git -C control add/.test(line)) continue;
+      if (/^\s*#/.test(line)) continue;
+
+      // The stage() helper itself, which loops over `[ -d "control/$d" ]`.
+      if (/git -C control add "\$d\/"/.test(line)) continue;
+
+      // Otherwise every literal path on the line needs its OWN existence
+      // guard in this block. Checking the block for any `[ -d ... ]` is not
+      // enough: the helper's own guard would then excuse every raw add
+      // beside it, which is exactly how this test first failed to catch the
+      // bug it was written for.
+      const paths = [...line.matchAll(/"([a-z-]+)\/"/g)].map((m) => m[1]);
+      if (!paths.length) {
+        offenders.push(`${step.name}: ${line.trim()} (unrecognised form)`);
+        continue;
+      }
+      for (const dir of paths) {
+        if (!run.includes(`if [ -d "control/${dir}" ]`)) {
+          offenders.push(`${step.name}: stages ${dir}/ unguarded`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "these stage a path without checking it exists, and git add is fatal if it does not:\n" +
+      offenders.map((o) => `  ${o}`).join("\n"),
+  );
+});
+
+test("a shell helper is never called from a step that does not define it", () => {
+  // Each `run:` block is a separate shell. A function defined in one step is
+  // gone in the next, and the call fails as "command not found" - which under
+  // `set -e` fails the step just as surely as the bug it was meant to fix.
+  for (const step of steps) {
+    const run = String(step?.run ?? "");
+    if (!/^\s*stage /m.test(run)) continue;
+    assert.match(
+      run,
+      /stage\(\)\s*\{/,
+      `step "${step.name}" calls stage but does not define it - shell functions do not cross steps`,
+    );
+  }
+});
+
 test("the accepted path commits student state too", () => {
   const accepted = steps.find((s) => s?.name === "Write repository record into control checkout, push");
   assert.ok(accepted, "the accepted-path commit step must still exist");
   assert.match(
     String(accepted.run),
-    /git -C control add "students\/"/,
+    /^\s*stage students$|git -C control add "students\/"/m,
     "the binding written on a successful claim has to be staged",
   );
 });
