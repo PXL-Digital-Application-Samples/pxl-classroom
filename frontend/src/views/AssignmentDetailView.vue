@@ -2606,7 +2606,20 @@ async function refreshLiveStatus() {
   // repo so reloads (and the Dashboard view) see the up-to-date snapshot.
   try {
     const reportPath = `reports/${props.assignmentId}.json`
-    const reportBody = JSON.stringify(report.value, null, 2) + '\n'
+    // Strip the display-only grade join before storing, and refuse rather than
+    // write a report that fails its own schema.
+    const storable = reportForStorage(report.value)
+    const { valid, errors } = await validateAgainst('report', storable)
+    if (!valid) {
+      toast.error(
+        `Refreshed on screen, but not saved - the report does not match its schema: ${errors
+          .slice(0, 3)
+          .map((e) => `${e.instancePath || '/'} ${e.message}`)
+          .join('; ')}`
+      )
+      return
+    }
+    const reportBody = JSON.stringify(storable, null, 2) + '\n'
     const reportRes = await commitFile(token, props.org, config.controlRepo, reportPath, reportBody, `Live refresh: ${props.assignmentId}`)
     if (!reportRes.ok) {
       toast.error(`Refreshed locally but save failed: ${reportRes.data?.message || 'unknown error'}`)
@@ -2629,6 +2642,49 @@ async function refreshLiveStatus() {
 // at render time keeps it that way - no second writer, no report schema
 // change, and the CSV export picks the columns up for free because it is built
 // from what is on screen.
+// The fields joined onto report rows for DISPLAY only. They live in
+// grading/<id>/summary.json, and report.schema.json's student items are
+// `additionalProperties: false` and permit none of them - so a report carrying
+// them cannot be stored. Anything added by mergeGradesIntoReport (or set on a
+// row during a live refresh, like ci_status) belongs in this list.
+const DISPLAY_ONLY_ROW_FIELDS = [
+  'earned_points',
+  'total_points',
+  'ci_status',
+  'ci_run_url',
+  'graded_at',
+]
+
+/**
+ * The report as it may be STORED, with the display-only join removed.
+ *
+ * The live refresh used to commit `report.value` verbatim, which wrote all five
+ * grade fields into reports/<id>.json - a document the backend's report.mjs
+ * never emits. Two costs, and the second is the one that bites later: the
+ * stored report failed its own schema, and `earned_points` became a field that
+ * appears in real control repos while nothing in the backend writes it, which
+ * is exactly how earned_points, preserved_sha and lockdown_at each became a
+ * phantom the fixtures believed in and no backend produced.
+ *
+ * Also heals a report already polluted by an earlier live refresh, because the
+ * same fields are stripped whether this session added them or a previous one
+ * did.
+ */
+function reportForStorage(source) {
+  const doc = JSON.parse(JSON.stringify(source))
+  for (const row of doc.students || []) {
+    for (const f of DISPLAY_ONLY_ROW_FIELDS) delete row[f]
+  }
+  // Team rows carry the same join (a group's grade is its first member's).
+  // report.schema.json is lenient about extra team properties, but storing a
+  // derived value beside the ones report.mjs computes invites the same
+  // divergence, so it goes too.
+  for (const team of doc.teams || []) {
+    for (const f of DISPLAY_ONLY_ROW_FIELDS) delete team[f]
+  }
+  return doc
+}
+
 function mergeGradesIntoReport() {
   const rows = report.value?.students
   if (!Array.isArray(rows)) return
