@@ -424,6 +424,60 @@ test("no workflow stages a control-repo directory that might not exist", () => {
   );
 });
 
+test("a reusable workflow has a caller, and every workflow can actually fire", () => {
+  // A workflow nothing can trigger is untested code that looks like coverage.
+  // This repo has already been bitten twice by paths nothing exercised:
+  // sync-starter-code.yml and open-feedback-prs.yml were both broken from
+  // their first line - the App-token step had the wrong input - and nothing
+  // noticed, because both are dispatch-only and no cron ever went red.
+  //
+  // Found by the same sweep, 2026-08-27: provision.yml was `workflow_call`
+  // only with ZERO runs in its entire history and no caller anywhere in the
+  // repo, and its companion provision-caller-example.yml had been failing
+  // since 2026-06-24. Real provisioning goes through `uses: ./provisioning`
+  // directly. Both removed; ARCHITECTURE stopped listing a workflow the
+  // system does not use.
+  const files = readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f));
+
+  // A caller is another file, and it is a `uses:` line - not a comment.
+  // The first version of this test searched every workflow's whole text
+  // including the candidate's own, and _find-orgs.reusable.yml names ITSELF in
+  // its header comment ("Called via `uses: ./.github/workflows/...`"), so
+  // deleting all five of its real callers still passed. A guard satisfied by
+  // the thing it is checking is the shape this whole sweep keeps finding.
+  const callersOf = (file) =>
+    files
+      .filter((f) => f !== file)
+      .some((f) =>
+        readFileSync(join(WORKFLOW_DIR, f), "utf8")
+          .split("\n")
+          .some((l) => !/^\s*#/.test(l) && /uses:/.test(l) && l.includes(`/${file}`)),
+      );
+
+  const unreachable = [];
+  for (const { file, doc } of workflows()) {
+    const on = doc?.on ?? {};
+    const triggers = typeof on === "string" ? [on] : Object.keys(on);
+    if (!triggers.length) {
+      unreachable.push(`${file} declares no trigger at all`);
+      continue;
+    }
+
+    // A reusable workflow fires only when something calls it by path.
+    const onlyCallable = triggers.length === 1 && triggers[0] === "workflow_call";
+    if (onlyCallable) {
+      const referenced = callersOf(file);
+      if (!referenced) unreachable.push(`${file} is workflow_call only and nothing calls it`);
+    }
+  }
+  assert.deepEqual(
+    unreachable,
+    [],
+    "these cannot be triggered, so nothing exercises them:\n" +
+      unreachable.map((u) => `  ${u}`).join("\n"),
+  );
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys
