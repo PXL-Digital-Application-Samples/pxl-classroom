@@ -374,6 +374,33 @@
             "minimum": 0,
             "description": "Seconds between the last on-time and first late observation. Indicates confidence in the deadline boundary."
           },
+          "effective_deadline_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The deadline that applies to THIS student, from lib/effective-deadline.mjs - the assignment's own deadline unless a lecturer granted an extension. Every comparison against 'the deadline' downstream is against this, not against the assignment's."
+          },
+          "override_applied": {
+            "type": "boolean",
+            "description": "True when an extension moved this student's deadline. An extension only ever EXTENDS: a value earlier than the assignment deadline is ignored rather than shortening it."
+          },
+          "override_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The reason the lecturer recorded with the extension, or null when none applies."
+          },
+          "lockdown_delay_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Seconds between the deadline and the moment this student actually stopped being able to push, read from lockdowns/<id>/lockdown-record.json. NOT the same measure as uncertainty_interval_seconds, which is the other side of the deadline - how stale the evidence was going IN. Conflating them made the preservation banner show hours of 'lockdown delay' for a cohort the sentinel had frozen at the instant. Null before a lockdown record exists, and null when nothing was stopped (lock_method: none)."
+          },
           "tagged_submission_tag": {
             "type": [
               "string",
