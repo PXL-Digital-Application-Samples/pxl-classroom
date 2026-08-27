@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { CLAIM_DOMAINS as CLAIM_DEFAULT_DOMAINS } from "../lib/deployment.mjs";
+import { CLAIM_DOMAINS } from "../lib/deployment.mjs";
 import {
   CLAIM_PRIVATE_KEY_LENGTH,
   CLAIM_PUBLIC_KEY_LENGTH,
@@ -58,22 +58,22 @@ test("resolveClaimDomains: ABSENT and EMPTY are different answers", () => {
   // The distinction the signature exists for. A truthy check would turn a
   // deliberate opt-out back into the default and silently re-impose a rule the
   // lecturer removed.
-  assert.deepEqual(resolveClaimDomains({}, CLAIM_DEFAULT_DOMAINS), [...CLAIM_DEFAULT_DOMAINS]);
-  assert.deepEqual(resolveClaimDomains({ claim_domains: undefined }, CLAIM_DEFAULT_DOMAINS), [...CLAIM_DEFAULT_DOMAINS]);
-  assert.deepEqual(resolveClaimDomains({ claim_domains: [] }, CLAIM_DEFAULT_DOMAINS), [], "explicit [] is the opt-out");
+  assert.deepEqual(resolveClaimDomains({}, CLAIM_DOMAINS), [...CLAIM_DOMAINS]);
+  assert.deepEqual(resolveClaimDomains({ claim_domains: undefined }, CLAIM_DOMAINS), [...CLAIM_DOMAINS]);
+  assert.deepEqual(resolveClaimDomains({ claim_domains: [] }, CLAIM_DOMAINS), [], "explicit [] is the opt-out");
 
-  assert.deepEqual(resolveClaimDomains({ claim_domains: [" Student.PXL.be ", "howest.be"] }, CLAIM_DEFAULT_DOMAINS),
+  assert.deepEqual(resolveClaimDomains({ claim_domains: [" Student.PXL.be ", "howest.be"] }, CLAIM_DOMAINS),
     ["student.pxl.be", "howest.be"]);
 });
 
 test("the deployment default includes pxl.be so a lecturer can self-test", () => {
   // Dropping it would make it impossible to check a link works before handing
   // it to a cohort, on every domain-restricted assignment.
-  assert.ok(CLAIM_DEFAULT_DOMAINS.includes("pxl.be"));
+  assert.ok(CLAIM_DOMAINS.includes("pxl.be"));
   // And the student domain is student.pxl.be, not the stud.pxl.be the repo
   // carried in seven placeholders for a long time.
-  assert.ok(CLAIM_DEFAULT_DOMAINS.includes("student.pxl.be"));
-  assert.ok(!CLAIM_DEFAULT_DOMAINS.includes("stud.pxl.be"));
+  assert.ok(CLAIM_DOMAINS.includes("student.pxl.be"));
+  assert.ok(!CLAIM_DOMAINS.includes("stud.pxl.be"));
 });
 
 test("domainAllowed matches the whole label, never a suffix", () => {

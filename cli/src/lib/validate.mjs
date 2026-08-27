@@ -1,28 +1,19 @@
 // PXL Classroom CLI - ajv schema validator.
 //
-// Loads JSON schemas directly from ../../../schemas/*.schema.json via fs,
-// keeping CLI validation in lockstep with the frontend (which fetches the
-// same files at runtime via frontend/src/lib/validate.js).
+// Re-exported rather than re-implemented, the way the SPA's
+// `frontend/src/lib/*.js` bring in the isomorphic modules. This file used to
+// hold its own copy of `validateAgainst`, byte-identical to the one in
+// `lib/validate.mjs` except for the relative path it walked to reach
+// `schemas/` - and both walks landed in the SAME directory, so the two were
+// one function maintained in two places. That is the shape that forked
+// `diffRosters` into two implementations disagreeing on key order.
+//
+// The CLI already imports eight modules from the repo root (`lib/audit.mjs`,
+// `lib/archive-repo.mjs`, `lib/promote-roster.mjs` and the rest), so there was
+// never a packaging reason for a second copy: the package is `private: true`
+// and its schema reads already resolve outside its own directory.
+//
+// Import from here or from `lib/validate.mjs` - they are the same function,
+// the same ajv instance and the same compiled-schema cache.
 
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemasDir = join(here, "..", "..", "..", "schemas");
-
-const ajv = addFormats(new Ajv({ allErrors: true, useDefaults: true }));
-const cache = new Map();
-
-export function validateAgainst(schemaName, doc) {
-  if (!cache.has(schemaName)) {
-    const schemaPath = join(schemasDir, `${schemaName}.schema.json`);
-    const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
-    cache.set(schemaName, ajv.compile(schema));
-  }
-  const validate = cache.get(schemaName);
-  const valid = validate(doc);
-  return { valid, errors: validate.errors || [] };
-}
+export { validateAgainst } from "../../../lib/validate.mjs";
