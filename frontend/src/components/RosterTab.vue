@@ -114,6 +114,7 @@
                   <th style="padding: 6px 8px;">Email</th>
                   <th style="padding: 6px 8px;">Group</th>
                   <th style="padding: 6px 8px;">GitHub Account</th>
+                  <th style="padding: 6px 8px;"></th>
                 </tr>
               </thead>
               <tbody>
@@ -129,13 +130,61 @@
                   </td>
                   <td style="padding: 6px 8px; color: var(--text-secondary);">{{ s.email || '-' }}</td>
                   <td style="padding: 6px 8px; color: var(--text-muted);">{{ s.class_group || '-' }}</td>
+                  <!-- The account this student can actually accept with.
+                       `github_login` alone was the whole answer under
+                       `enforced`; under `claim` the binding lives in
+                       students/claims/<github_id>.json and the roster column is
+                       often deliberately empty, so a badge reading "Pending
+                       linking" over a student who claimed an hour ago is the
+                       opposite of the truth. -->
                   <td style="padding: 6px 8px;">
-                    <span v-if="s.github_login" class="badge badge-success mono">@{{ s.github_login }}</span>
+                    <span
+                      v-if="bindingFor(s).state === 'claimed'"
+                      class="badge badge-success mono"
+                      :title="`Claimed ${bindingFor(s).claim.email}${bindingFor(s).verified ? ', verified by GitHub' : ', address typed by the student'}`"
+                    >@{{ bindingFor(s).login }}</span>
+                    <span
+                      v-else-if="bindingFor(s).state === 'conflict'"
+                      class="badge badge-warning mono"
+                      :title="`Claimed by @${bindingFor(s).login}, but the roster names @${bindingFor(s).rosterLogin}. One of the two is wrong.`"
+                    >@{{ bindingFor(s).login }} &ne; roster</span>
+                    <span v-else-if="bindingFor(s).state === 'roster'" class="badge badge-success mono">@{{ bindingFor(s).login }}</span>
+                    <span
+                      v-else-if="bindingFor(s).state === 'unclaimable'"
+                      class="badge badge-neutral text-xs"
+                      title="No email on this roster entry, so it can never be claimed. Re-import with an address."
+                    >No address</span>
+                    <!-- One label, deliberately mode-neutral. This tab is
+                         ORG-scoped and an org can hold `enforced` and `claim`
+                         assignments at once, so it cannot know which mechanism
+                         a given student is waiting on. An earlier version chose
+                         the wording from whether the org had any claims at all,
+                         which meant unlinking the last student silently
+                         relabelled every other row. -->
                     <span v-else class="badge badge-neutral text-xs">Pending linking</span>
+                    <span
+                      v-if="bindingFor(s).state === 'claimed' && !bindingFor(s).verified"
+                      class="text-xs text-muted"
+                      style="margin-left: 4px;"
+                      title="The student typed this address rather than confirming one GitHub had already verified."
+                    >unverified</span>
+                  </td>
+                  <td style="padding: 6px 8px; text-align: right;">
+                    <!-- Unlink ships WITH the feature, deliberately: a wrong
+                         binding a lecturer cannot undo is the mistake GitHub
+                         Classroom made. -->
+                    <button
+                      v-if="bindingFor(s).claim"
+                      class="btn btn-sm btn-danger-outline"
+                      type="button"
+                      :disabled="unlinking"
+                      :title="`Remove the binding so this student can claim again`"
+                      @click="confirmUnlink(s, bindingFor(s))"
+                    >Unlink</button>
                   </td>
                 </tr>
                 <tr v-if="filteredRosterStudents.length === 0">
-                  <td colspan="5" class="text-center text-muted" style="padding: 16px;">
+                  <td colspan="7" class="text-center text-muted" style="padding: 16px;">
                     No students match the current filter.
                   </td>
                 </tr>
@@ -291,7 +340,9 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { getToken } from '../lib/auth.js'
-import { commitFile, getRepoContent } from '../lib/api.js'
+import { commitFile, getRepoContent, listClaims, deleteFile } from '../lib/api.js'
+// The one join between a claim and a roster entry. See lib/claim-bindings.mjs.
+import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 
@@ -441,6 +492,71 @@ function changedFields(u) {
 // and the assignment form turns the first into "nobody can accept". Conflating
 // them would put that warning on screen because a token expired.
 const rosterReadFailed = ref(false)
+
+// Claims are org-scoped and live in separate files, so the account a student
+// can actually accept with is not in roster.yml at all.
+const claims = ref([])
+const claimsFailed = ref(0)
+const claimsReadFailed = ref(false)
+const unlinking = ref(false)
+
+const claimIndex = computed(() => indexClaims(claims.value))
+function bindingFor(entry) {
+  return bindingForEntry(entry, claimIndex.value)
+}
+
+async function loadClaims() {
+  claimsReadFailed.value = false
+  try {
+    const { records, failed } = await listClaims(getToken(), props.org, controlRepo)
+    claims.value = records
+    claimsFailed.value = failed
+  } catch (e) {
+    // Unreadable is not evidence of none. An empty list here would paint every
+    // claimed student as "Not claimed" and offer no Unlink on the one screen
+    // that fixes a wrong binding.
+    claimsReadFailed.value = true
+    claims.value = []
+    claimsFailed.value = 0
+    if (e?.status !== 401) console.error('Failed to load claims', e)
+  }
+}
+
+async function confirmUnlink(student, binding) {
+  const who = student.full_name || student.email || `@${binding.login}`
+  // Refuse on a partial read: unlinking off an incomplete list can remove the
+  // wrong binding, and "no such claim" for a file that would not load reads as
+  // success. Same rule PromoteRosterModal carries for acceptances.
+  if (claimsFailed.value > 0 || claimsReadFailed.value) {
+    toast.error(`Cannot unlink: ${claimsFailed.value || 'some'} claim record(s) could not be read, so the bindings shown are incomplete.`)
+    return
+  }
+  const ok = window.confirm(
+    `Unlink @${binding.login} from ${binding.claim.email}?\n\n` +
+    `${who} will be able to claim again with any allowed address. ` +
+    `Their repository and acceptance are untouched.`
+  )
+  if (!ok) return
+
+  unlinking.value = true
+  try {
+    const token = getToken()
+    const id = binding.claim.github_id
+    const message = `Unlink claim for @${binding.login} (${binding.claim.email})`
+    await deleteFile(token, props.org, controlRepo, `students/claims/${id}.json`, message)
+    // The attempt counter goes too, and that is the point rather than tidiness:
+    // a lecturer unlinks because the binding is wrong, which usually means the
+    // student has been failing to claim - and an exhausted counter locks them
+    // out of the door that was just reopened.
+    await deleteFile(token, props.org, controlRepo, `students/claim-attempts/${id}.json`, message)
+    toast.success(`Unlinked @${binding.login}. They can claim again.`)
+    await loadClaims()
+  } catch (e) {
+    toast.error(`Could not unlink: ${e?.message || e}`)
+  } finally {
+    unlinking.value = false
+  }
+}
 
 async function loadExisting() {
   loadingExisting.value = true
@@ -599,10 +715,15 @@ async function commitRoster() {
   }
 }
 
-watch(() => props.org, () => loadExisting())
+// Claims are loaded beside the roster and switched with it: they are org-scoped,
+// so a stale list from the previous org would show bindings that belong to
+// somebody else's cohort. Deliberately NOT awaited together - a failed claim
+// read must not take the roster down with it, the rule the acceptance card
+// learned when one rejected lookup replaced a loaded assignment with an error.
+watch(() => props.org, () => { loadExisting(); loadClaims() })
 watch(csvText, () => parseAndValidate())
 
-onMounted(loadExisting)
+onMounted(() => { loadExisting(); loadClaims() })
 
 // A parsed import with an uncommitted diff is unsaved work - the parent
 // includes it in the route-leave / beforeunload guards.

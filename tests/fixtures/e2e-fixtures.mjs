@@ -353,6 +353,19 @@ export async function setupStandardMockRoutes(page, {
   // whole payload with garbage left the test green. It is deleted; the name
   // stays distinct so a revived one cannot be silently swallowed here again.
   controlAcceptances = {},
+  // Claim bindings as they exist in the control repo
+  // (students/claims/<github_id>.json). Org-scoped, so a flat array rather than
+  // keyed by assignment.
+  //
+  // An ABSENT option is not the same as an empty one, and the fixture models
+  // that: with no `claims` passed, the directory 404s exactly as GitHub does
+  // when nobody has claimed. Serving an empty array instead would have hidden
+  // the bug this option was added for - RosterTab's claim read fell through to
+  // a non-404 error, logged "Failed to load claims" on every single spec, and
+  // silently disabled the Unlink control while every test still passed.
+  // A record given as the string 'UNREADABLE' is served as a 500, so a spec can
+  // reproduce the partial read that must refuse an unlink.
+  claims = null,
   // Every acceptance title the SPA posted, with the verdict the REAL broker
   // verifier gave it: { ok, reason, title, assignmentId, signed }. Pass an
   // array to assert on the seam directly; the fixture rejects an unverifiable
@@ -450,6 +463,18 @@ export async function setupStandardMockRoutes(page, {
   if (roster) {
     const yamlContent = typeof roster === 'string' ? roster : yamlStringify({ students: roster });
     dynamicFiles.set('students/roster.yml', yamlContent);
+  }
+
+  const unreadableClaims = new Set();
+  if (Array.isArray(claims)) {
+    for (const record of claims) {
+      if (record === 'UNREADABLE') {
+        unreadableClaims.add('students/claims/999999.json');
+        dynamicFiles.set('students/claims/999999.json', '');
+        continue;
+      }
+      dynamicFiles.set(`students/claims/${record.github_id}.json`, JSON.stringify(record, null, 2));
+    }
   }
 
   // Assignments JSON per org
@@ -827,6 +852,49 @@ export async function setupStandardMockRoutes(page, {
           await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: 'roster_sha_1' }) });
           return;
         }
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      } else if (/\/pxl-classroom-control\/contents\/students\/claims(\?|$)/.test(url)) {
+        // Directory listing. Absent means nobody has claimed, which GitHub
+        // answers with a 404 - not an empty array. The SPA distinguishes the
+        // two, so the fixture has to as well.
+        if (!Array.isArray(claims)) {
+          await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+          return;
+        }
+        const entries = [];
+        for (const [path] of dynamicFiles.entries()) {
+          if (!path.startsWith('students/claims/') || !path.endsWith('.json')) continue;
+          entries.push({ name: path.split('/').pop(), path, type: 'file' });
+        }
+        await route.fulfill({ status: 200, body: JSON.stringify(entries) });
+        return;
+      } else if (url.includes('/pxl-classroom-control/contents/students/claims/')) {
+        const match = url.match(/\/contents\/(students\/claims\/[^/?#]+\.json)/);
+        const key = match ? match[1] : null;
+        if (key && unreadableClaims.has(key)) {
+          await route.fulfill({ status: 500, body: JSON.stringify({ message: 'Server Error' }) });
+          return;
+        }
+        if (method === 'DELETE') {
+          if (key) dynamicFiles.delete(key);
+          await route.fulfill({ status: 200, body: JSON.stringify({ commit: { sha: 'unlink_sha_1' } }) });
+          return;
+        }
+        const content = key ? dynamicFiles.get(key) : null;
+        if (content) {
+          await route.fulfill({
+            status: 200,
+            body: JSON.stringify({ content: Buffer.from(content).toString('base64'), encoding: 'base64', sha: 'claim_sha_1' }),
+          });
+          return;
+        }
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      } else if (url.includes('/pxl-classroom-control/contents/students/claim-attempts/')) {
+        // The counter unlink also clears. Absent is the ordinary case - a
+        // student who never failed has no file - and deleteFile treats a 404 as
+        // "nothing to delete", so this must 404 rather than error.
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
         return;
       } else if (/\/pxl-classroom-control\/contents\/acceptances\/[^/?#]+(\?|$)/.test(url)) {

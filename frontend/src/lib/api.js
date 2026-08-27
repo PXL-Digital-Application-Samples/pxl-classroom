@@ -415,6 +415,45 @@ export async function listAcceptances(token, org, controlRepo, assignmentId, { c
 }
 
 /**
+ * Every claim binding in the org.
+ *
+ * Org-scoped, not per assignment: a student claims once and every later
+ * assignment in that org recognises them. `failed` is returned rather than
+ * swallowed for the same reason listAcceptances returns it - anything that
+ * DELETES on the strength of this list has to refuse when it is non-zero,
+ * because unlinking from a partial read can unlink the wrong student, or
+ * report "no such binding" for one sitting in a file that would not load.
+ */
+export async function listClaims(token, org, controlRepo, { concurrency = 6 } = {}) {
+  let files = []
+  try {
+    files = await listRepoDir(token, org, controlRepo, 'students/claims')
+  } catch (e) {
+    // An absent directory is an answer: nobody has claimed yet.
+    if (e.status === 404) return { records: [], failed: 0 }
+    throw e
+  }
+  const jsons = files.filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+  const records = []
+  let failed = 0
+  let cursor = 0
+  async function worker() {
+    while (cursor < jsons.length) {
+      const f = jsons[cursor++]
+      try {
+        const text = await getRepoContent(token, org, controlRepo, f.path)
+        if (text) records.push(JSON.parse(text))
+        else failed++
+      } catch {
+        failed++
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, jsons.length || 1) }, worker))
+  return { records, failed }
+}
+
+/**
  * Delete a file from a repository. Returns { ok: false } when the file
  * doesn't exist (nothing to delete).
  */

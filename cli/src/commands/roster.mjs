@@ -36,7 +36,16 @@ import {
   promoteCommitMessage,
   promotionChangesAnything,
 } from "../../../lib/promote-roster.mjs";
-import { getAssignment, listAcceptances } from "../lib/control-repo.mjs";
+import { getAssignment, listAcceptances, listClaims, deleteClaim } from "../lib/control-repo.mjs";
+// The one join between a claim and a roster entry. Four surfaces read it; see
+// lib/claim-bindings.mjs for why it is not written out per surface.
+import {
+  rosterBindings,
+  orphanClaims,
+  claimSummary,
+  describeBinding,
+} from "../../../lib/claim-bindings.mjs";
+import { normalizeEmail } from "../../../lib/claim.mjs";
 
 const CONTROL_REPO = "pxl-classroom-control";
 
@@ -247,22 +256,140 @@ export function registerRosterCommand(program) {
         process.stdout.write(`No roster at ${org}/${CONTROL_REPO}:${ROSTER_PATH}.\n`);
         return;
       }
+      // Claims are org-scoped and separate files, so the binding a student
+      // actually accepts with is not in roster.yml at all. Printing the roster
+      // without it answers "who is enrolled" while looking like it answers
+      // "who can accept", which under `claim` are different questions.
+      let claims = { records: [], unreadable: [] };
+      try {
+        claims = await listClaims(octokit, { org });
+      } catch (e) {
+        // Unreadable is not evidence of none: say so rather than printing a
+        // column of "not claimed" over bindings that exist.
+        process.stderr.write(`  ! could not read students/claims: ${e.message}\n`);
+        claims = null;
+      }
+
+      const bound = claims ? rosterBindings(existing, claims.records) : null;
+      const bindingText = (i) => (bound ? describeBinding(bound[i].binding) : "?");
+
       const rows = existing.students;
       const widths = {
         student_number: Math.max(14, ...rows.map((r) => (r.student_number ?? "").length)),
         full_name:      Math.max(9,  ...rows.map((r) => (r.full_name ?? "").length)),
-        github_login:   Math.max(12, ...rows.map((r) => (r.github_login ?? "").length)),
         class_group:    Math.max(11, ...rows.map((r) => (r.class_group ?? "").length)),
+        binding:        Math.max(7,  ...rows.map((_, i) => bindingText(i).length)),
       };
       const pad = (s, n) => String(s ?? "").padEnd(n);
-      const header = `${pad("student_number", widths.student_number)}  ${pad("full_name", widths.full_name)}  ${pad("github_login", widths.github_login)}  ${pad("class_group", widths.class_group)}  active`;
+      const header = `${pad("student_number", widths.student_number)}  ${pad("full_name", widths.full_name)}  ${pad("binding", widths.binding)}  ${pad("class_group", widths.class_group)}  active`;
       process.stdout.write(header + "\n" + "-".repeat(header.length) + "\n");
-      for (const r of rows) {
+      for (const [i, r] of rows.entries()) {
         process.stdout.write(
-          `${pad(r.student_number, widths.student_number)}  ${pad(r.full_name, widths.full_name)}  ${pad(r.github_login, widths.github_login)}  ${pad(r.class_group, widths.class_group)}  ${r.active === false ? "no " : "yes"}\n`,
+          `${pad(r.student_number, widths.student_number)}  ${pad(r.full_name, widths.full_name)}  ${pad(bindingText(i), widths.binding)}  ${pad(r.class_group, widths.class_group)}  ${r.active === false ? "no " : "yes"}\n`,
         );
       }
       process.stdout.write(`\n${rows.length} student(s) in ${org}/${CONTROL_REPO}.\n`);
+
+      if (claims) {
+        const s = claimSummary(existing, claims.records);
+        process.stdout.write(
+          `${s.bound} bound (${s.claimed} claimed, ${s.pre_linked} from the roster), ` +
+          `${s.unclaimed} not claimed, ${s.unclaimable} with no email.\n`,
+        );
+        // Each of these is a lecturer action, so each gets a line rather than
+        // being folded into a healthy-looking total.
+        if (s.conflicts) {
+          process.stdout.write(
+            `  ! ${s.conflicts} binding(s) disagree with the roster's own github_login. ` +
+            `Resolve with: pxl-classroom roster unlink --login <account>\n`,
+          );
+        }
+        if (s.duplicates) {
+          process.stdout.write(`  ! ${s.duplicates} address(es) are claimed by more than one account.\n`);
+        }
+        for (const o of orphanClaims(existing, claims.records)) {
+          process.stdout.write(`  ! orphan claim: @${o.github_login} holds ${o.email}, which is on no roster entry.\n`);
+        }
+        if (claims.unreadable.length) {
+          process.stdout.write(`  ! ${claims.unreadable.length} claim file(s) could not be read; the counts above are incomplete.\n`);
+        }
+      }
+    });
+
+  roster
+    .command("unlink")
+    .description("Remove a student's claim binding so they can claim again.")
+    .option("--org <login>", "GitHub org login (defaults to last used)")
+    .option("--login <username>", "GitHub account whose binding to remove")
+    .option("--email <address>", "Address whose binding to remove")
+    .option("--dry-run", "Show what would be removed without deleting", false)
+    .option("--force", "Skip the confirmation prompt (required when not a TTY)", false)
+    .action(async (opts) => {
+      if (!opts.login && !opts.email) {
+        process.stderr.write("Give --login or --email: unlink has to name one binding.\n");
+        process.exit(1);
+      }
+      const org = resolveOrg(opts.org);
+      const octokit = makeOctokit();
+
+      const { records, unreadable } = await listClaims(octokit, { org });
+      // Deleting on the strength of a partial read could unlink the wrong
+      // student, or report "no such binding" for one sitting in a file that
+      // would not load. Same rule the promote modal carries.
+      if (unreadable.length) {
+        process.stderr.write(
+          `Refusing to unlink: ${unreadable.length} claim file(s) could not be read, ` +
+          `so this list is incomplete:\n  ${unreadable.join("\n  ")}\n`,
+        );
+        process.exit(1);
+      }
+
+      const wanted = opts.login
+        ? records.filter((c) => String(c.github_login ?? "").toLowerCase() === opts.login.toLowerCase())
+        : records.filter((c) => normalizeEmail(c.email) === normalizeEmail(opts.email));
+
+      if (wanted.length === 0) {
+        process.stdout.write(`No claim binding for ${opts.login ? `@${opts.login}` : opts.email} in ${org}.\n`);
+        return;
+      }
+
+      for (const c of wanted) {
+        process.stdout.write(`  - @${c.github_login} (id ${c.github_id}) is bound to ${c.email}, claimed via ${c.claimed_via}\n`);
+      }
+      process.stdout.write(
+        `\nUnlinking removes the binding and the failed-attempt counter, so the student can claim again.\n` +
+        `Their repository and acceptance are untouched.\n`,
+      );
+
+      if (opts.dryRun) {
+        process.stdout.write(`\n(--dry-run; nothing deleted.)\n`);
+        return;
+      }
+
+      // Destructive, so it confirms - the rule `roster import` already follows
+      // for removals.
+      if (!opts.force) {
+        if (!process.stdin.isTTY) {
+          process.stderr.write("\nRefusing to unlink without --force when not attached to a terminal.\n");
+          process.exit(1);
+        }
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await rl.question(`Unlink ${wanted.length} binding(s)? [y/N] `);
+        rl.close();
+        if (!/^y(es)?$/i.test(answer.trim())) {
+          process.stdout.write("Aborted.\n");
+          return;
+        }
+      }
+
+      for (const c of wanted) {
+        const removed = await deleteClaim(octokit, {
+          org,
+          githubId: c.github_id,
+          message: `Unlink claim for @${c.github_login} (${c.email})`,
+        });
+        process.stdout.write(`  unlinked @${c.github_login}: removed ${removed.length} file(s)\n`);
+      }
     });
 
   roster

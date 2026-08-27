@@ -1020,6 +1020,38 @@ Rules worth knowing before you run it:
 
 Afterwards, fill in the real identities by exporting the roster, adding `student_number`/`full_name` columns, and re-importing - the `source: accepted` marker is how you spot which rows still need it.
 
+#### 12.4b Seeing and undoing a claim binding
+
+Under `roster_mode: claim` the student binds themselves: they confirm one of their own GitHub-verified addresses, and the hub writes `students/claims/<github_id>.json`. That binding is **org-scoped** and lives outside `roster.yml`, so the roster's own `github_login` column is usually empty by design - which is why the Roster tab shows a **binding** rather than that column alone.
+
+**Where to look:** Admin Panel → **Roster** tab. Each student's GitHub Account cell shows one of:
+
+| Shown | Means | What to do |
+|---|---|---|
+| `@account` (green) | Claimed, and GitHub had verified the address | Nothing |
+| `@account` + *unverified* | Claimed with an address the student **typed** | Nothing, unless the cohort review says otherwise |
+| `@account` (green, no claim) | Pre-linked by you in the roster CSV | Nothing - this works too |
+| `@account ≠ roster` (amber) | Claimed by an account that differs from the `github_login` on their roster row | **Unlink** the wrong one |
+| `Pending linking` | Nobody is bound yet | Wait, or chase the student |
+| `No address` | The roster entry has no email, so it can **never** be claimed | Re-import the roster with an address column |
+
+**CLI equivalent:** `pxl-classroom roster list` prints the same binding column plus a summary line, and names any orphan claims (an address on no roster entry - usually a student removed from the roster, or an address corrected after they claimed). Orphans are reported, never deleted automatically.
+
+**Unlinking**, from the Roster tab's **Unlink** button or:
+
+```bash
+pxl-classroom roster unlink --org <org> --login <account> --dry-run   # preview
+pxl-classroom roster unlink --org <org> --login <account>             # delete
+pxl-classroom roster unlink --org <org> --email <address>             # by address instead
+```
+
+- It removes the binding **and the failed-attempt counter**. That is deliberate: you are usually unlinking because the student has been failing to claim, and five failures locks the account out - clearing the binding without the counter hands them back a door they still cannot open.
+- Their **repository and acceptance are untouched.** Unlinking does not revoke access to work already provisioned; it only lets them bind again.
+- It **refuses on a partial read.** If any file under `students/claims/` cannot be read, both the button and the command stop rather than delete - unlinking off an incomplete list can remove the wrong binding, and "no such binding" for a file that would not load reads as success.
+- The CLI confirms before deleting, and requires `--force` when not attached to a terminal.
+
+When a student **deletes and recreates their GitHub account**, their new `github_id` is a different student as far as the binding is concerned - unlink the old one and let them claim again.
+
 Symptom this fixes: with `roster_mode: enforced` and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 
 ### 12.5 Auditing an org's install
