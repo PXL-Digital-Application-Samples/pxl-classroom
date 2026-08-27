@@ -5,6 +5,9 @@
   "license": "MIT",
   "description": "Shared dependencies for PXL Classroom composite actions and scripts",
   "type": "module",
+  "imports": {
+    "#deployment": "./lib/deployment.mjs"
+  },
   "engines": {
     "node": ">=24"
   },

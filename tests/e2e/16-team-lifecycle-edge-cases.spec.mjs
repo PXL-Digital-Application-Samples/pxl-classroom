@@ -160,13 +160,53 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       { github_login: 'student-dev2', full_name: 'Student Dev Two', student_number: 'r0654321' },
     ];
 
+    // The manifest as it really sits in the control repo. The row on screen is
+    // a DISPLAY shape (submission_status, commit_count, under_capacity) and is
+    // missing created_by, repo_id and seeded_from entirely - so saving members
+    // has to read THIS, not rebuild from the row. Supplying it is what makes
+    // the assertions below meaningful.
+    const storedApollo = {
+      schema_version: 1,
+      assignment_id: assignmentId,
+      team_slug: 'team-apollo',
+      team_name: 'Team Apollo',
+      members: ['student-dev1'],
+      max_members: 3,
+      created_at: '2026-08-01T09:00:00.000Z',
+      created_by: 'student-dev1',
+      repo_name: `${ORG}/${assignmentId}-team-apollo`,
+      repo_id: 55501,
+      repo_url: `https://github.com/${ORG}/${assignmentId}-team-apollo`,
+      seeded_from: {
+        source: 'assignment',
+        assignment_id: 'previous-group-work',
+        assignment_title: 'Previous Group Work',
+        seeded_at: '2026-07-30T08:00:00.000Z',
+        seeded_by: 'lecturer',
+      },
+    };
+
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       assignments: { [assignmentId]: assignment },
       reports: { [assignmentId]: mockReport },
+      controlTeams: { [assignmentId]: [storedApollo] },
       roster: mockRoster,
       currentUser: LECTURER,
     });
+
+    // Capture what actually gets written back.
+    const written = [];
+    await page.route(
+      `**/repos/${ORG}/pxl-classroom-control/contents/teams/${assignmentId}/team-apollo.json`,
+      async (route) => {
+        if (route.request().method() === 'PUT') {
+          const body = route.request().postDataJSON();
+          written.push(JSON.parse(Buffer.from(body.content, 'base64').toString('utf8')));
+        }
+        await route.fallback();
+      },
+    );
 
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
 
@@ -195,6 +235,18 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
 
     // Verify success toast
     await expect(page.locator('.toast', { hasText: /updated successfully/i })).toBeVisible();
+
+    // The manifest that was written must be a MERGE onto what was stored, not a
+    // rebuild from the row. Rebuilding dropped created_by (required by
+    // team.schema.json), repo_id, and seeded_from - and losing seeded_from
+    // silently removes the team from planUnseed and the "Undo seed" button.
+    expect(written.length).toBeGreaterThan(0);
+    const saved = written[written.length - 1];
+    expect(saved.members).toEqual(['student-dev2']);
+    expect(saved.created_by).toBe('student-dev1');
+    expect(saved.repo_id).toBe(55501);
+    expect(saved.seeded_from).toEqual(storedApollo.seeded_from);
+    expect(saved.created_at).toBe('2026-08-01T09:00:00.000Z');
   });
 
   test('Scenario 3 (Team-Level Deadline Extension Propagation): Single student extension propagates on-time classification to entire team repo', async ({ page }) => {
