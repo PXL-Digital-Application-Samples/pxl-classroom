@@ -295,6 +295,51 @@ test("saving an edited assignment preserves its invitation", () => {
   }
 });
 
+// The whole class, rather than one field at a time.
+//
+// buildDoc rebuilds the assignment field by field, so ANY field the schema
+// allows but buildDoc omits is deleted the next time a lecturer saves - and the
+// document still validates, because the omitted field was optional. It has
+// happened twice: invite_token (silently retiring every student's link) and
+// claim_domains (silently reverting a narrowed domain list to the deployment
+// default). Both were fields a lecturer never edits in the form, which is
+// exactly what makes them easy to drop.
+//
+// Reading the schema rather than a hand-kept list means a new optional field
+// arrives here as a failure instead of as a silent deletion nobody notices.
+test("buildDoc carries every field the assignment schema allows", () => {
+  const schema = JSON.parse(
+    readFileSync(join(root, "schemas", "assignment.schema.json"), "utf8"),
+  );
+  const declared = Object.keys(schema.properties ?? {});
+  assert.ok(declared.length >= 20, `expected a substantial schema, saw ${declared.length}`);
+
+  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  // Anchored on the function, then its `return {`. An anchor that misses must
+  // FAIL, never fall back to scanning the whole file - a first draft of this
+  // check did exactly that and reported a confident all-clear.
+  const fn = src.indexOf("function buildDoc");
+  assert.ok(fn > -1, "buildDoc no longer exists under that name");
+  const at = src.indexOf("return {", fn);
+  assert.ok(at > -1, "buildDoc no longer returns an object literal");
+  const open = src.indexOf("{", at);
+  let depth = 0;
+  let end = open;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") { depth--; if (!depth) { end = i; break; } }
+  }
+  const body = src.slice(open, end);
+
+  const dropped = declared.filter((f) => !new RegExp(`\\b${f}\\s*:`).test(body));
+  assert.deepEqual(
+    dropped,
+    [],
+    "the schema allows these and buildDoc does not carry them, so saving an edit deletes them:\n" +
+      dropped.map((f) => `  ${f}`).join("\n"),
+  );
+});
+
 // Same shape, different field, and the same consequence. There is no control
 // for claim_domains, so a lecturer who narrows the allowed addresses does it by
 // hand - which is precisely what makes it easy for buildDoc to drop. Losing it
