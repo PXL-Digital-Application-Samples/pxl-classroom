@@ -163,7 +163,22 @@
             <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(10)">+10</button>
             <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(25)">+25</button>
             <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(50)">+50</button>
-            <button class="btn btn-xs btn-secondary" :disabled="bumpingCapacity" @click="bumpCapacity(null)">Remove limit</button>
+            <!-- Not offered under open enrolment. There the cap is the ONLY
+               thing limiting who can claim a repository - nothing gates it -
+               so the schema requires it and accept.mjs treats its absence as
+               fail:config, which hard-fails every acceptance that follows. A
+               one-click button that breaks a live cohort is not a control. -->
+          <button
+            v-if="!capIsMandatory"
+            class="btn btn-xs btn-secondary"
+            :disabled="bumpingCapacity"
+            @click="bumpCapacity(null)"
+          >Remove limit</button>
+          <span
+            v-else
+            class="text-xs text-secondary"
+            title="Open enrolment has no roster, so the cap is the only limit on who can accept. Switch the assignment to an enforced roster to remove it."
+          >Cap required under open enrolment</span>
           </div>
         </div>
 
@@ -1152,6 +1167,7 @@ import { parseCheckRunScore, pickAutogradeCheckRun, fetchCheckRunAnnotations } f
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { extensionFrom } from '../lib/deadline.js'
+import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { archiveBranchName, archiveBranchUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -1418,10 +1434,24 @@ const capacityAlert = computed(() => {
   return count >= cap || count / cap >= 0.9
 })
 
+// Only `open` requires a cap, and it must have one: nothing else gates who may
+// accept there. requiresAcceptanceCap is the single reader for that rule - it
+// had existed since roster_mode: claim shipped with no call sites at all, which
+// is why the "Remove limit" button could offer to break a live open cohort.
+const capIsMandatory = computed(() => requiresAcceptanceCap(assignment.value?.roster_mode))
+
 const bumpingCapacity = ref(false)
 
 async function bumpCapacity(delta) {
   if (!assignment.value) return
+  // Belt to the template's braces: removing the cap under open enrolment writes
+  // a document the schema rejects and accept.mjs reads as fail:config, so every
+  // acceptance after it hard-fails. The button is hidden there; this stops any
+  // other path reaching the same write.
+  if (delta == null && capIsMandatory.value) {
+    toast.error('Open enrolment has no roster, so the cap is the only limit on who can accept - it cannot be removed.')
+    return
+  }
   bumpingCapacity.value = true
   try {
     const token = getToken()

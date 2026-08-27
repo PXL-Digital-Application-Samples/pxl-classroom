@@ -166,7 +166,15 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
 
   test('Scenario 5 (1-Click Cohort Capacity Bumper): Displays capacity alert banner and increases seat limit directly from dashboard', async ({ page }) => {
     const assignmentId = 'web-frameworks';
+    // A document assignment.schema.json would actually accept. It previously
+    // carried `accepted_count`, which the schema FORBIDS - that is a public
+    // acceptance-card field, never an assignment YAML one - and omitted three
+    // required fields. The banner is driven by the report below (50 accepted
+    // against a cap of 50), so the impossible field was never load-bearing; it
+    // just described a document no backend could produce, which is how the
+    // capacity bumper's write-back went unchecked.
     const assignment = {
+      schema_version: 1,
       id: assignmentId,
       title: 'Web Frameworks',
       organization: ORG,
@@ -174,9 +182,10 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
       roster_mode: 'open',
       state: 'published',
       max_acceptances: 50,
-      accepted_count: 50,
       template: { owner: ORG, repository: 'web-template' },
       repository_name_pattern: `${assignmentId}-{github_login}`,
+      opens_at: '2026-08-01T08:00:00.000Z',
+      deadline_at: '2026-12-31T22:00:00.000Z',
     };
 
     const mockReport = {
@@ -216,17 +225,25 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
 
     // 2. Test Remove limit on another capped assignment
     const cappedAssignmentId = 'cloud-patterns';
+    // ENFORCED, not open. Under open enrolment the cap is the only thing
+    // limiting who may claim a repository, so the schema requires it and
+    // accept.mjs reads its absence as fail:config - removing it there breaks
+    // every acceptance that follows, and the control is not offered. This
+    // scenario is the case where removal is legitimate; the one below is the
+    // case where it must be refused.
     const cappedAssignment = {
+      schema_version: 1,
       id: cappedAssignmentId,
       title: 'Cloud Patterns',
       organization: ORG,
       assignment_type: 'individual',
-      roster_mode: 'open',
+      roster_mode: 'enforced',
       state: 'published',
       max_acceptances: 10,
-      accepted_count: 10,
       template: { owner: ORG, repository: 'web-template' },
       repository_name_pattern: `${cappedAssignmentId}-{github_login}`,
+      opens_at: '2026-08-01T08:00:00.000Z',
+      deadline_at: '2026-12-31T22:00:00.000Z',
     };
     const cappedReport = {
       schema_version: 1,
@@ -253,6 +270,61 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
     await expect(banner2).toBeVisible();
     await banner2.getByRole('button', { name: 'Remove limit' }).click();
     await expect(page.locator('.toast', { hasText: /Registration cap removed/i })).toBeVisible();
+  });
+
+  test('Scenario 6 (Open enrolment keeps its cap): the one control that would break a live cohort is not offered', async ({ page }) => {
+    // Under roster_mode: open nothing gates acceptance except max_acceptances -
+    // the schema says so in its own $comment - so the schema REQUIRES it and
+    // accept.mjs returns fail:config without it. Removing the cap there does not
+    // open enrolment up, it stops every acceptance dead, and it was a one-click
+    // button beside three harmless ones.
+    const openId = 'open-exam';
+    const openAssignment = {
+      schema_version: 1,
+      id: openId,
+      title: 'Open Exam',
+      organization: ORG,
+      assignment_type: 'individual',
+      roster_mode: 'open',
+      state: 'published',
+      max_acceptances: 10,
+      template: { owner: ORG, repository: 'web-template' },
+      repository_name_pattern: `${openId}-{github_login}`,
+      opens_at: '2026-08-01T08:00:00.000Z',
+      deadline_at: '2026-12-31T22:00:00.000Z',
+    };
+    const openReport = {
+      schema_version: 1,
+      assignment_id: openId,
+      assignment_title: 'Open Exam',
+      org: ORG,
+      generated_at: new Date().toISOString(),
+      students: Array.from({ length: 10 }, (_, i) => ({
+        github_login: `exam-${i + 1}`,
+        repo_name: `${ORG}/${openId}-exam-${i + 1}`,
+        acceptance_state: 'accepted',
+        submission_status: 'on-time',
+      })),
+    };
+
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      assignments: { [openId]: openAssignment },
+      reports: { [openId]: openReport },
+      currentUser: LECTURER,
+    });
+
+    await page.goto(`/dashboard/${ORG}/${openId}`);
+    const banner = page.locator('.capacity-banner');
+    await expect(banner).toBeVisible();
+
+    // Raising the cap is still offered - that is the useful half.
+    await expect(banner.getByRole('button', { name: '+25' })).toBeVisible();
+
+    // Removing it is not, and the reason is on screen rather than implied by an
+    // absent button.
+    await expect(banner.getByRole('button', { name: 'Remove limit' })).toHaveCount(0);
+    await expect(banner).toContainText('Cap required under open enrolment');
   });
 
 });

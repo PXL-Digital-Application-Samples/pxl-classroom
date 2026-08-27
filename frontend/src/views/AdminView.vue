@@ -1266,6 +1266,12 @@ const shareAssignment = computed(() => ({
   opens_at: form.value.opens_at_local ? localToUtc(form.value.opens_at_local) : null,
   deadline_at: form.value.deadline_at_local ? localToUtc(form.value.deadline_at_local) : null,
   max_acceptances: form.value.max_acceptances || null,
+  // Without this the share block cannot evaluate its own cap check, so it read
+  // "Live - students can accept now" over a full cohort. `cohort` is null when
+  // the report could not be read, and null here means UNKNOWN rather than zero -
+  // the same distinction the cohort card above makes between "nobody has
+  // accepted" and "we could not tell".
+  accepted_count: cohort.value ? cohort.value.accepted : null,
 }))
 
 // The one republish that CANNOT keep the links alive, and it is not optional.

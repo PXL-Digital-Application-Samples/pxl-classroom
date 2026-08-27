@@ -401,7 +401,7 @@
                 <InvitationShare
                   v-if="a.state === 'published'"
                   :org="selectedOrg"
-                  :assignment="{ ...a, timezone: a.timezone }"
+                  :assignment="{ ...a, timezone: a.timezone, accepted_count: typeof a.accepted === 'number' ? a.accepted : null }"
                   variant="compact"
                 />
               </span>

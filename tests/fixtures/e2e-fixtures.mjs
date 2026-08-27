@@ -1,12 +1,65 @@
 import { expect } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { stringify as yamlStringify } from 'yaml';
+import { stringify as yamlStringify, parse as yamlParse } from 'yaml';
+import { validateAgainst } from '../../lib/validate.mjs';
 import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
 import { generateKeyPairSync } from 'node:crypto'
 import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
 import { linkSecretFrom } from '../../lib/invite-token-format.mjs'
 import { verifyAcceptanceTitle } from '../../lib/acceptance-signature.mjs'
+
+/**
+ * Which schema governs a control-repo path.
+ *
+ * A MOCK THAT ACCEPTS ANYTHING TESTS NOTHING. This fixture used to store
+ * whatever the SPA PUT and answer 200, so no e2e ever checked that a document
+ * the app writes is one the backend could read back. That is precisely how a
+ * member edit shipped writing a team manifest missing its required
+ * `created_by`, with spec 16 green over it, and how a live refresh shipped
+ * storing `earned_points` on report rows that report.schema.json forbids.
+ *
+ * Same precedent as the mocked broker, which now runs the real verifier: the
+ * mock enforces what the real system enforces, so a spec that passes has proved
+ * something.
+ */
+const CONTROL_PATH_SCHEMAS = [
+  [/^teams\/[^/]+\/[^/]+\.json$/, 'team', 'json'],
+  [/^reports\/[^/]+\.json$/, 'report', 'json'],
+  [/^acceptances\/[^/]+\/[^/]+\.json$/, 'acceptance', 'json'],
+  [/^repositories\/[^/]+\/[^/]+\.json$/, 'repository-record', 'json'],
+  [/^overrides\/[^/]+\/[^/]+\.json$/, 'override', 'json'],
+  [/^grading\/[^/]+\/summary\.json$/, 'grading-summary', 'json'],
+  [/^students\/roster\.yml$/, 'roster', 'yaml'],
+  [/^assignments\/[^/]+\.yml$/, 'assignment', 'yaml'],
+];
+
+/**
+ * Returns a message when a written document fails the schema for its path.
+ *
+ * Unparseable content is NOT reported here: some specs deliberately write
+ * malformed files to exercise the error paths, and the schema has nothing to
+ * say about bytes that are not a document. Only a well-formed document that
+ * breaks its own contract is a finding.
+ */
+function controlWriteViolation(path, content) {
+  const entry = CONTROL_PATH_SCHEMAS.find(([re]) => re.test(path));
+  if (!entry) return null;
+  const [, schema, format] = entry;
+
+  let doc;
+  try {
+    doc = format === 'yaml' ? yamlParse(content) : JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (doc === null || typeof doc !== 'object') return null;
+
+  const { valid, errors } = validateAgainst(schema, doc);
+  if (valid) return null;
+  return `${path} does not match ${schema}.schema.json: ` +
+    errors.slice(0, 4).map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ');
+}
 
 // Auto-load .env.test if present
 if (existsSync('.env.test')) {
@@ -782,14 +835,31 @@ export async function setupStandardMockRoutes(page, {
       if (method === 'PUT' && url.includes('/contents/')) {
         const match = url.match(/\/contents\/(.+)$/);
         const path = match ? decodeURIComponent(match[1]) : 'file';
+        let violation = null;
         try {
           const postData = route.request().postDataJSON();
           if (postData?.content) {
             const decoded = Buffer.from(postData.content, 'base64').toString('utf8');
-            dynamicFiles.set(path, decoded);
-            contentWrites.push({ path, content: decoded, message: postData.message });
+            violation = controlWriteViolation(path.split('?')[0], decoded);
+            if (!violation) {
+              dynamicFiles.set(path, decoded);
+              contentWrites.push({ path, content: decoded, message: postData.message });
+            }
           }
         } catch {}
+
+        // Refuse a document the backend could not read back, the way the mocked
+        // broker refuses a title the real verifier rejects. 422 surfaces it: the
+        // SPA's own error path fires, the spec's success assertion fails, and
+        // the reason is in the body.
+        if (violation) {
+          await route.fulfill({
+            status: 422,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: `[fixture] ${violation}` }),
+          });
+          return;
+        }
         await route.fulfill({
           status: 200,
           body: JSON.stringify({

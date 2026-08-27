@@ -166,16 +166,30 @@ const status = computed(() => {
     return { dot: 'dot-neutral', label: 'Closed', note: `The deadline passed ${when(a.deadline_at)}.${expiryNote}` }
   }
   const cap = Number(a.max_acceptances) || 0
-  const accepted = Number(a.accepted_count) || 0
-  if (cap && accepted >= cap) {
+  // An absent count is UNKNOWN, not zero. Two of the three callers build this
+  // object field by field and omitted accepted_count entirely, so
+  // `Number(undefined) || 0` made `accepted >= cap` permanently false and the
+  // block read "Live - students can accept now" over a cohort whose cap was
+  // full. That is the one thing this status line exists to prevent: a lecturer
+  // must not read "Live" over the page telling students "Registration cap
+  // reached".
+  const countKnown = a.accepted_count !== undefined && a.accepted_count !== null
+  const accepted = countKnown ? Number(a.accepted_count) || 0 : null
+
+  if (cap && countKnown && accepted >= cap) {
     return { dot: 'dot-warning', label: 'Cap reached', note: `${accepted} of ${cap} places taken - raise the cap to let more students in.${expiryNote}` }
   }
+
+  // A cap in force with no count in hand: the link is live, and we cannot
+  // promise there is room. Say the first and not the second rather than
+  // guessing either way.
+  const room = cap && !countKnown ? ' while places remain' : ''
   return {
     dot: 'dot-success',
     label: 'Live - students can accept now',
     note: a.deadline_at
-      ? `Anyone with this link can accept until ${when(a.deadline_at)}.${expiryNote}`
-      : `Anyone with this link can accept.${expiryNote}`,
+      ? `Anyone with this link can accept until ${when(a.deadline_at)}${room}.${expiryNote}`
+      : `Anyone with this link can accept${room}.${expiryNote}`,
   }
 })
 
