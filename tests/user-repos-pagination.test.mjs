@@ -39,6 +39,42 @@ test("HomeView no longer reads /user/repos itself", () => {
   assert.match(src, /getUserRepos\(/, "and it must actually call it");
 });
 
+test("an unreadable repository list is an ERROR, never 'no assignments'", () => {
+  // This list IS the student's repositories. If GitHub does not answer, the
+  // match loop produces nothing and the portal renders "No accepted
+  // assignments yet" - telling a student with six repositories that they have
+  // none. ghApi returns { ok: false } rather than throwing, so the catch never
+  // saw it and nothing was red. Same shape as listOrgRepos reporting "this
+  // organization has no template repositories" off a failed read.
+  const src = stripComments(readFileSync(HOME, "utf8"));
+  const fn = src.slice(src.indexOf("async function loadStudentAssignments"));
+  const body = fn.slice(0, fn.indexOf("\nasync function ") + 1);
+
+  assert.ok(
+    /if \(!reposRes\.ok/.test(body),
+    "loadStudentAssignments must check whether the repository read succeeded",
+  );
+  // The failure must reach the user, not just widen an empty array.
+  const guardAt = body.indexOf("!reposRes.ok");
+  const errorAt = body.indexOf("assignmentsError.value =", guardAt);
+  assert.ok(errorAt > guardAt, "a failed repository read must set assignmentsError");
+  assert.ok(
+    !/const userRepos = \(reposRes\.ok[^\n]*: \[\]/.test(body),
+    "collapsing a failed read to an empty list is the bug this test exists for",
+  );
+});
+
+test("a failed INVITATIONS read still degrades gracefully", () => {
+  // Deliberately different: invitations only decide the "Invitation pending"
+  // badge, so losing them must not blank assignments the student has accepted.
+  const src = stripComments(readFileSync(HOME, "utf8"));
+  assert.match(
+    src,
+    /const userInvites = \(invitesRes\.ok/,
+    "invitations should still fall back to an empty list rather than blocking the page",
+  );
+});
+
 test("getUserRepos walks the Link header", () => {
   const src = readFileSync(API, "utf8");
   const fn = src.slice(src.indexOf("export async function getUserRepos"));

@@ -338,7 +338,27 @@ async function loadStudentAssignments() {
       getInvitations(token)
     ])
 
-    const userRepos = (reposRes.ok && Array.isArray(reposRes.data)) ? reposRes.data : []
+    // UNREADABLE IS NOT EVIDENCE. This list IS the student's repositories: if
+    // GitHub does not answer, `matched` comes out empty and the portal renders
+    // "No accepted assignments yet" - telling a student with six repositories
+    // that they have none. ghApi returns { ok: false } rather than throwing, so
+    // the catch below never saw it and nothing was red. Same shape as
+    // listOrgRepos reporting "this organization has no template repositories"
+    // off a failed read.
+    //
+    // The error deliberately does not guess WHY (rate limit, token, GitHub
+    // being down); it says we could not read, and the Retry button is right
+    // there.
+    if (!reposRes.ok || !Array.isArray(reposRes.data)) {
+      assignmentsError.value =
+        'GitHub did not answer when we asked which repositories you have, so we cannot show your assignments yet.'
+      return
+    }
+    const userRepos = reposRes.data
+
+    // Invitations degrade rather than block: a failed read here costs the
+    // "Invitation pending" badge on assignments the student has not accepted,
+    // while everything they HAVE accepted still lists correctly.
     const userInvites = (invitesRes.ok && Array.isArray(invitesRes.data)) ? invitesRes.data : []
 
     const userLogin = user.value.login.toLowerCase()
