@@ -35,6 +35,34 @@ The system runs using only:
 
 All authoritative application data lives in instructor-controlled private repositories. No privileged credential is embedded in the static frontend, committed to source, written to Pages output, or stored in a student-controlled repository.
 
+### 2.1 Deployment configuration
+
+Everything specific to *one institution's installation* lives in **`deployment.yml`** at the repository root. A fork edits that file and nothing else:
+
+| Key | What it decides |
+|---|---|
+| `claim_domains` | Default email domains `roster_mode: claim` accepts, when an assignment declares none |
+| `timezone` | Default IANA zone for assignment dates |
+| `hub_owner` / `hub_repo` | The organization and repository this hub runs from |
+| `app_slug` | The GitHub App's slug, used to read its live declaration |
+| `control_repo` | Name of the per-org control repository |
+| `archive_repo_prefix` / `legacy_archive_repo` | Where preserved submissions go (§11.3.1) |
+
+The product name — *PXL Classroom* — is the software, not the deployment, and stays.
+
+It is **YAML data, not a module**: this is a file people are meant to open and edit, so every key carries a comment saying what it does and what breaks if it is wrong. It is the same format the repository already configures itself with (`limits.yml`, `participating-orgs.yml`).
+
+Two readers, because the runtimes genuinely differ and neither should be pretended away:
+
+- **`lib/deployment.mjs`** — `node:fs` + the `yaml` package, for the hub's workflows, scripts and CLI. It throws at import time if a required key is missing, so a broken configuration fails at startup rather than as a confusing error hours later.
+- **`frontend/src/lib/deployment.js`** — the same file, inlined by Vite at build time (`?raw`) and parsed with the `yaml` package the bundle already ships for the roster import.
+
+One source file, no generated copy to drift.
+
+**Isomorphic modules take configuration as a parameter, never by importing it.** `lib/claim.mjs` is shared byte-for-byte between the hub and the browser, so importing a `node:fs` reader into it would break the bundle; `resolveClaimDomains(assignment, defaults)` requires its defaults from the caller and throws a message naming both readers when they are absent. Configuration belongs to the runtime, not to a module that both runtimes share.
+
+`deploy-frontend.yml`'s path filter names `deployment.yml`, because the SPA bakes these values in at build time — a configuration file the build reads but the filter does not name is a change that ships to `main` and reaches nobody. `tests/deploy-paths.test.mjs` fails if any build-time import escapes the filter.
+
 ---
 
 ## 3. System topology

@@ -171,6 +171,7 @@ Full command list: [cli/README.md](cli/README.md).
 
 | Path | Description |
 |---|---|
+| `deployment.yml` | **Institution-specific configuration** — email domains, timezone, hub/App/control-repo names. A fork edits this file and nothing else |
 | `.github/workflows/` | Hub workflows (acceptance, daily activity, deadline sentinel, dashboard regen, publish) |
 | `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `notify/`, `pages/`, `registry/` | Composite actions |
 | `scripts/` | Node scripts the workflows call (no inline `node -e` in YAML) |

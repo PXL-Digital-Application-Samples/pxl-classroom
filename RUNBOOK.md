@@ -1068,7 +1068,7 @@ pxl-classroom roster promote --org <org> --claims             # commit
 
 #### 12.4c Which addresses a claim assignment accepts
 
-`claim_domains` on the assignment decides which email domains a student may bind. Absent, it falls back to the deployment default - `student.pxl.be` and `pxl.be`, set in `lib/claim.mjs` as `CLAIM_DEFAULT_DOMAINS`, which is the one place to change it for a different institution.
+`claim_domains` on the assignment decides which email domains a student may bind. Absent, it falls back to the deployment default - `claim_domains` in **`deployment.yml`** at the repository root, which is the one place to change it for a different institution (see ARCHITECTURE §2.1).
 
 ```yaml
 claim_domains: ["student.pxl.be"]     # this assignment only accepts student addresses
