@@ -25,13 +25,36 @@ on:
         required: false
         type: string
         default: 'true'
+      team_slug:
+        description: >-
+          For a GROUP assignment, the team this student is in (shown on the
+          tracking page). Used ONLY to serialize this retry against concurrent
+          joins to that same team - it does not move the student, and the
+          acceptance still resolves the team from the manifests as before.
+          Leave empty for individual assignments.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
   actions: write # dispatches regenerate-dashboard.yml
 
+# MUST MIRROR acceptance-handler.yml's group exactly, because GitHub serializes
+# only runs whose group STRING matches. This keyed on github_login alone while
+# the ordinary acceptance keys on `team_hint || github_login`, so for a group
+# assignment the two produced different strings and neither waited for the
+# other: a lecturer's retry and a student's join on the same team could both
+# read the manifest at n-1 members and both append, past max_team_size. That
+# per-team serialization is the ONLY thing guarding team capacity - there is no
+# distributed lock (ARCHITECTURE 5.8) - and accept.mjs really does
+# members.push() then writeFile().
+#
+# The retry cannot discover the team on its own: a concurrency group is
+# evaluated before any step runs. So the lecturer supplies it, and when they do
+# the two keys coincide. Left empty it behaves exactly as before.
 concurrency:
-  group: accept-${{ inputs.org }}-${{ inputs.assignment_id }}-${{ inputs.github_login }}
+  group: accept-${{ inputs.org }}-${{ inputs.assignment_id }}-${{ inputs.team_slug || inputs.github_login }}
   cancel-in-progress: false
 
 jobs:
@@ -86,6 +109,7 @@ jobs:
           ORG: ${{ inputs.org }}
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           GITHUB_LOGIN: ${{ inputs.github_login }}
+          TEAM_SLUG: ${{ inputs.team_slug }}
         run: |
           printf '%s' "$ORG" | grep -Eq '^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$' \
             || { echo "::error::org is not a valid GitHub login"; exit 1; }
@@ -94,6 +118,14 @@ jobs:
           # The same slug shape accept.mjs enforces before it touches a path.
           printf '%s' "$ASSIGNMENT_ID" | grep -Eq '^[a-z0-9][a-z0-9-]{0,99}$' \
             || { echo "::error::assignment_id is not a valid slug"; exit 1; }
+          # A concurrency key is evaluated by GitHub rather than a shell, so
+          # this cannot reach a command line - but this file validates every
+          # input as its first use and a new one is no exception. The shape is
+          # lib/team-payload.mjs's TEAM_SLUG.
+          if [ -n "$TEAM_SLUG" ]; then
+            printf '%s' "$TEAM_SLUG" | grep -Eq '^[a-z0-9][a-z0-9-]{0,63}$' \
+              || { echo "::error::team_slug is not a valid team slug"; exit 1; }
+          fi
 
       - name: Look up student GitHub numeric ID
         id: lookup

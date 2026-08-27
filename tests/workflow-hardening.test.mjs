@@ -478,6 +478,45 @@ test("a reusable workflow has a caller, and every workflow can actually fire", (
   );
 });
 
+test("the retry serializes against the same things an ordinary acceptance does", () => {
+  // GitHub serializes only runs whose concurrency group STRING matches, so two
+  // workflows that both provision for a student have to build that string the
+  // same way or they do not wait for each other at all.
+  //
+  // They did not. acceptance-handler keys on `team_hint || github_login` -
+  // per-TEAM for a group assignment, which is the only thing guarding
+  // max_team_size, since there is no distributed lock (ARCHITECTURE 5.8) and
+  // accept.mjs really does members.push() then writeFile(). retry-acceptance
+  // keyed on github_login alone, so a lecturer's retry and a student's join on
+  // the same team produced different strings, both ran, and both could read
+  // the manifest at n-1 members and append.
+  //
+  // The retry cannot discover the team itself - a concurrency group is
+  // evaluated before any step runs - so the lecturer supplies it and the keys
+  // then coincide. Left empty it behaves exactly as it did.
+  const groupOf = (file) => {
+    const doc = parse(readFileSync(join(WORKFLOW_DIR, file), "utf8"));
+    return String(doc?.concurrency?.group ?? "");
+  };
+
+  const handler = groupOf("acceptance-handler.yml");
+  const retry = groupOf("retry-acceptance.yml");
+
+  assert.match(handler, /^accept-/, "the acceptance group must still be the accept- family");
+  assert.match(retry, /^accept-/, "the retry must serialize in the same family");
+
+  // Both must fall back to the login, and both must prefer a team key.
+  for (const [name, group] of [["acceptance-handler", handler], ["retry-acceptance", retry]]) {
+    assert.match(group, /github_login/, `${name}: must key on the login`);
+    assert.match(
+      group,
+      /team_hint|team_slug/,
+      `${name}: must prefer a team key, or per-team serialization is lost`,
+    );
+    assert.match(group, /\|\|/, `${name}: the team key must FALL BACK to the login`);
+  }
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys
