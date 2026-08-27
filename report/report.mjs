@@ -39,6 +39,22 @@ async function readJsonSafe(path) {
   }
 }
 
+// A file that will not parse is DROPPED, and it has to say so.
+//
+// This reads overrides/, acceptances/, repositories/ and observations/, and a
+// silent drop means something different and bad in each: a lost override is a
+// student's extension vanishing, a lost observation is missing evidence, a lost
+// acceptance is a student absent from their own cohort report.
+//
+// The override case is the sharp one. lockdown.mjs's reader logs a failure line
+// for exactly this, on the reasoning that an unreadable extension file is the
+// only trace a lecturer would have - but this reader stayed quiet, so a file
+// readable by one and not the other produced the divergence that made
+// extensions worth fixing in the first place: the report telling a lecturer the
+// extension was running while lockdown demoted the student anyway.
+//
+// An ABSENT directory is still simply "none" - git cannot store an empty one,
+// and most assignments have no overrides at all.
 async function readDirJsonFiles(dir) {
   if (!existsSync(dir)) return [];
   const files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
@@ -46,6 +62,7 @@ async function readDirJsonFiles(dir) {
   for (const f of files) {
     const data = await readJsonSafe(join(dir, f));
     if (data) results.push(data);
+    else console.error(`[warn] unreadable, skipped: ${join(dir, f)}`);
   }
   return results;
 }
