@@ -6,8 +6,6 @@
 // roster, no per-student private data, no tokens. Run it in CI on the Pages
 // output before publishing; non-zero exit blocks the deploy.
 //
-// Adapted from spikes/06-pages-privacy/scan.mjs (Spike 6 - PASS).
-//
 // Usage:
 //   node scan.mjs              # scans SCAN_DIR env var (default: "public")
 //   node scan.mjs <dir>        # scans the given directory

@@ -12,7 +12,7 @@
 // inert as a result, and only the third is merely annoying:
 //
 //   - MAX_CLAIM_ATTEMPTS was unenforceable. The counter never persisted, so
-//     the guessing oracle CLAIM_PLAN insisted must ship bounded was unbounded.
+//     the guessing oracle that has to ship bounded was in fact unbounded.
 //   - `rejected:claim-taken` could never fire, because findClaimForEmail scans
 //     a directory that was always empty - two accounts could hold one address.
 //   - the org-scoped binding did not exist, so every assignment re-prompted.

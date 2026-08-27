@@ -6,3 +6,9 @@ test-results/
 playwright-report/
 # Pinned lint binaries, fetched on demand by scripts/lint.mjs.
 .tools/
+
+# find-finalizable.mjs writes active-<org>.json into the working directory;
+# daily-activity.yml uploads them as artifacts. Running the script locally (or
+# importing it with no ORG set, which yields active-undefined.json) must not
+# leave something a `git add -A` can commit.
+active-*.json

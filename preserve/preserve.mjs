@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // PXL Classroom - submission preservation.
 //
-// Based on spikes/05-preservation/preserve.sh, rewritten in Node.js.
 // Preserves a candidate SHA from each student's repo into an instructor-controlled
 // archive repo, verifies the hash, and records the result.
 //

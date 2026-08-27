@@ -137,8 +137,9 @@ jobs:
       # failed-attempt counter. The only commit step in this workflow is gated
       # on an ACCEPTED outcome, so every failure was written into the runner's
       # checkout and discarded - which makes MAX_CLAIM_ATTEMPTS unenforceable
-      # and leaves the guessing oracle unbounded, the exact thing CLAIM_PLAN
-      # insisted must ship WITH the gate rather than after it.
+      # and leaves the guessing oracle unbounded - the rate limit has to ship
+      # WITH the gate rather than after it, because an unbounded guessing oracle
+      # over enumerable addresses is not a follow-up.
       #
       # continue-on-error, for the same reason the notify steps carry it: a
       # rejection is an outcome and exits 0 on purpose, and a failed push about

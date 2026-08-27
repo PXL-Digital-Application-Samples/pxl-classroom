@@ -5,8 +5,8 @@
 // metadata JSON file containing ONLY public assignment information.
 // No roster data, no per-student data, no tokens, no private repo URLs.
 //
-// Output shape matches spikes/06-pages-privacy/public-sample.json.
-// The privacy scanner (scan.mjs) gates deployment.
+// The privacy scanner (scan.mjs) gates deployment: it fails the publish on
+// anything matching the token wire shape or a private field name.
 //
 // Inputs via env: DATA_DIR, OUTPUT_DIR
 // Outputs via GITHUB_OUTPUT: generated_count
