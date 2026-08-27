@@ -58,6 +58,7 @@ In `pxl-classroom` -> Settings -> Secrets and variables -> Actions:
 | `VITE_GITHUB_CLIENT_ID` | Same Client ID as `PXL_APP_CLIENT_ID`; used at SPA build time to wire the device flow. |
 | `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. MUST end in `?url=` or `?` (`?` is auto-rewritten to `?url=`); anything else throws at SPA init. |
 | `PXL_INVITE_SIGNING_KEY` | Ed25519 private key that signs invitation tokens. See §1.3.1. `publish-assignment.yml` fails closed without it. |
+| `PXL_CLAIM_PRIVATE_KEY` | **Environment** secret on `provisioning` (no repository-level copy). ECDH P-256 private key that decrypts a student's claimed email address. See §1.3.2. |
 
 #### 1.3.1 Invitation signing keypair
 
@@ -82,6 +83,29 @@ node scripts/generate-invite-keypair.mjs 1
 **Retiring one assignment's links** does not need the key: republish it with `regenerate_invite: true`, which mints a new nonce *and* a new acceptance keypair, and writes both to the broker's `INVITE_NONCE` and `INVITE_PUBKEY` variables. Every previously issued link for that assignment then stops working - and anyone who follows one lands on a page saying it is out of date and to ask you for the current one, rather than on a "not found" that could mean three different things. Plain republishing keeps the existing link alive, so a repair does not silently break links the day before a deadline. In the Admin Panel this is **Regenerate link →**, in the share block beside the link it retires; it opens the republish dialog with the box already ticked and states the consequence before you confirm. The same dialog reached from *Lifecycle → Republish broker* arrives **unticked**, because that path is a repair.
 
 **Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
+
+#### 1.3.2 Claim keypair
+
+The claim binds a GitHub account to an institutional email address (ARCHITECTURE §15). The student's browser seals the address to the hub's **public** key, so only ciphertext travels over the public acceptance event; the hub decrypts it with the **private** half.
+
+```bash
+node scripts/generate-claim-keypair.mjs 1
+```
+
+1. Set the **private** half as an **environment** secret, not a repository secret:
+
+   ```
+   Settings → Environments → provisioning → Add secret
+   Name: PXL_CLAIM_PRIVATE_KEY
+   ```
+
+   The `provisioning` environment allows the **main** branch only, so a `workflow_dispatch` at another ref cannot reach it, and a job that does not declare `environment: provisioning` cannot read it at all — the same protection `PXL_APP_PRIVATE_KEY` and `PXL_INVITE_SIGNING_KEY` get, and `tests/workflow-hardening.test.mjs` fails if any job holding it omits the environment. **There must be no repository-level copy.** This key decrypts every student's institutional email address, so it is the most sensitive value in the system after the App key.
+
+2. Put the **public** half in `acceptance/claim-keys.json` under its key id, set `current` to that id, and commit. A public key belongs in a public repository: it lets anyone encrypt, which is the point, and decrypt nothing. `tests/claim-keys.test.mjs` fails if anything private-key-shaped lands there — both halves are P-256 base64url and look alike, but a private key is **184** characters where a public key is **122**.
+
+3. The script prints the private half **once** and writes it nowhere, so it cannot linger in the working tree. If you lose it before setting the secret, just run the script again — nothing has been committed yet.
+
+**Rotation.** Generate with the next key id and keep the previous entry in the file: claims already recorded are unaffected (they were decrypted long ago and are plaintext in the control repo), but a student whose browser cached the old public key would otherwise seal a claim the hub can no longer open. Point `current` at the new id, and drop the old entry once no assignment is still accepting.
 
 **"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries the invitation. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run.
 

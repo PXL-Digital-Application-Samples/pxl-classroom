@@ -1,0 +1,5 @@
+{
+  "_comment": "ECDH P-256 PUBLIC keys for the claim flow, by key id. Public by design: the student's browser seals their email address to one of these, and holding it lets anyone encrypt and nobody decrypt. The private half is the hub ENVIRONMENT secret PXL_CLAIM_PRIVATE_KEY on the `provisioning` environment (main branch only, no repository-level copy) and never leaves the hub. Generate with `node scripts/generate-claim-keypair.mjs`; see RUNBOOK 1.3.2. Only 122-character base64url SPKI public keys belong in this file - tests/claim-keys.test.mjs fails if anything private-key-shaped appears here.",
+  "current": null,
+  "keys": {}
+}

@@ -23,9 +23,12 @@ const root = join(here, "..");
 const WORKFLOW_DIR = join(root, ".github", "workflows");
 
 // Credentials that grant power beyond this repository: the App key mints
-// installation tokens for every participating org, and the invite key mints
-// invitations every broker will accept.
-const HUB_CREDENTIALS = /PXL_APP_PRIVATE_KEY|PXL_INVITE_SIGNING_KEY/;
+// installation tokens for every participating org, the invite key mints
+// invitations every broker will accept, and the claim key decrypts every
+// student's institutional email address out of the public event archive - the
+// one piece of personal data the design deliberately puts on a public channel
+// in sealed form.
+const HUB_CREDENTIALS = /PXL_APP_PRIVATE_KEY|PXL_INVITE_SIGNING_KEY|PXL_CLAIM_PRIVATE_KEY/;
 const ENVIRONMENT = "provisioning";
 
 function workflows() {
