@@ -70,17 +70,17 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 | **Idle Minute Management** | Continuous cloud background jobs | Continuous service availability | Zero Idle Minutes (Nightly cron sleeps when inactive) |
 | **Resource & Billing Audits** | None (standard GitHub billing page) | None (standard GitHub billing page) | Automated weekly SKU billing audits with @-mention alerts |
 | **Student Repository Role** | Write only (Restricted) | Write only (Restricted) | Admin (Enables Secrets, Environments, Runners, OIDC) |
-| **Student Self-Service Acceptance** | Web redirect with background queue | Web portal acceptance link | Instant 1-click provisioning (repository ready in 15-30s) |
-| **Invitation Link Security** | Opaque token, validated server-side | Portal link | Ed25519-signed token, verified at the edge before any credential is in scope |
-| **Roster Management** | CSV import or LMS sync (Strict) | Org-level repository roster | Dual-Mode: Enforced roster or Open signup with student caps |
+| **Student Self-Service Acceptance** | Web redirect with background queue | Web portal acceptance link | Instant 1-click provisioning (repository ready in 20-40s) |
+| **Invitation Link Security** | Opaque token, validated server-side | Portal link | Link holds a signing key; the browser signs an assertion naming the account, verified at the edge before any credential is minted |
+| **Roster Management** | CSV import or LMS sync (Strict) | Org-level repository roster | Tri-Mode: Enforced roster, email claim, or Open signup with student caps |
 | **Team Formation Self-Service** | Basic team selection from preset list | Basic team repository creation | Full self-service team creation, capacity limits, and team switching |
 | **Assignment Creation Flow** | Multi-step web form | Web configuration form | 1-Click publish from web Admin Panel with instant validation |
 | **Lecturer Dashboard & UI** | Standard web portal (basic list) | Web portal + terminal views | Real-time web dashboard with live commit sync and student hover cards |
 | **Starter Code Resync & Updates** | Manual pull or forks only | Manual Git upstream pulling | Per-file: lands directly where untouched, PR where the student edited it |
-| **CLI Companion Tooling** | `gh classroom` extension (clone, list) | `classroom50` CLI | `@pxl-classroom/cli` (Local Docker grading, starter sync, audit checks) |
+| **CLI Companion Tooling** | `gh classroom` extension (clone, list) | `classroom50` CLI | `@pxl-classroom/cli` (Local Docker grading, roster import, starter sync, team seeding, audit checks) |
 | **Autograding: Cloud Actions** | Runs in student repo on push (`classroom-resources/*`) | Runs in student repo on push (Actions + `check50`) | Automatic Actions grading with score harvesting into dashboard |
 | **Autograding: Local Sandboxing**| Not supported natively | Not supported natively (grades live repos) | Sandboxed Local Docker CLI (Zero cloud Actions minutes billed) |
-| **Deadline Enforcement** | Soft deadline (manual freeze or stop Actions) | Timestamp logging & manual review | Automated API lockdown (demotes students from Admin to Read) |
+| **Deadline Enforcement** | Soft deadline (manual freeze or stop Actions) | Timestamp logging & manual review | Sentinel stops writes at the deadline instant (repository ruleset), nightly fallback, optional demotion to Read |
 | **Submission Archiving** | None (grades live repo HEAD) | None (grades live repo HEAD) | Dedicated private archive repository per assignment (`<org>/pxl-classroom-archive-<assignment-id>`) |
 | **Archive Tamper Resistance** | Vulnerable to history rewrite or deletion | Vulnerable to history rewrite or deletion | Immune (SHA verified via `git ls-remote` in isolated archive) |
 | **Feedback Pull Requests** | Created on repo creation (breaks on empty commits) | Standard GitHub PR / comments | Clean baseline branch with 1-click lazy opening in Web UI & CLI |
@@ -92,24 +92,24 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 ### 1. Connect Organization
 
-- Open the [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/).
-- Sign in with GitHub device flow.
-- Open `/setup` to create and install the GitHub App on your organization.
+- Open the [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) and sign in with the GitHub device flow.
+- Use **Connect an organization** in the org switcher to install the App on your org, then run **Setup Organization** to scaffold `<org>/pxl-classroom-control`.
+- A brand-new deployment creates the App itself once, from the manifest form at `/setup` (RUNBOOK §1.2).
 
 ### 2. Create Assignment
 
 - Open `/dashboard/:org/admin`.
-- Configure assignment parameters: title, template repository, opens date, deadline, assignment type (individual/group), and autograding mode.
+- Configure assignment parameters: title, template repository, opens date, deadline, assignment type (individual/group), who may accept (`roster_mode`), and automated checks.
 - Click Save & Publish.
 
 ### 3. Student Acceptance
 
-- Distribute the invitation link `/:org/i/:invite-token` to students - copy it from the assignment's detail view; it is minted at publish time and cannot be derived from the id.
-- Students sign in and accept. The repository is provisioned immediately.
+- Distribute the invitation link `/:org/i/:secret` - copy it from the assignment's detail view. It is minted at publish time and cannot be derived from the assignment id.
+- Students sign in and accept; the repository is provisioned in 20 to 40 seconds.
 
 ### 4. Collection and Grading
 
-- Deadlines are finalized automatically by the nightly workflow.
+- The deadline is enforced by the sentinel at the instant it passes and finalized by the nightly workflow.
 - Submissions are preserved as immutable branches in `<org>/pxl-classroom-archive-<assignment-id>`.
 - View grades in the web dashboard or grade locally via the CLI.
 
@@ -127,8 +127,8 @@ graph LR
     CLI[pxl-classroom CLI]
 
     Student[Student] -->|Invitation link| SPA
-    SPA -->|Signed invitation| Broker
-    Broker -->|Verify, then dispatch| Hub
+    SPA -->|Assertion signed in the browser| Broker
+    Broker -->|Verify signature, then dispatch| Hub
     Hub --> Control
     Hub --> Archive
     Lecturer[Lecturer] --> SPA
@@ -142,19 +142,28 @@ graph LR
 
 ## CLI Usage
 
+Installed from a clone of this repo - the package is not published to npm.
+
 ```bash
-# Login via GitHub device flow
-npx pxl-classroom login
+npm install && npm link --workspace=cli
+
+# Authenticate via GitHub device flow
+pxl-classroom auth login --client-id Iv23li...
+
+# Import a roster from CSV (--dry-run shows the diff first)
+pxl-classroom roster import students.csv --org my-org
 
 # Bulk download preserved submissions for an assignment
-npx pxl-classroom download --org my-org --assignment lab-1
+pxl-classroom download --org my-org --assignment lab-1
 
-# Run local autograding in sandboxed Docker container
-npx pxl-classroom grade --org my-org --assignment lab-1 --runner docker
+# Run local autograding in a sandboxed Docker container
+pxl-classroom grade --org my-org --assignment lab-1 --runner docker
 
-# Create feedback pull requests
-npx pxl-classroom feedback open --org my-org --assignment lab-1
+# Open draft feedback pull requests
+pxl-classroom feedback open --org my-org --assignment lab-1
 ```
+
+Full command list: [cli/README.md](cli/README.md).
 
 ---
 
@@ -162,11 +171,12 @@ npx pxl-classroom feedback open --org my-org --assignment lab-1
 
 | Path | Description |
 |---|---|
-| `.github/workflows/` | Hub workflows (acceptance, daily activity, dashboard regen) |
-| `acceptance/`, `provisioning/`, `lockdown/`, `preserve/`, `report/` | Composite actions |
+| `.github/workflows/` | Hub workflows (acceptance, daily activity, deadline sentinel, dashboard regen, publish) |
+| `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `notify/`, `pages/`, `registry/` | Composite actions |
+| `scripts/` | Node scripts the workflows call (no inline `node -e` in YAML) |
 | `frontend/` | Vue 3 single page application |
 | `cli/` | Companion `@pxl-classroom/cli` package |
-| `lib/` | Shared utility modules (yaml, gh, gittree, audit, invite-token) |
+| `lib/` | Shared utility modules (gh, gittree, audit, diagnostics, invite-token, claim, roster-mode) |
 | `schemas/` | JSON schemas for assignments, rosters, teams, reports, grading |
 | `control-repo-template/` | Template scaffold for new organization control repos |
 | `tests/`, `cli/tests/` | Unit and integration test suites |

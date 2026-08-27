@@ -10,11 +10,13 @@ Command groups:
 |---|---|
 | `auth login \| status \| logout` | Device-flow authentication, cached token |
 | `roster import \| list` | CSV roster import with diff preview (`--dry-run`) |
+| `roster promote \| unlink` | Fold acceptances or claim bindings into the roster; remove a claim binding |
 | `audit` | Read-only install health checks (exit 0/1/2 for CI) |
 | `sync-starter` | Smart starter code update sync (auto-merge to main + PR fallback) |
 | `feedback open \| list` | Draft Feedback PRs per student (idempotent) |
 | `download` | Bulk-fetch preserved submissions from the archive repo |
 | `grade` | Run autograde tests against preserved SHAs (docker/host) |
+| `teams seed \| unseed \| list \| sources` | Carry an existing grouping into a group assignment |
 
 See RUNBOOK §12 for per-command how-tos.
 
