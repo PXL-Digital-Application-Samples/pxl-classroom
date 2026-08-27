@@ -1,0 +1,66 @@
+# PXL Classroom - deployment configuration.
+#
+# ============================================================================
+#  EVERYTHING IN THIS FILE IS SPECIFIC TO ONE INSTITUTION'S INSTALLATION.
+#  Forking this software? This is the file you edit - and apart from secrets,
+#  it should be the only one.
+# ============================================================================
+#
+# The product name stays "PXL Classroom". That is the software; this file is
+# the deployment.
+#
+# CHANGING A VALUE HERE NEEDS A DEPLOY. The SPA bakes these in at build time,
+# so an edit reaches students only once deploy-frontend.yml has run - its path
+# filter names this file for exactly that reason.
+
+# Email domains a student may claim an address in, when an assignment does not
+# name its own `claim_domains`.
+#
+# BOTH entries are deliberate. The student domain is the cohort; the staff
+# domain is what lets a lecturer accept their own assignment to check a link
+# works before handing it to forty people - drop it and self-testing becomes
+# impossible on every domain-restricted assignment.
+#
+# An assignment may narrow this with its own `claim_domains`, or opt out
+# entirely with an empty list.
+claim_domains:
+  - student.pxl.be
+  - pxl.be
+
+# The timezone assignment dates are DISPLAYED in when an assignment carries no
+# timezone of its own.
+#
+# Display only: every stored instant is UTC with an explicit `Z`, and nothing in
+# the finalize path reads this. It decides what a lecturer and a student see on
+# screen, which for a deadline is worth getting right.
+timezone: Europe/Brussels
+
+# The GitHub account and repository holding the hub. Every workflow lives there;
+# each course organization holds only data.
+hub_owner: PXL-Digital-Application-Samples
+hub_repo: pxl-classroom
+
+# The GitHub App slug, as it appears in github.com/apps/<slug>.
+#
+# A fork creates its own App through the SPA's /setup route and puts the slug
+# here. It must be the slug rather than a display name, because it is used to
+# read the App's declared permissions.
+app_slug: pxl-classroom-provisioner
+
+# The per-organization repository holding a course's data: roster, assignments,
+# acceptances, observations, reports. Always PRIVATE.
+#
+# Renaming this on a running deployment orphans every control repository already
+# created, so it is effectively fixed once any organization has been onboarded.
+control_repo: pxl-classroom-control
+
+# Preserved submissions live in `<archive_repo_prefix><assignment-id>` - one
+# archive per assignment, so retiring a finished cohort is a single repository
+# rather than one shared with every other year.
+archive_repo_prefix: pxl-classroom-archive-
+
+# The single per-organization archive used before archives became per-assignment.
+#
+# READ, never derived: a submission preserved before that change still lives
+# there and must keep resolving. A fork with no history may set this to null.
+legacy_archive_repo: pxl-classroom-archive

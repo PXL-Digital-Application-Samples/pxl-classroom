@@ -17,6 +17,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
+import { CLAIM_DOMAINS } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
   buildClaimRecord,
@@ -199,7 +200,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
 
   // 6. Domain. Absent claim_domains means the deployment default; an explicit
   //    [] means the lecturer opted out.
-  const domains = resolveClaimDomains(assignment);
+  const domains = resolveClaimDomains(assignment, CLAIM_DOMAINS);
   if (!domainAllowed(opened.email, domains)) {
     await countFailure();
     await reject(
@@ -341,7 +342,7 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
 
   // Detection, not prevention: recorded either way, and the report is where a
   // lecturer sees it.
-  const domains = resolveClaimDomains(assignment);
+  const domains = resolveClaimDomains(assignment, CLAIM_DOMAINS);
   const domainOk = domainAllowed(opened.email, domains);
 
   // A roster is optional under `open` but often present - it stops deciding who

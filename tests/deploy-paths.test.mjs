@@ -41,7 +41,11 @@ function outsideImports() {
     const src = readFileSync(file, "utf8");
     // `import x from '../../../lib/foo.mjs'` and the `export ... from` form.
     for (const m of src.matchAll(/from\s+['"](\.\.[^'"]+)['"]/g)) {
-      const resolved = join(dirname(file), m[1]);
+      // Vite query suffixes are part of the import specifier, not the path:
+      // `../../../deployment.yml?raw` is still a build-time read of
+      // deployment.yml, and the deploy filter can only name the file.
+      const specifier = m[1].split("?")[0];
+      const resolved = join(dirname(file), specifier);
       const rel = relative(root, resolved).replace(/\\/g, "/");
       if (!rel.startsWith("frontend/")) found.add(rel);
     }

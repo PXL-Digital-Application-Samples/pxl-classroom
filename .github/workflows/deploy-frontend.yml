@@ -16,6 +16,7 @@ on:
       - 'lib/**'
       - 'schemas/**'
       - 'acceptance/claim-keys.json'
+      - 'deployment.yml'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 

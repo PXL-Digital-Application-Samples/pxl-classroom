@@ -7,8 +7,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { CLAIM_DOMAINS as CLAIM_DEFAULT_DOMAINS } from "../lib/deployment.mjs";
 import {
-  CLAIM_DEFAULT_DOMAINS,
+  
   CLAIM_PRIVATE_KEY_LENGTH,
   CLAIM_PUBLIC_KEY_LENGTH,
   MAX_CLAIM_ATTEMPTS,
@@ -58,11 +59,11 @@ test("resolveClaimDomains: ABSENT and EMPTY are different answers", () => {
   // The distinction the signature exists for. A truthy check would turn a
   // deliberate opt-out back into the default and silently re-impose a rule the
   // lecturer removed.
-  assert.deepEqual(resolveClaimDomains({}), [...CLAIM_DEFAULT_DOMAINS]);
-  assert.deepEqual(resolveClaimDomains({ claim_domains: undefined }), [...CLAIM_DEFAULT_DOMAINS]);
-  assert.deepEqual(resolveClaimDomains({ claim_domains: [] }), [], "explicit [] is the opt-out");
+  assert.deepEqual(resolveClaimDomains({}, CLAIM_DEFAULT_DOMAINS), [...CLAIM_DEFAULT_DOMAINS]);
+  assert.deepEqual(resolveClaimDomains({ claim_domains: undefined }, CLAIM_DEFAULT_DOMAINS), [...CLAIM_DEFAULT_DOMAINS]);
+  assert.deepEqual(resolveClaimDomains({ claim_domains: [] }, CLAIM_DEFAULT_DOMAINS), [], "explicit [] is the opt-out");
 
-  assert.deepEqual(resolveClaimDomains({ claim_domains: [" Student.PXL.be ", "howest.be"] }),
+  assert.deepEqual(resolveClaimDomains({ claim_domains: [" Student.PXL.be ", "howest.be"] }, CLAIM_DEFAULT_DOMAINS),
     ["student.pxl.be", "howest.be"]);
 });
 

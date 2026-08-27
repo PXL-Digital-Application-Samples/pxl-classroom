@@ -75,6 +75,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { ghApi } from '../lib/api.js'
 import { domainAllowed, normalizeEmail, resolveClaimDomains } from '../lib/claim.js'
+import { CLAIM_DOMAINS } from '../lib/deployment.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
@@ -97,7 +98,7 @@ const chosen = ref('')
 const typed = ref('')
 const typing = ref(false)
 
-const domains = computed(() => resolveClaimDomains(props.assignment))
+const domains = computed(() => resolveClaimDomains(props.assignment, CLAIM_DOMAINS))
 
 const domainPhrase = computed(() => {
   const d = domains.value
