@@ -274,6 +274,7 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `roster.schema.json` | Roster entries |
 | `team.schema.json` | Team manifest and members for group assignments (`teams/<id>/<team-slug>.json`) |
 | `acceptance.schema.json` | Per-student acceptance record |
+| `claim.schema.json` | One student's account-to-address binding (`students/claims/<github_id>.json`) — org-scoped, private, keyed by the immutable `github_id` |
 | `repository-record.schema.json` | Provisioned repo facts |
 | `observation.schema.json` | A single submission observation - `snapshot` of the submission ref or a `tagged-submission` produced from `refs/tags/submit/*` |
 | `report.schema.json` | Computed per-assignment report |

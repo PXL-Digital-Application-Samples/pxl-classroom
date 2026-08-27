@@ -231,6 +231,42 @@ test("a claim record stores the normalized address and the verification flag", (
   assert.equal(typeof typed.claim_verified, "boolean");
 });
 
+test("the record buildClaimRecord produces validates against its schema", async () => {
+  // The claim binding shipped without a schema at all, while every other
+  // artefact in the control repo has one - found by sweeping the strict
+  // schemas against their producers, 2026-08-27.
+  //
+  // Pinned here rather than validated inside accept.mjs: buildClaimRecord is
+  // pure and deterministic, so a unit test catches producer/schema drift just
+  // as well and does not put Ajv on the acceptance hot path, which currently
+  // makes zero API calls and carries almost no imports.
+  const { validateAgainst } = await import("../lib/validate.mjs");
+
+  const full = buildClaimRecord({
+    githubLogin: "alice-pxl", githubId: ID, email: "alice@student.pxl.be",
+    claimVerified: true, studentNumber: "0123456", assignmentId: ASSIGNMENT,
+    now: "2026-09-01T10:00:00.000Z",
+  });
+  const a = validateAgainst("claim", full);
+  assert.equal(a.valid, true, JSON.stringify(a.errors));
+
+  // And the shape `open` produces: no roster, so no student number.
+  const open = buildClaimRecord({
+    githubLogin: "someone", githubId: ID, email: "someone@student.pxl.be",
+    claimVerified: false, studentNumber: null, assignmentId: ASSIGNMENT,
+    now: "2026-09-01T10:00:00.000Z",
+  });
+  const b = validateAgainst("claim", open);
+  assert.equal(b.valid, true, JSON.stringify(b.errors));
+
+  // The schema is additionalProperties:false, so a field the producer starts
+  // writing without declaring is a failure rather than silent drift - which is
+  // exactly how claimed_email sat forbidden by acceptance.schema.json for
+  // months while accept.mjs wrote it.
+  const c = validateAgainst("claim", { ...full, surprise: true });
+  assert.equal(c.valid, false, "an undeclared field must be refused");
+});
+
 test("the attempt counter counts up, keeps first_at, and blocks at the ceiling", () => {
   let state = null;
   for (let i = 1; i <= MAX_CLAIM_ATTEMPTS; i++) {

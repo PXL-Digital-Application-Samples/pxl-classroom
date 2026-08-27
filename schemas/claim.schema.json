@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-digital-application-samples.github.io/pxl-classroom/schemas/claim.schema.json",
+  "title": "Claim binding",
+  "description": "One student's binding of a GitHub account to an institutional email address, at students/claims/<github_id>.json in the private control repository. Written by acceptance/accept.mjs from lib/claim.mjs's buildClaimRecord. ORG-SCOPED, not per assignment: claim once and every later assignment in that organization recognises the account. Keyed by github_id because it is immutable and survives a username change, and one file per student because acceptance is concurrent and serialized only per login - two claims at once would collide on a single shared file. PRIVATE: this record must never reach Pages, which pages/scan.mjs enforces on both the address (the email-address content rule) and the record's own field names (claim-record-field, identity-field).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "github_login",
+    "github_id",
+    "email",
+    "claim_verified",
+    "claimed_at",
+    "claimed_via"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "github_login": {
+      "type": "string",
+      "description": "Display only, and refreshed on a later acceptance. The binding is on github_id; a student who renames on GitHub keeps their claim."
+    },
+    "github_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The immutable account id, and the filename. The sealed claim payload carries this too, and the hub refuses it when it does not match the issue author - a ciphertext lifted out of the public event archive would otherwise replay for anyone."
+    },
+    "email": {
+      "type": "string",
+      "description": "The claimed address, normalized by lib/claim.mjs's normalizeEmail (trim + lowercase, and nothing cleverer - a PXL address is not a Gmail address, so dots and +tags are significant)."
+    },
+    "domain_allowed": {
+      "type": "boolean",
+      "description": "Whether the address was inside claim_domains. Always true under roster_mode: claim, where a failing domain is refused before any record is written. It exists for `open`, where nothing about the claim refuses and the answer is recorded rather than enforced - written on both so a consumer never has to know which mode produced the file."
+    },
+    "claim_verified": {
+      "type": "boolean",
+      "description": "True when the student picked an address GitHub had already verified on their account. EVIDENCE, NOT ENFORCEMENT: the hub cannot check it, because an installation token cannot read a user's email addresses - the same wall that withdrew roster_mode: org_member - so anyone opening the acceptance issue by hand can assert it. Its value is that the ordinary path records it truthfully, which makes a cohort review far sharper than 'does this address look like one of my students'."
+    },
+    "student_number": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Carried across from the matched roster entry under roster_mode: claim. Null under `open`, where there may be no roster to match against - GitHub never learns a student number, and inventing one would collide with real SIS numbering."
+    },
+    "claimed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "claimed_via": {
+      "type": "string",
+      "description": "The assignment whose acceptance produced the binding. The binding itself is org-scoped; this records where it came from."
+    }
+  }
+}
