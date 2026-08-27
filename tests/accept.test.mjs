@@ -889,3 +889,43 @@ test("roster pre-assignment still resolves when no team file exists yet", () => 
   assert.equal(res.status, 0);
   assert.equal(res.outputs.team_slug, "exam-pair-4");
 });
+
+// --- rejection copy may not promise machinery that does not exist ------------
+
+test("no rejection message promises a queue, a retry, or review that will not happen", () => {
+  // A reject reason is written straight into the org's instructor tracking
+  // issue (acceptance-handler.yml passes `reject_reason` to ./notify), so it is
+  // read by a lecturer deciding what to do next.
+  //
+  // `rejected:cap-reached` used to end "Acceptance queued for lecturer review."
+  // Nothing queues a rejected acceptance and nothing retries one - Wave 8
+  // removed the queue in favour of synchronous provisioning, and no code
+  // anywhere reads a cap-reached rejection afterwards. A lecturer reading that
+  // waits for a background process that does not exist instead of raising the
+  // cap. UX_PLAN C4: the UI must not describe behaviour the system does not
+  // have.
+  const src = readFileSync(new URL("../acceptance/accept.mjs", import.meta.url), "utf8");
+  const withoutComments = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  const messages = [...withoutComments.matchAll(/await reject\(\s*[^,]+,\s*`([^`]*)`/g)].map((m) => m[1]);
+  assert.ok(messages.length >= 8, `expected the rejection messages, found ${messages.length}`);
+
+  for (const message of messages) {
+    for (const promise of [/\bqueued\b/i, /\bwill be reviewed\b/i, /\bautomatically retr/i, /\bin the queue\b/i]) {
+      assert.ok(
+        !promise.test(message),
+        `a rejection message promises machinery that does not exist: "${message}"`,
+      );
+    }
+  }
+});
+
+test("the cap-reached message says what to actually do", () => {
+  const src = readFileSync(new URL("../acceptance/accept.mjs", import.meta.url), "utf8");
+  const at = src.indexOf('"rejected:cap-reached"');
+  assert.ok(at > 0, "the cap rejection must still exist");
+  const message = src.slice(at, at + 700);
+  assert.match(message, /raise the cap/i, "it must name the action that unblocks the student");
+});

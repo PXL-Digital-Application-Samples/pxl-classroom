@@ -727,7 +727,14 @@ async function main() {
     if (currentCount >= maxAcceptances)
       await reject(
         "rejected:cap-reached",
-        `per-assignment cap reached (${currentCount}/${maxAcceptances}). Acceptance queued for lecturer review.`
+        // NOT "queued for lecturer review". Nothing queues a rejected
+        // acceptance and nothing retries one: Wave 8 removed the queue entirely
+        // in favour of synchronous provisioning, and no code anywhere reads a
+        // cap-reached rejection afterwards. This string is what lands in the
+        // org's instructor tracking issue, so promising a queue leaves a
+        // lecturer waiting for something that will never happen instead of
+        // raising the cap.
+        `per-assignment cap reached (${currentCount}/${maxAcceptances}). Nothing is held or retried automatically - raise the cap on the assignment, then the student can accept again.`
       );
     log("cap", { ok: true, note: `${currentCount + 1}/${maxAcceptances}` });
   }
