@@ -2942,12 +2942,22 @@ async function syncDashboardAggregate(token) {
     if (!dashboard.assignments?.[props.assignmentId]) return
 
     const existingEntry = dashboard.assignments[props.assignmentId]
+    // EVERY FIELD buildDashboardEntry READS MUST BE HERE. This object is
+    // synthesised, so anything the shared builder learns to read and this does
+    // not supply comes out null - and the refresh then quietly blanks it on the
+    // entry it was refreshing. max_acceptances was added to the builder so the
+    // dashboard's share block could tell "live" from "cap reached", and without
+    // this line the very next live refresh would erase it again.
+    //
+    // The loaded assignment YAML wins over the stored entry: it is
+    // authoritative and this view already has it. The entry is the fallback.
     const pseudoAssignment = {
       title: existingEntry.title,
       state: existingEntry.state,
       opens_at: existingEntry.opens_at,
       deadline_at: existingEntry.deadline_at,
       timezone: existingEntry.timezone ?? assignment.value?.timezone,
+      max_acceptances: assignment.value?.max_acceptances ?? existingEntry.max_acceptances ?? null,
     }
     dashboard.assignments[props.assignmentId] = buildDashboardEntry(pseudoAssignment, report.value.students || [])
     dashboard.generated_at = new Date().toISOString()
