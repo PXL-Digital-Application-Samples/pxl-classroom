@@ -56,6 +56,28 @@ inputs:
     description: Validated team action (join, create, switch).
     required: false
     default: ''
+  claim-payload:
+    description: >-
+      Sealed claim from the acceptance issue body, validated by
+      scripts/read-team-payload.mjs. Ciphertext only - it rides on a public
+      issue by design, so it is not secret. Read only under roster_mode: claim.
+    required: false
+    default: ''
+  claim-verified:
+    description: >-
+      "true" when the student picked an address GitHub had already verified on
+      their account, as asserted by the browser. Evidence, not a control: the
+      hub cannot check it, and anyone writing the issue by hand can assert it.
+    required: false
+    default: ''
+  claim-private-key:
+    description: >-
+      ECDH P-256 private key that opens a sealed claim. The hub ENVIRONMENT
+      secret PXL_CLAIM_PRIVATE_KEY (provisioning, main only) - see RUNBOOK
+      §1.3.2. Required only by roster_mode: claim, which fails closed with a
+      red run rather than rejecting students when it is absent.
+    required: false
+    default: ''
 
 outputs:
   assignment_id:
@@ -131,4 +153,7 @@ runs:
         TEAM_SLUG: ${{ inputs.team-slug }}
         TEAM_NAME: ${{ inputs.team-name }}
         TEAM_ACTION: ${{ inputs.team-action }}
+        CLAIM_PAYLOAD: ${{ inputs.claim-payload }}
+        CLAIM_VERIFIED: ${{ inputs.claim-verified }}
+        CLAIM_PRIVATE_KEY: ${{ inputs.claim-private-key }}
       run: node "$GITHUB_ACTION_PATH/accept.mjs"

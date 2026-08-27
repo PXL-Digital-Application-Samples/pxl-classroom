@@ -21,6 +21,7 @@
 import { appendFile } from "node:fs/promises";
 import { gh } from "../lib/gh.mjs";
 import { parseTeamPayload, teamHintMatches } from "../lib/team-payload.mjs";
+import { parseClaimFields } from "../lib/claim.mjs";
 
 const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const ORG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
@@ -29,16 +30,20 @@ const ORG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 // an empty one is how the caller knows there is nothing to delete.
 const NODE_ID = /^[A-Za-z0-9_=-]{1,200}$/;
 
-async function setOutputs({ team_slug, team_name, team_action, issue_node_id = "" }) {
+async function setOutputs({ team_slug, team_name, team_action, issue_node_id = "", claim_payload = "", claim_verified = false }) {
   if (!process.env.GITHUB_OUTPUT) return;
   await appendFile(
     process.env.GITHUB_OUTPUT,
     `team_slug=${team_slug}\nteam_name=${team_name}\nteam_action=${team_action}\n` +
-      `issue_node_id=${issue_node_id}\n`
+      `issue_node_id=${issue_node_id}\n` +
+      `claim_payload=${claim_payload}\nclaim_verified=${claim_verified ? "true" : "false"}\n`
   );
 }
 
-const EMPTY = { team_slug: "", team_name: "", team_action: "", issue_node_id: "" };
+const EMPTY = {
+  team_slug: "", team_name: "", team_action: "", issue_node_id: "",
+  claim_payload: "", claim_verified: false,
+};
 
 async function main() {
   const brokerRepo = (process.env.BROKER_REPO || "").trim();
@@ -101,6 +106,12 @@ async function main() {
   }
 
   const parsed = parseTeamPayload({ body: res.data?.body, title: res.data?.title });
+  // The same body carries the claim, and this is the one place the hub reads an
+  // untrusted issue body - so the claim is validated here beside the team
+  // fields rather than anywhere the broker can reach. The ciphertext is not
+  // secret: it is already sitting on a public issue, which is the whole design
+  // (only sealed bytes travel over the public channel).
+  const claim = parseClaimFields({ body: res.data?.body });
 
   // The team hint came from the issue TITLE and is what the hub's concurrency
   // group was keyed on, before this body could be read - and that per-team
@@ -121,9 +132,10 @@ async function main() {
   }
 
   console.log(
-    `[ok] ${brokerRepo}#${issueNumber} -> team_slug="${parsed.team_slug}" team_action="${parsed.team_action}"`
+    `[ok] ${brokerRepo}#${issueNumber} -> team_slug="${parsed.team_slug}" team_action="${parsed.team_action}" ` +
+      `claim=${claim.claim_payload ? "present" : "absent"} claim_verified=${claim.claim_verified}`
   );
-  await setOutputs({ ...parsed, issue_node_id: deletable });
+  await setOutputs({ ...parsed, ...claim, issue_node_id: deletable });
 }
 
 main().catch(async (err) => {

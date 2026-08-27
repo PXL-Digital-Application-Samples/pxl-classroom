@@ -62,6 +62,9 @@ jobs:
           team-slug: ${{ steps.team.outputs.team_slug }}
           team-name: ${{ steps.team.outputs.team_name }}
           team-action: ${{ steps.team.outputs.team_action }}
+          claim-payload: ${{ steps.team.outputs.claim_payload }}
+          claim-verified: ${{ steps.team.outputs.claim_verified }}
+          claim-private-key: ${{ secrets.PXL_CLAIM_PRIVATE_KEY }}
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning
         id: prov
