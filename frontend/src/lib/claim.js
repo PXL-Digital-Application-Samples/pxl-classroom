@@ -8,7 +8,6 @@
 // Import from here, never from a hand-rolled encoder.
 
 export {
-
   CLAIM_PUBLIC_KEY_LENGTH,
   encryptClaim,
   domainAllowed,

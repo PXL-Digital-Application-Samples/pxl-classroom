@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 
 import { CLAIM_DOMAINS as CLAIM_DEFAULT_DOMAINS } from "../lib/deployment.mjs";
 import {
-  
   CLAIM_PRIVATE_KEY_LENGTH,
   CLAIM_PUBLIC_KEY_LENGTH,
   MAX_CLAIM_ATTEMPTS,
