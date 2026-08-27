@@ -93,7 +93,10 @@ jobs:
             mkdir -p syncs
             git add syncs/
             git commit -m "Record starter code sync for ${ASSIGNMENT_ID}"
-            git push
+            # See open-feedback-prs.yml: a bare push loses to any concurrent
+            # write to this control repo, and this workflow is dispatch-only
+            # so it runs precisely when other things are also writing.
+            ../scripts/git-push-with-retry.sh
           else
             echo "No sync records to commit."
           fi

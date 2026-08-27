@@ -73,7 +73,11 @@ jobs:
             mkdir -p repositories
             git add repositories/
             git commit -m "Record feedback PRs for ${ASSIGNMENT_ID}"
-            git push
+            # A bare push loses to any concurrent write to this control repo -
+            # the nightly, a dashboard regeneration and every acceptance all
+            # commit here. The helper rebases and retries, and FAILS if it
+            # cannot, rather than reporting success over a lost record.
+            ../scripts/git-push-with-retry.sh
           else
             echo "No repository record updates to commit."
           fi

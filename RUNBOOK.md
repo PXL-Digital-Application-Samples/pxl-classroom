@@ -141,7 +141,7 @@ gh issue delete --repo <org>/broker-<assignment-id> <number> --yes
 
 There is one republish per assignment that **cannot** keep its links alive, and it is not optional.
 
-Until signed acceptance shipped, the invitation itself travelled in the acceptance issue's title - and that title lands in GitHub's public event feed, which GH Archive mirrors permanently. Measured 2026-08-25: one unauthenticated `curl` against a broker's `/events` returned a live token on an issue that had already been deleted. The link now carries a private key and the student's browser signs with it, so the event carries a signature instead (ARCHITECTURE §4.3.2).
+An acceptance issue's title lands in GitHub's public event feed, which GH Archive mirrors permanently - redaction, deletion and the Tier 4 sweep all act after that, so none of them can take it back. That is why the title carries a **signature** rather than the invitation: the link holds a private key, the student's browser signs an assertion naming their own account, and what reaches the permanent record grants nobody anything (ARCHITECTURE §4.3.2).
 
 An assignment moves across when it is next published. Nothing is automatic and nothing is scheduled: until you republish, that assignment keeps working exactly as before.
 
@@ -355,7 +355,7 @@ Done by a lecturer.
 2. Settings -> General -> tick **Template repository**.
 3. Add starter code, `.github/workflows/` for the student's own CI, and assignment instructions. Anything you commit here becomes the student's starting point.
 
-**A fork can be a template**, and that used to be invisible: GitHub's repository search omits forks unless the query says `fork:true`, so a forked template was missing from the picker with no error and the wall claiming the org had none. The query carries the qualifier now. If a template still does not appear, the other cause is **search indexing lag** on a brand-new repository - type `owner/repo` into the box directly, which probes the repository via the REST API instead and works immediately.
+**A fork can be a template.** GitHub's repository search omits forks unless the query says `fork:true`, which the picker's query carries. If a template still does not appear, the other cause is **search indexing lag** on a brand-new repository - type `owner/repo` into the box directly, which probes the repository via the REST API instead and works immediately.
 
 Step 2 is the one people miss, and it is the most common reason the Admin Panel's template list is empty: a repository that is not ticked as a **Template repository** does not appear in `is:template` search results, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
 
@@ -620,9 +620,9 @@ Step 2 alone never works if step 1 was skipped: an org owner can only approve pe
 
 ### 6.7a "CI results sync failed ... due to API errors"
 
-Reported live 2026-08-26 on `python-hacking-intro`, with **4,995 of 5,000** API calls still available - which is what ruled out the rate limit the wording implied.
+**Check the rate limit first, and expect it to be fine** - a near-full quota is what rules out the cause the wording implies and points at a permission instead.
 
-The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The App never declared it, and the Admin Panel authenticates with a *user-to-server* token from that App - which is capped by what the App asks for. So the sync could not work anywhere, for anyone, and said "try again later" about a state that would never change.
+The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The Admin Panel authenticates with a *user-to-server* token from the App, which is capped by what the App declares - so without `checks: read` declared and approved, the sync cannot work anywhere, for anyone, and the message is about a state that will never change on its own.
 
 1. **App owner**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions` -> **Repository permissions** -> **Checks: Read-only** -> **Save changes**. Confirm with `gh api apps/pxl-classroom-provisioner --jq .permissions.checks` (must print `read`).
 2. **Each org owner**: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve.
@@ -1219,7 +1219,7 @@ Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.jso
 When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions whenever the student pushes code.
 
 - **Template Preservation**: If the assignment's template repository already contains a custom autograding workflow (`.github/workflows/autograding.yml` or `classroom.yml`, such as standard GitHub Classroom or Cloud PE workflows), it is preserved during provisioning without overwrite.
-- **No checks, autograding on**: the injected workflow **fails** with a message saying the assignment defines none. It used to run `npm test` - a guess at the student's toolchain whose result was then reported as this assignment's grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
+- **No checks, autograding on**: the injected workflow **fails** with a message saying the assignment defines none, rather than guessing at the student's toolchain and reporting the guess as a grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
 - **Workflow Generation**: If no workflow exists in the template, provisioning injects a workflow utilizing `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter`. A `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is the same thing the CLI runners do, which is what makes a test definition mean one thing on both paths.
 - **Guardrails**: The generated workflow automatically enforces `timeout-minutes: 10` (preventing infinite loops from burning runner quotas) and `concurrency: { cancel-in-progress: true }` (cancelling obsolete runs if a student pushes repeatedly).
 - **Visibility `private`**: The injected workflow calls a reusable workflow stored in the control repository (`pxl-classroom-control`), hiding the actual tests and commands from the student's view.

@@ -235,15 +235,24 @@ test("the same leftover on a MIGRATED assignment is a failed cleanup, not an exp
   assert.match(r["invite-exposure"].message, /signatures, not links/i);
   assert.match(r["invite-exposure"].message, /Do NOT regenerate/);
 
-  // And it must not name a cause it does not know. "The App lacks
-  // Administration: write" was measured false on 2026-08-26 - the org grants
-  // it - so the message points at the run that has GitHub's own reason instead.
+  // And it must not name a cause it does not know. An installation token
+  // cannot delete an issue at any permission level, so blaming
+  // `administration: write` sends a lecturer to grant something they already
+  // have and that would not help.
   assert.doesNotMatch(
     r["invite-exposure"].message,
-    /Administration: write/,
+    /Administration: write/i,
     "the sweep must not diagnose a permission it cannot see",
   );
-  assert.match(r["invite-exposure"].message, /acceptance-handler/i);
+
+  // It points at the BROKER, which is what redacts the title, rather than at
+  // the hub's acceptance-handler - whose delete step no longer exists at all.
+  assert.match(r["invite-exposure"].message, /broker/i);
+  assert.doesNotMatch(
+    r["invite-exposure"].message,
+    /Delete the trigger issue/i,
+    "that step was removed; a lecturer sent to look at it finds nothing",
+  );
 });
 
 test("A BROKER SIGNING FOR AN ASSIGNMENT THAT HAS NO KEYPAIR is caught", async () => {

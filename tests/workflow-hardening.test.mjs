@@ -517,6 +517,61 @@ test("the retry serializes against the same things an ordinary acceptance does",
   }
 });
 
+test("every control-repo commit pushes through the retry helper", () => {
+  // A control repository is written by many things at once: the nightly, a
+  // dashboard regeneration, every acceptance, a lecturer's retry. A bare
+  // `git push` loses to any of them with a non-fast-forward and takes the
+  // record with it.
+  //
+  // scripts/git-push-with-retry.sh exists for exactly this and its own header
+  // records what it replaced - `git pull --rebase || true; git push`, which
+  // pushed whatever the working tree held even when the rebase had failed. It
+  // rebases properly and FAILS if it cannot, rather than reporting success
+  // over a lost write.
+  //
+  // Found by sweeping, 2026-08-27: open-feedback-prs.yml and
+  // sync-starter-code.yml both committed to a control repo and then ran a bare
+  // `git push`. Both are dispatch-only - so they run precisely when a lecturer
+  // is doing something else - and both are the pair that had never run at all
+  // until 2026-08-25, which is why nothing had noticed.
+  // Scoped PER STEP, not per file. publish-assignment.yml pushes the BROKER
+  // repository in one step and the control repo in others; a file-wide scan
+  // called that broker push a violation, which it is not - a broker is created
+  // fresh by that same step and has no concurrent writer.
+  const offenders = [];
+  for (const { file, doc } of workflows()) {
+    for (const job of Object.values(doc?.jobs ?? {})) {
+      for (const step of job?.steps ?? []) {
+        const run = String(step?.run ?? "");
+        if (!/git (-C \S+ )?commit/.test(run)) continue;
+        // A step that builds its own remote is pushing somewhere else.
+        if (/BROKER_REPO|git remote add/.test(run)) continue;
+
+        // In scope only when the step is operating on a CONTROL checkout.
+        // setup-org.yml pushes the hub's `participating-orgs` branch, which is
+        // a different repository with a different contention profile - and it
+        // is already serialized by that workflow's own setup-org-registry
+        // concurrency group, so nothing races it.
+        const inControl =
+          /git -C control\b/.test(run) || step["working-directory"] === "control";
+        if (!inControl) continue;
+
+        for (const line of run.split("\n")) {
+          if (/^\s*#/.test(line)) continue;
+          if (!/^\s*git (-C \S+ )?push\b/.test(line)) continue;
+          offenders.push(`${file} step "${step.name ?? "(unnamed)"}": ${line.trim()}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "these push to a control repo without rebasing on contention:\n" +
+      offenders.map((o) => `  ${o}`).join("\n"),
+  );
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys
