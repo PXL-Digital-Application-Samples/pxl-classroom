@@ -221,11 +221,16 @@ test("nothing joins claims to roster entries by hand", () => {
     .filter((p) => !allowed.has(p) && !p.startsWith(join(root, "tests")))
     .filter((p) => {
       const src = codeOf(p);
-      // The tell is the ADDRESS COMPARISON, not merely touching both things.
-      // `cli/src/lib/control-repo.mjs` fetches claims and fetches the roster
-      // and joins neither - it is transport, and allowlisting it would have
-      // been the start of a list that grows until the guard means nothing.
-      const readsClaims = /claim_verified|claimPath\(|students\/claims/.test(src);
+      // The tell is reading the claim STORE - the directory or its path
+      // helper - not merely mentioning a claim field. `cli/src/lib/control-repo.mjs`
+      // fetches claims and fetches the roster and joins neither (transport),
+      // and `report/report.mjs` reads `claim_verified` off an acceptance
+      // record already keyed by login, which is not a join at all. Allowlisting
+      // either would have been the start of a list that grows until the guard
+      // means nothing; narrowing the tell keeps it sharp, because anything that
+      // really does match claim records to roster entries has to enumerate the
+      // store to get them.
+      const readsClaims = /claimPath\(|students\/claims/.test(src);
       const readsRoster = /\.students\b|roster\.yml/.test(src);
       const joinsOnAddress = /\.email\b|normalizeEmail\(/.test(src);
       const imports = /claim-bindings/.test(src);

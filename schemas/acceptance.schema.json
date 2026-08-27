@@ -54,6 +54,19 @@
       "type": "string",
       "enum": ["accepted", "provisioning", "provisioned", "failed"],
       "description": "Current status of the acceptance lifecycle."
+    },
+    "claimed_email": {
+      "type": "string",
+      "format": "email",
+      "description": "The address this acceptance was admitted on, under roster_mode claim or open. Distinct from the org-scoped binding in students/claims/<github_id>.json, which can legitimately differ later after an unlink and a re-claim. Never reaches Pages."
+    },
+    "claim_verified": {
+      "type": "boolean",
+      "description": "Whether the student confirmed a GitHub-verified address rather than typing one. Evidence, never enforcement - the hub cannot check it."
+    },
+    "claim_domain_allowed": {
+      "type": "boolean",
+      "description": "Whether the address was inside claim_domains. Always true under claim, where a failing domain is refused before a record exists; under open nothing is refused, so this is the detection half."
     }
   }
 }

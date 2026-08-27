@@ -231,6 +231,27 @@
             "type": "string",
             "description": "Acceptance status of the student for this assignment."
           },
+          "claimed_email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The address this acceptance was admitted on, under roster_mode claim or open. Null when no address was confirmed - which is normal under open, where the claim is optional."
+          },
+          "claim_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the student confirmed a GitHub-verified address rather than typing one. Evidence, never enforcement."
+          },
+          "claim_domain_allowed": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the confirmed address was inside claim_domains. Null when there is no address to say it about. Under open this is detection: an address outside the list is recorded, never refused."
+          },
           "repo_id": {
             "type": [
               "integer",

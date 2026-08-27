@@ -129,7 +129,10 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   const existing = await readJson(claimFile);
   if (existing?.email) {
     log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
-    return { email: existing.email, verified: Boolean(existing.claim_verified), reused: true };
+    // domainAllowed is true by construction on this path: under `claim` an
+    // address outside the list never reaches a record. Stated rather than left
+    // undefined so both gates return the same shape.
+    return { email: existing.email, verified: Boolean(existing.claim_verified), domainAllowed: true, reused: true };
   }
 
   // 2. The counter, before any work at all.
@@ -250,7 +253,130 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     ok: true,
     note: `@${login} claimed ${opened.email}${entry.student_number ? ` (${entry.student_number})` : ""}, verified=${record.claim_verified}`,
   });
-  return { email: opened.email, verified: record.claim_verified, reused: false };
+  return { email: opened.email, verified: record.claim_verified, domainAllowed: true, reused: false };
+}
+
+// --- the claim under `open` --------------------------------------------------
+//
+// OBSERVATION, NOT A GATE. Nothing in here refuses an acceptance and nothing
+// counts against the attempt limit. `open` means anyone with the link and a
+// seat inside the window gets a repository, and that does not change because
+// they also told us an address.
+//
+// It has to work that way rather than as a matter of taste: the claim is
+// OPTIONAL here. A link handed out before the assignment moved to `open`, a
+// browser without WebCrypto, a student who dismissed the prompt - all must
+// still get a repository. So anyone determined to take a second one simply
+// omits the claim, which means the uniqueness check cannot be prevention. What
+// it can be, and is, is ACCOUNTING: two accounts holding one address show up as
+// a duplicate, and acceptances with no claim at all show up as a count. Both
+// are review signals for a lecturer reading an exam cohort afterwards.
+//
+// ARCHITECTURE §16 overstated this while it was still a plan - it said the
+// uniqueness check "would stop one person quietly taking several exam
+// repositories". Writing it showed that it cannot, for the reason above, and
+// the entry has been corrected rather than the code bent to match it.
+//
+// There is also no guessing oracle to defend here, which is why no attempt is
+// counted: under `claim` a refusal tells the guesser whether an address is on
+// the roster, and under `open` nothing is refused, so nothing is revealed.
+async function observeOpenClaim({ assignment, assignmentId, roster, login, githubId, dataDir, now }) {
+  const claimFile = join(dataDir, claimPath(githubId));
+  const iso = now.toISOString();
+
+  const readJson = async (path) => {
+    if (!existsSync(path)) return null;
+    try {
+      return JSON.parse(await readFile(path, "utf8"));
+    } catch {
+      return null;
+    }
+  };
+
+  // Org-scoped, exactly as under `claim`: a student who bound on an earlier
+  // assignment is not asked again.
+  const existing = await readJson(claimFile);
+  if (existing?.email) {
+    log("claim", { ok: true, note: `@${login} is already bound to ${existing.email}` });
+    return {
+      email: existing.email,
+      verified: Boolean(existing.claim_verified),
+      domainAllowed: existing.domain_allowed !== false,
+      reused: true,
+    };
+  }
+
+  const payload = env("CLAIM_PAYLOAD", "").trim();
+  if (!payload) {
+    log("claim", { ok: true, note: "no address confirmed - open enrolment does not require one" });
+    return null;
+  }
+
+  // A missing key is a deployment fault under `claim` and fails the run there,
+  // because nobody could claim at all. Here it must NOT fail: the claim is a
+  // review aid, and losing it is not worth refusing a student their repository.
+  const privateKey = env("CLAIM_PRIVATE_KEY", "").trim();
+  if (!privateKey) {
+    log("claim", { ok: true, note: "PXL_CLAIM_PRIVATE_KEY is not set - address not recorded (see RUNBOOK 1.3.2)" });
+    return null;
+  }
+
+  let opened = null;
+  try {
+    opened = await decryptClaim({ privateKey, payload });
+  } catch {
+    log("claim", { ok: true, note: "the confirmed address could not be read - not recorded" });
+    return null;
+  }
+
+  // The anti-replay check is kept even though nothing is being gated, because
+  // the OUTPUT is a record saying "this account is this person". Binding an
+  // account to an address it did not sign for would write a false one, and a
+  // false record is worse than no record.
+  if (opened.githubId !== githubId) {
+    log("claim", { ok: true, note: `the confirmation names another account - not recorded` });
+    return null;
+  }
+
+  // Detection, not prevention: recorded either way, and the report is where a
+  // lecturer sees it.
+  const domains = resolveClaimDomains(assignment);
+  const domainOk = domainAllowed(opened.email, domains);
+
+  // A roster is optional under `open` but often present - it stops deciding who
+  // may accept without stopping being a roster. When the address is on it, the
+  // student number comes along; when it is not, that is not an error here.
+  const entry = rosterEntryForEmail(roster, opened.email);
+
+  // Deliberately NOT refused when another account already holds this address.
+  // The second record is written under its own github_id, so both survive and
+  // lib/claim-bindings.mjs reports them as a duplicate - which is the accounting
+  // this exists for. Refusing would be a gate, and a bypassable one.
+  const taken = await findClaimForEmail(dataDir, opened.email, githubId);
+
+  const record = buildClaimRecord({
+    githubLogin: login,
+    githubId,
+    email: opened.email,
+    claimVerified: env("CLAIM_VERIFIED", "") === "true",
+    studentNumber: entry?.student_number ?? null,
+    assignmentId,
+    now: iso,
+    domainAllowed: domainOk,
+  });
+  await mkdir(join(dataDir, "students", "claims"), { recursive: true });
+  await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
+
+  log("claim", {
+    ok: true,
+    note:
+      `@${login} confirmed ${opened.email}` +
+      `${domainOk ? "" : " (OUTSIDE the allowed domains)"}` +
+      `${taken ? ` (ALSO held by @${taken.github_login})` : ""}` +
+      `${entry?.student_number ? ` (${entry.student_number})` : ""}` +
+      `, verified=${record.claim_verified}`,
+  });
+  return { email: opened.email, verified: record.claim_verified, domainAllowed: domainOk, reused: false };
 }
 
 /** Is this address already bound to a DIFFERENT account? */
@@ -351,6 +477,13 @@ async function main() {
     log("roster", {
       ok: true,
       note: `roster_mode=open - roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
+    });
+    // The claim runs here too, but only to WRITE DOWN what it learns. See
+    // observeOpenClaim: it never refuses and never counts an attempt, because
+    // the claim is optional under `open` and a check anyone can skip is not a
+    // gate.
+    claimResult = await observeOpenClaim({
+      assignment, assignmentId, roster, login, githubId: Number(githubId), dataDir, now,
     });
   } else if (rosterMode === "claim") {
     if (!roster) {
@@ -636,7 +769,15 @@ async function main() {
     // PUBLIC_TEXT_RULES carries an email-address rule that matches content
     // anywhere in a generated artefact.
     ...(claimResult
-      ? { claimed_email: claimResult.email, claim_verified: claimResult.verified }
+      ? {
+          claimed_email: claimResult.email,
+          claim_verified: claimResult.verified,
+          // Under `claim` this is always true - a failing domain never gets
+          // this far. Under `open` it is the detection half of the feature, and
+          // the only place a lecturer can see that somebody enrolled with an
+          // address the assignment does not recognise.
+          claim_domain_allowed: claimResult.domainAllowed !== false,
+        }
       : {}),
   };
   await writeFile(acceptFile, JSON.stringify(record, null, 2) + "\n");

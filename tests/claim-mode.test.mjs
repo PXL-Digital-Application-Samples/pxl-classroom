@@ -126,9 +126,13 @@ test("the claim gate refuses before it spends anything", () => {
     "the attempt ceiling must be checked before the roster is consulted");
   assert.ok(at("existing?.email") < at("claimAttemptsExhausted"),
     "an already-bound student must not touch the counter at all");
-  assert.ok(at("decryptClaim") < at("domainAllowed"),
+  // The CALL, not the bare identifier: `domainAllowed` is also a property name
+  // on what the gate returns, and that sits at the top of the function beside
+  // the already-bound early exit. Matching the identifier made this assert on
+  // the position of a return value rather than of the check.
+  assert.ok(at("decryptClaim") < at("domainAllowed("),
     "nothing can be domain-checked before it is decrypted");
-  assert.ok(at("domainAllowed") < at("rosterEntryForEmail"),
+  assert.ok(at("domainAllowed(") < at("rosterEntryForEmail"),
     "the cheap domain filter comes before the roster scan");
 });
 

@@ -1076,6 +1076,18 @@ It is a filter, not proof. Nothing checks that a claimed address *exists*, so `a
 
 A student who has spent their five attempts is refused with `rejected:claim-blocked` and told to contact you - deliberately without a countdown, since that is a progress bar for whoever is enumerating addresses. Clear it by unlinking them (§12.4b), which removes the counter as well as any binding.
 
+**Under `roster_mode: open`, none of this refuses anybody.** The same confirm-your-address prompt runs and the same binding is recorded, but an acceptance is never rejected because of it and no attempts are counted. Open enrolment means the link, the window and the cap are the limits - a student with an older link or a browser that cannot sign still gets their repository, which is exactly why the address cannot be a gate here: anyone who wanted a second repository would simply skip the prompt.
+
+What you get instead is a record to read afterwards, in `reports/<id>.json` and the CSV export:
+
+| Column | Read it as |
+|---|---|
+| `claimed_email` | The address they confirmed. Empty means they never did - normal, not an error |
+| `claim_verified` | `true` if GitHub had already verified that address for them; `false` if they typed it |
+| `claim_domain_allowed` | `false` means the address is outside `claim_domains`. **Recorded, not refused** |
+
+Two addresses confirmed by two different accounts show up as a duplicate in `pxl-classroom roster list` and on the Roster tab. Treat all of this as a review aid for an exam cohort, not as enrolment control - if you need control, `enforced` or `claim` is the mode.
+
 Symptom this fixes: with `roster_mode: enforced` and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 
 ### 12.5 Auditing an org's install

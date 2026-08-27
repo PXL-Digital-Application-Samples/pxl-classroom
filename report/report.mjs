@@ -337,6 +337,22 @@ async function main() {
       author_name: latestAuthorName ?? null,
       author_email: latestAuthorEmail ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
+      // What this acceptance was admitted on. accept.mjs has written these
+      // since roster_mode: claim shipped and NOTHING had ever read them - the
+      // `preserved_sha` shape again, a field written at one end with nobody at
+      // the other.
+      //
+      // Under `claim` the Roster tab answers "who is bound" from the org-scoped
+      // binding. Under `open` there is often no roster at all, so this report
+      // is the ONLY surface a lecturer has, and it is where the detection half
+      // of the claim has to land: an address outside `claim_domains` is
+      // recorded rather than refused, and a lecturer who cannot see it might as
+      // well not have it.
+      claimed_email: acceptance?.claimed_email ?? null,
+      claim_verified: acceptance?.claim_verified ?? null,
+      // Null, not true, when there is no claim: "inside the allowed domains" is
+      // a statement about an address, and there is no address to make it about.
+      claim_domain_allowed: acceptance?.claimed_email ? acceptance.claim_domain_allowed !== false : null,
       effective_deadline_at: effectiveDeadline?.toISOString() ?? null,
       // "an extension moved this student's deadline", not "an override document
       // exists" - the columns sit beside effective_deadline_at and an
@@ -530,6 +546,9 @@ async function main() {
       "full_name",
       "class_group",
       "acceptance_state",
+      "claimed_email",
+      "claim_verified",
+      "claim_domain_allowed",
       "submission_status",
       "effective_deadline_at",
       "override_applied",
