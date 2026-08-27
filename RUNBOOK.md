@@ -958,6 +958,28 @@ All CLI commands query the control repo. If assignments or reports are queried t
 
 Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` - both safe for one-shot writes.
 
+#### Running an assignment from a list of email addresses
+
+Set **Who may accept** to `claim` when your roster carries students' PXL email addresses but not their GitHub usernames — the ordinary case, since you are given addresses and they choose their own usernames.
+
+The student opens the invitation link, and the page shows them **their own GitHub-verified addresses** that match the allowed domains. They confirm one; the address is encrypted in the browser to the hub's public key (§1.3.2) and only ciphertext ever travels over the public acceptance issue. The hub decrypts it, matches it to a roster entry by address, and writes the binding to `students/claims/<github_id>.json`.
+
+**It is org-scoped and permanent.** Claim once, and every later assignment in that organization recognises the same account — no second prompt.
+
+| What happens | Outcome |
+|---|---|
+| Address matches a roster entry | Accepted, bound to that student |
+| Address is not on the roster | `rejected:no-claim-match` — a typo, or you registered a different address |
+| Address already claimed by another account | `rejected:claim-taken` — first come wins; unlink it if the wrong person got there first |
+| Address outside the allowed domains | `rejected:claim-domain` |
+| Five failed attempts | `rejected:claim-blocked` — the student is told to contact you |
+
+**Prerequisites, both one-off:** the claim keypair (§1.3.2) and the App's account permission **Email addresses: Read** (§1.2). Without the keypair the assignment fails closed with a red run rather than rejecting students. Without the permission the page cannot list a student's verified addresses — it says so honestly and offers the typed box, and every claim is then recorded `claim_verified: false`.
+
+**`claim_verified` is evidence, not a control.** It is true only when the student picked an address GitHub had already verified on their account. The hub cannot check it — an installation token cannot read a user's email addresses — so anyone opening the acceptance issue by hand can assert it. Its value is that the ordinary path records it truthfully, which makes a cohort review far sharper than "does this address look like one of my students".
+
+**A roster entry with no `email` can never be claimed.** Two entries sharing an address are refused at import, so it cannot surface at acceptance.
+
 #### Running an assignment without a roster
 
 `open` is what a new assignment gets by default: students need the invitation link and nothing else, and `max_acceptances` is the only limit. To gate on a roster instead, set **Who may accept** to `enforced` in the Admin Panel's **Guardrails** section (equivalently, `roster_mode: enforced` in the YAML).
