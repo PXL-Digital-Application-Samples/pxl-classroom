@@ -236,6 +236,7 @@ jobs:
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          mkdir -p control/lockdowns
           git -C control add lockdowns/
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Deadline sentinel timeline ${KEY}"

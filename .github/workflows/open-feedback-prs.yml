@@ -70,6 +70,7 @@ jobs:
           git config user.name "PXL Classroom Provisioner"
           git config user.email "pxl-classroom@users.noreply.github.com"
           if [ -n "$(git status --porcelain repositories/)" ]; then
+            mkdir -p repositories
             git add repositories/
             git commit -m "Record feedback PRs for ${ASSIGNMENT_ID}"
             git push

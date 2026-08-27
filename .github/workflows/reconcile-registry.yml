@@ -56,6 +56,7 @@ jobs:
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          mkdir -p control/repositories
           git -C control add repositories/
           if git -C control diff --cached --quiet; then
             echo "No changes."

@@ -368,6 +368,62 @@ test("a scoped dispatch can never disable a workflow for every org", () => {
   );
 });
 
+test("no workflow stages a control-repo directory that might not exist", () => {
+  // `git add <dir>/` EXITS 128 when the directory is absent, and stages
+  // nothing at all - not even the pathspecs that did match. Under `set -e`
+  // that kills the step, so work already done against the checkout is written
+  // and then discarded, with a green-looking script and a red step nobody
+  // reads as data loss.
+  //
+  // It bites because CONTROL_SCAFFOLD_DIRS grows: `teams/` joined the staging
+  // list on 2026-08-19 with group assignments, and every control repo
+  // scaffolded before that has no teams/ (git cannot store an empty
+  // directory). Surveyed live 2026-08-27 across the participating orgs:
+  // PXL-Systems-Expert and PXL-2TIN-DevOps-2627 were both missing it, and both
+  // had a published assignment still accepting.
+  //
+  // The fix is `mkdir -p` immediately before the add, not a conditional around
+  // it: `git add` on an EXISTING but empty directory exits 0 and stages
+  // nothing, so creating it first is a no-op when there was nothing to commit
+  // and correct when there was. A `[ -d ]` guard would instead skip silently
+  // over a directory that DID have content if anything went wrong upstream -
+  // and, as this repo found the hard way, a shell helper defined in one `run:`
+  // block does not exist in the next one.
+  //
+  // `|| true` and `git add -A` are also safe: neither is fatal.
+  const offenders = [];
+  for (const file of readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f))) {
+    const raw = readFileSync(join(WORKFLOW_DIR, file), "utf8");
+    const lines = raw.split("\n");
+    lines.forEach((line, i) => {
+      if (!/git\s+(-C\s+\S+\s+)?add\s/.test(line)) return;
+      if (/^\s*#/.test(line)) return;
+      if (/\|\|\s*true/.test(line)) return;           // tolerated on purpose
+      if (/add\s+-A\b|add\s+\.$/.test(line)) return;  // stages whatever is there
+      if (/git\s+remote\s+add/.test(line)) return;
+
+      const dirs = [...line.matchAll(/["']?([a-z][a-z-]*)\/["']?/g)].map((m) => m[1]);
+      if (!dirs.length) return;
+
+      // The mkdir has to be nearby, not merely somewhere in the file - a
+      // guard satisfied from a different step is how the first version of
+      // this test passed against the bug it was written for.
+      const window = lines.slice(Math.max(0, i - 4), i).join("\n");
+      for (const d of dirs) {
+        if (!new RegExp(`mkdir -p [^\\n]*\\b${d}\\b`).test(window)) {
+          offenders.push(`${file}:${i + 1} stages ${d}/ without a preceding mkdir -p`);
+        }
+      }
+    });
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "git add is fatal on a missing directory, and these are unguarded:\n" +
+      offenders.map((o) => `  ${o}`).join("\n"),
+  );
+});
+
 test("publishing never force-pushes the broker", () => {
   // An org is entitled to forbid force-push - PXL-Systems-Expert carries
   // Classroom50 org rulesets that do - and rewriting a broker's history buys

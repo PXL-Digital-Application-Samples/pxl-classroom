@@ -140,6 +140,7 @@ jobs:
             exit 0
           fi
           rm -f "control/$ACCEPT_FILE"
+
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           git -C control add -A
@@ -210,6 +211,17 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -e
+
+          # `git add <dir>/` is FATAL when the directory is absent - exit 128,
+          # and nothing at all is staged. Under `set -e` that kills the step,
+          # so the repository gets provisioned and then its record, the
+          # acceptance status and the claim binding are all discarded.
+          #
+          # This workflow is where it hurts most: retry-acceptance is what a
+          # lecturer reaches for when a student is already in trouble. Surveyed
+          # 2026-08-27 - PXL-Systems-Expert and PXL-2TIN-DevOps-2627 both lack
+          # teams/, and both have a published assignment still accepting.
+          # See acceptance-handler.yml for the whole story.
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             node scripts/write-repository-record.mjs \
               --assignment-id "$ASSIGNMENT_ID" \
@@ -222,6 +234,7 @@ jobs:
               --baseline-sha "$BASELINE_SHA" \
               --run-url "$RUN_URL" \
               --data-dir control
+            mkdir -p control/repositories control/teams
             git -C control add "repositories/" "teams/"
           fi
 
@@ -232,8 +245,12 @@ jobs:
             else
               node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "failed"
             fi
+            mkdir -p control/acceptances
             git -C control add "acceptances/"
           fi
+
+          mkdir -p control/students
+          git -C control add "students/"
 
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"

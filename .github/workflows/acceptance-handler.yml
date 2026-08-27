@@ -154,9 +154,8 @@ jobs:
           # Each `run:` block is its own shell, so the stage() helper in the
           # step below does not exist here. `git add <dir>/` is fatal when the
           # directory is absent - see that step for the whole story.
-          if [ -d "control/students" ]; then
-            git -C control add "students/"
-          fi
+          mkdir -p control/students
+          git -C control add "students/"
           if git -C control diff --cached --quiet; then
             echo "nothing to persist for $OUTCOME"
             exit 0
@@ -196,17 +195,15 @@ jobs:
           # the change, and no acceptance has run there since. The next one
           # would have been the first to hit it.
           #
-          # Guarded rather than made unconditional (`git add -A`): staging only
-          # the directories this job writes is what stops a stray file being
-          # committed into a course's control repository.
-          stage() {
-            for d in "$@"; do
-              if [ -d "control/$d" ]; then
-                git -C control add "$d/"
-              fi
-            done
-          }
-
+          # The fix is `mkdir -p` before each add, not a conditional around it.
+          # `git add` on an EXISTING but empty directory exits 0 and stages
+          # nothing, so creating it first is a no-op when there was nothing to
+          # commit and correct when there was - where a `[ -d ]` guard would
+          # silently skip a directory that did have content if anything ever
+          # went wrong upstream.
+          #
+          # Explicit paths rather than `git add -A`: staging only what this job
+          # writes is what stops a stray file reaching a course's control repo.
           if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
             node scripts/write-repository-record.mjs \
               --assignment-id "$ASSIGNMENT_ID" \
@@ -219,7 +216,8 @@ jobs:
               --baseline-sha "$BASELINE_SHA" \
               --run-url "$RUN_URL" \
               --data-dir control
-            stage repositories teams
+            mkdir -p control/repositories control/teams
+            git -C control add "repositories/" "teams/"
           fi
 
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
@@ -229,7 +227,8 @@ jobs:
             else
               node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "failed"
             fi
-            stage acceptances
+            mkdir -p control/acceptances
+            git -C control add "acceptances/"
           fi
 
           # students/ holds the claim binding (students/claims/<id>.json). It
@@ -237,7 +236,8 @@ jobs:
           # checkout and thrown away: the claim worked once and bound nothing.
           # Found by running it - the drill's acceptance succeeded and the
           # binding 404'd afterwards.
-          stage students
+          mkdir -p control/students
+          git -C control add "students/"
 
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"

@@ -90,6 +90,7 @@ jobs:
           git config user.name "PXL Classroom Provisioner"
           git config user.email "pxl-classroom@users.noreply.github.com"
           if [ -n "$(git status --porcelain syncs/)" ]; then
+            mkdir -p syncs
             git add syncs/
             git commit -m "Record starter code sync for ${ASSIGNMENT_ID}"
             git push
