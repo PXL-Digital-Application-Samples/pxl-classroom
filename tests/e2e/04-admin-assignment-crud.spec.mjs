@@ -78,7 +78,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     }
   });
 
-  // UX_PLAN §3.1 / §3.3, on the rendered form rather than the source.
+  // ARCHITECTURE §5.4 / §3.3, on the rendered form rather than the source.
   test('A new assignment opens on open enrolment, and asks nothing about acceptance mode', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
@@ -97,7 +97,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await expect(page.locator('text=Students need the link')).toBeVisible();
 
     // And the gate is one dropdown away, with its own answer to "can anyone
-    // accept?" (UX_PLAN §5.2, covered in depth by 32-first-run-wall).
+    // accept?" (ARCHITECTURE §10.4, covered in depth by 32-first-run-wall).
     await rosterSelect.selectOption('enforced');
     await expect(page.locator('.roster-status')).toContainText('nobody can accept');
 
@@ -107,7 +107,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await expect(page.locator('details.advanced')).not.toContainText('Acceptance mode');
   });
 
-  // UX_PLAN §3.4 - the panel refuses what the schema refuses, in a sentence.
+  // ARCHITECTURE §11.6 - the panel refuses what the schema refuses, in a sentence.
   // The checks live in a modal now (§6), so the refusal is on the row.
   test('A python check with no script cannot be saved, and says why', async ({ page }) => {
     await injectAuth(page, LECTURER);

@@ -1,5 +1,5 @@
 // 31 - WS1: the controls stop claiming things that are not true
-// (UX_PLAN §3.1, §3.3, §3.4, §3.5)
+// (ARCHITECTURE §5.4, §3.3, §3.4, §3.5)
 //
 // These run edge to edge rather than against the component alone: the lecturer
 // fills the real form, the SPA commits real YAML through the Contents API, and
@@ -212,7 +212,7 @@ test.describe('31 - §3.3 Acceptance mode is not a question, and not deleted eit
 // ======================================================== §3.4 python autograde
 
 test.describe('31 - §3.4 A python test means one thing, from the form to the workflow', () => {
-  // The checks live in a modal now (UX_PLAN §6). A python preset arrives with
+  // The checks live in a modal now (ARCHITECTURE §11.6). A python preset arrives with
   // a working script, so an EMPTY one has to be made by clearing it.
   async function addPythonTest(page, { id, script, index = 0 }) {
     await addCheck(page, CHECK_PYTHON);

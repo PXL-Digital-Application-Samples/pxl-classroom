@@ -420,7 +420,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     // Teams are stored under the assignment's ID, so this cannot work on the
     // create form. It used to sit there permanently disabled, explaining its
-    // own impossibility; UX_PLAN §5.3 removes it from the screen it cannot
+    // own impossibility; ARCHITECTURE §5.8.1 removes it from the screen it cannot
     // work on. It returns on the editor for a saved assignment - covered by
     // "Seeding from the assignment editor raises exactly one toast" below.
     await expect(page.locator('button', { hasText: 'Seed teams from…' })).toHaveCount(0);
@@ -1078,7 +1078,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     await page.goto(`/dashboard/${ORG}/admin?edit=${NEXT}`);
     // A published assignment opens on its cohort, with the fieldsets - and the
-    // seed control among them - behind the settings disclosure (UX_PLAN §7.1).
+    // seed control among them - behind the settings disclosure (ARCHITECTURE §10.1.1).
     await expandSettings(page);
     const seedBtn = page.locator('button', { hasText: 'Seed teams from…' });
     await expect(seedBtn).toBeEnabled({ timeout: 15000 });

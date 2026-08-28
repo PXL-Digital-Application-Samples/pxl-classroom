@@ -1,9 +1,9 @@
-// 29 - The late-work control (UX_PLAN §3.2.7)
+// 29 - The late-work control (ARCHITECTURE §11.2.1.7)
 //
 // `late_policy: block` said "refuse late pushes" and no code read the field;
 // `lock_down_enabled` said "demote admin -> pull at the deadline" and no code
 // read that either - lockdown demoted everyone regardless. Two controls, neither
-// wired, and `block` shipped as the form's default. UX_PLAN C4: the UI must not
+// wired, and `block` shipped as the form's default. DESIGN.md §1.5: the UI must not
 // describe behaviour the system does not have.
 //
 // Both are wired now, so these run against the real component: what the form

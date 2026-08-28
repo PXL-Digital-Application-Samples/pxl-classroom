@@ -497,7 +497,7 @@ To restore:
 ### 6.2 Grant an extension
 
 1. Open the assignment's **roster & progress** page (`/dashboard/<org>/<assignment-id>`) and click the **···** action on the student's row.
-2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the Admin Panel's own copy of this form was deleted for that reason (UX_PLAN WS5). The Lifecycle block in the editor links here.
+2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the Admin Panel's own copy of this form was deleted for that reason (ARCHITECTURE §10.1.1). The Lifecycle block in the editor links here.
 3. The modal shows any extension already in force, then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`), appending to the existing history rather than replacing it.
 4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
 

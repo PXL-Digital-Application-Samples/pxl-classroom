@@ -188,7 +188,7 @@ test("the demotion this check predicts is still the one lockdown performs", () =
   // The finding asserts a specific mechanism: demote() writes `pull`, reads the
   // permission back, and only counts a target as locked when it reads `read`.
   // If lockdown ever stops verifying, this check would be describing behaviour
-  // the system no longer has - UX_PLAN's C4, which this repo keeps re-learning.
+  // the system no longer has - DESIGN.md §1.5, which this repo keeps re-learning.
   const src = readFileSync(join(root, "lockdown", "lockdown.mjs"), "utf8");
   const demote = src.slice(src.indexOf("async function demote("));
   const body = demote.slice(0, demote.indexOf("\n}\n"));

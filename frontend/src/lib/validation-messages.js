@@ -1,5 +1,5 @@
 // Lecturer-facing text for the AJV errors an assignment form can actually
-// produce (UX_PLAN §5.4).
+// produce (ARCHITECTURE §10.4).
 //
 // `AdminView.validate()` rendered them verbatim - so a lecturer who typed
 // `Task 1` as a test id was told

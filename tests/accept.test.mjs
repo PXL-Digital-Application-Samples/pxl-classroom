@@ -902,7 +902,7 @@ test("no rejection message promises a queue, a retry, or review that will not ha
   // removed the queue in favour of synchronous provisioning, and no code
   // anywhere reads a cap-reached rejection afterwards. A lecturer reading that
   // waits for a background process that does not exist instead of raising the
-  // cap. UX_PLAN C4: the UI must not describe behaviour the system does not
+  // cap. DESIGN.md §1.5: the UI must not describe behaviour the system does not
   // have.
   const src = readFileSync(new URL("../acceptance/accept.mjs", import.meta.url), "utf8");
   const withoutComments = src

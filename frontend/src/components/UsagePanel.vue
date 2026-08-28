@@ -42,7 +42,7 @@
       <div class="flex items-center gap-sm flex-shrink-0">
         <!-- The panel is the glance; /dashboard/:org/usage is the detail, and
              it had exactly one inbound link - from a view that itself had none
-             (UX_PLAN §8). `@click.stop` because this header IS the accordion
+             (ARCHITECTURE §10.5). `@click.stop` because this header IS the accordion
              toggle: without it, following the link also collapses the panel
              behind it. -->
         <router-link

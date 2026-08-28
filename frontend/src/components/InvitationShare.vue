@@ -1,7 +1,7 @@
 <template>
   <!-- compact: one icon button, for a list row or a card. It exists so a
        lecturer coming back a week later does not have to open the editor to
-       find the link (UX_PLAN §4.2). -->
+       find the link (ARCHITECTURE §11.3). -->
   <button
     v-if="variant === 'compact'"
     type="button"
@@ -60,7 +60,7 @@
 </template>
 
 <script setup>
-// The one place the invitation link is presented (UX_PLAN §4.1).
+// The one place the invitation link is presented (ARCHITECTURE §11.3).
 //
 // It used to exist as a bare <span> in the publish banner, a primary button on
 // the detail header, and nowhere at all on either list of assignments - so a

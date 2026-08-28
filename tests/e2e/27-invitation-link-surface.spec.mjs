@@ -70,7 +70,7 @@ async function openEditor(page, assignment, extra = {}) {
   // The editor is open once the Title field is on screen. A bare
   // `textarea, input` match resolves to the roster tab's hidden file input.
   // A published assignment collapses the fieldsets behind the settings
-  // disclosure (UX_PLAN §7.1), so expand it first.
+  // disclosure (ARCHITECTURE §10.1.1), so expand it first.
   await expandSettings(page);
 }
 
@@ -90,7 +90,7 @@ test.describe('27 - The invitation link, end to end', () => {
     expect(shown, 'the link box must not render an empty string or "null"').not.toBe('');
     expect(shown).not.toContain('null');
     expect(shown, 'the link is /:org/i/:token').toContain(`/${ORG}/i/`);
-    // Truncated, not hidden (UX_PLAN §4.1): enough to recognise, never the full
+    // Truncated, not hidden (ARCHITECTURE §11.3): enough to recognise, never the full
     // 122 characters. The whole value lives on the title and in the clipboard.
     const token = inviteToken(ORG, ID);
     expect(shown, 'the box must not print the whole token').not.toContain(token);

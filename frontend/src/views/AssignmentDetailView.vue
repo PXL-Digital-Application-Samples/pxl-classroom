@@ -53,7 +53,7 @@
       <!-- No dedicated "no report" page. It used to replace the WHOLE view -
            header, share block, Teams, Export, Sync, Feedback PRs and Freeze all
            vanished with the table - so the one moment a lecturer most needs the
-           invitation link was the one moment the page hid it (UX_PLAN §4.3).
+           invitation link was the one moment the page hid it (ARCHITECTURE §10.1.1).
            An absent report is now an empty one, and only the table swaps. -->
 
       <!-- Report loaded -->
@@ -461,7 +461,7 @@
 
         <!-- Handing the link to students is the thing this page is for before
              anyone has accepted, so it is a block with the student-facing
-             status on it, not a lone button (UX_PLAN §4.1). -->
+             status on it, not a lone button (ARCHITECTURE §11.3). -->
         <InvitationShare :org="org" :assignment="shareAssignment" variant="inline" class="detail-share" />
 
         <!-- Segmented Tab for Group Assignments -->
@@ -618,7 +618,7 @@
                     <a :href="s.feedback_pr_url" target="_blank" class="mono">#{{ s.feedback_pr_number }}</a>
                     <!-- What `pxl-classroom feedback list` answers and the
                          panel could not: is it still open, and has anyone
-                         left review comments on it (UX_PLAN §8 / UX20).
+                         left review comments on it (ARCHITECTURE §10.5 / UX20).
                          Absent until refreshed - it is a live read, not a
                          field on the report. -->
                     <span v-if="s.feedback_pr_state" class="fb-pr-meta">
@@ -683,7 +683,7 @@
         </div>
 
         <!-- Nobody has accepted. Only the TABLE says so; the header, the share
-             block and the actions bar stay where they were (UX_PLAN §4.3).
+             block and the actions bar stay where they were (ARCHITECTURE §10.1.1).
              Not on the Teams tab: TeamsTable has its own empty state, and two
              of them stacked is the noise this is meant to remove. -->
         <div
@@ -1589,7 +1589,7 @@ function openFeedbackPrs() {
 //
 // `pxl-classroom feedback list` answers "which students have a feedback PR,
 // is it still open, and has anyone left review comments on it". The SPA showed
-// only the number and a link (UX_PLAN §8 / UX20).
+// only the number and a link (ARCHITECTURE §10.5 / UX20).
 //
 // It is a LIVE read, not a field: `open-feedback-prs.mjs` records
 // feedback_pr_number and feedback_pr_url and nothing else, and a comment count
@@ -2152,7 +2152,7 @@ async function loadAll() {
     // An assignment nobody has accepted yet has no report file, and that is a
     // fact about the cohort, not a failure to load. Standing an empty report in
     // for it keeps ONE render path - the alternative was a second full page
-    // that dropped every action along with the table (UX_PLAN §4.3). Only done
+    // that dropped every action along with the table (ARCHITECTURE §10.1.1). Only done
     // once the assignment itself is known, so a genuine read failure still
     // lands in the error branch rather than looking like an empty cohort.
     if (!report.value && assignment.value) {

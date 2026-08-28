@@ -1,4 +1,4 @@
-// UX_PLAN §5.4 - the assignment form's validation speaks to lecturers.
+// ARCHITECTURE §10.4 - the assignment form's validation speaks to lecturers.
 //
 // `AdminView.validate()` rendered AJV verbatim, so a lecturer who typed
 // `Task 1` as a test id was told

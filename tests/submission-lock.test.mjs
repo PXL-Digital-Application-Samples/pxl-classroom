@@ -2,7 +2,7 @@
 //
 // The ruleset that stops pushes to a submission ref, unit-tested against a
 // scripted `request`. The live behaviour it depends on was confirmed against a
-// real repository (UX_PLAN §10 risk 2) and is pinned here as shape:
+// real repository (ARCHITECTURE §11.2.1) and is pinned here as shape:
 //
 //   * the App is in bypass_actors as actor_type "Integration" - without it the
 //     lock also blocks starter-code sync and any future unlock, and there is no

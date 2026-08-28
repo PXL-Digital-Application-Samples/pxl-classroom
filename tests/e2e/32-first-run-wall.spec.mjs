@@ -1,4 +1,4 @@
-// 32 - WS3: the first-run wall (UX_PLAN §5.1-§5.4)
+// 32 - WS3: the first-run wall (ARCHITECTURE §10.4-§5.4)
 //
 // Four ways the Admin Panel stopped a lecturer on their first assignment and
 // then declined to say what to do about it:
@@ -272,7 +272,7 @@ test.describe('32 - §5.3 A control that cannot work is not on the screen', () =
 // ========================================================== §5.4 validation
 
 test.describe('32 - §5.4 Validation speaks to lecturers', () => {
-  // The modal refuses a bad check id before it can be saved (UX_PLAN §6.3), so
+  // The modal refuses a bad check id before it can be saved (ARCHITECTURE §11.6), so
   // this state now only arrives from a YAML someone edited by hand. That is
   // exactly when the raw AJV mattered most: there is no control to point at.
   test('A bad check id from a hand-written YAML is explained, not printed as a JSON Pointer and a regex', async ({ page }) => {

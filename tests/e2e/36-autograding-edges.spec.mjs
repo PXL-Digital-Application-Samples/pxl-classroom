@@ -1,4 +1,4 @@
-// 36 - WS4 edge cases (UX_PLAN §6)
+// 36 - WS4 edge cases (ARCHITECTURE §11.6)
 //
 // 35-autograding covers the happy shape of each fix. This covers the states
 // around them: what happens to a field the modal does not show, what a blank

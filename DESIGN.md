@@ -29,6 +29,13 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * Use underline tabs (`.primer-tabs` / `.primer-tab`) with an active bottom border for section switching (e.g., `Assignments | Roster`).
    * Avoid floating pill toggle bubbles for top-level navigation.
 
+5. **The UI must not describe behaviour the system does not have.**
+   * A control that cannot do what its label says, a status line reporting a state nothing computes, a message promising a background process that was deleted - each is worse than the missing feature, because it sends someone to wait for or rely on something that will not happen.
+   * This is the most expensive class of bug this project has shipped, and it recurs in three shapes. **A dead field:** `late_policy: block` and `lock_down_enabled` were both offered in the form while no code read either. **A dead promise:** `rejected:cap-reached` ended *"Acceptance queued for lecturer review"* after the queue had been deleted, leaving a lecturer waiting instead of raising the cap. **A control that breaks what it claims to relax:** *Remove limit* offered to delete the only thing gating an `open` cohort, which stops every acceptance rather than opening enrolment up.
+   * The remedy is one of two things, never a reword: give the system the behaviour, or take the control away and say why. An absent button explains nothing, so where the reason matters it replaces the control rather than simply vanishing.
+   * It applies equally to a status line that cannot evaluate its own condition. `InvitationShare` could never report "Cap reached", because two of its three callers never passed the count - so it announced *"Live"* over a full cohort. An absent input is now **unknown**, and the copy hedges rather than asserting.
+   * A page may not guess *why* it is stuck, either: the provisioning wait screen offered a repository-invitation link on a timer, with no evidence and to students who had never been sent one.
+
 ---
 
 ## 2. Design Tokens

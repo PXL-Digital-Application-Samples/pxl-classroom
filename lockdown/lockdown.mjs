@@ -377,7 +377,7 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
  * The submission when writes were NOT stopped at the deadline: the last commit
  * whose committer date is at or before it.
  *
- * Confirmed against a live repository (UX_PLAN §10 risk 3): `until` filters on
+ * Confirmed against a live repository (ARCHITECTURE §11.2.2): `until` filters on
  * the **committer** date alone. A commit authored before the deadline but
  * committed after it is excluded; one authored after but committed before is
  * returned. That matches `git log --until`.

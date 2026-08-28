@@ -154,7 +154,7 @@ test.describe('43 - A superseded invitation link', () => {
 // and two pieces of copy in the panel promise the exact opposite - "links
 // already handed out keep working", "leave this off to repair the broker while
 // every link already handed out keeps working". Left alone they would say that
-// on the single publish where it is false, which is UX_PLAN C4.
+// on the single publish where it is false, which is DESIGN.md §1.5.
 //
 // The lecturer is the only one who can fix it, by redistributing the new link,
 // and they will not know to unless the panel says so before they click.

@@ -1,4 +1,4 @@
-// UX_PLAN §6 - automated checks stop being a config language.
+// ARCHITECTURE §11.6 - automated checks stop being a config language.
 //
 // The presets are the interesting part: "add a row, now pick a type, now work
 // out which of four textareas that type wants" is a language, and the schema

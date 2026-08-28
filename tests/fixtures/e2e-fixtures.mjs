@@ -259,7 +259,7 @@ export function inviteUrl(org, assignmentId) {
  * Expand the Admin Panel's "Edit settings" disclosure and wait for the form.
  *
  * A published or closed assignment opens on its cohort, with the six
- * fieldsets collapsed (UX_PLAN §7.1). A draft renders them directly - there
+ * fieldsets collapsed (ARCHITECTURE §10.1.1). A draft renders them directly - there
  * the summary is `display: none` and the <details> is already open, so this is
  * a no-op that still waits for the form. One implementation, because every
  * spec that edits an assignment needs the same three lines.
@@ -1244,7 +1244,7 @@ export async function openMoreActionsMenu(page) {
 }
 
 // Automated checks moved out of the Guardrails fieldset into a modal
-// (UX_PLAN §6). The form shows one summary line; everything else is behind it.
+// (ARCHITECTURE §11.6). The form shows one summary line; everything else is behind it.
 export async function openAutogradeModal(page) {
   await page.locator('.autograde-summary-row button', { hasText: /^(Set up|Edit)$/ }).click();
   await expect(page.locator('.autograde-setup-modal')).toBeVisible({ timeout: 10000 });

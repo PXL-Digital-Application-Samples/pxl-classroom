@@ -4,7 +4,7 @@
 // lib/invite-token-format.mjs.
 //
 // It exists because there were already two byte-identical copies of this -
-// AssignmentView and GroupAcceptanceCard - and UX_PLAN WS5 needed a third for
+// AssignmentView and GroupAcceptanceCard - and ARCHITECTURE §10.1.1 needed a third for
 // the Admin Panel's cohort card.
 
 /**

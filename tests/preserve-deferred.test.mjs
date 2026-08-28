@@ -123,7 +123,7 @@ test("a missing snapshot with no deferral is still an error", async () => {
   });
 });
 
-// --- no submission (UX_PLAN §3.2.6) ------------------------------------------
+// --- no submission (ARCHITECTURE §11.2.1.6) ------------------------------------------
 //
 // Under `late_policy: block` a student who only pushed after the deadline has
 // nothing to preserve. One slacker used to make the run `partial` and turn the

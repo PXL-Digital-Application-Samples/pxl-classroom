@@ -1,4 +1,4 @@
-// 33 - WS3 edge cases (UX_PLAN §5.1-§5.4)
+// 33 - WS3 edge cases (ARCHITECTURE §10.4-§5.4)
 //
 // 32-first-run-wall.spec.mjs covers the happy shape of each of the four fixes.
 // This file covers the states around them - the ones where an empty result, a
@@ -495,7 +495,7 @@ test.describe('33 - §5.3 The seed control appears exactly when it can work', ()
 // ================================================ §5.4 validation messages
 
 test.describe('33 - §5.4 Nothing in the summary is addressed to a schema author', () => {
-  // The modal refuses every one of these before Save (UX_PLAN §6.3), so they
+  // The modal refuses every one of these before Save (ARCHITECTURE §11.6), so they
   // arrive from a YAML someone edited by hand - which is exactly when raw AJV
   // was worst: there is no control on screen to point the JSON Pointer at.
   async function autogradeWith(page, tests, opts = {}) {

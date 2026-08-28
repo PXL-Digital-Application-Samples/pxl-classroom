@@ -4,7 +4,7 @@
 // run the real presets through the real schema instead of asserting that some
 // string appears in a template. The Admin Panel used to hold all of this inline
 // in a row editor whose only guard was the schema, three commits downstream
-// (UX_PLAN §6).
+// (ARCHITECTURE §11.6).
 
 /**
  * Named starting points, each pre-filled with something that actually runs.
@@ -71,7 +71,7 @@ export function newCheck(presetKey, existing = []) {
  * The schema says the same things, but it says them as
  * `/autograde/tests/2/id must match pattern "^[a-z0-9]..."` after Save, and
  * `cleanChecks` would have written `id: ''` for an untouched row so the failure
- * lands on the pattern rather than on "you left it blank" (UX_PLAN §6.3).
+ * lands on the pattern rather than on "you left it blank" (ARCHITECTURE §11.6).
  */
 export function checkProblem(check) {
   const id = String(check?.id ?? '').trim()

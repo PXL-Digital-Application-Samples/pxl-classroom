@@ -109,7 +109,7 @@ test("buildAutogradingWorkflow: handles io tests with multiline strings and defa
 // Autograding on with no checks used to emit `run: npm test` - a guess at the
 // student's toolchain, whose result was then reported as this assignment's
 // grade in every repository. `tests` has minItems: 1 and the Admin Panel cannot
-// produce the state any more (UX_PLAN §6.3), so this is only reachable from a
+// produce the state any more (ARCHITECTURE §11.6), so this is only reachable from a
 // hand-written YAML the schema rejects. It fails loudly instead of grading
 // somebody else's test command.
 test("buildAutogradingWorkflow: enabled with no checks fails the run rather than guessing one", () => {

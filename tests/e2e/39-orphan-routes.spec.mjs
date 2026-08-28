@@ -1,4 +1,4 @@
-// 39 - Link what exists, or remove it (UX_PLAN WS6, §8)
+// 39 - Link what exists, or remove it (ARCHITECTURE §10.5, §8)
 //
 // Four routes shipped that nothing in the app linked to, so the only way in
 // was to know the URL:

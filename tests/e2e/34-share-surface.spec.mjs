@@ -1,4 +1,4 @@
-// 34 - WS2: handing the link to students is a place, not a blob (UX_PLAN §4)
+// 34 - WS2: handing the link to students is a place, not a blob (ARCHITECTURE §11.3)
 //
 // Before this, the invitation link existed as a bare <span> in the publish
 // banner, a lone primary button on the detail header, and nowhere at all on

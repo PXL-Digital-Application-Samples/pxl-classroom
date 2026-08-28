@@ -30,7 +30,7 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
   }
 
   // WS5 split the flat row in two: repair above the rule, state transitions
-  // below (UX_PLAN §7.1). An assignment that is out has something to repair;
+  // below (ARCHITECTURE §10.1.1). An assignment that is out has something to repair;
   // a draft does not, and its Publish is a transition, so it sits with the
   // others.
   const isOut = formState === 'published' || formState === 'closed';
@@ -60,7 +60,7 @@ function computeAdminLifecycleState({ isNew, formState, publishing, saving, dele
   const showRevertToDraft = isOut;
   const showCopyLink = false; // WS2: copying is not a lifecycle transition
   const showDeleteDraft = formState === 'draft';
-  // Per-student operations left for the tracking view (UX_PLAN §7.2); the
+  // Per-student operations left for the tracking view (ARCHITECTURE §10.1.1); the
   // pointer stays for one release.
   const showMovedNote = isOut;
 
@@ -210,7 +210,7 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
     "Lifecycle block must be gated on !isNew"
   );
 
-  // Repair sits above the rule, state transitions below it (UX_PLAN §7.1).
+  // Repair sits above the rule, state transitions below it (ARCHITECTURE §10.1.1).
   assert.ok(
     /class="lifecycle-group lifecycle-repair"/.test(template),
     "Republish belongs to the repair group, not the transition row"
@@ -379,7 +379,7 @@ test("opening an assignment for edit loads its invitation", () => {
 });
 
 // -----------------------------------------------------------------------------
-// 6. The form's own defaults (UX_PLAN §3.1, §3.3)
+// 6. The form's own defaults (ARCHITECTURE §5.4, §3.3)
 // -----------------------------------------------------------------------------
 
 // Only emptyForm() - the defaults for a NEW assignment. Slicing to the closing
@@ -477,7 +477,7 @@ test("acceptance_mode has no control, and is still written", () => {
 });
 
 // -----------------------------------------------------------------------------
-// WS5 - a published assignment opens on the cohort (UX_PLAN §7)
+// WS5 - a published assignment opens on the cohort (ARCHITECTURE §10.1.1)
 // -----------------------------------------------------------------------------
 
 const adminSrc = () => readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
@@ -526,7 +526,7 @@ test("a field error is counted on the summary, and opens the settings on load", 
 
 test("the editor no longer runs per-student operations", () => {
   // Both needed a student login and made you type one from memory. Their home
-  // is the student's own row on the tracking view (UX_PLAN §7.2 / C2), which
+  // is the student's own row on the tracking view (ARCHITECTURE §10.1.1 / C2), which
   // already had the more capable copies.
   const src = adminSrc();
   for (const gone of [

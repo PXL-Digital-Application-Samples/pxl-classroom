@@ -1,4 +1,4 @@
-// 35 - WS4: autograding becomes a task (UX_PLAN §6)
+// 35 - WS4: autograding becomes a task (ARCHITECTURE §11.6)
 //
 // It was an "Enable autograding" checkbox that opened a type dropdown and four
 // unlabelled textareas whose meaning changed with it - no headers, no totals,

@@ -1,4 +1,4 @@
-// 37 - A published assignment opens on the cohort (UX_PLAN WS5, §7)
+// 37 - A published assignment opens on the cohort (ARCHITECTURE §10.1.1, §7)
 //
 // Three findings, one cause. The editor rendered the same screen whatever the
 // assignment's state, so the moment a cohort was running - the moment the

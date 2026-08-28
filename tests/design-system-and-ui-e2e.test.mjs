@@ -126,7 +126,7 @@ test("UI E2E Contract: AssignmentDetailView exports 1-Primary CTA and grouped Mo
   const content = await readFile(detailViewPath, "utf8");
 
   // The single primary CTA is the share block's Copy, which now lives in
-  // InvitationShare.vue (UX_PLAN §4.1) rather than as a lone header button.
+  // InvitationShare.vue (ARCHITECTURE §11.3) rather than as a lone header button.
   assert.ok(
     content.includes("<InvitationShare"),
     "Detail view must render the share block",

@@ -103,7 +103,7 @@
               <div class="meta">
                 <span class="badge" :class="`badge-${a.state}`">{{ a.state }}</span>
                 <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
-                <!-- The link, without opening the editor first (UX_PLAN §4.2).
+                <!-- The link, without opening the editor first (ARCHITECTURE §11.3).
                      The list already parsed each YAML, so the token is in hand
                      and this costs no request. -->
                 <InvitationShare
@@ -178,7 +178,7 @@
                    link straight back. -->
               <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
               <!-- No "Track roster & progress" here: the cohort card below
-                   carries it, and it was the same link twice (UX_PLAN §7.1). -->
+                   carries it, and it was the same link twice (ARCHITECTURE §10.1.1). -->
             </div>
 
             <!-- 2. PUBLISHING / DEPLOYING IN PROGRESS -->
@@ -279,7 +279,7 @@
             </div>
           </div>
 
-          <!-- COHORT SUMMARY (UX_PLAN §7.1)
+          <!-- COHORT SUMMARY (ARCHITECTURE §10.1.1)
                Once an assignment is out, the job is running a cohort, not
                defining one - so a published or closed assignment leads with
                where it stands and how long is left, and the settings go behind
@@ -454,7 +454,7 @@
               <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
                 Failed to load templates: {{ templatesError }}.
               </small>
-              <!-- The first-run wall (UX_PLAN §5.1). The old copy - "Create one
+              <!-- The first-run wall (ARCHITECTURE §10.4). The old copy - "Create one
                    and mark it as a template in repo Settings" - assumed the
                    reader already knew what a template repository is, and buried
                    the one non-obvious step (the checkbox) that is the actual
@@ -562,7 +562,7 @@
                 </small>
               </div>
 
-              <!-- Not on the create form (UX_PLAN §5.3). Teams are stored under
+              <!-- Not on the create form (ARCHITECTURE §5.8.1). Teams are stored under
                    the assignment's ID, so this could never work here - it was a
                    permanently disabled control explaining its own impossibility.
                    It stays on the editor for a saved assignment, where it works. -->
@@ -636,8 +636,8 @@
               </small>
               <!-- `enforced` and `claim` both make students/roster.yml
                    load-bearing, so the form says whether anyone can accept at
-                   all rather than naming a tab it does not link to (UX_PLAN
-                   §5.2). The count
+                   all rather than naming a tab it does not link to
+                   (ARCHITECTURE §10.4). The count
                    comes from RosterTab, which has already read the file. -->
               <small v-if="rosterGatesAcceptance(form.roster_mode)" class="roster-status">
                 <span v-if="rosterCount === 0" class="status-indicator">
@@ -747,7 +747,7 @@
                 PRs are opened lazily via <code>pxl-classroom feedback open --assignment {{ form.id || 'ID' }}</code> once students push commits.
               </small>
             </div>
-            <!-- One line, never the configuration (UX_PLAN §6.1). This was an
+            <!-- One line, never the configuration (ARCHITECTURE §11.6). This was an
                  "Enable autograding" checkbox that opened a type dropdown, four
                  unlabelled textareas whose meaning changed with it, no headers,
                  no totals and no validation until the schema refused the save.
@@ -821,8 +821,8 @@
           <div v-if="!isNew" class="lifecycle">
             <h4>Lifecycle</h4>
 
-            <!-- Repair above the rule, state transitions below it (UX_PLAN
-                 §7.1 / UX24). "Republish the broker" and "stop the whole
+            <!-- Repair above the rule, state transitions below it
+                 (ARCHITECTURE §10.1.1). "Republish the broker" and "stop the whole
                  cohort accepting" were adjacent buttons in one flat row; only
                  one of them changes what the assignment IS.
 
@@ -849,7 +849,7 @@
               <!-- The reassurance is only true once this assignment has a
                    keypair. The publish that mints one is the publish that
                    retires every link issued in the old format, and promising
-                   otherwise is UX_PLAN C4 - the UI describing behaviour the
+                   otherwise is DESIGN.md §1.5 - the UI describing behaviour the
                    system does not have. -->
               <small v-if="migratesInvitation" class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched. This assignment still uses the old invitation format, so publishing upgrades it and links handed out so far stop working.</small>
               <small v-else class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched, and links already handed out keep working.</small>
@@ -880,7 +880,7 @@
                 Archive
               </button>
               <!-- No "Copy invitation link" here: copying is not a lifecycle
-                   transition (UX_PLAN §4.2 / UX24). It lives in the share block
+                   transition (ARCHITECTURE §11.3 / UX24). It lives in the share block
                    above and on every assignment row. -->
               <button v-if="form.state === 'draft'" class="btn btn-danger" type="button" @click="deleteDraft" :disabled="deleting">
                 {{ deleting ? 'Deleting…' : 'Delete draft' }}
@@ -889,7 +889,7 @@
 
             <!-- Both used to live here as accordions that made you type a
                  login from memory. They are per-student operations and their
-                 home is the student's own row (UX_PLAN §7.2 / C2). -->
+                 home is the student's own row (ARCHITECTURE §10.1.1 / C2). -->
             <p v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-moved text-secondary">
               Per-student extensions and retries are on the
               <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }">roster &amp; progress</router-link>
@@ -1233,7 +1233,7 @@ function onBeforeUnload(e) {
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
 // A published or closed assignment leads with the cohort; a draft leads with
-// the form, because defining it is still the job (UX_PLAN §7.1). An archived
+// the form, because defining it is still the job (ARCHITECTURE §10.1.1). An archived
 // one keeps the form too - it is out of day-to-day tracking, so what is left
 // to look at there is what it was configured to be.
 const cohortFirst = computed(() =>
@@ -1281,7 +1281,7 @@ const shareAssignment = computed(() => ({
 // that moment it refuses the legacy title - so every link handed out in the old
 // format is dead, whatever the "Regenerate" box says. Two pieces of copy
 // promise the opposite, and leaving them to say it on this one publish is
-// UX_PLAN C4 exactly: the UI describing behaviour the system does not have.
+// DESIGN.md §1.5 exactly: the UI describing behaviour the system does not have.
 //
 // It is true only once, per assignment. After the migration the keypair is
 // reused on every republish, the same way the nonce is.
@@ -1581,7 +1581,7 @@ watch(() => form.value.id, (newId) => {
 // ---------------------------------------------------------------- cohort summary
 
 // reports/dashboard.json, read ONCE per page load and shared by every
-// assignment in the list. UX_PLAN §7.1 assumed the list already had it - it
+// assignment in the list. ARCHITECTURE §10.1.1 assumed the list already had it - it
 // does not (that is DashboardView), so this is one extra Contents API call for
 // the whole pane rather than one per assignment opened.
 const dashboardEntries = ref(null)   // null until read; {} when there is none
@@ -1964,7 +1964,7 @@ function editAssignment(a) {
     claim_domains: Array.isArray(a.claim_domains) ? a.claim_domains : undefined,
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
-    // The configuration's existence is the flag (UX_PLAN §6.1), so
+    // The configuration's existence is the flag (ARCHITECTURE §11.6), so
     // `enabled: true` with no checks loads as off rather than as a state the
     // summary calls "Off" while Save fails on `tests.minItems`. A hand-edited
     // YAML in that shape gets repaired by the next save instead of trapping
@@ -2026,7 +2026,7 @@ function cancelEdit() {
 // ---------------------------------------------------------------- automated checks
 
 // The row editor lives in AutogradeModal.vue now; this view holds the one-line
-// summary and the resulting configuration (UX_PLAN §6.1).
+// summary and the resulting configuration (ARCHITECTURE §11.6).
 const showAutogradeModal = ref(false)
 
 const autogradeSummary = computed(() =>
@@ -2138,7 +2138,7 @@ async function validate(state = null) {
   const doc = buildDoc(state)
   const { valid, errors } = await validateAgainst('assignment', doc)
   // Raw AJV names a JSON Pointer, a keyword and a regex - none of which is on
-  // the lecturer's screen. UX_PLAN §5.4; unmapped errors still come through
+  // the lecturer's screen. ARCHITECTURE §10.4; unmapped errors still come through
   // verbatim rather than being swallowed.
   const problems = valid ? [] : errors.map((e) => formatAssignmentValidationError(e, doc))
 

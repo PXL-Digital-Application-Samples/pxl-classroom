@@ -108,7 +108,7 @@ test("every @event handler referenced in a template is defined in the component"
 });
 
 // A route with no way to reach it is a page that exists only for whoever knows
-// to type the URL. Three shipped that way (UX_PLAN §8): `/usage`, the only
+// to type the URL. Three shipped that way (ARCHITECTURE §10.5): `/usage`, the only
 // cross-org view in the app, had zero inbound links; `/setup` had zero; and
 // `/sandbox` served fabricated cohort data from a public Pages site, also with
 // zero. Nothing in the build says so - a route is reachable by construction,

@@ -1,4 +1,4 @@
-// 30 - Deadline extensions, end to end (UX_PLAN WS0)
+// 30 - Deadline extensions, end to end (ARCHITECTURE §6.2.2)
 //
 // The bug this exists for: the Admin Panel wrote an override as an append-only
 // `overrides[]` array (and had since 2026-06-17), while report.mjs read a
@@ -80,7 +80,7 @@ const reportWith = (student = STUDENT) => ({
  * Open the assignment's roster & progress page with the sinks attached.
  *
  * WS5 moved this operation here from the Admin Panel: it needs a student
- * login, and the editor made you type one from memory (UX_PLAN §7.2). The
+ * login, and the editor made you type one from memory (ARCHITECTURE §10.1.1). The
  * contract being tested is unchanged - the SPA's bytes against the real
  * backend reader - only the surface that produces them.
  */
@@ -234,7 +234,7 @@ test.describe('30 - Deadline extensions', () => {
     // The editor's copy of this form had a free-text login box and a
     // four-tier validator behind it to catch what people typed into it. WS5
     // deleted both: the operation is reached from the student it concerns, so
-    // there is no login to get wrong (UX_PLAN §7.2). What must stay true is
+    // there is no login to get wrong (ARCHITECTURE §10.1.1). What must stay true is
     // that the document is keyed on THAT student.
     const contentWrites = [];
     await openTracking(page, { contentWrites });

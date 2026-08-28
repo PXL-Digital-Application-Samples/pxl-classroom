@@ -61,7 +61,7 @@
                 <div class="org-dropdown-divider" role="separator"></div>
                 <!-- The only cross-org view in the app, and it had zero inbound
                      links from anywhere - reachable by typing /usage and no
-                     other way (UX_PLAN §8 / UX17). It belongs with the other
+                     other way (ARCHITECTURE §10.5 / UX17). It belongs with the other
                      control that is about organizations rather than about one
                      organization, and it needs a LABEL: an icon in the header
                      rail would have been one more thing nobody finds. -->
@@ -397,7 +397,7 @@
                 <!-- dashboard.json carries no invitation token - it must not,
                      and does not need to: the component reads it from the
                      control repo on click, so a card costs nothing until
-                     somebody actually wants the link (UX_PLAN §4.2). -->
+                     somebody actually wants the link (ARCHITECTURE §11.3). -->
                 <InvitationShare
                   v-if="a.state === 'published'"
                   :org="selectedOrg"

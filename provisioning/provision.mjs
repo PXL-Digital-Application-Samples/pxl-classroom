@@ -143,7 +143,7 @@ export function buildAutogradingWorkflow(assignment, org) {
     // hardcoded guess at the student's toolchain, reported as this
     // assignment's grade in every repository. `tests` has `minItems: 1` and the
     // Admin Panel can no longer produce an enabled-but-empty configuration
-    // (UX_PLAN §6.3), so this is now only reachable from a hand-written YAML
+    // (ARCHITECTURE §11.6), so this is now only reachable from a hand-written YAML
     // the schema would reject - and a guess was never a defensible default
     // there either. A job that does nothing is honest; a job that runs someone
     // else's test command and calls the result a grade is not.

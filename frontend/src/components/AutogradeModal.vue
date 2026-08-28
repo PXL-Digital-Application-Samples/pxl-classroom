@@ -166,7 +166,7 @@
 </template>
 
 <script setup>
-// UX_PLAN §6.2. The configuration used to live inline in the Guardrails
+// ARCHITECTURE §11.6. The configuration used to live inline in the Guardrails
 // fieldset as a row editor: an "Enable autograding" checkbox that opened a
 // type dropdown, four unlabelled textareas whose meaning changed with the
 // dropdown, and no headers, no totals and no validation until the schema

@@ -1,4 +1,4 @@
-// 38 - The edges of WS5 (UX_PLAN §7)
+// 38 - The edges of WS5 (ARCHITECTURE §10.1.1)
 //
 // 37 covers the shape. This covers what the shape does when the data is wrong,
 // when the lecturer moves between assignments, and when a state transition

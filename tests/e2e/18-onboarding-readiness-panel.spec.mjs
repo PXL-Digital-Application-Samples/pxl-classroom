@@ -222,7 +222,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     await expect(onboardingCard.locator('.onboarding-head h2')).toContainText(`Welcome to ${ORG_FRESH}`);
   });
 
-  // UX_PLAN §3.5. The draft count was `ymls.length` - every assignment file in
+  // ARCHITECTURE §10.3. The draft count was `ymls.length` - every assignment file in
   // the control repo, whatever its state - so the panel told a lecturer who had
   // just published that they had drafts to publish. What is missing on this
   // branch is reports/dashboard.json, not the publish.
