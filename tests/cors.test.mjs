@@ -45,11 +45,27 @@ async function loadAuthMod(envVars) {
   }
 }
 
-test("auth.js requires valid VITE_CORS_PROXY_URL", async () => {
+test("a bad VITE_CORS_PROXY_URL fails at sign-in, NOT at import", async () => {
+  // It used to throw at module scope, which blanked the entire SPA - a
+  // misconfigured build secret produced a white page with nothing written on
+  // it. The module must load; the complaint belongs where there is a sign-in
+  // card to show it in.
+  const mod = await loadAuthMod({ VITE_CORS_PROXY_URL: "https://badproxy.com" });
+  assert.ok(mod, "importing auth.js must not throw over a bad proxy setting");
+
   await assert.rejects(
-    () => loadAuthMod({ VITE_CORS_PROXY_URL: "https://badproxy.com" }),
-    /must end with \? or \?url=/
+    () => mod.startDeviceFlow("Iv23liEXAMPLE"),
+    /CORS proxy is misconfigured/,
+    "signing in must report the configuration problem in words",
   );
+});
+
+test("a keyed proxy URL is accepted - the form that recovers from a gated proxy", async () => {
+  // corsproxy.io withdrew its free tier on 2026-08-28 and answered 401 to
+  // everything; the fix is a key, and a keyed URL ends `&url=` rather than
+  // `?url=`. The old check rejected exactly the value needed to recover.
+  const mod = await loadAuthMod({ VITE_CORS_PROXY_URL: "https://corsproxy.io/?key=abcd1234&url=" });
+  assert.ok(mod);
 });
 
 test("auth.js proxy-URL-with-no-trailing-? is auto-fixed", async () => {
