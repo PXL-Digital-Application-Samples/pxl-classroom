@@ -20,7 +20,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 ![Lecturer Dashboard Overview](assets/images/lecturer-dashboard.png)
 
 ### Assignment Submissions & Management
-*Real-time student progress tracking, live submission status badges, and starter code sync actions.*
+*Student progress, live submission status badges, and starter code sync actions.*
 
 ![Assignment Submissions & Management](assets/images/assignment-submissions.png)
 
@@ -33,58 +33,40 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 ## Highlights
 
-- **Fast Web UI & Dashboard:**
-  - Create and publish assignments in seconds via the Admin Panel.
-  - Monitor progress with live commit sync
-- **Zero Infrastructure:**
-  - 100% serverless on GitHub Pages, Actions, and a single GitHub App.
-  - Workflows sleep when idle, and weekly audits monitor SKU billing limits.
-- **Student & Team Self-Service:**
-  - One-click repository provisioning - 20 to 40 seconds from Accept to a ready repository.
-  - The invitation link carries a private signing key: the student's browser signs an assertion naming their own GitHub account, and the public broker verifies it before a single credential is minted. A link somebody else has seen is not enough to accept with.
-  - Three enrolment modes per assignment - an enforced roster of GitHub logins, an email claim (the student proves an institutional address, encrypted to the hub), or open signup capped by `max_acceptances`.
-  - Students form teams, join under capacity limits, or switch teams before the deadline; an existing grouping can be carried forward into the next assignment.
-- **Starter Code Synchronization:**
-  - Correct a mistake in the assignment after students have accepted: fix it in the template, and the sync distributes that commit.
-  - Interactive file diff picker; the selection is applied per file. Files a student has not touched land directly on their `main`, files they have edited arrive as a pull request, so their work is never overwritten.
-- **Dual-Mode Autograding & Feedback PRs:**
-  - Automated feedback on push via GitHub Actions or local CLI grading in sandboxed Docker containers (0 Actions minutes billed).
-  - Per-student scores read back into the dashboard - including from a template that ships its own GitHub Classroom workflow, with nothing to configure.
-  - 1-click Web UI button to lazily open Feedback Pull Requests (`main` -> `pxl-baseline`) once students push code.
-- **DevOps-Ready Student Admin:**
-  - Students get repository Admin rights to manage Secrets, Environments, Runners and OIDC - the subject matter of the courses this runs.
-- **Deadline Enforcement & Archival:**
-  - A sentinel arms ahead of the deadline and stops writes at the instant it passes; the nightly finalize is the fallback, and every failure degrades to it.
-  - `late_policy: block` freezes the submission ref with a repository ruleset the App bypasses; `lock_down_enabled` additionally demotes students to read.
-  - Verified commit SHAs are preserved as immutable branches in `<org>/pxl-classroom-archive-<assignment-id>`, one archive per assignment so a finished cohort can be retired on its own.
-  - An unalterable record for grade disputes, examination boards, and institutional accreditation.
+**Nothing to run, nothing to pay for.** The whole system is a Pages site, some Actions workflows and one GitHub App. When no assignment is active, nothing runs and nothing is billed. A weekly check watches each organization's usage against its limits and tells you before you hit one.
+
+**Students get their repository in under a minute.** They open the invitation link, sign in, and press Accept; the repository is ready in 20 to 40 seconds. The link carries a signing key, so a student's browser proves which account is accepting before any credential is created - and using the link no longer publishes it.
+
+**You decide who may accept, per assignment.** Either a roster of GitHub usernames, or an email claim where the student confirms their institutional address and it is matched against your roster, or open signup with a limit on how many places there are. Exams and workshops usually want the last one; a known cohort wants the first.
+
+**Students hold Admin on their own repository.** They can manage secrets, environments, runners and OIDC - which on these courses is the subject being taught, not a convenience.
+
+**Teams form themselves.** Students create or join a team within the size you set, and can move between teams until the deadline. A grouping that already worked can be carried into the next assignment instead of being rebuilt.
+
+**Fix a mistake after students have started.** Correct it once in the template and send it out. Files a student has not touched are updated directly; anything they have edited arrives as a pull request, so their work is never overwritten.
+
+**Grading, in the cloud or on your machine.** Checks can run in each student repository on push, or locally in a sandboxed Docker container that costs no Actions minutes. Scores come back into the dashboard either way - including from a template that already ships GitHub Classroom's own grading workflow, with nothing to set up. One button opens draft feedback pull requests for everyone who has pushed.
+
+**The deadline is a real deadline.** Writes to the submission branch stop at the instant it passes, not on the next nightly run, and you choose whether late work counts. Every submission is then copied to a private archive the student cannot reach - one archive per assignment, so a finished cohort can be retired on its own. That archive is what you show at an examination board or a grade dispute.
 
 ---
 
 ## Feature Comparison
 
-| Feature / Capability | GitHub Classroom (Legacy) | Classroom50 (Fifty Foundation) | PXL Classroom |
+The rows where the three genuinely differ. Everything else - assignment creation, team formation, feedback pull requests, CSV export - all three do in some form.
+
+| | GitHub Classroom | Classroom50 | PXL Classroom |
 | :--- | :--- | :--- | :--- |
-| **Architecture & Hosting** | Centralized server & database | Hosted web service + CLI | 100% Serverless (GitHub Pages + Actions + 1 GitHub App) |
-| **Infrastructure Costs** | Maintained by GitHub | Free open-source hosted tier | Zero external server or database costs |
-| **Idle Minute Management** | Continuous cloud background jobs | Continuous service availability | Zero Idle Minutes (Nightly cron sleeps when inactive) |
-| **Resource & Billing Audits** | None (standard GitHub billing page) | None (standard GitHub billing page) | Automated weekly SKU billing audits with @-mention alerts |
-| **Student Repository Role** | Write only (Restricted) | Write only (Restricted) | Admin (Enables Secrets, Environments, Runners, OIDC) |
-| **Student Self-Service Acceptance** | Web redirect with background queue | Web portal acceptance link | Instant 1-click provisioning (repository ready in 20-40s) |
-| **Invitation Link Security** | Opaque token, validated server-side | Portal link | Link holds a signing key; the browser signs an assertion naming the account, verified at the edge before any credential is minted |
-| **Roster Management** | CSV import or LMS sync (Strict) | Org-level repository roster | Tri-Mode: Enforced roster, email claim, or Open signup with student caps |
-| **Team Formation Self-Service** | Basic team selection from preset list | Basic team repository creation | Full self-service team creation, capacity limits, and team switching |
-| **Assignment Creation Flow** | Multi-step web form | Web configuration form | 1-Click publish from web Admin Panel with instant validation |
-| **Lecturer Dashboard & UI** | Standard web portal (basic list) | Web portal + terminal views | Real-time web dashboard with live commit sync and student hover cards |
-| **Starter Code Resync & Updates** | Manual pull or forks only | Manual Git upstream pulling | Per-file: lands directly where untouched, PR where the student edited it |
-| **CLI Companion Tooling** | `gh classroom` extension (clone, list) | `classroom50` CLI | `@pxl-classroom/cli` (Local Docker grading, roster import, starter sync, team seeding, audit checks) |
-| **Autograding: Cloud Actions** | Runs in student repo on push (`classroom-resources/*`) | Runs in student repo on push (Actions + `check50`) | Automatic Actions grading with score harvesting into dashboard |
-| **Autograding: Local Sandboxing**| Not supported natively | Not supported natively (grades live repos) | Sandboxed Local Docker CLI (Zero cloud Actions minutes billed) |
-| **Deadline Enforcement** | Soft deadline (manual freeze or stop Actions) | Timestamp logging & manual review | Sentinel stops writes at the deadline instant (repository ruleset), nightly fallback, optional demotion to Read |
-| **Submission Archiving** | None (grades live repo HEAD) | None (grades live repo HEAD) | Dedicated private archive repository per assignment (`<org>/pxl-classroom-archive-<assignment-id>`) |
-| **Archive Tamper Resistance** | Vulnerable to history rewrite or deletion | Vulnerable to history rewrite or deletion | Immune (SHA verified via `git ls-remote` in isolated archive) |
-| **Feedback Pull Requests** | Created on repo creation (breaks on empty commits) | Standard GitHub PR / comments | Clean baseline branch with 1-click lazy opening in Web UI & CLI |
-| **LMS & Grade Export** | LTI 1.3 (Canvas, Moodle, Blackboard) | Basic CSV export | Live CSV and JSON export matching table filters (LTI in v2) |
+| **Student repo role** | Write | Write | **Admin** - secrets, environments, runners, OIDC |
+| **Deadline** | Soft; freeze by hand | Timestamps, reviewed by hand | Writes stop at the instant it passes |
+| **Submission archive** | None; the live repo is the grade | None; the live repo is the grade | Private archive repo per assignment, out of the student's reach |
+| **Grading off the cloud** | No | No | Sandboxed Docker via CLI - no Actions minutes |
+| **Enrolment** | Roster or LMS sync | Org repository roster | Roster, email claim matched to your roster, or open signup with a cap |
+| **Starter-code fixes** | Manual pull or fork | Manual upstream pull | Per file: direct where untouched, pull request where edited |
+| **Cost when idle** | GitHub-hosted | Hosted service | Nothing runs, so nothing is billed |
+| **Hosting** | GitHub's servers | Hosted web service | Your own Pages site and Actions; no server, no database |
+
+Two things the others have and this does not: direct LMS gradebook sync over LTI 1.3, and someone else running the service for you.
 
 ---
 
@@ -99,7 +81,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 ### 2. Create Assignment
 
 - Open `/dashboard/:org/admin`.
-- Configure assignment parameters: title, template repository, opens date, deadline, assignment type (individual/group), who may accept (`roster_mode`), and automated checks.
+- Fill in the title, the template repository, when it opens and closes, whether it is individual or group work, who may accept, and any automated checks.
 - Click Save & Publish.
 
 ### 3. Student Acceptance
@@ -109,7 +91,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 ### 4. Collection and Grading
 
-- The deadline is enforced by the sentinel at the instant it passes and finalized by the nightly workflow.
+- Writes stop at the instant the deadline passes; the nightly workflow finalizes the cohort and is the fallback if anything goes wrong.
 - Submissions are preserved as immutable branches in `<org>/pxl-classroom-archive-<assignment-id>`.
 - View grades in the web dashboard or grade locally via the CLI.
 
