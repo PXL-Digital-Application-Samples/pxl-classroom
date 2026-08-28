@@ -13,7 +13,10 @@ const scriptPath = join(here, "..", "scripts", "usage-fetch.mjs");
 function runTest(env, apiResponses) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-usage-test-"));
   
-  writeFileSync(join(dir, "limits.yml"), env.limitsYaml || "weekly_limits: []");
+  // Schema-valid by default: usage-fetch.mjs validates limits.yml against
+  // limits.schema.json before resolving anything, so a fixture missing
+  // schema_version would test the validator rather than the resolution chain.
+  writeFileSync(join(dir, "limits.yml"), env.limitsYaml || "schema_version: 1\nweekly_limits: []");
   writeFileSync(join(dir, "porgs.yml"), env.porgsYaml || "orgs: []");
   if (env.repoOverrides) {
     writeFileSync(join(dir, "limits-overrides.json"), JSON.stringify(env.repoOverrides));
@@ -64,9 +67,13 @@ function runTest(env, apiResponses) {
 }
 
 test("repo -> org -> global threshold override resolution chain", async () => {
-  const limitsYaml = `weekly_limits:\n  - sku: "ubuntu-min"\n    limit: 10\n  - sku: "windows-min"\n    limit: 100\n`;
+  // limits.schema.json requires schema_version and a unit on every entry.
+  const limitsYaml = `schema_version: 1\nweekly_limits:\n  - sku: "ubuntu-min"\n    unit: Minutes\n    limit: 10\n  - sku: "windows-min"\n    unit: Minutes\n    limit: 100\n`;
   const porgsYaml = `orgs:\n  - login: TestOrg\n    overrides:\n      ubuntu-min: 20\n`;
-  const repoOverrides = { repos: { "repo-override": { "ubuntu-min": 30 }, "repo-ok-override": { "ubuntu-min": 30 } } };
+  // limits-overrides.schema.json requires schema_version alongside repos, and a
+  // present-but-invalid overrides file is now a configuration error rather than
+  // being swallowed as "none configured".
+  const repoOverrides = { schema_version: 1, repos: { "repo-override": { "ubuntu-min": 30 }, "repo-ok-override": { "ubuntu-min": 30 } } };
   
   const apiResponses = {
     "/orgs/TestOrg": { id: 123 },

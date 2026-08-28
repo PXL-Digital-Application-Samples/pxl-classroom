@@ -293,7 +293,6 @@ Whichever applies, it runs through the org-level App installation - which outran
 ├── reports/<id>.json                     # calculated: per-assignment report
 ├── reports/dashboard.json                # calculated: aggregate for the SPA dashboard
 ├── overrides/<id>/<login>.json           # lecturer override (append-only)
-├── errors/<id>.json                      # error records
 └── public/                               # GENERATED public metadata for Pages
 ```
 
@@ -321,7 +320,6 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `observation.schema.json` | A single submission observation - `snapshot` of the submission ref or a `tagged-submission` produced from `refs/tags/submit/*` |
 | `report.schema.json` | Computed per-assignment report |
 | `override.schema.json` | Lecturer overrides (8 types, see schema) |
-| `error-record.schema.json` | Workflow/script error records |
 | `participating-orgs.schema.json` | Hub-side registry of participating orgs |
 | `limits.schema.json` | Global and per-org weekly usage limits |
 | `limits-overrides.schema.json` | Per-repository SKU threshold overrides |

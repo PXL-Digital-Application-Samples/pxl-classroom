@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { gh, ghAllItems } from "../lib/gh.mjs";
 import { readUtf8OrFail } from "./lib/encoding.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 
 const {
   ORG,
@@ -24,17 +25,59 @@ for (const [k, v] of Object.entries(required)) {
 }
 
 const limits = parseYaml(readUtf8OrFail(LIMITS_PATH));
+{
+  // A limit the schema rejects is a limit nobody can rely on: the numbers here
+  // decide when an org is warned it is about to overspend, and a typo in a sku
+  // or a limit silently drops that warning.
+  const { valid, errors } = validateAgainst("limits", limits);
+  if (!valid) {
+    console.error(
+      `${LIMITS_PATH} does not match limits.schema.json: ` +
+        errors.slice(0, 4).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
+    );
+    process.exit(2);
+  }
+}
 const globalLimits = new Map((limits.weekly_limits || []).map(l => [l.sku, l.limit]));
 
 const porgs = parseYaml(readUtf8OrFail(PORGS_PATH));
 const orgEntry = (porgs.orgs || []).find(o => o.login === ORG) || {};
 const orgOverrides = orgEntry.overrides || {};
 
+// ABSENT and MALFORMED are different answers. The old `catch {}` swallowed
+// both, so a limits-overrides.json with a typo in it read as "no overrides
+// configured" - the lecturer's raised limit silently stopped applying and the
+// org was warned against the global number instead, with nothing said anywhere.
+// A file that is not there is a legitimate "none"; a file that is there and
+// unreadable is a configuration error and has to be one.
 let repoOverrides = {};
-try {
-  const parsed = JSON.parse(readFileSync(`${CONTROL_DIR}/limits-overrides.json`, "utf8"));
-  repoOverrides = parsed.repos || {};
-} catch { /* none configured */ }
+{
+  const overridesPath = `${CONTROL_DIR}/limits-overrides.json`;
+  let raw = null;
+  try {
+    raw = readFileSync(overridesPath, "utf8");
+  } catch {
+    raw = null; // none configured, which is the common case
+  }
+  if (raw !== null) {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error(`${overridesPath} is present but is not valid JSON: ${e.message}`);
+      process.exit(2);
+    }
+    const { valid, errors } = validateAgainst("limits-overrides", parsed);
+    if (!valid) {
+      console.error(
+        `${overridesPath} does not match limits-overrides.schema.json: ` +
+          errors.slice(0, 4).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
+      );
+      process.exit(2);
+    }
+    repoOverrides = parsed.repos || {};
+  }
+}
 
 function resolveLimit(repo, sku) {
   if (repoOverrides[repo] && repoOverrides[repo][sku] !== undefined) {

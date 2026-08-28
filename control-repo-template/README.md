@@ -16,7 +16,6 @@ lockdowns/<id>/lockdown-record.json # fact: lock-down outcome at deadline
 reports/<id>.json                   # calculated: per-assignment report
 reports/dashboard.json              # calculated: aggregate for the SPA
 overrides/<id>/<login>.json         # lecturer overrides (append-only)
-errors/<id>.json                    # error records
 public/                             # GENERATED public metadata for Pages
 ```
 

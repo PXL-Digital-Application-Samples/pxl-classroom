@@ -1,6 +1,6 @@
 // The control repo scaffold has three consumers that historically drifted
-// apart: setup-org.yml hand-rolled `mkdir -p` (missing students/, overrides/,
-// errors/), control-repo-template/ was missing lockdowns/, and audit.mjs
+// apart: setup-org.yml hand-rolled `mkdir -p` (missing students/ and
+// overrides/), control-repo-template/ was missing lockdowns/, and audit.mjs
 // checked its own third list. Result: every org onboarded by setup-org.yml
 // failed its own scaffold audit. These tests pin all of them to
 // lib/control-layout.mjs and to ARCHITECTURE.md §5.1.

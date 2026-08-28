@@ -36,6 +36,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { ensureSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -468,11 +469,19 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
         const now = new Date().toISOString();
         const safeTs = now.replace(/[:.]/g, "-");
         for (const m of t.members) {
+          // No `team_slug`. observation.schema.json's snapshot variant is
+          // `additionalProperties: false` and carries no such field, so every
+          // GROUP assignment was writing an observation that fails its own
+          // schema. Nothing read it either: report.mjs resolves a student's team
+          // from the team manifests, falling back to the acceptance record, and
+          // the lockdown record below already stores team_slug per student -
+          // the authoritative per-run copy, which preserve.mjs reads. Written
+          // once, read nowhere, forbidden by the contract: the earned_points
+          // shape again.
           const observation = {
             schema_version: 1,
             assignment_id: cfg.assignmentId,
             github_login: m,
-            team_slug: t.rec.team_slug || undefined,
             repo_id: repoRes.data.id,
             observed_at: now,
             ref: submissionRef,
@@ -480,6 +489,17 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
             observer_run: cfg.runUrl,
             collection_type: "lockdown",
           };
+          // Validate before writing. This is inside the per-target try, so an
+          // unwritable observation fails THAT student and the cohort's finalize
+          // carries on - a malformed document must never stop every other
+          // student being frozen and preserved.
+          const check = validateAgainst("observation", observation);
+          if (!check.valid) {
+            throw new Error(
+              `observation for ${m} does not match observation.schema.json: ` +
+                check.errors.slice(0, 3).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
+            );
+          }
           const obsDir = join(cfg.dataDir, "observations", cfg.assignmentId, m);
           await mkdir(obsDir, { recursive: true });
           await writeFile(join(obsDir, `${safeTs}.json`), JSON.stringify(observation, null, 2) + "\n");

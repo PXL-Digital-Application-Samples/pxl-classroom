@@ -280,7 +280,7 @@ The workflow:
 - Mints a least-privilege token and probes the Enhanced Billing Usage API. Onboarding stops with an actionable error if Organization Administration has not been approved or Enhanced Billing is unavailable.
 - Mints the full provisioning token for the new org's App installation.
 - Creates `<org>/pxl-classroom-control` (private) if it doesn't already exist.
-- Pushes the initial scaffold - `CONTROL_SCAFFOLD_DIRS` in `lib/control-layout.mjs`: `assignments/`, `students/`, `teams/`, `acceptances/`, `repositories/`, `observations/`, `lockdowns/`, `reports/`, `overrides/`, `errors/`, `public/`.
+- Pushes the initial scaffold - `CONTROL_SCAFFOLD_DIRS` in `lib/control-layout.mjs`: `assignments/`, `students/`, `teams/`, `acceptances/`, `repositories/`, `observations/`, `lockdowns/`, `reports/`, `overrides/`, `public/`.
 - Adds the org to `participating-orgs.yml` on the `participating-orgs` branch, with the budget owner.
 - Dispatches `deploy-frontend.yml`, which is what makes the org appear in the SPA's switcher.
 

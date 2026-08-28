@@ -9,6 +9,7 @@ import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promise
 import { join } from "node:path";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -258,6 +259,18 @@ async function main() {
           observer_run: cfg.runUrl,
           collection_type: env("COLLECTION_TYPE", "scheduled"),
         };
+
+        // Validate before writing. This sits inside the per-student try, so a
+        // document that does not match its schema fails THAT student and the
+        // rest of the cohort is still collected - the nightly must not go dark
+        // over one malformed record.
+        const check = validateAgainst("observation", observation);
+        if (!check.valid) {
+          throw new Error(
+            "observation does not match observation.schema.json: " +
+              check.errors.slice(0, 3).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
+          );
+        }
 
         const safeTs = now.replace(/[:.]/g, "-");
         const obsDir = join(cfg.dataDir, "observations", assignmentId, login);

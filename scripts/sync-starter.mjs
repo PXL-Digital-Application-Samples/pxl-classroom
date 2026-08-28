@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 import {
   changedPaths,
   resolveSelection,
@@ -311,6 +312,19 @@ async function main() {
     summary: summarize(results),
     results,
   };
+
+  // Validate before writing. The sync record is what a lecturer reads to see
+  // which students got the correction and which need a second look, so a
+  // document the backend cannot read back is worse than no record.
+  {
+    const { valid, errors } = validateAgainst("sync-record", syncRecord);
+    if (!valid) {
+      throw new Error(
+        "sync record does not match sync-record.schema.json: " +
+          errors.slice(0, 4).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
+      );
+    }
+  }
 
   const syncDir = join(cfg.dataDir, "syncs", cfg.assignmentId);
   await mkdir(syncDir, { recursive: true });
