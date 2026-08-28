@@ -2149,6 +2149,27 @@ async function loadAll() {
     if (assignmentContent) {
       assignment.value = parseYaml(assignmentContent)
     }
+
+    // The assignment YAML is what everything below reads, and getRepoContent
+    // answers null for a 404 rather than throwing - so a missing or unreadable
+    // assignment fell through with NO error set. `report` then stayed null (the
+    // emptyReport() stand-in below is deliberately gated on knowing the
+    // assignment), the main content rendered anyway because it is a bare
+    // `v-else` with no report guard, and the template threw on
+    // `report.students.length`. That is a blank page and a TypeError, in
+    // production, on the page a lecturer opens to watch a cohort.
+    //
+    // An unreadable assignment is a genuine load failure and belongs in the
+    // error branch - which is exactly what the comment below already assumed
+    // was happening.
+    if (!assignment.value) {
+      loadError.value =
+        `Could not read assignments/${props.assignmentId}.yml in ` +
+        `${props.org}/${config.controlRepo}. It may have been renamed or removed, ` +
+        `or this account may not have access to that control repository.`
+      return
+    }
+
     // An assignment nobody has accepted yet has no report file, and that is a
     // fact about the cohort, not a failure to load. Standing an empty report in
     // for it keeps ONE render path - the alternative was a second full page
@@ -2192,8 +2213,12 @@ async function loadAll() {
   } catch (e) {
     console.error('Failed to load report:', e)
     loadError.value = e.message || String(e)
+  } finally {
+    // `finally`, not a statement after the try: the early return above (an
+    // unreadable assignment) would otherwise skip this and leave the page
+    // spinning for ever - trading a crash for a hang.
+    loading.value = false
   }
-  loading.value = false
 }
 
 async function fetchRateLimit(token) {
