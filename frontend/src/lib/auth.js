@@ -23,9 +23,31 @@
 // permit reading the org's control repo. See ARCHITECTURE.md §10.2.
 import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 
+// The target URL is appended, so the proxy must end at the parameter that takes
+// it. Three spellings are accepted, and the second is why this is not a single
+// `endsWith('?url=')`:
+//
+//   https://proxy.example/?url=            the original form
+//   https://proxy.example/?key=abc&url=    a proxy that also wants an API key
+//   https://proxy.example/?                shorthand; `url=` is appended
+//
+// corsproxy.io's free tier was withdrawn on 2026-08-28 and every request now
+// answers `401 {"error":"A valid API key is required"}`, which took sign-in
+// down for everyone. A keyed URL ends `&url=`, so the old check rejected
+// exactly the value needed to fix it.
+//
+// AND IT MUST NOT THROW HERE. This is module scope in a file the whole SPA
+// imports, so a throw is a blank page with nothing on it - the `localToUtc`
+// mistake in the worst possible place. A misconfigured proxy is recorded and
+// reported when sign-in is attempted, where there is somewhere to show it.
 let CORS_PROXY = import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url='
+let corsProxyError = null
 if (CORS_PROXY.endsWith('?')) CORS_PROXY += 'url='
-else if (!CORS_PROXY.endsWith('?url=')) throw new Error('VITE_CORS_PROXY_URL must end with ? or ?url=')
+else if (!/[?&]url=$/.test(CORS_PROXY)) {
+  corsProxyError =
+    `This deployment's CORS proxy is misconfigured: VITE_CORS_PROXY_URL must end in "?url=", ` +
+    `"&url=" or "?" so the target can be appended. See ARCHITECTURE.md §10.2.`
+}
 const GITHUB_DEVICE_CODE_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/device/code')}`
 const GITHUB_TOKEN_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/oauth/access_token')}`
 const GITHUB_API_BASE = 'https://api.github.com' // API supports CORS directly
@@ -115,6 +137,10 @@ export function clearAuth() {
 const DEVICE_CODE_TIMEOUT_MS = 10000
 
 export async function startDeviceFlow(clientId, scope = 'user:email') {
+  // Reported here rather than thrown at import, so a misconfigured deployment
+  // shows a sentence in the sign-in card instead of a blank page.
+  if (corsProxyError) throw new Error(corsProxyError)
+
   const body = { client_id: clientId }
   if (scope) body.scope = scope
   // A POST, but a safe one to bound: it only mints a device code, and a code
