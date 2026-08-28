@@ -248,8 +248,11 @@ The SPA therefore tries **two** proxies in order: the primary (`VITE_CORS_PROXY_
 
 | | |
 |---|---|
-| Cloudflare account | _record the owning account here_ |
-| Worker URL | _record the `*.workers.dev` URL here_ |
+| Cloudflare account | `tom-cool-38e` (Tom Cool). **Single-owner - move to a shared PXL account.** If this account is lost the fallback silently stops existing, and nobody finds out until the primary fails and the fallback turns out not to be there either. |
+| Worker URL | `https://pxl-cors.tom-cool-38e.workers.dev/` |
+| Secret | `VITE_CORS_PROXY_FALLBACK_URL` = the URL above with `?url=` appended. Set 2026-08-28. |
+
+Verified live on deployment (2026-08-28): a browser-origin POST returns a real `device_code`; `OPTIONS` answers 204 with the CORS headers; both allowlists refuse by **exact match** - `example.com`, `api.github.com/user` and even the correct target with `?x=1` appended are all 403, as are `evil.example.com` and `pxl-digital-application-samples.github.io.evil.com` (a domain anyone can register, which a suffix check would have admitted - the same trap as `domainAllowed` in §15). A request with no `Origin` at all is refused, `GET` is 405.
 
 **Diagnosing it:** `curl` alone gets a 403 from both proxies - corsproxy.io sits behind Cloudflare bot protection, and the Worker enforces an `Origin` allowlist. That is them working, not an outage. Send a browser-shaped request before concluding anything:
 
