@@ -242,7 +242,7 @@ Do not move `frontend/` to a subdirectory without updating `frontend/vite.config
 
 The SPA therefore tries **two** proxies in order: the primary (`VITE_CORS_PROXY_URL`, corsproxy.io) and then a PXL-owned Cloudflare Worker (`VITE_CORS_PROXY_FALLBACK_URL`), which nobody outside PXL can withdraw. Failover is automatic and needs no redeploy.
 
-**Deploy the Worker:** follow [`cors-worker/README.md`](cors-worker/README.md). Free plan, no credit card, no domain; about ten minutes, once. Both values are **baked into the bundle at build time**, so the fallback does not exist until `deploy-frontend.yml` has run after the secret was set.
+**Deploy the Worker:** `cd cors-worker && npx wrangler@latest login && npx wrangler@latest deploy`. Free plan, no credit card, no domain. Deploying from the repo rather than pasting into the dashboard editor is deliberate - the Worker carries a security allowlist, and a pasted copy drifts from the reviewed one the moment either is touched. [`cors-worker/README.md`](cors-worker/README.md) has the dashboard alternative and the verification commands; note that Cloudflare renames that screen regularly, so trust what is in front of you over any written click-path. Both proxy values are **baked into the bundle at build time**, so the fallback does not exist until `deploy-frontend.yml` has run after the secret was set.
 
 **Record the account owner here.** The Worker lives in whichever Cloudflare account deployed it. If that account is lost the fallback silently stops existing, and nobody finds out until the primary fails and the fallback turns out not to be there either. Use an account tied to a PXL address that more than one person can reach.
 

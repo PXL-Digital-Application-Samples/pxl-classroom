@@ -1,0 +1,30 @@
+// Deploy config for the device-flow CORS proxy.
+//
+// This exists so the deployed Worker IS `worker.js` from this repository. The
+// dashboard's paste-into-the-editor flow works too, but then the running code
+// and the reviewed code are two separate things that drift the moment either is
+// touched - and this one carries a security allowlist, so drift is the failure
+// that matters.
+//
+//   cd cors-worker
+//   npx wrangler@latest login      # once, opens a browser
+//   npx wrangler@latest deploy
+//
+// JSONC rather than TOML because Cloudflare recommends it for new projects and
+// some newer Wrangler features are JSON-config only.
+{
+  "name": "pxl-cors",
+  "main": "worker.js",
+  // Pins the Workers runtime semantics. Bumping it is a deliberate act - a
+  // newer date can change platform behaviour under a Worker that did not change.
+  "compatibility_date": "2026-08-28",
+  // Serve on <name>.<subdomain>.workers.dev. No custom domain or DNS zone is
+  // needed, and the SPA reaches it by that URL.
+  "workers_dev": true,
+  "observability": {
+    // Cheap request logs in the dashboard. This Worker only ever runs when the
+    // PRIMARY proxy has already failed, so its traffic is the signal that
+    // something upstream broke - worth being able to see.
+    "enabled": true
+  }
+}
