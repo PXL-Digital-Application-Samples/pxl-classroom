@@ -12,3 +12,10 @@ playwright-report/
 # importing it with no ORG set, which yields active-undefined.json) must not
 # leave something a `git add -A` can commit.
 active-*.json
+
+# Wrangler's local state for cors-worker/. `wrangler deploy` and `wrangler dev`
+# create it beside the config, it is caches and build state rather than source,
+# and this repo is PUBLIC - so it must not be something a `git add -A` can
+# commit. Same reasoning as active-*.json above: the fix is to ignore the path
+# before anything lands in it, not after.
+.wrangler/
