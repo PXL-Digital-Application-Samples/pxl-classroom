@@ -360,7 +360,22 @@
                   <span class="mono font-semibold" style="color: var(--text-primary);">@{{ m }}</span>
                   <span v-if="resolveMemberDisplayName(m)" class="text-secondary text-xs">({{ resolveMemberDisplayName(m) }})</span>
                 </div>
-                <div class="flex gap-xs">
+                <div class="flex gap-xs items-center">
+                  <!-- One gesture, both manifests. Removing here and adding in
+                       the other team's modal is two commits with a window in
+                       between where the student is in no team at all. -->
+                  <select
+                    v-if="moveTargets.length"
+                    class="form-control move-select"
+                    :disabled="saving"
+                    :aria-label="`Move @${m} to another team`"
+                    @change="moveMemberTo(m, $event.target.value); $event.target.value = ''"
+                  >
+                    <option value="">Move to…</option>
+                    <option v-for="t in moveTargets" :key="t.team_slug" :value="t.team_slug">
+                      {{ t.team_name }} ({{ (t.members || []).length }}/{{ maxTeamSize }})
+                    </option>
+                  </select>
                   <button class="btn btn-xs btn-danger" type="button" @click="removeMemberFromTeam(m)">
                     Remove
                   </button>
@@ -871,6 +886,156 @@ async function submitCreateTeam() {
   }
 }
 
+/** Teams a member of the open team could be moved into, excluding full ones. */
+const moveTargets = computed(() => {
+  const current = managingTeam.value?.team_slug
+  return (props.teams || [])
+    .filter((t) => t.team_slug !== current && (t.members || []).length < maxTeamSize.value)
+    .sort((a, b) => String(a.team_name || a.team_slug).localeCompare(String(b.team_name || b.team_slug)))
+})
+
+/**
+ * Move one student from the open team into another, in a single commit.
+ *
+ * TEAMS-PLAN promised a lecturer "Move Student" action and it was never built;
+ * the two-step alternative (remove here, add there) is two commits with a
+ * window in between where the student belongs to no team at all - and if the
+ * second fails, they are simply lost from the cohort's grouping.
+ *
+ * Both manifests are MERGED onto what is stored rather than rebuilt from the
+ * rows on screen: `props.teams` is the display shape mergeTeamManifests
+ * assembles and carries neither `created_by` nor `repo_id` nor `seeded_from`.
+ */
+async function moveMemberTo(login, targetSlug) {
+  if (!managingTeam.value || !targetSlug) return
+  const sourceSlug = managingTeam.value.team_slug
+  if (targetSlug === sourceSlug) return
+
+  const target = (props.teams || []).find((t) => t.team_slug === targetSlug)
+  if (!target) return
+
+  if (!window.confirm(
+    `Move @${login} from "${managingTeam.value.team_name}" to "${target.team_name}"?\n\n` +
+    `Their access to the ${managingTeam.value.team_name} repository is revoked and they are ` +
+    `granted access to the ${target.team_name} repository.`
+  )) return
+
+  saving.value = true
+  try {
+    const token = getToken()
+    const sourcePath = `teams/${props.assignment.id}/${sourceSlug}.json`
+    const targetPath = `teams/${props.assignment.id}/${targetSlug}.json`
+
+    // Read BOTH before touching anything: a move that can only half-apply is
+    // worse than one that does not start.
+    const [sourceDoc, targetDoc] = await Promise.all([
+      readTeamManifest(token, sourcePath),
+      readTeamManifest(token, targetPath),
+    ])
+    if (!sourceDoc || !targetDoc) {
+      toast.error(`Could not read both team manifests. Nothing was changed.`)
+      return
+    }
+
+    const lower = (s) => String(s).toLowerCase()
+    if ((targetDoc.members || []).some((m) => lower(m) === lower(login))) {
+      toast.error(`@${login} is already in "${target.team_name}".`)
+      return
+    }
+    if ((targetDoc.members || []).length >= maxTeamSize.value) {
+      toast.error(`"${target.team_name}" is already at capacity (${maxTeamSize.value}).`)
+      return
+    }
+
+    const nextSource = {
+      ...sourceDoc,
+      members: (sourceDoc.members || []).filter((m) => lower(m) !== lower(login)),
+    }
+    nextSource.vacant = nextSource.members.length === 0
+    const nextTarget = {
+      ...targetDoc,
+      members: [...(targetDoc.members || []), login],
+      vacant: false,
+    }
+    // Heal a manifest an older rebuild damaged, exactly as saveTeamMembers does.
+    for (const doc of [nextSource, nextTarget]) {
+      if (typeof doc.created_by !== 'string' || !doc.created_by) doc.created_by = 'lecturer'
+    }
+
+    for (const [doc, name] of [[nextSource, sourceSlug], [nextTarget, targetSlug]]) {
+      const { valid, errors } = await validateAgainst('team', doc)
+      if (!valid) {
+        toast.error(
+          `Refusing to write an invalid manifest for "${name}": ` +
+          errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')
+        )
+        return
+      }
+    }
+
+    // ONE commit for both. Two commits can half-apply; this cannot.
+    const res = await commitFiles(
+      token,
+      props.org,
+      config.controlRepo,
+      [
+        { path: sourcePath, content: JSON.stringify(nextSource, null, 2) + '\n' },
+        { path: targetPath, content: JSON.stringify(nextTarget, null, 2) + '\n' },
+      ],
+      `Move ${login} from ${sourceSlug} to ${targetSlug} (${props.assignment.id})`
+    )
+    if (!res.ok) {
+      toast.error(`Could not move @${login}: ${res.error || 'commit failed'}`)
+      return
+    }
+
+    // Collaborators AFTER the commit. The control repo is the source of truth -
+    // if the sync fails, the manifests are still right and a retry fixes access;
+    // the other order would leave GitHub correct and the manifests stale, which
+    // is what the nightly and every report then read.
+    const repoOf = (t) => (t?.repo_name ? String(t.repo_name).split('/').pop() : null)
+    const sourceRepo = repoOf(managingTeam.value)
+    const targetRepo = repoOf(target)
+    const problems = []
+    if (sourceRepo) {
+      await removeCollaborator(token, props.org, sourceRepo, login)
+        .catch((e) => problems.push(`revoke on ${sourceRepo}: ${e.message}`))
+    }
+    if (targetRepo) {
+      await addCollaborator(token, props.org, targetRepo, login, 'admin')
+        .catch((e) => problems.push(`grant on ${targetRepo}: ${e.message}`))
+    }
+
+    await republishTeams(token)
+    if (problems.length) {
+      toast.error(
+        `@${login} was moved to "${target.team_name}", but repository access needs attention: ` +
+        problems.join('; ')
+      )
+    } else {
+      toast.success(`@${login} moved to "${target.team_name}".`)
+    }
+    managingTeam.value = null
+    emit('refresh')
+  } catch (e) {
+    toast.error(`Error moving @${login}: ${e.message}`)
+  } finally {
+    saving.value = false
+  }
+}
+
+/** The stored manifest at `path`, or null when it cannot be read or parsed. */
+async function readTeamManifest(token, path) {
+  try {
+    const text = await getRepoContent(token, props.org, config.controlRepo, path)
+    if (!text) return null
+    const doc = JSON.parse(text)
+    return doc && typeof doc === 'object' ? doc : null
+  } catch {
+    return null
+  }
+}
+
 async function saveTeamMembers() {
   if (!managingTeam.value) return
   saving.value = true
@@ -1151,5 +1316,18 @@ async function deleteVacantTeam(team) {
 
 .member-manage-row:last-child {
   border-bottom: none;
+}
+
+/* Sized to sit beside the xs buttons in the member row rather than dominate
+   it: moving is a rarer action than removing, and the row is a list first. */
+.move-select {
+  width: auto;
+  min-width: 8.5rem;
+  max-width: 14rem;
+  padding: 2px 6px;
+  /* Matches .text-xs in style.css. There is no font-size token to reference,
+     and DESIGN.md §5 forbids a var() fallback, which would pin one theme. */
+  font-size: 0.74rem;
+  height: auto;
 }
 </style>
