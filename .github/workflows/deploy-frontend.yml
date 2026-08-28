@@ -81,6 +81,10 @@ jobs:
           VITE_BASE_URL: /${{ github.event.repository.name }}/
           VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
           VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
+          # Fallback device-flow proxy, tried when the primary fails. Baked in at
+          # build time like the primary, so the fallback does not exist until a
+          # deploy has run. See cors-worker/README.md.
+          VITE_CORS_PROXY_FALLBACK_URL: ${{ secrets.VITE_CORS_PROXY_FALLBACK_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

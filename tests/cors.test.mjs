@@ -121,3 +121,189 @@ test("device-flow state machine and mock fetch", async (t) => {
   // Ensure api call bypasses proxy
   assert.ok(fetchCalls[2].url.startsWith("https://api.github.com"));
 });
+
+// ---------------------------------------------------------------------------
+// Failover. corsproxy.io is primary; a PXL-owned Cloudflare Worker is the
+// fallback, because there is no second PUBLIC proxy to fall back to - measured
+// 2026-08-28, when allorigins, thingproxy and codetabs each turned out to issue
+// a GET and hand back GitHub's HTML sign-in page.
+// ---------------------------------------------------------------------------
+
+const PRIMARY = "https://corsproxy.io/?key=k&url=";
+const FALLBACK = "https://pxl-cors.example.workers.dev/?url=";
+const BOTH = { VITE_CORS_PROXY_URL: PRIMARY, VITE_CORS_PROXY_FALLBACK_URL: FALLBACK };
+
+const DEVICE_CODE_OK = JSON.stringify({
+  device_code: "DC1",
+  user_code: "UC1",
+  verification_uri: "https://github.com/login/device",
+  interval: 5,
+});
+
+/** Install a fetch mock and return the list it records into. */
+function mockFetch(t, handler) {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, opts });
+    return handler(url, opts);
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  return calls;
+}
+
+test("the 2026-08-28 outage: primary answers 401, sign-in still works", async (t) => {
+  // corsproxy.io's withdrawal reply verbatim. It is well-formed JSON with an
+  // `error` field, which is exactly why "did we get JSON back" cannot be the
+  // test for whether a proxy worked.
+  const calls = mockFetch(t, (url) => {
+    if (url.startsWith(PRIMARY)) {
+      return new Response(JSON.stringify({ error: "A valid API key is required" }), { status: 401 });
+    }
+    return new Response(DEVICE_CODE_OK, { status: 200 });
+  });
+
+  const mod = await loadAuthMod(BOTH);
+  const res = await mod.startDeviceFlow("CLIENT1");
+
+  assert.equal(res.device_code, "DC1", "the fallback must carry the sign-in through");
+  assert.equal(calls.length, 2, "primary tried once, then the fallback");
+  assert.ok(calls[0].url.startsWith(PRIMARY), "the primary must be tried FIRST");
+  assert.ok(calls[1].url.startsWith(FALLBACK));
+});
+
+test("HTTP 200 carrying HTML is a broken proxy, not an answer", async (t) => {
+  // The failure mode of every GET-only proxy: the request succeeds, the method
+  // was silently wrong, and the body is GitHub's sign-in page. No error path
+  // fires anywhere unless the reply is checked for shape.
+  const calls = mockFetch(t, (url) => {
+    if (url.startsWith(PRIMARY)) {
+      return new Response("<!DOCTYPE html><html><body>Sign in</body></html>", { status: 200 });
+    }
+    return new Response(DEVICE_CODE_OK, { status: 200 });
+  });
+
+  const mod = await loadAuthMod(BOTH);
+  assert.equal((await mod.startDeviceFlow("CLIENT1")).device_code, "DC1");
+  assert.equal(calls.length, 2, "a 200 with an unparseable body must fail over");
+});
+
+test("a healthy primary means the fallback is never called", async (t) => {
+  const calls = mockFetch(t, () => new Response(DEVICE_CODE_OK, { status: 200 }));
+
+  const mod = await loadAuthMod(BOTH);
+  await mod.startDeviceFlow("CLIENT1");
+
+  assert.equal(calls.length, 1, "one proxy answered, so nothing else should be tried");
+  assert.ok(calls[0].url.startsWith(PRIMARY));
+});
+
+test("when every proxy fails, the message says how many and quotes the last reply", async (t) => {
+  // "Sign-in is broken" is not a diagnosis. A bad client_id reaches here as
+  // GitHub's own 404, and whoever is reading has to be able to tell the two
+  // apart without a debugger.
+  mockFetch(t, () => new Response(JSON.stringify({ error: "Not Found" }), { status: 404 }));
+
+  const mod = await loadAuthMod(BOTH);
+  await assert.rejects(
+    () => mod.startDeviceFlow("BAD_CLIENT"),
+    (err) => {
+      assert.match(err.message, /2 tried/, "it must say how many proxies were attempted");
+      assert.match(err.message, /404/, "and quote what the last one actually said");
+      assert.match(err.message, /Not Found/);
+      return true;
+    },
+  );
+});
+
+test("a misconfigured primary is skipped when the fallback is usable", async (t) => {
+  // A typo in one setting must not take working sign-in down with it.
+  const calls = mockFetch(t, () => new Response(DEVICE_CODE_OK, { status: 200 }));
+
+  const mod = await loadAuthMod({
+    VITE_CORS_PROXY_URL: "https://typo.example.com",
+    VITE_CORS_PROXY_FALLBACK_URL: FALLBACK,
+  });
+  assert.equal((await mod.startDeviceFlow("CLIENT1")).device_code, "DC1");
+  assert.equal(calls.length, 1, "the unusable entry is not even attempted");
+  assert.ok(calls[0].url.startsWith(FALLBACK));
+});
+
+// setTimeout is mocked so the poll's wait is under our control; setImmediate is
+// NOT, so awaiting one yields to the event loop and drains the whole pending
+// microtask chain - fetch, res.text(), JSON.parse and the follow-up /user call.
+// A fixed number of `await Promise.resolve()` hops does not, and stalls the test
+// instead of failing it.
+const flush = () => new Promise((r) => setImmediate(r));
+
+async function pollTick(t) {
+  await flush();
+  t.mock.timers.tick(1000);
+  await flush();
+}
+
+test("authorization_pending is GitHub answering - it must NOT fail over", async (t) => {
+  // The most common reply in the whole flow. Treating it as a proxy fault would
+  // hammer the fallback on every poll tick of every normal sign-in.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+
+  let pending = true;
+  const calls = mockFetch(t, (url) => {
+    if (url.includes("api.github.com")) {
+      return new Response(JSON.stringify({ login: "testuser", id: 7 }), { status: 200 });
+    }
+    if (url.includes("device%2Fcode")) return new Response(DEVICE_CODE_OK, { status: 200 });
+    if (pending) {
+      pending = false;
+      return new Response(JSON.stringify({ error: "authorization_pending" }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ access_token: "TOKEN1" }), { status: 200 });
+  });
+
+  const mod = await loadAuthMod(BOTH);
+  await mod.startDeviceFlow("CLIENT1");
+
+  const poll = mod.pollDeviceFlow("CLIENT1", "DC1", 1);
+  await pollTick(t); // authorization_pending
+  await pollTick(t); // access_token
+  assert.equal((await poll).token, "TOKEN1");
+
+  const proxied = calls.filter((c) => !c.url.includes("api.github.com"));
+  assert.ok(proxied.length >= 3, "device code plus two polls should all be proxied");
+  assert.ok(
+    proxied.every((c) => c.url.startsWith(PRIMARY)),
+    "every proxied call should have stayed on the healthy primary",
+  );
+});
+
+test("polling sticks to the proxy that worked, instead of re-paying for a dead one", async (t) => {
+  // Without this the dead primary is retried on every single poll tick, which
+  // doubles the request count and adds its timeout to each one.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+
+  const calls = mockFetch(t, (url) => {
+    if (url.includes("api.github.com")) {
+      return new Response(JSON.stringify({ login: "testuser", id: 7 }), { status: 200 });
+    }
+    if (url.startsWith(PRIMARY)) return new Response("nope", { status: 401 });
+    if (url.includes("device%2Fcode")) return new Response(DEVICE_CODE_OK, { status: 200 });
+    return new Response(JSON.stringify({ access_token: "TOKEN1" }), { status: 200 });
+  });
+
+  const mod = await loadAuthMod(BOTH);
+  await mod.startDeviceFlow("CLIENT1"); // primary 401s, fallback answers
+
+  const before = calls.length;
+  const poll = mod.pollDeviceFlow("CLIENT1", "DC1", 1);
+  await pollTick(t);
+  await poll;
+
+  const pollCalls = calls.slice(before).filter((c) => !c.url.includes("api.github.com"));
+  assert.ok(pollCalls.length > 0, "the poll must have issued a proxied request");
+  assert.ok(
+    pollCalls[0].url.startsWith(FALLBACK),
+    "the first poll should go straight to the proxy that answered, not back to the dead one",
+  );
+});

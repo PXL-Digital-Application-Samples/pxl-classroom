@@ -16,14 +16,23 @@
 // Route the two device-flow endpoints through a CORS proxy. api.github.com
 // does support CORS and is called directly.
 //
-// Default: corsproxy.io. Override via VITE_CORS_PROXY_URL at build time.
+// TWO proxies, tried in order, and the second one is OURS. That is not
+// over-engineering. On 2026-08-28 corsproxy.io withdrew its free tier and began
+// answering `401 {"error":"A valid API key is required"}` to everything, which
+// took sign-in down for every lecturer and every student. The obvious recovery -
+// point the setting at a different public proxy - was then measured and DOES NOT
+// EXIST: allorigins, thingproxy and codetabs each silently issue a GET and hand
+// back GitHub's HTML sign-in page. So the fallback has to be one nobody can
+// withdraw, and it is `cors-worker/worker.js`, a PXL-owned Cloudflare Worker.
+// Failing over costs one request; being down costs a lecture.
+//
 // Threat model: the proxy operator sees device_code + access_token in transit.
 // Student tokens can only open an issue on a public broker (8h lifetime, instant
 // revoke at github.com/settings/applications). Lecturer tokens additionally
 // permit reading the org's control repo. See ARCHITECTURE.md §10.2.
 import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 
-// The target URL is appended, so the proxy must end at the parameter that takes
+// The target URL is appended, so a proxy must end at the parameter that takes
 // it. Three spellings are accepted, and the second is why this is not a single
 // `endsWith('?url=')`:
 //
@@ -31,26 +40,130 @@ import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 //   https://proxy.example/?key=abc&url=    a proxy that also wants an API key
 //   https://proxy.example/?                shorthand; `url=` is appended
 //
-// corsproxy.io's free tier was withdrawn on 2026-08-28 and every request now
-// answers `401 {"error":"A valid API key is required"}`, which took sign-in
-// down for everyone. A keyed URL ends `&url=`, so the old check rejected
-// exactly the value needed to fix it.
-//
-// AND IT MUST NOT THROW HERE. This is module scope in a file the whole SPA
+// A keyed URL ends `&url=`, so the check that predated the outage rejected
+// exactly the value needed to recover from it.
+function normalizeProxy(value) {
+  let url = (value || '').trim()
+  if (!url) return null // absent is "not configured", which is not an error
+  if (url.endsWith('?')) url += 'url='
+  return { url, usable: /[?&]url=$/.test(url) }
+}
+
+// AND NONE OF THIS MAY THROW. This is module scope in a file the whole SPA
 // imports, so a throw is a blank page with nothing on it - the `localToUtc`
 // mistake in the worst possible place. A misconfigured proxy is recorded and
 // reported when sign-in is attempted, where there is somewhere to show it.
-let CORS_PROXY = import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url='
-let corsProxyError = null
-if (CORS_PROXY.endsWith('?')) CORS_PROXY += 'url='
-else if (!/[?&]url=$/.test(CORS_PROXY)) {
-  corsProxyError =
-    `This deployment's CORS proxy is misconfigured: VITE_CORS_PROXY_URL must end in "?url=", ` +
-    `"&url=" or "?" so the target can be appended. See ARCHITECTURE.md §10.2.`
-}
-const GITHUB_DEVICE_CODE_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/device/code')}`
-const GITHUB_TOKEN_URL = `${CORS_PROXY}${encodeURIComponent('https://github.com/login/oauth/access_token')}`
+const PROXIES = [
+  import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url=',
+  import.meta.env.VITE_CORS_PROXY_FALLBACK_URL || '',
+]
+  .map(normalizeProxy)
+  .filter(Boolean)
+
+// One unusable entry is SKIPPED, not fatal: surviving a proxy going wrong is the
+// entire point, and a typo in the fallback must not take working sign-in down
+// with it. It is only a configuration error when nothing usable is left.
+const USABLE_PROXIES = PROXIES.filter((p) => p.usable)
+const corsProxyError =
+  USABLE_PROXIES.length > 0
+    ? null
+    : `This deployment's CORS proxy is misconfigured: VITE_CORS_PROXY_URL must end in "?url=", ` +
+      `"&url=" or "?" so the target can be appended. See ARCHITECTURE.md §10.2.`
+
+// Targets, not proxied URLs - proxiedPost() appends them to whichever proxy it
+// is trying.
+const DEVICE_CODE_TARGET = 'https://github.com/login/device/code'
+const TOKEN_TARGET = 'https://github.com/login/oauth/access_token'
 const GITHUB_API_BASE = 'https://api.github.com' // API supports CORS directly
+
+// GitHub's documented device-flow error codes. This is an ALLOWLIST and has to
+// be, because a proxy failure and a GitHub refusal can both be JSON carrying an
+// `error` field - corsproxy.io's withdrawal reply was `{"error":"A valid API key
+// is required"}`, which is well-formed JSON that GitHub would never send. An
+// unrecognised code fails over rather than being reported as GitHub's answer:
+// trying the other proxy and then quoting the reply is recoverable, whereas
+// showing a student a proxy's billing error as an authorization failure is not.
+const OAUTH_ERRORS = new Set([
+  'authorization_pending',
+  'slow_down',
+  'expired_token',
+  'access_denied',
+  'unsupported_grant_type',
+  'incorrect_client_credentials',
+  'incorrect_device_code',
+  'device_flow_disabled',
+])
+
+const isDeviceCodeReply = (d) => typeof d?.device_code === 'string'
+const isTokenReply = (d) => typeof d?.access_token === 'string' || OAUTH_ERRORS.has(d?.error)
+
+// Whichever proxy answered last. A dead primary is then paid for once per
+// sign-in rather than on every poll tick.
+let preferredProxy = 0
+
+/**
+ * POST to a device-flow endpoint through the first proxy that actually works.
+ *
+ * `accept` decides whether a reply came from GitHub or from a broken proxy.
+ * Anything it rejects - a 401 billing notice, an HTML page served with HTTP 200
+ * (the failure mode of every GET-only proxy) - counts as this proxy being
+ * broken, and the next one is tried.
+ */
+async function proxiedPost(target, body, accept, { timeoutMs, signal } = {}) {
+  // Reported here rather than thrown at import, so a misconfigured deployment
+  // shows a sentence in the sign-in card instead of a blank page.
+  if (corsProxyError) throw new Error(corsProxyError)
+
+  let last = null
+  for (let i = 0; i < USABLE_PROXIES.length; i++) {
+    const idx = (preferredProxy + i) % USABLE_PROXIES.length
+    let res
+    try {
+      res = await fetchWithTimeout(
+        `${USABLE_PROXIES[idx].url}${encodeURIComponent(target)}`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        { timeoutMs, signal },
+      )
+    } catch (err) {
+      if (signal?.aborted) throw err
+      last = err
+      continue
+    }
+
+    let text = ''
+    try {
+      text = await res.text()
+    } catch {
+      text = ''
+    }
+    let data = null
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = null
+    }
+
+    if (accept(data)) {
+      preferredProxy = idx
+      return data
+    }
+    // Keep what it actually said. "Sign-in is broken" is not a diagnosis, and a
+    // bad client_id reaches here as GitHub's own 404 rather than a proxy fault.
+    last = new Error(`HTTP ${res.status} ${text.slice(0, 120).replace(/\s+/g, ' ').trim()}`)
+  }
+
+  // Every proxy timed out. Polling is itself the retry, so hand the timeout back
+  // intact and let the caller decide rather than ending sign-in over a slow tick.
+  if (last instanceof HttpTimeoutError) throw last
+  throw new Error(
+    `Sign-in could not reach GitHub through any CORS proxy (${USABLE_PROXIES.length} tried). ` +
+      `Last reply: ${last?.message || 'none'}`,
+  )
+}
 
 // State
 let _token = null
@@ -137,29 +250,14 @@ export function clearAuth() {
 const DEVICE_CODE_TIMEOUT_MS = 10000
 
 export async function startDeviceFlow(clientId, scope = 'user:email') {
-  // Reported here rather than thrown at import, so a misconfigured deployment
-  // shows a sentence in the sign-in card instead of a blank page.
-  if (corsProxyError) throw new Error(corsProxyError)
-
   const body = { client_id: clientId }
   if (scope) body.scope = scope
   // A POST, but a safe one to bound: it only mints a device code, and a code
   // we never showed the user simply expires unused. Left unbounded, a stalled
   // request means a spinner and no code to type - nothing the user can act on.
-  const res = await fetchWithTimeout(GITHUB_DEVICE_CODE_URL, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  }, { timeoutMs: DEVICE_CODE_TIMEOUT_MS })
-
-  if (!res.ok) {
-    throw new Error(`Device code request failed: HTTP ${res.status}`)
-  }
-
-  return await res.json()
+  return await proxiedPost(DEVICE_CODE_TARGET, body, isDeviceCodeReply, {
+    timeoutMs: DEVICE_CODE_TIMEOUT_MS,
+  })
 }
 
 /**
@@ -187,20 +285,18 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
     // a hung request stranded sign-in forever - `signal` was only checked at
     // the top of the loop and was never attached to the request, so Cancel did
     // nothing until the fetch resolved on its own.
-    let res
+    let data
     try {
-      res = await fetchWithTimeout(GITHUB_TOKEN_URL, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      data = await proxiedPost(
+        TOKEN_TARGET,
+        {
           client_id: clientId,
           device_code: deviceCode,
           grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        }),
-      }, { timeoutMs: POLL_TIMEOUT_MS, signal })
+        },
+        isTokenReply,
+        { timeoutMs: POLL_TIMEOUT_MS, signal },
+      )
     } catch (err) {
       if (signal?.aborted) throw new Error('Cancelled')
       // A slow tick is not a failed sign-in - the user may still be on the
@@ -208,8 +304,6 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
       if (err instanceof HttpTimeoutError) continue
       throw err
     }
-
-    const data = await res.json()
 
     if (data.access_token) {
       // Success - fetch user info

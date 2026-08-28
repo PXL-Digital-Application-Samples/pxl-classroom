@@ -102,6 +102,19 @@ export default [
     languageOptions: { globals: { ...globals.node } },
   },
 
+  // The device-flow CORS proxy Worker. Not Node and not the SPA - it runs on
+  // Cloudflare's edge runtime, whose surface here is plain web platform
+  // (fetch/Request/Response/URL). Without this block it lands on the bare
+  // recommended config with no globals and every one of those is a no-undef.
+  {
+    files: ['cors-worker/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.browser },
+    },
+  },
+
   // Tests: node:test globals plus Playwright's browser evaluate() callbacks,
   // whose bodies run in the page and legitimately use DOM globals.
   {

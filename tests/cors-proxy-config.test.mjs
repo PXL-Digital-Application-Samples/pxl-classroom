@@ -1,4 +1,4 @@
-// The device-flow proxy setting, and why it must not throw.
+// The device-flow proxy setting, why it must not throw, and why there are two.
 //
 // github.com/login/device/code and /login/oauth/access_token send no CORS
 // headers, so a browser cannot call them directly and both are routed through
@@ -16,6 +16,12 @@
 // page with nothing written on it - the localToUtc mistake in the worst
 // possible place. It is recorded now and reported when someone tries to sign
 // in, where there is a card to show it in.
+//
+// The third half is why a fallback exists at all. The recovery everyone assumes
+// is available - point the setting at a different public proxy - was measured
+// and does not exist: allorigins, thingproxy and codetabs each silently issue a
+// GET and return GitHub's HTML sign-in page. So the fallback is a PXL-owned
+// Cloudflare Worker (cors-worker/), and the pair is ordered rather than a set.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -24,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const AUTH = join(root, "frontend", "src", "lib", "auth.js");
+const DEPLOY = join(root, ".github", "workflows", "deploy-frontend.yml");
 
 /** The module's own normalise-and-validate, applied to a candidate setting. */
 function accepts(value) {
@@ -54,8 +61,8 @@ test("a setting the target cannot be appended to is refused", () => {
 
 test("the module does not throw at import over a bad setting", () => {
   const src = readFileSync(AUTH, "utf8");
-  const at = src.indexOf("let CORS_PROXY =");
-  assert.ok(at > 0, "the proxy setting must still be read here");
+  const at = src.indexOf("function normalizeProxy(");
+  assert.ok(at > 0, "the proxy setting must still be normalised here");
   const block = src.slice(at, src.indexOf("const GITHUB_API_BASE", at));
 
   assert.ok(
@@ -66,14 +73,22 @@ test("the module does not throw at import over a bad setting", () => {
   assert.match(block, /\[\?&\]url=\$/, "and both ?url= and &url= accepted");
 });
 
-test("the recorded problem is surfaced when sign-in is attempted", () => {
+test("the recorded problem is surfaced before any request is attempted", () => {
+  // It moved out of startDeviceFlow when polling gained the same failover path,
+  // but it still has to fire before the first fetch - otherwise a misconfigured
+  // deployment reports a CORS error instead of the sentence naming the cause.
   const src = readFileSync(AUTH, "utf8");
-  const fn = src.slice(src.indexOf("export async function startDeviceFlow"));
+  const fn = src.slice(src.indexOf("async function proxiedPost"));
   const body = fn.slice(0, fn.indexOf("\n}"));
+
   assert.match(
     body,
     /if \(corsProxyError\) throw new Error\(corsProxyError\)/,
-    "startDeviceFlow must fail with the configuration message rather than a CORS error",
+    "proxiedPost must fail with the configuration message rather than a CORS error",
+  );
+  assert.ok(
+    body.indexOf("corsProxyError") < body.indexOf("fetchWithTimeout"),
+    "the configuration check must precede the first request",
   );
 });
 
@@ -83,4 +98,76 @@ test("the validation lives in one place", () => {
   const src = readFileSync(AUTH, "utf8");
   const checks = [...src.matchAll(/\[\?&\]url=\$/g)].length;
   assert.equal(checks, 1, "expected exactly one place that decides whether the setting is usable");
+});
+
+test("the proxies are an ORDERED pair, primary first", () => {
+  // Order is the whole design: corsproxy.io is primary and the Worker is the
+  // fallback. A set, or a reversed pair, silently routes every sign-in through
+  // the fallback and nobody would notice until its own free tier mattered.
+  const src = readFileSync(AUTH, "utf8");
+  const at = src.indexOf("const PROXIES = [");
+  assert.ok(at > 0, "the proxy list must still be built here");
+  const list = src.slice(at, src.indexOf("]", at));
+
+  const primary = list.indexOf("VITE_CORS_PROXY_URL");
+  const fallback = list.indexOf("VITE_CORS_PROXY_FALLBACK_URL");
+  assert.ok(primary > 0, "the primary setting must be read");
+  assert.ok(fallback > 0, "the fallback setting must be read");
+  assert.ok(primary < fallback, "the primary must come first in the list");
+});
+
+test("an unusable entry is skipped, not fatal", () => {
+  // A typo in the fallback must not take working sign-in down with it - that is
+  // the opposite of what a fallback is for.
+  const src = readFileSync(AUTH, "utf8");
+  assert.match(
+    src,
+    /const USABLE_PROXIES = PROXIES\.filter\(/,
+    "unusable entries must be filtered out rather than raising a configuration error",
+  );
+  assert.match(
+    src,
+    /USABLE_PROXIES\.length > 0\s*\n?\s*\? null/,
+    "it is only a configuration error when NOTHING usable is left",
+  );
+});
+
+test("the fallback secret is actually passed by the deploy workflow", () => {
+  // This is the claim-keys bug, one setting over: the SPA bakes the value in at
+  // build time, so a fallback the build reads and the workflow never passes is
+  // a fallback that ships to main and reaches nobody - discovered only when the
+  // primary fails and the fallback turns out not to exist.
+  const src = readFileSync(AUTH, "utf8");
+  const deploy = readFileSync(DEPLOY, "utf8");
+
+  const read = [...src.matchAll(/import\.meta\.env\.(VITE_[A-Z0-9_]+)/g)].map((m) => m[1]);
+  assert.ok(read.includes("VITE_CORS_PROXY_FALLBACK_URL"), "auth.js must read the fallback setting");
+
+  for (const name of new Set(read)) {
+    assert.match(
+      deploy,
+      new RegExp(`^\\s*${name}:\\s*\\$\\{\\{\\s*secrets\\.${name}\\s*\\}\\}`, "m"),
+      `${name} is baked in at build time, so deploy-frontend.yml must pass it`,
+    );
+  }
+});
+
+test("a proxy failure is told apart from GitHub refusing", () => {
+  // Both are JSON with an `error` field - corsproxy.io's withdrawal reply was
+  // `{"error":"A valid API key is required"}`. Accepting any `error` as GitHub's
+  // answer would report a proxy's billing notice to a student as an
+  // authorization failure, and would never fail over.
+  const src = readFileSync(AUTH, "utf8");
+  const at = src.indexOf("const OAUTH_ERRORS = new Set(");
+  assert.ok(at > 0, "the allowlist of GitHub's own device-flow error codes must exist");
+  const set = src.slice(at, src.indexOf(")", at));
+
+  for (const code of ["authorization_pending", "slow_down", "expired_token", "access_denied"]) {
+    assert.ok(set.includes(code), `${code} is a real GitHub device-flow code and must be accepted`);
+  }
+  assert.match(
+    src,
+    /OAUTH_ERRORS\.has\(/,
+    "the token reply check must consult the allowlist rather than any truthy error",
+  );
 });

@@ -56,7 +56,8 @@ In `pxl-classroom` -> Settings -> Secrets and variables -> Actions:
 | `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token` - the older `app-id` input is deprecated. |
 | `PXL_APP_PRIVATE_KEY` | full PEM body from §1.2, including BEGIN/END lines |
 | `VITE_GITHUB_CLIENT_ID` | Same Client ID as `PXL_APP_CLIENT_ID`; used at SPA build time to wire the device flow. |
-| `VITE_CORS_PROXY_URL` | Optional. Defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. MUST end in `?url=` or `?` (`?` is auto-rewritten to `?url=`); anything else throws at SPA init. |
+| `VITE_CORS_PROXY_URL` | Optional. Primary device-flow proxy; defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. MUST end in `?url=`, `&url=` (a keyed proxy) or `?` (auto-rewritten). An unusable value is skipped rather than fatal, and is reported in the sign-in card - it does **not** throw at SPA init, which used to mean a blank page. |
+| `VITE_CORS_PROXY_FALLBACK_URL` | Optional but strongly recommended. The PXL-owned Cloudflare Worker used when the primary fails. Same `?url=` form. See §1.9. Without it, sign-in has a single point of failure with no substitute available - see the note there. |
 | `PXL_INVITE_SIGNING_KEY` | Ed25519 private key that signs invitation tokens. See §1.3.1. `publish-assignment.yml` fails closed without it. |
 | `PXL_CLAIM_PRIVATE_KEY` | **Environment** secret on `provisioning` (no repository-level copy). ECDH P-256 private key that decrypts a student's claimed email address. See §1.3.2. |
 
@@ -231,6 +232,32 @@ gh api /app/installations
 ### 1.8 SPA directory structure
 
 Do not move `frontend/` to a subdirectory without updating `frontend/vite.config.js` `server.fs.allow` - `lib/dashboard-aggregate.mjs` is imported from outside the SPA root.
+
+### 1.9 Device-flow CORS proxy, and its fallback
+
+`github.com/login/device/code` and `github.com/login/oauth/access_token` send **no CORS headers at all** - measured 2026-08-28, a 200 response carries zero `access-control-*` headers, and GitHub's OAuth documentation states that "CORS pre-flight requests (OPTIONS) are not supported at this time". A browser therefore cannot call them directly. The proxy is structural and permanent, not a workaround. `api.github.com` is CORS-friendly and is called directly, so **only sign-in depends on this.**
+
+> [!WARNING]
+> **There is no substitute proxy to switch to in an emergency.** On 2026-08-28 corsproxy.io withdrew its free tier and answered `401 {"error":"A valid API key is required"}` to everything; sign-in went down for every lecturer and every student. The obvious recovery - point `VITE_CORS_PROXY_URL` at another public proxy - was then measured and does not work: allorigins, thingproxy and codetabs each silently issue a **GET** and return GitHub's HTML sign-in page (HTTP 200, wrong method, unparseable body). Do not plan on finding one under pressure.
+
+The SPA therefore tries **two** proxies in order: the primary (`VITE_CORS_PROXY_URL`, corsproxy.io) and then a PXL-owned Cloudflare Worker (`VITE_CORS_PROXY_FALLBACK_URL`), which nobody outside PXL can withdraw. Failover is automatic and needs no redeploy.
+
+**Deploy the Worker:** follow [`cors-worker/README.md`](cors-worker/README.md). Free plan, no credit card, no domain; about ten minutes, once. Both values are **baked into the bundle at build time**, so the fallback does not exist until `deploy-frontend.yml` has run after the secret was set.
+
+**Record the account owner here.** The Worker lives in whichever Cloudflare account deployed it. If that account is lost the fallback silently stops existing, and nobody finds out until the primary fails and the fallback turns out not to be there either. Use an account tied to a PXL address that more than one person can reach.
+
+| | |
+|---|---|
+| Cloudflare account | _record the owning account here_ |
+| Worker URL | _record the `*.workers.dev` URL here_ |
+
+**Diagnosing it:** `curl` alone gets a 403 from both proxies - corsproxy.io sits behind Cloudflare bot protection, and the Worker enforces an `Origin` allowlist. That is them working, not an outage. Send a browser-shaped request before concluding anything:
+
+```bash
+curl -s -X POST "https://corsproxy.io/?key=<key>&url=https%3A%2F%2Fgithub.com%2Flogin%2Fdevice%2Fcode" -H "Origin: https://pxl-digital-application-samples.github.io" -H "Referer: https://pxl-digital-application-samples.github.io/" -H "User-Agent: Mozilla/5.0" -H "Content-Type: application/json" -d '{"client_id":"Iv23li0H0Je93H2FkMPW","scope":"user:email"}'
+```
+
+A `device_code` comes back. It is unused and expires in 15 minutes; nothing needs cleaning up.
 
 System is now ready to onboard the first organization.
 
@@ -864,7 +891,7 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
 - [ ] `gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection` matches §1.5: force-pushes and deletions blocked (incl. admins), no PR/status-check requirements.
 - [ ] No `.github/workflows/` directory exists in any `<org>/pxl-classroom-control` repo.
-- [ ] `git grep corsproxy.io` in `frontend/src/` returns no matches.
+- [ ] The two device-flow URLs are never fetched outside the proxy helper - `git grep "github.com/login" frontend/src/` shows them only as the `DEVICE_CODE_TARGET` / `TOKEN_TARGET` constants `proxiedPost` appends to a proxy. (This item used to read "`git grep corsproxy.io` in `frontend/src/` returns no matches", which could never pass: `auth.js` has always carried the default proxy. `tests/cors.test.mjs` and `tests/cors-proxy-config.test.mjs` cover the real invariant.)
 - [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).
 - [ ] Each participating org has `budget_owner_login` set in `participating-orgs.yml`.
 - [ ] App permissions include `organization_administration: read` and System Health reports **Enhanced Billing Usage API** healthy.

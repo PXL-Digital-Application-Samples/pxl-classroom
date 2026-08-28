@@ -808,11 +808,18 @@ The App needs the following permissions. Eight repository permissions and Organi
 | `issues: write` | Yes | Students open the acceptance issue carrying their signed invitation on the public broker (§4.3.2). |
 | `email addresses: read` (account) | No (optional) | Read student verified primary email upon acceptance/login. |
 
-**A CORS proxy is required.** `github.com/login/device/code` and `github.com/login/oauth/access_token` do not send CORS headers (confirmed via GitHub docs + community). A browser cannot call them directly - every attempted fetch fails with a CORS preflight error. The two endpoints are routed through a configurable proxy:
+**A CORS proxy is required, permanently.** `github.com/login/device/code` and `github.com/login/oauth/access_token` send no CORS headers - measured 2026-08-28, a **200** response carries zero `access-control-*` headers, and GitHub's OAuth documentation states that "CORS pre-flight requests (OPTIONS) are not supported at this time". Since the SPA sends `Content-Type: application/json` a preflight is mandatory, so a browser can never call these two directly. This is structural, not a workaround, and only sign-in depends on it - `api.github.com` is CORS-friendly and is called directly.
+
+**Two proxies, tried in order.** The pair is ordered, not a set: the primary is corsproxy.io and the fallback is a PXL-owned Cloudflare Worker (`cors-worker/worker.js`). The fallback exists because the recovery everyone assumes is available turns out not to be - when corsproxy.io withdrew its free tier on 2026-08-28 and 401'd everything, pointing the setting at another public proxy was measured and **does not work**: allorigins, thingproxy and codetabs each silently issue a GET and return GitHub's HTML sign-in page. There is no third-party substitute, so the fallback has to be one nobody can withdraw. Failover is automatic and needs no redeploy.
 
 | Setting | Default | Override |
 |---|---|---|
-| `VITE_CORS_PROXY_URL` | `https://corsproxy.io/?url=` | Set a hub repo secret of the same name; `deploy-frontend.yml` picks it up at build time. MUST end in `?url=` or `?`. |
+| `VITE_CORS_PROXY_URL` | `https://corsproxy.io/?url=` | Primary. Hub repo secret of the same name; `deploy-frontend.yml` bakes it in at build time. MUST end in `?url=`, `&url=` (a keyed proxy) or `?`. |
+| `VITE_CORS_PROXY_FALLBACK_URL` | *(none)* | Fallback, tried when the primary fails. Same form. Deployed per RUNBOOK §1.9. Absent means no fallback exists. |
+
+An unusable setting is **skipped, not fatal** - a typo in the fallback must not take working sign-in down with it - and it is only a configuration error when nothing usable remains. Neither is validated by throwing at module scope: that file is imported by the whole SPA, so a throw is a blank page with nothing written on it.
+
+**Telling a broken proxy from GitHub refusing** is the load-bearing distinction, because both arrive as JSON with an `error` field - corsproxy.io's withdrawal reply was `{"error":"A valid API key is required"}`. A reply is accepted only if it carries `device_code`/`access_token` or an error code on GitHub's own documented device-flow allowlist; anything else, including an HTML page served with HTTP 200, counts as that proxy being broken and the next one is tried. An unrecognised code fails over rather than being reported as GitHub's answer, because quoting the reply after trying both is recoverable whereas showing a student a proxy's billing error as an authorization failure is not.
 
 **Threat model accepted for v1.** The proxy operator sees the `device_code` and `access_token` in transit at sign-in (not subsequent API calls - those go directly to `api.github.com`, which is CORS-friendly). A compromised proxy operator can therefore *replay* lecturer tokens harvested during the breach window; they cannot intercept any subsequent traffic.
 
@@ -820,9 +827,9 @@ What a leaked lecturer token grants: the intersection of the table above with th
 
 Student tokens, which grant only issue creation on public repositories and email read at OAuth time, remain essentially harmless (worst case: opening issues on the student's behalf for ≤ 8 hours - and on a broker those are rejected without a valid invitation).
 
-For PXL's classroom threat model, this is acceptable. If the deployment ever handles higher-value data (e.g. graded assignments worth credit transferable to another institution), swap the proxy to a self-hosted one or a Cloudflare Worker - both are drop-in replacements via `VITE_CORS_PROXY_URL`.
+For PXL's classroom threat model, this is acceptable. A deployment handling higher-value data (e.g. graded assignments worth credit transferable to another institution) should make the PXL-owned Worker the **primary** rather than the fallback, which removes the third party from the token path entirely - it is a secret change, not a code change, since the Worker speaks the same `?url=` interface.
 
-A regression guard test (`tests/cors.test.mjs`) fails CI if `auth.js` ever directly fetches `github.com/login/*` without going through the proxy variable - exactly the regression that broke production once already.
+`tests/cors.test.mjs` and `tests/cors-proxy-config.test.mjs` pin the behaviour: the 2026-08-28 outage replayed end to end, a 200-with-HTML rejected, `authorization_pending` **not** treated as a proxy fault, polling staying on whichever proxy answered, and - the claim-keys bug one setting over - `deploy-frontend.yml` actually passing every `VITE_*` value `auth.js` reads, since a fallback the build reads and the workflow never passes is one that ships to `main` and reaches nobody.
 
 ### 10.3 Data sources
 
