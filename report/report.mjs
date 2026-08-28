@@ -621,6 +621,42 @@ async function main() {
     dashboard = await readJsonSafe(dashboardPath) || dashboard;
   }
   dashboard.assignments[assignmentId] = buildDashboardEntry(assignment, students);
+
+  // Drop entries whose assignment no longer exists.
+  //
+  // This file was APPEND-ONLY: every run added or updated the entry for its own
+  // assignment and nothing ever removed one. Delete an assignment and its card
+  // stayed on the lecturer's dashboard for ever, linking to a detail page whose
+  // YAML and report both 404 - which is exactly what happened to
+  // `phasea-live-sysex` in PXL-Systems-Expert, and it took the page down before
+  // the view learned to guard itself.
+  //
+  // UNREADABLE IS NOT EVIDENCE. Only a directory we could actually list is
+  // grounds for deciding an assignment is gone; if the read fails, every entry
+  // is left alone. Removing a live cohort's card because a listing hiccuped
+  // would be far worse than the stale card this fixes.
+  let onDisk = null;
+  try {
+    onDisk = new Set(
+      (await readdir(join(dataDir, "assignments")))
+        .filter((f) => /\.ya?ml$/.test(f))
+        .map((f) => f.replace(/\.ya?ml$/, ""))
+    );
+  } catch (e) {
+    console.error(`[warn] could not list assignments/, leaving dashboard entries untouched: ${e.message}`);
+  }
+  if (onDisk && onDisk.size > 0) {
+    for (const id of Object.keys(dashboard.assignments)) {
+      // Never the assignment this run just generated - it is on disk by
+      // definition, and a rename mid-run must not delete the entry just written.
+      if (id === assignmentId) continue;
+      if (!onDisk.has(id)) {
+        delete dashboard.assignments[id];
+        console.error(`[ok] pruned dashboard entry for ${id} - assignments/${id}.yml no longer exists`);
+      }
+    }
+  }
+
   dashboard.generated_at = new Date().toISOString();
   await writeFile(dashboardPath, JSON.stringify(dashboard, null, 2) + "\n");
 
