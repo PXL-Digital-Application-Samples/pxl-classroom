@@ -56,8 +56,16 @@
            invitation link was the one moment the page hid it (ARCHITECTURE §10.1.1).
            An absent report is now an empty one, and only the table swaps. -->
 
-      <!-- Report loaded -->
-      <div v-else class="report-content fade-in">
+      <!-- Report loaded.
+           `v-else-if="report"`, NOT a bare `v-else`. Everything below
+           dereferences `report.students` directly, so any path that finishes
+           with report still null rendered this block and threw
+           `TypeError: can't access property "students"` - a blank page in
+           production. There is more than one such path: an expired token
+           (isAuthenticated() true, getToken() null) and an unreadable
+           assignment YAML both leave it null. Guarding on the thing the block
+           actually reads closes the class rather than the instance. -->
+      <div v-else-if="report" class="report-content fade-in">
         <!-- Post-Deadline Preservation Summary Banner -->
         <!-- `report.students.length`, not just `report`: an absent report is
              now an empty one, and "Preservation Pending 0/0" for an assignment
@@ -861,6 +869,19 @@
             </ul>
           </div>
         </section>
+      </div>
+
+      <!-- Nothing loaded, and no error to show for it. Reached when a path
+           finishes with `report` still null without recording why - an expired
+           token being the one that produced a blank page in production. Says so
+           rather than rendering nothing. -->
+      <div v-else class="center-card fade-in">
+        <h2>Could not load this assignment</h2>
+        <p class="text-secondary">
+          The report for <code>{{ assignmentId }}</code> in <strong>{{ org }}</strong> could not be
+          read. Your session may have expired - sessions last 8 hours.
+        </p>
+        <button class="btn btn-primary" type="button" @click="loadAll">Retry</button>
       </div>
 
       <!-- Per-row action modal -->
@@ -2134,7 +2155,16 @@ function emptyReport() {
 
 async function loadAll() {
   const token = getToken()
-  if (!token) { loading.value = false; return }
+  // A session can be half-present: isAuthenticated() reads the stored user, so
+  // onMounted sets `user` and renders past the AuthCard, while getToken() has
+  // already returned null because the 8-hour token expired. This used to bail
+  // silently - loading false, no error, report null - and the template rendered
+  // its main block over a null report. Say which it is.
+  if (!token) {
+    loadError.value = 'Your session has expired. Sign in again to load this assignment.'
+    loading.value = false
+    return
+  }
   loadError.value = null
   try {
     const [reportContent, assignmentContent, rosterContent] = await Promise.all([
