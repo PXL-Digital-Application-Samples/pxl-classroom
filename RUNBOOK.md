@@ -254,6 +254,17 @@ The SPA therefore tries **two** proxies in order: the primary (`VITE_CORS_PROXY_
 
 Verified live on deployment (2026-08-28): a browser-origin POST returns a real `device_code`; `OPTIONS` answers 204 with the CORS headers; both allowlists refuse by **exact match** - `example.com`, `api.github.com/user` and even the correct target with `?x=1` appended are all 403, as are `evil.example.com` and `pxl-digital-application-samples.github.io.evil.com` (a domain anyone can register, which a suffix check would have admitted - the same trap as `domainAllowed` in §15). A request with no `Origin` at all is refused, `GET` is 405.
 
+**The failover itself was exercised in production on 2026-08-28**, not just unit-tested. The primary was pointed at the **unkeyed** `https://corsproxy.io/?url=`, which is not a simulation - it is still live and still returns the exact `401 {"error":"A valid API key is required..."}` that caused the outage. With that deployed, a real browser sign-in produced:
+
+```
+corsproxy.io/                       -> THREW: Failed to fetch
+pxl-cors.tom-cool-38e.workers.dev/  -> 200      device code issued
+```
+
+Two things that only running it could show. **In a browser the 401 never arrives as a 401**: corsproxy's error response carries no CORS headers, so the browser blocks reading it and the SPA sees a network error - the failover therefore fires through `proxiedPost`'s catch, not through its `accept` check. The unit tests cover the parseable-401 path; reality takes the throw path, and both must keep working. And **a cached bundle keeps the old proxy list**: immediately after the rollback deploy a tab still holding the previous `index-*.js` went on using the broken primary, which reads exactly like a failed rollback. Confirm a proxy change against a **cache-busted** load (`/?cb=<something>`) and check which `index-*.js` the page actually fetched before concluding anything.
+
+Rollback took 2 minutes (17:00Z break -> 17:03Z restored) and was verified the same way: restored bundle, one call, keyed primary 200, fallback not touched. Note that sign-in **kept working throughout the broken window** - that is what the fallback is for.
+
 **Diagnosing it:** `curl` alone gets a 403 from both proxies - corsproxy.io sits behind Cloudflare bot protection, and the Worker enforces an `Origin` allowlist. That is them working, not an outage. Send a browser-shaped request before concluding anything:
 
 ```bash
