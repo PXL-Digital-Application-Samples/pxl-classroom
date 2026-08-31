@@ -776,12 +776,26 @@ Step 2 alone never works if step 1 was skipped: an org owner can only approve pe
 
 Measured on 2026-08-31, five had accumulated unseen:
 
-| Permission | Declared | Why it is excess |
+The App's permissions page has four collapsible sections, and **which section a permission lives in decides who has to approve a change and where you click**. Measured on the live App:
+
+| Section | Count | Contains |
 |---|---|---|
-| `members` | write | `roster_mode: org_member` was removed on 2026-08-27; nothing reads membership. `write` also *adds and removes org members*. |
-| `starring` | write | Acceptance stopped starring the broker at §4.3.2. Nothing in the codebase stars anything. |
-| `organization_administration` | write | The manifest asks for **read** - Enhanced Billing only needs read. |
-| `plan`, `organization_plan` | read | No caller found. |
+| Repository permissions | 9 + 1 mandatory | `actions`, `actions_variables`, `administration`, `checks`, `contents`, `issues`, `pull_requests`, `secrets`, `workflows` (+ `metadata`, mandatory, cannot be removed) |
+| Organization permissions | 3 | `members`, `organization_administration`, `organization_plan` |
+| Account permissions | 3 | `emails`, `plan`, `starring` |
+
+> [!CAUTION]
+> **"Administration" is a label in BOTH the Repository and Organization sections, and they are different permissions.** Repository → Administration (`administration: write`) is what creates student repositories and manages collaborators - **breaking it breaks provisioning for every cohort**. Organization → Administration (`organization_administration`) is the billing one, and is the one to downgrade. Check which section you are in before touching anything labelled Administration.
+
+| Permission | Section | Live | Action | Why |
+|---|---|---|---|---|
+| `members` | Organization | write | **→ read** | *Not* dead - `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and therefore cannot be frozen at a deadline. Listing needs read; `write` additionally **adds and removes organization members**. |
+| `organization_administration` | Organization | write | **→ read** | Enhanced Billing (`/organizations/{id}/settings/billing/usage`) needs read. `write` is org settings. |
+| `organization_plan` | Organization | read | **remove** | No caller. |
+| `plan` | Account | read | **remove** | No caller. |
+| `starring` | Account | write | **remove** | Acceptance stopped starring the broker at §4.3.2; nothing in the codebase stars anything. |
+
+The first pass of this review called `members` dead and was **wrong** - deleting `roster_mode: org_member` removed the *enrolment* use, not the *diagnostic* one. Dropping it would have turned a Tier 3 check into "no owner list readable", which by its own rule yields **no check at all** rather than a red one - a control that silently stops existing. Verify against the code before removing a permission, not against the changelog.
 
 Fix in **one** of two ways, and both are legitimate:
 
