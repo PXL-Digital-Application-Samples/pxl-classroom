@@ -146,22 +146,28 @@ An owner installs the App there with access to **All repositories**, then runs *
 graph LR
     Hub[pxl-classroom<br/>PUBLIC Hub<br/>Workflows, SPA, Actions, CLI]
     Control[org/pxl-classroom-control<br/>PRIVATE Data Only<br/>Assignments, Rosters, Reports]
-    Archive[org/pxl-classroom-archive-assignment<br/>PRIVATE Archive, 1 per assignment<br/>Preserved SHAs]
-    Broker[broker-assignment<br/>PUBLIC Dispatcher]
+    Archive["org/pxl-classroom-archive-&lt;assignment-id&gt;<br/>PRIVATE Archive, 1 per assignment<br/>Preserved SHAs"]
+    Broker["broker-&lt;assignment-id&gt;<br/>PUBLIC Dispatcher"]
+    StudentRepo["org/&lt;assignment&gt;-&lt;login&gt;<br/>PRIVATE, student is Admin"]
     SPA[GitHub Pages SPA]
     CLI[pxl-classroom CLI]
 
     Student[Student] -->|Invitation link| SPA
     SPA -->|Assertion signed in the browser| Broker
     Broker -->|Verify signature, then dispatch| Hub
+    Hub -->|Creates from template| StudentRepo
+    Hub -->|Preserves at the deadline| Archive
     Hub --> Control
-    Hub --> Archive
+    Hub -.Deploys.-> SPA
+    Student -.Works in.-> StudentRepo
     Lecturer[Lecturer] --> SPA
     Lecturer --> CLI
     SPA -.Reads/Writes.-> Control
     CLI -.Reads/Writes.-> Control
     CLI -.Clones.-> Archive
 ```
+
+This is the request flow. The two GitHub Apps are deliberately not drawn here — which credential does what, and why the broker holds its own, is [ARCHITECTURE §3.2](ARCHITECTURE.md) and [§4.3.0](ARCHITECTURE.md).
 
 ---
 
