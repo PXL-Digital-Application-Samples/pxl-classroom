@@ -78,6 +78,18 @@ inputs:
       red run rather than rejecting students when it is absent.
     required: false
     default: ''
+  claim-private-keys-retired:
+    description: >-
+      Claim private keys being phased out, newline- or comma-separated. Tried
+      after the current one. This is what makes ROTATION possible: the kid never
+      travels with the ciphertext, so without it a new keypair would fail every
+      claim already sealed to the old one - including acceptances already posted
+      and every browser still running a cached bundle - and a decrypt failure
+      sits after the attempt counter, so it would spend real students' attempts
+      too. Drop a key from here once no cached bundle can still be sealing to
+      it. See RUNBOOK §1.3.2.
+    required: false
+    default: ''
 
 outputs:
   assignment_id:
@@ -156,4 +168,5 @@ runs:
         CLAIM_PAYLOAD: ${{ inputs.claim-payload }}
         CLAIM_VERIFIED: ${{ inputs.claim-verified }}
         CLAIM_PRIVATE_KEY: ${{ inputs.claim-private-key }}
+        CLAIM_PRIVATE_KEYS_RETIRED: ${{ inputs.claim-private-keys-retired }}
       run: node "$GITHUB_ACTION_PATH/accept.mjs"

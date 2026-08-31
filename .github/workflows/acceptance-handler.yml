@@ -65,6 +65,7 @@ jobs:
           claim-payload: ${{ steps.team.outputs.claim_payload }}
           claim-verified: ${{ steps.team.outputs.claim_verified }}
           claim-private-key: ${{ secrets.PXL_CLAIM_PRIVATE_KEY }}
+          claim-private-keys-retired: ${{ secrets.PXL_CLAIM_PRIVATE_KEYS_RETIRED }}
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning
         id: prov

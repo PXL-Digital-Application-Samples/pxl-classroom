@@ -146,10 +146,12 @@ test("a missing payload and a missing hub key never spend a student's attempts",
 
   // The no-payload branch: between finding no payload and rejecting, nothing
   // may increment.
-  const noPayload = body.slice(body.indexOf("if (!payload)"), body.indexOf("const privateKey"));
+  const noPayload = body.slice(body.indexOf("if (!payload)"), body.indexOf("const privateKeys"));
   assert.ok(!noPayload.includes("countFailure"), "a missing claim payload must not count as an attempt");
 
-  const noKey = body.slice(body.indexOf("if (!privateKey)"), body.indexOf("// 4."));
+  // The hub holds a LIST of keys since rotation became possible, so "no key" is
+  // an empty list rather than a falsy string. Same branch, same rule.
+  const noKey = body.slice(body.indexOf("if (privateKeys.length === 0)"), body.indexOf("// 4."));
   assert.ok(!noKey.includes("countFailure"), "a missing hub key must not count as an attempt");
   assert.ok(noKey.includes("fail("), "a missing hub key is a red run, not a student-facing rejection");
 });

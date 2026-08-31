@@ -57,6 +57,20 @@ const TOOLS = join(root, ".tools");
 // Pinned. Bump deliberately, in one place, and both sides move together.
 const ACTIONLINT_VERSION = "1.7.1";
 
+// From the release's own actionlint_1.7.1_checksums.txt, 2026-08-31. Until now
+// actionlint was fetched by piping a script from a MUTABLE BRANCH into bash -
+// `curl -sSL .../actionlint/main/scripts/download-actionlint.bash | bash` - with
+// no pin on the script and no checksum on anything it fetched. That is a worse
+// mechanism than the npm shellcheck package this file just removed, and it sat
+// two functions away from it.
+const ACTIONLINT_SHA256 = Object.freeze({
+  "linux_amd64.tar.gz": "f53c34493657dfea83b657e4b62cc68c25fbc383dff64c8d581613b037aacaa3",
+  "linux_arm64.tar.gz": "21a20f38b19dc962d89e17fe1c6f116199e9e0d343ab33361868def14cc220fc",
+  "darwin_amd64.tar.gz": "ee24184e2e7003c19eb739717b34b7c65d096f2ca0df8d571837b4f20112d573",
+  "darwin_arm64.tar.gz": "a72f66f28a4cc294670abb7a5e3392033700e00cc6a385c32fb769971b71ec9f",
+  "windows_amd64.zip": "5dbecc21cf2ebe982a1ae5e029ee49f5be8ca3263a936c597323ed9331d896de",
+});
+
 // 0.11.0 is what the npm wrapper was already resolving to, so this migration
 // changes no finding. Bumping it is a deliberate act with a lint diff to read.
 const SHELLCHECK_VERSION = "0.11.0";
@@ -121,44 +135,51 @@ function run(label, command, args, opts = {}) {
   return ok;
 }
 
-/** Which official release asset this machine needs, and its pinned digest. */
-function shellcheckAsset() {
-  if (isWindows) return { name: `shellcheck-v${SHELLCHECK_VERSION}.zip`, key: "zip" };
-  const os = process.platform === "darwin" ? "darwin" : "linux";
-  const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
-  const key = `${os}.${arch}.tar.gz`;
-  return { name: `shellcheck-v${SHELLCHECK_VERSION}.${key}`, key };
-}
-
 /**
- * The pinned shellcheck, downloaded into .tools/ once - so local and CI report
- * identically, and so nothing here depends on `decompress`.
+ * Download a pinned release binary into .tools/, verify it, unpack it.
  *
- * `.tar.gz` rather than the `.tar.xz` the project also publishes: every tar
- * that matters handles gzip, while xz needs liblzma and Git Bash's bsdtar is
- * not guaranteed to have it. Windows takes the `.zip`, which bsdtar reads
- * natively. Both are the SAME binary from the SAME release.
+ * ONE implementation for both tools, because they had drifted into two very
+ * different trust levels. shellcheck was fetched, checksummed and refused on
+ * mismatch; actionlint was `curl -sSL .../main/scripts/download-actionlint.bash
+ * | bash` - a script piped from a MUTABLE BRANCH straight into a shell, with no
+ * pin and no checksum on the script or the binary it then fetched. That is a
+ * worse mechanism than the npm package the shellcheck change removed, sitting
+ * two functions away from it, and it ran on every developer machine and every
+ * CI lint job.
+ *
+ * The rules are the shellcheck ones, now applied to both: a platform with no
+ * pinned digest FAILS rather than downloading unverified; a mismatch is fatal
+ * with no retry and no fallback, because the one thing it can mean is that the
+ * bytes are not the ones this repo pinned.
+ *
+ * @param {object} spec
+ * @param {string} spec.bin        binary name, without any .exe
+ * @param {string} spec.version    pinned version, for messages
+ * @param {string} spec.url        full asset URL
+ * @param {string} spec.asset      asset filename
+ * @param {string} spec.expected   sha256 of the asset, or undefined
+ * @param {string} spec.platformKey how this platform was named, for the error
+ * @param {string} spec.constant   the constant to update, for the error
+ * @param {number} spec.strip      tar --strip-components (0 = binary at root)
+ * @param {string} [spec.nested]   directory the archive unpacks into, if any
  */
-function resolveShellcheck() {
-  const local = join(TOOLS, exe("shellcheck"));
+function fetchPinnedTool({ bin, version, url, asset, expected, platformKey, constant, strip, nested }) {
+  const local = join(TOOLS, exe(bin));
   if (existsSync(local)) return local;
 
-  const { name, key } = shellcheckAsset();
-  const expected = SHELLCHECK_SHA256[key];
   if (!expected) {
     console.error(
-      `\n[FAIL] No pinned shellcheck checksum for ${process.platform}/${process.arch} (${key}).\n` +
-        `       Add the asset's sha256 to SHELLCHECK_SHA256 in scripts/lint.mjs.\n` +
+      `\n[FAIL] No pinned ${bin} checksum for ${process.platform}/${process.arch} (${platformKey}).\n` +
+        `       Add the asset's sha256 to ${constant} in scripts/lint.mjs.\n` +
         "       Downloading it unverified is not the fallback: this binary reads every\n" +
         "       workflow in the repo.\n",
     );
     return null;
   }
 
-  console.log(`   downloading shellcheck ${SHELLCHECK_VERSION} into .tools/ ...`);
+  console.log(`   downloading ${bin} ${version} into .tools/ ...`);
   mkdirSync(TOOLS, { recursive: true });
-  const url = `https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${name}`;
-  const archive = join(TOOLS, name);
+  const archive = join(TOOLS, asset);
 
   const got = spawnSync("curl", ["-sSL", "--fail", "-o", archive, url], { stdio: "inherit" });
   if (got.status !== 0 || !existsSync(archive)) return null;
@@ -169,10 +190,10 @@ function resolveShellcheck() {
     // and the only safe thing to do with them is not run them.
     rmSync(archive, { force: true });
     console.error(
-      `\n[FAIL] shellcheck ${SHELLCHECK_VERSION} (${name}) failed its checksum.\n` +
+      `\n[FAIL] ${bin} ${version} (${asset}) failed its checksum.\n` +
         `       expected ${expected}\n       actual   ${actual}\n` +
-        "       Refusing to run it. If the release was legitimately re-cut, update\n" +
-        "       SHELLCHECK_SHA256 in scripts/lint.mjs deliberately.\n",
+        `       Refusing to run it. If the release was legitimately re-cut, update\n` +
+        `       ${constant} in scripts/lint.mjs deliberately.\n`,
     );
     return null;
   }
@@ -191,39 +212,70 @@ function resolveShellcheck() {
   const out = isWindows
     ? spawnSync(
         "powershell",
-        ["-NoProfile", "-NonInteractive", "-Command", `Expand-Archive -LiteralPath '${name}' -DestinationPath . -Force`],
+        ["-NoProfile", "-NonInteractive", "-Command", `Expand-Archive -LiteralPath '${asset}' -DestinationPath . -Force`],
         { cwd: TOOLS, stdio: "inherit" },
       )
-    : spawnSync("tar", ["-xzf", name, "--strip-components", "1"], { cwd: TOOLS, stdio: "inherit" });
+    : spawnSync("tar", ["-xzf", asset, ...(strip ? ["--strip-components", String(strip)] : [])], {
+        cwd: TOOLS,
+        stdio: "inherit",
+      });
   rmSync(archive, { force: true });
   if (out.status !== 0) return null;
 
-  // The zip unpacks into a versioned directory; lift the binary up beside it so
-  // both platforms end at the same path and the cache check above is one test.
-  if (!existsSync(local)) {
-    const dir = join(TOOLS, `shellcheck-v${SHELLCHECK_VERSION}`);
-    const nested = join(dir, exe("shellcheck"));
-    if (existsSync(nested)) {
-      renameSync(nested, local);
+  // A zip unpacks into its own directory; lift the binary up beside it so both
+  // platforms end at the same path and the cache check above is one test.
+  if (!existsSync(local) && nested) {
+    const dir = join(TOOLS, nested);
+    const inner = join(dir, exe(bin));
+    if (existsSync(inner)) {
+      renameSync(inner, local);
       rmSync(dir, { recursive: true, force: true });
     }
   }
   return existsSync(local) ? local : null;
 }
 
-/** The pinned actionlint, downloaded into .tools/ once. */
-function resolveActionlint() {
-  const local = join(TOOLS, exe("actionlint"));
-  if (existsSync(local)) return local;
+/**
+ * The pinned shellcheck, so local and CI report identically and nothing here
+ * depends on `decompress`.
+ *
+ * `.tar.gz` rather than the `.tar.xz` the project also publishes: every tar that
+ * matters handles gzip, while xz needs liblzma and Git Bash's bsdtar is not
+ * guaranteed to have it. Windows takes the `.zip`. Same binary, same release.
+ */
+function resolveShellcheck() {
+  const key = isWindows
+    ? "zip"
+    : `${process.platform === "darwin" ? "darwin" : "linux"}.${process.arch === "arm64" ? "aarch64" : "x86_64"}.tar.gz`;
+  const asset = `shellcheck-v${SHELLCHECK_VERSION}.${key}`;
+  return fetchPinnedTool({
+    bin: "shellcheck",
+    version: SHELLCHECK_VERSION,
+    url: `https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${asset}`,
+    asset,
+    expected: SHELLCHECK_SHA256[key],
+    platformKey: key,
+    constant: "SHELLCHECK_SHA256",
+    strip: 1,
+    nested: `shellcheck-v${SHELLCHECK_VERSION}`,
+  });
+}
 
-  console.log(`   downloading actionlint ${ACTIONLINT_VERSION} into .tools/ ...`);
-  mkdirSync(TOOLS, { recursive: true });
-  const script =
-    "curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash " +
-    `| bash -s ${ACTIONLINT_VERSION}`;
-  const res = spawnSync("bash", ["-c", script], { cwd: TOOLS, stdio: "inherit" });
-  if (res.status !== 0 || !existsSync(local)) return null;
-  return local;
+/** The pinned actionlint. Its tarball puts the binary at the root, so no strip. */
+function resolveActionlint() {
+  const arch = process.arch === "arm64" ? "arm64" : "amd64";
+  const key = isWindows ? "windows_amd64.zip" : `${process.platform === "darwin" ? "darwin" : "linux"}_${arch}.tar.gz`;
+  const asset = `actionlint_${ACTIONLINT_VERSION}_${key}`;
+  return fetchPinnedTool({
+    bin: "actionlint",
+    version: ACTIONLINT_VERSION,
+    url: `https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${asset}`,
+    asset,
+    expected: ACTIONLINT_SHA256[key],
+    platformKey: key,
+    constant: "ACTIONLINT_SHA256",
+    strip: 0,
+  });
 }
 
 // 1. eslint. --max-warnings 0 because a warning nobody fails on is a warning

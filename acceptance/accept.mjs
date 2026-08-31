@@ -24,7 +24,8 @@ import {
   claimAttemptsExhausted,
   claimAttemptsPath,
   claimPath,
-  decryptClaim,
+  decryptClaimWithAnyKey,
+  claimPrivateKeys,
   domainAllowed,
   normalizeEmail,
   recordFailedAttempt,
@@ -163,8 +164,10 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     );
   }
 
-  const privateKey = env("CLAIM_PRIVATE_KEY", "").trim();
-  if (!privateKey) {
+  // The current key plus any being phased out, so a rotation does not break
+  // ciphertexts already sealed to the old one - see claimPrivateKeys().
+  const privateKeys = claimPrivateKeys(env("CLAIM_PRIVATE_KEY", ""), env("CLAIM_PRIVATE_KEYS_RETIRED", ""));
+  if (privateKeys.length === 0) {
     // A deployment fault, never the student's. Fail (red) rather than reject,
     // and do not count it: without the key NOBODY can claim, and silently
     // spending every student's attempts would turn a missing secret into a
@@ -175,10 +178,13 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     );
   }
 
-  // 4. Decrypt. Every kind of failure is one failure on purpose.
+  // 4. Decrypt, against every key the hub holds. Every kind of failure is one
+  //    failure on purpose - including "none of the keys matched", which must
+  //    not be distinguishable from a bad ciphertext or it leaks whether a
+  //    rotation has happened.
   let opened = null;
   try {
-    opened = await decryptClaim({ privateKey, payload });
+    opened = await decryptClaimWithAnyKey({ privateKeys, payload });
   } catch {
     await countFailure();
     await reject(
@@ -317,15 +323,15 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
   // A missing key is a deployment fault under `claim` and fails the run there,
   // because nobody could claim at all. Here it must NOT fail: the claim is a
   // review aid, and losing it is not worth refusing a student their repository.
-  const privateKey = env("CLAIM_PRIVATE_KEY", "").trim();
-  if (!privateKey) {
+  const privateKeys = claimPrivateKeys(env("CLAIM_PRIVATE_KEY", ""), env("CLAIM_PRIVATE_KEYS_RETIRED", ""));
+  if (privateKeys.length === 0) {
     log("claim", { ok: true, note: "PXL_CLAIM_PRIVATE_KEY is not set - address not recorded (see RUNBOOK 1.3.2)" });
     return null;
   }
 
   let opened = null;
   try {
-    opened = await decryptClaim({ privateKey, payload });
+    opened = await decryptClaimWithAnyKey({ privateKeys, payload });
   } catch {
     log("claim", { ok: true, note: "the confirmed address could not be read - not recorded" });
     return null;

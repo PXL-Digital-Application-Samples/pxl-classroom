@@ -97,12 +97,40 @@ test("the external tools are pinned, and shellcheck is not the runner's", () => 
   );
 });
 
-test("the downloaded shellcheck is checksum-verified, and a mismatch is fatal", () => {
+test("no tool is fetched by piping a remote script into a shell", () => {
+  // actionlint was obtained with
+  //   curl -sSL .../rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+  // - a script from a MUTABLE BRANCH, executed unverified, which then fetched a
+  // binary that was also unverified. Worse than the npm shellcheck package that
+  // was removed for supply-chain reasons in the same pass, and two functions
+  // away from it. Both tools are pinned release assets now.
+  // BLOCK comments stripped as well as line comments. The explanation of this
+  // very rule lives in a /** */ above fetchPinnedTool and quotes the old
+  // `| bash` command it exists to forbid, so a line-comment-only strip fails
+  // against its own prose - the trap this repo keeps rediscovering, hit again.
+  const code = lintScript.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(code, /raw\.githubusercontent\.com/, "no script is fetched from a branch");
+  assert.doesNotMatch(code, /\|\s*bash\b/, "nothing is piped into a shell");
+  assert.doesNotMatch(code, /download-actionlint/, "the upstream installer script is not used");
+});
+
+test("both downloaded tools are checksum-verified, and a mismatch is fatal", () => {
   // A pinned VERSION only says which bytes were asked for. Without a digest,
   // a re-cut release, a hijacked tag or an intercepted download all run
-  // unnoticed - and this binary is handed every `run:` block in the repo.
-  assert.match(lintScript, /SHELLCHECK_SHA256/, "the pinned digests must exist");
+  // unnoticed - and these binaries are handed every `run:` block in the repo.
+  assert.match(lintScript, /SHELLCHECK_SHA256/, "the pinned shellcheck digests must exist");
+  assert.match(lintScript, /ACTIONLINT_SHA256/, "the pinned actionlint digests must exist");
   assert.match(lintScript, /createHash\("sha256"\)/, "and be computed over the downloaded archive");
+
+  // Every platform the resolvers can select needs an entry in both maps, or the
+  // tool silently has no digest on somebody's machine and refuses to run there.
+  for (const constant of ["SHELLCHECK_SHA256", "ACTIONLINT_SHA256"]) {
+    const at = lintScript.indexOf(`const ${constant} = Object.freeze({`);
+    assert.ok(at > 0, `${constant} must be declared`);
+    const block = lintScript.slice(at, lintScript.indexOf("});", at));
+    const digests = [...block.matchAll(/"([0-9a-f]{64})"/g)];
+    assert.ok(digests.length >= 5, `${constant} must cover every supported platform, found ${digests.length}`);
+  }
 
   const verify = lintScript.slice(lintScript.indexOf("const actual = createHash"));
   // Comments blanked before the absence check below, for the reason this repo

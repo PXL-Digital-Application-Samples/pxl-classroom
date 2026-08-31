@@ -106,7 +106,23 @@ node scripts/generate-claim-keypair.mjs 1
 
 3. The script prints the private half **once** and writes it nowhere, so it cannot linger in the working tree. If you lose it before setting the secret, just run the script again — nothing has been committed yet.
 
-**Rotation.** Generate with the next key id and keep the previous entry in the file: claims already recorded are unaffected (they were decrypted long ago and are plaintext in the control repo), but a student whose browser cached the old public key would otherwise seal a claim the hub can no longer open. Point `current` at the new id, and drop the old entry once no assignment is still accepting.
+**Rotation.**
+
+> [!IMPORTANT]
+> **Rotation did not work before 2026-08-31, and this section used to describe a remedy that does nothing.** It said to keep the previous entry in `claim-keys.json` — but that file holds only **public** halves, and the hub held exactly **one** `PXL_CLAIM_PRIVATE_KEY`. The kid never travels with the ciphertext (the wire format is `c1.<ephemeral SPKI>.<iv>.<ciphertext>`), so keeping the old public key changed nothing about what the hub could open. Rotating would have failed every claim sealed to the old key — acceptances already posted, plus every browser still on a cached bundle — and because a decrypt failure sits **after** the attempt counter in the gate, it would have spent real students' attempts and locked them out of a mode whose whole purpose is letting them in.
+>
+> The hub now holds **several** private keys and tries each. That is what makes rotation possible; nothing else changed, and no wire format or SPA change was needed.
+
+1. Generate the next keypair: `node scripts/generate-claim-keypair.mjs 2`.
+2. **Before** changing anything else, add the **current** private key to the `provisioning` environment secret `PXL_CLAIM_PRIVATE_KEYS_RETIRED` (newline- or comma-separated; it may already hold others). This is the step that keeps in-flight claims working — do it first, and the rest is safe in any order.
+3. Set `PXL_CLAIM_PRIVATE_KEY` to the **new** private half.
+4. Put the new **public** half in `acceptance/claim-keys.json` under its key id, point `current` at it, and commit. Keep the old public entry only for the record; it is the retired **private** key that does the work.
+5. Deploy (`deploy-frontend.yml` — the path filter names `acceptance/claim-keys.json`, so the commit in step 4 triggers it). Until it lands, browsers keep sealing to the old key, which is exactly why step 2 comes first.
+6. Drop the old key from `PXL_CLAIM_PRIVATE_KEYS_RETIRED` once no cached bundle can still be sealing to it — a week is generous.
+
+`tests/claim-key-rotation.test.mjs` runs the whole thing through the real crypto, including the case where the retired key is *absent* and the pre-rotation claim is lost, so the hazard cannot quietly return.
+
+**What rotation does and does not buy.** The sealed claims sit in public GitHub issue bodies, which GH Archive mirrors permanently. There is no forward secrecy and there cannot be: a static page sealing to a long-lived recipient key has nothing to derive one from. So whoever holds a private key can decrypt every claim ever sealed to it, retroactively, for ever. Rotation bounds the *window* one leaked key exposes — it does not undo it. Treat every retired key as still sensitive and delete it from the secret only when you no longer need it, not when it stops being used.
 
 **"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries a `pxl-accept:` value. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run.
 
@@ -314,6 +330,37 @@ Only `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` should appear.
 
 > [!WARNING]
 > **Rotate `PXL_APP_PRIVATE_KEY` once the sweep is done.** It sat as a repository secret on public repositories; treat it as exposed for that period. Generate a new private key on the provisioning App, update the hub's `provisioning` environment secret, then delete the old key in the App's settings. Nothing else stores it - the brokers no longer do, which is the point of this section.
+
+### 1.11 Two pieces of infrastructure owned by the wrong account
+
+Neither is a code change, and neither is urgent enough to do under pressure. Both are recorded here because they are the kind of thing nobody remembers until it fails.
+
+#### 1.11a The SPA shares an origin with every other Pages site in the org
+
+The SPA holds a lecturer's GitHub access token in `sessionStorage`. Browser storage is scoped to an **origin**, and `pxl-digital-application-samples.github.io` is one origin shared by **every** Pages site that organization publishes. An XSS in any of them runs same-origin with the SPA.
+
+As of 2026-08-31 the org publishes two: `pxl-classroom` and **`security-flag-validator`** (private repo). Given the name, that second one is exactly the class of app where an injection would be plausible — it deserves a look, and this is the reason why.
+
+Two ways out, in increasing order of effort:
+
+- **Policy.** Nothing else publishes Pages from this organization. Cheap, immediate, and it holds only as long as somebody remembers it — which is why it is written down here rather than agreed in a meeting.
+- **A custom domain**, which removes the problem rather than managing it. Settings → Pages → Custom domain on `pxl-classroom`, point a CNAME at `pxl-digital-application-samples.github.io`, enable **Enforce HTTPS**, and the SPA gets an origin of its own that no sibling repository can reach. Then update `ALLOWED_ORIGINS` in [`cors-worker/worker.js`](cors-worker/worker.js) to the new origin and redeploy the Worker **before** switching, or sign-in breaks at the moment of the cutover — the Worker refuses an origin it does not know, and that is the control working.
+
+#### 1.11b The sign-in Worker is on a personal Cloudflare account
+
+`pxl-cors.tom-cool-38e.workers.dev` is the **primary** device-flow proxy since 2026-08-31, so it is now on the critical path of every sign-in. It lives in a single-owner Cloudflare account.
+
+If that account is lost, sign-in fails over to the third-party secondary and keeps working — the failover is real and was exercised in production (§1.9) — but you are then back to a third party seeing every access token, which is the state the ordering change exists to leave, and nobody would be told.
+
+**Move it to a PXL-owned Cloudflare account** that more than one person can reach:
+
+1. Create the account under a PXL address with more than one owner.
+2. `cd cors-worker && npx wrangler@latest login && npx wrangler@latest deploy` from the new account. Deploying from the repo rather than the dashboard editor is deliberate — the Worker carries a security allowlist and a pasted copy drifts from the reviewed one.
+3. Verify the new Worker with the probes in [`cors-worker/README.md`](cors-worker/README.md): a browser-origin POST returns a device code, `OPTIONS` answers 204, and both allowlists refuse by exact match.
+4. Update `device_flow_proxy` in [`deployment.yml`](deployment.yml) and deploy the frontend.
+5. Keep the old Worker running for a week — cached bundles still point at it — then delete it.
+
+System Health checks the primary proxy on every run and warns when it does not answer, so an outage of either Worker now surfaces before a lecture rather than during one.
 
 System is now ready to onboard the first organization.
 

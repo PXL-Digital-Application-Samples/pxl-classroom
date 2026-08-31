@@ -104,6 +104,7 @@ import { useRouter } from 'vue-router'
 import { getToken, getUser, startDeviceFlow } from '../lib/auth.js'
 import { ghApi, triggerWorkflow } from '../lib/api.js'
 import { config } from '../lib/config.js'
+import { DEVICE_FLOW_PROXY } from '../lib/deployment.js'
 import { toast } from '../lib/toast.js'
 import { runDiagnostics } from '../../../lib/diagnostics.mjs'
 import Icon from './Icon.vue'
@@ -202,6 +203,26 @@ async function run() {
       return await res.json().catch(() => null)
     }
 
+    // Is the sign-in proxy actually up? An OPTIONS preflight is enough - it is
+    // the cheapest thing the Worker answers, it needs no client_id and it mints
+    // no device code, so probing costs nothing and leaves nothing behind.
+    //
+    // A `catch` returning ok:false rather than throwing: this is a health check
+    // and a network error IS the finding. `mode: 'cors'` is implicit; a blocked
+    // response rejects, which is exactly the signal wanted.
+    const probeProxy = async () => {
+      const target = DEVICE_FLOW_PROXY
+      if (!target) return { configured: false }
+      try {
+        const res = await fetch(`${target}${encodeURIComponent('https://github.com/login/device/code')}`, {
+          method: 'OPTIONS',
+        })
+        return res.ok || res.status === 204 ? { ok: true } : { ok: false, detail: `HTTP ${res.status}` }
+      } catch (err) {
+        return { ok: false, detail: String(err?.message || err) }
+      }
+    }
+
     const res = await runDiagnostics({
       request,
       org: props.org,
@@ -210,6 +231,7 @@ async function run() {
       hubOwner: config.hubOwner,
       hubRepo: config.hubRepo,
       fetchPages,
+      probeProxy,
     })
 
     // Superseded by a newer pass (the org or assignment changed while this one
