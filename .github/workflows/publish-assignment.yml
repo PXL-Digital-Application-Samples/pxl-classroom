@@ -101,7 +101,7 @@ jobs:
           BROKER_PRIVATE_KEY: ${{ secrets.PXL_BROKER_PRIVATE_KEY }}
         run: |
           if [ -z "$BROKER_CLIENT_ID" ] || [ -z "$BROKER_PRIVATE_KEY" ]; then
-            echo "::error::PXL_BROKER_CLIENT_ID / PXL_BROKER_PRIVATE_KEY are not set on the provisioning environment. Publishing is blocked deliberately: the only alternative is putting the provisioning App's own private key on a PUBLIC broker repository, which is what this replaced. Create the broker App (RUNBOOK.md section 1.10), install it on the hub repository only, grant it Contents: write and nothing else, then set both secrets."
+            echo "::error::PXL_BROKER_CLIENT_ID / PXL_BROKER_PRIVATE_KEY are not set on the provisioning environment. Publishing is blocked deliberately: the only alternative is putting the provisioning App's own private key on a PUBLIC broker repository, which is what this replaced. Create the broker App by running 'node scripts/create-broker-app.mjs' from a checkout - it fills in the permission set (Contents: write, nothing else), stores both secrets, and prints the install URL. Install it on the hub repository ONLY. See RUNBOOK.md section 1.10."
             exit 1
           fi
 

@@ -303,16 +303,41 @@ A `device_code` comes back. It is unused and expires in 15 minutes; nothing need
 
 **Why there are two Apps.** A broker repository is public, there is one per assignment, and it needs a credential because its whole job is one `POST` to the hub's `/dispatches` endpoint. Until 2026-08-31 it was handed `PXL_APP_PRIVATE_KEY` - the provisioning App's own key. Counted live, that key was sitting on **11 public repositories across 8 organizations**, and it mints installation tokens carrying `administration: write`, `organization_administration: write`, `members: write`, `secrets: write`, `workflows: write` and `contents: write` on every org the App is installed on. Anyone with admin on one course org could push a workflow to that org's broker and read it out, so a lecturer scoped to one course held the keys to all twelve.
 
-**Create it (once):**
+**Create it (once).** Use the script - it sets the permission set exactly, so nobody ticks a box by hand:
 
-1. Create a new GitHub App owned by `PXL-Digital-Application-Samples`, named e.g. **PXL Classroom Broker**.
-2. Permissions: **Repository → Contents: Read and write**. Nothing else. That is exactly what `POST /repos/{owner}/{repo}/dispatches` requires - confirmed against GitHub's "Permissions required for GitHub Apps" reference. In particular do **not** grant `Actions`, or a leaked broker key could dispatch hub workflows.
+```bash
+node scripts/create-broker-app.mjs
+```
+
+It opens a page that submits a prepared App Manifest, you press GitHub's **Create GitHub App** button, and it does the rest: exchanges the one-hour code, stores `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` on the hub's **`provisioning` environment**, and reads the App back to confirm it declares `Contents: write` **and nothing else**. The private key goes from GitHub straight into `gh secret set` over a pipe - it is never written to disk, never printed, and never placed in a command line where `ps` would show it. `--dry-run` prints the manifest without creating anything.
+
+**Two steps are browser-only, and that is GitHub's limit rather than a shortcut here.** Creating an App has no REST endpoint - the App Manifest flow is the only programmatic route, and it requires a human to confirm. Installing one has no REST endpoint either: *"an organization owner or application manager must make this change within the UI"*. Adding further repositories to an **existing** installation is an API; the first install is not.
+
+So after the script finishes, install it by hand at the URL it prints:
+
+```
+https://github.com/apps/<slug>/installations/new
+```
+
+Choose **Only select repositories** and select **`pxl-classroom`** - only that one. Not the course orgs; it has no business there, and every org it is not installed on is an org a leaked broker key cannot reach. Then confirm it took:
+
+```bash
+gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/installation --jq '.app_slug + " -> " + (.permissions|tostring)'
+```
+
+<details>
+<summary>Doing it by hand instead</summary>
+
+1. New GitHub App owned by `PXL-Digital-Application-Samples`, named e.g. **PXL Classroom Broker**.
+2. Permissions: **Repository → Contents: Read and write**. Nothing else - that is exactly what `POST /repos/{owner}/{repo}/dispatches` requires, confirmed against GitHub's "Permissions required for GitHub Apps" reference. In particular do **not** grant **Actions**, or a leaked broker key could dispatch hub workflows, which is most of what made the old arrangement dangerous.
 3. Subscribe to no events. Where install is offered, choose **Only on this account**.
-4. Install it on **`PXL-Digital-Application-Samples/pxl-classroom` only** - "Only select repositories", one repository. Not the course orgs; it has no business there.
-5. Generate a private key.
-6. Set both on the hub's **`provisioning` environment** (not repository-level):
-   - `PXL_BROKER_CLIENT_ID` - the App's Client ID (`Iv…`)
-   - `PXL_BROKER_PRIVATE_KEY` - the PEM, whole file including the header and footer lines
+4. Generate a private key.
+5. Set `PXL_BROKER_CLIENT_ID` (the `Iv…` Client ID) and `PXL_BROKER_PRIVATE_KEY` (the whole PEM, header and footer lines included) on the **`provisioning` environment** - not repository-level.
+6. Install on `pxl-classroom` only, as above.
+
+`node scripts/create-broker-app.mjs --verify --slug <slug>` checks the result either way.
+
+</details>
 
 Publishing any assignment now verifies the credential *before* it writes anything: `publish-assignment.yml` mints a token with it and fails the run if the App is missing, uninstalled or under-permissioned. A broker App that does not work is a red publish run for the lecturer, not a silent failure at the first student's acceptance.
 
