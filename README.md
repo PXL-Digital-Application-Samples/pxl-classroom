@@ -12,6 +12,21 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 ---
 
+## Why
+
+Classroom50 works well, but two things made me build PXL Classroom anyway.
+
+- **Classroom50 cannot do open assignments.** It enrols from a roster, while GitHub Classroom used to hand out a link anyone could accept. Exams and workshops need that, so it is back, with a cap, alongside roster and email-claim enrolment.
+- **Setting up an assignment takes too long.** Here it is one form: fill it in, publish, copy the link.
+
+The result is GitHub Classroom's feature set with a dashboard on top, running entirely on GitHub Team for Education.
+
+GitHub Enterprise is never used. The CLI handles what scales badly through clicks (roster import, bulk download, local grading) and the web UI is what you use day to day.
+
+I built it for my own courses at first.
+
+---
+
 ## Screenshots
 
 ### Lecturer Dashboard Overview
@@ -71,13 +86,37 @@ Two things the others have and this does not: direct LMS gradebook sync over LTI
 
 ---
 
+## Setup
+
+There are two organizations involved.
+
+### 1. The central organization
+
+Everyone shares this one. It holds this repository, the workflows, the Pages site, the GitHub App and the sample repositories.
+
+Add each lecturer as an **organization owner**. Making them a plain member is not enough.
+
+You control who the owners of your course organization are, so you control who its lecturers are.
+
+Multiple central organizations can be deployed:
+If you want to be independent of the central organization as well, fork this repository, edit `deployment.yml`, create your own App at `/setup` and publish your own Pages site.
+
+### 2. Your own course organization
+
+There is one of these per course or academic year. It holds the private `pxl-classroom-control` repository, the student repositories and the archives.
+
+An owner installs the App there with access to **All repositories**, then runs **Setup Organization**. The **:Connect an organization:** button in the web app does this for you.
+
+**Owning this organization is what makes you a lecturer in it.** There is no user list and no roles, so every owner can edit every assignment in the organization.
+
+---
+
 ## Quickstart
 
 ### 1. Connect Organization
 
 - Open the [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) and sign in with the GitHub device flow.
-- Use **Connect an organization** in the org switcher to install the App on your org, then run **Setup Organization** to scaffold `<org>/pxl-classroom-control`.
-- A brand-new deployment creates the App itself once, from the manifest form at `/setup` (RUNBOOK §1.2).
+- Pick your organization in the switcher. If it is not connected yet, see [Setup](#setup).
 
 ### 2. Create Assignment
 

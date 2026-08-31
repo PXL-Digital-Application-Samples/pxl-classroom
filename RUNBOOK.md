@@ -350,6 +350,7 @@ Lecturers trigger **Publish** from the Admin Panel and **Retry acceptance** from
 
 - Add each org's lecturers as **Write** collaborators (or members of a team with write) on the hub repo.
   `workflow_dispatch` requires write - Read is not enough, and produces exactly the 403 described above.
+- **Adding them to the hub organization is not the same thing, and on its own does not work.** `PXL-Digital-Application-Samples` carries `default_repository_permission: read`, so a plain member lands on read for `pxl-classroom` and every dispatch 403s - which reads as "I added the lecturer and it still fails". Measured 2026-08-31: all 11 members of the hub org are owners, there are no teams, and there are no outside collaborators on the hub repo, so the write-collaborator route above has never actually been exercised here. Organization **owner** works because GitHub grants owners admin on every repository; it also makes them an owner of the **App**, which is registered on that org, so anyone granted it can generate a private key that mints installation tokens for every participating org (ARCHITECTURE §4.3). Write on `pxl-classroom` is the least-privilege grant that does the same job.
 - Without this access, the lecturer can still create/edit assignments (writes go to their own control repo), but cannot publish or retry from the SPA - a hub admin must run those workflows on their behalf.
 
 ### 2.5 Register the budget owner
