@@ -306,7 +306,18 @@ console.log(`
 
   Then check it took:
 
-    gh api repos/${ORG}/${REPO}/installation --jq '.app_slug + " -> " + (.permissions|tostring)'
+    gh api orgs/${ORG}/installations --jq '.installations[] | select(.app_slug|test("broker"))'
+
+  Expect contents=write, metadata=read, repository_selection=selected.
+
+  NOT \`repos/${ORG}/${REPO}/installation\` - that endpoint needs an App JWT and
+  answers "A JSON web token could not be decoded" (401) to a user token, which
+  is the same trap RUNBOOK 6.7 already records for the /orgs/{org}/installation
+  singular form. This one reads with the org owner's own token.
+
+  The FUNCTIONAL proof is the first republish: publish-assignment.yml mints a
+  token with this App scoped to ${REPO} before it touches anything, so a wrong
+  repository selection fails there with nothing half-done.
 
   After that, republish each assignment (RUNBOOK §1.10) - that is what pushes
   the new broker workflow AND removes the provisioning App's key from the
