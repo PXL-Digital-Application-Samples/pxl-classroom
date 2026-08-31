@@ -8,6 +8,26 @@ This file is **not** loaded into every session, which is the point: the rules ar
 short enough to be read every time, and the reasoning is one click away when a rule
 is about to be changed. Kept because a rule whose reason is lost gets argued away.
 
+## Working rules
+
+### `npm run lint` is the only lint command, and CI runs exactly it.
+
+It was `eslint .` while CI's `test` job ran `eslint . --max-warnings 0` and CI's `lint` job ran `actionlint` + `scripts/workflow-lint.mjs` with no local equivalent - so a change could be linted clean locally, repeatedly, while CI had been red since `48ed831` over a shellcheck finding no local command could produce. Nine commits shipped on top of it. `scripts/lint.mjs` now owns all three checks; `ci.yml` calls `npm run lint` and nothing else.
+
+Both external tools are pinned because taking either from the runner image means a different version reports different findings - the same local-vs-CI drift in another coat. shellcheck was an npm devDependency until 2026-08-31, dropped because every published version from 2.x up unpacks the official release with `decompress`, which carries three unfixed critical advisories and has no patched version to move to; the only npm escape was 1.1.0, which unpins the binary to whatever "stable" meant at publish time. actionlint was worse: fetched by piping a script from a **mutable branch** into bash, with no pin on the script and no checksum on the binary it then fetched, running on every developer machine and every CI lint job. Both now go through one `fetchPinnedTool` with digests for all five platforms.
+
+A tool that cannot be obtained **fails** the run; there is deliberately no skip flag, since a check that quietly does not run is the whole bug this file exists for.
+
+### A `run:` block over 4 KB hangs the linter on Windows, and CI stays green while it does.
+
+actionlint copies each script to shellcheck's **stdin**; a Windows anonymous pipe holds **4096 bytes**, so once the script exceeds that the copy blocks on a full pipe and `Wait()` never returns - no output, no exit, for ever. Linux pipes hold 64 KB, which is why `lint: success` appeared on every CI run throughout.
+
+Measured 2026-08-26: `publish-assignment.yml`'s single 92-line *Publish broker* step reached **4106 bytes** and deadlocked; every other block in the repo was under 3 KB, which puts the cliff at 4096 exactly rather than near it. Bumping actionlint does not help (1.7.1 and 1.7.12 both hang).
+
+It went unnoticed because a hang looks like work in progress: `91114af` added **seven lines** to that step and shipped with *"local actionlint could not be run to completion"* in its commit message instead of a lint result, and the next session lost an hour to it.
+
+Three things now hold. The step is **split in two** (1707 + 2438 bytes) - splitting is platform-neutral, and a Windows-only workaround would reintroduce the exact local-vs-CI drift `scripts/lint.mjs` exists to end. `scripts/lint.mjs` gives every step a **120 s timeout** that names this cause, because a two-minute failure is a diagnosis where an infinite hang is not. And `tests/workflow-hardening.test.mjs` caps every `run:` block at **3500 bytes** in milliseconds, on every platform, covering composite `action.yml` files too. The timeout is the diagnosis, the test is the guard - do not rely on the timeout, and do not raise the cap to fit a block that has outgrown it.
+
 ## Shape of the system
 
 ### Hub-and-spoke:
