@@ -2,7 +2,7 @@
 
 A GitHub-native assignment distribution and submission-reporting system for higher education. Targets **GitHub Team for Education** (never GitHub Enterprise). Replaces the subset of GitHub Classroom that PXL relies on, with a model that lets students keep repository-administrator access - including secrets, environments, self-hosted runners - so course materials can teach Actions properly.
 
-This document is the single technical reference for the system. It supersedes the historical `REQUIREMENTS.md`, `IMPLEMENTATION_PLAN.md`, `REVIEW.md`, `REVIEW_PLAN.md`, `REDUCTION_PLAN.md`, and `SPIKES_PLAN.md`.
+This document is the single technical reference for the system, and it describes the system **as it is**. Why a shape or a rule exists - what broke, what was measured, what was rejected - is in [LESSONS.md](LESSONS.md), searchable by the wording of the thing it explains. Operating procedure is in [RUNBOOK.md](RUNBOOK.md); visual rules are in [DESIGN.md](DESIGN.md).
 
 ---
 
@@ -50,7 +50,7 @@ The system runs using only:
 - GitHub organizations, repositories, REST/GraphQL APIs, and webhooks.
 - GitHub Actions workflows and composite actions.
 - GitHub Pages (public; access-controlled Pages is an Enterprise feature and is **never** used).
-- One GitHub App, installed per participating organization.
+- Two GitHub Apps (§3.2): a *Provisioner* installed on every participating organization, and a *Broker* installed on the hub repository alone.
 - GitHub-hosted runners (lecturer-managed self-hosted runners are permitted per assignment, but the system itself never depends on one).
 
 **No GitHub Enterprise capability is permitted as a dependency, option, or fallback.** Audit-log API, push-event audit records, and private Pages are not used.
@@ -81,14 +81,14 @@ Two readers, because the runtimes genuinely differ and neither should be pretend
 
 One source file, no generated copy to drift.
 
-**Isomorphic modules must never statically import a Node builtin.** The modules under `lib/` are shared byte-for-byte between the hub and the browser, and Vite *externalizes* node builtins rather than failing the build — so a `node:fs` import produces a clean build and a blank page on the first route that loads the chunk. Two sanctioned ways to hold the line:
+**Isomorphic modules must never statically import a Node builtin.** The modules under `lib/` are shared byte-for-byte between the hub and the browser, and Vite *externalizes* builtins rather than failing the build, so the symptom is a blank page on the first route that loads the chunk and `npm run build` stays green. Two sanctioned ways to hold the line:
 
 - **Take the configuration as a parameter.** `resolveClaimDomains(assignment, defaults)` requires its defaults from the caller and throws a message naming both readers when they are absent.
-- **Import `#deployment`.** Node resolves it to `lib/deployment.mjs` through the root `package.json` `imports` field; the browser resolves it to `frontend/src/lib/deployment.js` through `resolve.alias` in `frontend/vite.config.js`. One `deployment.yml`, two loaders, identical export surfaces. This is what `lib/audit.mjs` and `lib/archive-repo.mjs` use, because their functions are called from too many places to thread a parameter through.
+- **Import `#deployment`.** Node resolves it to `lib/deployment.mjs` through the root `package.json` `imports` field; the browser resolves it to `frontend/src/lib/deployment.js` through `resolve.alias` in `frontend/vite.config.js`. One `deployment.yml`, two loaders, identical export surfaces. `lib/audit.mjs` and `lib/archive-repo.mjs` use it, their functions being called from too many places to thread a parameter through.
 
 A builtin behind a **dynamic** `await import(...)` inside a function is deferred and therefore safe — `lib/yaml.mjs` relies on this so `parseYaml` can be bundled while `loadYaml` stays Node-only. `tests/spa-bundle-safety.test.mjs` walks the SPA's import graph transitively and fails on any static builtin.
 
-`deploy-frontend.yml`'s path filter names `deployment.yml`, because the SPA bakes these values in at build time — a configuration file the build reads but the filter does not name is a change that ships to `main` and reaches nobody. `tests/deploy-paths.test.mjs` fails if any build-time import escapes the filter.
+`deploy-frontend.yml`'s path filter names `deployment.yml`, because the SPA bakes these values in at build time. `tests/deploy-paths.test.mjs` fails if any build-time import escapes the filter.
 
 ---
 
@@ -134,7 +134,7 @@ Workflows live **only** in the central hub. Control repos hold data; they contai
 
 ### 3.2 The two GitHub Apps
 
-**Why two.** A broker is a *public* repository, one per assignment, and it needs a credential to dispatch into the hub. Until 2026-08-31 that credential was the Provisioner's own private key, which put a key granting administration over twelve organizations onto eleven public repositories (§4.3.0). The work each App does is now matched by what its key is worth if it leaks.
+**Why two.** A broker is a *public* repository, one per assignment, and it needs a credential to dispatch into the hub. The Provisioner's key on that repository would put administration over every participating organization on a public host, so each App's key is worth exactly what its App is allowed to do and no more (§4.3.0).
 
 | | **PXL Classroom Provisioner** | **PXL Classroom Broker** |
 |---|---|---|
@@ -142,7 +142,7 @@ Workflows live **only** in the central hub. Control repos hold data; they contai
 | Installed on | Every participating org (all repositories) **and** the hub repo | The hub repo **only** |
 | Permissions | The table below | `contents: write`, nothing else |
 | Key lives on | The hub's `provisioning` environment, nowhere else | The `provisioning` environment **and every public broker** |
-| If the key leaks | Administrative control of twelve organizations | The ability to submit an acceptance the signature check already gates |
+| If the key leaks | Administrative control of every participating organization | The ability to submit an acceptance the signature check already gates |
 
 The Broker App deliberately has **no `actions: write`**, so a leaked broker key cannot dispatch a hub workflow either. Its narrowness is the whole point; do not widen it. Created by `scripts/create-broker-app.mjs` (RUNBOOK §1.10), which fills in the permission set from a manifest so nobody ticks a box by hand.
 
@@ -166,11 +166,11 @@ The Broker App deliberately has **no `actions: write`**, so a leaked broker key 
 | Organization: Members | Read/Write | Yes | **Read is what is used** - `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and so cannot be frozen (§11.6). Nothing in the system writes org membership; swept three ways on 2026-08-31 and the only membership call in the source is that GET. Declared at `write` for the same reason as Administration - `roster_mode: org_member` enrolled by org invitation and would need it back, and re-acquiring costs twelve approvals |
 | Account: Email addresses | Read | No (Manual) | **Required by the claim flow.** A student confirms one of their own GitHub-**verified** addresses, which is a user-to-server read of `/user/emails` - an installation token cannot do it at all |
 
-Account permissions are declared on the App and set by the App owner alone: they are **not** part of the manifest's `default_permissions` (measured for `starring`, which is why it has always been added by hand), and no organization owner approves them. They are tracked in `ACCOUNT_APP_PERMISSIONS` in `lib/audit.mjs`, kept separate from `MANIFEST_APP_PERMISSIONS` because `EXPECTED_APP_PERMISSIONS` spreads the latter and is compared against an **installation** — which never carries an account permission, so a name in the wrong constant reports every organization as permanently drifting on something nobody can approve. `GET /apps/{slug}` does list them, so that is where `missingAccountPermissions` checks. `starring` and `plan` were both removed from the App on 2026-08-31 - acceptance stopped starring the broker at §4.3.2 and nothing reads plan information - leaving `emails` as the only account permission, so none is now set by hand beyond that one. `scripts/check-app-declaration.mjs` reports a gap as a **warning** rather than a failure, because these need no approval round. **The API key is `emails`, not `email_addresses`** - the App settings toggle reads "Email addresses", and only the API spelling matters to the checks.
+Account permissions are declared on the App and set by the App owner alone: they are **not** part of the manifest's `default_permissions`, and no organization owner approves them. **`emails` is the only one**, and it is the one thing added by hand after App creation. They are tracked in `ACCOUNT_APP_PERMISSIONS` in `lib/audit.mjs`, kept separate from `MANIFEST_APP_PERMISSIONS` because `EXPECTED_APP_PERMISSIONS` spreads the latter and is compared against an **installation** — which never carries an account permission, so a name in the wrong constant reports every organization as permanently drifting on something nobody can approve. `GET /apps/{slug}` does list them, so that is where `missingAccountPermissions` checks, and `scripts/check-app-declaration.mjs` reports a gap as a **warning** rather than a failure, because these need no approval round. **The API key is `emails`, not `email_addresses`** - the App settings toggle reads "Email addresses", and only the API spelling matters to the checks.
 
 The App is installed:
 
-- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf: the Admin Panel triggers eight of them (publish, retry-acceptance, setup-org, daily-activity, regenerate-dashboard, sync-starter-code, open-feedback-prs, weekly-usage-report) with a user-to-server token, and `actions: write` on this installation is what authorizes that. It used to be described as the installation the *broker* mints against; that is the Broker App's job since 2026-08-31, and nothing mints a Provisioner token for the hub org any more.
+- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf: the Admin Panel triggers eight of them (publish, retry-acceptance, setup-org, daily-activity, regenerate-dashboard, sync-starter-code, open-feedback-prs, weekly-usage-report) with a user-to-server token, and `actions: write` on this installation is what authorizes that. Nothing mints a Provisioner token for the hub org otherwise; the broker's dispatch is the Broker App's job.
 - On each participating org (`PXLAutomation`, `PXLCloudAndAutomation`, etc.), **scoped to all repositories**. The hub mints per-org tokens at workflow runtime for provisioning, collection, lock-down, preservation, and archive operations against the target org.
 
 The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see RUNBOOK §1.2).
@@ -194,15 +194,18 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 
 ### 4.3 Bounded blast radius
 
-- **Public broker compromise.** A broker workflow mints a token for the `pxl-classroom`-scoped installation and dispatches into the hub. Since 2026-08-31 the *private key* it does that with is bounded too - see §4.3.0 - so a broker compromise buys the ability to submit an acceptance, which the signature check already gates, and nothing else. §4.3.1 remains a hard rule rather than a style preference: it is what keeps attacker code out of the job in the first place.
+Four things can be compromised, and each is bounded to what it can reach. The subsections below are the mechanisms behind those bounds.
+
+- **Public broker compromise.** A broker workflow mints a token for the `pxl-classroom`-scoped installation and dispatches into the hub. The *private key* it does that with is bounded too (§4.3.0), so a broker compromise buys the ability to submit an acceptance - which the signature check already gates - and nothing else. §4.3.1 is a hard rule rather than a style preference: it is what keeps attacker code out of the job in the first place.
+- **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern - see RUNBOOK §9 - and §4.3.4 bounds what a hub credential is worth to someone who does obtain one.
+- **Per-org control-repo compromise.** Restricted to that single org's data.
+- **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.
 
 #### 4.3.0 The broker holds its own credential, not the provisioning App's
 
-**Until 2026-08-31 every broker carried `PXL_APP_PRIVATE_KEY`.** A broker is created `--public`, one per assignment; counted live there were **11 of them across 8 organizations**, each holding the provisioning App's own private key as a repository secret. What that key mints, read from `GET /apps/pxl-classroom-provisioner`, was `administration: write`, `organization_administration: write`, `members: write`, `secrets: write`, `workflows: write` and `contents: write` on **every organization the App is installed on**. `workflows: write` together with `contents: write` is arbitrary code execution in every repository in every course org; `administration: write` deletes every student repository and every archive.
+A broker is public, one per assignment, and it holds a private key as a repository secret. The only safe key to put there is one that buys nothing worth having, so brokers carry the **Broker** App's credential - `PXL_BROKER_CLIENT_ID` / `PXL_BROKER_PRIVATE_KEY` - installed on the hub repository alone and holding `contents: write` alone, which is exactly what `POST /repos/{owner}/{repo}/dispatches` requires and nothing more. It has no `actions: write`, so a leaked broker key cannot dispatch a hub workflow either.
 
-The reachable path was not exotic. Anyone with admin on **one** course organization could push a workflow to that org's broker and read the secret out - so a lecturer scoped to a single course held the keys to all twelve. Scoping the minted *token* (`owner:` + `repositories:`) never addressed this: the secret is what is stored, and that was the unscoped master key.
-
-**The brokers now have their own GitHub App**, installed on the hub repository **alone** and holding `contents: write` **alone** - exactly what `POST /repos/{owner}/{repo}/dispatches` requires and nothing more. Its credential reaches brokers as `PXL_BROKER_CLIENT_ID` / `PXL_BROKER_PRIVATE_KEY`. Notably it has no `actions: write`, so a leaked broker key cannot dispatch a hub workflow either.
+**Scoping the minted token is not a substitute for this.** `owner:` + `repositories:` narrows the *token*; the *secret* is what is stored, and anyone with admin on one course organization can push a workflow to that org's broker and read it out. The provisioning App's key must therefore never reach a broker at all. ([LESSONS.md](LESSONS.md): *"The master App key was on ELEVEN PUBLIC REPOSITORIES"*.)
 
 Four rules hold this in place:
 
@@ -215,13 +218,13 @@ Four rules hold this in place:
 
 A broker repository is public, carries the broker App's private key as a repo secret, and has issues enabled so the SPA can post group-acceptance payloads. Any GitHub account can therefore fire its workflow.
 
-Group assignments introduced `BODY="${{ github.event.issue.body }}"` into a `run:` block there. `${{ }}` is substituted into the script *text* before the shell sees it, so an issue body of `"; <command>; echo "` executed arbitrary commands in a job that goes on to mint an App token - reachable by anyone, against every participating org.
+The hazard is a single interpolation: `${{ }}` is substituted into a `run:` block's script *text* before the shell sees it, so `BODY="${{ github.event.issue.body }}"` turns an issue body of `"; <command>; echo "` into arbitrary commands in a job that goes on to mint an App token - reachable by anyone, against every participating org.
 
 Three invariants close it, enforced by `tests/broker-injection.test.mjs`:
 
-- **No workflow composes a script out of a value.** `${{ }}` is substituted into the script *text* before the shell or the JS parser sees it, so the question is not who can reach a value but whether it is a literal. Everything else arrives through `env:`, where it is data. The rule was originally written as "no `github.event.*` or `client_payload`", and sixteen sites survived that wording - among them `gh api users/${{ inputs.github_login }}` in `retry-acceptance.yml`, which runs with the App key in scope and provisions for an arbitrary login with the deadline bypassed, and `setup-org.yml` interpolating an installation token and a dispatch input into the same line while validating that input in the *next* step. Neither is broker-reachable; the rule is not about reachability. The guard now allowlists only run-scoped facts GitHub sets itself, and covers composite `action.yml` files as well as workflows.
+- **No workflow composes a script out of a value.** The question is never who can reach a value but whether it is a literal somebody wrote. Everything else arrives through `env:`, where it is data. The guard allowlists only run-scoped facts GitHub sets itself, and covers composite `action.yml` files as well as workflows. It is deliberately **not** narrowed to broker-reachable values: a rule phrased around reachability leaves standing exactly the sites that run with a hub credential in scope, such as `retry-acceptance.yml`, which provisions for an arbitrary login with the deadline bypassed.
 - **The broker never reads the issue body.** It forwards the issue *number* and its own repository; `scripts/read-team-payload.mjs` runs in the hub, fetches the issue with the hub's token, and validates it (`lib/team-payload.mjs`). `acceptance/action.yml` has no `client_payload` fallback for the team inputs, so no unvalidated value can reach `accept.mjs` by any path.
-- **The broker reads the issue title only through `env:`, and only to match `^team:<slug>$`.** The hub's concurrency group is evaluated at dispatch time, before the body can be read, so the broker must supply the slug for it. That value is a **concurrency key only** (`client_payload.team_hint`); the authoritative team comes from the hub's own read. Sequential concurrency per team is what guards team capacity without a distributed lock (§5.8), so it cannot simply be dropped.
+- **The broker reads the issue title only through `env:`, and only to match `^team:<slug>$`.** The hub's concurrency group is evaluated at dispatch time, before the body can be read, so the broker must supply the slug for it. That value is a **concurrency key only** (`client_payload.team_hint`); the authoritative team comes from the hub's own read. Sequential concurrency per team is what guards team capacity without a distributed lock (§5.6), so it cannot simply be dropped.
 
 Team names are also stripped of control characters before use: outputs are written as `name=value` lines to `GITHUB_OUTPUT`, so an embedded newline would forge outputs downstream.
 
@@ -237,57 +240,54 @@ Roster gating (§4.2) is that authorization, but it runs in the hub, *after* the
 - The broker checks out the public hub - no credentials - and verifies before minting. **Verification is asymmetric because the verifier is public.** An HMAC would put the minting secret on every broker; a public key is safe to publish by definition. Encryption is the wrong primitive: the broker cannot hold a decryption key either, and on a public channel ciphertext replays exactly as well as plaintext.
 - `vars.INVITE_ENABLED` and the `pxl-accept:` title prefix are checked in the workflow's **job-level `if`**, which GitHub evaluates before allocating a runner.
 
-**What lands in the title is a signature, not the invitation.** This is the second version of the mechanism, and the reason for it was measured rather than reasoned about. On 2026-08-25 a single unauthenticated request -
+**What lands in the title is a signature, not the invitation.** Every acceptance opens an issue on a public repository; GitHub emits an `IssuesEvent` carrying the title; GH Archive mirrors that firehose into a permanent public dataset. `GET /repos/<org>/<broker>/events` is unauthenticated and returns titles from issues that have since been deleted. Redaction, deletion and the exposure sweep below are therefore all *after the fact* - the `opened` event has already gone out, and rotation kills a token without unpublishing it.
 
-```
-curl -s https://api.github.com/repos/<org>/<broker>/events
-```
-
-\- returned a full, still-valid `pxl-accept:` token on an issue that had **already been deleted**. Every acceptance opens an issue on a public repository; GitHub emits an `IssuesEvent` carrying the title; GH Archive mirrors that firehose into a permanent public dataset. The three mitigations below - redact, delete, sweep - are all *after the fact*, because the `opened` event has already gone out. Rotation kills a token but cannot unpublish it.
-
-Hiding the title is not available. Every student-initiated trigger on a public repository emits a public event, and there is no private transport without self-hosting. So the fix is to make what lands in the event **insufficient on its own**:
+Hiding the title is not available either: every student-initiated trigger on a public repository emits a public event, and there is no private transport without self-hosting. So what lands in the event is made **insufficient on its own**:
 
 - **The link carries a private key**, minted per assignment by `publish-assignment.yml` and stored as `invite_key` in the private control repo. The public half goes onto the broker as the `INVITE_PUBKEY` variable, where it is not a secret at all.
 - **The student's browser signs** an assertion naming their own GitHub account, and only the signature reaches the title. Replaying it requires being that account; forging one requires the key, which appears in no event.
-- **The payload is 19 binary bytes** - a version, eight bytes of `sha256(assignment id)`, a 48-bit account id and a four-byte nonce - which is 26 base64url characters and makes the whole title 127, or 196 with the longest team hint GitHub will accept. It was JSON, carrying the assignment id verbatim and a full ISO-8601 timestamp, and a real assignment id (`2526-automation-scripting-practicum-exam-2`) produced a 253-character title before any hint was appended: a group acceptance was then impossible for a reason the lecturer chose months earlier, when naming the assignment. Hashing the subject removes the dependency on the id's length; the timestamp is gone, having been documented as never enforced.
-- **The broker checks the signer against the issue author**, comparing the signed account id to `github.event.issue.user.id` before minting anything. It is the **only** place that check happens: the dispatch carries a login and an id, never the title, so the hub has no signature to re-verify. Claiming otherwise - as a comment here once did - is worse than the gap, because it invites the broker's check to be relaxed on the strength of a second one that does not exist.
-- **The accepting account is one field, read once.** `github.event.issue.user` decides who signed, who is validated, who is dispatched and how the run is serialised. The broker used to verify `issue.user.id` while validating `github.actor` and `sender.id` and dispatching the latter - three readings of one fact, which agree for a freshly opened issue and would diverge silently for one opened through an App on a user's behalf.
-- **ECDSA P-256, not Ed25519.** Verified 2026-08-25: Ed25519 reached WebCrypto in Chrome only in May 2026, leaving roughly a fifth of browsers unable to sign at all. P-256 is universal in browsers and in Node's `crypto.subtle`, so `lib/acceptance-signature.mjs` serves the SPA, the broker and the hub from one module. Ed25519 stays on the Node-only paths it already owns - the invitation token itself is still signed with it.
+- **The payload is 19 binary bytes** - a version, eight bytes of `sha256(assignment id)`, a 48-bit account id and a four-byte nonce - which is 26 base64url characters and makes the whole title 127, or 196 with the longest team hint GitHub will accept. **The subject is hashed rather than carried**, so the title's length does not depend on how long a lecturer made the assignment id.
+- **The broker checks the signer against the issue author**, comparing the signed account id to `github.event.issue.user.id` before minting anything. It is the **only** place that check happens: the dispatch carries a login and an id, never the title, so the hub has no signature to re-verify. Nothing may describe it as checked twice - that invites the broker's check to be relaxed on the strength of a second one that does not exist.
+- **The accepting account is one field, read once.** `github.event.issue.user` decides who signed, who is validated, who is dispatched and how the run is serialised. `github.actor` and `sender.id` agree with it for a freshly opened issue and diverge silently for one opened through an App on a user's behalf, so neither is read.
+- **ECDSA P-256, not Ed25519.** Ed25519 reached WebCrypto in Chrome only in May 2026, leaving roughly a fifth of browsers unable to sign at all; P-256 is universal in browsers and in Node's `crypto.subtle`, so `lib/acceptance-signature.mjs` serves the SPA, the broker and the hub from one module. Ed25519 stays on the Node-only paths it already owns - the invitation token itself is still signed with it.
 
-**The title budget is 256 characters, and it is ours rather than GitHub's.** Measured 2026-08-26 against the live API: a 1024-character issue title is accepted and 1025 is refused, while GitHub's own 422 on the latter says *"title is too long (maximum is 256 characters)"*. Building on the enforced 1024 would mean building on something GitHub's own validator calls invalid, so 256 stands - and the title has to fit inside it with the longest team hint attached, which is what the binary payload buys. Titles round-trip byte-identically, whitespace and tabs included, so a signature over those bytes still verifies after the round trip; that was measured too, because verification compares bytes and any normalisation would break every acceptance for a reason nothing in this system could explain.
+**The title budget is 256 characters, and it is ours rather than GitHub's.** GitHub enforces 1024 - measured against the live API, 1024 is accepted and 1025 refused - but its own 422 on the latter says *"title is too long (maximum is 256 characters)"*. Building on the enforced 1024 would mean building on something GitHub's own validator calls invalid, so 256 stands, and the title has to fit inside it with the longest team hint attached. That is what the binary payload buys. Titles round-trip byte-identically, whitespace and tabs included, so a signature over those bytes still verifies afterwards; verification compares bytes, and any normalisation would break every acceptance.
 
-**The team hint is appended after signing, and the verifier must cut it off.** `verifyAcceptanceTitle` reads only the first whitespace-delimited token. It used to split the whole title on `.`, so the signature arrived as `<signature> team:alpha` - not base64url - and **every** group acceptance on the signed path was rejected as malformed while individual acceptance worked perfectly. Trailing content is ignored rather than refused, deliberately: the hint is a concurrency key and never an authoritative value (§5.8), and the hub re-derives the real team from the issue body.
-
-**Migration is per assignment, and the switch point is the key.** Every broker checks the hub out at `ref: main`, so an un-republished broker already runs the newest verifier. It takes the signed path only when it is sent **both** a title and a public key: a republished broker sends the title immediately, but the assignment has no keypair until a publish mints one, so activating on the title alone would reject every acceptance in between. A legacy title arriving at a migrated broker is refused as `legacy-link` - named, not called malformed, because the student's link is out of date rather than mistyped.
+**The team hint is appended after signing, and the verifier cuts it off.** `verifyAcceptanceTitle` reads only the first whitespace-delimited token - never a split on `.`, which would hand the verifier `<signature> team:alpha` and reject every group acceptance as malformed while individual acceptance worked perfectly. Trailing content is ignored rather than refused, deliberately: the hint is a concurrency key and never an authoritative value (§5.6), and the hub re-derives the real team from the issue body.
 
 The floor this leaves: a caller without a valid token costs one boot on a free public runner and touches nothing private. `tests/invite-token.test.mjs` pins the ordering - no step before verification may reference a secret.
 
 **The invitation is not a secret in the sharing sense.** Anyone the link reaches can accept; that is an accepted risk bounded by `max_acceptances` and closing the assignment (§15). What it prevents is an outsider who never had the link causing work to happen. The signature changes only *where* that boundary holds: the link is still a capability, but it is no longer published by the act of using it.
 
-**The trigger issue still has to be destroyed, not closed** - now as defence in depth rather than as the property itself. A legacy token travels in the issue title, on a repository that is public by construction. Closing and locking an issue hides nothing: a closed, locked issue on a public repo is still readable, still listed, and still returned by GitHub's issue search. The first student to accept therefore *published* the assignment's token to anyone who looked - which is not the "someone forwards the link to a friend" residual above, but the property itself, gone. It took §4.3.3 with it: the acceptance card is named `sha256(invite_token)`, so a public token is a public card, and for a group assignment a public list of member logins.
+**A legacy trigger issue is redacted, not closed.** A legacy token travels in the issue title, on a repository that is public by construction, and closing and locking an issue hides nothing - a closed, locked issue on a public repo is still readable, still listed, and still returned by GitHub's issue search. That would publish the assignment's token to anyone who looked, and take §4.3.3 with it: the acceptance card is named `sha256(invite_token)`, so a public token is a public card and, for a group assignment, a public list of member logins. Two steps therefore run:
 
-Two steps close it, and a third that never worked has been removed:
+- **The broker redacts the title in seconds**, on both the accepted and the rejected path, using `gh issue edit --title` - which needs only `issues: write`, so it adds no credential to a repository that already holds a key. The reject path matters because `wrong-assignment` means a *live* token for another assignment was posted there.
+- **System Health sweeps for survivors.** Tier 4 lists the broker's issues and reports any title still starting with `pxl-accept:` - which catches an `INVITE_ENABLED=false` that skips the job before cleanup, and a run that died mid-flight. It does not guess why: the acceptance-handler run for each leftover carries the reason. It runs even when the assignment's own `invite_token` is missing or malformed, because a leftover issue is a published credential regardless.
 
-- **The broker redacts the title in seconds**, on both the accepted and the rejected path, using `gh issue edit --title` - which needs only `issues: write`, so it adds no credential to a repository that already holds the App key. The reject path matters because `wrong-assignment` means a *live* token for another assignment was posted there.
-- **Deleting the issue is NOT available, and the attempt has been removed.** `deleteIssue` is GraphQL-only and refuses an App installation token outright. Measured live 2026-08-26, twice, in two organizations: `{"type":"FORBIDDEN","path":["deleteIssue"],"message":"Viewer not authorized to delete"}`. It is not a missing permission - both orgs grant the App `administration: write`, the same token had read the issue two steps earlier, and in the same publish run that token created the broker and wrote its secrets and variables. A **user** token with repository admin deletes it immediately. GitHub documents none of this; its community answer for the identical error on `GITHUB_TOKEN` (also an installation token) is "use a personal access token", and this system deliberately holds none - adding a long-lived user credential to the hub to tidy a public issue would trade §4.3.4 away for housekeeping. The step had therefore never once succeeded, while warning on every acceptance that an organization should grant a permission it already had. Redaction is the mitigation, and after §4.3.2 the title is a signature rather than a credential, so what survives in the timeline grants nobody anything.
-- **System Health sweeps for survivors.** Tier 4 lists the broker's issues and reports any title still starting with `pxl-accept:` - which is what catches a failed deletion, an `INVITE_ENABLED=false` that skips the job before cleanup, and a run that died mid-flight. It does not guess why: the acceptance-handler run for each leftover carries the reason. It runs even when the assignment's own `invite_token` is missing or malformed, because a leftover issue is a published credential regardless.
+**Deleting the issue is not available.** `deleteIssue` is GraphQL-only and refuses an App installation token outright - `{"type":"FORBIDDEN","path":["deleteIssue"],"message":"Viewer not authorized to delete"}` - and it is not a missing permission: the same token reads the issue two steps earlier, and creates the broker and writes its secrets in the same publish run. A **user** token with repository admin deletes it immediately, and GitHub's own answer for the identical error is "use a personal access token". This system holds none, deliberately: a long-lived user credential on the hub would trade §4.3.4 away for housekeeping. Redaction is the mitigation, and on a migrated assignment the title is a signature rather than a credential, so what survives in the timeline grants nobody anything.
 
-**Residual, accepted.** For a legacy assignment, the window between the student's POST and the broker's redaction is not the residual - the `opened` event carries the title out of reach of all three steps, permanently, which is what made the signature necessary in the first place. What the three steps still buy is the *browsable* copy: the issue list, GitHub's search, and the timeline entry a rename leaves behind. Where deletion fails, the failure path tells the lecturer to regenerate rather than treating redaction as sufficient. `tests/invite-exposure.test.mjs` pins all three steps.
+**Residual, accepted.** For a legacy assignment the residual is not the window between the student's POST and the redaction - the `opened` event carries the title permanently out of reach of both steps, which is what made the signature necessary in the first place. What they still buy is the *browsable* copy: the issue list, GitHub's search, and the timeline entry a rename leaves behind. `tests/invite-exposure.test.mjs` pins them.
 
 For a migrated assignment the published title is a signature over `{assignment id, github id}`. It is bound to the account that authored the issue, whose login is public on that issue anyway, so the residual is that an observer learns *who accepted what* - the same fact the issue itself already stated. It cannot be replayed by anyone else and cannot be turned back into the key.
+
+#### 4.3.2a The invitation's lifecycle - migration, rotation, retirement
+
+§4.3.2 is how a signed invitation is verified. This is what happens to one over its life: an assignment moves onto the signed path, a lecturer rotates a link, and students holding a superseded one have to land somewhere honest.
+
+**Migration is per assignment, and the switch point is the key.** Every broker checks the hub out at `ref: main`, so an un-republished broker already runs the newest verifier. It takes the signed path only when it is sent **both** a title and a public key: a republished broker sends the title immediately, but the assignment has no keypair until a publish mints one, so activating on the title alone would reject every acceptance in between. A legacy title arriving at a migrated broker is refused as `legacy-link` - named, not called malformed, because the student's link is out of date rather than mistyped.
 
 **Revocation** has two halves, retired together. The nonce is mirrored to the broker's `INVITE_NONCE` variable; the acceptance keypair's public half is mirrored to `INVITE_PUBKEY`. Republishing reuses **both**, so a repair does not break links already handed out - the same contract the nonce has always had, and for the same reason. `regenerate_invite: true` mints a fresh nonce *and* a fresh keypair, and every earlier link stops working. Invitation-signing key rotation is the separate `kid` field, with old public keys retained until their assignments close. See RUNBOOK §1.3.1.
 
 **A retired link resolves to a page that says it was retired**, whichever way it was retired. Migration and rotation both take working links out of students' hands, and those students have done nothing wrong and cannot tell. Two mechanisms cover the two cases, and neither records a retired secret anywhere - a list of them on the assignment would be one more field `buildDoc` could silently drop. **Migration:** the assignment still carries the token it is no longer using, so `pages/generate.mjs` writes a marker at that digest directly. **Rotation:** the old key is gone from the document, but its *card* is still on the site at a digest nothing publishes any more - and that card names its own assignment, so the prune converts it into a marker instead of deleting it when the assignment is still being published. A group assignment's teams file is always pruned rather than retired, so a superseded link cannot fetch the cohort list. Markers are pruned with their assignment, or every rotation would leave one behind for ever. Either way the file is a contentless card at the digest of the superseded secret - `{superseded: true, assignment_id, title, organization}`, no acceptance data, deliberately not shaped like an assignment - and the SPA renders "This invitation link is out of date. Ask your lecturer for the current one." Without it the student lands on the not-found page, whose only honest wording is a guess between three causes; a page may not guess why it is stuck - the same rule the provisioning wait screen is built on. The lecturer's half is the Admin Panel warning on the one republish that cannot preserve the links. `tests/superseded-invitation.test.mjs`, `tests/e2e/43-superseded-link.spec.mjs`.
 
-**Where the invitation is recorded, and who reads it back.** The token, nonce and expiry live as three lines in the assignment's YAML in the private control repo. `lib/invite-token-format.mjs` owns both halves of that - `readInviteField` / `parseInviteFields` for reading, `quoteInviteValue` for writing - because a reader that drifts from the writer is a lecturer holding an empty link box, which has now happened four times. Two rules fall out of it:
+**Where the invitation is recorded, and who reads it back.** The token, nonce and expiry live as three lines in the assignment's YAML in the private control repo. `lib/invite-token-format.mjs` owns both halves of that - `readInviteField` / `parseInviteFields` for reading, `quoteInviteValue` for writing - because a reader that drifts from the writer is a lecturer holding an empty link box. Two rules fall out of it:
 
 - **The nonce is written quoted.** Eight hex characters are all digits about one time in forty, and an all-digit nonce with a leading zero round-trips through a YAML parser as an integer - `01234567` returns as `1234567`. `set-assignment-invite.mjs` then fails its own `^[0-9a-f]{8}$` check, concludes there is no reusable nonce and mints a fresh one, retiring every link already handed out on a republish whose entire contract is that it does not.
 - **The parse is a line-based regex, not a YAML round trip.** The module is imported by `lib/invite-token.mjs`, which the broker runs from a bare hub checkout with no `npm ci`; a dependency here would put npm on a credential-bearing public repository. It also keeps the reader and the writer working on the same representation, so a round-trip test exercises the real thing rather than two parsers that happen to agree.
 
 #### 4.3.3 What the public Pages artifacts disclose
 
-GitHub Pages is public and access-controlled Pages is an Enterprise feature the system never uses (§2), so everything published is world-readable. Until signed invitations existed, `data/<org>/assignments.json` listed every published assignment - id, title, description, deadline, broker repo, roster mode, cap and acceptance count - which made "unlisted assignments" a UI convention rather than a property.
+GitHub Pages is public and access-controlled Pages is an Enterprise feature the system never uses (§2), so everything published is world-readable. Two rules follow: nothing published may be a capability, and "unlisted" may never be a UI convention standing in for a property.
 
 The acceptance card now lives at `data/<org>/i/<sha256(link secret)>.json`, and a group assignment's teams file beside it as `<sha256>.teams.json`. The link secret is the assignment's `invite_key` once it has migrated to signed acceptance and its `invite_token` while it has not; `linkSecretFrom` in `lib/invite-token-format.mjs` is the single answer to which, shared by the generator, the Admin Panel and the diagnostic engine, because three copies of that rule would be a 404 for every student the first time they disagreed. Consequences:
 
@@ -314,10 +314,7 @@ The link secret is in the URL path, so `frontend/index.html` sets `<meta name="r
 
 - **The signing keys live only on the environment.** `PXL_APP_PRIVATE_KEY` and `PXL_INVITE_SIGNING_KEY` are environment secrets with no repository-level copy, so a job that does not name `provisioning` cannot read them at all - the branch policy and the secret's location now enforce the same rule independently. `PXL_APP_CLIENT_ID` stays a repository secret deliberately: a client id is public by design and ships in the SPA bundle.
 
-**Residual, accepted.** The actor guard does not stop a stolen *user* credential, which acts as its owner - rulesets and the environment are what bound that. Broker repositories still hold their own copy of the App key, because they must mint a dispatcher token; §4.3.1 and §4.3.2 are what keep that copy out of reach.
-- **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern; see RUNBOOK §9.
-- **Per-org control-repo compromise.** Restricted to that single org's data.
-- **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.
+**Residual, accepted.** The actor guard does not stop a stolen *user* credential, which acts as its owner - rulesets and the environment are what bound that. Broker repositories still hold a copy of the *broker* App's key, because they must mint a dispatcher token; §4.3.1 and §4.3.2 are what keep that copy out of reach, and §4.3.0 is what makes it worth little if it is not.
 
 ### 4.4 Lock-down semantics
 
@@ -329,7 +326,7 @@ Whichever applies, it runs through the org-level App installation - which outran
 
 ## 5. Data model
 
-[5.1 Control repository layout](#51-control-repository-layout) · [5.2 Distinguish facts, observations, calculations, overrides](#52-distinguish-facts-observations-calculations-overrides) · [5.3 Schemas](#53-schemas) · [5.4 Assignment definition](#54-assignment-definition) · [5.5 Participating-orgs registry](#55-participating-orgs-registry) · [5.8 Group Assignments](#58-group-assignments)
+[5.1 Control repository layout](#51-control-repository-layout) · [5.2 Distinguish facts, observations, calculations, overrides](#52-distinguish-facts-observations-calculations-overrides) · [5.3 Schemas](#53-schemas) · [5.4 Assignment definition](#54-assignment-definition) · [5.5 Participating-orgs registry](#55-participating-orgs-registry) · [5.6 Group Assignments](#56-group-assignments)
 
 ### 5.1 Control repository layout
 
@@ -427,31 +424,17 @@ invite_expires_at: 2027-09-27T01:27:18Z
 
 **Two secrets, one of which is the link.** `invite_key` is the link on any assignment that has been published since signed acceptance shipped; `invite_token` is the link on one that has not. `linkSecretFrom` decides, once, for every surface (§4.3.3). The token is retained after migration for one reason: its digest is where a student's old link still lands, and that URL has to resolve to a page saying so rather than to a 404.
 
-**`acceptance_mode` has one implemented value.** A `pre-provisioned` mode - the lecturer creates repositories up front and GitHub sends its own repository invitations - was offered in the schema and the Admin Panel but implemented in no code path, so selecting it silently produced self-service behaviour. It has been removed rather than left as a trap; see §16. With one value left there is no decision to make, so the Admin Panel renders **no control** for it - a select with a single option asks a question the lecturer cannot answer. The field is still written by `buildDoc()` and published on the acceptance card; the schema is unchanged, so existing YAMLs keep validating.
+**`acceptance_mode` has one implemented value**, `self-service`. A `pre-provisioned` mode is a v2 candidate (§16) and is deliberately not offered here: a value in a dropdown that no code path implements silently produces self-service behaviour, which is a trap. With one value left there is no decision to make, so the Admin Panel renders **no control** for it - a select with a single option asks a question the lecturer cannot answer. The field is still written by `buildDoc()` and published on the acceptance card, and the schema still accepts it, so existing YAMLs keep validating.
 
-**`roster_mode` is independent of it.** `acceptance_mode` is *how* a repository is created; `roster_mode` is *who* may accept. `accept.mjs` fails **closed** to `enforced` for any unrecognised value, and that is unchanged - it is a rule about garbage, not a default.
+**`roster_mode` is independent of it.** `acceptance_mode` is *how* a repository is created; `roster_mode` is *who* may accept. `accept.mjs` fails **closed** to `enforced` for any unrecognised value - a rule about garbage, not a default.
 
-The *form* default is `open` (2026-08-24). WS1 had set it to `enforced` because the broker repo is public, so the roster was the only thing between any GitHub account and a provisioned repository. Signed invitations took that job over (§4.3.2): the broker verifies the student's signed acceptance assertion at the edge before a credential is minted, so someone without the link gets nothing whatever `roster_mode` says. Requiring a CSV import before a single student could accept therefore bought nothing, while making every new org's first assignment depend on one. `enforced` is one dropdown away; `open` requires `max_acceptances`, which `emptyForm()` supplies. Existing assignments are untouched - the default governs new ones only.
+The *form* default is `open`. Signed invitations (§4.3.2) are what stand between an arbitrary GitHub account and a provisioned repository: the broker verifies the student's signed assertion at the edge before a credential is minted, so someone without the link gets nothing whatever `roster_mode` says. Defaulting to `enforced` would therefore buy nothing while making every new org's first assignment wait on a CSV import. `enforced` is one dropdown away; `open` requires `max_acceptances`, which `emptyForm()` supplies. The default governs new assignments only.
 
 **A roster is still worth having under `open`.** It stops being a gate, not a record: `report.mjs` builds the population from the union of acceptances, repositories, observations *and* the roster, so roster students appear before they accept and carry their student number, name and class group into the report and the CSV export. Under `open` a student who is not on the roster still accepts - their row simply carries the GitHub login and nothing else until the lecturer reconciles it.
 
-**`max_acceptances` is a guardrail, not a seat allocator — by decision, not by
-oversight.** `accept.mjs` counts `acceptances/<id>/*.json`, compares, then
-writes: check-then-act. The acceptance concurrency group is keyed on
-`team_hint || github_login`, so per-*team* serialization guards `max_team_size`
-(§5.8) but acceptances by different students are **not** serialized against one
-another. Two students arriving together both read 49, both see `49 < 50`, and
-both write. The cap can overshoot by roughly the number of acceptances in
-flight.
+**`max_acceptances` is a guardrail, not a seat allocator — by decision, not by oversight.** `accept.mjs` counts `acceptances/<id>/*.json`, compares, then writes: check-then-act. The acceptance concurrency group is keyed on `team_hint || github_login`, so per-*team* serialization guards `max_team_size` (§5.6) but acceptances by different students are **not** serialized against one another. Two students arriving together both read 49, both see `49 < 50`, and both write. The cap can overshoot by roughly the number of acceptances in flight.
 
-Closing it means keying the group on the assignment, which serializes every
-acceptance for it: a 200-student cohort accepting in the first minutes of a
-lecture would run one at a time, ~30s each, on a system whose design goal is
-billing zero minutes when idle. **Reviewed and left as-is on 2026-08-24.** The
-cap's job is to stop an unbounded link being farmed, and it does that. What
-follows from it is a documentation rule, not a code one: nothing in the UI may
-present the number as exact (C4). The Admin Panel says *"Cap on accepted
-students"*, never *"hard cap"*.
+Closing that means keying the group on the assignment, which serializes every acceptance for it: a 200-student cohort accepting in the first minutes of a lecture would run one at a time, ~30s each, on a system whose design goal is billing zero minutes when idle. The cap's job is to stop an unbounded link being farmed, and it does that. What follows is a **documentation** rule rather than a code one: nothing in the UI may present the number as exact. The Admin Panel says *"Cap on accepted students"*, never *"hard cap"*.
 
 ### 5.5 Participating-orgs registry
 
@@ -467,7 +450,7 @@ orgs:
       "Actions Linux": 2000
 ```
 
-### 5.8 Group Assignments
+### 5.6 Group Assignments
 
 Assignments can be polymorphic: `assignment_type: "individual"` (default) or `"group"`.
 
@@ -481,7 +464,7 @@ Assignments can be polymorphic: `assignment_type: "individual"` (default) or `"g
 - **Unassigned fallback:** `group_config.unassigned_fallback` (`block` | `self-service`, default `block`) decides what happens to a student with no assigned team under `formation_mode: pre-assigned`. `block` is the historical behaviour - the acceptance is rejected `rejected:no-assigned-team` and the SPA tells the student to contact their instructor. `self-service` lets them join or create a team instead, which is what keeps late enrollers and students whose partners dropped out from being stuck behind a lecturer action.
 - **Pre-assignment is enforced server-side.** Under `pre-assigned`, `accept.mjs` resolves the student's team from (1) a team manifest that already lists them, then (2) the roster's `teams[<assignment-id>]` / `team_slug` columns. A payload naming a *different* team is rejected `rejected:team-not-assigned` rather than silently redirected. Under `self-service` the resolved team is only a default: naming another team is a switch, and switching stays open until the deadline.
 
-#### 5.8.1 Carrying groups forward between assignments
+#### 5.6.1 Carrying groups forward between assignments
 
 Team membership is per assignment by design, so a second group assignment would otherwise make students re-form the same groups. **Seeding** copies an existing grouping into a target assignment as real `teams/<id>/<team-slug>.json` manifests, which the student then confirms in one click.
 
@@ -517,7 +500,7 @@ A single workflow, `daily-activity.yml`, runs at `0 0 * * *` UTC. For every part
 
 #### 6.2.1 Finalize is complete only when the submissions are archived
 
-The idempotency key is *not* "a lockdown record exists". A run that locked students down and then failed in `preserve` would otherwise be recorded as finished and never retried, leaving submissions permanently unarchived - which is exactly what happened on 2026-07-30. `find-finalizable.mjs` therefore re-queues a past-deadline assignment when its `lockdown-record.json` lists a student with a `snapshot_sha` but no verified `observations/<id>/<login>/preservation.json`.
+The idempotency key is *not* "a lockdown record exists". A run that locked students down and then failed in `preserve` would otherwise be recorded as finished and never retried, leaving submissions permanently unarchived. `find-finalizable.mjs` therefore re-queues a past-deadline assignment when its `lockdown-record.json` lists a student with a `snapshot_sha` but no verified `observations/<id>/<login>/preservation.json`.
 
 Three properties make that retry safe:
 
@@ -525,15 +508,15 @@ Three properties make that retry safe:
 - **Retries are capped.** `finalize_attempts` is incremented in the lockdown record; past `MAX_FINALIZE_ATTEMPTS` (3) the assignment is left alone with an explanatory log line, so a repo that can never be preserved (deleted, for instance) cannot burn a matrix leg every night. Reset the counter in the record to force another attempt.
 - **The record is always committed.** The `Commit + push` step runs `if: always()`, because lockdown has already demoted permissions through the API by that point; discarding the record would lose both the frozen snapshot and the attempt counter.
 
-There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queue.yml` - those were earlier cron-heavy designs that have been removed.
+**There is no `collect-activity.yml`, no `finalize-deadline.yml`, no `process-queue.yml`**, and none may be added. Each is a cron-heavy or queue-based design that the one nightly replaces; adding one back is what §6.4 costs.
 
 #### 6.2.2 A granted extension defers that student, and only that student
 
-Every comparison against "the deadline" has to mean the deadline **for that student**, or the system acts against work a lecturer deliberately allowed. `lib/effective-deadline.mjs` is the single implementation - `effectiveDeadlineFor(assignment, login, { overrides, team })` - and `report.mjs`, `lockdown.mjs` and `find-finalizable.mjs` all read it. It must not fork: before it existed, `report.mjs` had the only copy and it read `override.deadline_at`, a field the Admin Panel stopped writing in June 2026, while `lockdown.mjs` and `find-finalizable.mjs` never opened `overrides/` at all. Granting an extension therefore demoted the student to `pull` at the assignment's own deadline and then reported their extension as active - the report counting work the system had prevented.
+Every comparison against "the deadline" has to mean the deadline **for that student**, or the system acts against work a lecturer deliberately allowed. `lib/effective-deadline.mjs` is the single implementation - `effectiveDeadlineFor(assignment, login, { overrides, team })` - and `report.mjs`, `lockdown.mjs` and `find-finalizable.mjs` all read it. **It must not fork.** A reader that does not open `overrides/` demotes an extended student at the assignment's own deadline while the report still shows their extension as active - the report counting work the system has prevented.
 
 Both override shapes are read. The current one is the append-only `overrides[]` array (`type: deadline_extension`, latest entry wins); the flat top-level `deadline_at` predates 2026-06-17 and is honoured because control repos from that era still hold it. An extension only ever **extends**: a value earlier than the assignment deadline is ignored rather than shortening it, because failing the other way locks a student out early. A group shares one repository, so the most generous extension among its members governs the whole team.
 
-**The SPA reads the same module.** `frontend/src/lib/deadline.js` re-exports it, the way `lib/invite.js` re-exports the token format, because the rule had forked three ways: the backend and the two lecturer views took the last entry of the append-only history, while the student-facing `AssignmentView` and `GroupAcceptanceCard` took the first. A student granted a second extension was shown - and counted down to - a deadline a later grant had already superseded, which is the direction that costs them marks.
+**The SPA reads the same module.** `frontend/src/lib/deadline.js` re-exports it, the way `lib/invite.js` re-exports the token format. Every surface must take the **last** entry of the append-only history: taking the first shows a student granted a second extension a deadline that a later grant has already superseded, and counts them down to it - the direction that costs them marks.
 
 The finalize path then behaves as follows:
 
@@ -601,6 +584,8 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 | `ci.yml` | `push` to `main` | Three jobs: `node --test` over `tests/` and `cli/tests/`, Playwright e2e, and `npm run lint` - which is the **only** lint entry point, and runs eslint, actionlint and shellcheck together. |
 
 **Broker template:** `acceptance/broker-workflow.yml` is the file `publish-assignment.yml` copies into each broker repository as `.github/workflows/acceptance-trigger.yml`. It's the one workflow that does NOT live in the hub at runtime - it lives on every broker - but it is owned and re-published from the hub.
+
+**A `workflow_dispatch`-only workflow is untested code, and a green Actions tab says nothing about it.** Nothing on a cron exercises `sync-starter-code.yml`, `open-feedback-prs.yml`, `retry-acceptance.yml`, `setup-org.yml`, `reconcile-registry.yml` or `regenerate-dashboard.yml`, so a fault in one - a mis-named action input, an un-awaited async call - surfaces for the first time in front of a lecturer who is trying to use it. Changes to these are verified by running them, not by reading them.
 
 ---
 
@@ -775,7 +760,7 @@ Admin sets Actions spending limit + budget alerts on <org>
 
 ## 10. Frontend
 
-[10.1 Routes](#101-routes) · [10.2 Authentication](#102-authentication) · [10.3 Data sources](#103-data-sources) · [10.4 Validation](#104-validation) · [10.5 CLI companion](#105-cli-companion) · [10.6 Design System & Visual Architecture](#106-design-system--visual-architecture)
+[10.1 Routes](#101-routes) · [10.2 Authentication](#102-authentication) · [10.2.1 The device-flow CORS proxy](#1021-the-device-flow-cors-proxy) · [10.3 Data sources](#103-data-sources) · [10.4 Validation](#104-validation) · [10.5 CLI companion](#105-cli-companion) · [10.6 Design System & Visual Architecture](#106-design-system--visual-architecture)
 
 Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory and sessionStorage only (never localStorage) and dies on tab close.
 
@@ -799,108 +784,61 @@ A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pag
 
 #### 10.1.1 The editor pane changes with the assignment's state
 
-Defining an assignment and running a cohort are different jobs. `AdminView`
-rendered the same screen for both, so the moment an assignment was out in the
-world the lecturer was still looking at `submission_ref` and a template picker.
+Defining an assignment and running a cohort are different jobs, and one screen for both leaves a lecturer looking at `submission_ref` and a template picker at the moment the assignment is out in the world.
 
-`cohortFirst` is `state === 'published' || state === 'closed'`, and when it is
-true the pane leads with the invitation share block, a **cohort card**
-(accepted / cap, time to the deadline, link to `/dashboard/:org/:id`) and puts
-the six fieldsets behind an `Edit settings` `<details>`. A **draft** opens on
-the form, because defining it is still the job; an **archived** assignment does
-too, since what is left to look at there is what it was configured to be.
+`cohortFirst` is `state === 'published' || state === 'closed'`, and when it is true the pane leads with the invitation share block, a **cohort card** (accepted / cap, time to the deadline, link to `/dashboard/:org/:id`) and puts the six fieldsets behind an `Edit settings` `<details>`. A **draft** opens on the form, because defining it is still the job; an **archived** assignment does too, since what is left to look at there is what it was configured to be.
 
 Rules that hold the disclosure together:
 
-* Its `open` attribute binds `settingsOpen || !cohortFirst`, so an assignment
-  reverted from published to draft cannot render a shut `<details>` whose
-  summary is `display: none` - a form with no control to open it.
-* `settingsOpen` is seeded per assignment as `!cohortFirst || fieldErrorCount > 0`:
-  one that arrives with a validation problem (a hand-edited YAML with no
-  template) opens expanded, because collapsing the only field that would fix it
-  leaves a disabled Save with no explanation.
-* The **summary carries the field-error count**, which is what stops a problem
-  hiding once the lecturer closes it again. There is deliberately no code
-  forcing it open: every field that can carry an error is inside it, so no
-  problem can appear while it is shut, and a `<details>` that refuses to close
-  is a dead control.
+* Its `open` attribute binds `settingsOpen || !cohortFirst`, so an assignment reverted from published to draft cannot render a shut `<details>` whose summary is `display: none` - a form with no control to open it.
+* `settingsOpen` is seeded per assignment as `!cohortFirst || fieldErrorCount > 0`: one that arrives with a validation problem (a hand-edited YAML with no template) opens expanded, because collapsing the only field that would fix it leaves a disabled Save with no explanation.
+* The **summary carries the field-error count**, which is what stops a problem hiding once the lecturer closes it again. There is deliberately no code forcing it open: every field that can carry an error is inside it, so no problem can appear while it is shut, and a `<details>` that refuses to close is a dead control.
 
-The cohort card reads `reports/dashboard.json` once per page load, shared by
-every assignment in the list. An absent entry renders "no cohort report yet"
-and an unreadable file "couldn't read the cohort report" - never `0 accepted`,
-which is a different fact - and an assignment with no `max_acceptances` shows
-no denominator (§11.6).
+The cohort card reads `reports/dashboard.json` once per page load, shared by every assignment in the list. An absent entry renders "no cohort report yet" and an unreadable file "couldn't read the cohort report" - never `0 accepted`, which is a different fact - and an assignment with no `max_acceptances` shows no denominator (§11.6).
 
-*Lifecycle* separates **Repair** from the **State** transitions below a rule.
-The repair group holds `Republish broker` and renders for a **published**
-assignment only: `publish-assignment.yml` writes `state: published`
-unconditionally, so the same dispatch from `closed` or `archived` reopens
-acceptance. From those states the control is `Reopen for acceptance`, sits with
-the transitions, and confirms first. A draft has nothing to repair yet, so its
-`Publish` is a transition too. Per-student extensions and retries are not here
-at all - they need a student, and their home is the student's own row on the
-tracking view (§10.1).
+*Lifecycle* separates **Repair** from the **State** transitions below a rule. The repair group holds `Republish broker` and renders for a **published** assignment only: `publish-assignment.yml` writes `state: published` unconditionally, so the same dispatch from `closed` or `archived` reopens acceptance. From those states the control is `Reopen for acceptance`, sits with the transitions, and confirms first. A draft has nothing to repair yet, so its `Publish` is a transition too. Per-student extensions and retries are not here at all - they need a student, and their home is the student's own row on the tracking view (§10.1).
 
-Nothing validates an assignment YAML on the way **in**, so the editor has to
-survive one that is wrong. An unparseable `deadline_at` produces an empty
-`deadline_at` rather than a `RangeError` out of `localToUtc`, and every field
-error renders when `touchedFields.X || !isNew` - the touch gate exists so a
-*new* form does not nag about boxes nobody has reached, which is not a reason
-to hide a problem in a document that already exists.
+Nothing validates an assignment YAML on the way **in**, so the editor has to survive one that is wrong. An unparseable `deadline_at` produces an empty `deadline_at` rather than a `RangeError` out of `localToUtc`, and every field error renders when `touchedFields.X || !isNew` - the touch gate exists so a *new* form does not nag about boxes nobody has reached, which is not a reason to hide a problem in a document that already exists.
 
 ### 10.2 Authentication
 
 GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** - device flow is a public-client flow.
 
-The App needs the following permissions. Eight repository permissions and Organization Administration are declared in the manifest at `frontend/src/views/SetupView.vue` and applied at App creation via the `/setup` route. Account Starring is added manually on the App settings page after creation (see RUNBOOK §1.2).
+**The permission set is §3.2.1's table and is not restated here.** It is declared once as `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs`, rendered into the App manifest by `frontend/src/views/SetupView.vue`, and applied at App creation via the `/setup` route; the account-level `emails` permission is the one thing added by hand afterwards (RUNBOOK §1.2). A second copy of the list here is a copy that goes stale, and what a lecturer's token can do is exactly what that one table says.
 
-| Permission | In manifest? | Why |
-|---|---|---|
-| `actions: write` | Yes | SPA dispatches hub workflows from the Admin UI (publish, retry, on-demand usage) and sets broker variables. |
-| `administration: write` | Yes | Create student repos, demote at lock-down. |
-| `contents: write` | Yes | Read/write assignment YAMLs, overrides, reports in the control repo. |
-| `issues: write` | Yes | Open notification & tracking issues in the control repo. |
-| `metadata: read` | Yes | Baseline repository metadata. |
-| `pull_requests: write` | Yes | Open & manage Feedback PRs on student repositories. |
-| `secrets: write` | Yes | Set per-broker / per-control-repo Actions secrets during provisioning. |
-| `workflows: write` | Yes | Provision Actions workflows in student repositories. |
-| `organization_administration: read` | Yes | Enhanced Billing endpoint used by the weekly usage report. Distinct from repository `administration`. |
-| `issues: write` | Yes | Students open the acceptance issue carrying their signed invitation on the public broker (§4.3.2). |
-| `email addresses: read` (account) | No (optional) | Read student verified primary email upon acceptance/login. |
+#### 10.2.1 The device-flow CORS proxy
 
-**A CORS proxy is required, permanently.** `github.com/login/device/code` and `github.com/login/oauth/access_token` send no CORS headers - measured 2026-08-28, a **200** response carries zero `access-control-*` headers, and GitHub's OAuth documentation states that "CORS pre-flight requests (OPTIONS) are not supported at this time". Since the SPA sends `Content-Type: application/json` a preflight is mandatory, so a browser can never call these two directly. This is structural, not a workaround, and only sign-in depends on it - `api.github.com` is CORS-friendly and is called directly.
+**A proxy is required, permanently.** `github.com/login/device/code` and `github.com/login/oauth/access_token` send no CORS headers - a **200** response carries zero `access-control-*` headers - and GitHub's OAuth documentation states that "CORS pre-flight requests (OPTIONS) are not supported at this time". Since the SPA sends `Content-Type: application/json` a preflight is mandatory, so a browser can never call these two directly. This is structural, not a workaround, and **only sign-in depends on it**: `api.github.com` is CORS-friendly and is called directly.
 
-**Two proxies, tried in order, and OURS IS FIRST.** The pair is ordered, not a set: the primary is the PXL-owned Cloudflare Worker (`cors-worker/worker.js`) and the secondary is a third-party proxy. The second entry exists because the recovery everyone assumes is available turns out not to be - when corsproxy.io withdrew its free tier on 2026-08-28 and 401'd everything, pointing the setting at another public proxy was measured and **does not work**: allorigins, thingproxy and codetabs each silently issue a GET and return GitHub's HTML sign-in page. Failover is automatic and needs no redeploy.
+**Two proxies, tried in order, and ours is first.** The pair is ordered, not a set. Failover is automatic and needs no redeploy.
 
-**The order was reversed on 2026-08-31, and it is a security property rather than a preference.** The Worker shipped as the *fallback*, which meant it protected nobody: a fallback is only reached when the primary fails, and once corsproxy.io was working again on a paid key the third party was back on the path of every sign-in. Measured live by loading the deployed SPA and reading its own resource timing - the device-code request and all three `access_token` polls went to `corsproxy.io`, and the Worker was never contacted once. Whichever proxy answers sees the `device_code` and the **access token** in transit, and a lecturer token reads the private control repo: roster names, student numbers, institutional email addresses. Ours first means that hop is PXL-operated in the ordinary case, and a third party only when ours is unreachable.
+| Order | Setting | Where it lives | What it is |
+|---|---|---|---|
+| 1 | `device_flow_proxy` | `deployment.yml` | The **PXL-owned Cloudflare Worker** (`cors-worker/worker.js`). Deliberately *not* a secret: it is baked into a public bundle at build time and readable by anyone who opens the page, so treating it as one would buy nothing and hide the ordering. Keeping it in `deployment.yml` puts the order in the file people actually read. |
+| 2 | `VITE_CORS_PROXY_URL` | hub repo secret | A third-party proxy, reached only when the Worker is unreachable. `deploy-frontend.yml` bakes it in at build time. There is deliberately **no hardcoded default**, so deleting the secret cannot silently reinstate a third party. |
 
-| Setting | Where it lives | Notes |
-|---|---|---|
-| `device_flow_proxy` | `deployment.yml` | **Primary.** The PXL Worker. Deliberately *not* a secret: it is baked into a public bundle at build time and readable by anyone who opens the page, so calling it a secret bought nothing and hid the ordering. Keeping it in `deployment.yml` also puts the order in the file people actually read, instead of making it depend on which of two similarly-named secrets held which value - which is how the third party stayed primary for as long as it did. |
-| `VITE_CORS_PROXY_URL` | hub repo secret | **Secondary**, tried only when the Worker is unreachable. `deploy-frontend.yml` bakes it in at build time. There is deliberately **no hardcoded default**: one meant that deleting the secret silently reinstated corsproxy.io as a working primary. |
+Both MUST end in `?url=`, `&url=` (a keyed proxy) or `?`. `VITE_CORS_PROXY_FALLBACK_URL` is **retired**.
 
-Both MUST end in `?url=`, `&url=` (a keyed proxy) or `?`. `VITE_CORS_PROXY_FALLBACK_URL` is **retired** - it held the Worker URL, which is now `deployment.yml`'s job.
+**The order is a security property, not a preference.** Whichever proxy answers sees the `device_code` and the **access token** in transit, and a lecturer token reads the private control repo: roster names, student numbers, institutional email addresses. Ours first means that hop is PXL-operated in the ordinary case, and a third party only when ours is unreachable. A fallback is only reached when the primary fails, so a Worker in second place protects nobody.
 
-An unusable setting is **skipped, not fatal** - a typo in the fallback must not take working sign-in down with it - and it is only a configuration error when nothing usable remains. Neither is validated by throwing at module scope: that file is imported by the whole SPA, so a throw is a blank page with nothing written on it.
+**A second entry is still needed**, because the recovery everyone assumes is available is not: swapping in another public proxy does not work. allorigins, thingproxy and codetabs each silently issue a GET and return GitHub's HTML sign-in page rather than proxying the POST.
 
-**Telling a broken proxy from GitHub refusing** is the load-bearing distinction, because both arrive as JSON with an `error` field - corsproxy.io's withdrawal reply was `{"error":"A valid API key is required"}`. A reply is accepted only if it carries `device_code`/`access_token` or an error code on GitHub's own documented device-flow allowlist; anything else, including an HTML page served with HTTP 200, counts as that proxy being broken and the next one is tried. An unrecognised code fails over rather than being reported as GitHub's answer, because quoting the reply after trying both is recoverable whereas showing a student a proxy's billing error as an authorization failure is not.
+An unusable setting is **skipped, not fatal** - a typo in the second entry must not take working sign-in down with it - and it is only a configuration error when nothing usable remains. Neither is validated by throwing at module scope: that file is imported by the whole SPA, so a throw there is a blank page with nothing written on it.
 
-**Threat model.** Whichever proxy answers sees the `device_code` and `access_token` in transit at sign-in (not subsequent API calls - those go directly to `api.github.com`, which is CORS-friendly). A compromised proxy operator can therefore *replay* lecturer tokens harvested during the breach window; they cannot intercept any subsequent traffic. Since 2026-08-31 that operator is **PXL** in the ordinary case, and a third party only during a Worker outage - which is the whole reason the order matters. It is not eliminated: a browser cannot reach GitHub's device-flow endpoints without a proxy, so the hop is structural and the only question is who runs it.
+**Telling a broken proxy from GitHub refusing** is the load-bearing distinction, because both arrive as JSON with an `error` field: a proxy withdrawing its free tier answers `{"error":"A valid API key is required"}`. A reply is accepted only if it carries `device_code`/`access_token` or an error code on GitHub's own documented device-flow allowlist; anything else, including an HTML page served with HTTP 200, counts as that proxy being broken and the next one is tried. An unrecognised code fails over rather than being reported as GitHub's answer - quoting the reply after trying both is recoverable, whereas showing a student a proxy's billing error as an authorization failure is not.
 
-What a leaked lecturer token grants: the intersection of the table above with the user's GitHub permissions on installed orgs. In practice for an org owner that is contents/admin/secrets/actions write on every repo the App is installed on. The `actions: write` delta on top of the existing write permissions is small in marginal terms - workflows are public, inputs are validated, and the dispatch attack surface is bounded by what those workflows are designed to do. Token lifetime is 8 hours; lecturers can revoke at any time at `https://github.com/settings/applications`.
+**Threat model.** A compromised proxy operator can *replay* lecturer tokens harvested during the breach window; they cannot intercept any subsequent traffic, which goes directly to `api.github.com`. The hop cannot be eliminated - a browser cannot reach GitHub's device-flow endpoints without one - so the only question is who runs it, which is what the ordering above answers.
 
-Student tokens, which grant only issue creation on public repositories and email read at OAuth time, remain essentially harmless (worst case: opening issues on the student's behalf for ≤ 8 hours - and on a broker those are rejected without a valid invitation).
+What a leaked lecturer token grants: the intersection of §3.2.1's permissions with the user's own GitHub permissions on installed orgs. In practice, for an org owner, that is contents/admin/secrets/actions write on every repo the App is installed on. Token lifetime is 8 hours; lecturers can revoke at any time at `https://github.com/settings/applications`. Student tokens grant only issue creation on public repositories and email read at OAuth time, so the worst case is opening issues on the student's behalf for ≤ 8 hours - and on a broker those are rejected without a valid invitation.
 
-For PXL's classroom threat model, this is acceptable. A deployment handling higher-value data (e.g. graded assignments worth credit transferable to another institution) should make the PXL-owned Worker the **primary** rather than the fallback, which removes the third party from the token path entirely - it is a secret change, not a code change, since the Worker speaks the same `?url=` interface.
-
-`tests/cors.test.mjs` and `tests/cors-proxy-config.test.mjs` pin the behaviour: the 2026-08-28 outage replayed end to end, a 200-with-HTML rejected, `authorization_pending` **not** treated as a proxy fault, polling staying on whichever proxy answered, and - the claim-keys bug one setting over - `deploy-frontend.yml` actually passing every `VITE_*` value `auth.js` reads, since a fallback the build reads and the workflow never passes is one that ships to `main` and reaches nobody.
+`tests/cors.test.mjs` and `tests/cors-proxy-config.test.mjs` pin the behaviour: a proxy withdrawal replayed end to end, a 200-with-HTML rejected, `authorization_pending` **not** treated as a proxy fault, polling staying on whichever proxy answered, and `deploy-frontend.yml` actually passing every `VITE_*` value `auth.js` reads - a setting the build reads and the workflow never passes ships to `main` and reaches nobody.
 
 ### 10.3 Data sources
 
 - **Invitation link, lecturer side:** `frontend/src/components/InvitationShare.vue` is the one place the link is presented, on four surfaces (publish banner, assignment detail header, admin list row, dashboard card). It is truncated on screen and whole in the `title` and the clipboard; its status line is the **student-facing** truth, gated on the same conditions `AssignmentView` uses to show an Accept button. The token itself lives only in the private control repo, so a caller holding only an id (a dashboard card, built from `dashboard.json`, which must not carry it) has the component read it **on click** rather than on render - twenty cards cost nothing. `:resolve="false"` marks a caller that is authoritative about the token instead: rotating an invitation deliberately clears it, and a lazy re-read of the not-yet-rewritten YAML would hand the retired link back.
-- **Acceptance card:** static Pages JSON at `/data/<org>/i/<sha256(link secret)>.json`, one file per invitation, with a group assignment's teams file beside it as `<sha256>.teams.json`. Fetching it requires the link (§4.3.3). A superseded secret gets a second, contentless card at its own digest, so an out-of-date link resolves to a page that says so. `pages/generate.mjs` writes these into each control repo's `public/`, and `scripts/fetch-pages-data.mjs` gathers them into the SPA at build time. **The card reports the assignment's own guardrails and never substitutes a default for one that is absent**: `max_acceptances` is published as `null` when the assignment has no cap, because `accept.mjs` gates on `if (maxAcceptances && ...)` and therefore enforces nothing. Both the generator and `AssignmentView` used `?? 150`, so an uncapped assignment showed "Registration cap reached" to student 151 while the server would have provisioned them.
+- **Acceptance card:** static Pages JSON at `/data/<org>/i/<sha256(link secret)>.json`, one file per invitation, with a group assignment's teams file beside it as `<sha256>.teams.json`. Fetching it requires the link (§4.3.3). A superseded secret gets a second, contentless card at its own digest, so an out-of-date link resolves to a page that says so. `pages/generate.mjs` writes these into each control repo's `public/`, and `scripts/fetch-pages-data.mjs` gathers them into the SPA at build time. **The card reports the assignment's own guardrails and never substitutes a default for one that is absent**: `max_acceptances` is published as `null` when the assignment has no cap, because `accept.mjs` gates on `if (maxAcceptances && ...)` and therefore enforces nothing. A `?? <number>` anywhere on this path shows an uncapped assignment's student N+1 "Registration cap reached" while the server would have provisioned them.
 - **Portal index:** `/data/<org>/assignments.json`, reduced to the fields the student portal needs to match a signed-in student's own repositories against an assignment. It carries nothing that would let an outsider size up or reach one.
-- **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch - not N per-student calls. When that file is absent (a newly onboarded org, before the first publish or nightly), the view falls back to listing `assignments/` - and **counts drafts by reading each YAML's own `state`**, not by counting files. It counted files, so a lecturer who had just published two assignments was told they had two drafts and to *"publish to track them here"*; what is missing on that branch is the report, not the publish. The listing carries names only, so each file is fetched (6-way pool, fallback path only) and anything unreadable or unparseable is left out of the count rather than assumed to be a draft. With nothing in draft the copy says what is actually pending instead.
+- **Lecturer dashboard:** the lecturer's own token reads the per-org control repo's `reports/dashboard.json` directly via Contents API. One fetch - not N per-student calls. When that file is absent (a newly onboarded org, before the first publish or nightly), the view falls back to listing `assignments/` - and **counts drafts by reading each YAML's own `state`**, never by counting files. What is missing on that branch is the report, not the publish, so counting files tells a lecturer who has just published two assignments that they have two drafts and should *"publish to track them here"*. The listing carries names only, so each file is fetched (6-way pool, fallback path only) and anything unreadable or unparseable is left out of the count rather than assumed to be a draft. With nothing in draft the copy says what is actually pending instead.
 - **Student status:** the student's own token reads `/repos/<org>/<expected-name>` and `/user/repository_invitations` - never the control repo.
 - **Refresh / Live Status & Student Hover Tooltips (AssignmentDetailView).** The per-assignment detail view exposes a "Refresh" button that re-queries `/repos/<org>/<repo>/commits?per_page=1` for each provisioned student (concurrency 6) and recomputes `submission_status` against `effective_deadline_at` with nightly semantics: a post-deadline commit never downgrades a student who has an on-time submission on record (it records `first_late_sha`, not a `late` status). Refresh also captures `author_name` and `author_email` from commit objects. Hovering over a student's username renders a smart tooltip resolving identity across a 4-tier hierarchy: (1) institutional roster (`students/roster.yml`), (2) Git commit author email/name (prioritizing real email, suppressing noreply addresses and bot names), (3) GitHub public user profile (`GET /users/{login}`, batched in the background without blocking render), and (4) clean fallback. The updated `reports/<id>.json` is committed back to the control repo with `live_refreshed_at` + `live_refreshed_by` set - but only when every student refreshed successfully; a partial refresh (rate limit, transient errors) is surfaced and not persisted. Backend `collect/collect.mjs` also gathers `commit_count`, `commit_date`, `author_name`, and `author_email` during scheduled runs so static reports populate automatically. The view's CSV export is generated client-side from the report currently on screen, matching the table.
 
@@ -918,13 +856,9 @@ The privacy scanner (`pages/scan.mjs`) is a **publish gate**: if the generated P
 
 #### 10.4.1 Every route has a way in
 
-A route is reachable by construction and *discoverable* only because somebody
-linked to it, and nothing in the build tells the difference. Four shipped with
-no inbound link at all - `/usage`, `/dashboard/:org/usage` (linked only from
-`/usage`, which had none itself), `/setup`, and `/sandbox`, which served
-fabricated cohort data from a public Pages site.
+A route is reachable by construction and *discoverable* only because somebody linked to it, and nothing in the build tells the difference. A route nothing links to is a page for whoever knows the URL - which for `/sandbox` would mean fabricated cohort data on a public Pages site.
 
-Where each one now lives, and why there rather than somewhere else:
+Where each non-obvious route is reached from, and why there rather than somewhere else:
 
 | Route | Reached from | Because |
 | :--- | :--- | :--- |
@@ -933,15 +867,9 @@ Where each one now lives, and why there rather than somewhere else:
 | `/setup` | System Health **Tier 1**, when `GET /apps/{slug}` 404s | the only moment anyone needs the App Manifest form. Deliberately **not** the dashboard's "no organizations" state: that audience needs to install the existing App, and pointing them at `/setup` splits the installation base across two Apps |
 | `/sandbox` | nowhere, deliberately | gated on `import.meta.env.DEV`, so it is absent from a production bundle and the catch-all renders 404 |
 
-`tests/vue-route-safety.test.mjs` enforces it: every named route needs an
-inbound link somewhere in `frontend/src` or `lib/`, or a dev gate. Two routes
-are exempt - `invitation` (entered from outside, which is the design) and
-`not-found` - and that list may not grow without a recorded reason.
+`tests/vue-route-safety.test.mjs` enforces it: every named route needs an inbound link somewhere in `frontend/src` or `lib/`, or a dev gate. Exactly two routes are exempt - `invitation` (entered from outside, which is the design) and `not-found` - and that list may not grow without a recorded reason.
 
-The System Health fix action for an in-app destination is
-`{ type: "navigate_view", name: "<route name>" }`, resolved with
-`router.push({ name })`. By name, never by path: the SPA is served under
-`import.meta.env.BASE_URL` on Pages.
+The System Health fix action for an in-app destination is `{ type: "navigate_view", name: "<route name>" }`, resolved with `router.push({ name })`. By name, never by path: the SPA is served under `import.meta.env.BASE_URL` on Pages.
 
 ### 10.5 CLI companion
 
@@ -953,13 +881,13 @@ The multi-file commit primitive at `lib/gittree.mjs` is HTTP-stack-agnostic (acc
 
 ### 10.6 Design System & Visual Architecture
 
-The frontend follows a developer-centric, human-crafted aesthetic inspired by **GitHub Primer**. It strictly eliminates generic AI template tropes (e.g. 1px border cages around all nested components, competing multi-color action buttons, bulky uppercase badge capsules) in favor of high-density ergonomics:
+The visual system is canonically specified in **[DESIGN.md](DESIGN.md)** and is deliberately not restated here — a second copy of a token table is a copy that goes stale. Three of its rules are architectural rather than stylistic, and code review enforces them:
 
-- **Tonal Surface Hierarchy:** The UI separates sections through background luminance shifts rather than thick border cages: Canvas (`--bg-canvas: #0d1117`), Surface (`--bg-surface: #161b22`), Surface Elevated (`--bg-surface-elevated: #1c2128`), and Hover States (`--bg-surface-hover: #21262d`). Borders are muted (`--border-muted: #21262d`) and reserved for structural dividers.
-- **Strict 1-Primary-Button Rule:** Each viewport features strictly one solid primary CTA (`.btn-primary`), while standard toolbar actions use neutral secondary buttons (`.btn-secondary`), and maintenance/destructive options reside in clean dropdown menus (`··· More ▾`).
-- **Status Indicator System:** Replaces heavy pill badges with subtle, glowing status dots (`.status-indicator` + `.status-dot` with `.dot-success`, `.dot-warning`, `.dot-danger`, `.dot-neutral`) and clean mixed-case labels (`● On-time`, `● Accepting`, `● Provisioned`).
-- **Primer Underline Tabs:** Navigation between view modes and sub-sections uses underline tabs (`.primer-tabs` / `.primer-tab`) with an active accent border.
-- **Canonical Guidelines:** See [`DESIGN.md`](DESIGN.md) in the repository root for the full token reference and styling rules.
+- **Theming is token-only.** Every colour is declared exactly once, in `frontend/src/style.css`'s `:root`, as `light-dark(<light>, <dark>)`, so one declaration serves both themes and the OS default resolves it. No colour literal anywhere else in the SPA, and no `var(--token, #fallback)` — a fallback is a second declaration that only appears in the theme nobody looked at (DESIGN.md §2, §5).
+- **A class used by more than one component belongs in `style.css`.** Scoped styles cannot reach slot content, and a class declared nowhere renders unstyled with no build error — the same silent failure as an undefined token (DESIGN.md §7).
+- **One primary button per view** (DESIGN.md §1.2), and never a `.btn-` variant DESIGN.md does not define.
+
+The aesthetic those rules serve is developer-centric and Primer-adjacent: tonal surface hierarchy rather than border cages, glowing status dots rather than pill badges, underline tabs for switching view modes. DESIGN.md holds the token reference, the button and status vocabularies, and the light/dark contract.
 
 ---
 
@@ -997,7 +925,7 @@ At nightly finalize, the App stops writes to the whole cohort's submission refs 
 | 3 — preserve | `preserve/preserve.mjs` | A separate workflow step |
 | 4 — demote | Collaborator -> `pull` | Only when phase 1 did not already do it |
 
-It used to read a student's `HEAD` and then demote them, per student. In a 200-student cohort that froze student 1 at T+0s and student 200 minutes later, because the demotion is a write against an ~80/min secondary limit - so students at the end of the list got extra time, and the snapshot was not a consistent cut. Three properties follow from the inversion: every `HEAD` is read after all writes stopped, phase 2 is safely re-runnable because the repositories cannot move, and freeze-on-retry stops being the thing holding the design together (it stays as belt and braces).
+**Per-student read-then-demote is the shape this replaces**, and it may not come back. The demotion is a write against an ~80/min secondary limit, so in a 200-student cohort it freezes student 1 at T+0s and student 200 minutes later: students at the end of the list get extra time and the snapshot is not a consistent cut. Three properties follow from doing it the other way round: every `HEAD` is read after all writes have stopped, phase 2 is safely re-runnable because the repositories cannot move, and freeze-on-retry is belt and braces rather than the thing holding the design together.
 
 `method` is the one place that knows *how* writes stop. The record carries `locked_at` (when phase 1 fired), `lock_method`, and `pushed_at` per student - GitHub's own server-side timestamp, read off the repository object phase 2 fetches anyway, and the one field in the record a student cannot set.
 
@@ -1007,7 +935,7 @@ This is the owner-shaped case of the same hazard §11.6 records for `default_rep
 
 #### 11.2.1 `late_policy` and `lock_down_enabled` are two decisions
 
-Neither field used to be read by any code. `late_policy: block` promised to refuse late pushes and did nothing; `lock_down_enabled` promised a demotion that happened anyway, on every assignment. Both are wired now, and they are independent, because *"they cannot push any more"* and *"they cannot re-run a workflow any more"* have different costs:
+Both fields are wired, and they are independent, because *"they cannot push any more"* and *"they cannot re-run a workflow any more"* have different costs on a course whose subject is Actions:
 
 | `late_policy` | `lock_down_enabled` | Phase 1 | Phase 4 |
 |---|---|---|---|
@@ -1018,7 +946,7 @@ Neither field used to be read by any code. `late_policy: block` promised to refu
 
 **`lock_down_enabled` defaults to `true` when the field is absent.** Every assignment created before this shipped was demoted at the deadline, and inferring "no lock" from a missing field would silently stop freezing live cohorts.
 
-**The form default is the opposite, and the two are different decisions.** `emptyForm()` writes `lock_down_enabled: false`, so a *new* assignment does not demote. Demoting to `pull` takes Actions, secrets, environments, runners and settings - the subject these courses teach - which makes it the heaviest thing the system does to a student, and it was arriving by default on assignments whose lecturer had never opened the checkbox. It is opt-in now, and `buildDoc` writes the field explicitly so a new assignment carries `false` rather than relying on absence. Nothing about the record changes: phases 1-3 still run, `lockdown-record.json` is still written, and preservation still pushes the snapshot to the assignment's archive repository, so the evidence a grade dispute rests on does not depend on this field. The absent-field rule above is untouched, because it governs documents nobody can go back and edit.
+**The form default is the opposite, and the two are different decisions.** `emptyForm()` writes `lock_down_enabled: false`, so a *new* assignment does not demote. Demoting to `pull` takes Actions, secrets, environments, runners and settings - the subject these courses teach - which makes it the heaviest thing the system does to a student, so it is **opt-in** rather than something a lecturer who never opened the checkbox gets by default. `buildDoc` writes the field explicitly, so a new assignment carries `false` rather than relying on absence. Nothing about the record changes: phases 1-3 still run, `lockdown-record.json` is still written, and preservation still pushes the snapshot to the assignment's archive repository, so the evidence a grade dispute rests on does not depend on this field. The absent-field rule above is untouched, because it governs documents nobody can go back and edit.
 
 **The lock is a repository ruleset** (`lib/submission-lock.mjs`, one ruleset named `pxl-classroom-deadline` per student repo) with `update`, `non_fast_forward` and `deletion` on the submission ref, and the Provisioner App in `bypass_actors` as `actor_type: "Integration"`. Demoting to `pull` does not just remove push - it removes Actions, secrets, environments, runners and settings, which on a course whose subject *is* those things confiscates the subject matter at the deadline. The ruleset takes only the ref.
 
@@ -1028,11 +956,11 @@ Two failure paths, both degrading to the old behaviour rather than to no lock: a
 
 The trade the ruleset makes is that the student stays repo admin and could delete the repository outright, or delete the ruleset. Phase ordering answers the first: by the time that matters, preservation has pushed a copy to the assignment's archive repository, which they cannot touch. The second is a deliberate, visible act in their own repository settings - *"you committed at 22:31"* is arguable, *"you disabled the deadline enforcement on your repository"* is not. `lock_down_enabled` remains available for anyone who wants admin gone as well.
 
-**Organization scope is the version that closes both, and it is a rollout rather than a design problem.** Measured live: one organization ruleset with `conditions.repository_name.include: ["<pattern>-*"]` locks a whole cohort and leaves other repos alone, `PUT /orgs/{org}/rulesets/{id}` flips all of them in **one** call regardless of cohort size, and each student's repository lists it as `source_type: "Organization"` - visible to them, manageable only by an org owner. **That blocker no longer exists, and had already stopped existing before anyone noticed.** This paragraph said the App declares `organization_administration: read` while the call needs `write`, making it a declaration change plus an approval round across every installed org. Measured live 2026-08-31 during the security review: `GET /apps/pxl-classroom-provisioner` returns **`organization_administration: write`**. The permission was granted at some point and the manifest constant was never updated to match, so the drift check could not see it either - the check only ever looked for what was MISSING, which is the gap `excessDeclaredPermissions` was added to close.
+**Organization scope is the version that closes both, and it is unbuilt work rather than a blocked design.** Measured live: one organization ruleset with `conditions.repository_name.include: ["<pattern>-*"]` locks a whole cohort and leaves other repos alone, `PUT /orgs/{org}/rulesets/{id}` flips all of them in **one** call regardless of cohort size, and each student's repository lists it as `source_type: "Organization"` - visible to them, manageable only by an org owner.
 
-So org-scoped lockdown is unblocked today: no declaration change, no approval round, twelve orgs already carrying the permission. What remains is only the work in `applySubmissionLock`, which is the one function that would gain the new scope. Repository rulesets still do the job in the meantime.
+It needs `organization_administration: write`, which the App already declares and every participating org has already approved, so there is no declaration change and no approval round outstanding. What remains is the work inside `applySubmissionLock`, the one function that would gain the new scope. Repository rulesets do the job in the meantime.
 
-This is also why `organization_administration` is deliberately **not** narrowed back to `read` (RUNBOOK §6.7b). Nothing uses org-admin write *today* - every ruleset this system creates is repository-scoped - so on a pure least-privilege reading it is excess. But a reduction is instant while restoring it needs every one of the twelve org owners to approve, and this is a designed feature that would need it back. Keeping it is a considered trade, recorded rather than assumed.
+This is also why `organization_administration` is deliberately **not** narrowed back to `read` (RUNBOOK §6.7b). Nothing uses org-admin write *today* - every ruleset this system creates is repository-scoped - so on a pure least-privilege reading it is excess. But a reduction is instant while restoring one needs every participating org owner to approve, and this is a designed feature that would need it back. Keeping it is a considered trade, recorded rather than assumed.
 
 #### 11.2.2 Reconstructing the deadline state
 
@@ -1077,9 +1005,7 @@ Three failure paths, and every one degrades to the nightly:
 
 Nothing here can make things worse than not having run, which is what makes it safe to ship incrementally. It is also why it **ships disabled**: `publish-assignment.yml` enables it alongside `daily-activity.yml`, and it self-disables when no orgs are registered.
 
-Known limitation: a sentinel is armed for the **assignment** deadline only. A student whose extension expires at some other instant is locked on the next nightly, exactly as before - `find-finalizable.mjs` re-queues them (§6.2.2). The student cannot self-restore because the org-level App outranks repo-level admin (confirmed by Spike 4 - 22s deadline->execution interval was measured). `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment.
-
-Lock-down is configurable per assignment (`lock_down_enabled`, default `true`). Reports continue to flag any observed late activity regardless of lock-down.
+Known limitation: a sentinel is armed for the **assignment** deadline only. A student whose extension expires at some other instant is locked on the next nightly instead - `find-finalizable.mjs` re-queues them (§6.2.2). The student cannot self-restore because the org-level App outranks repo-level admin. `uncertainty_seconds = lockdown_at - deadline_at` is recorded per assignment, and reports flag observed late activity whatever the lock-down settings say.
 
 ### 11.3 Preservation & Summary Banner
 
@@ -1089,7 +1015,7 @@ Without preservation, a SHA recorded in `observations/` could become unreachable
 
 #### 11.3.1 One archive per assignment
 
-The archive was a single per-org repository until 2026-08-26, and it only ever grew. Measured on real PXL cohorts: student repositories on the automation and systems courses run 400 KB to 58 MB each, because people commit build artifacts; git dedups the shared template but not what students add. At four assignments a year and forty students that is roughly 800 MB per org per year in one repository, against GitHub's ~1 GB soft warning. The one thing that would shrink it - retiring a finished cohort - was impossible without taking every other cohort with it.
+**A per-org archive only ever grows, which is why there is one per assignment.** Measured on real PXL cohorts, student repositories on the automation and systems courses run 400 KB to 58 MB each - git dedups the shared template but not the build artifacts students commit on top - so four assignments a year at forty students is roughly 800 MB per org per year, against GitHub's ~1 GB soft warning. The one thing that would shrink a single shared archive is retiring a finished cohort, and that cannot be done without taking every other cohort with it.
 
 Per assignment, the archive dies with the cohort: retiring a three-year-old assignment is its student repositories and `pxl-classroom-archive-<id>`, one gesture, with nothing else in the blast radius. The repository is created by `preserve.mjs` on that assignment's first preservation - there is nothing to scaffold at org setup and nothing to clean up for an assignment that was never finalized.
 
@@ -1117,13 +1043,13 @@ The Feedback PR itself (head `main` -> base `pxl-baseline`, draft) cannot be ope
 
 The lecturer (org owner) leaves inline review comments on the PR. Comments persist as the student continues to push; the PR head tracks `main`.
 
-**Idempotence has three cases, and each is verified live (2026-08-25).** A student whose record already carries `feedback_pr_number` is skipped. A student who has an open PR the record does not know about - which is what a failed run leaves behind - is **adopted**: `POST /pulls` answers `422 A pull request already exists`, and the open one is looked up and recorded. `state=open` and not `all`: a *closed* PR does not block a new one, so "already exists" can only mean an open one, and taking `[0]` of an `all` listing leant on GitHub's default sort to avoid recording a closed PR as the assignment's feedback thread. GitHub claiming a PR exists and then not listing it is counted as a failure rather than falling through recording nothing - which is what it used to do, leaving a student with a feedback PR the control repo never knew about and a summary reporting neither.
+**Idempotence has three cases, each verified against live GitHub.** A student whose record already carries `feedback_pr_number` is skipped. A student who has an open PR the record does not know about - which is what a failed run leaves behind - is **adopted**: `POST /pulls` answers `422 A pull request already exists`, and the open one is looked up and recorded. `state=open` and not `all`: a *closed* PR does not block a new one, so "already exists" can only mean an open one, and taking `[0]` of an `all` listing leant on GitHub's default sort to avoid recording a closed PR as the assignment's feedback thread. GitHub claiming a PR exists and then not listing it is counted as a failure rather than falling through recording nothing - which is what it used to do, leaving a student with a feedback PR the control repo never knew about and a summary reporting neither.
 
 Created and adopted are counted **apart**, matching `pxl-classroom feedback open`: "12 opened" reads very differently when eleven were already there. A partial failure exits **non-zero**, and the workflow's commit step is therefore `if: always()` - the records for the PRs that did open are already written, and abandoning them makes the next run rediscover every one through the adopt path. Same rule as `daily-activity` committing its lockdown record after a failed leg (§6.2.1).
 
 **Three surfaces, one classifier.** The SPA does **not** dispatch `open-feedback-prs.yml` - it opens the pull requests client-side - so there are three implementations, and they had drifted on the thing that matters: the CLI adopted with `state: "open"`, the workflow script adopted the wrong one, and the SPA had no adopt path at all. `lib/feedback-pr.mjs` owns the 422 classification and the PR title and body; all three import it. The classification is by **message**, never by status: the same 422 carries `A pull request already exists`, `No commits between …` (the student has not pushed - where every student starts) and a drafts-unsupported plan error, and only the message separates them. The SPA also writes the whole cohort's records in **one** `gittree` commit rather than one `commitFile()` per student, and surfaces a failed write instead of logging it to a console nobody has open.
 
-Until 2026-08-25 none of the headless path had ever executed: see §11.7.1 for the two faults - shared with the starter sync - that stopped both workflows before their scripts began.
+The headless path is `workflow_dispatch`-only and therefore exercised by nothing on a schedule; §7 states what follows from that.
 
 ### 11.5 Bulk submission download
 
@@ -1137,9 +1063,9 @@ Assignment YAML may carry an `autograde` block (`enabled`, `execution_environmen
 
 **2. Student-side (GitHub Actions):** When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions on every student push. During provisioning, if the template repository already provides its own `.github/workflows/autograding.yml` or `classroom.yml`, it is preserved without overwrite; otherwise, provisioning injects a workflow composed of `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter` actions (or calls a private reusable workflow in the control repo if `visibility` is `private`). Grades are read via the SPA's **Read scores from GitHub Actions** action (or CLI `pxl-classroom grade`), which queries the Checks API at each student's preserved or latest observed commit SHA and commits the results to `grading/<id>/summary.json` (validated against `schemas/grading-summary.schema.json`).
 
-**The score is in the check run's ANNOTATIONS, not its output body.** `lib/check-run-score.mjs` is the one parser. A check run created by GitHub Actions has `output.title` and `output.summary` set to `null`; the reporter calls `core.notice()`, so `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` arrive as annotations, fetched separately from `GET /repos/{o}/{r}/check-runs/{id}/annotations` by `lib/check-run-annotations.mjs` and paginated (the default page size is 30 and a grader emitting a notice per exercise scrolls the score off page one). Both the CLI and the SPA previously held a byte-identical private copy that searched `output.*` only, never matched, and fell back to the run's conclusion - full marks for a green run, zero for anything else, and never a partial score: a 15/20 was recorded as 0.
+**The score is in the check run's ANNOTATIONS, not its output body.** `lib/check-run-score.mjs` is the one parser. A check run created by GitHub Actions has `output.title` and `output.summary` set to `null`; the reporter calls `core.notice()`, so `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` arrive as annotations, fetched separately from `GET /repos/{o}/{r}/check-runs/{id}/annotations` by `lib/check-run-annotations.mjs` and paginated (the default page size is 30 and a grader emitting a notice per exercise scrolls the score off page one). There is exactly one parser for that reason: a copy that searches `output.*` never matches, and falling back to the run's conclusion awards full marks for a green run and zero for anything else - a 15/20 recorded as 0, with no partial score ever possible.
 
-**Reading CI scores needs no configuration.** An assignment whose autograding ships inside the template repository - the GitHub Classroom shape, where `classroom.yml` arrives with the starter code - declares no `autograde` block here, and the annotation carries `maxPoints`, so even the denominator is known without anybody entering it. The action is therefore offered on any assignment that has not declared a *local* runner. What gates the Score column is **grades existing**, never the assignment's configuration: the column and the CI Status column keyed on `autograde.enabled` before, while nothing in the system ever wrote `earned_points` onto a report row, so every cell under them was empty for as long as they existed.
+**Reading CI scores needs no configuration.** An assignment whose autograding ships inside the template repository - the GitHub Classroom shape, where `classroom.yml` arrives with the starter code - declares no `autograde` block here, and the annotation carries `maxPoints`, so even the denominator is known without anybody entering it. The action is therefore offered on any assignment that has not declared a *local* runner. What gates the Score column is **grades existing**, never the assignment's configuration. Keying it on `autograde.enabled` renders a column whose every cell is empty whenever nothing has written `earned_points` onto a report row.
 
 **The per-check breakdown is not available on this path.** Annotations carry a grand total and nothing else, so the drill-down shows the score, the run's conclusion and a link to the run - it does not synthesise a per-test table out of one number.
 
@@ -1155,18 +1081,16 @@ In both modes, `AssignmentDetailView` shows a read-only Autograder panel renderi
 
 The case this exists for is small and common: a lecturer spots a mistake in the assignment after students have accepted, fixes it in the template, and wants that fix in every student repository. So the unit of a sync is **one template commit**, and the default selection is the files that commit changed.
 
-**It copies content; it does not merge history.** Student repositories are created with `POST /repos/{tpl}/generate` (§7.1). The original implementation asked each student repository to `compare/{templateSha}...main` and then `POST /merges { head: templateSha }`. Measured against live GitHub on 2026-08-25, on generated repositories, same-owner and cross-owner alike, those two calls disagree:
+**It copies content; it does not merge history.** Student repositories are created with `POST /repos/{tpl}/generate` (§7.1), and `compare` and `merges` disagree about what that produces. Measured against live GitHub on generated repositories, same-owner and cross-owner alike:
 
-* the **merge succeeds** (201), and the resulting commit carries the template's own root commit as a second parent - a generated repository stays in its template's object network, so the SHA resolves;
-* the **compare is a 404**: `No common ancestor between <sha> and main`.
+* `POST /merges { head: templateSha }` **succeeds** (201), and the resulting commit carries the template's own root commit as a second parent - a generated repository stays in its template's object network, so the SHA resolves;
+* `compare/{templateSha}...main` is a **404**: `No common ancestor between <sha> and main`.
 
-That asymmetry is the bug. The compare fed the `status === "identical"` check, so the *already up to date* skip could never fire and every re-run re-merged; and in the modal's pre-flight a non-ok compare fell to the catch-all, so **every** student was previewed as a conflict whatever the cohort had done. Meanwhile the merge that did work carried the **whole template tree** - making the file selection decorative - and grafted the template's entire history into each student repository. The tests missed all of it by building their students with `git clone` of the template, which is not what provisioning produces either.
-
-In practice neither executor reached any of this: the workflow could not mint an App token (`client-id` passed to an action version that takes `app-id`) and the script handed `loadYaml` file text instead of a path without awaiting it, so `assignment.template` was `undefined`. See §11.7.1.
+Neither call may be used. The compare can never report `identical`, so an *already up to date* skip built on it never fires and every re-run re-merges, while a pre-flight built on it previews **every** student as a conflict. The merge that does work carries the **whole template tree**, which makes any file selection decorative, and grafts the template's entire history into each student repository. A test that builds its students with `git clone` of the template reproduces none of this, because that is not what provisioning produces either.
 
 1. **The plan is decided by blob SHAs.** `lib/starter-sync.mjs` compares three git trees - the template at the commit (`head`), the template at its parent (`base`), and the student's default branch - read with `GET /git/trees/{ref}?recursive=1`, one request each. Git blob SHAs are content addresses, identical in every repository for identical bytes, so this compares content exactly without fetching a single file. Per path: matching `head` is already done, matching `base` means the student never touched it, anything else is theirs.
 2. **The split is per file, not per student.** Files the student has not touched are written straight to `main` in one `lib/gittree.mjs` commit; files they have changed go onto `refs/heads/starter-update-<timestamp>` - branched from **their own** `main`, so no foreign SHA is involved - and are offered as a pull request. One edited file no longer holds back every other correction, which is why the sync record's outcome vocabulary includes `merged-and-pr`.
-3. **The file selection is load-bearing.** It used to be recorded in the sync record and pasted into the PR body while the operation merged the entire template HEAD regardless - the modal said *"Files to Synchronize (1/1)"* over an operation carrying everything. `selected_files` now records the paths actually applied.
+3. **The file selection is load-bearing.** `selected_files` records the paths actually applied, never the paths offered - a record that says *"Files to Synchronize (1/1)"* over an operation carrying the whole tree is worse than no record.
 4. **One planner, three surfaces.** `StarterSyncModal.vue`'s pre-flight, `scripts/sync-starter.mjs` and `pxl-classroom sync-starter` all import `lib/starter-sync.mjs`, so the modal's preview and the workflow's behaviour cannot drift. The modal reads each student's tree once and re-decides locally as files are ticked, instead of re-scanning the cohort on every checkbox.
 5. **Student Tracking Issues:** an informational Issue in each student repository, naming the pull request where there is one.
 6. **Execution & Records:** triggered via the Web UI modal, CLI `pxl-classroom sync-starter`, or `.github/workflows/sync-starter-code.yml`. Results are committed to `syncs/<assignment-id>/<sync-id>.json` (validated by `schemas/sync-record.schema.json`).
@@ -1174,12 +1098,6 @@ In practice neither executor reached any of this: the workflow could not mint an
 7. **Re-running adopts, it does not duplicate.** Each sync pull request carries `<!-- pxl-starter-sync: <templateSha> -->` in its body; a later run of the same sync finds it and reuses that pull request. Re-running is the first thing a lecturer does when a sync looks like it did nothing, and without this each run added another pull request to every repository that had an edit - observed on the second run of a live rehearsal, where one correction opened `#1` and then `#3`. The open-pull-request list is walked in full, because a missed marker is a duplicate rather than a visible error.
 
 Bounds that must stay honest: a truncated tree listing **fails** rather than being read as "the student deleted everything", and a commit touching more than 300 files is reported as capped, because GitHub's commit API lists no more than that.
-
-#### 11.7.1 Two faults that meant neither script had ever run
-
-`sync-starter-code.yml` and `open-feedback-prs.yml` were the only two workflows on the floating `actions/create-github-app-token@v1`, which takes `app-id` and has no `client-id` input, so their **first step** failed with `Input required and not supplied: app-id`. Behind that, both scripts called `loadYaml(<file text>)` without `await` - `loadYaml` takes a **path** and is `async` - so the assignment was a `Promise`, every field read as `undefined`, and `sync-starter.mjs` exited "Assignment has no template repository configured" while `open-feedback-prs.mjs` exited "does not have feedback_pr enabled". Both were also the only two still pinned to `node-version: "20"`.
-
-Nothing caught any of it: the token fault lives inside the action's own input validation, the `loadYaml` fault only surfaces when the script actually runs, and both workflows are `workflow_dispatch`-only, so no nightly ever went red. **A dispatch-only workflow that nothing exercises is untested code, and a green Actions tab says nothing about it.**
 
 ---
 
@@ -1223,7 +1141,7 @@ Target scale: 500 active students, 20 active assignments, 10,000 managed reposit
 
 **Bursts.** The secondary rate limit (≈80 content writes/min, 500/hr per token) is the bottleneck. Per-org App tokens are scoped per-installation, so two orgs can burst in parallel. Within one org: a 250-student burst issues ~500 writes (create + grant). The synchronous acceptance model trades retries for queue complexity - students who fail get a clear "try again in 15 minutes" and the retry is a free reopen of the same link.
 
-**Per-org concurrency.** `acceptance-handler.yml` uses `concurrency: accept-${org}-${assignment_id}-${team_hint || github_login}`, so duplicate acceptance issues from one student never run in parallel, and joins to one team serialise against each other - which is what guards `max_team_size` without a distributed lock (§5.8). Acceptances by different students still run in parallel, which is why `max_acceptances` can overshoot (§5.4).
+**Per-org concurrency.** `acceptance-handler.yml` uses `concurrency: accept-${org}-${assignment_id}-${team_hint || github_login}`, so duplicate acceptance issues from one student never run in parallel, and joins to one team serialise against each other - which is what guards `max_team_size` without a distributed lock (§5.6). Acceptances by different students still run in parallel, which is why `max_acceptances` can overshoot (§5.4).
 
 **Repository identity.** The immutable repository ID (not the name) is the primary external identifier. Repositories can be renamed; the ID can't.
 
@@ -1231,7 +1149,7 @@ Target scale: 500 active students, 20 active assignments, 10,000 managed reposit
 
 ## 14. Multi-organization architecture
 
-One App, installed per org. One participating-orgs registry on a dedicated branch. One public Pages dashboard for all orgs. Data is per-org private - Org A cannot read Org B's roster.
+The Provisioner App installed per org (§3.2). One participating-orgs registry on a dedicated branch. One public Pages dashboard for all orgs. Data is per-org private - Org A cannot read Org B's roster.
 
 ### 14.1 Why per-org control repos
 
@@ -1280,48 +1198,50 @@ On-demand runs are dispatch-and-watch operations. The SPA sends a unique `reques
 
 ## 15. Constraints accepted in v1
 
-- **Roster-gated acceptance, available per assignment.** Under `roster_mode: enforced` students must be registered on the course roster (`students/roster.yml`) before they can accept the assignment and get a repo, which prevents arbitrary users from spawning repositories and using template resources. Mitigations: `opens_at..deadline_at` window, `max_acceptances` cap, idempotency, roster gating.
-
-  **`roster_mode: claim`** is "enforced, with a way in", and it exists because a lecturer holds student **email addresses** and not GitHub usernames. The student's browser shows them their own GitHub-**verified** addresses matching the assignment's `claim_domains`, seals the one they confirm to the hub's public key (ECDH P-256 → HKDF → AES-GCM, `lib/claim.mjs`), and posts only ciphertext on the public acceptance issue. The hub decrypts it, matches it to a roster entry by address, and writes an **org-scoped** binding to `students/claims/<github_id>.json` — keyed by the immutable id, so a username change does not break it, and one file per student because acceptance is concurrent and serialized only per login.
-
-  Encrypted rather than hashed on purpose: an HMAC would let the hub match without ever learning the address, which is stronger on paper and useless to the person who needs it — the lecturer, to contact a student and reconcile a cohort. §4.3.2 rejects encryption for the *invitation token* because the verifier there is a public broker that cannot hold a decryption key; that does not transfer, since decryption happens at the hub and the broker never sees plaintext.
-
-  The sealed payload carries the claimant's `github_id`, and the hub refuses it when that does not match the issue author — otherwise a ciphertext lifted straight out of the public event archive would replay for anyone. `claim_verified` records whether GitHub had already verified the address, and is **evidence rather than a control**: the hub cannot check it (an installation token cannot read a user's email addresses, the same wall that killed `org_member`), so anyone crafting the issue by hand can assert it. What it buys is that the ordinary path records it truthfully.
-
-  Under `claim` the step is a **guessing oracle** — whoever holds the link can submit addresses, and `firstname.lastname@student.pxl.be` is enumerable — so the attempt counter ships *with* the gate rather than after it: five failures per account, then `rejected:claim-blocked`, cleared by a successful claim or by the lecturer. The checks are ordered cheapest-refusal-first (existing binding → counter → payload → decrypt → author → domain → roster → taken) and nothing in the gate touches a repository, because every attempt costs an issue and a hub workflow run on a system whose design goal is billing zero when idle. A missing payload and a missing hub key deliberately do **not** count: both are deployment faults, and burning a student's attempts for one would turn an unset secret into a cohort locked out for good.
-
-  **A binding a lecturer cannot see or undo is the mistake this feature exists to avoid.** GitHub Classroom's roster made a wrong student-to-account link effectively permanent; a wrong link nobody can *see* is the same failure one step earlier, so the binding column and **unlink** ship together rather than one after the other. `lib/claim-bindings.mjs` is the single join — a claim and a roster entry are matched on the **email address**, case-insensitively, the same comparison `rosterEntryForEmail` makes in the other direction when the student claims — and it is read by the Roster tab, `pxl-classroom roster list`, `roster unlink` and the Tier 3 diagnostic. Four independent readers of one rule is the shape that forked `diffRosters`, so `tests/claim-bindings.test.mjs` fails if any of them compares addresses itself.
-
-  The states are finer than bound/unbound because the lecturer action differs: **claimed**, **roster** (pre-linked by the lecturer, which still works), **unclaimed**, **unclaimable** (no email on the entry, so it can *never* be claimed — a re-import, not patience), and **conflict** (a claim binding this address to a different account than the roster's own `github_login`). Conflict is reachable because first-come wins, and it is exactly what unlink is for; it is counted as bound *and* as a conflict, because folding it into a healthy number is how a wrong binding stops being chased. **Unlinking deletes the attempt counter as well as the binding** — a lecturer unlinks because something is wrong, which usually means the student has been failing to claim, and leaving an exhausted counter hands them back a door they still cannot open. Any surface that deletes refuses to act on a **partial read** of `students/claims/`, because unlinking off an incomplete list can remove the wrong binding and "no such binding" for an unreadable file reads as success.
-
-  **Under `open`, the claim is observation and nothing else.** The same confirm-your-address flow runs, and the same record is written, but **nothing in it refuses an acceptance and nothing counts against the attempt limit**. `open` means anyone with the link and a seat inside the window gets a repository, and that does not change because they also told us an address.
-
-  That is forced rather than chosen: the claim is **optional** here - a link handed out earlier, a browser without WebCrypto, a dismissed prompt must all still provision - so anyone who wants a second repository simply omits it. A check that can be skipped is not a gate. What it *is* is a record: an address outside `claim_domains` is written with `domain_allowed: false` instead of being refused, an address a second account also confirms produces a second binding that `lib/claim-bindings.mjs` reports as a duplicate, and acceptances with no address at all are visible as a count. Those are the review signals a lecturer reads an exam cohort with afterwards, and the copy must never present them as prevention.
-
-  *An earlier draft of this document claimed the uniqueness check under `open` "would stop one person quietly taking several exam repositories". Building it showed that it cannot, for the reason above. The claim was corrected rather than the code bent to match it - which is the same correction §11.2.2 records for `until` being called proof.*
-
-  Three things the observation path keeps even though it gates nothing: the **anti-replay check** (a payload naming another account binds nobody, because the output is a record asserting who someone is, and a false record is worse than none), the **org-scoped idempotence** (a student bound on an earlier assignment is not re-prompted or rewritten), and **no attempt counting at all** - the counter exists because under `claim` a refusal tells a guesser whether an address is on the roster, and nothing is refused here, so nothing is revealed. A missing `PXL_CLAIM_PRIVATE_KEY` is `fail:config` under `claim`, where nobody could claim without it, and merely logged under `open`, where losing a review aid is not worth refusing a student their repository.
-
-  `claimed_email`, `claim_verified` and `claim_domain_allowed` reach `reports/<id>.json` and the CSV export. They had been written onto the acceptance record since `claim` shipped and read by nothing - the `preserved_sha` shape - which mattered little while the Roster tab answered "who is bound", and matters completely under `open`, where there is often no roster and the report is the only surface there is.
-
-  **A claim is not revocable by the student, and that is deliberate.** GitHub Classroom takes the same position, and the reason is that a self-service unbind is indistinguishable from a student handing their repository to somebody else. Undoing a binding is a lecturer action (`unlink`), which also means it leaves a trace in the control repo's history.
-
-  **The roster schema does not require `email` under `claim`, and cannot.** `roster_mode` lives on the *assignment* while the roster is org-wide, so no schema rule can express "this file needs addresses because one of the assignments pointing at it is a claim assignment". It is enforced where it can be: the Tier 3 diagnostic reports entries with no address as **unclaimable** rather than merely unclaimed - a different state with a different fix, because such an entry can never be claimed however long the student waits - and the Roster tab shows the same on the row.
-
-  **What the domain list buys is detection, not prevention.** Nothing checks that a claimed address *exists*, so under a permissive configuration `asdf@student.pxl.be` passes the domain filter — it is the roster match that refuses it. `claim_domains` is matched on the whole domain label, never as a suffix (anyone can register `notstudent.pxl.be`), and **absent and empty are different answers**: no key means the deployment default, an explicit `[]` is a deliberate opt-out.
-
-  **An unrecognised `roster_mode` reads as `enforced`.** `normalizeRosterMode` fails closed, so a control repository carrying a value this system does not implement is gated on the roster rather than opened to anyone. That is what makes withdrawing a mode safe and adding one the direction that needs care: a new value has to be taught to every reader, while a withdrawn one degrades to the most restrictive behaviour on its own.
-
-  Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` -> real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published - the alternative being an assignment that silently provisions nobody. Because the roster gate is gone, `max_acceptances` becomes **mandatory** under `open` and is the binding limit - enforced by the schema, by the Admin Panel, and by `accept.mjs` (`fail:config`). Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
-
-  Open-mode acceptors appear in reports without roster metadata - `report/report.mjs` unions acceptances, repositories, observations and roster, so they are listed with `full_name`/`student_number`/`class_group` as `null` until the lecturer imports a roster or applies overrides.
-
-  **Promotion** (`lib/promote-roster.mjs`, shared by `pxl-classroom roster promote --assignment <id>` and `PromoteRosterModal.vue` behind the tracking page's `··· More` menu) turns those acceptances into roster entries, so a later assignment can run `enforced` against the cohort that actually turned up. A promoted entry carries `github_login`, `github_id`, `source: "accepted"` and a `promoted_from` provenance block - and nothing else. GitHub never learns a name or an institutional number, so the roster schema makes `student_number`/`full_name` required only for entries that are **not** `source: accepted`; deriving a name from a login would put a guess in a graded field and a synthesised student number would collide with real SIS numbering. Promotion **merges** rather than replaces: an entry that already exists is returned untouched, matched case-insensitively exactly as `accept.mjs`'s gate matches. Team membership is never written to the roster, for the same reason `lib/seed-teams.mjs` refuses to (§5.8).
+- **Roster-gated acceptance is per assignment, not system-wide.** Under `roster_mode: enforced` a student must be on the course roster (`students/roster.yml`) before they can accept and get a repository, which stops arbitrary accounts spawning repositories and consuming template resources. The other two modes trade that gate for reach, each with its own mitigations - §15.1 is the whole picture. Common to all three: the `opens_at..deadline_at` window, the `max_acceptances` cap, and idempotency.
 - **Lock-down is a deterrent, not tamper-proof.** A student who prepared beforehand may retain alternative write paths. Reports flag observed late activity; preservation captures the on-time SHA.
 - **No institutional verification.** A student could associate with the wrong roster entry. Lecturer review + overrides correct it. MS 365 / Entra ID verification is a v2 candidate and would be the only explicit exception to the GitHub-only constraint.
 - **Public broker is public.** Acceptance issues, and so who accepted, are publicly visible. Acceptable. A signed invitation stops an outsider *triggering* work (§4.3.2); it does not hide that acceptance happened.
 - **GitHub Pages is public.** Privacy scanner is a hard publish gate; no roster/email/token can land in public output.
 - **Class-wide burst is best-effort.** No queue. If 250 students all accept within seconds, GitHub's rate limit may reject some - they retry from the same link.
+
+### 15.1 Roster modes: `enforced`, `claim` and `open`
+
+`roster_mode` is per assignment and decides **who may accept**. `enforced` is the roster gate above. The other two:
+
+**`roster_mode: claim`** is "enforced, with a way in", and it exists because a lecturer holds student **email addresses** and not GitHub usernames. The student's browser shows them their own GitHub-**verified** addresses matching the assignment's `claim_domains`, seals the one they confirm to the hub's public key (ECDH P-256 → HKDF → AES-GCM, `lib/claim.mjs`), and posts only ciphertext on the public acceptance issue. The hub decrypts it, matches it to a roster entry by address, and writes an **org-scoped** binding to `students/claims/<github_id>.json` — keyed by the immutable id, so a username change does not break it, and one file per student because acceptance is concurrent and serialized only per login.
+
+Encrypted rather than hashed on purpose: an HMAC would let the hub match without ever learning the address, which is stronger on paper and useless to the person who needs it — the lecturer, to contact a student and reconcile a cohort. §4.3.2 rejects encryption for the *invitation token* because the verifier there is a public broker that cannot hold a decryption key; that does not transfer, since decryption happens at the hub and the broker never sees plaintext.
+
+The sealed payload carries the claimant's `github_id`, and the hub refuses it when that does not match the issue author — otherwise a ciphertext lifted straight out of the public event archive would replay for anyone. `claim_verified` records whether GitHub had already verified the address, and is **evidence rather than a control**: the hub cannot check it (an installation token cannot read a user's email addresses, the same wall that killed `org_member`), so anyone crafting the issue by hand can assert it. What it buys is that the ordinary path records it truthfully.
+
+Under `claim` the step is a **guessing oracle** — whoever holds the link can submit addresses, and `firstname.lastname@student.pxl.be` is enumerable — so the attempt counter ships *with* the gate rather than after it: five failures per account, then `rejected:claim-blocked`, cleared by a successful claim or by the lecturer. The checks are ordered cheapest-refusal-first (existing binding → counter → payload → decrypt → author → domain → roster → taken) and nothing in the gate touches a repository, because every attempt costs an issue and a hub workflow run on a system whose design goal is billing zero when idle. A missing payload and a missing hub key deliberately do **not** count: both are deployment faults, and burning a student's attempts for one would turn an unset secret into a cohort locked out for good.
+
+**A binding a lecturer cannot see or undo is the mistake this feature exists to avoid.** GitHub Classroom's roster made a wrong student-to-account link effectively permanent; a wrong link nobody can *see* is the same failure one step earlier, so the binding column and **unlink** ship together rather than one after the other. `lib/claim-bindings.mjs` is the single join — a claim and a roster entry are matched on the **email address**, case-insensitively, the same comparison `rosterEntryForEmail` makes in the other direction when the student claims — and it is read by the Roster tab, `pxl-classroom roster list`, `roster unlink` and the Tier 3 diagnostic. Four independent readers of one rule is the shape that forked `diffRosters`, so `tests/claim-bindings.test.mjs` fails if any of them compares addresses itself.
+
+The states are finer than bound/unbound because the lecturer action differs: **claimed**, **roster** (pre-linked by the lecturer, which still works), **unclaimed**, **unclaimable** (no email on the entry, so it can *never* be claimed — a re-import, not patience), and **conflict** (a claim binding this address to a different account than the roster's own `github_login`). Conflict is reachable because first-come wins, and it is exactly what unlink is for; it is counted as bound *and* as a conflict, because folding it into a healthy number is how a wrong binding stops being chased. **Unlinking deletes the attempt counter as well as the binding** — a lecturer unlinks because something is wrong, which usually means the student has been failing to claim, and leaving an exhausted counter hands them back a door they still cannot open. Any surface that deletes refuses to act on a **partial read** of `students/claims/`, because unlinking off an incomplete list can remove the wrong binding and "no such binding" for an unreadable file reads as success.
+
+**Under `open`, the claim is observation and nothing else.** The same confirm-your-address flow runs, and the same record is written, but **nothing in it refuses an acceptance and nothing counts against the attempt limit**. `open` means anyone with the link and a seat inside the window gets a repository, and that does not change because they also told us an address.
+
+That is forced rather than chosen: the claim is **optional** here - a link handed out earlier, a browser without WebCrypto, a dismissed prompt must all still provision - so anyone who wants a second repository simply omits it. A check that can be skipped is not a gate. What it *is* is a record: an address outside `claim_domains` is written with `domain_allowed: false` instead of being refused, an address a second account also confirms produces a second binding that `lib/claim-bindings.mjs` reports as a duplicate, and acceptances with no address at all are visible as a count. Those are the review signals a lecturer reads an exam cohort with afterwards, and the copy must never present them as prevention.
+
+Three things the observation path keeps even though it gates nothing: the **anti-replay check** (a payload naming another account binds nobody, because the output is a record asserting who someone is, and a false record is worse than none), the **org-scoped idempotence** (a student bound on an earlier assignment is not re-prompted or rewritten), and **no attempt counting at all** - the counter exists because under `claim` a refusal tells a guesser whether an address is on the roster, and nothing is refused here, so nothing is revealed. A missing `PXL_CLAIM_PRIVATE_KEY` is `fail:config` under `claim`, where nobody could claim without it, and merely logged under `open`, where losing a review aid is not worth refusing a student their repository.
+
+`claimed_email`, `claim_verified` and `claim_domain_allowed` are written onto the acceptance record **and** reach `reports/<id>.json` and the CSV export. Under `claim` the Roster tab answers "who is bound"; under `open` there is often no roster at all, so the report is the only surface those fields have.
+
+**A claim is not revocable by the student, and that is deliberate.** GitHub Classroom takes the same position, and the reason is that a self-service unbind is indistinguishable from a student handing their repository to somebody else. Undoing a binding is a lecturer action (`unlink`), which also means it leaves a trace in the control repo's history.
+
+**The roster schema does not require `email` under `claim`, and cannot.** `roster_mode` lives on the *assignment* while the roster is org-wide, so no schema rule can express "this file needs addresses because one of the assignments pointing at it is a claim assignment". It is enforced where it can be: the Tier 3 diagnostic reports entries with no address as **unclaimable** rather than merely unclaimed - a different state with a different fix, because such an entry can never be claimed however long the student waits - and the Roster tab shows the same on the row.
+
+**What the domain list buys is detection, not prevention.** Nothing checks that a claimed address *exists*, so under a permissive configuration `asdf@student.pxl.be` passes the domain filter — it is the roster match that refuses it. `claim_domains` is matched on the whole domain label, never as a suffix (anyone can register `notstudent.pxl.be`), and **absent and empty are different answers**: no key means the deployment default, an explicit `[]` is a deliberate opt-out.
+
+**An unrecognised `roster_mode` reads as `enforced`.** `normalizeRosterMode` fails closed, so a control repository carrying a value this system does not implement is gated on the roster rather than opened to anyone. That is what makes withdrawing a mode safe and adding one the direction that needs care: a new value has to be taught to every reader, while a withdrawn one degrades to the most restrictive behaviour on its own.
+
+Setting `roster_mode: open` on an assignment restores the original v1 behaviour: any GitHub account that stars the broker within the window and below the cap gets a repo, and the lecturer reconciles `github_login` -> real student afterward. This exists for exams and workshops whose cohort is not known when the assignment is published - the alternative being an assignment that silently provisions nobody. Because the roster gate is gone, `max_acceptances` becomes **mandatory** under `open` and is the binding limit - enforced by the schema, by the Admin Panel, and by `accept.mjs` (`fail:config`). Residual risk accepted, per assignment, by explicit lecturer choice. The gate fails closed: absent or unrecognised values are treated as `enforced`.
+
+Open-mode acceptors appear in reports without roster metadata - `report/report.mjs` unions acceptances, repositories, observations and roster, so they are listed with `full_name`/`student_number`/`class_group` as `null` until the lecturer imports a roster or applies overrides.
+
+**Promotion** (`lib/promote-roster.mjs`, shared by `pxl-classroom roster promote --assignment <id>` and `PromoteRosterModal.vue` behind the tracking page's `··· More` menu) turns those acceptances into roster entries, so a later assignment can run `enforced` against the cohort that actually turned up. A promoted entry carries `github_login`, `github_id`, `source: "accepted"` and a `promoted_from` provenance block - and nothing else. GitHub never learns a name or an institutional number, so the roster schema makes `student_number`/`full_name` required only for entries that are **not** `source: accepted`; deriving a name from a login would put a guess in a graded field and a synthesised student number would collide with real SIS numbering. Promotion **merges** rather than replaces: an entry that already exists is returned untouched, matched case-insensitively exactly as `accept.mjs`'s gate matches. Team membership is never written to the roster, for the same reason `lib/seed-teams.mjs` refuses to (§5.6).
 
 ---
 
@@ -1333,7 +1253,7 @@ On-demand runs are dispatch-and-watch operations. The SPA sends a unique `reques
 - Multi-institution federated hosting.
 - **Pre-provisioning with timed handover.** Repositories created from the template ahead of time and held closed, with student access granted at a scheduled instant - the exam-day pattern, where everything is ready and the cohort starts together rather than each student racing a provisioning run.
 
-  Removed from `acceptance_mode` for now because it was declared and implemented nowhere (§5.4). Three things to settle before building it:
+  Deliberately absent from `acceptance_mode` until it is built, rather than offered as a value nothing implements (§5.4). Three things to settle first:
 
   - **Precision costs minutes.** `daily-activity.yml` is nightly, so a handover accurate to the minute needs its own trigger. GitHub's cron is best-effort and can drift by 15 minutes or more under load, which is the wrong tool for "the exam starts at 09:00". A lecturer-pressed button at the moment of handover is precise, free, and honest about who decides; a scheduled workflow is convenient and approximate. Wave 8 (§6) argues for the button.
   - **It replaces the invitation link rather than refining it.** With repositories already created, the student accepts a GitHub *repository invitation*, not a PXL link - so signed invitations (§4.3.2) do not apply to these assignments at all, and neither would per-student tokens.

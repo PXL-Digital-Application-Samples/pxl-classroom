@@ -420,7 +420,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     // Teams are stored under the assignment's ID, so this cannot work on the
     // create form. It used to sit there permanently disabled, explaining its
-    // own impossibility; ARCHITECTURE §5.8.1 removes it from the screen it cannot
+    // own impossibility; ARCHITECTURE §5.6.1 removes it from the screen it cannot
     // work on. It returns on the editor for a saved assignment - covered by
     // "Seeding from the assignment editor raises exactly one toast" below.
     await expect(page.locator('button', { hasText: 'Seed teams from…' })).toHaveCount(0);

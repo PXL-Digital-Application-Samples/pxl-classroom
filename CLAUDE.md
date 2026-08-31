@@ -29,6 +29,8 @@ Working conventions for `PXL-Digital-Application-Samples/pxl-classroom`.
 
 - **ARCHITECTURE.md and RUNBOOK.md describe the system as it IS.** A past incident belongs in LESSONS.md, never in them.
 - When architecture or procedure changes, update `ARCHITECTURE.md`, `RUNBOOK.md` and this file **in the same commit**. A new rule here gets its story in `LESSONS.md` in that same commit.
+- **A reference table lives in exactly one section; everywhere else links to it.** Every doc defect found in the 2026-08-31 audit was one fact written twice with one copy updated — a permission table that had drifted four ways, tokens spelled as dark-only hex, "one GitHub App" after there were two. Before writing a list down, check whether it already exists somewhere.
+- **Section numbers are a public API — count the references before renumbering one.** Code comments, tests and workflow YAML cite them (`§4.3.2` has 62 references), and a reference to a section that no longer exists renders as ordinary text. Sweep on an exact string, then verify against the headings the documents actually declare.
 - Do not add top-level planning, progress or review documents — the project stopped using them.
 
 ---

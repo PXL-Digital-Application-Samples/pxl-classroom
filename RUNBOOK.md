@@ -44,8 +44,7 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
    GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** - store them per §1.3 immediately. (If the exchange fails - the code is single-use and expires after one hour - the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
 4. Account permissions are **not in the installation manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
-   - Account: **Starring RW** - legacy. Acceptance no longer stars the broker (ARCHITECTURE §4.3.2); the student opens an issue carrying their signed invitation. Harmless to leave granted.
-   - Account: **Email addresses: Read** - **required by the claim flow.** (`GET /apps/{slug}` reports this one as `emails`, not `email_addresses` - the toggle and the API disagree, and only the API spelling matters to the checks.) A student confirms one of their own GitHub-*verified* addresses, which is a user-to-server read of `/user/emails`; an installation token cannot read it at all, and without the declaration the SPA's user token is not scoped for it either. Set by you alone - no organization owner approves account permissions. `scripts/check-app-declaration.mjs` (weekly) warns until it is set; it deliberately does not fail, because nothing consumes it until the claim flow ships.
+   - Account: **Email addresses: Read** - the only account permission this App needs, and **required by the claim flow.** (`GET /apps/{slug}` reports this one as `emails`, not `email_addresses` - the toggle and the API disagree, and only the API spelling matters to the checks.) A student confirms one of their own GitHub-*verified* addresses, which is a user-to-server read of `/user/emails`; an installation token cannot read it at all, and without the declaration the SPA's user token is not scoped for it either. Set by you alone - no organization owner approves account permissions. `scripts/check-app-declaration.mjs` (weekly) warns until it is set; it deliberately does not fail, because nothing consumes it until the claim flow ships.
 
 ### 1.3 Set hub secrets
 
@@ -154,7 +153,7 @@ gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title
 gh issue delete --repo <org>/broker-<assignment-id> <number> --yes
 ```
 
-#### 1.3.2 Migrating an assignment to signed acceptance
+#### 1.3.2a Migrating an assignment to signed acceptance
 
 There is one republish per assignment that **cannot** keep its links alive, and it is not optional.
 
@@ -772,43 +771,41 @@ Step 2 alone never works if step 1 was skipped: an org owner can only approve pe
 
 #### 6.7b The App declares permissions nothing uses
 
-`check-app-declaration.mjs` compares **both** directions since 2026-08-31. It always reported what the App was *missing* - a feature that cannot work. It now also reports what the App holds and no code asks for, because that is blast radius: every permission on the provisioning App is inherited by anyone who obtains its private key.
+`check-app-declaration.mjs` compares **both** directions. It reports what the App is *missing* - a feature that cannot work - and what the App *holds and no code asks for*, because that is blast radius: every permission on the provisioning App is inherited by anyone who obtains its private key.
 
-Measured on 2026-08-31, five had accumulated unseen:
+Run `node scripts/check-app-declaration.mjs` for the current answer; no token needed.
 
-The App's permissions page has four collapsible sections, and **which section a permission lives in decides who has to approve a change and where you click**. Measured on the live App:
+The App's permissions page has four collapsible sections, and **which section a permission lives in decides who has to approve a change and where you click**:
 
 | Section | Count | Contains |
 |---|---|---|
 | Repository permissions | 9 + 1 mandatory | `actions`, `actions_variables`, `administration`, `checks`, `contents`, `issues`, `pull_requests`, `secrets`, `workflows` (+ `metadata`, mandatory, cannot be removed) |
-| Organization permissions | 3 | `members`, `organization_administration`, `organization_plan` |
-| Account permissions | 3 | `emails`, `plan`, `starring` |
+| Organization permissions | 2 | `members`, `organization_administration` |
+| Account permissions | 1 | `emails` |
 
 > [!CAUTION]
 > **"Administration" is a label in BOTH the Repository and Organization sections, and they are different permissions.** Repository → Administration (`administration: write`) is what creates student repositories and manages collaborators - **breaking it breaks provisioning for every cohort**. Organization → Administration (`organization_administration`) is the billing one, and is the one to downgrade. Check which section you are in before touching anything labelled Administration.
 
-| Permission | Section | Live | Action | Why |
+**Two permissions are held above what the code uses, deliberately.** `excessDeclaredPermissions` would otherwise report them every week for ever, and a permanent amber beside real findings is how a check stops being read - so the exceptions are written into `lib/audit.mjs` with their reasons rather than left to the report:
+
+| Permission | Section | Held at | Code needs | Why it is held |
 |---|---|---|---|---|
-| `members` | Organization | write | **leave** (postponed) | *Not* dead - `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and therefore cannot be frozen at a deadline. The code needs only **read**; `write` is held deliberately (2026-08-31, Tom's call) to keep `roster_mode: org_member` restorable, since that mode enrols by org invitation and genuinely needs write. Downgrading is a one-way door on a practical timescale - see below. |
-| `organization_administration` | Organization | write | **leave** (deliberate) | Read is all the code uses - Enhanced Billing, and `default_repository_permission` on `GET /orgs/{org}`. But ARCHITECTURE §11.2.1's org-scoped lockdown needs **write**, and named this permission as its blocker; the App already has it, so that feature is unblocked. Narrowing would re-block it and cost twelve approvals to undo. |
-| `organization_plan` | Organization | read | **remove** | Gates only the `plan` object inside `GET /orgs/{org}`. `usage-fetch.mjs` reads `.id` from that response and nothing else; no code anywhere reads `.plan`. |
-| `plan` | Account | read | **remove** | The account-level equivalent, gating plan info on `GET /user`. `auth.js` reads `login`, `id`, `avatar_url`, `name`, `email` - never `plan`. |
-| `starring` | Account | write | **remove** | Acceptance stopped starring the broker at §4.3.2; nothing in the codebase stars anything. Zero call sites. |
+| `members` | Organization | write | read | `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and therefore cannot be frozen at a deadline. `write` keeps `roster_mode: org_member` restorable, since that mode enrols by org invitation and genuinely needs it. **Nothing in this codebase writes org membership** - that GET is the only membership call in the source. |
+| `organization_administration` | Organization | write | read | Read covers Enhanced Billing and `default_repository_permission` on `GET /orgs/{org}`. ARCHITECTURE §11.2.1's org-scoped lockdown needs **write**, and every installed org has already approved it, so the feature is unblocked; narrowing would re-block it. |
 
-Only **three** are genuinely removable, and each was checked against the code rather than the changelog. The two that stay are staying on purpose, both for the same reason: a reduction is instant and an increase needs twelve org owners to approve, so a permission a designed feature will need is cheaper to hold than to re-acquire.
+Both are held for the same reason: **a reduction is instant, and an increase needs every org owner to approve.** A permission a designed feature will need is cheaper to hold than to re-acquire.
 
-The first pass of this review called `members` dead and was **wrong** - deleting `roster_mode: org_member` removed the *enrolment* use, not the *diagnostic* one. Dropping it would have turned a Tier 3 check into "no owner list readable", which by its own rule yields **no check at all** rather than a red one - a control that silently stops existing. Verify against the code before removing a permission, not against the changelog.
+> [!IMPORTANT]
+> **Check the code before removing a permission, never the changelog.** Deleting `roster_mode: org_member` removed the *enrolment* use of `members`, not the *diagnostic* one - and dropping it would not even have gone red, because an unreadable owner list yields **no check at all** rather than a failing one. A control that silently stops existing is the failure mode this whole section guards against.
 
-Fix in **one** of two ways, and both are legitimate:
+When the check does report a genuine excess, fix it in **one** of two ways, both legitimate:
 
 - **Narrow the App**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions`, remove or downgrade the permission, **Save changes**.
 
-  **This costs nobody a click.** GitHub's own wording: *"If you remove permissions or webhooks from your GitHub App, the changes will take effect immediately"* - whereas adding one means *"each account where the app is installed will need to approve the new permissions"*. So a reduction lands on all twelve installations at once with no approval round; org owners may receive an informational email, but there is nothing for them to action and nothing breaks while they ignore it. `plan` and `starring` are account-level and clear the same way.
+  **This costs nobody a click.** GitHub's own wording: *"If you remove permissions or webhooks from your GitHub App, the changes will take effect immediately"* - whereas adding one means *"each account where the app is installed will need to approve the new permissions"*. So a reduction lands on every installation at once with no approval round; org owners may receive an informational email, but there is nothing for them to action and nothing breaks while they ignore it. Account-level permissions clear the same way, and need no owner at all.
 
   This asymmetry is worth remembering in the other direction: the day something genuinely needs a NEW permission, every org owner has to click *Review request* before that org works again, and the feature is dead on the ones nobody chases. That is what `check-installation-approvals.mjs` exists to see (§10.6).
 - **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by `publish-assignment.yml`'s five `gh variable set` calls, and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
-
-Run `node scripts/check-app-declaration.mjs` locally for the current answer; no token needed.
 
 ### 6.7a "CI results sync failed ... due to API errors"
 
@@ -1054,7 +1051,7 @@ PXL_APP_CLIENT_ID=... PXL_APP_PRIVATE_KEY="$(cat key.pem)" node scripts/check-in
 Run periodically, especially after touching workflows or App settings.
 
 - [ ] `pxl-classroom audit --org <org>` is clean - it now covers the two rows below automatically (App declaration and repository access).
-- [ ] `gh api /app` shows the App's permissions match the SetupView manifest (`actions: write`, `administration: write`, `checks: read`, `contents: write`, `issues: write`, `metadata: read`, `organization_administration: read`, `pull_requests: write`, `secrets: write`, `workflows: write`) plus account `starring: write` and `emails: read`.
+- [ ] `node scripts/check-app-declaration.mjs` is clean - the live App's permissions match `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs` in **both** directions, plus account `emails: read` (§6.7b).
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
@@ -1206,7 +1203,7 @@ What a promoted entry does and does not carry:
 | `source: accepted` | Yes | Marks it as not-yet-identified so a later CSV import can reconcile it |
 | `promoted_from` | Yes | `assignment_id`, `accepted_at`, `promoted_at`, `promoted_by` |
 | `student_number`, `full_name`, `email`, `class_group` | **No** | GitHub never learns them. A guessed name lands in a graded field; a synthesised student number collides with real SIS numbering |
-| `team_slug` / `team_name` | **No** | Membership belongs to the assignment, and a CSV re-import would wipe it (§5.8) |
+| `team_slug` / `team_name` | **No** | Membership belongs to the assignment, and a CSV re-import would wipe it (§5.6) |
 
 Rules worth knowing before you run it:
 

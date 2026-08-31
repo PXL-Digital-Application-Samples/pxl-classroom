@@ -562,7 +562,7 @@
                 </small>
               </div>
 
-              <!-- Not on the create form (ARCHITECTURE §5.8.1). Teams are stored under
+              <!-- Not on the create form (ARCHITECTURE §5.6.1). Teams are stored under
                    the assignment's ID, so this could never work here - it was a
                    permanently disabled control explaining its own impossibility.
                    It stays on the editor for a saved assignment, where it works. -->

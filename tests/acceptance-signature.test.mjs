@@ -541,7 +541,7 @@ test("a group acceptance verifies with the team hint still attached", async () =
 
 test("the hint is not signed, and changing it does not break verification", async () => {
   // Deliberate: the hint is a concurrency key, never an authoritative value
-  // (§5.8). The hub re-derives the real team from the issue body and
+  // (§5.6). The hub re-derives the real team from the issue body and
   // teamHintMatches refuses one that disagrees - so signing it here would add a
   // second place for the same rule to live.
   const { privateKey, publicKey } = await keypair();
@@ -581,7 +581,7 @@ test("a title that is only a hint is refused", async () => {
 test("a signature for another assignment is named, not called a bad signature", async () => {
   // With a per-assignment keypair this cannot happen by attack - a foreign
   // signature does not verify at all. It happens when a broker holds the wrong
-  // INVITE_PUBKEY, which RUNBOOK §1.3.2 calls out as a real deployment fault,
+  // INVITE_PUBKEY, which RUNBOOK §1.3.2a calls out as a real deployment fault,
   // and the two need different messages.
   const { privateKey, publicKey } = await keypair();
   const t = await signAcceptanceTitle({

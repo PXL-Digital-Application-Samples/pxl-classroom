@@ -237,7 +237,7 @@ test("the broker forwards the issue number and its own repo instead", () => {
   );
   assert.ok(
     content.includes("client_payload[team_hint]"),
-    "broker must forward the title-derived concurrency hint (ARCHITECTURE §5.8)"
+    "broker must forward the title-derived concurrency hint (ARCHITECTURE §5.6)"
   );
 });
 
@@ -318,7 +318,7 @@ test("sanitizeTeamName strips control characters that would forge outputs", () =
 // The hub keys its concurrency group on the slug from the issue TITLE
 // (client_payload.team_hint), because that is all it has before the body can be
 // read. Per-team serialization is the only thing guarding max_team_size - there
-// is no distributed lock (ARCHITECTURE §5.8) - so a body naming a different team
+// is no distributed lock (ARCHITECTURE §5.6) - so a body naming a different team
 // than the title serializes against one team and writes to another.
 
 test("a body naming a different team than the title is refused", () => {

@@ -73,7 +73,7 @@ test("no other reading of the same fact survives in the workflow", () => {
 test("the concurrency key is the same field", () => {
   // Per-account serialisation. Keying it on a different field than the one that
   // identifies the acceptance would serialise against the wrong thing, which is
-  // the shape of the team-hint bug (§5.8) one level down.
+  // the shape of the team-hint bug (§5.6) one level down.
   assert.equal(DOC.concurrency.group, "accept-${{ github.event.issue.user.login }}");
 });
 

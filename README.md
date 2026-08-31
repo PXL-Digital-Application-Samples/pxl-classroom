@@ -4,7 +4,7 @@
 
 <https://pxl-digital-application-samples.github.io/pxl-classroom/>
 
-GitHub-native assignment distribution and submission reporting for higher education. Built on GitHub Pages, GitHub Actions, and a single GitHub App. No external server, no external database.
+GitHub-native assignment distribution and submission reporting for higher education. Built on GitHub Pages, GitHub Actions, and two narrowly-scoped GitHub Apps. No external server, no external database.
 
 Target platform: GitHub Team for Education (no GitHub Enterprise required).
 
@@ -50,7 +50,7 @@ I built it for my own courses at first.
 
 ## Highlights
 
-**Nothing to run, nothing to pay for.** The whole system is a Pages site, some Actions workflows and one GitHub App. When no assignment is active, nothing runs and nothing is billed. A weekly check watches each organization's usage against its limits and tells you before you hit one.
+**Nothing to run, nothing to pay for.** The whole system is a Pages site, some Actions workflows and two GitHub Apps. When no assignment is active, nothing runs and nothing is billed. A weekly check watches each organization's usage against its limits and tells you before you hit one.
 
 **Students get their repository in under a minute.** They open the invitation link, sign in, and press Accept; the repository is ready in 20 to 40 seconds. The link carries a signing key, so a student's browser proves which account is accepting before any credential is created - and using the link no longer publishes it.
 
