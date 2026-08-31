@@ -60,7 +60,8 @@ The rows where the three genuinely differ. Everything else - assignment creation
 | **Student repo role** | Write | Write | **Admin** - secrets, environments, runners, OIDC |
 | **Deadline** | Soft; freeze by hand | Timestamps, reviewed by hand | Writes stop at the instant it passes |
 | **Submission archive** | None; the live repo is the grade | None; the live repo is the grade | Private archive repo per assignment, out of the student's reach |
-| **Grading off the cloud** | No | No | Sandboxed Docker via CLI - no Actions minutes |
+| **Auto-grading via Github Actions** | Yes | Yes | Yes |
+| **Auto-grading off the cloud** | No | No | Sandboxed Docker via CLI - no Actions minutes |
 | **Enrolment** | Roster or LMS sync | Org repository roster | Roster, email claim matched to your roster, or open signup with a cap |
 | **Starter-code fixes** | Manual pull or fork | Manual upstream pull | Per file: direct where untouched, pull request where edited |
 | **Cost when idle** | GitHub-hosted | Hosted service | Nothing runs, so nothing is billed |
