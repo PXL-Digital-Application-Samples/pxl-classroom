@@ -69,6 +69,7 @@ Everything specific to *one institution's installation* lives in **`deployment.y
 | `app_slug` | The GitHub App's slug, used to read its live declaration |
 | `control_repo` | Name of the per-org control repository |
 | `archive_repo_prefix` / `legacy_archive_repo` | Where preserved submissions go (§11.3.1) |
+| `device_flow_proxy` | The **primary** device-flow proxy, and the one security-relevant value here: whatever answers sees the access token, so a fork points this at a proxy it operates (§10.2.1) |
 
 The product name — *PXL Classroom* — is the software, not the deployment, and stays.
 
@@ -170,7 +171,7 @@ Account permissions are declared on the App and set by the App owner alone: they
 
 The App is installed:
 
-- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf: the Admin Panel triggers eight of them (publish, retry-acceptance, setup-org, daily-activity, regenerate-dashboard, sync-starter-code, open-feedback-prs, weekly-usage-report) with a user-to-server token, and `actions: write` on this installation is what authorizes that. Nothing mints a Provisioner token for the hub org otherwise; the broker's dispatch is the Broker App's job.
+- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf: the SPA dispatches `publish-assignment`, `retry-acceptance`, `setup-org`, `daily-activity`, `regenerate-dashboard`, `sync-starter-code`, `weekly-usage-report` and `deploy-frontend` with a user-to-server token, and `actions: write` on this installation is what authorizes that. **Not `open-feedback-prs`** — the SPA opens those pull requests client-side (§11.4), which is why that classifier has three implementations to keep in step. Nothing mints a Provisioner token for the hub org otherwise; the broker's dispatch is the Broker App's job.
 - On each participating org (`PXLAutomation`, `PXLCloudAndAutomation`, etc.), **scoped to all repositories**. The hub mints per-org tokens at workflow runtime for provisioning, collection, lock-down, preservation, and archive operations against the target org.
 
 The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see INSTALL.md §2).
@@ -308,7 +309,7 @@ The link secret is in the URL path, so `frontend/index.html` sets `<meta name="r
 
 `workflow_dispatch` runs the workflow file from whichever ref the caller names, and the `participating-orgs` branch carries deliberately lighter protection (§5.5) so automation can commit the org registry to it. Those two facts compose into a way to run hub code at an attacker-influenced ref with the App private key in scope. §4.3.1 and §4.3.2 close the realistic route to *obtaining* that key; this bounds what holding one would be worth.
 
-- **Every job holding a hub credential names the `provisioning` environment**, whose deployment branch policy allows `main` only. A job that names an environment does not start when the run's ref falls outside that policy - so the branch-ref path is closed by the reference itself, independent of where the secret is stored. Thirteen jobs across eleven workflows; `tests/workflow-hardening.test.mjs` fails if a new one forgets.
+- **Every job holding a hub credential names the `provisioning` environment**, whose deployment branch policy allows `main` only. A job that names an environment does not start when the run's ref falls outside that policy - so the branch-ref path is closed by the reference itself, independent of where the secret is stored. `tests/workflow-hardening.test.mjs` fails if a new one forgets — which is the guarantee, rather than a count here that goes stale the next time a workflow gains a job.
 - **The admin workflows refuse an automated dispatch.** `setup-org.yml`, `retry-acceptance.yml` and `publish-assignment.yml` reject a `workflow_dispatch` whose actor ends in `[bot]`, as the first step, before anything mints a token. A lecturer dispatches as themselves through the SPA or the Actions tab; an App installation token - what a stolen broker credential would be - arrives as `<slug>[bot]`. `retry-acceptance` can provision for an arbitrary login with the window bypassed and `setup-org` creates org-level state, so neither should be reachable by a credential rather than a person.
 - **Hub credentials are never exposed at workflow or job level**, only on the steps that need them, so a third-party action elsewhere in the job never sees one.
 
@@ -454,10 +455,10 @@ orgs:
 
 Assignments can be polymorphic: `assignment_type: "individual"` (default) or `"group"`.
 
-- **Configuration:** `group_config` on the assignment YAML specifies `max_team_size` (integer, e.g. 3), `min_team_size` (optional integer, flags under-capacity teams with warning badges in the lecturer dashboard), `formation_mode` (`"self-service"`), and `allow_team_creation` (boolean).
+- **Configuration:** `group_config` on the assignment YAML specifies `max_team_size` (integer, e.g. 3), `min_team_size` (optional integer, flags under-capacity teams with warning badges in the lecturer dashboard), `formation_mode` (`"self-service"` — the default — or `"pre-assigned"`), and `allow_team_creation` (boolean, default `true`).
 - **Manifests:** Each team is stored as a JSON document in `teams/<id>/<team-slug>.json` conforming to `team.schema.json`.
 - **Target Repositories:** Group assignments use `{team_slug}` in `repository_name_pattern` (e.g. `{id}-{team_slug}`). All teammates share read/write access to the single team repository.
-- **Sequential Concurrency:** `acceptance-handler.yml` sets concurrency group `accept-${org}-${assignment_id}-${team_slug || login}` to serialize concurrent joins and team creation, strictly guarding team capacity without distributed locks.
+- **Sequential Concurrency:** `acceptance-handler.yml` sets concurrency group `accept-${org}-${assignment_id}-${team_hint || github_login}` to serialize concurrent joins and team creation, guarding team capacity without a distributed lock. It is the **hint**, not the team slug: the group is evaluated at dispatch time, before the issue body can be read, so the authoritative slug does not exist yet (§4.3.1).
 - **Moving a student (lecturer):** the manage-members modal offers *Move to…* per member, which rewrites BOTH team manifests in a single git-tree commit and follows it with the collaborator revoke/grant. One gesture, because remove-then-add is two commits with a window in between where the student belongs to no team at all. Both manifests are merged onto what is stored, never rebuilt from the row on screen, and a team already at `max_team_size` is not offered as a destination.
 - **Team Switching:** Students can switch teams prior to the deadline. On switch, `accept.mjs` revokes old team membership and marks 0-member teams as `vacant: true`; `provision.mjs` revokes collaborator access on the previous repository and grants access on the new team repository.
 - **Preservation & Reporting:** Lockdown stops writes for the whole team - the ruleset covers the shared repository, and the demotion, when enabled, applies to every member; preserve archives the submission to `refs/heads/preserved/<id>/<team-slug>`; `report.mjs` computes both a top-level `teams` array and student-level `team_slug`/`team_name` fields.
@@ -986,7 +987,7 @@ Under `report` none of this runs: a late commit *is* part of the submission, and
 
 Two numbers decide the shape: a GitHub-hosted job runs for at most 6 hours, and the cron fires every 4. The window sits between them - wider than the interval so every deadline gets a firing that can reach it, narrower than the job limit with margin. **Cron drift therefore decides only whether a sentinel arms in time, never when it acts:** a 16:00 firing that lands at 16:25 still sees a 20:00 deadline 3h35m out, still arms, and still acts at 20:00:00.
 
-Sentinels are keyed on **(org, deadline instant)**, not on assignment, so three assignments sharing 22:00 share one job. `find-armable.mjs` caps how many one firing may arm (default 8, `MAX_SENTINELS`) and logs what it dropped rather than truncating silently.
+Sentinels are keyed on **(org, deadline instant)**, not on assignment, so three assignments sharing 22:00 share one job. `find-armable.mjs` caps how many a firing may arm **per organization** (default 8, `MAX_SENTINELS`) and logs what it dropped rather than truncating silently. That cap is per-org because the arm job is a matrix over orgs and each leg caps its own list; the **global** bound is `max-parallel: 8` on the watch job, without which twelve orgs at eight each would ask for far more concurrent runners than a Team plan's 60.
 
 **It polls; it does not sleep.** One `GET /orgs/{org}/repos?sort=pushed&direction=desc&per_page=100` returns `pushed_at` for a hundred repositories - polling each repo individually would be 200 × 36 = 7,200 requests against a 5,000/hr limit, which is the trap `sort=pushed` avoids. About three calls an iteration, ~36 iterations over three hours. The timeline lands in `lockdowns/<id>/sentinel-<key>.json`.
 
