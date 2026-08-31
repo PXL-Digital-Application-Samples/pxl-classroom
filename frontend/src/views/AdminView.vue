@@ -733,8 +733,9 @@
                 students their Actions, secrets and runners. Tick this only if they should lose those too.
               </small>
               <small v-else>
-                Students are demoted to read-only on the first nightly run after the deadline.
-                Untick to leave their repositories open.
+                Off by default. Tick this to demote students to read-only on the first nightly run
+                after the deadline - they lose their Actions, secrets, environments and runners with
+                it. Their submission is archived either way.
               </small>
             </div>
             <div class="field checkbox">
@@ -1676,7 +1677,19 @@ function emptyForm() {
     late_policy: 'report',
     state: 'draft',
     max_acceptances: 50,
-    lock_down_enabled: true,
+    // Demoting to `pull` does not just stop pushes - it takes Actions, secrets,
+    // environments, runners and settings, which on these courses is the subject
+    // being taught. It is the heaviest thing the system does to a student, so a
+    // lecturer opts in rather than discovering it at the deadline. Preservation
+    // is unaffected: the snapshot is pushed to the assignment's archive repo
+    // whatever this says, so the record a grade dispute rests on still exists.
+    //
+    // This is the FORM default and nothing else. `lockdown.mjs` still reads an
+    // ABSENT `lock_down_enabled` as `true` (ARCHITECTURE §11.2.1) - every
+    // assignment written before the field existed relies on that, and flipping
+    // it there would silently stop freezing live cohorts. `buildDoc` writes the
+    // field explicitly, so a new assignment carries `false` rather than nothing.
+    lock_down_enabled: false,
     feedback_pr: false,
     feedback_pr_baseline_branch: 'pxl-baseline',
     autograde_enabled: false,

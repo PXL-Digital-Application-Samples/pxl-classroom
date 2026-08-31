@@ -410,6 +410,21 @@ test("a new assignment defaults to open enrolment, with the cap that makes it va
   assert.match(body, /max_acceptances: \d+/, "open enrolment requires a cap, so emptyForm must set one");
 });
 
+test("a new assignment does not take admin away at the deadline", () => {
+  // Demoting to `pull` removes Actions, secrets, environments and runners - the
+  // subject these courses teach - and it was the form default, so every new
+  // assignment confiscated it unless the lecturer spotted the checkbox. It is
+  // opt-in now. Preservation does not depend on it: the snapshot reaches the
+  // archive repo whatever this says.
+  //
+  // The FORM default only. `lockdown.mjs` still reads an absent field as `true`
+  // (the test below), because every assignment written before the field existed
+  // relies on that - see ARCHITECTURE §11.2.1.
+  const body = emptyFormSource();
+  assert.match(body, /lock_down_enabled: false/, "the demotion is opt-in for a new assignment");
+  assert.ok(!/lock_down_enabled: true/.test(body), "emptyForm must not tick the demotion");
+});
+
 test("the backend still fails CLOSED for an unrecognised roster_mode", () => {
   // The form default and the parser's fallback are different decisions. A
   // typo'd or absent value must still be treated as `enforced` - that is a

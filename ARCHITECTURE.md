@@ -945,12 +945,14 @@ Neither field used to be read by any code. `late_policy: block` promised to refu
 
 | `late_policy` | `lock_down_enabled` | Phase 1 | Phase 4 |
 |---|---|---|---|
-| `report` (default for new) | `false` | none | none |
+| `report` (default for new) | `false` (default for new) | none | none |
 | `report` | `true` (default when absent) | none | demote |
 | `block` | `false` | ruleset | none |
 | `block` | `true` | ruleset | demote |
 
 **`lock_down_enabled` defaults to `true` when the field is absent.** Every assignment created before this shipped was demoted at the deadline, and inferring "no lock" from a missing field would silently stop freezing live cohorts.
+
+**The form default is the opposite, and the two are different decisions.** `emptyForm()` writes `lock_down_enabled: false`, so a *new* assignment does not demote. Demoting to `pull` takes Actions, secrets, environments, runners and settings - the subject these courses teach - which makes it the heaviest thing the system does to a student, and it was arriving by default on assignments whose lecturer had never opened the checkbox. It is opt-in now, and `buildDoc` writes the field explicitly so a new assignment carries `false` rather than relying on absence. Nothing about the record changes: phases 1-3 still run, `lockdown-record.json` is still written, and preservation still pushes the snapshot to the assignment's archive repository, so the evidence a grade dispute rests on does not depend on this field. The absent-field rule above is untouched, because it governs documents nobody can go back and edit.
 
 **The lock is a repository ruleset** (`lib/submission-lock.mjs`, one ruleset named `pxl-classroom-deadline` per student repo) with `update`, `non_fast_forward` and `deletion` on the submission ref, and the Provisioner App in `bypass_actors` as `actor_type: "Integration"`. Demoting to `pull` does not just remove push - it removes Actions, secrets, environments, runners and settings, which on a course whose subject *is* those things confiscates the subject matter at the deadline. The ruleset takes only the ref.
 

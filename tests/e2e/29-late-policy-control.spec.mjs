@@ -56,9 +56,18 @@ test.describe('29 - Late work control', () => {
     await expect(guardrails).toContainText('rather than as proof');
   });
 
+  test('A new assignment does not take admin away by default', async ({ page }) => {
+    // Demoting to `pull` removes Actions, secrets, environments and runners -
+    // the subject being taught. It used to be the default, so every new
+    // assignment confiscated it at the deadline unless the lecturer noticed the
+    // checkbox. Preservation does not depend on it.
+    await openNewAssignmentForm(page);
+    await expect(demoteBox(page)).not.toBeChecked();
+  });
+
   test('Locking the branch unticks the demotion, because it takes what the lock preserves', async ({ page }) => {
     await openNewAssignmentForm(page);
-    await expect(demoteBox(page)).toBeChecked();
+    await demoteBox(page).check();
 
     await doesNotCount(page).check();
     await expect(demoteBox(page)).not.toBeChecked();
@@ -79,11 +88,12 @@ test.describe('29 - Late work control', () => {
 
   test('Going back to "Counts" leaves the demotion where the lecturer left it', async ({ page }) => {
     await openNewAssignmentForm(page);
+    await demoteBox(page).check();
     await doesNotCount(page).check();
     await expect(demoteBox(page)).not.toBeChecked();
     await counts(page).check();
     await expect(demoteBox(page)).not.toBeChecked();
     await expect(page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) }))
-      .toContainText('Untick to leave their repositories open');
+      .toContainText('they lose their Actions, secrets, environments and runners');
   });
 });
