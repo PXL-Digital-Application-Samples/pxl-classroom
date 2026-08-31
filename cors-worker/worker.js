@@ -19,7 +19,7 @@
 // method, unparseable body. There is no third-party substitute to fail over to.
 //
 // So the fallback has to be one we own, and this is it. It is deployed by hand
-// once (RUNBOOK §1.6) and is deliberately NOT wired into CI - automating the
+// once (INSTALL.md §1.6) and is deliberately NOT wired into CI - automating the
 // deploy would mean putting a Cloudflare API token in the hub, which is more
 // standing credential than the thing it protects.
 //

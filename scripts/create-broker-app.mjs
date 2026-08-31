@@ -11,7 +11,7 @@
 //
 // The broker App is the replacement: installed on the HUB REPOSITORY ALONE,
 // holding `contents: write` ALONE - exactly what POST /repos/{o}/{r}/dispatches
-// requires and nothing more. See ARCHITECTURE §4.3.0 and RUNBOOK §1.10.
+// requires and nothing more. See ARCHITECTURE §4.3.0 and INSTALL.md §1.10.
 //
 // WHY THERE IS A BROWSER STEP AT ALL, since the obvious question is why this is
 // not pure CLI. Two GitHub limits, both checked rather than assumed:
@@ -65,7 +65,7 @@ const die = (msg) => {
 };
 
 // THE ONE PERMISSION. Stated here and nowhere else, so the manifest, the
-// verification below and RUNBOOK §1.10 cannot disagree about what this App is
+// verification below and INSTALL.md §1.10 cannot disagree about what this App is
 // allowed to do. `contents: write` is what a repository_dispatch needs; in
 // particular NOT `actions: write`, or a leaked broker key could dispatch hub
 // workflows - which is most of what made the old arrangement dangerous.
@@ -319,7 +319,7 @@ console.log(`
   token with this App scoped to ${REPO} before it touches anything, so a wrong
   repository selection fails there with nothing half-done.
 
-  After that, republish each assignment (RUNBOOK §1.10) - that is what pushes
+  After that, republish each assignment (INSTALL.md §1.10) - that is what pushes
   the new broker workflow AND removes the provisioning App's key from the
   public broker repositories.
 `);

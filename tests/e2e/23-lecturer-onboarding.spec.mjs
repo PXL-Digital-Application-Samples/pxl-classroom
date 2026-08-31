@@ -3,7 +3,7 @@ import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/
 
 // A lecturer newly made owner of an org used to hit two dead ends: "Student
 // Account Detected" (if the App was not installed) and "isn't onboarded yet -
-// see RUNBOOK §2" (if it was, but the control repo did not exist). Both now
+// see ADMIN.md §2" (if it was, but the control repo did not exist). Both now
 // carry the action instead of a documentation link.
 
 const INSTALL_URL = 'https://github.com/apps/pxl-classroom-provisioner/installations/new';
@@ -134,7 +134,7 @@ test.describe('23 - Lecturer onboarding', () => {
     await page.goto(`/dashboard/${ORG}`);
     const card = page.locator('.setup-required-card');
     await expect(card).toContainText(/a hub admin runs/i);
-    // No self-serve button - dispatching would only 403 (RUNBOOK §2.4).
+    // No self-serve button - dispatching would only 403 (ADMIN.md §2.4).
     await expect(card.getByRole('button', { name: /Set up/i })).toHaveCount(0);
   });
 });

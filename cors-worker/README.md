@@ -82,7 +82,7 @@ The Worker lives in whoever's Cloudflare account deployed it. If that account is
 lost, **the fallback silently stops existing** and nobody finds out until the
 primary fails and the fallback is not there either. Put it in an account tied to
 a PXL address that more than one person can reach, and record who owns it in
-RUNBOOK §1.9.
+INSTALL.md §1.9.
 
 ## Cost
 

@@ -152,7 +152,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     await expect(page.locator('.onboarding-readiness-card')).not.toBeVisible();
 
     // 2. Instead the setup card explains the one remaining step. This used to
-    //    be a dead end reading "isn't onboarded yet - see RUNBOOK §2".
+    //    be a dead end reading "isn't onboarded yet - see ADMIN.md §2".
     const setupCard = page.locator('.setup-required-card');
     await expect(setupCard).toBeVisible();
     await expect(setupCard).toContainText(/needs its control repository/i);

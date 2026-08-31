@@ -1,478 +1,17 @@
 # PXL Classroom - Runbook
 
-Operational procedures for setting up, running, and recovering PXL Classroom. Pairs with `ARCHITECTURE.md` (the technical reference).
+**Audience: a lecturer running assignments.** Everything here is something you do yourself, in the Admin Panel or the CLI, for your own course.
 
 > [!IMPORTANT]
-> ### Where do I start?
-> - **Onboarding a new course or academic year organization (e.g. `PXL-2TIN-DevOps-2627`)?**
->   **Do not follow §1.** You do **not** need to deploy a frontend or create a new GitHub App. PXL Classroom is multi-tenant: the central hub and central App serve all organizations. **Jump straight to [Section 2: Onboarding a new organization](#2-onboarding-a-new-organization-per-org)**.
-> - **Setting up the entire central PXL Classroom infrastructure from scratch for the first time?**
->   Follow [Section 1: First-time system setup](#1-first-time-system-setup-one-time-central-system-administrator). This is executed **only once** by the central system administrator on the root hub repository (`PXL-Digital-Application-Samples/pxl-classroom`).
-> - **Lecturer managing assignments, rosters, and deadlines for your course?**
->   Jump to [Section 4: Creating and publishing an assignment](#4-creating-and-publishing-an-assignment).
+> **Not what you are looking for?**
+> - **Adding a course or academic-year organization** (e.g. `PXL-2TIN-DevOps-2627`) → [ADMIN.md §2](ADMIN.md#2-onboarding-a-new-organization-per-org). You do **not** need a new frontend or a new GitHub App: PXL Classroom is multi-tenant, and one hub serves every organization.
+> - **Standing up the whole system from scratch**, once, for the institution → [INSTALL.md](INSTALL.md).
+> - **Budgets, usage thresholds, App permissions, security incidents** → [ADMIN.md](ADMIN.md).
+
+What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists → [LESSONS.md](LESSONS.md). Known infrastructure gaps → [OPEN-ITEMS.md](OPEN-ITEMS.md).
 
 ---
 
-## 1. First-time system setup (one time, central system administrator)
-
-> [!CAUTION]
-> **This section is for the central system administrator ONLY and is performed ONCE for the entire institution.**
-> If the central hub (`PXL-Digital-Application-Samples/pxl-classroom`) and the central GitHub App already exist, **skip this section entirely**. To onboard a new course organization, go directly to **[Section 2: Onboarding a new organization](#2-onboarding-a-new-organization-per-org)**.
-
-The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initialize it. They are run once, by an admin who owns the hub.
-
-### 1.1 Enable Pages
-
-1. In GitHub -> `pxl-classroom` -> Settings -> Pages -> Build and deployment -> Source: select **GitHub Actions**.
-   > [!NOTE]
-   > GitHub displays "Suggested workflows" below this setting. You do **not** need to click "Configure" or create a new workflow - the repository already includes `.github/workflows/deploy-frontend.yml` which GitHub Actions uses automatically.
-2. Trigger the initial build: go to Actions -> **Deploy frontend to Pages** -> **Run workflow** (branch `main`).
-   > [!NOTE]
-   > Running `deploy-frontend.yml` before setting the secrets in §1.3 is completely safe and expected. The data fetch script (`scripts/fetch-pages-data.mjs`) detects that credentials are not configured yet, logs an informational notice, and exits cleanly with an empty index, deploying the frontend shell so the `/setup` page becomes accessible.
-
-### 1.2 Create the central GitHub App
-
-1. In a browser, open the Pages site at `https://<pages-host>/pxl-classroom/setup` (e.g. `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`).
-2. Enter the owning **organization** (recommended - leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
-   - The permission set comes from `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs` and is not restated here - a second copy is a copy that goes stale. Verify what the live App actually holds with `gh api apps/<slug> --jq .permissions` (no token needed), and see ARCHITECTURE §3.2.1 for what each permission is for.
-   - Device Flow: enabled.
-   - Callback URLs: pre-filled for your Pages domain.
-3. Confirm on GitHub's page.
-   > [!NOTE]
-   > **App Name Uniqueness & 34-Character Limit:** GitHub App names must be **globally unique across GitHub.com** and **at most 34 characters long**. The manifest automatically generates a scoped name (e.g. `PXL Classroom (<org>)` or `PXL (<org>)`). If GitHub reports "Name already taken", adjust the name in the text field to any unique name up to 34 characters (e.g. `PXL Provisioner 2627` or `PXL (<org>)`) and click **Create GitHub App for <org>**.
-
-   GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the new App's **App ID**, **Client ID** (string starting with `Iv…`), and a **Download .pem** button for the private key. These are shown **once** - store them per §1.3 immediately. (If the exchange fails - the code is single-use and expires after one hour - the App still exists: collect the IDs from the App settings page under "About" and use **Generate a private key** there.)
-4. Account permissions are **not in the installation manifest** and need to be set manually on the App settings page after creation, before installing the App on any org:
-   - Account: **Email addresses: Read** - the only account permission this App needs, and **required by the claim flow.** (`GET /apps/{slug}` reports this one as `emails`, not `email_addresses` - the toggle and the API disagree, and only the API spelling matters to the checks.) A student confirms one of their own GitHub-*verified* addresses, which is a user-to-server read of `/user/emails`; an installation token cannot read it at all, and without the declaration the SPA's user token is not scoped for it either. Set by you alone - no organization owner approves account permissions. `scripts/check-app-declaration.mjs` (weekly) warns until it is set; it deliberately does not fail, because nothing consumes it until the claim flow ships.
-
-### 1.3 Set hub secrets
-
-**Where a secret lives is part of its protection, so the two tables are separate.** Every private key is an **environment** secret on `provisioning` with **no repository-level copy**: a job that does not declare `environment: provisioning` cannot read one at all, which is half of what closes the branch-ref path (§1.3.3, ARCHITECTURE §4.3.4). Putting one of these at repository level hands it to every job that does not name the environment, and `tests/workflow-hardening.test.mjs` fails CI when such a job appears.
-
-**Environment secrets** — Settings -> Environments -> `provisioning` -> Add secret. Create the environment first (§1.3.3):
-
-| Secret | Value |
-|---|---|
-| `PXL_APP_PRIVATE_KEY` | Full PEM body from §1.2, BEGIN/END lines included. |
-| `PXL_INVITE_SIGNING_KEY` | Ed25519 private key that signs invitation tokens. See §1.3.1. `publish-assignment.yml` fails closed without it. |
-| `PXL_CLAIM_PRIVATE_KEY` | ECDH P-256 private key that decrypts a student's claimed email address. See §1.3.2. This one decrypts every student's institutional address, so it is the most sensitive value in the system after the App key. |
-| `PXL_BROKER_CLIENT_ID` / `PXL_BROKER_PRIVATE_KEY` | The **broker** App's credential. Written by `scripts/create-broker-app.mjs`, not by hand — see §1.10. |
-
-**Repository secrets** — Settings -> Secrets and variables -> Actions. Neither is a private key:
-
-| Secret | Value |
-|---|---|
-| `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token`; the older `app-id` input is deprecated. Deliberately repository-level: a client id is not secret and already ships in the SPA bundle. |
-| `VITE_CORS_PROXY_URL` | Optional. The **secondary** device-flow proxy, reached only when the PXL Worker is unreachable. The **primary** is `device_flow_proxy` in `deployment.yml` and is deliberately not a secret (§1.9). There is deliberately **no default** here, so leaving it unset means one proxy rather than silently reinstating a third party. MUST end in `?url=`, `&url=` (a keyed proxy) or `?` (auto-rewritten). An unusable value is skipped rather than fatal and is reported in the sign-in card. ARCHITECTURE.md §10.2.1 has the threat model. |
-| `VITE_GITHUB_CLIENT_ID` | Optional. Same Client ID as `PXL_APP_CLIENT_ID`, baked in at SPA build time. `frontend/src/lib/config.js` falls back to the built-in id, so the PXL deployment does not set it; **a fork running its own App does need it.** |
-
-#### 1.3.1 Invitation signing keypair
-
-Acceptance is triggered by a public event on a public repository, so anyone can fire a broker. The signed invitation token is what makes an unauthorized trigger cost nothing: the broker verifies it before minting an App token (ARCHITECTURE §4.3.2).
-
-```bash
-node scripts/generate-invite-keypair.mjs 1
-```
-
-1. Pipe the **private** half into the hub secret. Do not paste it into a terminal you are sharing, and do not commit it:
-
-   ```bash
-   gh secret set PXL_INVITE_SIGNING_KEY --repo PXL-Digital-Application-Samples/pxl-classroom < key.pem
-   ```
-
-2. Put the **public** half in `acceptance/invite-keys.json` under its key id and commit it. It belongs in a public repository: every broker reads it from a hub checkout, and a public key is what lets the broker reject a forged token without holding anything worth stealing.
-
-3. Delete the local `key.pem`.
-
-**Rotation.** Generate with the next key id, keep the previous entry in `invite-keys.json` so links already in circulation keep verifying, and set the `INVITE_KID` repository *variable* on the hub to the new id so new links use it. Drop the old entry once every assignment signed with it is closed.
-
-**Retiring one assignment's links** does not need the key: republish it with `regenerate_invite: true`, which mints a new nonce *and* a new acceptance keypair, and writes both to the broker's `INVITE_NONCE` and `INVITE_PUBKEY` variables. Every previously issued link for that assignment then stops working - and anyone who follows one lands on a page saying it is out of date and to ask you for the current one, rather than on a "not found" that could mean three different things. Plain republishing keeps the existing link alive, so a repair does not silently break links the day before a deadline. In the Admin Panel this is **Regenerate link →**, in the share block beside the link it retires; it opens the republish dialog with the box already ticked and states the consequence before you confirm. The same dialog reached from *Lifecycle → Republish broker* arrives **unticked**, because that path is a repair.
-
-**Switching acceptance off** without deleting anything: set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner.
-
-#### 1.3.2 Claim keypair
-
-The claim binds a GitHub account to an institutional email address (ARCHITECTURE §15). The student's browser seals the address to the hub's **public** key, so only ciphertext travels over the public acceptance event; the hub decrypts it with the **private** half.
-
-```bash
-node scripts/generate-claim-keypair.mjs 1
-```
-
-1. Set the **private** half as an **environment** secret, not a repository secret:
-
-   ```
-   Settings → Environments → provisioning → Add secret
-   Name: PXL_CLAIM_PRIVATE_KEY
-   ```
-
-   The `provisioning` environment allows the **main** branch only, so a `workflow_dispatch` at another ref cannot reach it, and a job that does not declare `environment: provisioning` cannot read it at all — the same protection `PXL_APP_PRIVATE_KEY` and `PXL_INVITE_SIGNING_KEY` get, and `tests/workflow-hardening.test.mjs` fails if any job holding it omits the environment. **There must be no repository-level copy.** This key decrypts every student's institutional email address, so it is the most sensitive value in the system after the App key.
-
-2. Put the **public** half in `acceptance/claim-keys.json` under its key id, set `current` to that id, and commit. A public key belongs in a public repository: it lets anyone encrypt, which is the point, and decrypt nothing. `tests/claim-keys.test.mjs` fails if anything private-key-shaped lands there — both halves are P-256 base64url and look alike, but a private key is **184** characters where a public key is **122**.
-
-3. The script prints the private half **once** and writes it nowhere, so it cannot linger in the working tree. If you lose it before setting the secret, just run the script again — nothing has been committed yet.
-
-**Rotation.**
-
-> [!IMPORTANT]
-> **Rotation did not work before 2026-08-31, and this section used to describe a remedy that does nothing.** It said to keep the previous entry in `claim-keys.json` — but that file holds only **public** halves, and the hub held exactly **one** `PXL_CLAIM_PRIVATE_KEY`. The kid never travels with the ciphertext (the wire format is `c1.<ephemeral SPKI>.<iv>.<ciphertext>`), so keeping the old public key changed nothing about what the hub could open. Rotating would have failed every claim sealed to the old key — acceptances already posted, plus every browser still on a cached bundle — and because a decrypt failure sits **after** the attempt counter in the gate, it would have spent real students' attempts and locked them out of a mode whose whole purpose is letting them in.
->
-> The hub now holds **several** private keys and tries each. That is what makes rotation possible; nothing else changed, and no wire format or SPA change was needed.
-
-1. Generate the next keypair: `node scripts/generate-claim-keypair.mjs 2`.
-2. **Before** changing anything else, add the **current** private key to the `provisioning` environment secret `PXL_CLAIM_PRIVATE_KEYS_RETIRED` (newline- or comma-separated; it may already hold others). This is the step that keeps in-flight claims working — do it first, and the rest is safe in any order.
-3. Set `PXL_CLAIM_PRIVATE_KEY` to the **new** private half.
-4. Put the new **public** half in `acceptance/claim-keys.json` under its key id, point `current` at it, and commit. Keep the old public entry only for the record; it is the retired **private** key that does the work.
-5. Deploy (`deploy-frontend.yml` — the path filter names `acceptance/claim-keys.json`, so the commit in step 4 triggers it). Until it lands, browsers keep sealing to the old key, which is exactly why step 2 comes first.
-6. Drop the old key from `PXL_CLAIM_PRIVATE_KEYS_RETIRED` once no cached bundle can still be sealing to it — a week is generous.
-
-`tests/claim-key-rotation.test.mjs` runs the whole thing through the real crypto, including the case where the retired key is *absent* and the pre-rotation claim is lost, so the hazard cannot quietly return.
-
-**What rotation does and does not buy.** The sealed claims sit in public GitHub issue bodies, which GH Archive mirrors permanently. There is no forward secrecy and there cannot be: a static page sealing to a long-lived recipient key has nothing to derive one from. So whoever holds a private key can decrypt every claim ever sealed to it, retroactively, for ever. Rotation bounds the *window* one leaked key exposes — it does not undo it. Treat every retired key as still sensitive and delete it from the secret only when you no longer need it, not when it stops being used.
-
-**"Invitation Exposure" is failing in System Health.** Acceptance opens an issue on the public broker whose *title* carries a `pxl-accept:` value. The broker redacts that title within seconds, so under normal operation there is nothing to find - a leftover means the **redaction** did not run.
-
-The severity depends on the assignment's invitation format, and so does the fix. On a signed assignment (`invite_key`) the title is a signature naming one account, useless to anyone else: the sweep **warns**, and you must **not** regenerate - that retires every student's link and fixes nothing. On one still carrying only `invite_token` the title *is* the credential: the sweep **fails**, and regenerating the invitation is the fix.
-
-The issue itself is never deleted, and cannot be: `deleteIssue` refuses an App installation token with `FORBIDDEN: Viewer not authorized to delete`, measured live 2026-08-26 in two organizations that both grant the App `administration: write`. Only a user token with repository admin can delete an issue, and this system holds no such credential by design. Deleting leftovers by hand is therefore a manual step, and after the move to signed acceptance it is tidying rather than an exposure - the title is a signature naming one account, not a link.
-
-A leftover means one of these:
-
-1. **The broker's redaction step did not run or failed.** Check the broker's own Actions run for that acceptance - `Redact and close trigger issue` on the accepted path, `Reject invalid invitation` on the rejected one. Both need only `issues: write`, which `github.token` on the broker has, so a failure here is a dead run or a workflow that predates the step rather than a permission.
-
-   Remove the leftovers with your **own** account, which must have repository admin (being an org owner is not automatically enough):
-
-   ```bash
-   gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title pxl-accept' --json number,id
-   gh api graphql -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' -F id=<issue node id>
-   ```
-
-   Do **not** chase App permissions for this. An installation token cannot delete an issue whatever it is granted (see above), and older wording in this runbook sent people to approve `Administration: write` on organizations that already had it.
-
-2. **`INVITE_ENABLED` is `false`.** The job-level `if` skips the whole run, cleanup included, so an issue opened while acceptance was switched off simply sits there.
-
-3. **A run died between the dispatch and the cleanup.**
-
-In every case, delete the listed issues with your own account (the commands above). **What you do next depends on the assignment's invitation format, and getting it wrong is destructive:**
-
-| Assignment | Sweep says | Then |
-|---|---|---|
-| Signed (`invite_key`) | **warn** | **Stop. Do not regenerate.** The titles are signatures naming one account, so nothing is exposed and regenerating would retire every student's link to fix nothing. |
-| Legacy (`invite_token` only) | **fail** | Republish with `regenerate_invite: true`. The title *is* the credential, and redaction is not enough on its own - a rename is still visible in the issue timeline, so an exposed token has to be retired rather than hidden. |
-
-This is the same split `lib/diagnostics.mjs` applies when it raises the finding, and its message says which case you are in.
-
-#### 1.3.2a Migrating an assignment to signed acceptance
-
-There is one republish per assignment that **cannot** keep its links alive, and it is not optional.
-
-An acceptance issue's title lands in GitHub's public event feed, which GH Archive mirrors permanently - redaction, deletion and the Tier 4 sweep all act after that, so none of them can take it back. That is why the title carries a **signature** rather than the invitation: the link holds a private key, the student's browser signs an assertion naming their own account, and what reaches the permanent record grants nobody anything (ARCHITECTURE §4.3.2).
-
-An assignment moves across when it is next published. Nothing is automatic and nothing is scheduled: until you republish, that assignment keeps working exactly as before.
-
-**What to do, per published assignment:**
-
-1. Open it in the Admin Panel. If it still uses the old format, *Republish broker* carries a warning saying so - that warning is the migration flag.
-2. Republish. This mints the keypair, sets `INVITE_PUBKEY` on the broker, and rewrites the broker's workflow.
-3. **Copy the new link and send it to anyone who has not accepted yet.** This is the part nothing can do for you.
-
-**What students holding the old link see.** Not a 404: the old digest keeps resolving, to a page saying *"This invitation link is out of date - ask your lecturer for the current one."* Their repositories, if they already accepted, are untouched.
-
-**Verify it worked** with *Troubleshoot* on the assignment. Tier 4 checks the assignment's `invite_key` and that the broker's `INVITE_PUBKEY` matches it. A missing or mismatched public key fails **every** acceptance in silence, and is exactly what a half-completed republish leaves behind - so check it rather than assuming.
-
-It also catches the inverse, which is the more dangerous half: a broker that has `INVITE_PUBKEY` for an assignment whose keypair was never committed. The publish workflow sets that variable and pushes the broker's workflow in one step and commits the assignment afterwards, so a failure in between - an org ruleset rejecting the push - leaves the broker verifying signatures while every student's link is still the older kind. Every acceptance is then refused as out of date, and the token, key id and nonce all still check out, so nothing else says a word. Republishing fixes it.
-
-**Do not** hand-edit `invite_key` or `invite_pubkey` in a control repo. They are one pair; changing either half alone locks the cohort out.
-
-#### 1.3.3 The `provisioning` environment
-
-Every hub job that holds `PXL_APP_PRIVATE_KEY` or `PXL_INVITE_SIGNING_KEY` declares `environment: provisioning`. That environment allows deployments from `main` only, and a job naming an environment does not start when the run's ref is outside the policy - which is what stops a `workflow_dispatch --ref <other-branch>` from running hub code with a credential in scope (ARCHITECTURE §4.3.4).
-
-Create it once, on the hub:
-
-```bash
-gh api --method PUT repos/PXL-Digital-Application-Samples/pxl-classroom/environments/provisioning -f 'deployment_branch_policy[protected_branches]=false' -f 'deployment_branch_policy[custom_branch_policies]=true'
-```
-
-Then add `main` as the only allowed branch:
-
-```bash
-gh api --method POST repos/PXL-Digital-Application-Samples/pxl-classroom/environments/provisioning/deployment-branch-policies -f name=main -f type=branch
-```
-
-Do **not** add required reviewers or a wait timer: acceptance runs synchronously and would stall behind an approval.
-
-**Where each secret lives.** `PXL_APP_PRIVATE_KEY` and `PXL_INVITE_SIGNING_KEY` are **environment** secrets on `provisioning`, with no repository-level copy - a job that does not name the environment cannot read them. `PXL_APP_CLIENT_ID` remains a repository secret on purpose: a client id is not secret and already ships in the SPA bundle.
-
-If you ever re-add one at repository level, note that it silently shadows nothing - environment secrets win for jobs that name the environment - but it does hand the value to any job that does not. `tests/workflow-hardening.test.mjs` fails CI if such a job appears.
-
-**Blocking ad-hoc branch creation** closes the other half of the branch-ref path: the environment stops a credential being *read* at another ref, and this stops the ref being created. A ruleset named `Block ad-hoc branch creation` does it, with target `branch`, enforcement `active`, rule `creation`, `conditions.ref_name.include` of `~ALL` excluding `refs/heads/participating-orgs` (which `setup-org.yml` creates on a fresh hub), and bypass actors for OrganizationAdmin and the repository admin role:
-
-```bash
-gh api --method POST repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets --input ruleset.json
-```
-
-Confirm it, on this hub or a fresh one:
-
-```bash
-gh api repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets --jq '.[] | "\(.name) \(.enforcement)"'
-```
-
-### 1.4 Install the App on the hub's owning org, scoped narrowly
-
-This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf - Publish, Retry acceptance, and the six others the Admin Panel triggers with the lecturer's own user-to-server token. It is **not** what brokers mint against: they use the separate Broker App (§1.10). Scope it tightly.
-
-1. App settings page -> **Install App** -> choose `PXL-Digital-Application-Samples`.
-2. **Only select repositories** -> tick `pxl-classroom` only.
-3. Confirm install.
-
-Verify: `gh api /app/installations` (with App-level JWT) should show this installation with `repository_selection: selected` and `repositories: [pxl-classroom]`.
-
-### 1.5 Branch protection on `main`
-
-`pxl-classroom` is public. The workflows are the highest-value target. The repo is maintained by direct pushes to `main` (no pull requests), so PR-review and required-status-check rules are deliberately **not** used - a required status check rejects any direct push, because the pushed commit cannot have a passing check yet. CI still runs on every push and fails loudly.
-
-Configure (both branch rules can be applied via the API, see below):
-
-- Branch rule for `main`: block force-pushes and deletions, **including for administrators**. No PR requirement, no required checks, no signed-commits requirement.
-- Settings -> Code security: enable secret scanning **and** push protection.
-
-```
-printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}' | \
-  gh api -X PUT repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection --input -
-```
-
-### 1.6 Protection on `participating-orgs` branch
-
-This branch is the registry of participating orgs. The Setup-Organization workflow commits to it directly from automation, so it must accept plain pushes. Apply the same rule as `main` (force-push and deletion blocking only - same API call with `participating-orgs` in place of `main`).
-
-### 1.7 Verify
-
-```
-# Hub is public, Pages is live
-curl -I https://pxl-digital-application-samples.github.io/pxl-classroom/
-
-# App exists and is correctly scoped
-gh api /app
-gh api /app/installations
-```
-
-### 1.8 SPA directory structure
-
-Do not move `frontend/` to a subdirectory without updating `frontend/vite.config.js` `server.fs.allow` - `lib/dashboard-aggregate.mjs` is imported from outside the SPA root.
-
-### 1.9 Device-flow CORS proxy, and its fallback
-
-`github.com/login/device/code` and `github.com/login/oauth/access_token` send **no CORS headers at all** - measured 2026-08-28, a 200 response carries zero `access-control-*` headers, and GitHub's OAuth documentation states that "CORS pre-flight requests (OPTIONS) are not supported at this time". A browser therefore cannot call them directly. The proxy is structural and permanent, not a workaround. `api.github.com` is CORS-friendly and is called directly, so **only sign-in depends on this.**
-
-> [!WARNING]
-> **There is no substitute proxy to switch to in an emergency.** On 2026-08-28 corsproxy.io withdrew its free tier and answered `401 {"error":"A valid API key is required"}` to everything; sign-in went down for every lecturer and every student. The obvious recovery - point `VITE_CORS_PROXY_URL` at another public proxy - was then measured and does not work: allorigins, thingproxy and codetabs each silently issue a **GET** and return GitHub's HTML sign-in page (HTTP 200, wrong method, unparseable body). Do not plan on finding one under pressure.
-
-The SPA therefore tries **two** proxies in order: **first the PXL-owned Cloudflare Worker** (`device_flow_proxy` in `deployment.yml`), which nobody outside PXL can withdraw, and then a third-party proxy (`VITE_CORS_PROXY_URL`). Failover is automatic and needs no redeploy.
-
-> [!IMPORTANT]
-> **The order was reversed on 2026-08-31, and the old order was the problem.** The Worker shipped as the *fallback*, which protected nobody: a fallback is only reached when the primary fails, and once corsproxy.io was working again on a paid key the third party was back on the path of every sign-in. Measured by loading the deployed SPA and reading its own resource timing - the device-code request and all three `access_token` polls went to `corsproxy.io`, and the Worker was never contacted once.
->
-> Whichever proxy answers **sees the access token**. A lecturer token reads the private control repo: roster names, student numbers, institutional email addresses. Do not put a third party back in front of the Worker.
->
-> The Worker URL moved from a secret into `deployment.yml` at the same time, because it was never secret - it is baked into a public bundle and readable by anyone who opens the page. Keeping it there also means the *order* lives in a file people read, rather than depending on which of two similarly-named secrets held which value. `VITE_CORS_PROXY_FALLBACK_URL` is retired and can be deleted from the hub's secrets.
-
-**Deploy the Worker:** `cd cors-worker && npx wrangler@latest login && npx wrangler@latest deploy`. Free plan, no credit card, no domain. Deploying from the repo rather than pasting into the dashboard editor is deliberate - the Worker carries a security allowlist, and a pasted copy drifts from the reviewed one the moment either is touched. [`cors-worker/README.md`](cors-worker/README.md) has the dashboard alternative and the verification commands; note that Cloudflare renames that screen regularly, so trust what is in front of you over any written click-path. Both proxy values are **baked into the bundle at build time**, so the fallback does not exist until `deploy-frontend.yml` has run after the secret was set.
-
-**Record the account owner here.** The Worker lives in whichever Cloudflare account deployed it. If that account is lost the fallback silently stops existing, and nobody finds out until the primary fails and the fallback turns out not to be there either. Use an account tied to a PXL address that more than one person can reach.
-
-| | |
-|---|---|
-| Cloudflare account | `tom-cool-38e` (Tom Cool). **Single-owner - move to a shared PXL account.** If this account is lost the fallback silently stops existing, and nobody finds out until the primary fails and the fallback turns out not to be there either. |
-| Worker URL | `https://pxl-cors.tom-cool-38e.workers.dev/` |
-| Configured as | `device_flow_proxy` in [`deployment.yml`](deployment.yml) - the URL above with `?url=` appended. **Primary** since 2026-08-31. Not a secret: it ships in the public bundle either way. |
-
-Verified live on deployment (2026-08-28): a browser-origin POST returns a real `device_code`; `OPTIONS` answers 204 with the CORS headers; both allowlists refuse by **exact match** - `example.com`, `api.github.com/user` and even the correct target with `?x=1` appended are all 403, as are `evil.example.com` and `pxl-digital-application-samples.github.io.evil.com` (a domain anyone can register, which a suffix check would have admitted - the same trap as `domainAllowed` in §15). A request with no `Origin` at all is refused, `GET` is 405.
-
-**The failover itself was exercised in production on 2026-08-28**, not just unit-tested. The primary was pointed at the **unkeyed** `https://corsproxy.io/?url=`, which is not a simulation - it is still live and still returns the exact `401 {"error":"A valid API key is required..."}` that caused the outage. With that deployed, a real browser sign-in produced:
-
-```
-corsproxy.io/                       -> THREW: Failed to fetch
-pxl-cors.tom-cool-38e.workers.dev/  -> 200      device code issued
-```
-
-Two things that only running it could show. **In a browser the 401 never arrives as a 401**: corsproxy's error response carries no CORS headers, so the browser blocks reading it and the SPA sees a network error - the failover therefore fires through `proxiedPost`'s catch, not through its `accept` check. The unit tests cover the parseable-401 path; reality takes the throw path, and both must keep working. And **a cached bundle keeps the old proxy list**: immediately after the rollback deploy a tab still holding the previous `index-*.js` went on using the broken primary, which reads exactly like a failed rollback. Confirm a proxy change against a **cache-busted** load (`/?cb=<something>`) and check which `index-*.js` the page actually fetched before concluding anything.
-
-Rollback took 2 minutes (17:00Z break -> 17:03Z restored) and was verified the same way: restored bundle, one call, keyed primary 200, fallback not touched. Note that sign-in **kept working throughout the broken window** - that is what the fallback is for.
-
-**Diagnosing it:** `curl` alone gets a 403 from both proxies - corsproxy.io sits behind Cloudflare bot protection, and the Worker enforces an `Origin` allowlist. That is them working, not an outage. Send a browser-shaped request before concluding anything:
-
-```bash
-curl -s -X POST "https://corsproxy.io/?key=<key>&url=https%3A%2F%2Fgithub.com%2Flogin%2Fdevice%2Fcode" -H "Origin: https://pxl-digital-application-samples.github.io" -H "Referer: https://pxl-digital-application-samples.github.io/" -H "User-Agent: Mozilla/5.0" -H "Content-Type: application/json" -d '{"client_id":"Iv23li0H0Je93H2FkMPW","scope":"user:email"}'
-```
-
-A `device_code` comes back. It is unused and expires in 15 minutes; nothing needs cleaning up.
-
-### 1.10 The broker dispatch App
-
-> [!CAUTION]
-> **Publishing is blocked until this exists.** That is deliberate. The only alternative is putting the provisioning App's own private key on a public repository, which is what this replaced.
-
-**Why there are two Apps.** A broker repository is public, there is one per assignment, and it needs a credential because its whole job is one `POST` to the hub's `/dispatches` endpoint. Until 2026-08-31 it was handed `PXL_APP_PRIVATE_KEY` - the provisioning App's own key. Counted live, that key was sitting on **11 public repositories across 8 organizations**, and it mints installation tokens carrying `administration: write`, `organization_administration: write`, `members: write`, `secrets: write`, `workflows: write` and `contents: write` on every org the App is installed on. Anyone with admin on one course org could push a workflow to that org's broker and read it out, so a lecturer scoped to one course held the keys to all twelve.
-
-**Create it (once).** Use the script - it sets the permission set exactly, so nobody ticks a box by hand:
-
-```bash
-node scripts/create-broker-app.mjs
-```
-
-It opens a page that submits a prepared App Manifest, you press GitHub's **Create GitHub App** button, and it does the rest: exchanges the one-hour code, stores `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` on the hub's **`provisioning` environment**, and reads the App back to confirm it declares `Contents: write` **and nothing else**. The private key goes from GitHub straight into `gh secret set` over a pipe - it is never written to disk, never printed, and never placed in a command line where `ps` would show it. `--dry-run` prints the manifest without creating anything.
-
-**Two steps are browser-only, and that is GitHub's limit rather than a shortcut here.** Creating an App has no REST endpoint - the App Manifest flow is the only programmatic route, and it requires a human to confirm. Installing one has no REST endpoint either: *"an organization owner or application manager must make this change within the UI"*. Adding further repositories to an **existing** installation is an API; the first install is not.
-
-So after the script finishes, install it by hand at the URL it prints:
-
-```
-https://github.com/apps/<slug>/installations/new
-```
-
-Choose **Only select repositories** and select **`pxl-classroom`** - only that one. Not the course orgs; it has no business there, and every org it is not installed on is an org a leaked broker key cannot reach. Then confirm it took:
-
-```bash
-gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/installation --jq '.app_slug + " -> " + (.permissions|tostring)'
-```
-
-<details>
-<summary>Doing it by hand instead</summary>
-
-1. New GitHub App owned by `PXL-Digital-Application-Samples`, named e.g. **PXL Classroom Broker**.
-2. Permissions: **Repository → Contents: Read and write**. Nothing else - that is exactly what `POST /repos/{owner}/{repo}/dispatches` requires, confirmed against GitHub's "Permissions required for GitHub Apps" reference. In particular do **not** grant **Actions**, or a leaked broker key could dispatch hub workflows, which is most of what made the old arrangement dangerous.
-3. Subscribe to no events. Where install is offered, choose **Only on this account**.
-4. Generate a private key.
-5. Set `PXL_BROKER_CLIENT_ID` (the `Iv…` Client ID) and `PXL_BROKER_PRIVATE_KEY` (the whole PEM, header and footer lines included) on the **`provisioning` environment** - not repository-level.
-6. Install on `pxl-classroom` only, as above.
-
-`node scripts/create-broker-app.mjs --verify --slug <slug>` checks the result either way.
-
-</details>
-
-Publishing any assignment now verifies the credential *before* it writes anything: `publish-assignment.yml` mints a token with it and fails the run if the App is missing, uninstalled or under-permissioned. A broker App that does not work is a red publish run for the lecturer, not a silent failure at the first student's acceptance.
-
-**A broker must never hold the provisioning App's key.** Republishing an assignment is what removes one that does: publish pushes the new broker workflow, then deletes `PXL_APP_PRIVATE_KEY` and `PXL_APP_CLIENT_ID` from that broker — in that order, because the old workflow still reads the old secret until it is replaced. Confirm any broker with:
-
-```bash
-gh secret list --repo <org>/broker-<assignment-id>
-```
-
-Only `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` should appear. A broker in an org you do not administer answers 403; ask an owner of that org.
-
-**Two known infrastructure gaps** — a shared Pages origin and the sign-in Worker's account — are recorded in [OPEN-ITEMS.md](OPEN-ITEMS.md) with how to tell whether each is still open. System Health checks the primary proxy on every run, so an outage surfaces before a lecture rather than during one.
-
-System is now ready to onboard the first organization.
-
----
-
-## 2. Onboarding a new organization (per org)
-
-> [!NOTE]
-> Follow this procedure whenever a lecturer wants to use PXL Classroom for a new course or academic year organization (e.g. `PXL-2TIN-DevOps-2627`).
-> **You do NOT need to deploy a frontend or create a new GitHub App.** All course organizations connect to the existing central hub (`PXL-Digital-Application-Samples/pxl-classroom`) and use the existing central GitHub App!
-
-Done by a system administrator together with the organization owner.
-
-### 2.1 Install the central GitHub App on the new org
-
-> [!TIP]
-> A lecturer does not need this section to get started. Signing in to the SPA gives
-> them **Connect an organization** - in the org switcher, and on the dashboard when
-> they have no orgs yet - which opens GitHub's own installation picker. The SPA then
-> walks them through what is left. This section is the reference for what that flow does.
-
-1. Organization owner: Open the installation page for the central **PXL Classroom Provisioner** App (e.g. `https://github.com/apps/pxl-classroom-provisioner` or through the App settings -> **Install App**).
-2. Choose the target organization (e.g. `PXL-2TIN-DevOps-2627`).
-3. Scope: **All repositories** (the App needs Administration RW across the org to provision student repos and manage permissions).
-4. Confirm installation.
-
-Repository access **must** be "All repositories" - "Only select repositories" makes provisioning fail once students accept.
-
-The manifest at `/setup` declares Organization **Administration**, but the manifest only applies at App *creation*. If the App predates that manifest entry it does not hold the permission, and no installation - however fresh - can receive it. Confirm before onboarding:
-
-```bash
-gh api apps/pxl-classroom-provisioner --jq .permissions
-```
-
-If `organization_administration` is absent, the App owner must add it first (§10.6); otherwise Setup Organization fails at its billing preflight (§6.7).
-
-### 2.2 Run Setup Organization
-
-In `pxl-classroom` -> Actions -> **Setup Organization** -> Run workflow:
-
-| Input | Value |
-|---|---|
-| `target_org` | `PXLAutomation` (or other org login) |
-
-The workflow:
-
-- Mints a least-privilege token and probes the Enhanced Billing Usage API. Onboarding stops with an actionable error if Organization Administration has not been approved or Enhanced Billing is unavailable.
-- Mints the full provisioning token for the new org's App installation.
-- Creates `<org>/pxl-classroom-control` (private) if it doesn't already exist.
-- Pushes the initial scaffold - `CONTROL_SCAFFOLD_DIRS` in `lib/control-layout.mjs`: `assignments/`, `students/`, `teams/`, `acceptances/`, `repositories/`, `observations/`, `lockdowns/`, `reports/`, `overrides/`, `public/`.
-- Adds the org to `participating-orgs.yml` on the `participating-orgs` branch, with the budget owner.
-- Dispatches `deploy-frontend.yml`, which is what makes the org appear in the SPA's switcher.
-
-### 2.3 Configure the org's Actions budget
-
-**Default: leave the spending limit at €0.** All hub workflows (provisioning, collection, finalize, dashboards) run on the public hub repo and are free. The only Actions billed to a participating org are workflows inside its private student repos - student-side autograding and any CI students add themselves - and those first draw from the plan's included minutes (GitHub Team: 3,000 min/month). With a €0 limit nothing can ever bill, and an acceptance-spam attacker cannot rack up cost.
-
-1. Org -> Settings -> **Billing & Licensing** -> **Budgets and alerts** -> **New budget**: Product-level budget -> **Actions** -> scope: entire organization -> amount **€0** -> toggle **"Stop usage when budget limit is reached"** ON -> check "Receive budget threshold alerts" with the budget owner as recipient -> Create.
-2. Note: GitHub's alert emails fire at fixed 75/90/100% *of the budget amount*, so on a €0 budget they provide no early warning - they become useful only if the budget is later raised. Early warning on included-minutes consumption comes from the system's own weekly usage report, which checks each org against `limits.yml` and @-mentions the `budget_owner_login` in the Instructor Notifications issue.
-
-Raise the limit per the table below **only when** the autograding workload actually exhausts the included minutes:
-
-| Class size | Suggested limit when raising | Headroom |
-|---|---|---|
-| ≤ 50 students | €60 / month | ~10,000 min ≈ 200 min/student |
-| 51-150 students | €120 / month | ~20,000 min ≈ 130 min/student |
-| 151-500 students | €250 / month | ~42,000 min ≈ 80 min/student |
-
-Bursty courses (Terraform, container builds) need higher limits; size the budget against the actual workload, not the headcount.
-
-**What 100% means:** GitHub stops Actions on private repos in that org. Student-owned CI runs queue and never start. The hub side is unaffected (hub Actions are free - public repo). What you do at 100%: confirm with budget owner; raise if appropriate; otherwise communicate to students that CI is paused until the next monthly reset (integrity layer - lock-down, preservation, reports - continues to run).
-
-### 2.4 Grant lecturers access to the hub repo
-
-Lecturers trigger **Publish** from the Admin Panel and **Retry acceptance** from a student's row on the tracking view; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a detailed error toast (e.g. `Trigger failed (403): ... Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access`).
-
-- Add each org's lecturers as **Write** collaborators (or members of a team with write) on the hub repo.
-  `workflow_dispatch` requires write - Read is not enough, and produces exactly the 403 described above.
-- **Adding them to the hub organization is not the same thing, and on its own does not work.** `PXL-Digital-Application-Samples` carries `default_repository_permission: read`, so a plain member lands on read for `pxl-classroom` and every dispatch 403s - which reads as "I added the lecturer and it still fails". Measured 2026-08-31: all 11 members of the hub org are owners, there are no teams, and there are no outside collaborators on the hub repo, so the write-collaborator route above has never actually been exercised here. Organization **owner** works because GitHub grants owners admin on every repository; it also makes them an owner of the **App**, which is registered on that org, so anyone granted it can generate a private key that mints installation tokens for every participating org (ARCHITECTURE §4.3). Write on `pxl-classroom` is the least-privilege grant that does the same job.
-- Without this access, the lecturer can still create/edit assignments (writes go to their own control repo), but cannot publish or retry from the SPA - a hub admin must run those workflows on their behalf.
-
-### 2.5 Register the budget owner
-
-Edit `participating-orgs.yml` on the `participating-orgs` branch - add or update the entry:
-
-```yaml
-orgs:
-  - login: PXLAutomation
-    budget_owner_login: tomcoolpxl       # GitHub login, used for @-mention in weekly usage report
-    budget_owner_email: tom.cool@pxl.be  # optional, informational only
-    overrides:                           # optional per-org SKU overrides
-      "Actions Linux": 2000
-```
-
-Schema: `schemas/participating-orgs.schema.json`. See §10 for what `overrides` means and how thresholds are resolved.
-
----
-
-## 3. Per-org budget policy
-
-Each participating org must have:
-
-- A named human **budget owner** (`budget_owner_login` in `participating-orgs.yml` - GitHub login).
-- A configured **Actions spending limit** in GitHub UI (≥ recommended floor in §2.3) - the hard stop.
-- **Billing alerts** at 50% / 80% / 100% routed to the budget owner - early warning.
-
-Beyond GitHub's own limit/alerts (which are EUR-based), PXL Classroom runs its own **weekly per-SKU threshold check** that fires before the EUR cap is hit. See §10 for tuning the thresholds. The two systems are complementary:
-
-- **GitHub's spending limit** stops Actions when EUR is exceeded. A blunt, after-the-fact cutoff.
-- **PXL Classroom's weekly check** warns the budget owner on Monday morning when *any* repo's actual usage (minutes, storage GiB·h, etc.) crosses a configured threshold. Catches outliers - e.g. a repo accumulating storage with zero CI activity - that the EUR view hides.
-
-The hub side itself has no per-org cost (public repo). Everything billed lives in the participating org and is bounded by the limit there.
 
 ---
 
@@ -676,6 +215,22 @@ then `gh api -X DELETE repos/<org>/<repo>/rulesets/<id>`.
 
 Measured before recommending it: one org ruleset matching `exam2026-*` blocked pushes to both cohort repos and left an unrelated repo alone, and one `PUT` released them all.
 
+### 6.2c Before an exam deadline: nobody in the cohort may be an organization owner
+
+Lock-down cannot freeze an organization **owner**. GitHub grants owners admin on every repository in the org, so the demotion writes `pull`, reads the permission back, gets `admin`, and records `verified: false`. The freeze does not hold for that account and nothing says so until someone reads the record afterwards.
+
+Check it **in advance**, on the assignment: open **System Health** → Tier 3 carries *Cohort Can Be Frozen At The Deadline*. By hand:
+
+```bash
+gh api "repos/<org>/pxl-classroom-control/contents/acceptances/<id>" --jq '.[].name' | sed 's/\.json$//' > /tmp/a
+gh api "orgs/<org>/members?role=admin&per_page=100" --jq '.[].login' > /tmp/o
+grep -Fxi -f /tmp/o /tmp/a    # anything printed cannot be frozen
+```
+
+**The exam is not at risk.** The outcome is `partial`, which exits 0, so preservation and reporting still run and every other student freezes correctly. What those accounts can do is keep pushing after the deadline.
+
+Usually the match is you or a colleague testing the assignment — students are added as repository *collaborators*, so a student is an owner only if somebody promoted them, which is why this is a warning rather than a failure. If one of them really is a student, either remove them from the cohort or change their role to **Member** under **People → Role** before the deadline.
+
 ### 6.3 Student says "I clicked Accept but nothing happened"
 
 **First, how long have they actually waited?** Provisioning is two chained Actions runs (broker → `repository_dispatch` → hub), so **20 to 40 seconds is normal** and longer is common when Actions is queued. The page says so, counts the elapsed seconds, and updates itself the moment the repository appears — a student who waits 30 seconds has waited a normal amount of time.
@@ -734,55 +289,6 @@ To migrate these assignments, use `yq` in your control repository:
 yq -i 'if has("template_owner") then .template.owner = .template_owner | .template.repository = .template_repo | del(.template_owner, .template_repo) else . end' assignments/*.yml
 ```
 
-### 6.7 Setup Organization fails: "The permissions requested are not granted to this installation"
-
-`setup-org.yml` mints a token scoped to `organization_administration: read` before it creates any org state. A 422 at that step means the permission is missing - it is **not** about repository access or org membership. Fix in order:
-
-1. **App owner** (owner of `PXL-Digital-Application-Samples`): `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions` -> **Organization permissions** -> **Administration: Read-only** -> **Save changes**. Verify with `gh api apps/pxl-classroom-provisioner --jq .permissions` (`organization_administration: read` must appear).
-2. **Each org owner**, including the org being onboarded: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve. While there, set **Repository access** to **All repositories**.
-3. Re-run **Setup Organization**.
-
-`weekly-usage-report.yml`'s `app-declaration` job catches this drift within a week of it appearing; run `node scripts/check-app-declaration.mjs` locally for the same answer immediately (no token needed).
-
-Step 2 alone never works if step 1 was skipped: an org owner can only approve permissions the App declares. Until then `weekly-usage-report.yml` runs in degraded mode - it mints a token without the billing scope, annotates a warning, and skips the usage report for that org rather than failing every org's matrix leg.
-
-#### 6.7b The App declares permissions nothing uses
-
-`check-app-declaration.mjs` compares **both** directions. It reports what the App is *missing* - a feature that cannot work - and what the App *holds and no code asks for*, because that is blast radius: every permission on the provisioning App is inherited by anyone who obtains its private key.
-
-Run `node scripts/check-app-declaration.mjs` for the current answer; no token needed.
-
-The App's permissions page has four collapsible sections, and **which section a permission lives in decides who has to approve a change and where you click**:
-
-| Section | Count | Contains |
-|---|---|---|
-| Repository permissions | 9 + 1 mandatory | `actions`, `actions_variables`, `administration`, `checks`, `contents`, `issues`, `pull_requests`, `secrets`, `workflows` (+ `metadata`, mandatory, cannot be removed) |
-| Organization permissions | 2 | `members`, `organization_administration` |
-| Account permissions | 1 | `emails` |
-
-> [!CAUTION]
-> **"Administration" is a label in BOTH the Repository and Organization sections, and they are different permissions.** Repository → Administration (`administration: write`) is what creates student repositories and manages collaborators - **breaking it breaks provisioning for every cohort**. Organization → Administration (`organization_administration`) is the billing one, and is the one to downgrade. Check which section you are in before touching anything labelled Administration.
-
-**Two permissions are held above what the code uses, deliberately.** `excessDeclaredPermissions` would otherwise report them every week for ever, and a permanent amber beside real findings is how a check stops being read - so the exceptions are written into `lib/audit.mjs` with their reasons rather than left to the report:
-
-| Permission | Section | Held at | Code needs | Why it is held |
-|---|---|---|---|---|
-| `members` | Organization | write | read | `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and therefore cannot be frozen at a deadline. `write` keeps `roster_mode: org_member` restorable, since that mode enrols by org invitation and genuinely needs it. **Nothing in this codebase writes org membership** - that GET is the only membership call in the source. |
-| `organization_administration` | Organization | write | read | Read covers Enhanced Billing and `default_repository_permission` on `GET /orgs/{org}`. ARCHITECTURE §11.2.1's org-scoped lockdown needs **write**, and every installed org has already approved it, so the feature is unblocked; narrowing would re-block it. |
-
-Both are held for the same reason: **a reduction is instant, and an increase needs every org owner to approve.** A permission a designed feature will need is cheaper to hold than to re-acquire.
-
-> [!IMPORTANT]
-> **Check the code before removing a permission, never the changelog.** Deleting `roster_mode: org_member` removed the *enrolment* use of `members`, not the *diagnostic* one - and dropping it would not even have gone red, because an unreadable owner list yields **no check at all** rather than a failing one. A control that silently stops existing is the failure mode this whole section guards against.
-
-When the check does report a genuine excess, fix it in **one** of two ways, both legitimate:
-
-- **Narrow the App**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions`, remove or downgrade the permission, **Save changes**.
-
-  **This costs nobody a click.** GitHub's own wording: *"If you remove permissions or webhooks from your GitHub App, the changes will take effect immediately"* - whereas adding one means *"each account where the app is installed will need to approve the new permissions"*. So a reduction lands on every installation at once with no approval round; org owners may receive an informational email, but there is nothing for them to action and nothing breaks while they ignore it. Account-level permissions clear the same way, and need no owner at all.
-
-  This asymmetry is worth remembering in the other direction: the day something genuinely needs a NEW permission, every org owner has to click *Review request* before that org works again, and the feature is dead on the ones nobody chases. That is what `check-installation-approvals.mjs` exists to see (§10.6).
-- **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by `publish-assignment.yml`'s five `gh variable set` calls, and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
 
 ### 6.7a "CI results sync failed ... due to API errors"
 
@@ -797,6 +303,36 @@ The cause is the same shape as §6.7 and the fix is the same two steps. Reading 
 `node scripts/check-app-declaration.mjs` answers step 1 immediately and needs no token; `scripts/check-installation-approvals.mjs` (the `installation-approvals` job in `weekly-usage-report.yml`) answers step 2 for every org at once.
 
 Until step 1 is done the panel says so directly rather than blaming the API. Nothing is ever written on a failed sync - the code refuses to save a partial result, so retrying after the fix is safe.
+
+---
+
+### 6.8 "Invitation Exposure" is failing in System Health
+
+Acceptance opens an issue on the public broker whose *title* carries a `pxl-accept:` value. The broker redacts that title within seconds, so under normal operation there is nothing to find — **a leftover means the redaction did not run.**
+
+A leftover means one of three things:
+
+1. **The broker's redaction step did not run or failed.** Check the broker's own Actions run for that acceptance — `Redact and close trigger issue` on the accepted path, `Reject invalid invitation` on the rejected one. Both need only `issues: write`, which `github.token` on the broker has, so a failure here is a dead run or a workflow predating the step, not a permission.
+2. **`INVITE_ENABLED` is `false`.** The job-level `if` skips the whole run, cleanup included, so an issue opened while acceptance was switched off simply sits there.
+3. **A run died between the dispatch and the cleanup.**
+
+**Delete the leftovers with your own account**, which must have repository admin — being an org owner is not automatically enough:
+
+```bash
+gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title pxl-accept' --json number,id
+gh api graphql -f query='mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}' -F id=<issue node id>
+```
+
+Deleting is manual because an installation token **cannot** delete an issue at any permission level — `deleteIssue` answers `FORBIDDEN: Viewer not authorized to delete` even where the App holds `administration: write`. Do not chase App permissions for this.
+
+**What you do next depends on the assignment's invitation format, and getting it wrong is destructive:**
+
+| Assignment | Sweep says | Then |
+|---|---|---|
+| Signed (`invite_key`) | **warn** | **Stop. Do not regenerate.** The titles are signatures naming one account, so nothing is exposed, and regenerating would retire every student's link to fix nothing. |
+| Legacy (`invite_token` only) | **fail** | Republish with `regenerate_invite: true`. The title *is* the credential, and redaction alone is not enough — a rename stays visible in the issue timeline, so an exposed token must be retired rather than hidden. |
+
+This is the same split `lib/diagnostics.mjs` applies when it raises the finding, and its message says which case you are in.
 
 ---
 
@@ -842,22 +378,6 @@ The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, 
 
 ---
 
-## 8. Removing an organization
-
-1. Edit `participating-orgs.yml` on the `participating-orgs` branch - remove the org's entry, commit.
-2. Uninstall the App from the org (org owner) -> org Settings -> Integrations -> PXL Classroom Provisioner -> Uninstall.
-3. Decide what to do with the data:
-   - **Keep:** leave `<org>/pxl-classroom-control` and every `<org>/pxl-classroom-archive-<assignment-id>` in place. They remain readable to org members.
-   - **Archive:** rename them to indicate they're decommissioned.
-   - **Delete:** delete the repos. Preserved submission evidence is lost - be sure.
-
-   Archives are per assignment, so `pxl-classroom-archive-` is the prefix to list:
-
-   ```bash
-   gh repo list <org> --limit 200 --json name --jq '.[].name | select(startswith("pxl-classroom-archive"))'
-   ```
-
-   A pre-2026-08-26 org may also hold the single `pxl-classroom-archive`, which holds every cohort finalized before that date. It has no prefix suffix, so the command above still lists it - and it is the one archive that cannot be retired per cohort.
 
 ---
 
@@ -874,182 +394,6 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 
 ---
 
-## 9. Security incident response
-
-### 9.1 Compromised App private key
-
-1. App settings -> Private keys -> **Revoke** the leaked key.
-2. Generate a new key, download the PEM.
-3. Update `PXL_APP_PRIVATE_KEY` on the hub's **`provisioning` environment** (Settings -> Environments -> provisioning), **not** at repository level (§1.3.3). A repository-level copy is readable by every job that does not name the environment, which is the exposure the environment exists to prevent; `tests/workflow-hardening.test.mjs` fails CI when such a job appears. `PXL_APP_CLIENT_ID` does not change and stays a repository secret on purpose - a client id is not secret and already ships in the SPA bundle.
-4. No per-org change needed - installations re-mint from the new key automatically.
-5. Investigate the leak vector before re-enabling workflows.
-
-### 9.2 A student repo was accidentally made public
-
-1. Org Settings -> Repositories -> set the repo private again.
-2. Open the repo -> Settings -> check for any forks created while public; coordinate with the student.
-3. If the repo contained secrets, treat as a leak: rotate.
-
-### 9.3 Malicious acceptance burst
-
-A bot fires many brokers from many accounts. A migrated broker triggers on an **opened issue** and verifies the signed invitation before minting anything, so an attacker without the link costs one boot on a free public runner. One published **before** signed acceptance still triggers on a **star** and verifies nothing, which makes an un-migrated assignment the cheaper target - migrating it (§1.3.2a) is the durable fix.
-
-1. Edit affected `assignments/<id>.yml` - set `state: closed`. Acceptance handler rejects new attempts on closed assignments.
-2. Optionally lower `max_acceptances` to the current accepted count.
-3. Set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner (ARCHITECTURE §4.3.2). Archiving the broker repository also works, but the variable is reversible in one click.
-4. Reconcile in Admin Panel to identify any provisioned bot repos; delete them in bulk.
-
-### 9.4 Hub workflow file was modified by a fork PR
-
-**Branch protection is not what stops this.** §1.5 deliberately configures no PR-review and no status-check requirement - verified live: `required_pull_request_reviews` and `required_status_checks` are both null, and what is enforced is force-push and deletion blocking. What actually stands in the way is that merging needs **write access** on the hub repo, and GitHub holds workflow runs from a first-time fork contributor until someone approves them. If such a PR did merge, assume compromise:
-
-1. Revert the malicious commit.
-2. Force-rotate the App key (§9.1) on the assumption the workflow exfiltrated it.
-3. Audit `git log` for any subsequent commits made under the bot identity.
-
-### 9.5 Control-repo data corrupted
-
-Control repos are Git. Recovery is `git reset --hard <good-commit>` followed by `git push --force-with-lease`. Be careful: any acceptances or observations recorded after the good commit are lost. Prefer `git revert` for individual bad commits.
-
-### 9.6 `participating-orgs.yml` encoded as UTF-16 (or has a BOM)
-
-Symptom: `get-participating-orgs.mjs` and `get-budget-owner.mjs` fail with `... is UTF-16 LE. Re-encode as UTF-8 (LF, no BOM) ...`. Cause: an editor (often on Windows) saved the file in UTF-16. Subsequent appends from a Linux runner produce a mixed-encoding file.
-
-Recover:
-
-```
-git fetch origin participating-orgs:participating-orgs
-git checkout participating-orgs
-iconv -f UTF-16LE -t UTF-8 participating-orgs.yml | sed -e '1s/^\xef\xbb\xbf//' -e 's/\r$//' > new && mv new participating-orgs.yml
-git add participating-orgs.yml
-git commit -m "Re-encode participating-orgs.yml as UTF-8"
-git push origin participating-orgs
-```
-
-Verify: `file participating-orgs.yml` reports `ASCII text` or `UTF-8 Unicode text`, no `BOM`. `setup-org.yml` now normalises automatically going forward - this recovery is only needed once.
-
----
-
-## 10. Weekly usage tracking - tuning thresholds
-
-The system warns when any repo crosses a per-SKU threshold. Three layers of configuration; first match wins:
-
-### 10.1 Where thresholds live
-
-| Layer | File | When to use |
-|---|---|---|
-| **Global** | `limits.yml` (hub root) | The default. Edit when a new SKU appears in the weekly reports, or when a default needs adjusting for the typical course. |
-| **Per-org** | `participating-orgs.yml` -> `orgs[i].overrides` | An entire org has a different profile. Example: an Actions-heavy course org gets a higher `Actions Linux` budget across the board. |
-| **Per-repo** | `<org>/pxl-classroom-control/limits-overrides.json` | One specific repo is an outlier. Example: `pxl-sweeper-HanneloreRamakersPXL` accumulates artifacts as a feature; raise its `Actions storage` limit. |
-
-### 10.2 Example: silence one noisy repo's storage warning
-
-```json
-{
-  "schema_version": 1,
-  "repos": {
-    "pxl-sweeper-HanneloreRamakersPXL": { "Actions storage": 10 }
-  }
-}
-```
-
-Commit to `<org>/pxl-classroom-control/limits-overrides.json`. The next Sunday's report respects the override; the dashboard tile turns green.
-
-### 10.3 SKUs you'll see
-
-GitHub's Enhanced Billing API returns SKUs as data - the catalog isn't fixed. Common ones for PXL Classroom orgs:
-
-| SKU | Unit | Typical usage |
-|---|---|---|
-| `Actions Linux` | Minutes | Student CI |
-| `Actions Windows` | Minutes | Windows-specific courses |
-| `Actions macOS` | Minutes | Rare |
-| `Actions storage` | GigabyteHours | Artifact retention (build outputs, test reports) |
-| `Packages storage` | GigabyteHours | Container images pushed by student workflows |
-| `Packages data transfer` | Gigabytes | Pulls of org-hosted packages |
-| `Git LFS storage` | GigabyteHours | Large binary assets in repos |
-| `Git LFS bandwidth` | Gigabytes | LFS object downloads |
-| `Codespaces compute` | Hours | If your org enables Codespaces |
-| `Codespaces storage` | GigabyteHours | Codespace prebuilds |
-
-Add an entry to `limits.yml` for any SKU you want thresholded. SKUs without a configured threshold are recorded in the report but never flagged.
-
-### 10.4 Cadence
-
-- **Sunday 22:00 UTC** the weekly cron fires.
-- Report is written to the org's control repo even when nothing is over threshold (so the dashboard always has the latest data).
-- If anything is over: comment posted to the **"PXL Classroom - Weekly Usage Report"** issue with `@budget_owner_login`. GitHub emails the budget owner via their notification settings.
-- The workflow run exits non-zero on overrun -> red X in the Actions tab.
-
-### 10.5 Manual rerun
-
-Need a fresh report mid-week:
-
-- From the SPA: the Usage pages (`/dashboard/<org>/usage` and `/usage`) have a **Generate report now** button while empty and a **Regenerate now** button once a report exists.
-- Or Actions -> **Weekly Usage Report** -> Run workflow (optionally scope to one `org` input).
-
-The SPA adds a correlation ID to each dispatch and watches that exact Actions run every five seconds. It reads the report only after the run completes, stops immediately on failure/cancellation, and reports a completed run that produced no new report as a billing-access error instead of polling stale JSON for 5-10 minutes.
-
-### 10.6 If you change App permissions (re-approval flow)
-
-Whenever the App's permission set widens - for example, adding `organization_administration: read` for the weekly usage report, or `actions: write` so the Admin UI can dispatch hub workflows (`publish-assignment.yml`, `retry-acceptance.yml`, `weekly-usage-report.yml`) directly from the SPA - every already-installed org needs to opt back in.
-
-1. Update the manifest in `frontend/src/views/SetupView.vue` **and** widen the live App at `github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions`. The manifest only applies at App creation; editing it does nothing to an App that already exists. Verify with `gh api apps/pxl-classroom-provisioner --jq .permissions` before telling anyone to approve.
-2. Each org owner: open the org's installed-apps page (`github.com/organizations/<org>/settings/installations`) -> PXL Classroom Provisioner -> click **Review request** and approve the new permissions. There is no request to review until step 1 lands.
-3. Lecturers who were already authenticated keep their previous (narrower) token until it expires (8 h max). Next sign-in mints a token with the new scope.
-4. No control-repo or workflow change needed.
-
-Verify with `node scripts/check-app-declaration.mjs` (compares the live App against `MANIFEST_APP_PERMISSIONS`, no token needed) or `gh api /app` - `permissions` should reflect the new set. Lecturers can verify their own token's scope at `https://github.com/settings/applications` -> PXL Classroom Provisioner.
-
-**Verifying step 2 - who has actually approved.** The declaration check above says what the App *asks* for; it cannot say who granted it. An org that never clicked **Review request** keeps the old permission set, so a feature is live on the App and dead on that org with nothing red anywhere. `gh api orgs/<org>/installations` answers only for an owner **of that org**, so chasing it by hand stalls at the orgs you do not own - on the 2026-08-25 `members` + `organization_administration: write` rollout that was 4 of 11.
-
-Run **Actions -> Weekly Usage Report** and read the `installation-approvals` job, or wait for the Sunday cron. It mints an App JWT, walks `GET /app/installations` (every org at once), compares each installation against the App's live declaration, and sorts the result into three:
-
-| Class | Reported as |
-|---|---|
-| A **participating** org that has not approved | `::error` naming the org and its Review-request URL — fails the run |
-| A participating org with **no installation at all** | `::error` — nothing can be provisioned there |
-| An installation **not in `participating-orgs.yml`** | `::notice` — named, but does not fail the run |
-
-The third class exists because the App is publicly **listed**: hub-and-spoke needs it to be, since each course org is a separate organization and a private App can only be installed on the account that owns it. So any GitHub account can install it, and one unrelated org did on 2026-08-22. It grants them nothing in a PXL org, and failing every Sunday over an org nobody can make approve anything would make the check unreadable.
-
-It reports `DID NOT RUN` rather than a false all-clear when the credentials are absent or the API is unreadable, and if `participating-orgs.yml` itself cannot be read it warns and treats **every** installation as participating — over-reporting rather than silencing real gaps. Locally:
-
-```bash
-PXL_APP_CLIENT_ID=... PXL_APP_PRIVATE_KEY="$(cat key.pem)" node scripts/check-installation-approvals.mjs
-```
-
-**Recent re-approval triggers in this project:**
-- `organization_administration: read` - current Enhanced Billing endpoint requirement, used by the weekly usage report. This is an organization permission and is distinct from repository `administration: write`.
-- `actions: write` - `workflow_dispatch` from the Admin UI / Usage view. Without it the SPA's "Generate now", "Publish", and "Retry acceptance" buttons return 403 (`Resource not accessible by integration`).
-
-## 11. Verification checklist (after major changes)
-
-Run periodically, especially after touching workflows or App settings.
-
-- [ ] `pxl-classroom audit --org <org>` is clean - it now covers the two rows below automatically (App declaration and repository access).
-- [ ] `node scripts/check-app-declaration.mjs` is clean - the live App's permissions match `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs` in **both** directions, plus account `emails: read` (§6.7b).
-- [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
-- [ ] Each participating org's installation shows `repository_selection: all`.
-- [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
-- [ ] `gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection` matches §1.5: force-pushes and deletions blocked (incl. admins), no PR/status-check requirements.
-- [ ] No `.github/workflows/` directory exists in any `<org>/pxl-classroom-control` repo.
-- [ ] The two device-flow URLs are never fetched outside the proxy helper - `git grep "github.com/login" frontend/src/` shows them only as the `DEVICE_CODE_TARGET` / `TOKEN_TARGET` constants `proxiedPost` appends to a proxy. (This item used to read "`git grep corsproxy.io` in `frontend/src/` returns no matches", which could never pass: `auth.js` has always carried the default proxy. `tests/cors.test.mjs` and `tests/cors-proxy-config.test.mjs` cover the real invariant.)
-- [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).
-- [ ] Each participating org has `budget_owner_login` set in `participating-orgs.yml`.
-- [ ] App permissions include `organization_administration: read` and System Health reports **Enhanced Billing Usage API** healthy.
-- [ ] Every participating org's **base repository permission** is `none` (`gh api orgs/<org> --jq .default_repository_permission`). System Health Tier 1 reports it: `read` is a warning, `write`/`admin` a failure. It grants students nothing today - they are repository collaborators, not org members - but it is a floor beneath lock-down's demotion the moment anyone is enrolled through membership, and at `read` it exposes the private control repo (roster, reports) to every member. Fix under **Settings → Member privileges → Base permissions**, or `gh api -X PATCH orgs/<org> -f default_repository_permission=none`.
-- [ ] **Before every exam deadline:** no accepted student is an **organization owner**. Open System Health on the assignment - Tier 3 carries *Cohort Can Be Frozen At The Deadline* - or check by hand:
-
-      gh api "repos/<org>/pxl-classroom-control/contents/acceptances/<id>" --jq '.[].name' | sed 's/\.json$//' > /tmp/a
-      gh api "orgs/<org>/members?role=admin&per_page=100" --jq '.[].login' > /tmp/o
-      grep -Fxi -f /tmp/o /tmp/a    # anything printed cannot be frozen
-
-  An owner keeps admin on every repository in the org, so lock-down writes `pull`, verifies, reads back `admin`, and records `verified: false`. This is normally a colleague testing the assignment - students are added as repository collaborators, so a student is an owner only if somebody promoted them - which is why it is reported as a warning rather than a failure. **The exam is not at risk** - the outcome is `partial`, which exits 0, so preservation and reporting still run and every other student freezes correctly - but those accounts can keep pushing after the deadline. Either remove them from the cohort, or change their role to **Member** under **People → Role** before the deadline. Your own test acceptance is the common case and is reported as a warning rather than a failure.
-- [ ] App permissions include `actions: write` (required for `workflow_dispatch` from the Admin UI / Usage view).
-- [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
-- [ ] Cold-load an invitation link `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>` lands on AssignmentView with the right assignment resolved.
-- [ ] The Instructor Notifications issue exists and is open in each control repo.
 
 ## 12. CLI installation (companion tooling)
 

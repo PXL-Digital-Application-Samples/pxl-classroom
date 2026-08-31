@@ -144,7 +144,7 @@ Workflows live **only** in the central hub. Control repos hold data; they contai
 | Key lives on | The hub's `provisioning` environment, nowhere else | The `provisioning` environment **and every public broker** |
 | If the key leaks | Administrative control of every participating organization | The ability to submit an acceptance the signature check already gates |
 
-The Broker App deliberately has **no `actions: write`**, so a leaked broker key cannot dispatch a hub workflow either. Its narrowness is the whole point; do not widen it. Created by `scripts/create-broker-app.mjs` (RUNBOOK §1.10), which fills in the permission set from a manifest so nobody ticks a box by hand.
+The Broker App deliberately has **no `actions: write`**, so a leaked broker key cannot dispatch a hub workflow either. Its narrowness is the whole point; do not widen it. Created by `scripts/create-broker-app.mjs` (INSTALL.md §1.10), which fills in the permission set from a manifest so nobody ticks a box by hand.
 
 #### 3.2.1 The Provisioner's permissions
 
@@ -173,7 +173,7 @@ The App is installed:
 - On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf: the Admin Panel triggers eight of them (publish, retry-acceptance, setup-org, daily-activity, regenerate-dashboard, sync-starter-code, open-feedback-prs, weekly-usage-report) with a user-to-server token, and `actions: write` on this installation is what authorizes that. Nothing mints a Provisioner token for the hub org otherwise; the broker's dispatch is the Broker App's job.
 - On each participating org (`PXLAutomation`, `PXLCloudAndAutomation`, etc.), **scoped to all repositories**. The hub mints per-org tokens at workflow runtime for provisioning, collection, lock-down, preservation, and archive operations against the target org.
 
-The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see RUNBOOK §1.2).
+The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see INSTALL.md §1.2).
 
 ---
 
@@ -197,7 +197,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 Four things can be compromised, and each is bounded to what it can reach. The subsections below are the mechanisms behind those bounds.
 
 - **Public broker compromise.** A broker workflow mints a token for the `pxl-classroom`-scoped installation and dispatches into the hub. The *private key* it does that with is bounded too (§4.3.0), so a broker compromise buys the ability to submit an acceptance - which the signature check already gates - and nothing else. §4.3.1 is a hard rule rather than a style preference: it is what keeps attacker code out of the job in the first place.
-- **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern - see RUNBOOK §9 - and §4.3.4 bounds what a hub credential is worth to someone who does obtain one.
+- **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern - see ADMIN.md §9 - and §4.3.4 bounds what a hub credential is worth to someone who does obtain one.
 - **Per-org control-repo compromise.** Restricted to that single org's data.
 - **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.
 
@@ -210,7 +210,7 @@ A broker is public, one per assignment, and it holds a private key as a reposito
 Four rules hold this in place:
 
 - **Publishing fails closed.** `publish-assignment.yml` refuses to publish when the broker credential is unset, rather than falling back to the App key - a fallback would make the whole change cosmetic. It also *mints a token with it first*, so a broker App that is missing, uninstalled or under-permissioned fails in the lecturer's own publish run instead of silently at the first student's acceptance.
-- **Republishing is the migration.** Ceasing to write a secret does not delete it, so publish actively removes `PXL_APP_PRIVATE_KEY` and `PXL_APP_CLIENT_ID` from the broker - **after** pushing the new workflow, never before, because the old broker workflow still reads the old secret and deleting first would break acceptance in between. RUNBOOK §1.10 covers sweeping every live assignment.
+- **Republishing is the migration.** Ceasing to write a secret does not delete it, so publish actively removes `PXL_APP_PRIVATE_KEY` and `PXL_APP_CLIENT_ID` from the broker - **after** pushing the new workflow, never before, because the old broker workflow still reads the old secret and deleting first would break acceptance in between. INSTALL.md §1.10 covers sweeping every live assignment.
 - **The token is narrowed as well as the secret.** `permission-contents: write` on the mint step, so an over-granted broker App still yields a minimal token.
 - **`tests/workflow-hardening.test.mjs` fails** if either file references the provisioning App's credential again, if publish stops removing the legacy secret, or if the removal moves above the workflow push.
 
@@ -276,7 +276,7 @@ For a migrated assignment the published title is a signature over `{assignment i
 
 **Migration is per assignment, and the switch point is the key.** Every broker checks the hub out at `ref: main`, so an un-republished broker already runs the newest verifier. It takes the signed path only when it is sent **both** a title and a public key: a republished broker sends the title immediately, but the assignment has no keypair until a publish mints one, so activating on the title alone would reject every acceptance in between. A legacy title arriving at a migrated broker is refused as `legacy-link` - named, not called malformed, because the student's link is out of date rather than mistyped.
 
-**Revocation** has two halves, retired together. The nonce is mirrored to the broker's `INVITE_NONCE` variable; the acceptance keypair's public half is mirrored to `INVITE_PUBKEY`. Republishing reuses **both**, so a repair does not break links already handed out - the same contract the nonce has always had, and for the same reason. `regenerate_invite: true` mints a fresh nonce *and* a fresh keypair, and every earlier link stops working. Invitation-signing key rotation is the separate `kid` field, with old public keys retained until their assignments close. See RUNBOOK §1.3.1.
+**Revocation** has two halves, retired together. The nonce is mirrored to the broker's `INVITE_NONCE` variable; the acceptance keypair's public half is mirrored to `INVITE_PUBKEY`. Republishing reuses **both**, so a repair does not break links already handed out - the same contract the nonce has always had, and for the same reason. `regenerate_invite: true` mints a fresh nonce *and* a fresh keypair, and every earlier link stops working. Invitation-signing key rotation is the separate `kid` field, with old public keys retained until their assignments close. See INSTALL.md §1.3.1.
 
 **A retired link resolves to a page that says it was retired**, whichever way it was retired. Migration and rotation both take working links out of students' hands, and those students have done nothing wrong and cannot tell. Two mechanisms cover the two cases, and neither records a retired secret anywhere - a list of them on the assignment would be one more field `buildDoc` could silently drop. **Migration:** the assignment still carries the token it is no longer using, so `pages/generate.mjs` writes a marker at that digest directly. **Rotation:** the old key is gone from the document, but its *card* is still on the site at a digest nothing publishes any more - and that card names its own assignment, so the prune converts it into a marker instead of deleting it when the assignment is still being published. A group assignment's teams file is always pruned rather than retired, so a superseded link cannot fetch the cohort list. Markers are pruned with their assignment, or every rotation would leave one behind for ever. Either way the file is a contentless card at the digest of the superseded secret - `{superseded: true, assignment_id, title, organization}`, no acceptance data, deliberately not shaped like an assignment - and the SPA renders "This invitation link is out of date. Ask your lecturer for the current one." Without it the student lands on the not-found page, whose only honest wording is a guess between three causes; a page may not guess why it is stuck - the same rule the provisioning wait screen is built on. The lecturer's half is the Admin Panel warning on the one republish that cannot preserve the links. `tests/superseded-invitation.test.mjs`, `tests/e2e/43-superseded-link.spec.mjs`.
 
@@ -558,7 +558,7 @@ Central hub Actions are free (public repository). Per-org Actions cost is approx
 - One acceptance: ~30s of one runner.
 - One nightly run: one runner per org with active assignments, plus one matrix leg per finalizable assignment that night. A typical course (50 students, 4 assignments, 2-week windows) consumes well under €5/month at GitHub list prices.
 
-Each participating org **must** still set a GitHub Actions spending limit. See RUNBOOK §3.
+Each participating org **must** still set a GitHub Actions spending limit. See ADMIN.md §3.
 
 ---
 
@@ -753,7 +753,7 @@ setup-org.yml:
    g. Dispatches deploy-frontend.yml so the org appears in the SPA
    v
 Admin sets Actions spending limit + budget alerts on <org>
-   (mandatory - see RUNBOOK §3)
+   (mandatory - see ADMIN.md §3)
 ```
 
 ---
@@ -804,7 +804,7 @@ Nothing validates an assignment YAML on the way **in**, so the editor has to sur
 
 GitHub **device flow** against the Provisioner App's OAuth surface. The user-to-server token's effective scope is the intersection of the App's installation permissions and what the user grants. Device flow requests the `user:email` scope so verified primary emails can be read upon login/acceptance via `GET /user/emails`. There is **no client secret in the browser** - device flow is a public-client flow.
 
-**The permission set is §3.2.1's table and is not restated here.** It is declared once as `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs`, rendered into the App manifest by `frontend/src/views/SetupView.vue`, and applied at App creation via the `/setup` route; the account-level `emails` permission is the one thing added by hand afterwards (RUNBOOK §1.2). A second copy of the list here is a copy that goes stale, and what a lecturer's token can do is exactly what that one table says.
+**The permission set is §3.2.1's table and is not restated here.** It is declared once as `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs`, rendered into the App manifest by `frontend/src/views/SetupView.vue`, and applied at App creation via the `/setup` route; the account-level `emails` permission is the one thing added by hand afterwards (INSTALL.md §1.2). A second copy of the list here is a copy that goes stale, and what a lecturer's token can do is exactly what that one table says.
 
 #### 10.2.1 The device-flow CORS proxy
 
@@ -960,7 +960,7 @@ The trade the ruleset makes is that the student stays repo admin and could delet
 
 It needs `organization_administration: write`, which the App already declares and every participating org has already approved, so there is no declaration change and no approval round outstanding. What remains is the work inside `applySubmissionLock`, the one function that would gain the new scope. Repository rulesets do the job in the meantime.
 
-This is also why `organization_administration` is deliberately **not** narrowed back to `read` (RUNBOOK §6.7b). Nothing uses org-admin write *today* - every ruleset this system creates is repository-scoped - so on a pure least-privilege reading it is excess. But a reduction is instant while restoring one needs every participating org owner to approve, and this is a designed feature that would need it back. Keeping it is a considered trade, recorded rather than assumed.
+This is also why `organization_administration` is deliberately **not** narrowed back to `read` (ADMIN.md §6.7b). Nothing uses org-admin write *today* - every ruleset this system creates is repository-scoped - so on a pure least-privilege reading it is excess. But a reduction is instant while restoring one needs every participating org owner to approve, and this is a designed feature that would need it back. Keeping it is a considered trade, recorded rather than assumed.
 
 #### 11.2.2 Reconstructing the deadline state
 

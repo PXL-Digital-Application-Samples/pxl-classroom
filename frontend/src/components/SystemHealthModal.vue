@@ -304,7 +304,7 @@ async function executeFix(c) {
       // required. This used to send `org`, which GitHub rejects as an
       // undeclared input - the fix could never have worked. The signed-in
       // lecturer is the org owner, so they are the default budget owner
-      // (RUNBOOK §2.5); a hub admin can change it in participating-orgs.yml.
+      // (ADMIN.md §2.5); a hub admin can change it in participating-orgs.yml.
       const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'setup-org.yml', {
         target_org: props.org,
         budget_owner_login: getUser()?.login || '',

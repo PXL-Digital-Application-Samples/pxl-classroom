@@ -21,7 +21,7 @@
 // a terminal transcript somebody later pastes. Copy it straight into the secret.
 //
 // Usage: node scripts/generate-claim-keypair.mjs [kid]
-// See RUNBOOK §1.3.2.
+// See INSTALL.md §1.3.2.
 
 import { generateClaimKeypair, CLAIM_PUBLIC_KEY_LENGTH } from "../lib/claim.mjs";
 

@@ -60,7 +60,7 @@ if (!assignmentId || !org) die("ASSIGNMENT_ID and ORG are required");
 if (!privateKeyPem) {
   die(
     "INVITE_SIGNING_KEY is not set on the hub. Generate a keypair with " +
-      "`node scripts/generate-invite-keypair.mjs` and see RUNBOOK §1.3."
+      "`node scripts/generate-invite-keypair.mjs` and see INSTALL.md §1.3."
   );
 }
 
