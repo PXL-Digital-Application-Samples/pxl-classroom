@@ -1,6 +1,6 @@
 # Open items
 
-Known gaps in the deployed system that are **not** code defects and have no home in a procedure. Each one is infrastructure that works today and would fail in a way nobody would be told about.
+Known gaps in the deployed system that are **not** defects and have no home in a procedure: infrastructure that works today and would fail in a way nobody would be told about, plus one designed control that is deliberately weaker than it could be.
 
 This is a standing register, not a plan: nothing here is scheduled, and an entry earns its place by being something a reader of [RUNBOOK.md](RUNBOOK.md), [INSTALL.md](INSTALL.md) or [ADMIN.md](ADMIN.md) would otherwise have to rediscover. Every entry says how to tell whether it is still open, so it can be closed from evidence rather than from memory.
 
@@ -54,6 +54,33 @@ If that account is lost, sign-in does not break — it fails over to the third-p
 5. Keep the old Worker running for a week — cached bundles still point at it — then delete it.
 
 **How to tell it is closed:** `device_flow_proxy` in `deployment.yml` names a Worker on a shared PXL account.
+
+---
+
+## 3. Lock-down is per repository, and a student can delete their own ruleset
+
+**Status: open — unblocked, unbuilt.** Verified 2026-08-31.
+
+At a deadline under *late work does not count*, `lib/submission-lock.mjs` creates one repository ruleset named `pxl-classroom-deadline` on **each** student's repository, blocking `update`, `non_fast_forward` and `deletion` on the submission ref, with the Provisioner App in `bypass_actors` so the system can still write.
+
+That has two consequences:
+
+- **The ruleset lives in the student's own repository and they are its admin**, so they can delete it. Preservation has already pushed a copy to the archive they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. That is why [ARCHITECTURE §11.2.1](ARCHITECTURE.md) argues the repository ruleset is enough. It is still a hole.
+- **It is one API call per student**, against a ~80 writes/min secondary limit. That is why lock-down stops the whole cohort first and records afterwards: done per student, the last of a 200-person cohort would be frozen minutes after the first.
+
+An **organization** ruleset closes both. Measured live: one org ruleset with `conditions.repository_name.include: ["<pattern>-*"]` locks a whole cohort and leaves other repositories alone; `PUT /orgs/{org}/rulesets/{id}` flips all of them in **one** call regardless of cohort size; and each student's repository lists it as `source_type: "Organization"` — visible to them, manageable only by an org owner, so being repository admin does not help.
+
+**It is not blocked.** It needs `organization_administration: write`, which the App declares and every participating org has already approved:
+
+```bash
+gh api apps/pxl-classroom-provisioner --jq .permissions
+```
+
+What remains is code. `applySubmissionLock` in `lib/submission-lock.mjs` is the one function that would gain the new scope.
+
+**Whether to build it is a judgement, not a defect.** The position on record is that the repository ruleset suffices. Build this if you want a lock a student cannot reach at all; a high-stakes exam is the case that would justify it.
+
+**How to tell it is closed:** a student's repository shows `pxl-classroom-deadline` with `source_type: "Organization"` after a cohort is locked.
 
 ---
 
