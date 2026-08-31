@@ -760,7 +760,11 @@ Measured on 2026-08-31, five had accumulated unseen:
 
 Fix in **one** of two ways, and both are legitimate:
 
-- **Narrow the App**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions`, remove or downgrade the permission, **Save changes**. Narrowing is safe to apply immediately - an installation never loses access it was not using, and no org owner has to approve a *reduction*. `plan` and `starring` are account-level, so the App owner clears them alone with no approval round at all.
+- **Narrow the App**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions`, remove or downgrade the permission, **Save changes**.
+
+  **This costs nobody a click.** GitHub's own wording: *"If you remove permissions or webhooks from your GitHub App, the changes will take effect immediately"* - whereas adding one means *"each account where the app is installed will need to approve the new permissions"*. So a reduction lands on all twelve installations at once with no approval round; org owners may receive an informational email, but there is nothing for them to action and nothing breaks while they ignore it. `plan` and `starring` are account-level and clear the same way.
+
+  This asymmetry is worth remembering in the other direction: the day something genuinely needs a NEW permission, every org owner has to click *Review request* before that org works again, and the feature is dead on the ones nobody chases. That is what `check-installation-approvals.mjs` exists to see (§10.6).
 - **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by `publish-assignment.yml`'s five `gh variable set` calls, and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
 
 Run `node scripts/check-app-declaration.mjs` locally for the current answer; no token needed.
