@@ -102,9 +102,26 @@ test("every failure a student can cause is ONE failure", async () => {
   // "none of the keys matched" must not be tellable from "this ciphertext is
   // broken" - that would leak whether a rotation had happened.
   const keys = [NEW.privateKey, OLD.privateKey];
+
+  // The tamper has to actually CHANGE something. This was
+  // `sealedToOld.replace(/.$/, "A")`, a no-op whenever the ciphertext already
+  // ends in "A" - which is not the rare accident it looks like. The sealed
+  // length leaves four spare bits in the final base64url character, so only
+  // FOUR canonical last characters are possible and "A" is one of them:
+  // measured, 83 of 300 fresh ciphertexts, about one in four. The test passed
+  // locally and reported SUCCEEDED in CI for a payload nobody had modified.
+  //
+  // Same family as the canonical-base64url rule this repo keeps rediscovering -
+  // the last character carries bits that decode to nothing, so reasoning about
+  // it as if every character were significant is wrong in both directions.
+  // Flipping to a character that is definitely different removes the coin toss.
+  const flipLast = (s) => s.slice(0, -1) + (s.endsWith("A") ? "B" : "A");
+  const tampered = flipLast(sealedToOld);
+  assert.notEqual(tampered, sealedToOld, "the tamper must modify the payload, or this proves nothing");
+
   const messages = [];
   for (const payload of [
-    sealedToOld.replace(/.$/, "A"), // tampered tag
+    tampered,
     "c1.not.base64url.at-all",
     "c9." + sealedToNew.slice(3), // unknown version
     "garbage",
