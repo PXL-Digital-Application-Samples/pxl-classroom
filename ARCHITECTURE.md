@@ -92,9 +92,11 @@ graph TD
 
     App[(PXL Classroom Provisioner<br/>GitHub App)] -.installed.-> ControlRepo
     App -.installed.-> Hub
+    BrokerApp[(PXL Classroom Broker<br/>GitHub App)] -.installed, hub only.-> Hub
+    Broker -->|dispatch| BrokerApp
 ```
 
-Five repository roles, one App, one Pages site.
+Five repository roles, **two** GitHub Apps, one Pages site.
 
 ### 3.1 Repository roles
 
@@ -108,9 +110,23 @@ Five repository roles, one App, one Pages site.
 
 Workflows live **only** in the central hub. Control repos hold data; they contain no `.github/workflows/` directory. This is what makes the system upgradable in one place and keeps participating-org Actions budgets near zero.
 
-### 3.2 The GitHub App
+### 3.2 The two GitHub Apps
 
-A single GitHub App, `PXL Classroom Provisioner`, with:
+**Why two.** A broker is a *public* repository, one per assignment, and it needs a credential to dispatch into the hub. Until 2026-08-31 that credential was the Provisioner's own private key, which put a key granting administration over twelve organizations onto eleven public repositories (§4.3.0). The work each App does is now matched by what its key is worth if it leaks.
+
+| | **PXL Classroom Provisioner** | **PXL Classroom Broker** |
+|---|---|---|
+| Does | Everything: provisioning, collection, lock-down, preservation, reporting, and the SPA's own authentication | One call - `POST /repos/.../dispatches` into the hub |
+| Installed on | Every participating org (all repositories) **and** the hub repo | The hub repo **only** |
+| Permissions | The table below | `contents: write`, nothing else |
+| Key lives on | The hub's `provisioning` environment, nowhere else | The `provisioning` environment **and every public broker** |
+| If the key leaks | Administrative control of twelve organizations | The ability to submit an acceptance the signature check already gates |
+
+The Broker App deliberately has **no `actions: write`**, so a leaked broker key cannot dispatch a hub workflow either. Its narrowness is the whole point; do not widen it. Created by `scripts/create-broker-app.mjs` (RUNBOOK §1.10), which fills in the permission set from a manifest so nobody ticks a box by hand.
+
+#### 3.2.1 The Provisioner's permissions
+
+`PXL Classroom Provisioner`, with:
 
 | Scope | Permission | In Manifest? | Used by |
 |---|---|---|---|
@@ -123,15 +139,16 @@ A single GitHub App, `PXL Classroom Provisioner`, with:
 | Repository: Pull Requests | Read/Write | Yes | Feedback PR orchestration |
 | Repository: Secrets | Read/Write | Yes | Setting Actions secrets during provisioning |
 | Repository: Workflows | Read/Write | Yes | Provisioning Actions workflows in student repositories |
-| Organization: Administration | Read | Yes | Enhanced Billing endpoint used by the weekly usage report |
-| Account: Starring | Read/Write | No (Manual) | Legacy; acceptance no longer stars the broker (§4.3.2) |
+| Repository: Actions Variables | Read/Write | Yes | `publish-assignment.yml` configures a broker with five `gh variable set` calls |
+| Organization: Administration | Read/Write | Yes | Enhanced Billing for the weekly usage report, and `default_repository_permission` on `GET /orgs/{org}` - both need **read**. Declared at **write** deliberately: §11.2.1's org-scoped lock-down needs it, and a reduction is instant while restoring one needs all twelve org owners to approve |
+| Organization: Members | Read/Write | Yes | **Read is what is used** - `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and so cannot be frozen (§11.6). Nothing in the system writes org membership; swept three ways on 2026-08-31 and the only membership call in the source is that GET. Declared at `write` for the same reason as Administration - `roster_mode: org_member` enrolled by org invitation and would need it back, and re-acquiring costs twelve approvals |
 | Account: Email addresses | Read | No (Manual) | **Required by the claim flow.** A student confirms one of their own GitHub-**verified** addresses, which is a user-to-server read of `/user/emails` - an installation token cannot do it at all |
 
-Account permissions are declared on the App and set by the App owner alone: they are **not** part of the manifest's `default_permissions` (measured for `starring`, which is why it has always been added by hand), and no organization owner approves them. They are tracked in `ACCOUNT_APP_PERMISSIONS` in `lib/audit.mjs`, kept separate from `MANIFEST_APP_PERMISSIONS` because `EXPECTED_APP_PERMISSIONS` spreads the latter and is compared against an **installation** — which never carries an account permission, so a name in the wrong constant reports every organization as permanently drifting on something nobody can approve. `GET /apps/{slug}` does list them (verified 2026-08-27: the App reports `starring: "write"` and `plan: "read"`), so that is where `missingAccountPermissions` checks. `scripts/check-app-declaration.mjs` reports a gap as a **warning** rather than a failure, because these need no approval round. **The API key is `emails`, not `email_addresses`** - the App settings toggle reads "Email addresses", and only the API spelling matters to the checks.
+Account permissions are declared on the App and set by the App owner alone: they are **not** part of the manifest's `default_permissions` (measured for `starring`, which is why it has always been added by hand), and no organization owner approves them. They are tracked in `ACCOUNT_APP_PERMISSIONS` in `lib/audit.mjs`, kept separate from `MANIFEST_APP_PERMISSIONS` because `EXPECTED_APP_PERMISSIONS` spreads the latter and is compared against an **installation** — which never carries an account permission, so a name in the wrong constant reports every organization as permanently drifting on something nobody can approve. `GET /apps/{slug}` does list them, so that is where `missingAccountPermissions` checks. `starring` and `plan` were both removed from the App on 2026-08-31 - acceptance stopped starring the broker at §4.3.2 and nothing reads plan information - leaving `emails` as the only account permission, so none is now set by hand beyond that one. `scripts/check-app-declaration.mjs` reports a gap as a **warning** rather than a failure, because these need no approval round. **The API key is `emails`, not `email_addresses`** - the App settings toggle reads "Email addresses", and only the API spelling matters to the checks.
 
 The App is installed:
 
-- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. The broker mints a token for this installation to dispatch into the hub. That token can only dispatch events to the hub; the App private key the broker holds to mint it is not similarly bounded, which is what §4.3.1 exists to protect.
+- On `PXL-Digital-Application-Samples`, **scoped to `pxl-classroom` only**. This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf: the Admin Panel triggers eight of them (publish, retry-acceptance, setup-org, daily-activity, regenerate-dashboard, sync-starter-code, open-feedback-prs, weekly-usage-report) with a user-to-server token, and `actions: write` on this installation is what authorizes that. It used to be described as the installation the *broker* mints against; that is the Broker App's job since 2026-08-31, and nothing mints a Provisioner token for the hub org any more.
 - On each participating org (`PXLAutomation`, `PXLCloudAndAutomation`, etc.), **scoped to all repositories**. The hub mints per-org tokens at workflow runtime for provisioning, collection, lock-down, preservation, and archive operations against the target org.
 
 The App is created via the one-shot Manifest flow at the hub's `/setup` Pages route (see RUNBOOK §1.2).
