@@ -151,6 +151,8 @@ graph LR
     StudentRepo["org/&lt;assignment&gt;-&lt;login&gt;<br/>PRIVATE, student is Admin"]
     SPA[GitHub Pages SPA]
     CLI[pxl-classroom CLI]
+    ProvApp[("Provisioner App<br/>every course org, all repos<br/>+ the hub repo, scoped to it")]
+    BrokerApp[("Broker App<br/>the hub repo only<br/>contents: write, nothing else")]
 
     Student[Student] -->|Invitation link| SPA
     SPA -->|Assertion signed in the browser| Broker
@@ -165,9 +167,13 @@ graph LR
     SPA -.Reads/Writes.-> Control
     CLI -.Reads/Writes.-> Control
     CLI -.Clones.-> Archive
+    Broker -.Mints its token with.-> BrokerApp
+    Hub -.Acts as.-> ProvApp
+    SPA -.Device flow.-> ProvApp
+    CLI -.Device flow.-> ProvApp
 ```
 
-This is the request flow. The two GitHub Apps are deliberately not drawn here — which credential does what, and why the broker holds its own, is [ARCHITECTURE §3.2](ARCHITECTURE.md) and [§4.3.0](ARCHITECTURE.md).
+**Why two Apps.** A broker is a public repository, one per assignment, and it needs a credential to dispatch into the hub. The Provisioner's key there would put administration over every course organization on a public host — so the broker gets its own App that can do exactly one thing, and a leaked broker key buys an acceptance the signature check already gates. [ARCHITECTURE §3.2](ARCHITECTURE.md) and [§4.3.0](ARCHITECTURE.md).
 
 ---
 
