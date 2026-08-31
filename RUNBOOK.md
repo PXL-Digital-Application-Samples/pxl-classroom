@@ -205,13 +205,17 @@ Do **not** add required reviewers or a wait timer: acceptance runs synchronously
 
 If you ever re-add one at repository level, note that it silently shadows nothing - environment secrets win for jobs that name the environment - but it does hand the value to any job that does not. `tests/workflow-hardening.test.mjs` fails CI if such a job appears.
 
-**Blocking ad-hoc branch creation.** Not yet applied. A ruleset stops anyone but an admin creating branches on the hub, which removes the other half of the branch-ref path. `participating-orgs` is excluded because `setup-org.yml` creates it on a fresh hub:
+**Blocking ad-hoc branch creation** closes the other half of the branch-ref path: the environment stops a credential being *read* at another ref, and this stops the ref being created. A ruleset named `Block ad-hoc branch creation` does it, with target `branch`, enforcement `active`, rule `creation`, `conditions.ref_name.include` of `~ALL` excluding `refs/heads/participating-orgs` (which `setup-org.yml` creates on a fresh hub), and bypass actors for OrganizationAdmin and the repository admin role:
 
 ```bash
 gh api --method POST repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets --input ruleset.json
 ```
 
-with `ruleset.json` containing target `branch`, enforcement `active`, rule `creation`, `conditions.ref_name.include` of `~ALL` excluding `refs/heads/participating-orgs`, and bypass actors for OrganizationAdmin and the repository admin role.
+Confirm it, on this hub or a fresh one:
+
+```bash
+gh api repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets --jq '.[] | "\(.name) \(.enforcement)"'
+```
 
 ### 1.4 Install the App on the hub's owning org, scoped narrowly
 
@@ -348,51 +352,15 @@ gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/installation --jq '.
 
 Publishing any assignment now verifies the credential *before* it writes anything: `publish-assignment.yml` mints a token with it and fails the run if the App is missing, uninstalled or under-permissioned. A broker App that does not work is a red publish run for the lecturer, not a silent failure at the first student's acceptance.
 
-**Migrate the existing brokers.** Ceasing to write a secret does not delete it, and the eleven brokers still hold the old key. Publishing removes it - **republishing an assignment is the migration**:
-
-1. For every assignment with a live broker, use **Republish broker** in the Admin Panel (or dispatch `publish-assignment.yml`). Existing student repositories and invitation links are untouched.
-2. The run logs `Removed legacy secret PXL_APP_PRIVATE_KEY from <org>/<broker>` and emits a notice when it removed anything.
-3. Confirm nothing is left:
+**A broker must never hold the provisioning App's key.** Republishing an assignment is what removes one that does: publish pushes the new broker workflow, then deletes `PXL_APP_PRIVATE_KEY` and `PXL_APP_CLIENT_ID` from that broker — in that order, because the old workflow still reads the old secret until it is replaced. Confirm any broker with:
 
 ```bash
 gh secret list --repo <org>/broker-<assignment-id>
 ```
 
-Only `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` should appear.
+Only `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` should appear. A broker in an org you do not administer answers 403; ask an owner of that org.
 
-> [!WARNING]
-> **Rotate `PXL_APP_PRIVATE_KEY` once the sweep is done.** It sat as a repository secret on public repositories; treat it as exposed for that period. Generate a new private key on the provisioning App, update the hub's `provisioning` environment secret, then delete the old key in the App's settings. Nothing else stores it - the brokers no longer do, which is the point of this section.
-
-### 1.11 Two pieces of infrastructure owned by the wrong account
-
-Neither is a code change, and neither is urgent enough to do under pressure. Both are recorded here because they are the kind of thing nobody remembers until it fails.
-
-#### 1.11a The SPA shares an origin with every other Pages site in the org
-
-The SPA holds a lecturer's GitHub access token in `sessionStorage`. Browser storage is scoped to an **origin**, and `pxl-digital-application-samples.github.io` is one origin shared by **every** Pages site that organization publishes. An XSS in any of them runs same-origin with the SPA.
-
-As of 2026-08-31 the org publishes two: `pxl-classroom` and **`security-flag-validator`** (private repo). Given the name, that second one is exactly the class of app where an injection would be plausible — it deserves a look, and this is the reason why.
-
-Two ways out, in increasing order of effort:
-
-- **Policy.** Nothing else publishes Pages from this organization. Cheap, immediate, and it holds only as long as somebody remembers it — which is why it is written down here rather than agreed in a meeting.
-- **A custom domain**, which removes the problem rather than managing it. Settings → Pages → Custom domain on `pxl-classroom`, point a CNAME at `pxl-digital-application-samples.github.io`, enable **Enforce HTTPS**, and the SPA gets an origin of its own that no sibling repository can reach. Then update `ALLOWED_ORIGINS` in [`cors-worker/worker.js`](cors-worker/worker.js) to the new origin and redeploy the Worker **before** switching, or sign-in breaks at the moment of the cutover — the Worker refuses an origin it does not know, and that is the control working.
-
-#### 1.11b The sign-in Worker is on a personal Cloudflare account
-
-`pxl-cors.tom-cool-38e.workers.dev` is the **primary** device-flow proxy since 2026-08-31, so it is now on the critical path of every sign-in. It lives in a single-owner Cloudflare account.
-
-If that account is lost, sign-in fails over to the third-party secondary and keeps working — the failover is real and was exercised in production (§1.9) — but you are then back to a third party seeing every access token, which is the state the ordering change exists to leave, and nobody would be told.
-
-**Move it to a PXL-owned Cloudflare account** that more than one person can reach:
-
-1. Create the account under a PXL address with more than one owner.
-2. `cd cors-worker && npx wrangler@latest login && npx wrangler@latest deploy` from the new account. Deploying from the repo rather than the dashboard editor is deliberate — the Worker carries a security allowlist and a pasted copy drifts from the reviewed one.
-3. Verify the new Worker with the probes in [`cors-worker/README.md`](cors-worker/README.md): a browser-origin POST returns a device code, `OPTIONS` answers 204, and both allowlists refuse by exact match.
-4. Update `device_flow_proxy` in [`deployment.yml`](deployment.yml) and deploy the frontend.
-5. Keep the old Worker running for a week — cached bundles still point at it — then delete it.
-
-System Health checks the primary proxy on every run and warns when it does not answer, so an outage of either Worker now surfaces before a lecture rather than during one.
+**Two known infrastructure gaps** — a shared Pages origin and the sign-in Worker's account — are recorded in [OPEN-ITEMS.md](OPEN-ITEMS.md) with how to tell whether each is still open. System Health checks the primary proxy on every run, so an outage surfaces before a lecture rather than during one.
 
 System is now ready to onboard the first organization.
 
