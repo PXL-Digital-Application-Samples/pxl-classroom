@@ -12,7 +12,7 @@ Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom
 
 Operational docs are split by who reads them: **[RUNBOOK.md](RUNBOOK.md)** for a lecturer running assignments, **[ADMIN.md](ADMIN.md)** for onboarding an organization and everything budget-, permission- or incident-related, and **[INSTALL.md](INSTALL.md)** for standing the whole system up once. Known infrastructure gaps are in [OPEN-ITEMS.md](OPEN-ITEMS.md).
 
-**PXL** stands for *PXL eXecutable Labs.
+**PXL Classroom** is named for *PXL eXecutable Labs*.
 
 ---
 
@@ -66,7 +66,7 @@ I built it for my own courses at first.
 
 **Grading, in the cloud or on your machine.** Checks can run in each student repository on push, or locally in a sandboxed Docker container that costs no Actions minutes. Scores come back into the dashboard either way - including from a template that already ships GitHub Classroom's own grading workflow, with nothing to set up. One button opens draft feedback pull requests for everyone who has pushed.
 
-**The deadline is a real deadline.** Writes to the submission branch stop at the instant it passes, not on the next nightly run, and you choose whether late work counts. Every submission is then copied to a private archive the student cannot reach - one archive per assignment, so a finished cohort can be retired on its own. That archive is what you show at an examination board or a grade dispute.
+**The deadline can be a real deadline.** You choose whether late work counts. Leave it counting and late commits are recorded and flagged; turn it off and writes to the submission branch stop at the deadline instant rather than on the next nightly run — a watcher is already running when it passes, with the nightly as the fallback. Either way every submission is copied to a private archive the student cannot reach, one per assignment, so a finished cohort can be retired on its own. That archive is what you show at an examination board or a grade dispute.
 
 ---
 
@@ -77,9 +77,9 @@ The rows where the three genuinely differ. Everything else - assignment creation
 | | GitHub Classroom | Classroom50 | PXL Classroom |
 | :--- | :--- | :--- | :--- |
 | **Student repo role** | Write | Write | **Admin** - secrets, environments, runners, OIDC |
-| **Deadline** | Soft; freeze by hand | Timestamps, reviewed by hand | Writes stop at the instant it passes |
+| **Deadline** | Soft; freeze by hand | Timestamps, reviewed by hand | Your choice per assignment: record late work, or stop writes at the instant it passes |
 | **Submission archive** | None; the live repo is the grade | None; the live repo is the grade | Private archive repo per assignment, out of the student's reach |
-| **Auto-grading via Github Actions** | Yes | Yes | Yes |
+| **Auto-grading via GitHub Actions** | Yes | Yes | Yes |
 | **Auto-grading off the cloud** | No | No | Sandboxed Docker via CLI - no Actions minutes |
 | **Enrolment** | Roster or LMS sync | Org repository roster | Roster, email claim matched to your roster, or open signup with a cap |
 | **Starter-code fixes** | Manual pull or fork | Manual upstream pull | Per file: direct where untouched, pull request where edited |
@@ -98,18 +98,17 @@ There are two organizations involved.
 
 Everyone shares this one. It holds this repository, the workflows, the Pages site, the GitHub App and the sample repositories.
 
-Add each lecturer as an **organization owner**. Making them a plain member is not enough.
+Give each lecturer **Write** on this repository — as a collaborator, or through a team. Publishing an assignment dispatches a workflow here with the lecturer's own token, and `workflow_dispatch` needs write; a plain organization member lands on read and every publish fails with a 403.
 
-You control who the owners of your course organization are, so you control who its lecturers are.
+**Write on the repository, not ownership of the organization.** Owner also works, and costs far more than it looks: the GitHub App is registered on this organization, so an owner can generate its private key — which mints installation tokens for *every* participating organization. Write on `pxl-classroom` does the same job for a lecturer and nothing else ([ADMIN.md §1.4](ADMIN.md#14-grant-lecturers-access-to-the-hub-repo)).
 
-Multiple central organizations can be deployed:
-If you want to be independent of the central organization as well, fork this repository, edit `deployment.yml`, create your own App at `/setup` and publish your own Pages site.
+**More than one central organization can exist.** To be independent of this one, fork the repository, edit `deployment.yml`, create your own Apps at `/setup`, and publish your own Pages site — [INSTALL.md](INSTALL.md) is that path start to finish.
 
 ### 2. Your own course organization
 
 There is one of these per course or academic year. It holds the private `pxl-classroom-control` repository, the student repositories and the archives.
 
-An owner installs the App there with access to **All repositories**, then runs **Setup Organization**. The **:Connect an organization:** button in the web app does this for you.
+An owner installs the App there with access to **All repositories**, then runs **Setup Organization**. The **Connect an organization** button in the web app walks you through both steps.
 
 **Owning this organization is what makes you a lecturer in it.** There is no user list and no roles, so every owner can edit every assignment in the organization.
 
@@ -135,7 +134,7 @@ An owner installs the App there with access to **All repositories**, then runs *
 
 ### 4. Collection and Grading
 
-- Writes stop at the instant the deadline passes; the nightly workflow finalizes the cohort and is the fallback if anything goes wrong.
+- If you set late work not to count, writes stop at the instant the deadline passes; the nightly workflow finalizes the cohort either way, and is the fallback if anything goes wrong.
 - Submissions are preserved as immutable branches in `<org>/pxl-classroom-archive-<assignment-id>`.
 - View grades in the web dashboard or grade locally via the CLI.
 
@@ -197,7 +196,7 @@ Full command list: [cli/README.md](cli/README.md).
 
 | Path | Description |
 |---|---|
-| `deployment.yml` | **Institution-specific configuration** — email domains, timezone, hub/App/control-repo names. A fork edits this file and nothing else |
+| `deployment.yml` | **Institution-specific configuration** — email domains, timezone, hub/App/control-repo names, and the sign-in proxy. It is the only *code* a fork edits; the App and Pages site are set up per [INSTALL.md](INSTALL.md) |
 | `.github/workflows/` | Hub workflows (acceptance, daily activity, deadline sentinel, dashboard regen, publish) |
 | `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `notify/`, `pages/`, `registry/` | Composite actions |
 | `scripts/` | Node scripts the workflows call (no inline `node -e` in YAML) |
