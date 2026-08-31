@@ -6,6 +6,28 @@ This document is the single technical reference for the system. It supersedes th
 
 ---
 
+## Contents
+
+- [1. Purpose & scope](#1-purpose--scope)
+- [2. Platform constraints](#2-platform-constraints)
+- [3. System topology](#3-system-topology)
+- [4. Trust model](#4-trust-model)
+- [5. Data model](#5-data-model)
+- [6. Operational model - minimal-minutes (Wave 8)](#6-operational-model---minimal-minutes-wave-8)
+- [7. Central workflows reference](#7-central-workflows-reference)
+- [8. Composite actions reference](#8-composite-actions-reference)
+- [9. End-to-end flows](#9-end-to-end-flows)
+- [10. Frontend](#10-frontend)
+- [11. Deadlines, evidence, lock-down, preservation](#11-deadlines-evidence-lock-down-preservation)
+- [12. Notifications & audit](#12-notifications--audit)
+- [13. Reliability, scale, rate limits](#13-reliability-scale-rate-limits)
+- [14. Multi-organization architecture](#14-multi-organization-architecture)
+- [15. Constraints accepted in v1](#15-constraints-accepted-in-v1)
+- [16. Deferred to v2](#16-deferred-to-v2)
+- [17. Retention](#17-retention)
+- [18. Acceptance criteria (v1)](#18-acceptance-criteria-v1)
+
+---
 ## 1. Purpose & scope
 
 **The system shall:**
@@ -157,6 +179,8 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 
 ## 4. Trust model
 
+[4.1 What is authoritative](#41-what-is-authoritative) · [4.2 Identity](#42-identity) · [4.3 Bounded blast radius](#43-bounded-blast-radius) · [4.4 Lock-down semantics](#44-lock-down-semantics)
+
 ### 4.1 What is authoritative
 
 - **Authoritative:** the per-org control repository. It holds assignments, roster, acceptances, repository IDs, observations, reports, overrides. Students never have read or write access.
@@ -304,6 +328,8 @@ Whichever applies, it runs through the org-level App installation - which outran
 ---
 
 ## 5. Data model
+
+[5.1 Control repository layout](#51-control-repository-layout) · [5.2 Distinguish facts, observations, calculations, overrides](#52-distinguish-facts-observations-calculations-overrides) · [5.3 Schemas](#53-schemas) · [5.4 Assignment definition](#54-assignment-definition) · [5.5 Participating-orgs registry](#55-participating-orgs-registry) · [5.8 Group Assignments](#58-group-assignments)
 
 ### 5.1 Control repository layout
 
@@ -749,6 +775,8 @@ Admin sets Actions spending limit + budget alerts on <org>
 
 ## 10. Frontend
 
+[10.1 Routes](#101-routes) · [10.2 Authentication](#102-authentication) · [10.3 Data sources](#103-data-sources) · [10.4 Validation](#104-validation) · [10.5 CLI companion](#105-cli-companion) · [10.6 Design System & Visual Architecture](#106-design-system--visual-architecture)
+
 Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory and sessionStorage only (never localStorage) and dies on tab close.
 
 The SPA is dual-theme (dark default / light / system) with every colour declared once as a `light-dark()` token in `frontend/src/style.css`; see DESIGN.md §5. Every authenticated view - including deep links to the Admin Panel and per-assignment detail - renders a sign-in card when no session exists, never a data-shaped empty state; device-flow failures render inline in that card.
@@ -936,6 +964,8 @@ The frontend follows a developer-centric, human-crafted aesthetic inspired by **
 ---
 
 ## 11. Deadlines, evidence, lock-down, preservation
+
+[11.1 Evidence level A - central snapshots](#111-evidence-level-a---central-snapshots) · [11.1a Optional evidence - submit/ tags](#111a-optional-evidence---submit-tags) · [11.2 Lock-down](#112-lock-down) · [11.3 Preservation & Summary Banner](#113-preservation--summary-banner) · [11.4 Feedback PR (optional)](#114-feedback-pr-optional) · [11.5 Bulk submission download](#115-bulk-submission-download) · [11.6 Autograding (Lecturer-side & Student-side)](#116-autograding-lecturer-side--student-side) · [11.7 Starter Code Synchronization](#117-starter-code-synchronization)
 
 ### 11.1 Evidence level A - central snapshots
 
