@@ -43,6 +43,18 @@ import { parseYaml } from "../lib/yaml.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
+
+/**
+ * A positive finite number, or the default.
+ *
+ * Empty, absent, non-numeric and zero all mean "not configured" - every one of
+ * them would otherwise become a 0 that the loop below treats as a real setting.
+ */
+export function positiveNumber(raw, fallback) {
+  const n = Number(String(raw ?? "").trim());
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 const cfg = {
   token: env("GITHUB_TOKEN"),
   org: env("ORG"),
@@ -50,11 +62,19 @@ const cfg = {
   assignmentIds: (env("ASSIGNMENT_IDS", "") || "").split(",").map((s) => s.trim()).filter(Boolean),
   deadlineAt: env("DEADLINE_AT"),
   key: env("SENTINEL_KEY", "unkeyed"),
-  pollIntervalMs: Number(env("POLL_INTERVAL_MS", 5 * 60_000)),
+  // `positiveNumber`, not `Number(env(...))`. `env()` is `?? default`, so a
+  // variable that is SET BUT EMPTY - the ordinary shape of an unset workflow
+  // input threaded through `env:` - yields "" and `Number("")` is 0. A 0 ms
+  // poll interval is a tight loop against the GitHub API from a job that runs
+  // for hours; a 0 ms runtime exits before watching anything; 0 pages samples
+  // nothing and reports it as a clean read. lib/group-config.mjs reasons about
+  // exactly this and reaches the same conclusion for the same reason: a missing
+  // key and an empty one must both mean the default.
+  pollIntervalMs: positiveNumber(env("POLL_INTERVAL_MS"), 5 * 60_000),
   // Below the job's own timeout, so the sentinel writes its timeline and exits
   // cleanly rather than being killed with the evidence still in memory.
-  maxRuntimeMs: Number(env("SENTINEL_MAX_RUNTIME_MS", 4.75 * 3600_000)),
-  maxPages: Number(env("SENTINEL_MAX_PAGES", 3)),
+  maxRuntimeMs: positiveNumber(env("SENTINEL_MAX_RUNTIME_MS"), 4.75 * 3600_000),
+  maxPages: positiveNumber(env("SENTINEL_MAX_PAGES"), 3),
   runUrl: `${env("GITHUB_SERVER_URL", "https://github.com")}/${env("GITHUB_REPOSITORY", "_")}` +
           `/actions/runs/${env("GITHUB_RUN_ID", "0")}`,
 };
@@ -240,9 +260,15 @@ async function main() {
   log(`${outcome} after ${polls} poll(s); target ${target.toISOString()}`);
 }
 
-main().catch(async (e) => {
-  console.error(`[sentinel] ${e.stack || e.message}`);
-  await setOutput("outcome", "fail:exception");
-  await setOutput("fired", "false");
-  process.exit(1);
-});
+// Only when run as the CLI the workflow invokes, so a test can import
+// `positiveNumber` without the module validating its environment and exiting on
+// it. Same idiom as pages/scan.mjs; the existing tests spawn this file as a
+// process, which is what proves the guard still lets the entry point run.
+if (process.argv[1] && process.argv[1].endsWith("deadline-sentinel.mjs")) {
+  main().catch(async (e) => {
+    console.error(`[sentinel] ${e.stack || e.message}`);
+    await setOutput("outcome", "fail:exception");
+    await setOutput("fired", "false");
+    process.exit(1);
+  });
+}

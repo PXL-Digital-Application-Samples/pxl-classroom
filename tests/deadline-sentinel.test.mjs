@@ -18,6 +18,24 @@ import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { planSentinels, sentinelKey } from "../scripts/find-armable.mjs";
+import { positiveNumber } from "../scripts/deadline-sentinel.mjs";
+
+// A SET-BUT-EMPTY environment variable is the ordinary shape of an unset
+// workflow input threaded through `env:`, and `env()` is `?? default` - so
+// `Number(env("POLL_INTERVAL_MS", 300000))` returned 0, not the default. Zero
+// means a tight loop against the GitHub API from a job that runs for hours, a
+// runtime that exits before watching anything, and a page cap that samples
+// nothing while reporting a clean read. lib/group-config.mjs reasons about the
+// identical case for `max_team_size` and reaches the identical conclusion.
+test("an empty or unusable sentinel setting falls back to its default", () => {
+  const D = 300_000;
+  for (const raw of ["", "  ", undefined, null, "abc", "0", "-5", "NaN"]) {
+    assert.equal(positiveNumber(raw, D), D, `positiveNumber(${JSON.stringify(raw)}) must be the default`);
+  }
+  // A real value still wins, whitespace and all.
+  assert.equal(positiveNumber("60", D), 60);
+  assert.equal(positiveNumber(" 90 ", D), 90);
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sentinelScript = join(here, "..", "scripts", "deadline-sentinel.mjs");
