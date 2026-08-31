@@ -71,6 +71,14 @@ const die = (msg) => {
 // workflows - which is most of what made the old arrangement dangerous.
 const REQUIRED_PERMISSIONS = Object.freeze({ contents: "write" });
 
+// GitHub adds `metadata: read` to every App by itself and it cannot be removed.
+// It is read-only and grants nothing beyond seeing that a repository exists, so
+// it is EXPECTED rather than excess - measured on the real App, whose declared
+// set came back as {"contents":"write","metadata":"read"}. Without this the
+// verification below reports a correctly-minted App as over-permissioned, which
+// is the kind of false alarm that gets a check ignored.
+const TOLERATED_PERMISSIONS = Object.freeze({ metadata: "read" });
+
 function manifest(redirectUrl) {
   return {
     name: NAME,
@@ -127,23 +135,46 @@ async function convert(code) {
   return res.json();
 }
 
-/** What the App actually declares, read back from GitHub rather than assumed. */
-async function verify(slug) {
-  const res = await fetch(`https://api.github.com/apps/${slug}`, {
-    headers: { accept: "application/vnd.github+json", "user-agent": "pxl-classroom-broker-app-setup" },
+/**
+ * What the App actually declares, read back from GitHub rather than assumed.
+ *
+ * Read through `gh`, NOT an unauthenticated fetch. `GET /apps/{slug}` serves a
+ * publicly LISTED App to anyone, but this App is deliberately `public: false`
+ * so that it can only ever be installed on the account that owns it - and an
+ * unlisted App answers **404** to an anonymous caller. The first real run hit
+ * exactly that and reported "Could not read /apps/… (HTTP 404)" over an App
+ * that had been created perfectly, which reads like a failure and is not one.
+ *
+ * Note the endpoint has NO leading slash. Git Bash on Windows rewrites a
+ * leading-slash argument into a filesystem path (`C:/Program Files/Git/apps/…`)
+ * and gh refuses it. Same reason the commands printed at the end omit it.
+ */
+function verify(slug) {
+  const res = spawnSync("gh", ["api", `apps/${slug}`], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
   });
-  if (!res.ok) {
-    console.log(`   Could not read /apps/${slug} (HTTP ${res.status}) - check it by hand.`);
+  if (res.status !== 0) {
+    console.log(`   Could not read apps/${slug} through gh - check it by hand:`);
+    console.log(`     gh api apps/${slug} --jq .permissions`);
     return;
   }
-  const declared = (await res.json()).permissions || {};
+  let declared = {};
+  try {
+    declared = JSON.parse(res.stdout).permissions || {};
+  } catch {
+    console.log(`   Could not parse the App's declaration - check it by hand.`);
+    return;
+  }
   const problems = [];
   for (const [perm, level] of Object.entries(REQUIRED_PERMISSIONS)) {
     if (declared[perm] !== level) problems.push(`missing or wrong: ${perm}=${declared[perm] ?? "absent"} (want ${level})`);
   }
   // Excess matters more than absence here - this App's whole point is being small.
   for (const perm of Object.keys(declared)) {
-    if (!(perm in REQUIRED_PERMISSIONS)) problems.push(`EXCESS: ${perm}=${declared[perm]}`);
+    if (perm in REQUIRED_PERMISSIONS) continue;
+    if (TOLERATED_PERMISSIONS[perm] === declared[perm]) continue;
+    problems.push(`EXCESS: ${perm}=${declared[perm]}`);
   }
   if (problems.length) {
     console.log(`\n   [warn] ${slug} does not declare exactly Contents: write:`);
@@ -159,7 +190,7 @@ async function verify(slug) {
 if (VERIFY_ONLY) {
   const slug = flag("slug");
   if (typeof slug !== "string") die("--verify needs --slug <app-slug>");
-  await verify(slug);
+  verify(slug);
   process.exit(0);
 }
 
@@ -261,7 +292,7 @@ if (!okId || !okKey) {
 }
 
 console.log("  Secrets stored.\n");
-await verify(app.slug);
+verify(app.slug);
 
 console.log(`
   ONE STEP LEFT, and it has no API - GitHub requires the first install to
@@ -275,7 +306,7 @@ console.log(`
 
   Then check it took:
 
-    gh api /repos/${ORG}/${REPO}/installation --jq '.app_slug + " -> " + (.permissions|tostring)'
+    gh api repos/${ORG}/${REPO}/installation --jq '.app_slug + " -> " + (.permissions|tostring)'
 
   After that, republish each assignment (RUNBOOK §1.10) - that is what pushes
   the new broker workflow AND removes the provisioning App's key from the
