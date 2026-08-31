@@ -54,19 +54,19 @@ I built it for my own courses at first.
 
 **Nothing to run, nothing to pay for.** The whole system is a Pages site, some Actions workflows and two GitHub Apps. When no assignment is active, nothing runs and nothing is billed. A weekly check watches each organization's usage against its limits and tells you before you hit one.
 
-**Students get their repository in under a minute.** They open the invitation link, sign in, and press Accept; the repository is ready in 20 to 40 seconds. The link carries a signing key, so a student's browser proves which account is accepting before any credential is created - and using the link no longer publishes it.
+**Students get their repository in under a minute.** They open the invitation link, sign in, and press Accept; the repository is ready in 20 to 40 seconds. A signing key verifies the accepting account before credentials are created, without exposing the link.
 
-**You decide who may accept, per assignment.** Either a roster of GitHub usernames, or an email claim where the student confirms their institutional address and it is matched against your roster, or open signup with a limit on how many places there are. Exams and workshops usually want the last one; a known cohort wants the first.
+**You decide who may accept, per assignment.** Either a roster of GitHub usernames, or an email claim where the student confirms their institutional address and it is matched against your roster, or open signup with a limit on how many places there are.
 
 **Students hold Admin on their own repository.** They can manage secrets, environments, runners and OIDC - which on these courses is the subject being taught, not a convenience.
 
-**Teams form themselves.** Students create or join a team within the size you set, and can move between teams until the deadline. A grouping that already worked can be carried into the next assignment instead of being rebuilt.
+**Teams form themselves.** Students create or join a team within the size you set, and can move between teams until the deadline. A grouping that already worked can be carried into the next assignment.
 
 **Fix a mistake after students have started.** Correct it once in the template and send it out. Files a student has not touched are updated directly; anything they have edited arrives as a pull request, so their work is never overwritten.
 
 **Grading, in the cloud or on your machine.** Checks can run in each student repository on push, or locally in a sandboxed Docker container that costs no Actions minutes. Scores come back into the dashboard either way - including from a template that already ships GitHub Classroom's own grading workflow, with nothing to set up. One button opens draft feedback pull requests for everyone who has pushed.
 
-**The deadline can be a real deadline.** You choose whether late work counts. Leave it counting and late commits are recorded and flagged; turn it off and writes to the submission branch stop at the deadline instant rather than on the next nightly run — a watcher is already running when it passes, with the nightly as the fallback. Either way every submission is copied to a private archive the student cannot reach, one per assignment, so a finished cohort can be retired on its own. That archive is what you show at an examination board or a grade dispute.
+**The deadline can be a real deadline.** Choose per assignment: record late work, or stop writes at the deadline instant. A watcher enforces this immediately; the nightly workflow is the fallback. Every submission is archived in a private repository the student cannot access, so finished cohorts can be retired independently. Use the archive for examinations and grade disputes.
 
 ---
 
@@ -98,11 +98,11 @@ There are two organizations involved.
 
 Everyone shares this one. It holds this repository, the workflows, the Pages site, the GitHub App and the sample repositories.
 
-Give each lecturer **Write** on this repository — as a collaborator, or through a team. Publishing an assignment dispatches a workflow here with the lecturer's own token, and `workflow_dispatch` needs write; a plain organization member lands on read and every publish fails with a 403.
+Give lecturers **Write** permission on this repository (as a collaborator or via a team). Publishing assignments dispatches a workflow using `workflow_dispatch`, which requires write access.
 
-**Write on the repository, not ownership of the organization.** Owner also works, and costs far more than it looks: the GitHub App is registered on this organization, so an owner can generate its private key — which mints installation tokens for *every* participating organization. Write on `pxl-classroom` does the same job for a lecturer and nothing else ([ADMIN.md §1.4](ADMIN.md#14-grant-lecturers-access-to-the-hub-repo)).
+**Grant repository Write access, not organization ownership.** Organization owners can generate private keys for the GitHub App (accessing all participating orgs), whereas Write access provides only the necessary publishing permissions.
 
-**More than one central organization can exist.** To be independent of this one, fork the repository, edit `deployment.yml`, create your own Apps at `/setup`, and publish your own Pages site — [INSTALL.md](INSTALL.md) is that path start to finish.
+**More than one central organization can exist.** To be independent of this one, fork the repository, edit `deployment.yml`, create your own Apps at `/setup`, and publish your own Pages site - [INSTALL.md](INSTALL.md) is that path start to finish.
 
 ### 2. Your own course organization
 
@@ -196,7 +196,7 @@ Full command list: [cli/README.md](cli/README.md).
 
 | Path | Description |
 |---|---|
-| `deployment.yml` | **Institution-specific configuration** — email domains, timezone, hub/App/control-repo names, and the sign-in proxy. It is the only *code* a fork edits; the App and Pages site are set up per [INSTALL.md](INSTALL.md) |
+| `deployment.yml` | **Institution-specific configuration** - email domains, timezone, hub/App/control-repo names, and the sign-in proxy. It is the only *code* a fork edits; the App and Pages site are set up per [INSTALL.md](INSTALL.md) |
 | `.github/workflows/` | Hub workflows (acceptance, daily activity, deadline sentinel, dashboard regen, publish) |
 | `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `notify/`, `pages/`, `registry/` | Composite actions |
 | `scripts/` | Node scripts the workflows call (no inline `node -e` in YAML) |
