@@ -12,8 +12,9 @@
 // report with rows in both. Per row, that resolves itself.
 //
 // Resumable: skips a student whose target dir already contains the expected
-// SHA. Writes a manifest at <dir>/_manifest.json with {login, sha, branch,
-// downloaded_at} rows so plagiarism tools / CI know what they're looking at.
+// SHA. Writes a manifest at <dir>/_manifest.json with {login, archive_sha,
+// archive_branch, archive_branch_url, downloaded_at} rows so plagiarism tools
+// and CI know what they are looking at.
 
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";

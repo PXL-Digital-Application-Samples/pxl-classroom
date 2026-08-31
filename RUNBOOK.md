@@ -670,7 +670,7 @@ Symptom this fixes: with `roster_mode: enforced` and an empty or missing `studen
 
 ### 6.8 Auditing an org's install
 
-`pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA shows the same checks in the **System health** panel at the top of the dashboard.
+`pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA runs the same checks behind **Check System Health** on the dashboard — a modal, not a panel — and on the Admin Panel for one assignment.
 
 ```bash
 pxl-classroom audit --org PXLAutomation
@@ -734,7 +734,10 @@ pxl-classroom download --org PXLAutomation \
 
 - Resumable: a re-run skips students whose checkout already matches the archive SHA.
 - Writes `./submissions/_manifest.json` with `{login, archive_sha, archive_branch, archive_branch_url, downloaded_at}` rows for plagiarism tools / local CI.
-- **Preservation Summary Banner:** When an assignment's deadline has passed, `AssignmentDetailView` renders a top banner displaying live preserved counts vs eligible students, lockdown execution timestamp, and measured uncertainty delay (`uncertainty_seconds = lockdown_at - deadline_at`). Quick buttons allow 1-click targeted retries, downloading the SHA manifest, navigating to the archive repo, and copying the CLI download command.
+- **Preservation Summary Banner:** When an assignment's deadline has passed, `AssignmentDetailView` renders a top banner with live preserved counts vs eligible students, the lockdown timestamp, and the **lock-down delay** — `lockdown_delay_seconds`, which is `lockdown_at - deadline_at` from the lockdown record, shown as the **maximum** across the cohort, because one student frozen late is what the number is for. Quick buttons give 1-click targeted retries, the SHA manifest, the archive repo, and the CLI download command.
+
+  > [!IMPORTANT]
+  > **Do not read this as `uncertainty_interval_seconds`.** That field measures the *other* side of the deadline — how stale the evidence was going in, which with a nightly collect is routinely hours. Quoting it in a dispute understates a cohort the sentinel froze at the instant. The banner reads `lockdown_delay_seconds`; the report carries both.
 - **Direct Archive Links:** The student table and teams table display direct clickable hyperlinks to `https://github.com/<org>/pxl-classroom-archive-<assignment-id>/tree/preserved/<assignment-id>/<login>` (or team slug) for every preserved submission. The repository and ref are read off the report row, so links to cohorts archived before ARCHITECTURE §11.3.1 keep working.
 
 ### 6.12 Autograding
@@ -855,7 +858,7 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
 #### Option A: Web UI (Unified System Health Center)
 
 1. **Organization-Wide Health Check (Dashboard):**
-   - Click the **Activity Pulse icon** (`activity`) to the right of the Organization Selector on `DashboardView`.
+   - Click the pulse icon to the right of the organization selector on `DashboardView` — it is the one whose tooltip reads **System health check**.
    - The modal automatically verifies GitHub session validity, API rate-limit quota, App installation, permissions drift, `participating-orgs.yml` enrollment, and control repository scaffold integrity.
 2. **Assignment Pre-Flight Troubleshooter (Admin Panel):**
    - When creating or editing an assignment on `AdminView`, click the **Troubleshoot** button in the header (or click any warning banner).
@@ -872,6 +875,8 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
    - **Broker repository private:** Click **[Make Broker Public]** to patch repository visibility.
    - **Pages deployment propagating:** Click **[Deploy to GitHub Pages]** to trigger `deploy-frontend.yml`.
    - **Enforced roster missing:** Click **[Open Roster Editor]** to navigate directly to the roster editor tab.
+   - **Dashboard data stale:** Click **[Regenerate Dashboard]** to dispatch `regenerate-dashboard.yml`.
+   - **Organization not enrolled:** Click **[Run Setup Organization]** — an administrator's action ([ADMIN.md §1.2](ADMIN.md#12-run-setup-organization)), offered here because this is where the gap shows up.
 
 #### Option B: CLI Audit Companion
 
