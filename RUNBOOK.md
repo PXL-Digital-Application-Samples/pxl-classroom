@@ -34,8 +34,7 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
 1. In a browser, open the Pages site at `https://<pages-host>/pxl-classroom/setup` (e.g. `https://pxl-digital-application-samples.github.io/pxl-classroom/setup`).
 2. Enter the owning **organization** (recommended - leaving it empty registers the App under your personal account) and click **Create GitHub App**. The manifest pre-fills the install-time permissions declared in `frontend/src/views/SetupView.vue`:
-   - Repository: **Actions RW**, **Administration RW**, **Checks R**, **Contents RW**, **Issues RW**, **Metadata R**, **Pull requests RW**, **Secrets RW**, **Workflows RW**.
-   - Organization: **Administration R** (Enhanced Billing usage reports).
+   - The permission set comes from `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs` and is not restated here - a second copy is a copy that goes stale. Verify what the live App actually holds with `gh api apps/<slug> --jq .permissions` (no token needed), and see ARCHITECTURE §3.2.1 for what each permission is for.
    - Device Flow: enabled.
    - Callback URLs: pre-filled for your Pages domain.
 3. Confirm on GitHub's page.
@@ -48,17 +47,24 @@ The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initiali
 
 ### 1.3 Set hub secrets
 
-In `pxl-classroom` -> Settings -> Secrets and variables -> Actions:
+**Where a secret lives is part of its protection, so the two tables are separate.** Every private key is an **environment** secret on `provisioning` with **no repository-level copy**: a job that does not declare `environment: provisioning` cannot read one at all, which is half of what closes the branch-ref path (§1.3.3, ARCHITECTURE §4.3.4). Putting one of these at repository level hands it to every job that does not name the environment, and `tests/workflow-hardening.test.mjs` fails CI when such a job appears.
+
+**Environment secrets** — Settings -> Environments -> `provisioning` -> Add secret. Create the environment first (§1.3.3):
 
 | Secret | Value |
 |---|---|
-| `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token` - the older `app-id` input is deprecated. |
-| `PXL_APP_PRIVATE_KEY` | full PEM body from §1.2, including BEGIN/END lines |
-| `VITE_GITHUB_CLIENT_ID` | Same Client ID as `PXL_APP_CLIENT_ID`; used at SPA build time to wire the device flow. |
-| `VITE_CORS_PROXY_URL` | Optional. Primary device-flow proxy; defaults to `https://corsproxy.io/?url=`. See ARCHITECTURE.md §10.2 for the threat model. MUST end in `?url=`, `&url=` (a keyed proxy) or `?` (auto-rewritten). An unusable value is skipped rather than fatal, and is reported in the sign-in card - it does **not** throw at SPA init, which used to mean a blank page. |
-| `VITE_CORS_PROXY_FALLBACK_URL` | Optional but strongly recommended. The PXL-owned Cloudflare Worker used when the primary fails. Same `?url=` form. See §1.9. Without it, sign-in has a single point of failure with no substitute available - see the note there. |
+| `PXL_APP_PRIVATE_KEY` | Full PEM body from §1.2, BEGIN/END lines included. |
 | `PXL_INVITE_SIGNING_KEY` | Ed25519 private key that signs invitation tokens. See §1.3.1. `publish-assignment.yml` fails closed without it. |
-| `PXL_CLAIM_PRIVATE_KEY` | **Environment** secret on `provisioning` (no repository-level copy). ECDH P-256 private key that decrypts a student's claimed email address. See §1.3.2. |
+| `PXL_CLAIM_PRIVATE_KEY` | ECDH P-256 private key that decrypts a student's claimed email address. See §1.3.2. This one decrypts every student's institutional address, so it is the most sensitive value in the system after the App key. |
+| `PXL_BROKER_CLIENT_ID` / `PXL_BROKER_PRIVATE_KEY` | The **broker** App's credential. Written by `scripts/create-broker-app.mjs`, not by hand — see §1.10. |
+
+**Repository secrets** — Settings -> Secrets and variables -> Actions. Neither is a private key:
+
+| Secret | Value |
+|---|---|
+| `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token`; the older `app-id` input is deprecated. Deliberately repository-level: a client id is not secret and already ships in the SPA bundle. |
+| `VITE_CORS_PROXY_URL` | Optional. The **secondary** device-flow proxy, reached only when the PXL Worker is unreachable. The **primary** is `device_flow_proxy` in `deployment.yml` and is deliberately not a secret (§1.9). There is deliberately **no default** here, so leaving it unset means one proxy rather than silently reinstating a third party. MUST end in `?url=`, `&url=` (a keyed proxy) or `?` (auto-rewritten). An unusable value is skipped rather than fatal and is reported in the sign-in card. ARCHITECTURE.md §10.2.1 has the threat model. |
+| `VITE_GITHUB_CLIENT_ID` | Optional. Same Client ID as `PXL_APP_CLIENT_ID`, baked in at SPA build time. `frontend/src/lib/config.js` falls back to the built-in id, so the PXL deployment does not set it; **a fork running its own App does need it.** |
 
 #### 1.3.1 Invitation signing keypair
 
@@ -146,12 +152,14 @@ A leftover means one of these:
 
 3. **A run died between the dispatch and the cleanup.**
 
-In every case: delete the listed issues, then republish with `regenerate_invite: true`. Redaction is not enough on its own - a rename is still visible in the issue timeline, so a token that was exposed has to be retired, not just hidden.
+In every case, delete the listed issues with your own account (the commands above). **What you do next depends on the assignment's invitation format, and getting it wrong is destructive:**
 
-```bash
-gh issue list --repo <org>/broker-<assignment-id> --state all --search 'in:title pxl-accept' --json number,title
-gh issue delete --repo <org>/broker-<assignment-id> <number> --yes
-```
+| Assignment | Sweep says | Then |
+|---|---|---|
+| Signed (`invite_key`) | **warn** | **Stop. Do not regenerate.** The titles are signatures naming one account, so nothing is exposed and regenerating would retire every student's link to fix nothing. |
+| Legacy (`invite_token` only) | **fail** | Republish with `regenerate_invite: true`. The title *is* the credential, and redaction is not enough on its own - a rename is still visible in the issue timeline, so an exposed token has to be retired rather than hidden. |
+
+This is the same split `lib/diagnostics.mjs` applies when it raises the finding, and its message says which case you are in.
 
 #### 1.3.2a Migrating an assignment to signed acceptance
 
@@ -207,7 +215,7 @@ with `ruleset.json` containing target `branch`, enforcement `active`, rule `crea
 
 ### 1.4 Install the App on the hub's owning org, scoped narrowly
 
-The broker workflows mint tokens against this installation to dispatch into the hub. Scope it tightly.
+This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf - Publish, Retry acceptance, and the six others the Admin Panel triggers with the lecturer's own user-to-server token. It is **not** what brokers mint against: they use the separate Broker App (§1.10). Scope it tightly.
 
 1. App settings page -> **Install App** -> choose `PXL-Digital-Application-Samples`.
 2. **Only select repositories** -> tick `pxl-classroom` only.
@@ -413,7 +421,7 @@ Done by a system administrator together with the organization owner.
 
 Repository access **must** be "All repositories" - "Only select repositories" makes provisioning fail once students accept.
 
-The manifest at `/setup` declares Organization **Administration: Read**, but the manifest only applies at App *creation*. If the App predates that manifest entry it does not hold the permission, and no installation - however fresh - can receive it. Confirm before onboarding:
+The manifest at `/setup` declares Organization **Administration**, but the manifest only applies at App *creation*. If the App predates that manifest entry it does not hold the permission, and no installation - however fresh - can receive it. Confirm before onboarding:
 
 ```bash
 gh api apps/pxl-classroom-provisioner --jq .permissions
@@ -529,9 +537,9 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}` |
 | Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
-| Who may accept | **`enforced` by default** - only logins in `students/roster.yml`. The form shows the live count underneath and links to the **Roster** tab: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. Switch to `open` only for a cohort you do not know up front, e.g. an exam - it removes the roster gate entirely and then requires a cap (§12.4). |
-| Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open` (§12.4). |
-| Lock down student repos at the deadline | default on |
+| Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** tab: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
+| Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open`, which is the default (§12.4). |
+| Lock down student repos at the deadline | **Off by default**, and opt-in on purpose: demoting to `pull` takes Actions, secrets, environments and runners away, which on these courses is the subject being taught. Preservation happens either way (§6.2b). |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §12.7) |
 | Automated checks | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos, hidden`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §12.9). |
 
@@ -585,11 +593,12 @@ If the workflow dispatch fails (typically 403 - you're not a hub collaborator, s
 
 This dispatches `publish-assignment.yml`, which:
 
+- Mints the invitation (a P-256 keypair and a nonce) and writes it to the assignment in the control repo. Republishing reuses both, so links already handed out keep working.
 - Creates `<org>/broker-<id>` (public).
 - Pushes the broker's `acceptance-trigger.yml` workflow.
-- Sets variables on the broker (`ASSIGNMENT_ID`, `CONTROL_ORG`).
+- Sets five variables on the broker: `ASSIGNMENT_ID`, `CONTROL_ORG`, `INVITE_PUBKEY`, `INVITE_NONCE`, `INVITE_ENABLED`.
 - Flips `state` from `draft` -> `published` in the control repo.
-- **Enables the nightly workflow** (`gh workflow enable daily-activity.yml`). From here on, the nightly cycle is active for your org.
+- **Enables the nightly workflow and the deadline sentinel** (`gh workflow enable daily-activity.yml`, then `deadline-sentinel.yml`). From here on the nightly cycle is active for your org, and deadlines lock at the instant rather than on the next nightly (§7.1).
 
 ### 4.4 Share the link
 
@@ -903,7 +912,7 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 
 1. App settings -> Private keys -> **Revoke** the leaked key.
 2. Generate a new key, download the PEM.
-3. Update `PXL_APP_CLIENT_ID` (unchanged) and `PXL_APP_PRIVATE_KEY` (new PEM) in the hub's repo secrets.
+3. Update `PXL_APP_PRIVATE_KEY` on the hub's **`provisioning` environment** (Settings -> Environments -> provisioning), **not** at repository level (§1.3.3). A repository-level copy is readable by every job that does not name the environment, which is the exposure the environment exists to prevent; `tests/workflow-hardening.test.mjs` fails CI when such a job appears. `PXL_APP_CLIENT_ID` does not change and stays a repository secret on purpose - a client id is not secret and already ships in the SPA bundle.
 4. No per-org change needed - installations re-mint from the new key automatically.
 5. Investigate the leak vector before re-enabling workflows.
 
@@ -915,7 +924,7 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 
 ### 9.3 Malicious acceptance burst
 
-A bot stars many brokers from many accounts.
+A bot fires many brokers from many accounts. A migrated broker triggers on an **opened issue** and verifies the signed invitation before minting anything, so an attacker without the link costs one boot on a free public runner. One published **before** signed acceptance still triggers on a **star** and verifies nothing, which makes an un-migrated assignment the cheaper target - migrating it (§1.3.2a) is the durable fix.
 
 1. Edit affected `assignments/<id>.yml` - set `state: closed`. Acceptance handler rejects new attempts on closed assignments.
 2. Optionally lower `max_acceptances` to the current accepted count.
@@ -924,7 +933,7 @@ A bot stars many brokers from many accounts.
 
 ### 9.4 Hub workflow file was modified by a fork PR
 
-If branch protection is configured (§1.5), this can't merge without admin review. If it did merge - assume compromise:
+**Branch protection is not what stops this.** §1.5 deliberately configures no PR-review and no status-check requirement - verified live: `required_pull_request_reviews` and `required_status_checks` are both null, and what is enforced is force-push and deletion blocking. What actually stands in the way is that merging needs **write access** on the hub repo, and GitHub holds workflow runs from a first-time fork contributor until someone approves them. If such a PR did merge, assume compromise:
 
 1. Revert the malicious commit.
 2. Force-rotate the App key (§9.1) on the assumption the workflow exfiltrated it.
