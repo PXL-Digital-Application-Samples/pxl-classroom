@@ -36,6 +36,13 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * It applies equally to a status line that cannot evaluate its own condition. `InvitationShare` could never report "Cap reached", because two of its three callers never passed the count - so it announced *"Live"* over a full cohort. An absent input is now **unknown**, and the copy hedges rather than asserting.
    * A page may not guess *why* it is stuck, either: the provisioning wait screen offered a repository-invitation link on a timer, with no evidence and to students who had never been sent one.
 
+6. **The UI never points a user at this repository's documentation.** *(enforced by `tests/doc-refs.test.mjs`)*
+   * `RUNBOOK.md`, `ADMIN.md` and `INSTALL.md` are written for whoever *operates* a deployment. A student who cannot sign in and a lecturer whose dashboard will not load are not that person — they cannot act on a section number, and often the procedure behind it is not theirs to run. "Run ADMIN.md §5.5 recovery" told a lecturer to `git reset --hard` a repository they may not be able to write to.
+   * The worst instance was on the **sign-in card**, which is the one sign-in surface and therefore the one a *student* meets: a misconfigured deployment answered them by naming a build-time secret and an ARCHITECTURE section.
+   * A message says **what happened and who can fix it.** If the reader genuinely needs the procedure, give the steps — the `/setup` page lists them inline, because the person reading it is the operator.
+   * Section numbers are a maintainer's index and they move; three documents' worth were renumbered in one afternoon, silently breaking four links the UI had composed by hand.
+   * **Developer comments are exempt, deliberately.** `// ARCHITECTURE §4.3.2` beside the code it constrains is how the reasoning stays attached to the code, and the guard strips comments before it looks.
+
 ---
 
 ## 2. Design Tokens

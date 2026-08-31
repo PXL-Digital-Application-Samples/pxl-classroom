@@ -44,12 +44,28 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** Numbered headings a document declares: "### 4.3.2 Signed ..." -> "4.3.2". */
+/**
+ * Numbered sections a document declares.
+ *
+ * Two shapes, because the docs use two. ARCHITECTURE, RUNBOOK, ADMIN and
+ * INSTALL number their headings ("### 4.3.2 Signed ..."). DESIGN numbers its
+ * PRINCIPLES as an ordered list under a numbered heading, and the code cites
+ * them that way - `DESIGN.md §1.2` means section 1, principle 2 - so a
+ * heading-only reader would call every one of those dangling.
+ */
 function headingsOf(file) {
   const found = new Map();
+  const add = (n) => found.set(n, (found.get(n) || 0) + 1);
+  let section = null;
   for (const line of readFileSync(join(ROOT, file), "utf8").split(/\r?\n/)) {
-    const m = /^#{1,6}\s+([0-9]+(?:\.[0-9a-z]+)*)[.)]?\s+\S/.exec(line);
-    if (m) found.set(m[1], (found.get(m[1]) || 0) + 1);
+    const h = /^#{1,6}\s+([0-9]+(?:\.[0-9a-z]+)*)[.)]?\s+\S/.exec(line);
+    if (h) {
+      add(h[1]);
+      section = h[1].includes(".") ? null : h[1];
+      continue;
+    }
+    const item = /^([0-9]+)\.\s+\*\*/.exec(line);
+    if (item && section) add(`${section}.${item[1]}`);
   }
   return found;
 }
@@ -58,8 +74,27 @@ const HEADINGS = new Map(DOCS.map((d) => [d, headingsOf(d)]));
 const ANY_HEADING = new Set([...HEADINGS.values()].flatMap((s) => [...s.keys()]));
 const FILES = walk(ROOT);
 
-// A reference, plus the document it names when it names one.
-const REF = /(ARCHITECTURE|RUNBOOK|DESIGN|INSTALL|ADMIN)?[^\n]{0,24}?§([0-9]+(?:\.[0-9a-z]+)*)/g;
+// Finding which document a reference names is done in TWO passes, not one
+// regex. A single pattern with an optional leading doc name and a gap before
+// the § is scanned left to right and matches at the earliest position that can
+// reach the §, which is usually BEFORE the doc name - so `DESIGN.md §1.2` came
+// back with no document and was checked against "does any document have a
+// §1.2". RUNBOOK had one, so it passed while pointing at the wrong file.
+const QUALIFIED = /\b(ARCHITECTURE|RUNBOOK|DESIGN|INSTALL|ADMIN|LESSONS)(?:\.md)?[ \t]+§/g;
+const ANY_REF = /§([0-9]+(?:\.[0-9a-z]+)*)/g;
+
+/** Every §-reference on a line, each tagged with the document it names. */
+function refsOn(line) {
+  const named = new Map(); // index of the "§" -> document
+  for (const m of line.matchAll(QUALIFIED)) {
+    named.set(m.index + m[0].length - 1, `${m[1]}.md`);
+  }
+  const out = [];
+  for (const m of line.matchAll(ANY_REF)) {
+    out.push({ num: m[1], doc: named.get(m.index) ?? null });
+  }
+  return out;
+}
 
 test("no document declares the same section number twice", () => {
   const dupes = [];
@@ -81,12 +116,11 @@ test("every § reference resolves to a section that exists", () => {
   for (const file of FILES) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
     readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
-      for (const m of line.matchAll(REF)) {
-        const [, doc, num] = m;
+      for (const { num, doc } of refsOn(line)) {
         let ok;
         if (doc) {
-          // Named its document: it must resolve THERE.
-          ok = HEADINGS.get(`${doc}.md`)?.has(num);
+          // Named its document: it must resolve THERE, not just somewhere.
+          ok = HEADINGS.get(doc)?.has(num);
         } else if (HEADINGS.has(rel)) {
           // Unqualified inside a numbered doc: its own space first, any second.
           ok = HEADINGS.get(rel).has(num) || ANY_HEADING.has(num);
@@ -94,7 +128,7 @@ test("every § reference resolves to a section that exists", () => {
           ok = ANY_HEADING.has(num);
         }
         if (!ok) {
-          dangling.push(`${rel}:${i + 1}  §${num}${doc ? ` (named ${doc}.md)` : ""}  -> ${line.trim().slice(0, 90)}`);
+          dangling.push(`${rel}:${i + 1}  §${num}${doc ? ` (named ${doc})` : ""}  -> ${line.trim().slice(0, 90)}`);
         }
       }
     });
@@ -153,44 +187,59 @@ test("every markdown anchor link resolves to a heading", () => {
   assert.deepEqual(dead, [], `Dead anchors render as a link that goes nowhere:\n  ${dead.join("\n  ")}`);
 });
 
-test("every doc anchor the SPA links to still resolves", () => {
-  // The app builds real links into the docs - docUrl('ADMIN.md') + '#1-...' -
-  // and those are CLICKED BY LECTURERS. They are composed at runtime from a
-  // base and a fragment, so the markdown check above cannot see them: splitting
-  // RUNBOOK.md into three files silently broke four of them at once, each
-  // landing on the top of the wrong document.
-  const anchorsByDoc = new Map();
-  for (const doc of DOCS) {
-    const set = new Set();
-    for (const line of readFileSync(join(ROOT, doc), "utf8").split(/\r?\n/)) {
-      const m = /^#{1,6}\s+(.*)$/.exec(line);
-      if (m) set.add(slug(m[1]));
-    }
-    anchorsByDoc.set(doc, set);
-  }
+// The UI never points a user at this repository's documentation.
+//
+// RUNBOOK, ADMIN and INSTALL are written for whoever operates a deployment. A
+// student who cannot sign in, or a lecturer whose dashboard will not load, is
+// not that person: they cannot act on a section number, and half the time the
+// procedure behind it is not even theirs to run. The sign-in card - the same
+// one a student uses to accept an assignment - used to answer a misconfigured
+// deployment by naming a build secret and an ARCHITECTURE section.
+//
+// So the rule is: a message says what happened and who can fix it, and if the
+// reader should go somewhere it links there. Section numbers are a maintainer's
+// index and they move; three files' worth moved in one afternoon.
+//
+// Developer comments are exempt and deliberately so - `// ARCHITECTURE §4.3.2`
+// beside the code it constrains is how the reasoning stays attached to it.
+const COMMENT_BLOCKS = [
+  /<!--[\s\S]*?-->/g, // vue template
+  /\/\*[\s\S]*?\*\//g, // js and css block
+];
 
-  const broken = [];
+/** Strip comments so what is left is roughly what a user could be shown. */
+function renderedText(source) {
+  let text = source;
+  for (const re of COMMENT_BLOCKS) text = text.replace(re, "");
+  return text
+    .split(/\r?\n/)
+    // A line comment, but not the "//" inside a URL.
+    .map((line) => line.replace(/(^|[^:])\/\/.*$/, "$1"))
+    .join("\n");
+}
+
+test("no user-facing string points at this repository's documentation", () => {
+  const DOC_NAME = /\b(?:ARCHITECTURE|RUNBOOK|ADMIN|INSTALL|DESIGN|LESSONS|OPEN-ITEMS)\.md\b/;
+  const SECTION = /§/;
+
+  const offenders = [];
   for (const file of FILES) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
-    if (!rel.startsWith("frontend/src/")) continue;
-    readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
-      // docUrl('ADMIN.md')}#1-onboarding-...  - the doc and the fragment sit on
-      // one line, which is what makes this checkable at all.
-      for (const m of line.matchAll(/docUrl\(\s*['"]([A-Za-z0-9._-]+\.md)['"]\s*\)\}#([a-z0-9][a-z0-9-]*)/g)) {
-        const [, doc, anchor] = m;
-        const set = anchorsByDoc.get(doc);
-        if (!set) {
-          broken.push(`${rel}:${i + 1}  links into ${doc}, which is not a document this test knows`);
-        } else if (!set.has(anchor)) {
-          broken.push(`${rel}:${i + 1}  ${doc}#${anchor} -> no such heading`);
-        }
+    // The SPA, plus the module that writes System Health's messages.
+    const isUi = rel.startsWith("frontend/src/") || rel === "lib/diagnostics.mjs";
+    if (!isUi) continue;
+
+    renderedText(readFileSync(file, "utf8")).split(/\r?\n/).forEach((line, i) => {
+      if (DOC_NAME.test(line) || SECTION.test(line)) {
+        offenders.push(`${rel}:${i + 1}  ${line.trim().slice(0, 110)}`);
       }
     });
   }
 
   assert.deepEqual(
-    broken,
+    offenders,
     [],
-    `A lecturer clicking these lands on the wrong page, and nothing else reports it:\n  ${broken.join("\n  ")}`,
+    "A user cannot act on a documentation reference - say what happened and who can fix it:\n  " +
+      offenders.join("\n  "),
   );
 });

@@ -88,8 +88,12 @@ const USABLE_PROXIES = PROXIES.filter((p) => p.usable)
 const corsProxyError =
   USABLE_PROXIES.length > 0
     ? null
-    : `This deployment's CORS proxy is misconfigured: VITE_CORS_PROXY_URL must end in "?url=", ` +
-      `"&url=" or "?" so the target can be appended. See ARCHITECTURE.md §10.2.`
+    : // A STUDENT reaches this. AuthCard is the one sign-in surface, so the
+      // same sentence greets someone trying to accept an assignment - naming a
+      // build secret and a document section tells them nothing they can act on
+      // and reads as their fault. Say what is true and who can fix it.
+      `Sign-in is not set up correctly for this deployment, so nobody can sign in right now. ` +
+      `This needs a PXL Classroom administrator - please let your lecturer know.`
 
 // Targets, not proxied URLs - proxiedPost() appends them to whichever proxy it
 // is trying.

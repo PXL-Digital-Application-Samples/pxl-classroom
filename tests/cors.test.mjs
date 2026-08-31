@@ -70,8 +70,23 @@ test("a bad VITE_CORS_PROXY_URL fails at sign-in, NOT at import", async () => {
 
   await assert.rejects(
     () => mod.startDeviceFlow("Iv23liEXAMPLE"),
-    /CORS proxy is misconfigured/,
-    "signing in must report the configuration problem in words",
+    (err) => {
+      // Two properties, and the wording is free to change between them.
+      assert.match(
+        err.message,
+        /sign[- ]in/i,
+        "signing in must report the configuration problem in words",
+      );
+      // AuthCard is the ONE sign-in surface, so a student meets this sentence
+      // on their way to accepting an assignment. It may not answer them with a
+      // build secret or a document section - DESIGN.md §1.6.
+      assert.doesNotMatch(
+        err.message,
+        /VITE_|§|\b[A-Z]+\.md\b/,
+        "a student cannot act on a secret name or a doc reference",
+      );
+      return true;
+    },
   );
 });
 

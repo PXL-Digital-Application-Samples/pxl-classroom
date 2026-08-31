@@ -910,7 +910,7 @@ async function loadDashboard(orgArg) {
   } catch (e) {
     console.error('Failed to load dashboard:', e)
     if (e instanceof SyntaxError) {
-      dashError.value = `Dashboard data is corrupted (JSON parse error). Run ADMIN.md §5.5 recovery.`
+      dashError.value = `Dashboard data is corrupted (JSON parse error). Recovering it means restoring the control repository from its own history, which is a hub administrator's job - your assignments and student repositories are unaffected.`
     } else {
       dashError.value = `Failed to load dashboard: ${e.message || String(e)}`
     }

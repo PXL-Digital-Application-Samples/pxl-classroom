@@ -2925,7 +2925,7 @@ async function syncGradesFromGitHub() {
     if (permissionDenied) {
       toast.error(
         'GitHub refused to show CI results: the PXL Classroom App needs the "Checks" permission (read), ' +
-          'and this organization has to approve it before scores can be read. Nothing was saved. See ADMIN.md §3.1.',
+          'and an owner of this organization has to approve it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
       )
       syncingGrades.value = false
       return

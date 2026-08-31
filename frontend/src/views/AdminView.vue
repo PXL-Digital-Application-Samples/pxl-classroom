@@ -76,7 +76,6 @@
             There is no <code>{{ org }}/pxl-classroom-control</code> repository (or you can't see it).
             A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow.
           </p>
-          <a :href="`${docUrl('ADMIN.md')}#1-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener" class="btn btn-sm">Read ADMIN.md §1</a>
         </div>
         <div v-else-if="assignmentsError" class="list-empty error-state-box" style="padding: var(--space-md); border: 1px dashed var(--accent-red); border-radius: var(--radius-md); text-align: center;">
           <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load assignments</h4>
@@ -1136,11 +1135,6 @@ function onTabKeydown(e) {
 const assignments = ref([])
 const loadingList = ref(true)
 const assignmentsError = ref(null)
-// Which document a procedure lives in is not fixed - the operational docs are
-// split by audience and sections move between them - so the file is a parameter
-// rather than baked into one constant. tests/doc-refs.test.mjs checks that every
-// anchor used here still resolves.
-const docUrl = (file) => `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/${file}`
 const templates = ref([])
 const loadingTemplates = ref(false)
 const templatesError = ref(null)

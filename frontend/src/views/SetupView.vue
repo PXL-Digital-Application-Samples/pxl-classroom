@@ -55,7 +55,12 @@
           </ul>
         </li>
         <li>Re-run the <code>deploy-frontend.yml</code> workflow so the SPA rebuilds with the client ID.</li>
-        <li>Install the App per <a :href="`${docUrl('INSTALL.md')}#4-install-the-app-on-the-hubs-owning-org-scoped-narrowly`" target="_blank" rel="noopener">INSTALL.md §4</a> (hub org, <em>only</em> the hub repo) and <a :href="`${docUrl('ADMIN.md')}#11-install-the-central-github-app-on-the-new-org`" target="_blank" rel="noopener">ADMIN.md §1.1</a> (each participating org, all repositories).</li>
+        <li>
+          Install the App twice, with different scopes. On the <strong>hub organization</strong>, choose
+          <em>Only select repositories</em> and tick the hub repository alone — it needs nothing else there.
+          On <strong>each participating organization</strong>, choose <em>All repositories</em>, or provisioning
+          fails the moment a student accepts.
+        </li>
       </ol>
 
       <!-- Verify App Installation & Permissions -->
@@ -174,9 +179,16 @@
         <ol class="steps">
           <li>GitHub shows a confirmation page - click <strong>Create GitHub App for …</strong>.</li>
           <li>You are redirected back here; this page exchanges the one-time code and shows the App ID, Client ID, and private key.</li>
-          <li>You store the hub secrets (<code>PXL_APP_CLIENT_ID</code>, <code>PXL_APP_PRIVATE_KEY</code>, <code>VITE_GITHUB_CLIENT_ID</code>, <code>PXL_INVITE_SIGNING_KEY</code>) and re-run <code>deploy-frontend.yml</code>.</li>
+          <li>
+            You store the credentials. <strong>Where each one goes is part of its protection:</strong>
+            <code>PXL_APP_PRIVATE_KEY</code> and <code>PXL_INVITE_SIGNING_KEY</code> are
+            <strong>environment</strong> secrets on the hub's <code>provisioning</code> environment, with no
+            repository-level copy — a job that does not name that environment then cannot read them at all.
+            <code>PXL_APP_CLIENT_ID</code> is a repository secret, deliberately: a client id is not secret and
+            already ships in this page's bundle.
+          </li>
+          <li>You re-run <code>deploy-frontend.yml</code>, because these values are baked into the bundle at build time.</li>
         </ol>
-        <p class="text-secondary">Full procedure: <a :href="`${docUrl('INSTALL.md')}#2-create-the-central-github-app`" target="_blank" rel="noopener">INSTALL.md §2–§4</a>.</p>
       </details>
     </div>
     </div>
@@ -217,10 +229,6 @@ const verifyError = ref('')
 let verifyAbort = null
 
 const hubFullName = `${config.hubOwner}/${config.hubRepo}`
-// The file is a parameter: the operational docs are split by audience, and
-// installation, administration and lecturer procedures live in different ones.
-// tests/doc-refs.test.mjs checks that every anchor used here still resolves.
-const docUrl = (file) => `https://github.com/${config.hubOwner}/${config.hubRepo}/blob/main/${file}`
 
 // The URL where the frontend is hosted (used for homepage and redirect)
 const hostUrl = computed(() => window.location.origin + import.meta.env.BASE_URL)

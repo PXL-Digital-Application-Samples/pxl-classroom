@@ -65,6 +65,7 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **A guard whose anchor was renamed checks nothing, silently.** `indexOf` returns -1 and `slice(-1)` still returns a string, so an absence assertion passes vacuously.
 - **A mock that accepts anything tests nothing.** Fixtures validate what the app writes against the real schema.
 - **Never describe behaviour the system does not have.** A control that promises a queue, a retry or a guarantee nobody implemented is worse than no control.
+- **The UI never points a user at the repo's documentation** (DESIGN.md §1.6, `tests/doc-refs.test.mjs`). The runbooks are for whoever operates a deployment; a student who cannot sign in is not that person. Say what happened and who can fix it. Comments are exempt — that is where a `§` reference belongs.
 - **Dry-run is sacred.** Every CLI `--dry-run` has zero side effects — no writes, no PRs, no commits.
 - **Generated YAML is serialised, never concatenated.** Build an object, hand it to the `yaml` library.
 - **No inline `node -e` in workflow YAML.** Extract to `scripts/`.
