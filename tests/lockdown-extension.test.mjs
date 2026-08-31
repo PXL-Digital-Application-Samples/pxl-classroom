@@ -312,7 +312,7 @@ test("a team-mate's extension defers the whole team repository", async () => {
 test("an extension granted AFTER lockdown does not discard the recorded submission", async () => {
   // The freeze rule and the deferral rule meet here, and the freeze has to win.
   // alice was locked down and her submission recorded; a lecturer then grants
-  // her an extension - too late, and RUNBOOK §6.2a says so. If the retry defers
+  // her an extension - too late, and RUNBOOK.md §3.3 says so. If the retry defers
   // her, her result row is rewritten with snapshot_sha: null and the on-time
   // submission disappears from the record, which is exactly what
   // freeze-on-retry exists to prevent.

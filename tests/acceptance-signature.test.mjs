@@ -581,7 +581,7 @@ test("a title that is only a hint is refused", async () => {
 test("a signature for another assignment is named, not called a bad signature", async () => {
   // With a per-assignment keypair this cannot happen by attack - a foreign
   // signature does not verify at all. It happens when a broker holds the wrong
-  // INVITE_PUBKEY, which INSTALL.md §1.3.2a calls out as a real deployment fault,
+  // INVITE_PUBKEY, which INSTALL.md §3.3 calls out as a real deployment fault,
   // and the two need different messages.
   const { privateKey, publicKey } = await keypair();
   const t = await signAcceptanceTitle({

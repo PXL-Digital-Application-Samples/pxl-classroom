@@ -18,7 +18,7 @@ Command groups:
 | `grade` | Run autograde tests against preserved SHAs (docker/host) |
 | `teams seed \| unseed \| list \| sources` | Carry an existing grouping into a group assignment |
 
-See RUNBOOK §12 for per-command how-tos.
+See RUNBOOK.md §6 for per-command how-tos.
 
 ## Install
 

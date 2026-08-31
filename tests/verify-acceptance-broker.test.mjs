@@ -132,7 +132,7 @@ test("the longest team slug a broker will parse still verifies", async () => {
 });
 
 test("a broker holding the wrong assignment says so", async () => {
-  // A mismatched INVITE_PUBKEY is a real deployment fault (INSTALL.md §1.3.2a), and
+  // A mismatched INVITE_PUBKEY is a real deployment fault (INSTALL.md §3.3), and
   // "bad-signature" would send a lecturer looking for a forged link instead.
   const { keys, title } = await signedFixture();
   const res = run({

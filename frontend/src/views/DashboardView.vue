@@ -189,7 +189,7 @@
       <!-- No assignments - say WHY, each cause has a different remedy -->
       <div v-else-if="assignments.length === 0" class="center-card fade-in">
         <template v-if="dashState === 'no-control-repo'">
-          <!-- Was a dead end pointing at ADMIN.md §2. The org is already in the
+          <!-- Was a dead end pointing at ADMIN.md §1. The org is already in the
                switcher, so the App IS installed - only the control repo is
                missing, and whether the lecturer can create it themselves
                depends on their hub access. -->
@@ -864,7 +864,7 @@ async function loadDashboard(orgArg) {
         dashState.value = 'no-control-repo'
         orgStatusMap.value.set(org.toLowerCase(), 'empty')
         // Setup Organization is a workflow_dispatch on the HUB, which needs
-        // write there (ADMIN.md §2.4). A lecturer who has just been made an org
+        // write there (ADMIN.md §1.4). A lecturer who has just been made an org
         // owner usually does not have it yet, so find out before offering a
         // button that would only 403.
         try {
@@ -910,7 +910,7 @@ async function loadDashboard(orgArg) {
   } catch (e) {
     console.error('Failed to load dashboard:', e)
     if (e instanceof SyntaxError) {
-      dashError.value = `Dashboard data is corrupted (JSON parse error). Run ADMIN.md §9.5 recovery.`
+      dashError.value = `Dashboard data is corrupted (JSON parse error). Run ADMIN.md §5.5 recovery.`
     } else {
       dashError.value = `Failed to load dashboard: ${e.message || String(e)}`
     }

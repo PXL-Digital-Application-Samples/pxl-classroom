@@ -75,7 +75,7 @@ async function openEditor(page, { asgn = assignment(), extra = {} } = {}) {
   await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
 }
 
-// ============================================================ §7.1 the layout
+// ============================================================ the layout
 
 test.describe('37 - The published editor leads with the cohort', () => {
   test('Share and cohort come first; the settings are behind a disclosure', async ({ page }) => {
@@ -212,7 +212,7 @@ test.describe('37 - The cohort card never invents a number', () => {
   });
 });
 
-// ======================================================= §7.1 the disclosure
+// ======================================================= the disclosure
 
 test.describe('37 - A validation problem cannot hide behind the disclosure', () => {
   test('An assignment that loads broken opens expanded, and says how many', async ({ page }) => {
@@ -262,7 +262,7 @@ test.describe('37 - A validation problem cannot hide behind the disclosure', () 
   });
 });
 
-// ============================================= §7.2 operations leave the form
+// ============================================= operations leave the form
 
 test.describe('37 - Per-student operations live on the student', () => {
   test('The editor no longer asks for a login it cannot check', async ({ page }) => {
@@ -307,7 +307,7 @@ test.describe('37 - Per-student operations live on the student', () => {
   });
 });
 
-// ======================================================== §7.1 the lifecycle
+// ======================================================== the lifecycle
 
 test.describe('37 - Lifecycle groups repair above state', () => {
   test('Repair is its own group, above the transitions', async ({ page }) => {

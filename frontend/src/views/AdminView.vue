@@ -76,7 +76,7 @@
             There is no <code>{{ org }}/pxl-classroom-control</code> repository (or you can't see it).
             A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow.
           </p>
-          <a :href="`${runbookUrl}#2-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener" class="btn btn-sm">Read ADMIN.md §2</a>
+          <a :href="`${runbookUrl}#2-onboarding-a-new-organization-per-org`" target="_blank" rel="noopener" class="btn btn-sm">Read ADMIN.md §1</a>
         </div>
         <div v-else-if="assignmentsError" class="list-empty error-state-box" style="padding: var(--space-md); border: 1px dashed var(--accent-red); border-radius: var(--radius-md); text-align: center;">
           <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load assignments</h4>

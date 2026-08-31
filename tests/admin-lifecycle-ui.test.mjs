@@ -379,7 +379,7 @@ test("opening an assignment for edit loads its invitation", () => {
 });
 
 // -----------------------------------------------------------------------------
-// 6. The form's own defaults (ARCHITECTURE §5.4, §3.3)
+// 6. The form's own defaults (ARCHITECTURE §5.4)
 // -----------------------------------------------------------------------------
 
 // Only emptyForm() - the defaults for a NEW assignment. Slicing to the closing

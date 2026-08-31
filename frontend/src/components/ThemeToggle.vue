@@ -10,7 +10,7 @@
     <span class="sr-only">{{ current.label }}</span>
   </button>
 </template>
-<!-- Sizing comes from the global .btn-icon (DESIGN.md §3.3). -->
+<!-- Sizing comes from the global .btn-icon (DESIGN.md §3). -->
 
 <script setup>
 import { computed } from 'vue'

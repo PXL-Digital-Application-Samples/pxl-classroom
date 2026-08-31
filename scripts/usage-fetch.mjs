@@ -121,7 +121,7 @@ for (const ym of monthsToFetch) {
       console.error(
         `[skip] ${ORG}: billing usage unavailable (${err.message.slice(0, 120)}).\n` +
         `       Grant the App "Organization Administration: read", have an org owner ` +
-        `approve the update, and verify Enhanced Billing access - ADMIN.md §10.6. Skipping the usage report.`,
+        `approve the update, and verify Enhanced Billing access - ADMIN.md §6.6. Skipping the usage report.`,
       );
       process.exit(0);
     }

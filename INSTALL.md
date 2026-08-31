@@ -4,27 +4,26 @@
 
 > [!CAUTION]
 > If the central hub (`PXL-Digital-Application-Samples/pxl-classroom`) and its GitHub Apps already exist, **you do not need this file at all**.
-> - Adding a course or academic-year organization → [ADMIN.md §2](ADMIN.md#2-onboarding-a-new-organization-per-org). PXL Classroom is multi-tenant: one hub and one App set serve every organization, and a new org needs no frontend and no new App.
+> - Adding a course or academic-year organization → [ADMIN.md §1](ADMIN.md#1-onboarding-a-new-organization-per-org). PXL Classroom is multi-tenant: one hub and one App set serve every organization, and a new org needs no frontend and no new App.
 > - Running assignments as a lecturer → [RUNBOOK.md](RUNBOOK.md).
 
-The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initialize it. Run in order; §1.3 depends on §1.2, and §1.10 blocks publishing until it is done.
+The hub is `PXL-Digital-Application-Samples/pxl-classroom`. These steps initialize it. Run in order; §3 depends on §2, and §10 blocks publishing until it is done.
 
 Why any of it is shaped this way → [ARCHITECTURE.md](ARCHITECTURE.md). What broke to make a rule exist → [LESSONS.md](LESSONS.md).
 
 ---
 
-## 1. First-time system setup
 
-### 1.1 Enable Pages
+## 1. Enable Pages
 
 1. `pxl-classroom` → Settings → Pages → Build and deployment → Source: **GitHub Actions**.
    > [!NOTE]
    > GitHub shows "Suggested workflows" under this setting. Do **not** click Configure — the repository already has `.github/workflows/deploy-frontend.yml`.
 2. Actions → **Deploy frontend to Pages** → **Run workflow** (branch `main`).
    > [!NOTE]
-   > Running this before the secrets in §1.3 exist is safe and expected. `scripts/fetch-pages-data.mjs` detects that credentials are not configured, logs a notice, and exits cleanly with an empty index — which deploys the frontend shell and makes `/setup` reachable.
+   > Running this before the secrets in §3 exist is safe and expected. `scripts/fetch-pages-data.mjs` detects that credentials are not configured, logs a notice, and exits cleanly with an empty index — which deploys the frontend shell and makes `/setup` reachable.
 
-### 1.2 Create the central GitHub App
+## 2. Create the central GitHub App
 
 1. Open the Pages site at `https://<pages-host>/pxl-classroom/setup`.
 2. Enter the owning **organization** — leaving it empty registers the App under your personal account — and click **Create GitHub App**.
@@ -39,34 +38,34 @@ Why any of it is shaped this way → [ARCHITECTURE.md](ARCHITECTURE.md). What br
    > [!NOTE]
    > **App names are globally unique across GitHub.com and capped at 34 characters.** The manifest generates a scoped name (`PXL Classroom (<org>)`). On "Name already taken", type any unique name up to 34 characters and create it.
 
-   GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the **App ID**, **Client ID** (`Iv…`) and a **Download .pem** button. These appear **once** — store them per §1.3 immediately. If the exchange fails (the code is single-use and expires after an hour) the App still exists: take the IDs from the App settings page under "About" and use **Generate a private key** there.
+   GitHub redirects back to `/setup`, which exchanges the one-time manifest code and shows the **App ID**, **Client ID** (`Iv…`) and a **Download .pem** button. These appear **once** — store them per §3 immediately. If the exchange fails (the code is single-use and expires after an hour) the App still exists: take the IDs from the App settings page under "About" and use **Generate a private key** there.
 
 4. **Account permissions are not in the manifest** and must be set by hand on the App settings page before installing anywhere:
    - Account → **Email addresses: Read**. The only account permission this App needs, and **required by the claim flow**. A student confirms one of their own GitHub-*verified* addresses, which is a user-to-server read of `/user/emails`; an installation token cannot do it at all, and without the declaration the SPA's user token is not scoped for it either. No organization owner approves account permissions — you set it alone.
    - `GET /apps/{slug}` reports this as `emails`, not `email_addresses`. The settings toggle and the API disagree, and only the API spelling matters to the checks.
 
-### 1.3 Set hub secrets
+## 3. Set hub secrets
 
-**Where a secret lives is part of its protection, so the two tables are separate.** Every private key is an **environment** secret on `provisioning` with **no repository-level copy**: a job that does not declare `environment: provisioning` cannot read one at all, which is half of what closes the branch-ref path (§1.3.3, [ARCHITECTURE §4.3.4](ARCHITECTURE.md)). Putting one at repository level hands it to every job that does not name the environment, and `tests/workflow-hardening.test.mjs` fails CI when such a job appears.
+**Where a secret lives is part of its protection, so the two tables are separate.** Every private key is an **environment** secret on `provisioning` with **no repository-level copy**: a job that does not declare `environment: provisioning` cannot read one at all, which is half of what closes the branch-ref path (§3.4, [ARCHITECTURE §4.3.4](ARCHITECTURE.md)). Putting one at repository level hands it to every job that does not name the environment, and `tests/workflow-hardening.test.mjs` fails CI when such a job appears.
 
-**Environment secrets** — Settings → Environments → `provisioning` → Add secret. Create the environment first (§1.3.3):
+**Environment secrets** — Settings → Environments → `provisioning` → Add secret. Create the environment first (§3.4):
 
 | Secret | Value |
 |---|---|
-| `PXL_APP_PRIVATE_KEY` | Full PEM body from §1.2, BEGIN/END lines included. |
-| `PXL_INVITE_SIGNING_KEY` | Ed25519 private key that signs invitation tokens (§1.3.1). `publish-assignment.yml` fails closed without it. |
-| `PXL_CLAIM_PRIVATE_KEY` | ECDH P-256 private key that decrypts a student's claimed email address (§1.3.2). This decrypts every student's institutional address, so it is the most sensitive value in the system after the App key. |
-| `PXL_BROKER_CLIENT_ID` / `PXL_BROKER_PRIVATE_KEY` | The **broker** App's credential. Written by `scripts/create-broker-app.mjs`, not by hand — §1.10. |
+| `PXL_APP_PRIVATE_KEY` | Full PEM body from §2, BEGIN/END lines included. |
+| `PXL_INVITE_SIGNING_KEY` | Ed25519 private key that signs invitation tokens (§3.1). `publish-assignment.yml` fails closed without it. |
+| `PXL_CLAIM_PRIVATE_KEY` | ECDH P-256 private key that decrypts a student's claimed email address (§3.2). This decrypts every student's institutional address, so it is the most sensitive value in the system after the App key. |
+| `PXL_BROKER_CLIENT_ID` / `PXL_BROKER_PRIVATE_KEY` | The **broker** App's credential. Written by `scripts/create-broker-app.mjs`, not by hand — §10. |
 
 **Repository secrets** — Settings → Secrets and variables → Actions. Neither is a private key:
 
 | Secret | Value |
 |---|---|
-| `PXL_APP_CLIENT_ID` | Client ID from §1.2 (the `Iv…` string). Required by `actions/create-github-app-token`; the older `app-id` input is deprecated. Deliberately repository-level: a client id is not secret and already ships in the SPA bundle. |
-| `VITE_CORS_PROXY_URL` | Optional. The **secondary** device-flow proxy, reached only when the PXL Worker is unreachable. The **primary** is `device_flow_proxy` in `deployment.yml` and is deliberately not a secret (§1.9). There is deliberately **no default**, so leaving it unset means one proxy rather than silently reinstating a third party. MUST end in `?url=`, `&url=` (a keyed proxy) or `?` (auto-rewritten). An unusable value is skipped rather than fatal and is reported in the sign-in card. |
+| `PXL_APP_CLIENT_ID` | Client ID from §2 (the `Iv…` string). Required by `actions/create-github-app-token`; the older `app-id` input is deprecated. Deliberately repository-level: a client id is not secret and already ships in the SPA bundle. |
+| `VITE_CORS_PROXY_URL` | Optional. The **secondary** device-flow proxy, reached only when the PXL Worker is unreachable. The **primary** is `device_flow_proxy` in `deployment.yml` and is deliberately not a secret (§9). There is deliberately **no default**, so leaving it unset means one proxy rather than silently reinstating a third party. MUST end in `?url=`, `&url=` (a keyed proxy) or `?` (auto-rewritten). An unusable value is skipped rather than fatal and is reported in the sign-in card. |
 | `VITE_GITHUB_CLIENT_ID` | Optional. Same Client ID as `PXL_APP_CLIENT_ID`, baked in at SPA build time. `frontend/src/lib/config.js` falls back to the built-in id, so the PXL deployment does not set it; **a fork running its own App does need it.** |
 
-#### 1.3.1 Invitation signing keypair
+### 3.1 Invitation signing keypair
 
 Acceptance is triggered by a public event on a public repository, so anyone can fire a broker. The signed invitation token is what makes an unauthorized trigger cost nothing: the broker verifies it before minting an App token ([ARCHITECTURE §4.3.2](ARCHITECTURE.md)).
 
@@ -90,7 +89,7 @@ node scripts/generate-invite-keypair.mjs 1
 
 Retiring one assignment's links is a lecturer action and does not need the key — [RUNBOOK.md](RUNBOOK.md).
 
-#### 1.3.2 Claim keypair
+### 3.2 Claim keypair
 
 The claim binds a GitHub account to an institutional email address ([ARCHITECTURE §15.1](ARCHITECTURE.md)). The student's browser seals the address to the hub's **public** key, so only ciphertext travels over the public acceptance event; the hub decrypts it with the **private** half.
 
@@ -117,7 +116,7 @@ node scripts/generate-claim-keypair.mjs 1
 
 **What rotation does and does not buy.** Sealed claims sit in public GitHub issue bodies, which GH Archive mirrors permanently. There is no forward secrecy and there cannot be: a static page sealing to a long-lived recipient key has nothing to derive one from. Whoever holds a private key can decrypt every claim ever sealed to it, retroactively, for ever. Rotation bounds the *window* one leaked key exposes; it does not undo it. Treat every retired key as still sensitive, and delete it from the secret when you no longer need it rather than when it stops being used.
 
-#### 1.3.2a Migrating an assignment to signed acceptance
+### 3.3 Migrating an assignment to signed acceptance
 
 Only applies to a deployment carrying assignments published **before** signed acceptance shipped. There is one republish per such assignment that **cannot** keep its links alive, and it is not optional.
 
@@ -139,7 +138,7 @@ It also catches the more dangerous inverse: a broker holding `INVITE_PUBKEY` for
 
 **Do not** hand-edit `invite_key` or `invite_pubkey` in a control repo. They are one pair; changing either half alone locks the cohort out.
 
-#### 1.3.3 The `provisioning` environment
+### 3.4 The `provisioning` environment
 
 Every hub job holding a private key declares `environment: provisioning`. That environment allows deployments from `main` only, and a job naming an environment does not start when the run's ref falls outside the policy — which is what stops a `workflow_dispatch --ref <other-branch>` from running hub code with a credential in scope ([ARCHITECTURE §4.3.4](ARCHITECTURE.md)).
 
@@ -171,9 +170,9 @@ Confirm it:
 gh api repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets --jq '.[] | "\(.name) \(.enforcement)"'
 ```
 
-### 1.4 Install the App on the hub's owning org, scoped narrowly
+## 4. Install the App on the hub's owning org, scoped narrowly
 
-This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf — Publish, Retry acceptance and the six others the Admin Panel triggers with the lecturer's own user-to-server token. It is **not** what brokers mint against: they use the separate Broker App (§1.10). Scope it tightly.
+This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf — Publish, Retry acceptance and the six others the Admin Panel triggers with the lecturer's own user-to-server token. It is **not** what brokers mint against: they use the separate Broker App (§10). Scope it tightly.
 
 1. App settings page → **Install App** → choose `PXL-Digital-Application-Samples`.
 2. **Only select repositories** → tick `pxl-classroom` only.
@@ -181,7 +180,7 @@ This installation is what lets the **SPA** dispatch hub workflows on a lecturer'
 
 Verify with an App-level JWT: `gh api /app/installations` should show `repository_selection: selected` and `repositories: [pxl-classroom]`.
 
-### 1.5 Branch protection on `main`
+## 5. Branch protection on `main`
 
 `pxl-classroom` is public and its workflows are the highest-value target. The repository is maintained by **direct pushes to `main`** (no pull requests), so PR-review and required-status-check rules are deliberately **not** used — a required status check rejects any direct push, because the pushed commit cannot have a passing check yet. CI still runs on every push and fails loudly.
 
@@ -193,11 +192,11 @@ printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_requ
   gh api -X PUT repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection --input -
 ```
 
-### 1.6 Protection on the `participating-orgs` branch
+## 6. Protection on the `participating-orgs` branch
 
 This branch is the registry of participating orgs, and `setup-org.yml` commits to it directly from automation, so it must accept plain pushes. Apply the same rule as `main` — force-push and deletion blocking only, same API call with `participating-orgs` in place of `main`.
 
-### 1.7 Verify
+## 7. Verify
 
 ```bash
 # Hub is public, Pages is live
@@ -208,11 +207,11 @@ gh api /app
 gh api /app/installations
 ```
 
-### 1.8 SPA directory structure
+## 8. SPA directory structure
 
 Do not move `frontend/` to a subdirectory without updating `frontend/vite.config.js`'s `server.fs.allow` — `lib/dashboard-aggregate.mjs` is imported from outside the SPA root.
 
-### 1.9 Device-flow CORS proxy
+## 9. Device-flow CORS proxy
 
 `github.com/login/device/code` and `github.com/login/oauth/access_token` send **no CORS headers at all**, and GitHub's OAuth documentation states that "CORS pre-flight requests (OPTIONS) are not supported at this time". A browser therefore cannot call them directly. The proxy is **structural and permanent**, not a workaround. `api.github.com` is CORS-friendly and is called directly, so **only sign-in depends on this**.
 
@@ -248,7 +247,7 @@ A `device_code` comes back, unused, expiring in 15 minutes; nothing needs cleani
 
 Two more things that only show up when you actually run it. **In a browser a proxy's 401 never arrives as a 401** — an error response carrying no CORS headers is blocked from being read, so the SPA sees a network error and fails over through the catch path rather than through its response check. And **a cached bundle keeps the old proxy list**, so a tab still holding the previous `index-*.js` goes on using the old primary, which reads exactly like a failed rollback. Confirm any proxy change against a **cache-busted** load (`/?cb=<something>`) and check which `index-*.js` the page actually fetched.
 
-### 1.10 The broker dispatch App
+## 10. The broker dispatch App
 
 > [!CAUTION]
 > **Publishing is blocked until this exists.** That is deliberate. The only alternative is putting the provisioning App's own private key on a public repository — see [ARCHITECTURE §4.3.0](ARCHITECTURE.md) for why that is not an option.
@@ -303,4 +302,4 @@ Only `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` should appear. A broker
 
 ---
 
-The system is now ready to onboard its first organization → [ADMIN.md §2](ADMIN.md#2-onboarding-a-new-organization-per-org).
+The system is now ready to onboard its first organization → [ADMIN.md §1](ADMIN.md#1-onboarding-a-new-organization-per-org).

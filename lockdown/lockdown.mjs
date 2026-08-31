@@ -223,7 +223,7 @@ async function readSentinelStop() {
  * overrides say. Their submission has been taken; deferring them would rewrite
  * that result row with `snapshot_sha: null` and lose it, which is precisely what
  * freeze-on-retry exists to prevent. An extension granted after lockdown is too
- * late to un-take a submission - RUNBOOK §6.2a says so, and says what to do
+ * late to un-take a submission - RUNBOOK.md §3.3 says so, and says what to do
  * instead.
  */
 function planTargets(assignment, records, overrides, priorByLogin = new Map(), now = new Date()) {

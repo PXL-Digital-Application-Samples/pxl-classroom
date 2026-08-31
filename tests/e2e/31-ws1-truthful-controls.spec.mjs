@@ -1,5 +1,5 @@
 // 31 - WS1: the controls stop claiming things that are not true
-// (ARCHITECTURE §5.4, §3.3, §3.4, §3.5)
+// (ARCHITECTURE §5.4)
 //
 // These run edge to edge rather than against the component alone: the lecturer
 // fills the real form, the SPA commits real YAML through the Contents API, and
@@ -179,9 +179,9 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
   });
 });
 
-// ======================================================= §3.3 acceptance_mode
+// ======================================================= acceptance_mode
 
-test.describe('31 - §3.3 Acceptance mode is not a question, and not deleted either', () => {
+test.describe('31 - Acceptance mode is not a question, and not deleted either', () => {
   test('Advanced keeps every other control and drops only this one', async ({ page }) => {
     await openNewAssignmentForm(page);
     await advanced(page).locator('summary').click();
@@ -209,9 +209,9 @@ test.describe('31 - §3.3 Acceptance mode is not a question, and not deleted eit
   });
 });
 
-// ======================================================== §3.4 python autograde
+// ======================================================== python autograde
 
-test.describe('31 - §3.4 A python test means one thing, from the form to the workflow', () => {
+test.describe('31 - A python test means one thing, from the form to the workflow', () => {
   // The checks live in a modal now (ARCHITECTURE §11.6). A python preset arrives with
   // a working script, so an EMPTY one has to be made by clearing it.
   async function addPythonTest(page, { id, script, index = 0 }) {
@@ -372,9 +372,9 @@ test.describe('31 - §3.4 A python test means one thing, from the form to the wo
   });
 });
 
-// ========================================================== §3.5 draft count
+// ========================================================== draft count
 
-test.describe('31 - §3.5 The draft count reads state, and copes with what it cannot read', () => {
+test.describe('31 - The draft count reads state, and copes with what it cannot read', () => {
   const asgn = (id, over = {}) => ({
     id,
     title: id,

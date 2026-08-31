@@ -78,7 +78,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     }
   });
 
-  // ARCHITECTURE §5.4 / §3.3, on the rendered form rather than the source.
+  // ARCHITECTURE §5.4, on the rendered form rather than the source.
   test('A new assignment opens on open enrolment, and asks nothing about acceptance mode', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });

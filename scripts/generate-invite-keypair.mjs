@@ -8,7 +8,7 @@
 // forged token without holding anything worth stealing.
 //
 // Usage: node scripts/generate-invite-keypair.mjs [kid]
-// See INSTALL.md §1.3.
+// See INSTALL.md §3.
 
 import { generateKeyPair } from "../lib/invite-token.mjs";
 

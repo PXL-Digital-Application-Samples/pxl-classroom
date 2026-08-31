@@ -1,4 +1,4 @@
-// 29 - The late-work control (ARCHITECTURE §11.2.1.7)
+// 29 - The late-work control (ARCHITECTURE §11.2.1)
 //
 // `late_policy: block` said "refuse late pushes" and no code read the field;
 // `lock_down_enabled` said "demote admin -> pull at the deadline" and no code
