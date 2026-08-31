@@ -148,6 +148,20 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 </button>
 ```
 
+**The complete set**, because §1.2 forbids inventing a variant this section does not define — a rule that only works if the list is exhaustive:
+
+| Class | What it is |
+| :--- | :--- |
+| `.btn-primary` | The single solid CTA per view (§1.2). |
+| `.btn-secondary` | Neutral toolbar and standard actions. |
+| `.btn-ghost` | Utility, no fill; pairs with `.btn-icon`. |
+| `.btn-link` | Reads as a link, behaves as a button. **Never `.link-btn`** (§7). |
+| `.btn-danger` / `.btn-danger-outline` | Destructive. Outline in a toolbar, solid where the destruction is the point of the view. |
+| `.btn-success` | Solid green. One use — the student's accepted state — and it should stay that way: success is normally a status dot (§4), not a button. |
+| `.btn-sm` / `.btn-xs` / `.btn-lg` | Size modifiers, combined with one of the above. `.btn-lg` is for a card's single decisive action, `.btn-xs` for controls inside a table row. |
+| `.btn-icon` | Square icon-only box, so a header rail keeps its rhythm. |
+| `.btn-with-icon` | Lays out an icon beside a label. Not a variant — it composes with any of them. |
+
 ---
 
 ## 4. Status Indicator Reference
@@ -171,6 +185,16 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
   <span>No submission</span>
 </span>
 ```
+
+**The complete set**, for the same reason §3 lists all of its variants:
+
+| Dot | Meaning |
+| :--- | :--- |
+| `.dot-success` | On-time, provisioned, accepting — the state you wanted. |
+| `.dot-warning` | Late, pending, below minimum team size — needs a look, not an alarm. |
+| `.dot-danger` | Failed, refused, unfreezable — something did not happen. |
+| `.dot-neutral` | Not started, no submission, unknown. **Not** an error: an empty population is not a failure. |
+| `.dot-info` | Informational only. One use; prefer `.dot-neutral` unless the row genuinely reads as a notice. |
 
 ---
 

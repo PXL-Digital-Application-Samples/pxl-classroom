@@ -32,7 +32,10 @@ const DOCS = ["ARCHITECTURE.md", "RUNBOOK.md", "ADMIN.md", "INSTALL.md", "DESIGN
 const SKIP_DIRS = new Set([
   "node_modules", ".git", ".tools", "dist", "test-results", "playwright-report", "coverage",
 ]);
-const EXTS = new Set([".md", ".mjs", ".js", ".vue", ".yml", ".yaml", ".cjs", ".ts"]);
+// `.css` belongs here: style.css is the token file and cites DESIGN.md a dozen
+// times, and it sat outside this guard long enough to accumulate a reference to
+// a §3.3 that DESIGN has never had.
+const EXTS = new Set([".md", ".mjs", ".js", ".vue", ".yml", ".yaml", ".cjs", ".ts", ".css"]);
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {

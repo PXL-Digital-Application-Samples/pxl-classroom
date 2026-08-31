@@ -306,7 +306,7 @@ a:hover {
   font-size: 0.95rem;
 }
 
-/* Square icon-only button (DESIGN.md §3.3). Fixed box so a header rail does not
+/* Square icon-only button (DESIGN.md §3). Fixed box so a header rail does not
    reflow when the glyph inside changes. */
 .btn-icon {
   width: 28px;
