@@ -29,6 +29,20 @@ export const HUB_OWNER = config.hub_owner
 export const HUB_REPO_NAME = config.hub_repo
 export const HUB_REPO = `${config.hub_owner}/${config.hub_repo}`
 
+/**
+ * The device-flow CORS proxy tried FIRST - the PXL-owned Worker.
+ *
+ * Not a secret: it is baked into a public bundle and visible to anyone who
+ * opens the page. It is here rather than in `VITE_*` so the ORDER is a property
+ * of the deployment file people read, not of which of two similarly-named
+ * secrets happened to be set to which value. See auth.js for what the ordering
+ * decides, and deployment.yml for why it changed.
+ *
+ * Optional: absent yields "", which auth.js skips as unusable and falls through
+ * to the configured secondary rather than failing sign-in.
+ */
+export const DEVICE_FLOW_PROXY = config.device_flow_proxy ?? ''
+
 /** The GitHub App slug, as in github.com/apps/<slug>. */
 export const APP_SLUG = config.app_slug
 

@@ -40,6 +40,33 @@ timezone: Europe/Brussels
 hub_owner: PXL-Digital-Application-Samples
 hub_repo: pxl-classroom
 
+# The device-flow CORS proxy the SPA tries FIRST.
+#
+# github.com/login/device/code and /login/oauth/access_token send no CORS
+# headers, so a browser cannot call them directly and a proxy is structural
+# (ARCHITECTURE §10.2). Whatever sits here SEES THE OAUTH ACCESS TOKEN of every
+# lecturer and every student in transit - a lecturer token reads the private
+# control repo, which holds the roster: names, student numbers, institutional
+# email addresses.
+#
+# So this is the PXL-owned Cloudflare Worker in cors-worker/, and it is FIRST.
+# It used to be second. Measured live 2026-08-31 by loading the deployed SPA and
+# reading its own resource timing: the device-code call and all three token
+# polls went to corsproxy.io, and the Worker was never contacted once - because
+# the third party is only skipped when it FAILS, and it had started working
+# again on a paid key. A fallback that never runs protects nobody.
+#
+# It lives here rather than in a secret because it is not one: it is baked into
+# a public bundle at build time and visible to anyone who opens the page. Naming
+# it a secret bought nothing and hid the ordering. `VITE_CORS_PROXY_URL` remains
+# as the SECOND entry, so a Worker outage still fails over to a third party
+# rather than taking sign-in down - the ordering is what changed, not the
+# resilience.
+#
+# Must end at the parameter that receives the target: `?url=`, `&url=` or a bare
+# `?`. An unusable value here is SKIPPED, not fatal.
+device_flow_proxy: https://pxl-cors.tom-cool-38e.workers.dev/?url=
+
 # The GitHub App slug, as it appears in github.com/apps/<slug>.
 #
 # A fork creates its own App through the SPA's /setup route and puts the slug

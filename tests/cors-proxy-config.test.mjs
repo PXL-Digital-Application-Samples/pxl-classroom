@@ -100,20 +100,39 @@ test("the validation lives in one place", () => {
   assert.equal(checks, 1, "expected exactly one place that decides whether the setting is usable");
 });
 
-test("the proxies are an ORDERED pair, primary first", () => {
-  // Order is the whole design: corsproxy.io is primary and the Worker is the
-  // fallback. A set, or a reversed pair, silently routes every sign-in through
-  // the fallback and nobody would notice until its own free tier mattered.
+test("the proxies are an ORDERED pair, and OURS is first", () => {
+  // Order is the whole design, and it is a SECURITY property rather than a
+  // preference: whichever proxy answers sees the device_code and the access
+  // token in transit, and a lecturer token reads the private control repo -
+  // roster names, student numbers, institutional email addresses.
+  //
+  // This test used to assert the opposite, because the PXL Worker shipped as the
+  // FALLBACK. Measured live 2026-08-31 against the deployed SPA, that meant the
+  // third party was on the path of every sign-in and the Worker was never
+  // contacted at all - a fallback is only reached when the primary FAILS, and
+  // corsproxy.io had started working again on a paid key. Reversing the pair is
+  // the fix; this assertion is what stops it reverting.
   const src = readFileSync(AUTH, "utf8");
   const at = src.indexOf("const PROXIES = [");
   assert.ok(at > 0, "the proxy list must still be built here");
   const list = src.slice(at, src.indexOf("]", at));
 
-  const primary = list.indexOf("VITE_CORS_PROXY_URL");
-  const fallback = list.indexOf("VITE_CORS_PROXY_FALLBACK_URL");
-  assert.ok(primary > 0, "the primary setting must be read");
-  assert.ok(fallback > 0, "the fallback setting must be read");
-  assert.ok(primary < fallback, "the primary must come first in the list");
+  const ours = list.indexOf("DEVICE_FLOW_PROXY");
+  const thirdParty = list.indexOf("VITE_CORS_PROXY_URL");
+  assert.ok(ours > 0, "the PXL-owned Worker must be read, from deployment.yml");
+  assert.ok(thirdParty > 0, "the third-party proxy must still be read, as the second entry");
+  assert.ok(ours < thirdParty, "the PXL-owned Worker must come FIRST - see the comment above");
+});
+
+test("no hardcoded third-party proxy default survives", () => {
+  // A default meant deleting the secret silently reinstated corsproxy.io as a
+  // working primary, which is the state this change exists to leave.
+  const src = readFileSync(AUTH, "utf8").replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(
+    src,
+    /VITE_CORS_PROXY_URL\s*\|\|\s*['"]https?:\/\//,
+    "the third-party proxy must have no hardcoded fallback URL",
+  );
 });
 
 test("an unusable entry is skipped, not fatal", () => {
@@ -141,7 +160,17 @@ test("the fallback secret is actually passed by the deploy workflow", () => {
   const deploy = readFileSync(DEPLOY, "utf8");
 
   const read = [...src.matchAll(/import\.meta\.env\.(VITE_[A-Z0-9_]+)/g)].map((m) => m[1]);
-  assert.ok(read.includes("VITE_CORS_PROXY_FALLBACK_URL"), "auth.js must read the fallback setting");
+
+  // The pair is no longer two secrets. The PXL Worker moved to deployment.yml -
+  // it was never secret, being baked into a public bundle - so the only VITE_
+  // proxy setting left is the third-party SECOND entry. What this test protects
+  // is unchanged and is the rule that matters: whatever auth.js reads from
+  // import.meta.env, the deploy workflow has to pass, or it ships to main and
+  // reaches nobody.
+  assert.ok(
+    !read.includes("VITE_CORS_PROXY_FALLBACK_URL"),
+    "the fallback secret is retired - the PXL Worker is primary and lives in deployment.yml",
+  );
 
   for (const name of new Set(read)) {
     assert.match(

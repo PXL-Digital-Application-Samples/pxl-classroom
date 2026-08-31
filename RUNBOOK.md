@@ -240,7 +240,14 @@ Do not move `frontend/` to a subdirectory without updating `frontend/vite.config
 > [!WARNING]
 > **There is no substitute proxy to switch to in an emergency.** On 2026-08-28 corsproxy.io withdrew its free tier and answered `401 {"error":"A valid API key is required"}` to everything; sign-in went down for every lecturer and every student. The obvious recovery - point `VITE_CORS_PROXY_URL` at another public proxy - was then measured and does not work: allorigins, thingproxy and codetabs each silently issue a **GET** and return GitHub's HTML sign-in page (HTTP 200, wrong method, unparseable body). Do not plan on finding one under pressure.
 
-The SPA therefore tries **two** proxies in order: the primary (`VITE_CORS_PROXY_URL`, corsproxy.io) and then a PXL-owned Cloudflare Worker (`VITE_CORS_PROXY_FALLBACK_URL`), which nobody outside PXL can withdraw. Failover is automatic and needs no redeploy.
+The SPA therefore tries **two** proxies in order: **first the PXL-owned Cloudflare Worker** (`device_flow_proxy` in `deployment.yml`), which nobody outside PXL can withdraw, and then a third-party proxy (`VITE_CORS_PROXY_URL`). Failover is automatic and needs no redeploy.
+
+> [!IMPORTANT]
+> **The order was reversed on 2026-08-31, and the old order was the problem.** The Worker shipped as the *fallback*, which protected nobody: a fallback is only reached when the primary fails, and once corsproxy.io was working again on a paid key the third party was back on the path of every sign-in. Measured by loading the deployed SPA and reading its own resource timing - the device-code request and all three `access_token` polls went to `corsproxy.io`, and the Worker was never contacted once.
+>
+> Whichever proxy answers **sees the access token**. A lecturer token reads the private control repo: roster names, student numbers, institutional email addresses. Do not put a third party back in front of the Worker.
+>
+> The Worker URL moved from a secret into `deployment.yml` at the same time, because it was never secret - it is baked into a public bundle and readable by anyone who opens the page. Keeping it there also means the *order* lives in a file people read, rather than depending on which of two similarly-named secrets held which value. `VITE_CORS_PROXY_FALLBACK_URL` is retired and can be deleted from the hub's secrets.
 
 **Deploy the Worker:** `cd cors-worker && npx wrangler@latest login && npx wrangler@latest deploy`. Free plan, no credit card, no domain. Deploying from the repo rather than pasting into the dashboard editor is deliberate - the Worker carries a security allowlist, and a pasted copy drifts from the reviewed one the moment either is touched. [`cors-worker/README.md`](cors-worker/README.md) has the dashboard alternative and the verification commands; note that Cloudflare renames that screen regularly, so trust what is in front of you over any written click-path. Both proxy values are **baked into the bundle at build time**, so the fallback does not exist until `deploy-frontend.yml` has run after the secret was set.
 
@@ -250,7 +257,7 @@ The SPA therefore tries **two** proxies in order: the primary (`VITE_CORS_PROXY_
 |---|---|
 | Cloudflare account | `tom-cool-38e` (Tom Cool). **Single-owner - move to a shared PXL account.** If this account is lost the fallback silently stops existing, and nobody finds out until the primary fails and the fallback turns out not to be there either. |
 | Worker URL | `https://pxl-cors.tom-cool-38e.workers.dev/` |
-| Secret | `VITE_CORS_PROXY_FALLBACK_URL` = the URL above with `?url=` appended. Set 2026-08-28. |
+| Configured as | `device_flow_proxy` in [`deployment.yml`](deployment.yml) - the URL above with `?url=` appended. **Primary** since 2026-08-31. Not a secret: it ships in the public bundle either way. |
 
 Verified live on deployment (2026-08-28): a browser-origin POST returns a real `device_code`; `OPTIONS` answers 204 with the CORS headers; both allowlists refuse by **exact match** - `example.com`, `api.github.com/user` and even the correct target with `?x=1` appended are all 403, as are `evil.example.com` and `pxl-digital-application-samples.github.io.evil.com` (a domain anyone can register, which a suffix check would have admitted - the same trap as `domainAllowed` in §15). A request with no `Origin` at all is refused, `GET` is 405.
 
@@ -272,6 +279,41 @@ curl -s -X POST "https://corsproxy.io/?key=<key>&url=https%3A%2F%2Fgithub.com%2F
 ```
 
 A `device_code` comes back. It is unused and expires in 15 minutes; nothing needs cleaning up.
+
+### 1.10 The broker dispatch App
+
+> [!CAUTION]
+> **Publishing is blocked until this exists.** That is deliberate. The only alternative is putting the provisioning App's own private key on a public repository, which is what this replaced.
+
+**Why there are two Apps.** A broker repository is public, there is one per assignment, and it needs a credential because its whole job is one `POST` to the hub's `/dispatches` endpoint. Until 2026-08-31 it was handed `PXL_APP_PRIVATE_KEY` - the provisioning App's own key. Counted live, that key was sitting on **11 public repositories across 8 organizations**, and it mints installation tokens carrying `administration: write`, `organization_administration: write`, `members: write`, `secrets: write`, `workflows: write` and `contents: write` on every org the App is installed on. Anyone with admin on one course org could push a workflow to that org's broker and read it out, so a lecturer scoped to one course held the keys to all twelve.
+
+**Create it (once):**
+
+1. Create a new GitHub App owned by `PXL-Digital-Application-Samples`, named e.g. **PXL Classroom Broker**.
+2. Permissions: **Repository → Contents: Read and write**. Nothing else. That is exactly what `POST /repos/{owner}/{repo}/dispatches` requires - confirmed against GitHub's "Permissions required for GitHub Apps" reference. In particular do **not** grant `Actions`, or a leaked broker key could dispatch hub workflows.
+3. Subscribe to no events. Where install is offered, choose **Only on this account**.
+4. Install it on **`PXL-Digital-Application-Samples/pxl-classroom` only** - "Only select repositories", one repository. Not the course orgs; it has no business there.
+5. Generate a private key.
+6. Set both on the hub's **`provisioning` environment** (not repository-level):
+   - `PXL_BROKER_CLIENT_ID` - the App's Client ID (`Iv…`)
+   - `PXL_BROKER_PRIVATE_KEY` - the PEM, whole file including the header and footer lines
+
+Publishing any assignment now verifies the credential *before* it writes anything: `publish-assignment.yml` mints a token with it and fails the run if the App is missing, uninstalled or under-permissioned. A broker App that does not work is a red publish run for the lecturer, not a silent failure at the first student's acceptance.
+
+**Migrate the existing brokers.** Ceasing to write a secret does not delete it, and the eleven brokers still hold the old key. Publishing removes it - **republishing an assignment is the migration**:
+
+1. For every assignment with a live broker, use **Republish broker** in the Admin Panel (or dispatch `publish-assignment.yml`). Existing student repositories and invitation links are untouched.
+2. The run logs `Removed legacy secret PXL_APP_PRIVATE_KEY from <org>/<broker>` and emits a notice when it removed anything.
+3. Confirm nothing is left:
+
+```bash
+gh secret list --repo <org>/broker-<assignment-id>
+```
+
+Only `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` should appear.
+
+> [!WARNING]
+> **Rotate `PXL_APP_PRIVATE_KEY` once the sweep is done.** It sat as a repository secret on public repositories; treat it as exposed for that period. Generate a new private key on the provisioning App, update the hub's `provisioning` environment secret, then delete the old key in the App's settings. Nothing else stores it - the brokers no longer do, which is the point of this section.
 
 System is now ready to onboard the first organization.
 
@@ -655,6 +697,26 @@ yq -i 'if has("template_owner") then .template.owner = .template_owner | .templa
 `weekly-usage-report.yml`'s `app-declaration` job catches this drift within a week of it appearing; run `node scripts/check-app-declaration.mjs` locally for the same answer immediately (no token needed).
 
 Step 2 alone never works if step 1 was skipped: an org owner can only approve permissions the App declares. Until then `weekly-usage-report.yml` runs in degraded mode - it mints a token without the billing scope, annotates a warning, and skips the usage report for that org rather than failing every org's matrix leg.
+
+#### 6.7b The App declares permissions nothing uses
+
+`check-app-declaration.mjs` compares **both** directions since 2026-08-31. It always reported what the App was *missing* - a feature that cannot work. It now also reports what the App holds and no code asks for, because that is blast radius: every permission on the provisioning App is inherited by anyone who obtains its private key.
+
+Measured on 2026-08-31, five had accumulated unseen:
+
+| Permission | Declared | Why it is excess |
+|---|---|---|
+| `members` | write | `roster_mode: org_member` was removed on 2026-08-27; nothing reads membership. `write` also *adds and removes org members*. |
+| `starring` | write | Acceptance stopped starring the broker at §4.3.2. Nothing in the codebase stars anything. |
+| `organization_administration` | write | The manifest asks for **read** - Enhanced Billing only needs read. |
+| `plan`, `organization_plan` | read | No caller found. |
+
+Fix in **one** of two ways, and both are legitimate:
+
+- **Narrow the App**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions`, remove or downgrade the permission, **Save changes**. Narrowing is safe to apply immediately - an installation never loses access it was not using, and no org owner has to approve a *reduction*. `plan` and `starring` are account-level, so the App owner clears them alone with no approval round at all.
+- **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by `publish-assignment.yml`'s five `gh variable set` calls, and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
+
+Run `node scripts/check-app-declaration.mjs` locally for the current answer; no token needed.
 
 ### 6.7a "CI results sync failed ... due to API errors"
 

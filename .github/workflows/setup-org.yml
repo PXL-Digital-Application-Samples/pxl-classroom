@@ -134,9 +134,15 @@ jobs:
       # shell. Both now arrive through env:, and the login is checked here,
       # before it is used (ARCHITECTURE 4.3.1).
       #
-      # The token also stops appearing in the remote URL. `git remote add` with
-      # credentials embedded puts them in .git/config and in every error message
-      # git prints; http.extraheader keeps it in the environment instead.
+      # The token also stops appearing in the remote URL, and what that buys is
+      # narrower than this comment used to claim. It said extraheader "keeps it
+      # in the environment instead", which is FALSE: `git config` writes the
+      # header into .git/config exactly as an embedded credential would. What
+      # actually changes is that git no longer QUOTES the remote back in its
+      # error messages, and this run log is public - a failed push with the
+      # credential in the URL prints it. The on-disk copy is the residual, so it
+      # is unset as soon as the pushes are done rather than left for the runner
+      # to discard, and nothing untrusted runs in that directory in between.
       - name: Initialize control repo structure
         env:
           GH_TOKEN: ${{ steps.generate_token.outputs.token }}
@@ -150,6 +156,9 @@ jobs:
           TMPDIR=$(mktemp -d)
           cd "$TMPDIR"
           git init
+          # Runs on success and on failure alike: a step that dies mid-push must
+          # not be the one that leaves the header behind.
+          trap 'git config --unset http.https://github.com/.extraheader 2>/dev/null || true' EXIT
           git config user.name "pxl-classroom-provisioner[bot]"
           git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
           git config http.https://github.com/.extraheader "$AUTH_HEADER"

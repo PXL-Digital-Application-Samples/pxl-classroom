@@ -63,6 +63,62 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           path: control
 
+      # THE BROKER CREDENTIAL, AND WHY IT IS NOT THE APP KEY.
+      #
+      # A broker is a PUBLIC repository, one per assignment, and it needs a
+      # credential because its whole job is one POST to the hub's
+      # /dispatches endpoint. It used to be handed PXL_APP_PRIVATE_KEY - the
+      # provisioning App's own key - as a repository secret. Measured
+      # 2026-08-31: that key was sitting on 11 public repositories across 8
+      # organizations, and `GET /apps/pxl-classroom-provisioner` shows what it
+      # mints: administration=write, organization_administration=write,
+      # members=write, secrets=write, workflows=write, contents=write, on every
+      # org the App is installed on. `workflows: write` plus `contents: write`
+      # is arbitrary code execution in every repository in every course org;
+      # `administration: write` deletes every student repo and every archive.
+      #
+      # Anyone with admin on ONE course org could push a workflow to that org's
+      # broker and read the secret out - so a lecturer scoped to one course held
+      # the keys to all twelve. The scoping the broker workflow already did
+      # (`owner:` + `repositories:`) narrows the minted TOKEN and does nothing
+      # about the SECRET, which is the thing that is actually stored.
+      #
+      # So the brokers get their own App: installed on the hub repository ALONE
+      # and holding `contents: write` alone, which is exactly what
+      # POST /repos/{o}/{r}/dispatches requires and nothing more (verified
+      # against GitHub's "Permissions required for GitHub Apps" reference). A
+      # leaked broker key can now submit acceptances to the hub - which the
+      # signature check already bounds - and nothing else. Notably it has no
+      # `actions: write`, so it cannot dispatch a hub workflow either.
+      #
+      # Minted HERE, before anything depends on it, so a broker App that is
+      # missing, uninstalled or under-permissioned fails in the lecturer's own
+      # publish run rather than silently at the first student's acceptance.
+      - name: Verify the broker dispatch credential
+        if: inputs.dry_run != true
+        env:
+          BROKER_CLIENT_ID: ${{ secrets.PXL_BROKER_CLIENT_ID }}
+          BROKER_PRIVATE_KEY: ${{ secrets.PXL_BROKER_PRIVATE_KEY }}
+        run: |
+          if [ -z "$BROKER_CLIENT_ID" ] || [ -z "$BROKER_PRIVATE_KEY" ]; then
+            echo "::error::PXL_BROKER_CLIENT_ID / PXL_BROKER_PRIVATE_KEY are not set on the provisioning environment. Publishing is blocked deliberately: the only alternative is putting the provisioning App's own private key on a PUBLIC broker repository, which is what this replaced. Create the broker App (RUNBOOK.md section 1.10), install it on the hub repository only, grant it Contents: write and nothing else, then set both secrets."
+            exit 1
+          fi
+
+      - name: Mint broker dispatch token (proves the broker App works)
+        id: broker_token
+        if: inputs.dry_run != true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_BROKER_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_BROKER_PRIVATE_KEY }}
+          owner: PXL-Digital-Application-Samples
+          repositories: pxl-classroom
+          # The one permission a repository_dispatch needs. Asking for it
+          # explicitly means an over-granted broker App still mints a token that
+          # can do only this.
+          permission-contents: write
+
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -138,8 +194,10 @@ jobs:
           ORG: ${{ inputs.org }}
           INVITE_NONCE: ${{ steps.invite.outputs.nonce }}
           INVITE_PUBKEY: ${{ steps.invite.outputs.pubkey }}
-          PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
-          PXL_APP_PRIVATE_KEY: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          # The BROKER App's credential, not the provisioning App's. See the
+          # "Verify the broker dispatch credential" step above for why.
+          BROKER_CLIENT_ID: ${{ secrets.PXL_BROKER_CLIENT_ID }}
+          BROKER_PRIVATE_KEY: ${{ secrets.PXL_BROKER_PRIVATE_KEY }}
         run: |
           BROKER_REPO="broker-${ASSIGNMENT_ID}"
           if gh repo view "${ORG}/${BROKER_REPO}" --json name > /dev/null 2>&1; then
@@ -169,9 +227,12 @@ jobs:
           # control repo and in the student's link.
           gh variable set INVITE_PUBKEY --body "${INVITE_PUBKEY}" --repo "${ORG}/${BROKER_REPO}"
 
-          # Automatically populate App secrets on the broker repository
-          echo "$PXL_APP_CLIENT_ID" | gh secret set PXL_APP_CLIENT_ID --repo "${ORG}/${BROKER_REPO}"
-          echo "$PXL_APP_PRIVATE_KEY" | gh secret set PXL_APP_PRIVATE_KEY --repo "${ORG}/${BROKER_REPO}"
+          # The broker's ONLY credential: an App installed on the hub repository
+          # alone, holding Contents: write alone. It can POST a dispatch to the
+          # hub and nothing else. The provisioning App's key is never written
+          # here - see the verify step above for what it used to grant.
+          echo "$BROKER_CLIENT_ID" | gh secret set PXL_BROKER_CLIENT_ID --repo "${ORG}/${BROKER_REPO}"
+          echo "$BROKER_PRIVATE_KEY" | gh secret set PXL_BROKER_PRIVATE_KEY --repo "${ORG}/${BROKER_REPO}"
 
       - name: Push broker workflow
         if: inputs.dry_run != true
@@ -240,6 +301,43 @@ jobs:
             echo "| broker | ${ORG}/${BROKER_REPO} |"
             echo "| invitation | recorded in the control repo - copy it from the Admin Panel |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # MIGRATION, and it runs on every publish rather than once.
+      #
+      # Eleven brokers were already carrying PXL_APP_PRIVATE_KEY when this
+      # changed, and a secret is not removed by ceasing to write it. This is
+      # what actually takes it off them - so republishing an assignment is the
+      # migration, and RUNBOOK section 1.10 says to sweep every live assignment
+      # once.
+      #
+      # AFTER the workflow push, never before: the broker's OLD workflow reads
+      # secrets.PXL_APP_CLIENT_ID, so deleting the secret first would break
+      # acceptance for the window between the two steps. By here the broker is
+      # running the new workflow, which reads PXL_BROKER_* and was written in
+      # the step above.
+      #
+      # `|| true` on each: a broker that never had them is the ordinary case
+      # once the sweep is done, and `gh secret delete` exits non-zero on a
+      # secret that is not there. Nothing here is worth failing a publish over.
+      - name: Remove the provisioning App key from the broker
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          ORG: ${{ inputs.org }}
+        run: |
+          BROKER_REPO="broker-${ASSIGNMENT_ID}"
+          removed=0
+          for name in PXL_APP_PRIVATE_KEY PXL_APP_CLIENT_ID; do
+            if gh secret delete "$name" --repo "${ORG}/${BROKER_REPO}" 2>/dev/null; then
+              echo "Removed legacy secret ${name} from ${ORG}/${BROKER_REPO}"
+              removed=$((removed + 1))
+            fi
+          done
+          if [ "$removed" -gt 0 ]; then
+            echo "::notice::Removed ${removed} legacy provisioning-App secret(s) from the public broker ${ORG}/${BROKER_REPO}. Treat the key as having been exposed on a public repository for as long as it was there and rotate it - RUNBOOK section 1.10."
+          fi
 
       - name: Update assignment state
         if: inputs.dry_run != true

@@ -31,6 +31,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # A person dispatches this. The other thing that can reach
+      # workflow_dispatch is an App installation token - what a stolen broker
+      # credential would be - and it arrives as `<slug>[bot]`. First, before
+      # anything mints a token. Nothing in this repository dispatches this
+      # workflow, so there is no legitimate machine caller to exclude.
+      - name: Reject automated dispatch
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        run: |
+          echo "::error::This workflow is dispatched by a person, not a credential."
+          exit 1
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: npm ci --omit=dev
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0

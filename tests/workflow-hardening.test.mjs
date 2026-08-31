@@ -28,8 +28,19 @@ const WORKFLOW_DIR = join(root, ".github", "workflows");
 // student's institutional email address out of the public event archive - the
 // one piece of personal data the design deliberately puts on a public channel
 // in sealed form.
-const HUB_CREDENTIALS = /PXL_APP_PRIVATE_KEY|PXL_INVITE_SIGNING_KEY|PXL_CLAIM_PRIVATE_KEY/;
+// PXL_BROKER_PRIVATE_KEY is here too. It is deliberately far weaker than the
+// others - Contents: write on the hub repository alone, which is exactly what a
+// repository_dispatch needs - but on the HUB it is still a credential handed to
+// public repositories, and the same ref and environment rules apply to the job
+// that distributes it.
+const HUB_CREDENTIALS =
+  /PXL_APP_PRIVATE_KEY|PXL_INVITE_SIGNING_KEY|PXL_CLAIM_PRIVATE_KEY|PXL_BROKER_PRIVATE_KEY/;
 const ENVIRONMENT = "provisioning";
+
+/** Every composite action in the repo - they carry `uses:` steps too. */
+const COMPOSITE_ACTIONS = readdirSync(root, { withFileTypes: true })
+  .filter((e) => e.isDirectory() && existsSync(join(root, e.name, "action.yml")))
+  .map((e) => join(e.name, "action.yml"));
 
 function workflows() {
   return readdirSync(WORKFLOW_DIR)
@@ -63,22 +74,122 @@ test("the admin workflows refuse an automated dispatch", () => {
   // credential would be - and it arrives as `<slug>[bot]`. Guarding the
   // identity beats maintaining an allowlist of people.
   //
-  // retry-acceptance can provision for an arbitrary login with the deadline
-  // bypassed, and setup-org creates org-level state; neither should be
-  // reachable by a credential rather than a person.
-  for (const file of ["setup-org.yml", "retry-acceptance.yml", "publish-assignment.yml"]) {
-    const doc = parse(readFileSync(join(WORKFLOW_DIR, file), "utf8"));
-    const job = Object.values(doc.jobs)[0];
-    const first = job.steps[0];
-    assert.equal(
-      first?.name,
-      "Reject automated dispatch",
-      `${file}: the guard must be the first step, before anything mints a token`
+  // THE CLASS, NOT A LIST. This used to name three files by hand, and the list
+  // was wrong: sync-starter-code.yml and open-feedback-prs.yml both hold
+  // PXL_APP_PRIVATE_KEY and both mint a token for an ARBITRARY org taken from
+  // their own input, and neither had the guard - nor did reconcile-registry.yml
+  // or weekly-usage-report.yml. Four gaps behind a test that passed, because a
+  // hand-maintained list only ever covers what somebody remembered.
+  //
+  // The rule is derived instead: a workflow that can be dispatched, and reads a
+  // hub credential, needs the guard on every job that reads one - UNLESS
+  // another workflow in this repository genuinely dispatches it, which is a
+  // legitimate machine caller and would be broken by the guard. That exemption
+  // is computed from real dispatch calls (`gh workflow run <file>`, the REST
+  // `workflows/<file>/dispatches` path, or a `workflow_id:` naming it), never
+  // from the filename merely appearing - half these files mention each other in
+  // comments, and matching those exempted almost everything.
+  const machineDispatched = (file) => {
+    const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const call = new RegExp(
+      `gh\\s+workflow\\s+run\\s+["']?${escaped}` +
+        `|workflows/${escaped}/dispatches` +
+        `|workflow_id:\\s*["']?${escaped}`,
     );
-    assert.match(first.if, /github\.event_name == 'workflow_dispatch'/);
-    assert.match(first.if, /endsWith\(github\.actor, '\[bot\]'\)/);
-    assert.match(first.run, /exit 1/, `${file}: the guard must fail the run, not just log`);
+    return workflows().some((w) => w.file !== file && call.test(readFileSync(join(WORKFLOW_DIR, w.file), "utf8")));
+  };
+
+  const offenders = [];
+  let checked = 0;
+
+  for (const { file, doc } of workflows()) {
+    const src = readFileSync(join(WORKFLOW_DIR, file), "utf8");
+    if (!/workflow_dispatch/.test(src)) continue;
+    if (!HUB_CREDENTIALS.test(src)) continue;
+    if (machineDispatched(file)) continue;
+
+    const jobs = doc?.jobs ?? {};
+    const hasGuard = (job) => (job?.steps ?? [])[0]?.name === "Reject automated dispatch";
+
+    // A guard UPSTREAM is real protection: if `arm` refuses a [bot] dispatch,
+    // every job that needs it is skipped and never starts. deadline-sentinel's
+    // `watch` job holds a credential and is guarded exactly this way, through
+    // aggregate-armable -> arm. Requiring its own guard would be cargo cult.
+    // Resolved transitively, with a seen-set because `needs:` is a graph.
+    const guardedUpstream = (jobId, seen = new Set()) => {
+      if (seen.has(jobId)) return false;
+      seen.add(jobId);
+      const needs = jobs[jobId]?.needs;
+      const parents = Array.isArray(needs) ? needs : needs ? [needs] : [];
+      return parents.some((p) => hasGuard(jobs[p]) || guardedUpstream(p, seen));
+    };
+
+    for (const [jobId, job] of Object.entries(jobs)) {
+      const steps = job?.steps ?? [];
+      if (!steps.length) continue;
+      // Only jobs that actually reach a credential. A job-level guard protects
+      // only its own job, so this is per job rather than per file.
+      const readsCredential = HUB_CREDENTIALS.test(JSON.stringify(job));
+      if (!readsCredential) continue;
+      if (guardedUpstream(jobId)) continue;
+
+      checked++;
+      const first = steps[0];
+      if (first?.name !== "Reject automated dispatch") {
+        offenders.push(`${file}:${jobId} - the guard must be the FIRST step, before anything mints a token`);
+        continue;
+      }
+      if (!/github\.event_name == 'workflow_dispatch'/.test(first.if ?? "")) {
+        offenders.push(`${file}:${jobId} - the guard must only fire on workflow_dispatch (a cron must still run)`);
+      }
+      if (!/endsWith\(github\.actor, '\[bot\]'\)/.test(first.if ?? "")) {
+        offenders.push(`${file}:${jobId} - the guard must test for a [bot] actor`);
+      }
+      if (!/exit 1/.test(first.run ?? "")) {
+        offenders.push(`${file}:${jobId} - the guard must fail the run, not just log`);
+      }
+    }
   }
+
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+  // A floor, because a walk that silently stops matching looks exactly like a
+  // clean repo. Six workflows carried the guard when this was written.
+  assert.ok(checked >= 7, `expected the sweep to reach at least 7 credential-bearing jobs, reached ${checked}`);
+});
+
+test("every action is pinned to a SHA, not a mutable tag", () => {
+  // `actions/setup-node@v4` survived in sync-starter-code.yml and
+  // open-feedback-prs.yml while all 36 checkouts and all 24 App-token steps
+  // were SHA-pinned - and in both files that step runs AFTER the App token is
+  // minted, with PXL_APP_PRIVATE_KEY in scope through `environment:
+  // provisioning`. A compromised tag would have executed beside both.
+  //
+  // The existing pinning tests were per-action (create-github-app-token,
+  // actions/checkout), so an action nobody had written a test for was unpinned
+  // by default. This covers every `uses:` instead.
+  const offenders = [];
+  const files = [
+    ...workflows().map((w) => ({ label: w.file, doc: w.doc })),
+    ...COMPOSITE_ACTIONS.map((p) => ({ label: p, doc: parse(readFileSync(join(root, p), "utf8")) })),
+  ];
+
+  for (const { label, doc } of files) {
+    const stepLists = [
+      ...Object.entries(doc?.jobs ?? {}).map(([id, j]) => [id, j?.steps ?? []]),
+      ["runs", doc?.runs?.steps ?? []],
+    ];
+    for (const [jobId, steps] of stepLists) {
+      for (const step of steps ?? []) {
+        const uses = typeof step?.uses === "string" ? step.uses : "";
+        if (!uses || uses.startsWith("./")) continue; // local composite actions
+        if (!/@[0-9a-f]{40}$/.test(uses)) {
+          offenders.push(`${label}:${jobId} uses a mutable ref: ${uses}`);
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(offenders, [], `every third-party action must be SHA-pinned:\n${offenders.join("\n")}`);
 });
 
 test("no workflow reads a hub credential outside a step that needs it", () => {
@@ -582,6 +693,74 @@ test("publishing never force-pushes the broker", () => {
   const forcePush = /git push[^\r\n]*--force/;
   assert.ok(!forcePush.test(publish), "publish must not force-push the broker");
   assert.ok(!forcePush.test(broker), "the broker template must not force-push either");
+});
+
+test("the provisioning App's key never reaches a public broker", () => {
+  // THE BIGGEST BLAST RADIUS IN THE SYSTEM, until 2026-08-31.
+  //
+  // publish-assignment.yml wrote PXL_APP_PRIVATE_KEY as a repository secret
+  // onto every `broker-<id>` repo, and those are created `--public`. Counted
+  // live: 11 of them across 8 organizations. `GET /apps/pxl-classroom-
+  // provisioner` shows what that key mints - administration=write,
+  // organization_administration=write, members=write, secrets=write,
+  // workflows=write, contents=write - on every org the App is installed on.
+  // `workflows: write` with `contents: write` is arbitrary code execution in
+  // every repository in every course org.
+  //
+  // Anyone with admin on ONE course org could push a workflow to that org's
+  // broker and read the secret out, so a lecturer scoped to one course held the
+  // keys to all twelve. Scoping the minted TOKEN never addressed it: the secret
+  // is what is stored, and that was the unscoped master key.
+  //
+  // The broker now gets its own App - hub repository only, Contents: write only,
+  // which is exactly what POST /dispatches requires. This test is what stops the
+  // old wiring coming back, in either file.
+  const broker = readFileSync(join(root, "acceptance", "broker-workflow.yml"), "utf8");
+  const publish = readFileSync(join(WORKFLOW_DIR, "publish-assignment.yml"), "utf8");
+
+  // Comments blanked: both files explain the change by NAMING the old secret,
+  // and a raw scan reads the prose as configuration.
+  const brokerCode = broker.replace(/^\s*#[^\n]*$/gm, "");
+  assert.ok(
+    !/PXL_APP_PRIVATE_KEY|PXL_APP_CLIENT_ID/.test(brokerCode),
+    "the broker must not reference the provisioning App's credential at all",
+  );
+
+  const doc = parse(broker);
+  const mint = Object.values(doc.jobs)[0].steps.find(
+    (s) => typeof s?.uses === "string" && s.uses.startsWith("actions/create-github-app-token@"),
+  );
+  assert.ok(mint, "the broker must still mint a dispatch token");
+  assert.match(String(mint.with["client-id"]), /PXL_BROKER_CLIENT_ID/, "minted with the broker App");
+  assert.match(String(mint.with["private-key"]), /PXL_BROKER_PRIVATE_KEY/, "minted with the broker App");
+  // Defence in depth on top of the narrow secret: `repositories` bounds it to
+  // the hub, and the permission bounds it to the one call it makes.
+  assert.equal(mint.with.repositories, "pxl-classroom", "the token is scoped to the hub repository");
+  assert.equal(mint.with["permission-contents"], "write", "and to the one permission a dispatch needs");
+  assert.ok(
+    !("permission-workflows" in mint.with) && !("permission-administration" in mint.with),
+    "the broker token must never ask for anything beyond contents",
+  );
+
+  // The other half: publish must not write the App key to a broker, and must
+  // actively remove it from the eleven that already carry it. Ceasing to write
+  // a secret does not delete it.
+  const publishCode = publish.replace(/^\s*#[^\n]*$/gm, "");
+  assert.ok(
+    !/gh secret set PXL_APP_(PRIVATE_KEY|CLIENT_ID)/.test(publishCode),
+    "publish must never write the provisioning App's credential to a broker",
+  );
+  assert.match(
+    publishCode,
+    /gh secret delete "?\$?\{?name\}?"?|gh secret delete PXL_APP_PRIVATE_KEY/,
+    "publish must REMOVE the legacy secret from brokers that still hold it - republishing is the migration",
+  );
+  // Ordering is load-bearing: the old broker workflow reads PXL_APP_CLIENT_ID,
+  // so deleting before the new workflow is pushed breaks acceptance in between.
+  assert.ok(
+    publishCode.indexOf("Push broker workflow") < publishCode.indexOf("Remove the provisioning App key"),
+    "the legacy secret must be removed AFTER the new broker workflow is pushed, never before",
+  );
 });
 
 // A `run:` block bigger than the pipe buffer deadlocks the linter on Windows.

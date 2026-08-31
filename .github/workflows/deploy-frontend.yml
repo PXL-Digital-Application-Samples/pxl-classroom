@@ -80,11 +80,34 @@ jobs:
         env:
           VITE_BASE_URL: /${{ github.event.repository.name }}/
           VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
+          # The SECOND device-flow proxy now, not the first. The PXL-owned Worker
+          # is primary and comes from deployment.yml, which is why there is no
+          # VITE_CORS_PROXY_FALLBACK_URL here any more - auth.js stopped reading
+          # it, and a secret the build passes that nothing reads is a value
+          # people keep maintaining for no effect. See deployment.yml.
           VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
-          # Fallback device-flow proxy, tried when the primary fails. Baked in at
-          # build time like the primary, so the fallback does not exist until a
-          # deploy has run. See cors-worker/README.md.
-          VITE_CORS_PROXY_FALLBACK_URL: ${{ secrets.VITE_CORS_PROXY_FALLBACK_URL }}
+
+      # THE GATE AT THE MOMENT OF PUBLICATION, which did not exist.
+      #
+      # pages/scan.mjs was invoked from exactly one place - pages/action.yml -
+      # which runs when an ORG's control repo regenerates its own `public/`. This
+      # workflow is what actually puts bytes on a world-readable site, and it ran
+      # no scan at all: `scripts/fetch-pages-data.mjs` copies `public/i/*.json`
+      # and `public/teams/*.json` verbatim out of twelve control repos into
+      # `frontend/public/data`, and whatever is in them ships. Anything that
+      # reached a control repo's `public/` by another route - hand-edited, left
+      # by an older generator, or from a run where the gate was skipped - was
+      # published unchecked.
+      #
+      # Scoped to `dist/data` rather than all of `dist`, and that is deliberate
+      # rather than timid: `dist/data` is the aggregated, externally-sourced half
+      # and the only part of the artifact this repo does not author. The rest is
+      # the SPA bundle and `schemas/*.schema.json`, which legitimately and
+      # necessarily contain `"student_number":` - scanning them would fail every
+      # deploy on the field-name rules and the gate would be turned off within a
+      # week, which is how a check stops being read.
+      - name: Privacy scan the published data
+        run: node pages/scan.mjs frontend/dist/data
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

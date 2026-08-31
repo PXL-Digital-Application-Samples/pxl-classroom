@@ -14,6 +14,20 @@ const authJsPath = join(libDir, "auth.js");
 // import fails before the CORS assertions this file cares about ever run.
 const AUTH_LOCAL_DEPS = ["http.js"];
 
+// deployment.js is STUBBED rather than copied, and that is not a shortcut.
+//
+// The real one inlines deployment.yml through Vite's `?raw` and parses it with
+// the `yaml` package - neither resolves under plain Node in a temp directory.
+// More to the point, what this file tests is the FAILOVER between two proxies,
+// not the config reader: stubbing it lets a test set the primary as directly as
+// it already sets the secondary, which is what the assertions below need now
+// that the PXL-owned Worker is the primary and comes from deployment.yml
+// instead of a VITE_ secret.
+//
+// tests/cors-proxy-config.test.mjs is what holds the real reader honest - it
+// asserts the ORDER against auth.js's own source.
+const DEPLOYMENT_STUB = 'export const DEVICE_FLOW_PROXY = process.env.TEST_DEVICE_FLOW_PROXY || ""\n';
+
 async function loadAuthMod(envVars) {
   const code = readFileSync(authJsPath, "utf8");
   // Replace import.meta.env with process.env for Node compatibility
@@ -22,6 +36,7 @@ async function loadAuthMod(envVars) {
   const tmp = mkdtempSync(join(tmpdir(), "pxl-cors-test-"));
   const tmpFile = join(tmp, "auth.mjs");
   writeFileSync(tmpFile, modified);
+  writeFileSync(join(tmp, "deployment.js"), DEPLOYMENT_STUB);
   for (const dep of AUTH_LOCAL_DEPS) {
     writeFileSync(join(tmp, dep), readFileSync(join(libDir, dep), "utf8"));
   }
@@ -123,15 +138,26 @@ test("device-flow state machine and mock fetch", async (t) => {
 });
 
 // ---------------------------------------------------------------------------
-// Failover. corsproxy.io is primary; a PXL-owned Cloudflare Worker is the
-// fallback, because there is no second PUBLIC proxy to fall back to - measured
-// 2026-08-28, when allorigins, thingproxy and codetabs each turned out to issue
-// a GET and hand back GitHub's HTML sign-in page.
+// Failover. The PXL-owned Cloudflare Worker is primary; a third-party proxy is
+// the secondary, and there is no THIRD to add - measured 2026-08-28, allorigins,
+// thingproxy and codetabs each turned out to issue a GET and hand back GitHub's
+// HTML sign-in page, so the pair is the whole set.
 // ---------------------------------------------------------------------------
 
-const PRIMARY = "https://corsproxy.io/?key=k&url=";
-const FALLBACK = "https://pxl-cors.example.workers.dev/?url=";
-const BOTH = { VITE_CORS_PROXY_URL: PRIMARY, VITE_CORS_PROXY_FALLBACK_URL: FALLBACK };
+// THE ROLES SWAPPED on 2026-08-31 and these constants follow the code.
+//
+// The PXL-owned Worker is now the PRIMARY and comes from deployment.yml; the
+// third-party proxy is the SECONDARY and keeps its VITE_ secret. It used to be
+// the other way round, which meant the third party was on the path of every
+// sign-in - seeing the device_code and the access token - while the Worker,
+// being a fallback, was only reached if corsproxy.io failed. Measured live, it
+// never was.
+//
+// The failover MECHANICS under test are unchanged: first entry, then second.
+// Only which URL sits in which slot moved.
+const PRIMARY = "https://pxl-cors.example.workers.dev/?url=";
+const SECONDARY = "https://corsproxy.io/?key=k&url=";
+const BOTH = { TEST_DEVICE_FLOW_PROXY: PRIMARY, VITE_CORS_PROXY_URL: SECONDARY };
 
 const DEVICE_CODE_OK = JSON.stringify({
   device_code: "DC1",
@@ -171,7 +197,7 @@ test("the 2026-08-28 outage: primary answers 401, sign-in still works", async (t
   assert.equal(res.device_code, "DC1", "the fallback must carry the sign-in through");
   assert.equal(calls.length, 2, "primary tried once, then the fallback");
   assert.ok(calls[0].url.startsWith(PRIMARY), "the primary must be tried FIRST");
-  assert.ok(calls[1].url.startsWith(FALLBACK));
+  assert.ok(calls[1].url.startsWith(SECONDARY));
 });
 
 test("HTTP 200 carrying HTML is a broken proxy, not an answer", async (t) => {
@@ -223,12 +249,12 @@ test("a misconfigured primary is skipped when the fallback is usable", async (t)
   const calls = mockFetch(t, () => new Response(DEVICE_CODE_OK, { status: 200 }));
 
   const mod = await loadAuthMod({
-    VITE_CORS_PROXY_URL: "https://typo.example.com",
-    VITE_CORS_PROXY_FALLBACK_URL: FALLBACK,
+    TEST_DEVICE_FLOW_PROXY: "https://typo.example.com",
+    VITE_CORS_PROXY_URL: SECONDARY,
   });
   assert.equal((await mod.startDeviceFlow("CLIENT1")).device_code, "DC1");
   assert.equal(calls.length, 1, "the unusable entry is not even attempted");
-  assert.ok(calls[0].url.startsWith(FALLBACK));
+  assert.ok(calls[0].url.startsWith(SECONDARY));
 });
 
 // setTimeout is mocked so the poll's wait is under our control; setImmediate is
@@ -303,7 +329,7 @@ test("polling sticks to the proxy that worked, instead of re-paying for a dead o
   const pollCalls = calls.slice(before).filter((c) => !c.url.includes("api.github.com"));
   assert.ok(pollCalls.length > 0, "the poll must have issued a proxied request");
   assert.ok(
-    pollCalls[0].url.startsWith(FALLBACK),
+    pollCalls[0].url.startsWith(SECONDARY),
     "the first poll should go straight to the proxy that answered, not back to the dead one",
   );
 });

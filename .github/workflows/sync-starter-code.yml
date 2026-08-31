@@ -33,7 +33,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   sync-starter:
@@ -41,6 +40,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # A lecturer dispatches this as themselves, through the SPA or the Actions
+      # tab. The only other thing that can reach workflow_dispatch here is an App
+      # installation token - which is what a stolen broker credential would be -
+      # and it arrives as `<app-slug>[bot]`. Deny that identity rather than
+      # maintaining an allowlist of people.
+      #
+      # This job holds PXL_APP_PRIVATE_KEY via `environment: provisioning` and
+      # mints a token for an ARBITRARY org from its own input, so it is exactly
+      # the shape the guard exists for. It was the only dispatch-triggered
+      # workflow carrying the App key that did not have it - along with
+      # open-feedback-prs.yml, its sibling, which had the same gap for the same
+      # reason: the pair was written at a different time and swept by nothing
+      # since. tests/workflow-hardening.test.mjs now pins the class.
+      - name: Reject automated dispatch
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "::error::$ACTOR may not dispatch this workflow; a lecturer must run it"
+          exit 1
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       
       - name: Mint App token for Org
@@ -62,8 +82,14 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           path: control
 
+      # Pinned to a SHA like every other action in the repo. This was
+      # `actions/setup-node@v4`, a MUTABLE tag, in a step that runs AFTER the App
+      # token has been minted and with PXL_APP_PRIVATE_KEY in scope - so a
+      # compromised tag would have executed with both in the environment. It and
+      # open-feedback-prs.yml were the last two unpinned references; the same
+      # sweep that moved them to node 24 missed the pin.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
       - run: npm ci --omit=dev

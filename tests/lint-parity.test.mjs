@@ -72,9 +72,54 @@ test("the external tools are pinned, and shellcheck is not the runner's", () => 
   // shellcheck taken from whatever the runner image ships is the same drift in
   // another coat, since that is what decides which SC* codes appear.
   assert.match(lintScript, /ACTIONLINT_VERSION = "\d+\.\d+\.\d+"/, "actionlint version is pinned in one place");
-  assert.ok(pkg.devDependencies?.shellcheck, "shellcheck is a pinned devDependency, not a runner coincidence");
-  assert.match(lintScript, /node_modules[\\/"]+.*shellcheck/, "and that is the binary actionlint is pointed at");
+  assert.match(lintScript, /SHELLCHECK_VERSION = "\d+\.\d+\.\d+"/, "shellcheck version is pinned in one place");
   assert.match(lintScript, /-shellcheck/, "passed explicitly rather than left to PATH");
+
+  // It USED TO BE the `shellcheck` npm devDependency, and that assertion lived
+  // here. The package was dropped on 2026-08-31: every published version from
+  // 2.x up unpacks the official release with `decompress`, which carries three
+  // unfixed CRITICAL advisories and has no patched version to move to - the
+  // advisory range is `*`. The only npm escape was 1.1.0, which unpins the
+  // binary to whatever "stable" meant at publish time and trades a supply-chain
+  // hole for exactly the drift this test exists to prevent.
+  //
+  // So the invariant is unchanged and the mechanism is stronger: `^4.1.0` pinned
+  // the WRAPPER, while SHELLCHECK_VERSION pins the TOOL. Re-adding the package
+  // fails here rather than quietly restoring the chain.
+  assert.ok(
+    !pkg.devDependencies?.shellcheck && !pkg.dependencies?.shellcheck,
+    "the `shellcheck` npm package pulls unfixed-critical `decompress` - fetch the pinned binary instead",
+  );
+  assert.doesNotMatch(
+    lintScript,
+    /node_modules[\\/"]+[^\n]*shellcheck/,
+    "shellcheck no longer comes from node_modules",
+  );
+});
+
+test("the downloaded shellcheck is checksum-verified, and a mismatch is fatal", () => {
+  // A pinned VERSION only says which bytes were asked for. Without a digest,
+  // a re-cut release, a hijacked tag or an intercepted download all run
+  // unnoticed - and this binary is handed every `run:` block in the repo.
+  assert.match(lintScript, /SHELLCHECK_SHA256/, "the pinned digests must exist");
+  assert.match(lintScript, /createHash\("sha256"\)/, "and be computed over the downloaded archive");
+
+  const verify = lintScript.slice(lintScript.indexOf("const actual = createHash"));
+  // Comments blanked before the absence check below, for the reason this repo
+  // keeps rediscovering: the comment inside that branch explains the rule by
+  // quoting it ("Deliberately no retry and no fallback"), so a raw scan reads
+  // the prose as code and fails against the very thing it is asserting.
+  const branch = verify.slice(0, verify.indexOf("\n  }") + 4).replace(/\/\/[^\n]*/g, "");
+  assert.match(branch, /actual !== expected/, "the comparison must be there");
+  assert.match(branch, /rmSync\(archive/, "a failing archive is deleted rather than left to be picked up");
+  assert.doesNotMatch(branch, /retry|again/i, "a checksum mismatch is not a transient error to retry");
+
+  // Every platform the resolver can select must have a digest, or it refuses.
+  assert.match(
+    lintScript,
+    /if \(!expected\) \{/,
+    "a platform with no pinned digest must FAIL, never download unverified",
+  );
 });
 
 test("a missing tool fails the run instead of skipping the check", () => {

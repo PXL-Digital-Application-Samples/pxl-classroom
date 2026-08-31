@@ -16,20 +16,34 @@
 // Route the two device-flow endpoints through a CORS proxy. api.github.com
 // does support CORS and is called directly.
 //
-// TWO proxies, tried in order, and the second one is OURS. That is not
-// over-engineering. On 2026-08-28 corsproxy.io withdrew its free tier and began
-// answering `401 {"error":"A valid API key is required"}` to everything, which
-// took sign-in down for every lecturer and every student. The obvious recovery -
+// TWO proxies, tried in order, and the FIRST one is OURS. That ordering is the
+// whole security property here, and it used to be the other way round.
+//
+// On 2026-08-28 corsproxy.io withdrew its free tier and began answering
+// `401 {"error":"A valid API key is required"}` to everything, which took
+// sign-in down for every lecturer and every student. The obvious recovery -
 // point the setting at a different public proxy - was then measured and DOES NOT
 // EXIST: allorigins, thingproxy and codetabs each silently issue a GET and hand
-// back GitHub's HTML sign-in page. So the fallback has to be one nobody can
-// withdraw, and it is `cors-worker/worker.js`, a PXL-owned Cloudflare Worker.
-// Failing over costs one request; being down costs a lecture.
+// back GitHub's HTML sign-in page. So a proxy nobody can withdraw had to be
+// built, and it is `cors-worker/worker.js`, a PXL-owned Cloudflare Worker.
 //
-// Threat model: the proxy operator sees device_code + access_token in transit.
-// Student tokens can only open an issue on a public broker (8h lifetime, instant
-// revoke at github.com/settings/applications). Lecturer tokens additionally
-// permit reading the org's control repo. See ARCHITECTURE.md §10.2.
+// It was added as the FALLBACK, and that turned out to protect nobody. Measured
+// live 2026-08-31 by loading the deployed SPA and reading its own resource
+// timing: the device-code request and all three access_token polls went to
+// corsproxy.io and the Worker was never contacted, because a fallback is only
+// reached when the primary FAILS - and the primary had started working again on
+// a paid key. So the third party was back on the path of every sign-in, which is
+// exactly the state the Worker was built to end.
+//
+// THREAT MODEL, and why the order matters rather than just the existence of two:
+// whichever proxy answers sees the device_code and the ACCESS TOKEN in transit.
+// A student token can only open an issue on a public broker (8h lifetime,
+// instant revoke at github.com/settings/applications). A LECTURER token reads
+// the org's private control repo - the roster: names, student numbers,
+// institutional email addresses. Ours first means that is a PXL-operated hop in
+// the ordinary case, and a third party only when ours is unreachable.
+// See ARCHITECTURE.md §10.2.
+import { DEVICE_FLOW_PROXY } from './deployment.js'
 import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 
 // The target URL is appended, so a proxy must end at the parameter that takes
@@ -53,10 +67,17 @@ function normalizeProxy(value) {
 // imports, so a throw is a blank page with nothing on it - the `localToUtc`
 // mistake in the worst possible place. A misconfigured proxy is recorded and
 // reported when sign-in is attempted, where there is somewhere to show it.
-const PROXIES = [
-  import.meta.env.VITE_CORS_PROXY_URL || 'https://corsproxy.io/?url=',
-  import.meta.env.VITE_CORS_PROXY_FALLBACK_URL || '',
-]
+// ORDERED, ours first. The PXL Worker comes from deployment.yml rather than a
+// secret because it is not one - it is baked into a public bundle and readable
+// by anyone who opens the page - and because the ORDER then lives in the file
+// people actually read, instead of depending on which of two similarly-named
+// secrets happened to hold which value. That ambiguity is how the third party
+// stayed primary for as long as it did.
+//
+// The third-party entry keeps its `VITE_CORS_PROXY_URL` name and its secret, and
+// there is deliberately no hardcoded default for it any more: a default meant
+// that deleting the secret silently reinstated corsproxy.io.
+const PROXIES = [DEVICE_FLOW_PROXY, import.meta.env.VITE_CORS_PROXY_URL || '']
   .map(normalizeProxy)
   .filter(Boolean)
 
