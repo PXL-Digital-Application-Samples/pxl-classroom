@@ -46,9 +46,10 @@ If `organization_administration` is absent, the App owner must add it first (§6
 
 In `pxl-classroom` -> Actions -> **Setup Organization** -> Run workflow:
 
-| Input | Value |
-|---|---|
-| `target_org` | `PXLAutomation` (or other org login) |
+| Input | Required | Value |
+|---|---|---|
+| `target_org` | Yes | `PXLAutomation` (or other org login) |
+| `budget_owner_login` | Yes | GitHub login of the person who receives the weekly usage warnings by @-mention. The workflow writes it into `participating-orgs.yml`, so §1.5 is only for changing it afterwards. |
 
 The workflow:
 
@@ -87,9 +88,11 @@ Lecturers trigger **Publish** from the Admin Panel and **Retry acceptance** from
 - **Adding them to the hub organization is not the same thing, and on its own does not work.** `PXL-Digital-Application-Samples` carries `default_repository_permission: read`, so a plain member lands on read for `pxl-classroom` and every dispatch 403s - which reads as "I added the lecturer and it still fails". Measured 2026-08-31: all 11 members of the hub org are owners, there are no teams, and there are no outside collaborators on the hub repo, so the write-collaborator route above has never actually been exercised here. Organization **owner** works because GitHub grants owners admin on every repository; it also makes them an owner of the **App**, which is registered on that org, so anyone granted it can generate a private key that mints installation tokens for every participating org (ARCHITECTURE §4.3). Write on `pxl-classroom` is the least-privilege grant that does the same job.
 - Without this access, the lecturer can still create/edit assignments (writes go to their own control repo), but cannot publish or retry from the SPA - a hub admin must run those workflows on their behalf.
 
-### 1.5 Register the budget owner
+### 1.5 Changing the budget owner, or adding SKU overrides
 
-Edit `participating-orgs.yml` on the `participating-orgs` branch - add or update the entry:
+**Onboarding already registered the budget owner** — §1.2 takes it as a required input and Setup Organization writes it. This section is for changing it later, or adding per-org thresholds.
+
+Edit `participating-orgs.yml` on the `participating-orgs` branch — carefully, because automation appends to this file from a Linux runner and an editor that saves UTF-16 produces a mixed-encoding file that breaks every cron (§5.6). Save as UTF-8, LF, no BOM.
 
 ```yaml
 orgs:

@@ -70,13 +70,13 @@ jobs:
           APP_OWNER: ${{ github.repository_owner }}
         run: |
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::Cannot mint a token with 'Organization Administration: read' for ${TARGET_ORG}. Fix in this order, then re-run. (1) App owner: https://github.com/organizations/${APP_OWNER}/settings/apps/pxl-classroom-provisioner/permissions -> Organization permissions -> Administration: Read-only -> Save changes. Verify with 'gh api apps/pxl-classroom-provisioner --jq .permissions'. (2) ${TARGET_ORG} owner: https://github.com/organizations/${TARGET_ORG}/settings/installations -> pxl-classroom-provisioner -> Review request -> approve, and set Repository access to 'All repositories'. See RUNBOOK.md section 10.6."
+            echo "::error::Cannot mint a token with 'Organization Administration: read' for ${TARGET_ORG}. Fix in this order, then re-run. (1) App owner: https://github.com/organizations/${APP_OWNER}/settings/apps/pxl-classroom-provisioner/permissions -> Organization permissions -> Administration: Read-only -> Save changes. Verify with 'gh api apps/pxl-classroom-provisioner --jq .permissions'. (2) ${TARGET_ORG} owner: https://github.com/organizations/${TARGET_ORG}/settings/installations -> pxl-classroom-provisioner -> Review request -> approve, and set Repository access to 'All repositories'. See ADMIN.md §6.6."
             exit 1
           fi
           YEAR=$(date -u +%Y)
           MONTH=$(date -u +%-m)
           if ! gh api "/organizations/${TARGET_ORG}/settings/billing/usage?year=${YEAR}&month=${MONTH}" >/dev/null; then
-            echo "::error::The App holds 'Organization Administration: read' for ${TARGET_ORG} but the Enhanced Billing usage endpoint is still inaccessible - most likely Enhanced Billing is unavailable on this org's plan. See RUNBOOK.md section 10.6."
+            echo "::error::The App holds 'Organization Administration: read' for ${TARGET_ORG} but the Enhanced Billing usage endpoint is still inaccessible - most likely Enhanced Billing is unavailable on this org's plan. See ADMIN.md §6.6."
             exit 1
           fi
 

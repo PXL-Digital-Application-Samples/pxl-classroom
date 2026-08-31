@@ -89,6 +89,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
 | Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** tab: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
 | Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open`, which is the default (§6.4). |
+| Late work | **Counts** by default. *Does not count* locks the submission branch at the deadline with a repository ruleset — students keep their repository, Actions, secrets and runners, they simply cannot push to that branch. The two deadline settings are independent; §3.4 is the whole picture. |
 | Lock down student repos at the deadline | **Off by default**, and opt-in on purpose: demoting to `pull` takes Actions, secrets, environments and runners away, which on these courses is the subject being taught. Preservation happens either way (§3.4). |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §6.10) |
 | Automated checks | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos, hidden`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
@@ -393,9 +394,8 @@ All under Actions in `pxl-classroom`.
 | `sync-starter-code.yml` | Push a template correction out to student repositories (§6.13) |
 | `open-feedback-prs.yml` | Open the draft Feedback PRs headlessly instead of from the tracking page (§6.10) |
 | `weekly-usage-report.yml` | Force a usage report off-cadence |
-| `setup-org.yml` | Add a new org (admin only) |
 
-Every workflow takes `org` as an input; many also take `assignment_id` for scoping.
+Each of these takes `org` as an input, and most also take `assignment_id` for scoping. Adding an organization is a different job with different inputs — [ADMIN.md §1.2](ADMIN.md#12-run-setup-organization).
 
 ### 4.1 The deadline sentinel
 
@@ -512,8 +512,10 @@ The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Adm
 | `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
 | `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
 | `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
+| `team_slug`      | Optional | Only used to **seed** a first group assignment (§1.3). Membership belongs to the assignment, not the roster, so a later re-import does not move anyone between teams. |
+| `team_name`      | Optional | Display name for `team_slug`. |
 
-Unknown columns are rejected. Duplicate `student_number` values are rejected.
+Unknown columns are rejected — the list above is `KNOWN_COLUMNS` in `lib/roster-csv.mjs`. Duplicate `student_number` values are rejected.
 
 **CLI flow:**
 

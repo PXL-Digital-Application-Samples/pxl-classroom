@@ -105,7 +105,11 @@ test("check-app-declaration - drift fails the run with the remediation", () => {
       `organization_administration=missing \\(want ${MANIFEST_APP_PERMISSIONS.organization_administration}\\)`,
     ),
   );
-  assert.match(stdout, /RUNBOOK\.md section 6\.7/);
+  // The remediation names a document and a section, without pinning WHICH -
+  // this is CI output for an operator, so a pointer is right, and sections move.
+  // `tests/doc-refs.test.mjs` is what proves the target actually resolves; this
+  // only proves a pointer is there at all.
+  assert.match(stdout, /\b(?:ADMIN|INSTALL|ARCHITECTURE)\.md §[0-9]/);
 });
 
 test("check-app-declaration - an unreachable API warns, never fails", () => {

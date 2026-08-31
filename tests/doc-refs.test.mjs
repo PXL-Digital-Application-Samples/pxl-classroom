@@ -202,34 +202,128 @@ test("every markdown anchor link resolves to a heading", () => {
 //
 // Developer comments are exempt and deliberately so - `// ARCHITECTURE §4.3.2`
 // beside the code it constrains is how the reasoning stays attached to it.
-const COMMENT_BLOCKS = [
-  /<!--[\s\S]*?-->/g, // vue template
-  /\/\*[\s\S]*?\*\//g, // js and css block
-];
+/**
+ * Blank out comments, keeping every other character in place.
+ *
+ * Deliberately a scanner and not a set of regexes. A block-comment regex looks
+ * right and is not: an open-comment marker inside a STRING pairs with the next
+ * real close marker, and everything between them disappears. lib/diagnostics.mjs
+ * has three opens and two closes, and the naive version silently deleted both
+ * of its RUNBOOK.md references - so the guard reported clean over the exact
+ * thing it exists to catch. Line numbers are preserved by blanking rather than
+ * removing, which is what makes a failure report point at the right line.
+ */
+function stripComments(source, { js = true } = {}) {
+  const out = source.split("");
+  const n = source.length;
+  let i = 0;
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < n; k++) if (out[k] !== "\n") out[k] = " ";
+  };
 
-/** Strip comments so what is left is roughly what a user could be shown. */
-function renderedText(source) {
-  let text = source;
-  for (const re of COMMENT_BLOCKS) text = text.replace(re, "");
-  return text
-    .split(/\r?\n/)
-    // A line comment, but not the "//" inside a URL.
-    .map((line) => line.replace(/(^|[^:])\/\/.*$/, "$1"))
-    .join("\n");
+  while (i < n) {
+    const c = source[i];
+    const next = source[i + 1];
+
+    // HTML comments are recognised regardless of quote state: a Vue TEMPLATE is
+    // prose, and prose is full of apostrophes ("the student's row"). Treating
+    // one as a string delimiter makes the scanner skip over the next comment
+    // entirely, which is how the first version reported fifteen comments as
+    // offenders and missed the two real ones.
+    if (c === "<" && source.startsWith("<!--", i)) {
+      const end = source.indexOf("-->", i + 4);
+      blank(i, end === -1 ? n : end + 3);
+      i = end === -1 ? n : end + 3;
+      continue;
+    }
+    if (!js) { i++; continue; }
+
+    // Strings and templates: skip over them untouched, honouring escapes.
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      i++;
+      while (i < n) {
+        if (source[i] === "\\") { i += 2; continue; }
+        if (source[i] === quote) { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      const end = source.indexOf("\n", i);
+      blank(i, end === -1 ? n : end);
+      i = end === -1 ? n : end;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      blank(i, end === -1 ? n : end + 2);
+      i = end === -1 ? n : end + 2;
+      continue;
+    }
+    i++;
+  }
+  return out.join("");
 }
 
+/**
+ * Comment-free view of a file, treating a .vue as the three languages it is.
+ *
+ * JS rules applied to a whole .vue file are wrong: the template is prose, and
+ * an apostrophe there is not a string. So only the <script> block gets the JS
+ * scanner; the rest gets HTML-comment handling alone.
+ */
+function withoutComments(rel, source) {
+  if (!rel.endsWith(".vue")) return stripComments(source, { js: true });
+
+  // Every SFC here is <template>, then <script>, then <style> - asserted by the
+  // test below, because this split depends on it. The template is everything
+  // before the first <script or <style; both of those take brace-language
+  // rules, and `/* */` covers the CSS too.
+  const m = /^<(?:script|style)\b/m.exec(source);
+  if (!m) return stripComments(source, { js: false });
+
+  return (
+    stripComments(source.slice(0, m.index), { js: false }) +
+    stripComments(source.slice(m.index), { js: true })
+  );
+}
+
+test("every .vue puts its template before its script and style", () => {
+  // Not style policing - the guard below depends on it. A template after a
+  // script block would be scanned with brace-language rules, and its
+  // apostrophes would swallow the next comment: exactly how this check went
+  // blind once already.
+  const wrong = [];
+  for (const file of FILES) {
+    const rel = relative(ROOT, file).replace(/\\/g, "/");
+    if (!rel.endsWith(".vue")) continue;
+    const src = readFileSync(file, "utf8");
+    const tpl = src.search(/^<template\b/m);
+    const code = src.search(/^<(?:script|style)\b/m);
+    if (tpl !== -1 && code !== -1 && tpl > code) wrong.push(rel);
+  }
+  assert.deepEqual(wrong, [], `tests/doc-refs.test.mjs assumes template-first:\n  ${wrong.join("\n  ")}`);
+});
+
 test("no user-facing string points at this repository's documentation", () => {
-  const DOC_NAME = /\b(?:ARCHITECTURE|RUNBOOK|ADMIN|INSTALL|DESIGN|LESSONS|OPEN-ITEMS)\.md\b/;
+  // Both spellings. "RUNBOOK.md section 6.7" carries no § at all, and ten of
+  // those were sitting in workflow errors and check output when this was
+  // written - invisible to a § search.
+  const DOC_NAME = /\b(?:ARCHITECTURE|RUNBOOK|ADMIN|INSTALL|DESIGN|LESSONS|OPEN-ITEMS)(?:\.md)?\s+(?:§|section\b|[0-9]+\.)/i;
   const SECTION = /§/;
+
+  // Everything a human can be shown: the SPA, and the two modules that build
+  // System Health's findings.
+  const UI = (rel) =>
+    rel.startsWith("frontend/src/") || rel === "lib/diagnostics.mjs" || rel === "lib/audit.mjs";
 
   const offenders = [];
   for (const file of FILES) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
-    // The SPA, plus the module that writes System Health's messages.
-    const isUi = rel.startsWith("frontend/src/") || rel === "lib/diagnostics.mjs";
-    if (!isUi) continue;
+    if (!UI(rel)) continue;
 
-    renderedText(readFileSync(file, "utf8")).split(/\r?\n/).forEach((line, i) => {
+    withoutComments(rel, readFileSync(file, "utf8")).split(/\r?\n/).forEach((line, i) => {
       if (DOC_NAME.test(line) || SECTION.test(line)) {
         offenders.push(`${rel}:${i + 1}  ${line.trim().slice(0, 110)}`);
       }

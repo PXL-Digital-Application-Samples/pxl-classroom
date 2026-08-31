@@ -312,7 +312,7 @@ console.log(`
 
   NOT \`repos/${ORG}/${REPO}/installation\` - that endpoint needs an App JWT and
   answers "A JSON web token could not be decoded" (401) to a user token, which
-  is the same trap RUNBOOK 6.7 already records for the /orgs/{org}/installation
+  is the same trap ADMIN.md §3.1 already records for the /orgs/{org}/installation
   singular form. This one reads with the org owner's own token.
 
   The FUNCTIONAL proof is the first republish: publish-assignment.yml mints a

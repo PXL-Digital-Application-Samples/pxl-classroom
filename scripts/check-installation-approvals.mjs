@@ -154,7 +154,7 @@ const describe = (gap) =>
   gap.missing.map((m) => `${m.permission}: has ${m.actual ?? "no access"}, App declares ${m.declared}`).join("; ");
 
 // A participating org with NO installation at all cannot be provisioned for -
-// nothing else in the system notices, and RUNBOOK section 11 has carried it as
+// nothing else in the system notices, and ADMIN.md §7 has carried it as
 // a manual checklist item.
 const installedAccounts = new Set(
   installations.map((i) => String(i?.account?.login ?? "").toLowerCase()).filter(Boolean),
@@ -170,7 +170,7 @@ for (const gap of blocking) {
   console.log(
     `::error title=Unapproved App permissions on ${gap.account}::${gap.account} has not approved the current permission set for "${slug}" - ${describe(gap)}. ` +
       `An org owner accepts at https://github.com/organizations/${gap.account}/settings/installations -> ${slug} -> Review request. ` +
-      `Until then that org keeps the old permissions and any feature relying on the new ones silently does nothing there. See RUNBOOK.md section 10.6.`,
+      `Until then that org keeps the old permissions and any feature relying on the new ones silently does nothing there. See ADMIN.md §6.6.`,
   );
 }
 

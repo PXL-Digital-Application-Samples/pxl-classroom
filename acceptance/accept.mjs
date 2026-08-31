@@ -174,7 +174,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     // cohort locked out for good.
     await fail(
       "fail:config",
-      `roster_mode is claim but PXL_CLAIM_PRIVATE_KEY is not set on the hub - no claim can be decrypted. See RUNBOOK 1.3.2.`,
+      `roster_mode is claim but PXL_CLAIM_PRIVATE_KEY is not set on the hub - no claim can be decrypted. See INSTALL.md §3.2.`,
     );
   }
 
@@ -325,7 +325,7 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
   // review aid, and losing it is not worth refusing a student their repository.
   const privateKeys = claimPrivateKeys(env("CLAIM_PRIVATE_KEY", ""), env("CLAIM_PRIVATE_KEYS_RETIRED", ""));
   if (privateKeys.length === 0) {
-    log("claim", { ok: true, note: "PXL_CLAIM_PRIVATE_KEY is not set - address not recorded (see RUNBOOK 1.3.2)" });
+    log("claim", { ok: true, note: "PXL_CLAIM_PRIVATE_KEY is not set - address not recorded (see INSTALL.md §3.2)" });
     return null;
   }
 

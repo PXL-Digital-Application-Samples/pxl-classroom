@@ -6,7 +6,7 @@
 // does nothing to an App that already exists, and no organization can approve a
 // permission the App does not declare - so the drift is invisible until a
 // lecturer trips over it. On 2026-08-21 that cost two hours of onboarding
-// debugging (RUNBOOK.md section 6.7).
+// debugging (ADMIN.md §3.1).
 //
 // GET /apps/{slug} is public; a token is used only for the higher rate limit.
 //
@@ -59,7 +59,7 @@ if (missingAccount.length) {
       `Note the API reports this one as "emails" while the settings toggle is labelled ` +
       `"Email addresses". The claim flow needs it to show a student their own GitHub-verified ` +
       `addresses (a user-to-server read of /user/emails); without it every claim degrades to the ` +
-      `typed box and records claim_verified: false. See RUNBOOK section 1.2.`,
+      `typed box and records claim_verified: false. See INSTALL.md §2.`,
   );
 }
 
@@ -92,7 +92,7 @@ if (excess.length) {
           `${account.length === 1 ? "it" : "them"} alone, with no organization approval round. `
         : "") +
       `NARROWING is safe to do immediately - an installation never loses access it was not using. ` +
-      `See RUNBOOK.md section 6.7.`,
+      `See ADMIN.md §3.1.`,
   );
 }
 
@@ -110,6 +110,6 @@ console.log(
   `::error::The App "${slug}" does not declare: ${labels}. ` +
     `MANIFEST_APP_PERMISSIONS in lib/audit.mjs has drifted from the live App - the manifest only applies at App creation. ` +
     `The App owner adds the permission under the App's Permissions & events, then every org owner approves the update. ` +
-    `Until then org onboarding fails at its billing preflight and the weekly usage report skips those orgs. See RUNBOOK.md section 6.7.`,
+    `Until then org onboarding fails at its billing preflight and the weekly usage report skips those orgs. See ADMIN.md §3.1.`,
 );
 process.exit(1);

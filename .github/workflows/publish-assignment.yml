@@ -101,7 +101,7 @@ jobs:
           BROKER_PRIVATE_KEY: ${{ secrets.PXL_BROKER_PRIVATE_KEY }}
         run: |
           if [ -z "$BROKER_CLIENT_ID" ] || [ -z "$BROKER_PRIVATE_KEY" ]; then
-            echo "::error::PXL_BROKER_CLIENT_ID / PXL_BROKER_PRIVATE_KEY are not set on the provisioning environment. Publishing is blocked deliberately: the only alternative is putting the provisioning App's own private key on a PUBLIC broker repository, which is what this replaced. Create the broker App by running 'node scripts/create-broker-app.mjs' from a checkout - it fills in the permission set (Contents: write, nothing else), stores both secrets, and prints the install URL. Install it on the hub repository ONLY. See RUNBOOK.md section 1.10."
+            echo "::error::PXL_BROKER_CLIENT_ID / PXL_BROKER_PRIVATE_KEY are not set on the provisioning environment. Publishing is blocked deliberately: the only alternative is putting the provisioning App's own private key on a PUBLIC broker repository, which is what this replaced. Create the broker App by running 'node scripts/create-broker-app.mjs' from a checkout - it fills in the permission set (Contents: write, nothing else), stores both secrets, and prints the install URL. Install it on the hub repository ONLY. See INSTALL.md §10."
             exit 1
           fi
 
@@ -307,7 +307,7 @@ jobs:
       # Eleven brokers were already carrying PXL_APP_PRIVATE_KEY when this
       # changed, and a secret is not removed by ceasing to write it. This is
       # what actually takes it off them - so republishing an assignment is the
-      # migration, and RUNBOOK section 1.10 says to sweep every live assignment
+      # migration, and INSTALL.md §10 says to sweep every live assignment
       # once.
       #
       # AFTER the workflow push, never before: the broker's OLD workflow reads
@@ -336,7 +336,7 @@ jobs:
             fi
           done
           if [ "$removed" -gt 0 ]; then
-            echo "::notice::Removed ${removed} legacy provisioning-App secret(s) from the public broker ${ORG}/${BROKER_REPO}. Treat the key as having been exposed on a public repository for as long as it was there and rotate it - RUNBOOK section 1.10."
+            echo "::notice::Removed ${removed} legacy provisioning-App secret(s) from the public broker ${ORG}/${BROKER_REPO}. Treat the key as having been exposed on a public repository for as long as it was there and rotate it - INSTALL.md §10."
           fi
 
       - name: Update assignment state
