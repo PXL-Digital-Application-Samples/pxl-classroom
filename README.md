@@ -8,7 +8,9 @@ GitHub-native assignment distribution and submission reporting for higher educat
 
 Target platform: GitHub Team for Education (no GitHub Enterprise required).
 
-Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) | [ARCHITECTURE.md](ARCHITECTURE.md) | [RUNBOOK.md](RUNBOOK.md) | [DESIGN.md](DESIGN.md)
+Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) | [ARCHITECTURE.md](ARCHITECTURE.md) | [DESIGN.md](DESIGN.md)
+
+Operational docs are split by who reads them: **[RUNBOOK.md](RUNBOOK.md)** for a lecturer running assignments, **[ADMIN.md](ADMIN.md)** for onboarding an organization and everything budget-, permission- or incident-related, and **[INSTALL.md](INSTALL.md)** for standing the whole system up once. Known infrastructure gaps are in [OPEN-ITEMS.md](OPEN-ITEMS.md).
 
 **PXL** stands for *PXL eXecutable Labs.
 

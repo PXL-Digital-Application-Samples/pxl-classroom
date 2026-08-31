@@ -10,6 +10,52 @@
 
 What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists → [LESSONS.md](LESSONS.md). Known infrastructure gaps → [OPEN-ITEMS.md](OPEN-ITEMS.md).
 
+## What do you want to do?
+
+**Setting up an assignment**
+
+| | |
+|---|---|
+| Create the template repository | [§4.1](#41-create-the-template-repository) |
+| Define the assignment | [§4.2](#42-define-the-assignment-in-the-admin-panel) |
+| Reuse the groups from an earlier group assignment | [§4.2b](#42b-reuse-the-groups-from-an-earlier-group-assignment) |
+| Publish it, and share the link | [§4.3](#43-publish), [§4.4](#44-share-the-link) |
+| Import a roster, or run without one | [§12.4](#124-importing-a-roster) |
+| Set up autograding | [§12.9](#129-autograding) |
+
+**While it runs**
+
+| | |
+|---|---|
+| Watch for problems | [§5.1](#51-the-instructor-notifications-issue), [§5.2](#52-the-dashboard) |
+| A student says "I clicked Accept and nothing happened" | [§6.3](#63-student-says-i-clicked-accept-but-nothing-happened) |
+| A student deleted their repository | [§6.1](#61-student-deleted-their-repository) |
+| **Fix a mistake in the assignment after students accepted** | [§12.10](#1210-correcting-an-assignment-after-students-have-accepted) |
+| Run System Health / one-click fixes | [§12.11](#1211-pre-flight-diagnostics-system-health--1-click-auto-fixes) |
+
+**Around the deadline**
+
+| | |
+|---|---|
+| Grant one student an extension | [§6.2](#62-grant-an-extension) |
+| Decide whether late work counts | [§6.2b](#62b-deciding-what-happens-to-late-work) |
+| **Before an exam: check nobody in the cohort is an org owner** | [§6.2c](#62c-before-an-exam-deadline-nobody-in-the-cohort-may-be-an-organization-owner) |
+| Lock deadlines at the instant rather than overnight | [§7.1](#71-the-deadline-sentinel) |
+| The nightly finalize failed | [§6.3b](#63b-nightly-finalize-failed) |
+
+**Afterwards**
+
+| | |
+|---|---|
+| Read the autograder scores | [§12.9](#129-autograding) |
+| Open and review the Feedback PRs | [§12.7](#127-feedback-prs) |
+| Download every submission | [§12.8](#128-bulk-submission-download--preservation-status) |
+| Promote the students who accepted onto the roster | [§12.4a](#124a-promoting-accepted-students-onto-the-roster) |
+| Retire a finished assignment | [§8a](#8a-retiring-a-finished-assignment) |
+
+> [!NOTE]
+> The numbering runs 4, 5, 6, 7, 8a, 12 because these sections kept the numbers they had when this file also covered installation and administration — so every existing reference to them still resolves. Use the index above rather than the numbers; renumbering is a separate pass.
+
 ---
 
 
@@ -395,9 +441,27 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 ---
 
 
-## 12. CLI installation (companion tooling)
+## 12. Roster, groups, grading and corrections
 
-The `pxl-classroom` CLI in `cli/` is an optional power-user surface for lecturer-side actions that scale poorly through the SPA: CSV roster import, install audits, feedback-PR orchestration, bulk submission download, and autograding. Same App, same device-flow auth, same schemas as the Admin Panel.
+**Most of what a lecturer does after publishing lives here, and most of it has both a Web UI and a CLI route.** The section is titled for the CLI for historical reasons and is being renamed; what it actually contains is the task list:
+
+| I want to… | Go to |
+|---|---|
+| Import a roster from a CSV | §12.4 |
+| Run an assignment from email addresses, or with no roster at all | §12.4, the two sub-sections after the import |
+| Turn the students who actually accepted into a roster | §12.4a |
+| See or undo a claim binding | §12.4b, §12.4c |
+| Check an organization's install is healthy | §12.5 |
+| Work with `submit/` tags | §12.6 |
+| Open or review the Feedback PRs | §12.7 |
+| Download every submission in bulk | §12.8 |
+| Set up or read autograding | §12.9 |
+| **Fix a mistake in an assignment students have already accepted** | §12.10 |
+| Run System Health and its one-click fixes | §12.11 |
+
+§12.1–§12.3 install and configure the CLI, and are needed only for the CLI route. Everything from §12.4 onwards is a task, and each says which surfaces can do it.
+
+The `pxl-classroom` CLI in `cli/` is an optional power-user surface for the actions that scale poorly through the SPA: CSV roster import, install audits, feedback-PR orchestration, bulk submission download, and autograding. Same App, same device-flow auth, same schemas as the Admin Panel.
 
 ### 12.1 Install (from a clone of the hub)
 
