@@ -20,8 +20,7 @@
       "AssignmentDetailView.vue"
     ],
     "autograde-modal": [
-      "AssignmentDetailView.vue",
-      "TeamsTable.vue"
+      "AutogradeResultsModal.vue"
     ],
     "badge-clickable": [
       "AssignmentDetailView.vue"
@@ -30,12 +29,10 @@
       "AdminView.vue"
     ],
     "banner-success": [
-      "AssignmentDetailView.vue",
-      "TeamsTable.vue"
+      "AutogradeResultsModal.vue"
     ],
     "banner-warning": [
-      "AssignmentDetailView.vue",
-      "TeamsTable.vue"
+      "AutogradeResultsModal.vue"
     ],
     "capacity-banner": [
       "AssignmentDetailView.vue"
@@ -76,19 +73,11 @@
     "consequences-list": [
       "AssignmentDetailView.vue"
     ],
-    "data-table": [
-      "SandboxView.vue",
-      "TeamsTable.vue"
-    ],
     "deadline": [
       "AdminView.vue"
     ],
     "deadline-card": [
       "AssignmentDetailView.vue"
-    ],
-    "deadline-countdown": [
-      "AssignmentView.vue",
-      "GroupAcceptanceCard.vue"
     ],
     "demo-toolbar": [
       "SandboxView.vue"
@@ -126,11 +115,6 @@
     "file-row-box": [
       "StarterSyncModal.vue"
     ],
-    "form-group": [
-      "GroupAcceptanceCard.vue",
-      "StarterSyncModal.vue",
-      "TeamsTable.vue"
-    ],
     "group-config-box": [
       "AdminView.vue"
     ],
@@ -139,10 +123,6 @@
     ],
     "is-success": [
       "AdminView.vue"
-    ],
-    "latest-commit-info": [
-      "AssignmentView.vue",
-      "GroupAcceptanceCard.vue"
     ],
     "modal-actions-box": [
       "StudentDiagnosticsModal.vue"
@@ -156,10 +136,6 @@
     "org-item-text": [
       "DashboardView.vue"
     ],
-    "override-alert-banner": [
-      "AssignmentView.vue",
-      "GroupAcceptanceCard.vue"
-    ],
     "preassigned-flow": [
       "GroupAcceptanceCard.vue"
     ],
@@ -171,10 +147,6 @@
     ],
     "radio-group": [
       "AdminView.vue"
-    ],
-    "regen": [
-      "UsageOverviewView.vue",
-      "UsageView.vue"
     ],
     "report-content": [
       "AssignmentDetailView.vue"
@@ -202,10 +174,6 @@
     ],
     "scanning-box": [
       "StarterSyncModal.vue"
-    ],
-    "score-banner": [
-      "AssignmentDetailView.vue",
-      "TeamsTable.vue"
     ],
     "section-header": [
       "StarterSyncModal.vue"
@@ -270,27 +238,14 @@
     "template-preflight-badge": [
       "AdminView.vue"
     ],
-    "test-item-card": [
-      "AssignmentDetailView.vue",
-      "TeamsTable.vue"
-    ],
-    "test-logs": [
-      "AssignmentDetailView.vue",
-      "TeamsTable.vue"
-    ],
     "tests-breakdown-list": [
-      "AssignmentDetailView.vue",
-      "TeamsTable.vue"
+      "AutogradeResultsModal.vue"
     ],
     "text-error": [
       "StarterSyncModal.vue"
     ],
     "theme-toggle": [
       "ThemeToggle.vue"
-    ],
-    "timeout-state": [
-      "AssignmentView.vue",
-      "GroupAcceptanceCard.vue"
     ],
     "toolbar-actions": [
       "TeamsTable.vue"

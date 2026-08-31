@@ -110,7 +110,11 @@ test("preserve.mjs does not use a shallow fetch", async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const src = await readFile(join(here, "..", "preserve", "preserve.mjs"), "utf8");
 
-  const fetchLine = src.split("\n").find((l) => l.includes("git(`fetch"));
+  // Anchored on the ARGUMENT ARRAY, because preserve.mjs runs git through
+  // execFileSync now - no shell, so no value from the lockdown record reaches
+  // one. An anchor that no longer matches is why this assertion is written to
+  // fail loudly when it finds nothing rather than pass vacuously.
+  const fetchLine = src.split("\n").find((l) => /git\(\s*\["fetch"/.test(l));
   assert.ok(fetchLine, "expected a git fetch call in preserve.mjs");
   assert.ok(
     !/--depth/.test(fetchLine),
@@ -128,7 +132,7 @@ test("preserve.mjs does not use a shallow fetch", async () => {
 // same ref - which plain git treats as already up to date.
 test("preservation does not force-push to the archive", () => {
   const src = readFileSync(new URL("../preserve/preserve.mjs", import.meta.url), "utf8");
-  const pushes = src.match(/git\(`push[^`]*`/g) || [];
+  const pushes = src.match(/git\(\s*\["push"[^\]]*\]/g) || [];
   assert.ok(pushes.length > 0, "expected preserve.mjs to push something");
   for (const push of pushes) {
     assert.ok(!/--force|\+refs|\s\+\S+:/.test(push), `force-push found: ${push}`);

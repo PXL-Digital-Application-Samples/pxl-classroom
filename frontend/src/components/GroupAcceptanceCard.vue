@@ -36,7 +36,7 @@
       <!-- Team Submission Status & Deadline Countdown Card -->
       <div class="team-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; text-align: left;">
         <!-- Active Extension Announcement -->
-        <div v-if="teamOverride" class="override-alert-banner flex items-center gap-xs" style="background: var(--tint-success-muted); border: 1px solid var(--tint-success-emphasis); border-radius: 6px; padding: 8px 12px;">
+        <div v-if="teamOverride" class="override-alert-banner flex items-center gap-xs">
           <Icon name="check-circle" :size="16" class="stat-green" />
           <span class="text-xs font-semibold text-primary">
             🎉 Deadline Extended to {{ new Date(teamOverride.value).toLocaleString() }} ({{ teamOverride.reason || 'Approved extension' }})
@@ -374,6 +374,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
 import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
 import { getToken } from '../lib/auth.js'
+import { config } from '../lib/config.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
@@ -563,7 +564,7 @@ async function loadTeams() {
   // 2. Try fetching from control repo public data via GitHub API (if token present)
   if (token) {
     try {
-      const ctlRes = await ghApi(token, 'GET', `/repos/${props.org}/pxl-classroom-control/contents/public/teams/${props.assignment.id}.json`)
+      const ctlRes = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/public/teams/${props.assignment.id}.json`)
       if (ctlRes.ok && ctlRes.data?.content) {
         const raw = atob(ctlRes.data.content.replace(/\n/g, ''))
         const parsed = JSON.parse(raw)
@@ -692,7 +693,7 @@ async function refreshTeamSubmissionMeta(org, repoName) {
   // (lib/effective-deadline.mjs): the last grant in the append-only history
   // wins, and an extension only ever extends.
   try {
-    const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${props.assignment.id}/${props.user.login}.json`)
+    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, `overrides/${props.assignment.id}/${props.user.login}.json`)
     if (overrideFile) {
       const eff = effectiveDeadlineFor(props.assignment, props.user.login, {
         overrides: [JSON.parse(overrideFile)],

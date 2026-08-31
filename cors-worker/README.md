@@ -1,13 +1,31 @@
 # Device-flow CORS proxy (Cloudflare Worker)
 
-The SPA's **fallback** proxy for GitHub's device-flow endpoints. `corsproxy.io`
-stays primary; this takes over automatically when it fails.
+The SPA's **primary** proxy for GitHub's device-flow endpoints. A third-party
+proxy (`VITE_CORS_PROXY_URL`) stays configured as the fallback and is used only
+when this one is unreachable.
+
+It was the fallback, and that protected nobody: measured live on 2026-08-31 by
+loading the deployed SPA and reading its own resource timing, the device-code
+request and all three access-token polls went to `corsproxy.io` and this Worker
+was never contacted — because a fallback is only reached when the primary
+*fails*, and the primary had started working again on a paid key. The ordering
+lives in `deployment.yml`'s `device_flow_proxy` now, which is the file people
+read.
+
+Whichever proxy answers sees the OAuth **access token** in transit, and a
+lecturer's token reads the private control repo — the roster: names, student
+numbers, institutional email addresses. That is what the ordering decides.
 
 Read the header comment in [`worker.js`](worker.js) for why a proxy is
-structurally required and why the fallback has to be one we own. The short
-version: GitHub sends no CORS headers on `login/device/code` or
-`login/oauth/access_token`, and **there is no other public proxy that works** —
-measured, not assumed.
+structurally required and why it has to be one we own. The short version: GitHub
+sends no CORS headers on `login/device/code` or `login/oauth/access_token`, and
+**there is no other public proxy that works** — measured, not assumed.
+
+`ALLOWED_ORIGINS` in `worker.js` carries the Pages origin as a literal, because
+a Worker deployed by `wrangler` has no access to `deployment.yml` at runtime.
+`tests/cors.test.mjs` derives `https://<hub_owner>.github.io` from
+`deployment.yml` and fails if the two disagree, so a fork changing `hub_owner`
+finds out here rather than at a student's 403.
 
 ## Deploy
 

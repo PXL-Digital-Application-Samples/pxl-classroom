@@ -267,7 +267,7 @@
             <!-- Student Submission Status & Deadline Countdown Card -->
             <div class="student-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; text-align: left;">
               <!-- Active Extension Announcement -->
-              <div v-if="studentOverride" class="override-alert-banner flex items-center gap-xs" style="background: var(--tint-success-muted); border: 1px solid var(--tint-success-emphasis); border-radius: 6px; padding: 8px 12px;">
+              <div v-if="studentOverride" class="override-alert-banner flex items-center gap-xs">
                 <Icon name="check-circle" :size="16" class="stat-green" />
                 <span class="text-xs font-semibold text-primary">
                   🎉 Deadline Extended to {{ new Date(studentOverride.value).toLocaleString() }} ({{ studentOverride.reason || 'Approved extension' }})
@@ -798,7 +798,7 @@ async function refreshStudentSubmissionMeta(org, repoName) {
   // entry here used to show a student a deadline a later grant had already
   // superseded.
   try {
-    const overrideFile = await getRepoContent(token, props.org, 'pxl-classroom-control', `overrides/${resolvedId.value}/${user.value.login}.json`)
+    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, `overrides/${resolvedId.value}/${user.value.login}.json`)
     if (overrideFile) {
       const eff = effectiveDeadlineFor(assignment.value, user.value.login, {
         overrides: [JSON.parse(overrideFile)],

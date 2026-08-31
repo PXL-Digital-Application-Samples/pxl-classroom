@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { runDiagnostics } from "../lib/diagnostics.mjs";
 import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS, APP_SLUG } from "../lib/audit.mjs";
 import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
+import { buildAssignmentDoc } from "../lib/assignment-doc.mjs";
 
 // A published assignment without a signed invitation genuinely cannot work,
 // so these contract fixtures carry a real one rather than asserting a green
@@ -10,30 +11,33 @@ import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
 const KEYPAIR = generateKeyPair();
 const INVITE_NONCE = "0badc0de";
 
-// Helper recreating AdminView.vue's exact buildDoc() logic
+// THE REAL buildDoc, not a copy of it.
+//
+// This was a hand-maintained reimplementation - `Helper recreating
+// AdminView.vue's exact buildDoc() logic` - and it had already drifted past
+// the fields that decide whether an assignment works: no invite_key /
+// invite_pubkey (the signed-acceptance keypair, ARCHITECTURE §4.3.2, so it
+// still emitted only the withdrawn invite_token), no claim_domains, no
+// autograde, no feedback_pr, and `min_team_size || 1` against a shared default
+// of 0. The diagnostics contract was therefore checked against a document the
+// Admin Panel had not produced for months: a mock that accepts anything tests
+// nothing.
+//
+// buildAssignmentDoc takes the form state as a parameter precisely so a Node
+// test can drive the shipped implementation. The invitation fields are supplied
+// as form state, exactly as publish-assignment.yml supplies them in production,
+// rather than minted inside a second copy of the builder.
 function vueBuildDoc(formState) {
-  const [tplOwner, tplRepo] = typeof formState.template === "string"
-    ? formState.template.split("/")
-    : [formState.template?.owner || "", formState.template?.repository || ""];
-
-  return {
-    schema_version: 1,
-    id: formState.id,
-    title: formState.title,
-    organization: formState.organization,
-    template: { owner: tplOwner || "", repository: tplRepo || "" },
-    repository_name_pattern: formState.repository_name_pattern,
-    opens_at: formState.opens_at || (formState.opens_at_local ? new Date(formState.opens_at_local).toISOString() : ""),
-    deadline_at: formState.deadline_at || (formState.deadline_at_local ? new Date(formState.deadline_at_local).toISOString() : ""),
-    timezone: formState.timezone || "Europe/Brussels",
-    submission_ref: formState.submission_ref || "refs/heads/main",
-    student_permission: formState.student_permission || "admin",
-    acceptance_mode: formState.acceptance_mode || "self-service",
-    roster_mode: formState.roster_mode || "enforced",
-    late_policy: formState.late_policy || "block",
-    state: formState.state || "draft",
-    ...(formState.max_acceptances ? { max_acceptances: Number(formState.max_acceptances) } : {}),
-    lock_down_enabled: !!formState.lock_down_enabled,
+  return buildAssignmentDoc({
+    student_permission: "admin",
+    acceptance_mode: "self-service",
+    late_policy: "block",
+    state: "draft",
+    ...formState,
+    template:
+      typeof formState.template === "string"
+        ? formState.template
+        : `${formState.template?.owner ?? ""}/${formState.template?.repository ?? ""}`,
     invite_token: signInviteToken({
       org: formState.organization,
       assignmentId: formState.id,
@@ -42,18 +46,7 @@ function vueBuildDoc(formState) {
       privateKeyPem: KEYPAIR.privateKeyPem,
     }),
     invite_nonce: INVITE_NONCE,
-    ...(formState.assignment_type ? { assignment_type: formState.assignment_type } : {}),
-    ...(formState.assignment_type === "group"
-      ? {
-          group_config: {
-            max_team_size: Number(formState.group_config?.max_team_size) || 3,
-            min_team_size: Number(formState.group_config?.min_team_size) || 1,
-            formation_mode: formState.group_config?.formation_mode || "self-service",
-            allow_team_creation: formState.group_config?.allow_team_creation !== false,
-          },
-        }
-      : {}),
-  };
+  });
 }
 
 function createMockRequest(customHandlers = {}) {

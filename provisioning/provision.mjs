@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -133,7 +134,7 @@ export function buildAutogradingWorkflow(assignment, org) {
   if (!isPublic) {
     return stringifyYaml({
       ...shell,
-      jobs: { grade: { uses: `${org}/pxl-classroom-control/.github/workflows/grade.yml@main` } },
+      jobs: { grade: { uses: `${org}/${CONTROL_REPO}/.github/workflows/grade.yml@main` } },
     });
   }
 

@@ -12,9 +12,10 @@
 import { makeOctokit } from "../lib/octokit.mjs";
 import { runAudit } from "../../../lib/audit.mjs";
 import { resolveOrg } from "../lib/org.mjs";
+import { HUB_OWNER, HUB_REPO_NAME } from "../../../lib/deployment.mjs";
 
-const HUB_OWNER_DEFAULT = "PXL-Digital-Application-Samples";
-const HUB_REPO_DEFAULT = "pxl-classroom";
+const HUB_OWNER_DEFAULT = HUB_OWNER;
+const HUB_REPO_DEFAULT = HUB_REPO_NAME;
 
 
 

@@ -56,6 +56,9 @@ Breaking one of these has cost this project a real incident. They are not style.
 ## Rules that keep being rediscovered
 
 - **One page is not the list.** A list endpoint returns a page; a statement about the whole collection needs the walk. Where a walk is capped, the capped case may not report `ok`.
+- **A GitHub login is compared and indexed lowercased** — `lib/github-login.mjs`, never a hand-written `.toLowerCase()`. The spelling a lecturer types into a roster CSV and the one GitHub dispatches are the same account; four indexes in `report.mjs` keyed the raw string and a single student became two rows.
+- **A "pick ours out of the list" helper returns null when ours is absent.** `|| list[0]` turns "not installed" into somebody else's installation, and "no grading run" into full marks off an unrelated green check.
+- **A deployment.yml value is read, never re-spelled.** JavaScript imports `#deployment`; YAML cannot, so `tests/deployment-literals.test.mjs` checks the workflows and the CORS Worker against it.
 - **Unreadable is not evidence.** A read that failed yields *no* check, never a green one and never "none found".
 - **Absent and empty are different answers.** A truthy check silently re-imposes a rule someone deliberately removed.
 - **Fail closed.** An unrecognised `roster_mode` is `enforced`; an absent nonce rejects; an absent `lock_down_enabled` is `true`. Never relax one of these to match a form default.
@@ -63,7 +66,8 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **One source of truth per cross-surface concern.** Don't fork a shared `lib/` module into a second implementation; the tests fail if you do.
 - **Identical names over different constants are not a fork.** Two modules may legitimately declare the same name at different sizes — the guard's job is to stop the merge, not perform it.
 - **A guard whose anchor was renamed checks nothing, silently.** `indexOf` returns -1 and `slice(-1)` still returns a string, so an absence assertion passes vacuously.
-- **A mock that accepts anything tests nothing.** Fixtures validate what the app writes against the real schema.
+- **A mock that accepts anything tests nothing.** Fixtures validate what the app writes against the real schema — and a fixture must be the shape the app *actually writes*, not one the test invented. A lockdown test built one team-shaped repository record where production writes one per login; a "contract" test reimplemented `buildDoc()` and drifted past the signed-acceptance keypair. Both passed for months against code that could not work.
+- **Never re-implement the thing under test in the test.** Import it. If it cannot be imported, that is the defect.
 - **Never describe behaviour the system does not have.** A control that promises a queue, a retry or a guarantee nobody implemented is worse than no control.
 - **The UI never points a user at the repo's documentation** (DESIGN.md §1.6, `tests/doc-refs.test.mjs`). The runbooks are for whoever operates a deployment; a student who cannot sign in is not that person. Say what happened and who can fix it. Comments are exempt — that is where a `§` reference belongs.
 - **Dry-run is sacred.** Every CLI `--dry-run` has zero side effects — no writes, no PRs, no commits.

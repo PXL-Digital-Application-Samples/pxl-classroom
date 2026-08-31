@@ -6,6 +6,7 @@ import { parse } from "yaml";
 // here until a second caller needed it; two copies of a signing routine drift
 // into an intermittently invalid credential rather than a visible error.
 import { generateAppJwt } from "../lib/app-jwt.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 async function request(url, options = {}) {
   const res = await fetch(url, {
@@ -106,7 +107,7 @@ async function main() {
       const token = tokenRes.token;
 
       // Fetch public/assignments.json from the control repo
-      const contentsUrl = `https://api.github.com/repos/${org}/pxl-classroom-control/contents/public/assignments.json`;
+      const contentsUrl = `https://api.github.com/repos/${org}/${CONTROL_REPO}/contents/public/assignments.json`;
       const fileData = await request(contentsUrl, {
         headers: { Authorization: `token ${token}` },
       });
@@ -131,7 +132,7 @@ async function main() {
       try {
         const orgInviteDir = join(outDir, org, "i");
         const tree = await request(
-          `https://api.github.com/repos/${org}/pxl-classroom-control/git/trees/HEAD?recursive=1`,
+          `https://api.github.com/repos/${org}/${CONTROL_REPO}/git/trees/HEAD?recursive=1`,
           { headers: { Authorization: `token ${token}` } }
         );
         const entries = (tree?.tree || []).filter(
@@ -146,7 +147,7 @@ async function main() {
         let saved = 0;
         for (const entry of entries) {
           const blob = await request(
-            `https://api.github.com/repos/${org}/pxl-classroom-control/git/blobs/${entry.sha}`,
+            `https://api.github.com/repos/${org}/${CONTROL_REPO}/git/blobs/${entry.sha}`,
             { headers: { Authorization: `token ${token}` } }
           );
           if (blob?.content) {
@@ -165,7 +166,7 @@ async function main() {
 
       // Fetch public/teams/*.json for group assignments
       try {
-        const teamsListUrl = `https://api.github.com/repos/${org}/pxl-classroom-control/contents/public/teams`;
+        const teamsListUrl = `https://api.github.com/repos/${org}/${CONTROL_REPO}/contents/public/teams`;
         const teamsList = await request(teamsListUrl, {
           headers: { Authorization: `token ${token}` },
         });

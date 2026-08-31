@@ -289,13 +289,16 @@ test("neither view keeps a second copy of the clipboard write", () => {
 });
 
 test("saving rebuilds the document without dropping the invitation", () => {
-  // buildDoc constructs the YAML field by field, so anything absent is deleted -
-  // and the result still validates, because the invite fields are optional.
-  const src = ADMIN();
+  // buildAssignmentDoc constructs the YAML field by field, so anything absent is
+  // deleted - and the result still validates, because the invite fields are
+  // optional. It lives in lib/assignment-doc.mjs now, imported by the Admin
+  // Panel and by the diagnostics contract test, which used to carry a copy of
+  // the builder that had quietly stopped emitting invite_key/invite_pubkey.
+  const src = readFileSync(join(root, "lib", "assignment-doc.mjs"), "utf8");
   for (const field of INVITE_FIELDS) {
     assert.ok(
-      src.includes(`...(form.value.${field} ? { ${field}: form.value.${field} } : {})`),
-      `buildDoc must carry ${field} through`
+      src.includes(`...(form.${field} ? { ${field}: form.${field} } : {})`),
+      `buildAssignmentDoc must carry ${field} through`
     );
   }
 });

@@ -32,6 +32,11 @@ const SRC_DIRS = [
   "lib", "scripts", "acceptance", "provisioning", "collect", "lockdown", "preserve",
   "report", "notify", "pages", "registry", "frontend/src", "cli/src", ".github/workflows",
   "schemas", "control-repo-template",
+  // The device-flow CORS proxy. It is deployed on its own by wrangler and
+  // imports nothing from the repository, which is exactly why tests anchor into
+  // its source to check the two allowlists - and why leaving it out of the
+  // corpus made those anchors read as dead.
+  "cors-worker",
 ];
 
 // Files outside those trees that tests legitimately read. frontend/index.html

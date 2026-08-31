@@ -20,6 +20,10 @@ import { normalizeRosterMode } from "../lib/roster-mode.mjs";
 import { inviteFileFor } from "../lib/invite-token.mjs";
 import { linkSecretFrom } from "../lib/invite-token-format.mjs";
 import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.mjs";
+// The display timezone reaches every student's assignment card from here, so it
+// is the deployment's value and not a literal. This was the fourth copy of
+// `Europe/Brussels` beside a `TIMEZONE` export nothing read.
+import { TIMEZONE } from "../lib/deployment.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -183,7 +187,7 @@ async function main() {
       state: def.state,
       opens_at: def.opens_at,
       deadline_at: def.deadline_at,
-      timezone: def.timezone || "Europe/Brussels",
+      timezone: def.timezone || TIMEZONE,
       acceptance_mode: def.acceptance_mode || "self-service",
       // Policy flag, not student data - the SPA uses it to explain accurately
       // why an acceptance may not complete. Never carries roster contents.

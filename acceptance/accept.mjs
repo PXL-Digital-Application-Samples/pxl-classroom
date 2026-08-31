@@ -513,6 +513,69 @@ async function main() {
     log("roster", { ok: true, note: `@${login} is on the roster` });
   }
 
+  // 4.6 Check the per-assignment cap.
+  //
+  // BEFORE THE TEAM RESOLUTION, and that ordering is the point. This ran at
+  // step 7, after step 5 had already appended the student to
+  // `teams/<id>/<slug>.json` and removed them from the team they were leaving.
+  // `rejected:cap-reached` then exits 0 without an acceptance record, so the
+  // manifest was left naming somebody who never accepted - counted against
+  // `max_team_size` for the next student through the door, listed on the
+  // dashboard, and seeded forward into the next assignment. Nothing here
+  // touches a repository or a manifest, so nothing has to be undone.
+  const acceptDir = join(dataDir, "acceptances", assignmentId);
+  const acceptFile = join(acceptDir, `${login}.json`);
+  // A student who already holds an acceptance is not taking a second seat -
+  // they are returning, or switching team. This was spelled `!previousTeamSlug`
+  // when the check sat after the team resolution; the two admit exactly the
+  // same students, because a returning student who is NOT switching exits at
+  // the idempotency check below before any cap could apply.
+  const alreadyAccepted = existsSync(acceptFile);
+
+  // A GUARDRAIL, NOT A HARD LIMIT, AND DELIBERATELY SO. Read this before
+  // "fixing" it.
+  //
+  // The count below is read, compared, and then written to - a textbook
+  // check-then-act. The acceptance concurrency group is
+  // `accept-<org>-<id>-<team_hint || github_login>`, so acceptances by
+  // DIFFERENT students are not serialized against each other: two students
+  // arriving together both read 49, both see 49 < 50, and both write. The cap
+  // can therefore overshoot by roughly the number of acceptances in flight at
+  // once.
+  //
+  // Closing it means keying the concurrency group on the assignment instead of
+  // the student, which serializes every acceptance for that assignment. A
+  // 200-student cohort accepting in the first minutes of a lecture would then
+  // run one at a time - roughly 30s each - on a system whose whole design goal
+  // is billing zero minutes when idle (Wave 8). The overshoot is a handful of
+  // repositories; the cure is an hour of queued runners and a room full of
+  // students watching a spinner.
+  //
+  // Decided 2026-08-24: leave it. The cap exists to stop an unbounded link
+  // being farmed, and it does that. It is not an exam-seat allocator. Nothing
+  // in the UI may describe it as exact (C4) - see ARCHITECTURE §5.4.
+  const maxAcceptances = assignment.max_acceptances;
+  if (maxAcceptances && !alreadyAccepted) {
+    let currentCount = 0;
+    if (existsSync(acceptDir)) {
+      const files = await readdir(acceptDir);
+      currentCount = files.filter((f) => f.endsWith(".json")).length;
+    }
+    if (currentCount >= maxAcceptances)
+      await reject(
+        "rejected:cap-reached",
+        // NOT "queued for lecturer review". Nothing queues a rejected
+        // acceptance and nothing retries one: Wave 8 removed the queue entirely
+        // in favour of synchronous provisioning, and no code anywhere reads a
+        // cap-reached rejection afterwards. This string is what lands in the
+        // org's instructor tracking issue, so promising a queue leaves a
+        // lecturer waiting for something that will never happen instead of
+        // raising the cap.
+        `per-assignment cap reached (${currentCount}/${maxAcceptances}). Nothing is held or retried automatically - raise the cap on the assignment, then the student can accept again.`
+      );
+    log("cap", { ok: true, note: `${currentCount + 1}/${maxAcceptances}` });
+  }
+
   // 5. Group assignment team resolution & checks
   const isGroup = assignment.assignment_type === "group";
   let teamSlug = env("TEAM_SLUG", "");
@@ -627,8 +690,24 @@ async function main() {
     }
 
     if (existsSync(teamFile)) {
-      const teamData = JSON.parse(await readFile(teamFile, "utf-8"));
-      if (!teamData.members.some((m) => m.toLowerCase() === login.toLowerCase())) {
+      // Read defensively, exactly as the oldTeam scan above it does. This was a
+      // bare JSON.parse plus `teamData.members.some(...)`, so one corrupt or
+      // half-written manifest threw a SyntaxError or a TypeError out of main()
+      // and into `fail:exception` - a red run and no repository, for a student
+      // whose only mistake was accepting after somebody hand-edited a file.
+      let teamData;
+      try {
+        teamData = JSON.parse(await readFile(teamFile, "utf-8"));
+      } catch (e) {
+        await fail("fail:team-manifest", `teams/${assignmentId}/${teamSlug}.json cannot be read: ${e.message}`);
+      }
+      if (!Array.isArray(teamData?.members)) {
+        // Not an exception and not a silent repair: a manifest with no member
+        // list cannot say whether this team is full, and guessing "empty" would
+        // admit a student past a cap the file is simply unable to report.
+        await fail("fail:team-manifest", `teams/${assignmentId}/${teamSlug}.json has no members array`);
+      }
+      if (!teamData.members.some((m) => String(m).toLowerCase() === login.toLowerCase())) {
         if (teamData.members.length >= (teamData.max_members || maxTeamSize)) {
           await reject(
             "rejected:team-full",
@@ -672,8 +751,6 @@ async function main() {
   }
 
   // 6. Check idempotency - already accepted?
-  const acceptDir = join(dataDir, "acceptances", assignmentId);
-  const acceptFile = join(acceptDir, `${login}.json`);
   const targetRepo = isGroup
     ? deriveRepoName(assignment.repository_name_pattern, teamSlug, login)
     : deriveRepoName(assignment.repository_name_pattern, login, login);
@@ -697,52 +774,6 @@ async function main() {
     await setOutput("feedback_pr_baseline_branch", assignment.feedback_pr_baseline_branch || "pxl-baseline");
     await summary(`### Acceptance: \`already-accepted\`\n\n${login} already accepted ${assignmentId}.`);
     process.exit(0);
-  }
-
-  // 7. Check per-assignment cap.
-  //
-  // A GUARDRAIL, NOT A HARD LIMIT, AND DELIBERATELY SO. Read this before
-  // "fixing" it.
-  //
-  // The count below is read, compared, and then written to - a textbook
-  // check-then-act. The acceptance concurrency group is
-  // `accept-<org>-<id>-<team_hint || github_login>`, so acceptances by
-  // DIFFERENT students are not serialized against each other: two students
-  // arriving together both read 49, both see 49 < 50, and both write. The cap
-  // can therefore overshoot by roughly the number of acceptances in flight at
-  // once.
-  //
-  // Closing it means keying the concurrency group on the assignment instead of
-  // the student, which serializes every acceptance for that assignment. A
-  // 200-student cohort accepting in the first minutes of a lecture would then
-  // run one at a time - roughly 30s each - on a system whose whole design goal
-  // is billing zero minutes when idle (Wave 8). The overshoot is a handful of
-  // repositories; the cure is an hour of queued runners and a room full of
-  // students watching a spinner.
-  //
-  // Decided 2026-08-24: leave it. The cap exists to stop an unbounded link
-  // being farmed, and it does that. It is not an exam-seat allocator. Nothing
-  // in the UI may describe it as exact (C4) - see ARCHITECTURE §5.4.
-  const maxAcceptances = assignment.max_acceptances;
-  if (maxAcceptances && !previousTeamSlug) {
-    let currentCount = 0;
-    if (existsSync(acceptDir)) {
-      const files = await readdir(acceptDir);
-      currentCount = files.filter((f) => f.endsWith(".json")).length;
-    }
-    if (currentCount >= maxAcceptances)
-      await reject(
-        "rejected:cap-reached",
-        // NOT "queued for lecturer review". Nothing queues a rejected
-        // acceptance and nothing retries one: Wave 8 removed the queue entirely
-        // in favour of synchronous provisioning, and no code anywhere reads a
-        // cap-reached rejection afterwards. This string is what lands in the
-        // org's instructor tracking issue, so promising a queue leaves a
-        // lecturer waiting for something that will never happen instead of
-        // raising the cap.
-        `per-assignment cap reached (${currentCount}/${maxAcceptances}). Nothing is held or retried automatically - raise the cap on the assignment, then the student can accept again.`
-      );
-    log("cap", { ok: true, note: `${currentCount + 1}/${maxAcceptances}` });
   }
 
   log("repo-name", { ok: true, note: targetRepo });

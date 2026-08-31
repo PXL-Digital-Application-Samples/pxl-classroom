@@ -21,9 +21,7 @@ import {
 } from "../../../lib/feedback-pr.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { resolveOrg } from "../lib/org.mjs";
-import { getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
-
-const CONTROL_REPO = "pxl-classroom-control";
+import { CONTROL_REPO, getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
 const DEFAULT_BASELINE = "pxl-baseline";
 
 

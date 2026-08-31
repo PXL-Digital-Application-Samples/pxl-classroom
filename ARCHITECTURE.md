@@ -67,6 +67,7 @@ Everything specific to *one institution's installation* lives in **`deployment.y
 | `timezone` | Default IANA zone for assignment dates |
 | `hub_owner` / `hub_repo` | The organization and repository this hub runs from |
 | `app_slug` | The GitHub App's slug, used to read its live declaration |
+| `app_client_id` | The App's public `Iv23…` client id. Not a secret — the device flow puts it in the bundle. It is here because it was spelled out in both `lib/audit.mjs` and `frontend/src/lib/config.js`, and "which App is this deployment" needs one home |
 | `control_repo` | Name of the per-org control repository |
 | `archive_repo_prefix` / `legacy_archive_repo` | Where preserved submissions go (§11.3.1) |
 | `device_flow_proxy` | The **primary** device-flow proxy, and the one security-relevant value here: whatever answers sees the access token, so a fork points this at a proxy it operates (§10.2.1) |
@@ -90,6 +91,13 @@ One source file, no generated copy to drift.
 A builtin behind a **dynamic** `await import(...)` inside a function is deferred and therefore safe — `lib/yaml.mjs` relies on this so `parseYaml` can be bundled while `loadYaml` stays Node-only. `tests/spa-bundle-safety.test.mjs` walks the SPA's import graph transitively and fails on any static builtin.
 
 `deploy-frontend.yml`'s path filter names `deployment.yml`, because the SPA bakes these values in at build time. `tests/deploy-paths.test.mjs` fails if any build-time import escapes the filter.
+
+**A value here is READ, never re-spelled — and `tests/deployment-literals.test.mjs` enforces it.** "A fork edits that file and nothing else" was aspiration rather than fact: the 2026-09-01 audit counted 49 occurrences of the literal `pxl-classroom-control` across 29 files while `CONTROL_REPO` was exported by both readers and consumed by `lib/audit.mjs` alone, and `hub_owner`, the client id and `timezone` were written out the same way. `timezone` was the sharpest case — exported by both readers, validated as *required* by `lib/deployment.mjs`, and read by **nothing**, while the value actually in force was a literal in `frontend/src/lib/config.js` and three more in `AdminView.vue`. Editing `deployment.yml` changed neither what a lecturer saw nor what the Admin Panel wrote into every assignment.
+
+The rule now has two halves, because the runtimes differ:
+
+- **JavaScript imports the reader.** Anything under `lib/`, `scripts/`, `cli/src/`, `frontend/src/` or an entry-point directory reads `#deployment` (or `lib/deployment.mjs` directly, in Node-only code). `frontend/src/lib/config.js` is a *view* onto it, not a second source: the `VITE_*` overrides that duplicated deployment facts are gone, and what remains a build knob is only what genuinely varies per build (`VITE_DEFAULT_ORG`, `VITE_ASSIGNMENTS_URL`).
+- **YAML cannot import, so it is checked.** The workflows keep the literal; the test derives it from `deployment.yml` and fails naming every file still holding the old name. `cors-worker/worker.js` is checked the same way (`tests/cors.test.mjs`): it is deployed standalone by `wrangler` with no access to the repository at runtime, and its `ALLOWED_ORIGINS` was the one place a fork had to edit *after* everything else already worked.
 
 ---
 
@@ -515,7 +523,9 @@ Three properties make that retry safe:
 
 Every comparison against "the deadline" has to mean the deadline **for that student**, or the system acts against work a lecturer deliberately allowed. `lib/effective-deadline.mjs` is the single implementation - `effectiveDeadlineFor(assignment, login, { overrides, team })` - and `report.mjs`, `lockdown.mjs` and `find-finalizable.mjs` all read it. **It must not fork.** A reader that does not open `overrides/` demotes an extended student at the assignment's own deadline while the report still shows their extension as active - the report counting work the system has prevented.
 
-Both override shapes are read. The current one is the append-only `overrides[]` array (`type: deadline_extension`, latest entry wins); the flat top-level `deadline_at` predates 2026-06-17 and is honoured because control repos from that era still hold it. An extension only ever **extends**: a value earlier than the assignment deadline is ignored rather than shortening it, because failing the other way locks a student out early. A group shares one repository, so the most generous extension among its members governs the whole team.
+Both override shapes are read. The current one is the append-only `overrides[]` array (`type: deadline_extension`, latest entry wins); the flat top-level `deadline_at` predates 2026-06-17 and is honoured because control repos from that era still hold it. An extension only ever **extends**: a value earlier than the assignment deadline is ignored rather than shortening it, because failing the other way locks a student out early.
+
+**A group shares one repository, so the most generous extension among its members governs the whole team - and the membership comes from `teams/<id>/<slug>.json`.** Provisioning writes one repository record per *login* (`repositories/<id>/<login>.json`, carrying `team_slug` and no member list), so a lockdown that reads membership off the repository record sees a team of one. Membership also changes after provisioning - a student switches team - which is why the manifest is the authority rather than a copy taken at provisioning time. `lockdown.mjs` therefore keeps two distinct sets per target: `members`, the logins **that record covers** (one per record, so a five-person team is five targets each demoting one person), and `teamMembers`, everyone sharing the repository, over which the deadline is computed. Folding the team into `members` would demote every member once per member - 25 calls where 5 will do, against an ~80/min secondary limit, at the deadline.
 
 **The SPA reads the same module.** `frontend/src/lib/deadline.js` re-exports it, the way `lib/invite.js` re-exports the token format. Every surface must take the **last** entry of the append-only history: taking the first shows a student granted a second extension a deadline that a later grant has already superseded, and counts them down to it - the direction that costs them marks.
 

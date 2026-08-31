@@ -18,12 +18,13 @@ import {
   getRoster,
   listAssignments,
   listAcceptedLogins,
+  CONTROL_REPO,
 } from "../lib/control-repo.mjs";
 import { planSeed, planUnseed, teamsFromRoster, seedCommitMessage } from "../../../lib/seed-teams.mjs";
+import { HUB_OWNER, HUB_REPO_NAME } from "../../../lib/deployment.mjs";
 
-const CONTROL_REPO = "pxl-classroom-control";
-const HUB_OWNER_DEFAULT = "PXL-Digital-Application-Samples";
-const HUB_REPO_DEFAULT = "pxl-classroom";
+const HUB_OWNER_DEFAULT = HUB_OWNER;
+const HUB_REPO_DEFAULT = HUB_REPO_NAME;
 
 function out(text) {
   process.stdout.write(text);

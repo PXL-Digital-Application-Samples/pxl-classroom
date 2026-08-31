@@ -34,8 +34,33 @@ import {
   claimPromotionChangesAnything,
   ROSTER_PATH,
 } from "../lib/promote-roster.mjs";
-import { rosterKey, diffRosters, describeRosterEntry, isPromotedEntry } from "../lib/roster-entries.mjs";
+import {
+  rosterKey,
+  diffRosters,
+  describeRosterEntry,
+  isPromotedEntry,
+  ROSTER_SOURCES,
+  PROMOTED_SOURCE,
+} from "../lib/roster-entries.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+
+// ROSTER_SOURCES was exported and imported by nobody, while isPromotedEntry
+// compared against the literal "accepted" - a constant describing a rule it did
+// not enforce, which is the decoy lib/group-config.mjs's header is about. It is
+// the schema's enum now, and this is what keeps the two from drifting apart.
+test("ROSTER_SOURCES is the enum the roster schema declares", () => {
+  const schema = JSON.parse(
+    readFileSync(new URL("../schemas/roster.schema.json", import.meta.url), "utf8"),
+  );
+  const declared =
+    schema.properties?.students?.items?.properties?.source?.enum ??
+    schema.$defs?.student?.properties?.source?.enum;
+  assert.ok(Array.isArray(declared), "the roster schema must still declare a source enum");
+  assert.deepEqual([...ROSTER_SOURCES], declared, "lib/roster-entries.mjs and the schema disagree");
+  assert.ok(declared.includes(PROMOTED_SOURCE), "PROMOTED_SOURCE must be one of them");
+  assert.equal(isPromotedEntry({ source: PROMOTED_SOURCE }), true);
+  assert.equal(isPromotedEntry({ source: ROSTER_SOURCES[0] }), false);
+});
 
 const NOW = "2026-09-01T10:00:00.000Z";
 const ACTOR = "tomcoolpxl";

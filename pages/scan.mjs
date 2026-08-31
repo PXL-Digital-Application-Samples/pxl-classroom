@@ -78,17 +78,51 @@ async function setOutput(name, value) {
     await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value ?? ""}\n`);
 }
 
-async function main() {
-  const scanDir = process.argv[2] || process.env.SCAN_DIR || "public";
-
+/**
+ * Scan a directory tree and report what it found - INCLUDING what it could not
+ * read.
+ *
+ * Separated from main() and given an injectable `read` so the fail-closed path
+ * has a test. Making a file genuinely unreadable is not portable (chmod is a
+ * no-op on Windows and for root in CI), and the alternative - a test-only env
+ * var inside the scanner - would put a backdoor in the one gate standing
+ * between the private control repo and a world-readable site.
+ *
+ * @param {string} scanDir
+ * @param {{ read?: (path: string) => Promise<string> }} [opts]
+ * @returns {Promise<{findings: number, filesScanned: number, unreadable: string[]}>}
+ */
+export async function scanTree(scanDir, { read = (p) => readFile(p, "utf8") } = {}) {
   let findings = 0;
   let filesScanned = 0;
+  const unreadable = [];
 
   for await (const file of walk(scanDir)) {
     filesScanned++;
-    const text = await readFile(file, "utf8").catch(() => "");
+
+    // AN UNREADABLE FILE IS NOT A CLEAN FILE.
+    //
+    // This was `readFile(...).catch(() => "")`, so a file the scanner could not
+    // open contributed no findings, counted toward `filesScanned`, and the run
+    // reported `clean - N file(s) scanned, no private data found; safe to
+    // publish`. That is the one place in the system where failing open
+    // publishes something: this gate is what stands between the private control
+    // repo and a world-readable Pages site. Unreadable is not evidence.
+    let text;
+    try {
+      text = await read(file);
+    } catch (err) {
+      unreadable.push(`${file}: ${err.message}`);
+      continue;
+    }
+
     for (const rule of RULES) {
-      for (const m of text.matchAll(rule.re)) {
+      // Fresh regex per file. The rules are shared module-level literals
+      // carrying /g, and `lastIndex` left behind by any `.test()` elsewhere in
+      // the process would make matchAll start mid-string - a gate that "catches
+      // it sometimes". lib/public-text.mjs documents the same hazard.
+      const re = new RegExp(rule.re.source, rule.re.flags);
+      for (const m of text.matchAll(re)) {
         if (rule.allow && rule.allow.test(m[0])) continue;
         findings++;
         const snippet =
@@ -96,6 +130,22 @@ async function main() {
         console.log(`LEAK  ${file}  [${rule.name}]  ${snippet}`);
       }
     }
+  }
+
+  return { findings, filesScanned, unreadable };
+}
+
+async function main() {
+  const scanDir = process.argv[2] || process.env.SCAN_DIR || "public";
+  const { findings, filesScanned, unreadable } = await scanTree(scanDir);
+
+  if (unreadable.length) {
+    for (const line of unreadable) console.log(`UNREADABLE  ${line}`);
+    console.error(
+      `\n${unreadable.length} file(s) in ${scanDir} could not be read, so nothing is known about them - publishing BLOCKED.`
+    );
+    await setOutput("scan_result", "blocked");
+    process.exit(1);
   }
 
   if (findings) {
@@ -112,7 +162,12 @@ async function main() {
   await setOutput("scan_result", "clean");
 }
 
-main().catch((e) => {
-  console.error(`[FAIL] ${e.message}`);
-  process.exit(1);
-});
+// Only when run as the CLI the workflow invokes. Guarded so tests can import
+// scanTree() without the module exiting the process on them - the same idiom
+// scripts/lint-undeclared-classes.mjs uses.
+if (process.argv[1] && process.argv[1].endsWith("scan.mjs")) {
+  main().catch((e) => {
+    console.error(`[FAIL] ${e.message}`);
+    process.exit(1);
+  });
+}

@@ -39,7 +39,7 @@ import {
   claimPromoteCommitMessage,
   claimPromotionChangesAnything,
 } from "../../../lib/promote-roster.mjs";
-import { getAssignment, listAcceptances, listClaims, deleteClaim } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, listAcceptances, listClaims, deleteClaim } from "../lib/control-repo.mjs";
 // The one join between a claim and a roster entry. Four surfaces read it; see
 // lib/claim-bindings.mjs for why it is not written out per surface.
 import {
@@ -50,10 +50,6 @@ import {
 } from "../../../lib/claim-bindings.mjs";
 import { normalizeEmail } from "../../../lib/claim.mjs";
 import { rowsToRoster } from "../../../lib/roster-csv.mjs";
-
-const CONTROL_REPO = "pxl-classroom-control";
-
-
 
 function csvToRoster(csvText, filename) {
   const parsed = Papa.parse(csvText, {

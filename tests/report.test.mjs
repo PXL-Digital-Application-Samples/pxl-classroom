@@ -195,6 +195,64 @@ test("student with observation after deadline is late", () => {
   assert.equal(bob.first_late_sha, "c".repeat(40));
 });
 
+// --- login case (lib/github-login.mjs) ---------------------------------------
+//
+// GitHub logins are case-insensitive and accept.mjs's roster gate compares them
+// that way, so a lecturer who types `Alice-PXL` into the CSV gets a student
+// whose acceptance GitHub dispatches as `alice-pxl`. The report indexed four
+// maps on the raw string and unioned their keys, so that student became TWO
+// rows: a phantom `not-accepted` one holding the name and student number, and
+// the real one holding neither. total_students and no_submission both doubled,
+// and buildDashboardEntry inherited the count.
+
+test("a roster login spelled in another case is ONE student, not two", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    roster: [{ student_number: "12345", full_name: "Alice Example", github_login: "Alice-PXL" }],
+    acceptances: [{ github_login: "alice-pxl", status: "accepted" }],
+    repositories: [
+      { github_login: "alice-pxl", repo_id: 42, repo_name: "TestOrg/test-asgn-alice-pxl" },
+    ],
+    observations: {
+      "alice-pxl": [{ observed_at: "2026-09-05T10:00:00Z", sha: "a".repeat(40) }],
+    },
+  });
+
+  assert.equal(report.students.length, 1, "one account is one row whatever the roster spelled");
+  const [alice] = report.students;
+  assert.equal(alice.acceptance_state, "accepted");
+  // The spelling shown is GitHub's, not the one typed into the spreadsheet.
+  assert.equal(alice.github_login, "alice-pxl");
+  // ...and the roster identity still reaches the row that accepted.
+  assert.equal(alice.full_name, "Alice Example");
+  assert.equal(alice.student_number, "12345");
+  assert.equal(alice.repo_id, 42);
+  assert.equal(alice.latest_observed_sha, "a".repeat(40));
+});
+
+test("a case-mismatched extension still moves that student's deadline", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    roster: [{ student_number: "12345", full_name: "Alice Example", github_login: "Alice-PXL" }],
+    acceptances: [{ github_login: "alice-pxl", status: "accepted" }],
+    overrides: [
+      {
+        schema_version: 1,
+        assignment_id: "test-asgn",
+        github_login: "ALICE-PXL",
+        overrides: [{ type: "deadline_extension", value: "2026-09-20T23:59:59Z" }],
+      },
+    ],
+    observations: {
+      "alice-pxl": [{ observed_at: "2026-09-15T10:00:00Z", sha: "d".repeat(40) }],
+    },
+  });
+  assert.equal(report.students.length, 1);
+  const [alice] = report.students;
+  assert.equal(alice.override_applied, true);
+  assert.equal(alice.submission_status, "on-time", "the extension covers the observation");
+});
+
 // --- extensions (P0-7) -------------------------------------------------------
 //
 // The Admin Panel writes an append-only `overrides` array (and has since

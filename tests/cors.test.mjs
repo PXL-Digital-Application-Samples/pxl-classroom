@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const libDir = join(here, "..", "frontend", "src", "lib");
@@ -346,5 +347,55 @@ test("polling sticks to the proxy that worked, instead of re-paying for a dead o
   assert.ok(
     pollCalls[0].url.startsWith(SECONDARY),
     "the first poll should go straight to the proxy that answered, not back to the dead one",
+  );
+});
+
+// --- the Worker's own allowlist ----------------------------------------------
+//
+// cors-worker/worker.js is deployed on its own by `wrangler deploy` from its own
+// directory: no bundler, no repository at runtime, so it cannot import
+// `hub_owner` the way every other surface does. That made its ALLOWED_ORIGINS
+// the one place a fork had to edit outside deployment.yml - after everything
+// else already worked, and with sign-in silently 403ing for every student until
+// somebody found it. YAML-adjacent literals get checked rather than imported,
+// the same way tests/deployment-literals.test.mjs checks the workflows.
+
+test("the Worker allows the Pages origin deployment.yml implies", () => {
+  const deployment = parseYaml(readFileSync(join(here, "..", "deployment.yml"), "utf8"));
+  const worker = readFileSync(join(here, "..", "cors-worker", "worker.js"), "utf8");
+
+  // GitHub Pages serves an organization at <owner>.github.io, lowercased.
+  const pagesOrigin = `https://${String(deployment.hub_owner).toLowerCase()}.github.io`;
+  assert.ok(
+    worker.includes(`'${pagesOrigin}'`),
+    `cors-worker/worker.js must allow ${pagesOrigin}, or sign-in 403s for every student ` +
+      `on the deployed site. deployment.yml says hub_owner: ${deployment.hub_owner}.`,
+  );
+});
+
+test("the Worker's target allowlist is exactly the two device-flow endpoints", () => {
+  // ALLOWED_TARGETS is the load-bearing control: without it this is a
+  // general-purpose proxy on a PXL account that anyone could route traffic
+  // through. An exact pair, never a pattern.
+  const worker = readFileSync(join(here, "..", "cors-worker", "worker.js"), "utf8");
+  // Anchored on the DECLARATIONS, not the names: both appear in the file header
+  // that explains them, so `indexOf("ALLOWED_TARGETS")` sliced a comment and the
+  // assertion read an empty list. An anchor that misses must fail, never scan
+  // something else and report on that.
+  const from = worker.indexOf("const ALLOWED_TARGETS");
+  const to = worker.indexOf("const ALLOWED_ORIGINS");
+  assert.ok(from > -1 && to > from, "the worker no longer declares these under those names");
+  // The Set LITERAL only - a JSDoc block between the two declarations would put
+  // its `*` line prefixes into the pattern check below.
+  const block = worker.slice(from, worker.indexOf("])", from) + 2);
+  const targets = [...block.matchAll(/'(https:\/\/[^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual(targets, [
+    "https://github.com/login/device/code",
+    "https://github.com/login/oauth/access_token",
+  ]);
+  assert.ok(
+    !/[*]|startsWith|includes\(|RegExp/.test(block),
+    "the target allowlist must stay exact URLs, never a pattern - it is the only thing " +
+      "stopping this being a general-purpose open relay on a PXL account",
   );
 });

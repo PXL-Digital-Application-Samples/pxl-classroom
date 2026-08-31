@@ -59,11 +59,22 @@ async function withStubApi(fn) {
 }
 
 /**
- * Control-repo fixture.
- *   students: [{ login, members }]  - members makes it a team repository
- *   extensions: [{ login, value }]  - overrides/<id>/<login>.json
+ * Control-repo fixture, in the shape PRODUCTION WRITES.
+ *
+ * This built ONE repository record per team, carrying `members` - a shape no
+ * writer has ever produced. scripts/write-repository-record.mjs writes one file
+ * per LOGIN (`repositories/<id>/<login>.json`) with `team_slug` and NO
+ * membership, and the team lives in `teams/<id>/<slug>.json`. So the deferral
+ * this file exists to test was verified against a fiction: in production
+ * `members` collapsed to `[login]`, the team's extension never propagated, and
+ * under `lock_method: ruleset` the team-mate WITHOUT an extension locked the
+ * repository the extended student was still working in.
+ *
+ *   students:   [{ login, team_slug }]  - one record each, exactly as production
+ *   teams:      [{ team_slug, members }] - teams/<id>/<slug>.json
+ *   extensions: [{ login, value }]      - overrides/<id>/<login>.json
  */
-function makeControlDir({ students, extensions = [], assignmentType = null } = {}) {
+function makeControlDir({ students, teams = [], extensions = [], assignmentType = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-lockdown-ext-"));
   const id = "exam";
 
@@ -77,15 +88,34 @@ function makeControlDir({ students, extensions = [], assignmentType = null } = {
   mkdirSync(join(dir, "repositories", id), { recursive: true });
   for (const s of students) {
     writeFileSync(
-      join(dir, "repositories", id, `${s.team_slug || s.login}.json`),
+      join(dir, "repositories", id, `${s.login}.json`),
       JSON.stringify({
+        schema_version: 1,
+        assignment_id: id,
         github_login: s.login,
-        team_slug: s.team_slug,
-        members: s.members,
+        ...(s.team_slug ? { team_slug: s.team_slug } : {}),
         repo_name: `TestOrg/${id}-${s.team_slug || s.login}`,
         repo_id: 42,
+        repo_url: `https://github.com/TestOrg/${id}-${s.team_slug || s.login}`,
       }),
     );
+  }
+
+  if (teams.length) {
+    mkdirSync(join(dir, "teams", id), { recursive: true });
+    for (const t of teams) {
+      writeFileSync(
+        join(dir, "teams", id, `${t.team_slug}.json`),
+        JSON.stringify({
+          schema_version: 1,
+          assignment_id: id,
+          team_slug: t.team_slug,
+          team_name: t.team_name || t.team_slug,
+          members: t.members,
+          max_members: 4,
+        }),
+      );
+    }
   }
 
   if (extensions.length) {
@@ -290,22 +320,53 @@ test("a still-deferred student is re-evaluated on a retry, not frozen out", asyn
 });
 
 test("a team-mate's extension defers the whole team repository", async () => {
-  // One repository, two students. Locking it at dana's deadline locks erin out
-  // of time the lecturer granted her.
+  // One repository, two students, ONE RECORD EACH - the shape provisioning
+  // actually writes. dana has no extension of her own, so her record is the one
+  // that used to become a target and lock the repository erin was granted more
+  // time in. The team membership comes from teams/exam/team-a.json.
   await withStubApi(async (api, calls) => {
     const dir = makeControlDir({
       assignmentType: "group",
-      students: [{ login: "dana", team_slug: "team-a", members: ["dana", "erin"] }],
+      students: [
+        { login: "dana", team_slug: "team-a" },
+        { login: "erin", team_slug: "team-a" },
+      ],
+      teams: [{ team_slug: "team-a", members: ["dana", "erin"] }],
       extensions: [{ login: "erin", value: RUNNING }],
     });
     const res = await runLockdown(dir, api);
     assert.equal(res.status, 0, res.stderr);
-    assert.deepEqual(calls.filter((c) => c.includes("exam-team-a")), []);
+    assert.deepEqual(
+      calls.filter((c) => c.includes("exam-team-a")),
+      [],
+      "nothing may touch the shared repository while any member's extension runs",
+    );
     for (const login of ["dana", "erin"]) {
       const row = rowFor(res.record, login);
       assert.ok(row, `${login} is in the record`);
       assert.equal(row.deferred_until, new Date(RUNNING).toISOString(), login);
     }
+    assert.equal(res.record.deferred_count, 2);
+  });
+});
+
+test("a team-mate WITHOUT the extension does not lock the shared repository", async () => {
+  // The regression this pair exists for, stated from the other side: with the
+  // team unknown, dana's record was a plain target and phase 1 ran against
+  // exam-team-a - the same repository erin was still entitled to push to.
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({
+      assignmentType: "group",
+      students: [
+        { login: "dana", team_slug: "team-a" },
+        { login: "erin", team_slug: "team-a" },
+      ],
+      teams: [{ team_slug: "team-a", members: ["dana", "erin"] }],
+      extensions: [{ login: "erin", value: RUNNING }],
+    });
+    await runLockdown(dir, api);
+    const writes = calls.filter((c) => c.startsWith("PUT ") || c.startsWith("POST "));
+    assert.deepEqual(writes, [], `no write may reach the repository: ${writes.join(", ")}`);
   });
 });
 

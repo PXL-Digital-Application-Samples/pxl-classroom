@@ -46,6 +46,15 @@ export const DEVICE_FLOW_PROXY = config.device_flow_proxy ?? ''
 /** The GitHub App slug, as in github.com/apps/<slug>. */
 export const APP_SLUG = config.app_slug
 
+/**
+ * The provisioning App's public client id (`Iv23...`), NOT the numeric App id.
+ *
+ * Not a secret - the device flow puts it in this bundle. It is here because it
+ * was spelled out in lib/audit.mjs and again in frontend/src/lib/config.js, and
+ * two copies of "which App is this deployment" is one too many.
+ */
+export const APP_CLIENT_ID = config.app_client_id
+
 /** The private per-organization repository holding a course's data. */
 export const CONTROL_REPO = config.control_repo
 

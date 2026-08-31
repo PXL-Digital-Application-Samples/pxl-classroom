@@ -144,11 +144,29 @@ test("pickAutogradeCheckRun finds the grading run among unrelated checks", () =>
     "GitHub Classroom Workflow",
   );
 
-  // Nothing matches - first run rather than nothing, so a single-job repo with
-  // an oddly named workflow still gets read.
-  assert.equal(pickAutogradeCheckRun([{ name: "build" }]).name, "build");
   assert.equal(pickAutogradeCheckRun([]), null);
   assert.equal(pickAutogradeCheckRun(undefined), null);
+});
+
+test("an unrelated check run is never graded from", () => {
+  // This returned `runs[0]` when nothing matched, on the reasoning that "a
+  // single-job repo with an oddly named workflow still gets read". A student is
+  // ADMIN on their own repository: delete the autograding workflow, add a
+  // workflow of your own that goes green, and parseCheckRunScore found no
+  // annotations, reported `matched: false`, and awarded the full fallback total
+  // off `conclusion: "success"`. Full marks from a check the lecturer never
+  // wrote. "There is a green check run here" is not evidence that grading ran.
+  const studentsOwn = [
+    { name: "build", conclusion: "success", output: { annotations_count: 0 } },
+    { name: "lint", conclusion: "success", output: { annotations_count: 0 } },
+  ];
+  assert.equal(pickAutogradeCheckRun(studentsOwn), null);
+
+  // And the shape of the damage, so the reasoning stays visible: had one been
+  // picked, this is the grade it would have produced.
+  const wouldHaveBeen = parseCheckRunScore(studentsOwn[0], [], 100);
+  assert.equal(wouldHaveBeen.matched, false);
+  assert.equal(wouldHaveBeen.earned, 100, "which is why the picker must not hand this run over");
 });
 
 // -----------------------------------------------------------------------------

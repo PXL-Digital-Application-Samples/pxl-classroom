@@ -8,29 +8,72 @@ import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-function runOnce({ cmd, args, cwd, stdin = "", timeoutMs }) {
+/**
+ * Spawn one process and settle exactly once.
+ *
+ * Exported for the tests: the interesting half of this file - that a timeout
+ * always produces a result - is POSIX-shell-specific through runHost(), which
+ * refuses to run on Windows at all. Driving runOnce directly with `node` as the
+ * child exercises the settling logic on every platform.
+ */
+export function runOnce({ cmd, args, cwd, stdin = "", timeoutMs }) {
   return new Promise((resolveFn) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"], shell: false });
+    // `detached` puts the child in its own PROCESS GROUP, so the timeout below
+    // can kill everything it spawned. Without it, SIGKILL reached only /bin/sh
+    // and any grandchild - `sleep 100 &`, a server the test forgot to stop -
+    // survived, kept the inherited stdout pipe open, and `close` never fired.
+    // A grading run then hung forever on the one test that had a timeout.
+    const child = spawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: true });
     let stdout = "", stderr = "";
+    let settled = false;
+    let timedOut = false;
     const start = Date.now();
+
+    const kill = () => {
+      // Negative pid = the whole group. Falls back to the single process where
+      // that is not supported, so a platform without process groups still gets
+      // the old behaviour rather than an exception.
+      try { process.kill(-child.pid, "SIGKILL"); }
+      catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+    };
+
     const t = setTimeout(() => {
-      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+      timedOut = true;
+      kill();
+      // `close` waits for every inherited pipe, which a surviving grandchild
+      // holds open. `exit` is the process itself, so settle on the later of
+      // "the shell is gone" and a short grace for output already in flight -
+      // and never wait past it.
+      setTimeout(() => finish(null), 250).unref?.();
     }, timeoutMs);
+
+    // Recorded from `exit` rather than from the `close` signal: a student's
+    // process killed by the OOM killer also reports SIGKILL, and calling that a
+    // timeout tells the lecturer the wrong thing about the submission.
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(t);
+      resolveFn({
+        exit_code: code,
+        timed_out: timedOut,
+        duration_ms: Date.now() - start,
+        stdout, stderr,
+      });
+    };
+
     child.stdout.on("data", (b) => (stdout += b.toString()));
     child.stderr.on("data", (b) => (stderr += b.toString()));
     if (stdin) { try { child.stdin.write(stdin); } catch { /* closed early */ } }
     try { child.stdin.end(); } catch { /* ok */ }
-    child.on("close", (code, signal) => {
-      clearTimeout(t);
-      const timed_out = signal === "SIGKILL";
-      resolveFn({
-        exit_code: code,
-        timed_out,
-        duration_ms: Date.now() - start,
-        stdout, stderr,
-      });
+    child.on("close", (code) => finish(code));
+    child.on("exit", (code) => {
+      // Give the pipes a moment to flush; `close` settles first when it comes.
+      setTimeout(() => finish(code), 50).unref?.();
     });
     child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(t);
       resolveFn({ exit_code: null, timed_out: false, duration_ms: Date.now() - start, stdout, stderr: stderr + err.message });
     });

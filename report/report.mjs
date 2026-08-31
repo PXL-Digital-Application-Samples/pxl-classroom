@@ -21,6 +21,11 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
 import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.mjs";
+// GitHub logins are case-insensitive, so every index below is keyed lowercased
+// and the spelling shown is chosen separately. See lib/github-login.mjs for the
+// row-doubling this prevents.
+import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -94,34 +99,40 @@ async function main() {
     const rosterData = await loadYaml(rosterPath);
     if (Array.isArray(rosterData?.students)) roster = rosterData.students;
   }
-  const rosterByLogin = new Map(
-    roster.filter((s) => s.github_login).map((s) => [s.github_login, s])
-  );
+  const rosterByLogin = indexByLogin(roster);
 
   // Load acceptances
   const acceptances = await readDirJsonFiles(
     join(dataDir, "acceptances", assignmentId)
   );
-  const acceptanceByLogin = new Map(acceptances.map((a) => [a.github_login, a]));
+  const acceptanceByLogin = indexByLogin(acceptances);
 
   // Load repository records
   const repos = await readDirJsonFiles(
     join(dataDir, "repositories", assignmentId)
   );
-  const repoByLogin = new Map(repos.map((r) => [r.github_login, r]));
+  const repoByLogin = indexByLogin(repos);
 
-  // Load observations
+  // Load observations.
+  //
+  // The DIRECTORY name is kept beside the parsed documents: it is the spelling
+  // lockdown.mjs wrote and the only one `preservation.json` can be found under,
+  // so it cannot be reconstructed from the normalised key.
   const obsDir = join(dataDir, "observations", assignmentId);
   const observationsByLogin = new Map();
+  const obsDirNameByLogin = new Map();
   if (existsSync(obsDir)) {
     const loginDirs = await readdir(obsDir);
-    for (const login of loginDirs) {
-      const loginPath = join(obsDir, login);
+    for (const dirName of loginDirs) {
+      const key = normalizeLogin(dirName);
+      if (!key) continue;
+      const loginPath = join(obsDir, dirName);
       const obs = await readDirJsonFiles(loginPath);
       observationsByLogin.set(
-        login,
+        key,
         obs.sort((a, b) => new Date(a.observed_at) - new Date(b.observed_at))
       );
+      obsDirNameByLogin.set(key, dirName);
     }
   }
 
@@ -145,11 +156,7 @@ async function main() {
   const lockdownRecord = await readJsonSafe(
     join(dataDir, "lockdowns", assignmentId, "lockdown-record.json")
   );
-  const lockdownByLogin = new Map(
-    (lockdownRecord?.results || [])
-      .filter((r) => r.github_login)
-      .map((r) => [r.github_login, r])
-  );
+  const lockdownByLogin = indexByLogin(lockdownRecord?.results || []);
 
   // Load teams (for group assignments)
   const teams = await readDirJsonFiles(
@@ -159,19 +166,27 @@ async function main() {
   const teamByMemberLogin = new Map();
   for (const t of teams) {
     for (const m of t.members || []) {
-      teamByMemberLogin.set(m.toLowerCase(), t);
+      teamByMemberLogin.set(normalizeLogin(m), t);
     }
   }
 
   // Build per-student report.
   // Include roster students who haven't accepted yet so the dashboard shows
   // the full population, not just the active acceptors.
-  const allLogins = new Set([
-    ...acceptanceByLogin.keys(),
-    ...repoByLogin.keys(),
-    ...observationsByLogin.keys(),
-    ...rosterByLogin.keys(),
-  ]);
+  //
+  // ONE ROW PER ACCOUNT, not one per spelling. The four indexes are keyed
+  // lowercased, so a roster entry a lecturer typed as `Alice-PXL` and the
+  // acceptance GitHub dispatched as `alice-pxl` are the same student here -
+  // they used to be two, and the accepted one carried no name or student
+  // number. The SHOWN spelling comes from GitHub where we have it, and falls
+  // back to the roster's only when the student has not accepted.
+  const displayByLogin = displayLogins(
+    acceptances.map((a) => a?.github_login),
+    repos.map((r) => r?.github_login),
+    obsDirNameByLogin.values(),
+    roster.map((s) => s?.github_login),
+  );
+  const allLogins = new Set(displayByLogin.keys());
 
   const students = [];
   let onTimeCount = 0;
@@ -181,11 +196,13 @@ async function main() {
   let worstUncertaintySeconds = 0;
   let worstUncertaintyLogin = null;
 
-  for (const login of [...allLogins].sort()) {
-    const acceptance = acceptanceByLogin.get(login);
-    const repo = repoByLogin.get(login);
-    const observations = observationsByLogin.get(login) || [];
-    const studentTeam = teamByMemberLogin.get(login.toLowerCase()) || (acceptance?.team_slug ? teamBySlug.get(acceptance.team_slug) : null);
+  for (const key of [...allLogins].sort()) {
+    // `key` looks things up; `login` is what a lecturer reads.
+    const login = displayByLogin.get(key) ?? key;
+    const acceptance = acceptanceByLogin.get(key);
+    const repo = repoByLogin.get(key);
+    const observations = observationsByLogin.get(key) || [];
+    const studentTeam = teamByMemberLogin.get(key) || (acceptance?.team_slug ? teamBySlug.get(acceptance.team_slug) : null);
 
     // Determine submission status from observations, against the deadline that
     // applies to *this* student (P0-7): the assignment's, moved by any
@@ -328,10 +345,11 @@ async function main() {
 
     // Find lockdown info from observations
     const lockdownObs = observations.find((o) => o.collection_type === "lockdown");
-    const lockdownRow = lockdownByLogin.get(login);
+    const lockdownRow = lockdownByLogin.get(key);
 
-    // Find preservation info
-    const preservationPath = join(obsDir, login, "preservation.json");
+    // Find preservation info. The directory is whatever spelling preserve.mjs
+    // wrote, not the normalised key - there is nothing to read otherwise.
+    const preservationPath = join(obsDir, obsDirNameByLogin.get(key) ?? login, "preservation.json");
     const preservation = existsSync(preservationPath)
       ? await readJsonSafe(preservationPath)
       : null;
@@ -341,8 +359,8 @@ async function main() {
     if (acceptance && !repo) warnings.push("accepted-not-provisioned");
     if (firstLateSha) warnings.push("late-activity-detected");
 
-    const team = teamByMemberLogin.get(login.toLowerCase()) || (acceptance?.team_slug ? teamBySlug.get(acceptance.team_slug) : null);
-    const rosterEntry = rosterByLogin.get(login);
+    const team = studentTeam;
+    const rosterEntry = rosterByLogin.get(key);
     students.push({
       github_login: login,
       team_slug: team?.team_slug ?? acceptance?.team_slug ?? null,
@@ -454,7 +472,7 @@ async function main() {
       if (firstLateSha) {
         await notifyEvent({
           org: process.env.ORG,
-          controlRepo: "pxl-classroom-control",
+          controlRepo: CONTROL_REPO,
           eventType: "late-activity",
           assignmentId: assignmentId,
           details: `Late activity detected for student \`${login}\`. First late SHA: \`${firstLateSha}\`.`,
@@ -487,7 +505,7 @@ async function main() {
     const { notifyEvent } = await import("../notify/notify.mjs");
     await notifyEvent({
       org: process.env.ORG,
-      controlRepo: "pxl-classroom-control",
+      controlRepo: CONTROL_REPO,
       eventType: "deadline-gap",
       assignmentId,
       details:

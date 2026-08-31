@@ -43,6 +43,15 @@ const ALLOWED_TARGETS = new Set([
 /**
  * Browser origins allowed to use this Worker. The Pages deployment, plus the
  * Vite dev server so a lecturer can test a proxy change locally before it ships.
+ *
+ * A LITERAL, AND CHECKED AGAINST deployment.yml BY A TEST. This Worker is
+ * deployed on its own by `wrangler deploy` from this directory - it has no
+ * bundler and no access to the repository at runtime, so it cannot import
+ * `hub_owner` the way every other surface does. That made it the one place a
+ * fork had to edit outside deployment.yml, quietly, after everything else
+ * already worked. `tests/cors.test.mjs` derives `https://<hub_owner>.github.io`
+ * from deployment.yml and fails if it is not in this set, so the drift is loud
+ * instead of silent.
  */
 const ALLOWED_ORIGINS = new Set([
   'https://pxl-digital-application-samples.github.io',

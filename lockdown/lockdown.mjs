@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
+import { indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { ensureSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -112,6 +113,49 @@ async function readRepoRecords() {
     }
   }
   return records;
+}
+
+// --- Read team manifests -----------------------------------------------------
+//
+// WHO SHARES THIS REPOSITORY, and the only place that knows.
+//
+// `planTargets` used to read `rec.members` off the repository record, and NO
+// WRITER HAS EVER SET IT: scripts/write-repository-record.mjs writes one file
+// per LOGIN (`repositories/<id>/<login>.json`) carrying `team_slug` and no
+// membership. So `members` always collapsed to `[login]`, the team's most
+// generous extension never propagated, and RUNBOOK.md 3.2's promise - "an
+// extension granted to one member applies to the whole team, because they share
+// one repository" - was false. Under `lock_method: ruleset` that is not merely
+// cosmetic: the ruleset is repo-scoped, so the team-mate WITHOUT an extension
+// locked the repository the extended student was still working in.
+//
+// The manifests are the authority rather than a copy on the record, because
+// membership changes after provisioning (a student switches team) and a
+// snapshot taken at provisioning time would be stale for everyone who accepted
+// before the last member joined.
+//
+// @returns {Map<string, string[]>} team slug (lowercased) -> members
+async function readTeams() {
+  const dir = join(cfg.dataDir, "teams", cfg.assignmentId);
+  let files;
+  try { files = await readdir(dir); } catch { return new Map(); }
+  const bySlug = new Map();
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const team = JSON.parse(await readFile(join(dir, f), "utf8"));
+      const slug = normalizeLogin(team?.team_slug);
+      if (!slug) continue;
+      bySlug.set(slug, (team.members || []).filter((m) => typeof m === "string" && m));
+    } catch (e) {
+      // An unreadable manifest means this repository's team is unknown, so an
+      // extension granted to a team-mate cannot be seen. Said out loud rather
+      // than swallowed: it is the difference between honouring a lecturer's
+      // decision and locking a student out of time they were granted.
+      log(`team ${f}`, { ok: false, note: e.message });
+    }
+  }
+  return bySlug;
 }
 
 // --- Read lecturer overrides -------------------------------------------------
@@ -225,27 +269,42 @@ async function readSentinelStop() {
  * freeze-on-retry exists to prevent. An extension granted after lockdown is too
  * late to un-take a submission - RUNBOOK.md §3.3 says so, and says what to do
  * instead.
+ *
+ * `members` and `teamMembers` are DIFFERENT SETS and must stay so:
+ *
+ *   members     - the logins THIS record covers. One per repository record, so
+ *                 a five-person team is five targets and each demotes one
+ *                 person. Folding the whole team in here would demote every
+ *                 member once per member: 25 calls where 5 will do, against an
+ *                 ~80/min secondary limit, at the deadline.
+ *   teamMembers - everyone sharing the repository, from the manifests. Only the
+ *                 deadline is computed over this, because a repository is one
+ *                 object and the most generous extension on it governs.
  */
-function planTargets(assignment, records, overrides, priorByLogin = new Map(), now = new Date()) {
+function planTargets(assignment, records, overrides, priorByLogin = new Map(), now = new Date(), teamsBySlug = new Map()) {
   const targets = [];
   const deferrals = [];
 
   for (const rec of records) {
     const login = rec.github_login;
     const members = Array.isArray(rec.members) && rec.members.length ? rec.members : (login ? [login] : []);
+    const teamMembers = [
+      ...new Set([...members, ...(teamsBySlug.get(normalizeLogin(rec.team_slug)) || [])]),
+    ];
     const target = {
       rec,
       login,
       members,
+      teamMembers,
       repoName: rec.repo_name?.split("/")?.[1] ?? rec.repo_name,
       displayKey: rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login,
     };
 
     // Any member already holding a frozen snapshot means this repository's
     // submission is on record and must not be rewritten.
-    const alreadyRecorded = members.some((m) => priorByLogin.get(m)?.snapshot_sha);
+    const alreadyRecorded = teamMembers.some((m) => priorByLogin.get(normalizeLogin(m))?.snapshot_sha);
 
-    const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members } });
+    const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members: teamMembers } });
     // Gated on `extended`, not on the deadline alone: a lecturer running a
     // lockdown early still locks the cohort, exactly as before. Only a granted,
     // still-running extension defers.
@@ -262,20 +321,26 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
 /** Phase 4, and the fallback for a ruleset that could not be applied. */
 async function demote(t) {
   let allLocked = true;
-  let permAfter = "read";
+  // "read" is the value that MEANS LOCKED, so it cannot be the starting
+  // assumption. The PUT-failure branch below `continue`s without verifying
+  // anything, and leaving `permAfter` at "read" wrote `permission_after: "read"`
+  // into the record beside `verified: false` - a row asserting the student was
+  // demoted, from a call that failed. Unreadable is not evidence: it stays null
+  // until a verification actually answers.
+  let permAfter = null;
   for (const m of t.members) {
     const res = await gh("PUT", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}`, { permission: "pull" });
     if (!(res.status === 204 || res.status === 201)) {
       log(`demote ${m}`, { ok: false, note: `HTTP ${res.status}` });
       allLocked = false;
+      permAfter = `error-${res.status}`;
       continue;
     }
     const verify = await gh("GET", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}/permission`);
     const userPerm = verify.ok ? verify.data.permission : `error-${verify.status}`;
-    if (userPerm !== "read") {
-      allLocked = false;
-      permAfter = userPerm;
-    }
+    // Recorded whatever it says: "read" here is a verified fact, not a default.
+    permAfter = userPerm;
+    if (userPerm !== "read") allLocked = false;
   }
   return { locked: allLocked, permissionAfter: permAfter };
 }
@@ -308,7 +373,7 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
   for (const t of targets) {
     // Frozen on retry: lockdown_at is a historical fact about when this student
     // stopped being able to push, not about when this run happened.
-    const priorRec = priorByLogin.get(t.login);
+    const priorRec = priorByLogin.get(normalizeLogin(t.login));
     let lockdownAt = priorRec?.snapshot_sha ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
 
     // The sentinel already stopped this cohort at the deadline instant, hours
@@ -401,9 +466,20 @@ async function submissionAsOf({ repoName, branch, deadline }) {
 async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor }) {
   const byRepo = new Map();
 
+  // A group assignment has one repository record PER MEMBER, all naming the
+  // same repository, so a five-person team fetched the same object five times.
+  // Phase 1 already stopped the writes, so re-reading cannot tell us anything
+  // new - it only spends calls against an ~80/min secondary limit at the one
+  // moment the whole cohort is being processed at once.
+  const repoCache = new Map();
+  const fetchRepo = async (name) => {
+    if (!repoCache.has(name)) repoCache.set(name, await gh("GET", `/repos/${cfg.org}/${name}`));
+    return repoCache.get(name);
+  };
+
   for (const t of targets) {
     try {
-      const repoRes = await gh("GET", `/repos/${cfg.org}/${t.repoName}`);
+      const repoRes = await fetchRepo(t.repoName);
       if (!repoRes.ok) {
         log(`record ${t.login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
         byRepo.set(t, { ok: false, reason: `repo HTTP ${repoRes.status}` });
@@ -415,7 +491,7 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
 
       // Frozen on retry: never re-snapshot a student who was already locked
       // down, or a late commit would replace their on-time submission.
-      const priorRec = priorByLogin.get(t.login);
+      const priorRec = priorByLogin.get(normalizeLogin(t.login));
       const frozen = !!priorRec?.snapshot_sha;
       const pushedAt = repoRes.data.pushed_at ?? null;
       let snapshotSha;
@@ -541,11 +617,12 @@ async function main() {
   const deadlineAt = assignment.deadline_at || null;
   log("assignment", { ok: true, note: `deadline_at=${deadlineAt} submission_ref=${submissionRef}` });
 
-  // Prior lockdown (retry path) - frozen snapshots, keyed by login
+  // Prior lockdown (retry path) - frozen snapshots, keyed by login. Keyed
+  // case-insensitively because GitHub logins are: a record written under one
+  // spelling must still be found under the other, or freeze-on-retry silently
+  // stops freezing and a late commit replaces the on-time submission.
   const prior = await readPriorLockdown();
-  const priorByLogin = new Map(
-    (prior?.results || []).filter((r) => r.github_login).map((r) => [r.github_login, r])
-  );
+  const priorByLogin = indexByLogin(prior?.results || []);
   const attempt = (prior?.finalize_attempts ?? 0) + 1;
   if (prior) {
     log("prior-lockdown", {
@@ -566,8 +643,15 @@ async function main() {
   const records = await readRepoRecords();
   log("repo-records", { ok: true, note: records.length ? `${records.length} student(s)` : "no repository records - nothing to lock down" });
 
+  // Who shares a repository. Empty on an individual assignment, and that is the
+  // whole answer there - every record is its own repository.
+  const teamsBySlug = await readTeams();
+  if (teamsBySlug.size) {
+    log("teams", { ok: true, note: `${teamsBySlug.size} team manifest(s) - extensions apply per repository` });
+  }
+
   // --- Phase 0: plan ---------------------------------------------------------
-  const { targets, deferrals } = planTargets(assignment, records, overrides, priorByLogin);
+  const { targets, deferrals } = planTargets(assignment, records, overrides, priorByLogin, new Date(), teamsBySlug);
   for (const d of deferrals) {
     log(`lockdown ${d.displayKey}`, {
       ok: true,
@@ -614,8 +698,10 @@ async function main() {
   // Every comparison against "the deadline" is the deadline for THAT student
   // (lib/effective-deadline.mjs). Hoisted above the lock because the lock now
   // needs it too, to tell a student the sentinel stopped from one it deferred.
+  // teamMembers, not members: a repository is one object, so the most generous
+  // extension anywhere on the team is the deadline it is reconstructed against.
   const deadlineFor = (t) =>
-    effectiveDeadlineFor(assignment, t.login, { overrides, team: { members: t.members } })
+    effectiveDeadlineFor(assignment, t.login, { overrides, team: { members: t.teamMembers } })
       .deadline?.toISOString() ?? null;
 
   // Null unless a sentinel actually reached this assignment's instant. Read
@@ -722,9 +808,15 @@ async function main() {
     }
 
     const lockdownAt = stop.lockdownAt;
+    // How long after THIS STUDENT'S deadline they could still push - not after
+    // the assignment's. Measured against `deadline_at`, a student locked at the
+    // nightly after a seven-day extension expired was reported with seven days
+    // of uncertainty, on the one number a lecturer would cite in a dispute.
+    // `deadlineFor` is the same answer phases 1 and 2 already used.
+    const ownDeadline = deadlineFor(t) ?? deadlineAt;
     let uncertaintySec = null;
-    if (deadlineAt && lockdownAt) {
-      uncertaintySec = Math.round((new Date(lockdownAt) - new Date(deadlineAt)) / 1000);
+    if (ownDeadline && lockdownAt) {
+      uncertaintySec = Math.round((new Date(lockdownAt) - new Date(ownDeadline)) / 1000);
       if (Math.abs(uncertaintySec) > maxUncertainty) maxUncertainty = Math.abs(uncertaintySec);
     }
 

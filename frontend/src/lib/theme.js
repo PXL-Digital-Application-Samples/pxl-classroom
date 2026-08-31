@@ -1,4 +1,8 @@
-// PXL Classroom - theme runtime (dark default / light / system).
+// PXL Classroom - theme runtime (system default / light / dark).
+//
+// "dark default" is what this said, and it stopped being true when DEFAULT_MODE
+// became 'system': a first-time visitor now gets whichever theme their machine
+// is set to. style.css carried the same stale phrase in two more places.
 //
 // The palette itself lives entirely in style.css as light-dark() tokens; this
 // module only decides which of the two columns is showing. It does that by
@@ -35,8 +39,11 @@ const systemPrefersLight = ref(false)
 let systemQuery = null
 let systemListenerBound = false
 
-/** The user's choice: 'dark' | 'light' | 'system'. */
-export const themeMode = computed(() => mode.value)
+// `themeMode` - the user's raw choice, including 'system' - used to be exported
+// here and read by nothing. Every surface wants `resolvedTheme` instead: what is
+// ON SCREEN right now, which is the only question a toggle or an icon can act
+// on. Publishing both invites a caller to compare against 'system' and get the
+// wrong answer for the visitor who has never touched the toggle.
 
 /** What is actually on screen right now: 'dark' | 'light'. */
 export const resolvedTheme = computed(() =>

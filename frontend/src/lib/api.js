@@ -158,35 +158,75 @@ export async function getRepo(token, owner, repo) {
  *
  * `seen` guards against a malformed or self-referential Link header spinning
  * forever; `maxPages` is the belt to that braces.
+ *
+ * WHERE A WALK IS CAPPED, THE CAPPED CASE MAY NOT REPORT `ok`. Hitting
+ * `maxPages` with a `rel="next"` still on the wire returned the partial list
+ * with `ok: true` and no signal at all - which is the same "a truncated success
+ * is worse here than an error" this helper's own docstring warns about, one
+ * level down. `truncated` is returned so a caller can refuse to treat a partial
+ * answer as a whole one.
  */
 async function pagedGet(token, firstPath, { maxPages, extract = (d) => (Array.isArray(d) ? d : []) }) {
   const merged = []
   let path = firstPath
   let last = null
+  let truncated = false
   const seen = new Set()
 
-  for (let page = 0; path && page < maxPages; page++) {
-    if (seen.has(path)) break
+  for (let page = 0; path; page++) {
+    if (page >= maxPages) {
+      truncated = true
+      break
+    }
+    if (seen.has(path)) {
+      // A Link header that points back at a page already read is malformed, and
+      // whatever has been collected cannot be shown to be the whole list.
+      truncated = true
+      break
+    }
     seen.add(path)
     const res = await ghApi(token, 'GET', path)
-    if (!res.ok) return { res, merged: null }
+    if (!res.ok) return { res, merged: null, truncated: false }
     last = res
     merged.push(...extract(res.data))
 
     const link = res.headers?.get?.('link') || ''
     const next = link.split(',').find((p) => /rel="next"/.test(p))
     const m = next && next.match(/<([^>]+)>/)
-    path = m ? m[1].replace('https://api.github.com', '') : null
+    path = m ? m[1].replace(API_BASE, '') : null
   }
 
-  return { res: last, merged }
+  return { res: last, merged, truncated }
+}
+
+/**
+ * A GitHub-shaped response for a walk that could not finish.
+ *
+ * Not `ok`, and carrying the same `data.message` shape every caller already
+ * reads off a real failure - so a truncated list surfaces the way an HTTP error
+ * does instead of as a short list nobody questions.
+ */
+function truncatedResponse(res, what) {
+  return {
+    status: res?.status ?? 0,
+    ok: false,
+    headers: res?.headers,
+    data: {
+      message:
+        `Could not read all of ${what}: GitHub still had more pages after the page limit. ` +
+        `Showing a partial list would be worse than saying so.`,
+    },
+  }
 }
 
 export async function getInvitations(token) {
   // A student is not in 2,000 pending invitations; the cap only stops a
   // malformed Link header spinning forever.
-  const { res, merged } = await pagedGet(token, '/user/repository_invitations?per_page=100', { maxPages: 20 })
+  const { res, merged, truncated } = await pagedGet(token, '/user/repository_invitations?per_page=100', { maxPages: 20 })
   if (!merged) return res
+  // A short list here reads as "there is no invitation", and the waiting screen
+  // then tells the student setup failed - the opposite of what happened.
+  if (truncated) return truncatedResponse(res, 'your pending repository invitations')
   return { ...res, data: merged }
 }
 
@@ -206,12 +246,16 @@ export async function getInvitations(token) {
  * fixed for this; only the repos half was left.
  */
 export async function getUserRepos(token) {
-  const { res, merged } = await pagedGet(
+  const { res, merged, truncated } = await pagedGet(
     token,
     '/user/repos?affiliation=owner,collaborator&per_page=100&sort=full_name',
     { maxPages: 30 },
   )
   if (!merged) return res
+  // /user/repos sorts by full_name, so a truncated read loses the
+  // alphabetically late assignments - consistently and invisibly, which is the
+  // exact failure this walk was added to end.
+  if (truncated) return truncatedResponse(res, 'your repositories')
   return { ...res, data: merged }
 }
 
@@ -238,20 +282,24 @@ export async function acceptInvitation(token, invitationId) {
 export async function getInstallations(token) {
   // Nobody is in 5,000 installations; the cap only bounds a malformed Link
   // header. The response is an OBJECT, so pages merge on the inner list.
-  const { res, merged } = await pagedGet(token, '/user/installations?per_page=100', {
+  const { res, merged, truncated } = await pagedGet(token, '/user/installations?per_page=100', {
     maxPages: 50,
     extract: (d) => d?.installations || [],
   })
   if (!merged) return res
+  // An org past the cut-off simply stops appearing in the org switcher - no
+  // error, no empty state, it is just gone. That is what the walk exists to
+  // prevent, so a capped walk must not report it as the whole list either.
+  if (truncated) return truncatedResponse(res, 'your App installations')
   return { ...res, data: { total_count: merged.length, installations: merged } }
 }
 
-/**
- * Get the repos accessible to an installation.
- */
-export async function getInstallationRepos(token, installationId) {
-  return ghApi(token, 'GET', `/user/installations/${installationId}/repositories`)
-}
+// `getInstallationRepos` used to live here, calling
+// `/user/installations/{id}/repositories` with no pagination while every other
+// list helper in this file walks its Link header. Nothing called it, so it was
+// a loaded trap for whoever wired it up next - a truncated list dressed up as a
+// whole one, in a file whose header comment is about exactly that. Deleted
+// rather than fixed: add it back through pagedGet if a caller ever needs it.
 
 /**
  * Read a file from a repo (for fetching control repo data at runtime).
@@ -324,19 +372,14 @@ export async function listRepoDir(token, owner, repo, path) {
   return res.data.map((f) => ({ name: f.name, path: f.path, type: f.type }))
 }
 
-/**
- * Get the user's organizations.
- */
-export async function getUserOrgs(token) {
-  return ghApi(token, 'GET', '/user/orgs')
-}
-
-/**
- * Check if the user is an owner of an org.
- */
-export async function getOrgMembership(token, org) {
-  return ghApi(token, 'GET', `/user/memberships/orgs/${org}`)
-}
+// `getUserOrgs` and `getOrgMembership` used to live here. Both are leftovers of
+// `roster_mode: org_member`, the mode that gated acceptance on ACTIVE
+// organization membership so GitHub would do the email-to-account binding.
+// That mode was withdrawn - the claim flow binds the address directly and puts
+// nobody in the organization - and lib/roster-mode.mjs records why. Nothing has
+// called either since. Enumerating a user's orgs is exactly what the App
+// install page exists to avoid (lib/audit.mjs, APP_INSTALL_URL), so leaving the
+// helpers around invites the deleted design back in.
 
 /**
  * Create or update a file in a repository.

@@ -121,9 +121,34 @@ test("pagedGet stops on a short page, and cannot loop on a self-referential Link
   assert.match(body, /seen\.has\(path\)/, "must guard against a self-referential Link header");
   assert.match(body, /maxPages/, "and carry a page cap as the belt to that braces");
   assert.ok(
-    /return \{ res, merged: null \}/.test(body),
+    /return \{ res, merged: null, truncated: false \}/.test(body),
     "a failed page must be reported as a failure, not as a short list",
   );
+
+  // WHERE A WALK IS CAPPED, THE CAPPED CASE MAY NOT REPORT ok. Hitting maxPages
+  // with a rel="next" still on the wire used to return the partial list with
+  // ok: true and no signal at all - the same "a truncated success is worse here
+  // than an error" this helper's own docstring warns about, one level down.
+  assert.match(body, /truncated = true/, "hitting the cap must be recorded, not swallowed");
+  assert.match(body, /return \{ res: last, merged, truncated \}/, "and reported to the caller");
+});
+
+test("every pagedGet caller refuses a truncated list", () => {
+  // A short list here is not a smaller answer, it is a WRONG one: a missing
+  // invitation reads as "there is no invitation", and /user/repos sorts by
+  // full_name so a truncated read loses the alphabetically late assignments,
+  // consistently and invisibly.
+  const src = readFileSync(API, "utf8");
+  const callers = [...src.matchAll(/export async function (\w+)\(token[^)]*\)\s*\{([\s\S]*?)\n\}/g)]
+    .filter(([, , body]) => body.includes("pagedGet("));
+  assert.ok(callers.length >= 3, `expected the three paginated readers, saw ${callers.length}`);
+  for (const [, name, body] of callers) {
+    assert.match(
+      body,
+      /if \(truncated\) return truncatedResponse\(/,
+      `${name}() must refuse a truncated list rather than return it as the whole one`,
+    );
+  }
 });
 
 test("the e2e fixture exposes the link header, or pagination is untestable in the browser", () => {

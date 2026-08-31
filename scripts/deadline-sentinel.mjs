@@ -40,6 +40,7 @@ import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parseYaml } from "../lib/yaml.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -128,7 +129,7 @@ async function currentTarget() {
   for (const id of cfg.assignmentIds) {
     let doc = null;
     for (const ext of ["yml", "yaml"]) {
-      const res = await gh("GET", `/repos/${cfg.org}/pxl-classroom-control/contents/assignments/${id}.${ext}`);
+      const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/contents/assignments/${id}.${ext}`);
       // An assignment YAML is far below the 1 MB point where the Contents API
       // starts answering 200 with an empty body, so base64 is safe here.
       if (res.ok && res.data?.encoding === "base64" && res.data.content) {

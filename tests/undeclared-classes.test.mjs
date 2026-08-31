@@ -78,6 +78,31 @@ test("btn-warning stays gone", async () => {
   assert.ok(!("btn-warning" in BACKLOG), "and must never be exempted");
 });
 
+test("nothing on the backlog is used by more than one component", async () => {
+  // The backlog's remaining entries are per-component vocabulary whose intended
+  // appearance is not recorded anywhere, so they are pinned rather than
+  // invented. A class used by TWO components is a different thing: a scoped
+  // block cannot reach across, so it can only be fixed in style.css, and
+  // leaving it here means both components render it unstyled forever.
+  //
+  // Fourteen were in exactly that state - `.form-group` in three components,
+  // `.data-table` in two, plus the five the duplicated autograding modal
+  // carried into both of its copies. They are declared now; this is what stops
+  // the category coming back.
+  const undeclared = await findUndeclaredClasses();
+  const shared = [...undeclared]
+    .filter(([, where]) => where.size > 1)
+    .map(([cls, where]) => `.${cls} (used by ${[...where].join(", ")})`);
+
+  assert.deepEqual(
+    shared,
+    [],
+    "A class more than one component uses belongs in style.css - a scoped block " +
+      "cannot reach the other one, so it renders unstyled in both:\n  " +
+      shared.join("\n  "),
+  );
+});
+
 // --- The extractor itself ---------------------------------------------------
 //
 // It decides what counts as a class, so a sloppy one either misses real bugs or

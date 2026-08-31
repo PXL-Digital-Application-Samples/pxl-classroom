@@ -165,7 +165,7 @@
         <input type="hidden" name="manifest" :value="manifest" />
         <div class="field">
           <label for="setup-org">Owner organization (recommended)</label>
-          <input id="setup-org" v-model.trim="ownerOrg" placeholder="e.g. PXL-Digital-Application-Samples" />
+          <input id="setup-org" v-model.trim="ownerOrg" :placeholder="`e.g. ${HUB_OWNER}`" />
           <small>
             Registers the App under this organization. Leave empty to register under your personal account
             (works, but ties the App's lifecycle to one person).
@@ -202,6 +202,7 @@ import Icon from '../components/Icon.vue'
 import AppHeader from '../components/AppHeader.vue'
 import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import { config } from '../lib/config.js'
+import { HUB_OWNER } from '../lib/deployment.js'
 import { startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { ghApi } from '../lib/api.js'
 import {

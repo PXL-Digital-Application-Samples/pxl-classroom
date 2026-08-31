@@ -9,6 +9,7 @@ import { readdir, readFile, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { gh } from "../lib/gh.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -134,7 +135,7 @@ async function main() {
           if (data.access_state === "deleted") {
             await notifyEvent({
               org: cfg.org,
-              controlRepo: "pxl-classroom-control",
+              controlRepo: CONTROL_REPO,
               eventType: "unexpected-deletion",
               assignmentId: assignment,
               details: `Repository \`${data.repo_name}\` was deleted or is inaccessible.`,
@@ -143,7 +144,7 @@ async function main() {
           } else if (data.access_state === "revoked") {
             await notifyEvent({
               org: cfg.org,
-              controlRepo: "pxl-classroom-control",
+              controlRepo: CONTROL_REPO,
               eventType: "missing-access",
               assignmentId: assignment,
               details: `Access revoked for student \`${data.github_login}\` on repository \`${data.repo_name}\`.`,

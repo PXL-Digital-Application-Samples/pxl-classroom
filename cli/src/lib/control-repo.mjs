@@ -1,8 +1,17 @@
 // PXL Classroom CLI - control repo helpers.
+//
+// The repository NAME comes from deployment.yml, never a literal. Five files in
+// this CLI declared `const CONTROL_REPO = "pxl-classroom-control"` of their own
+// while lib/deployment.mjs exported the configured value - so a fork that set
+// `control_repo` to anything else got a CLI still talking to PXL's name.
+// Relative import rather than `#deployment`: the CLI is its own workspace
+// package, so the root package.json's subpath map does not reach here, and the
+// CLI is Node-only so the node:fs reader is the right one.
 
 import { parse as yamlParse } from "yaml";
+import { CONTROL_REPO } from "../../../lib/deployment.mjs";
 
-const CONTROL_REPO = "pxl-classroom-control";
+export { CONTROL_REPO };
 
 export async function getAssignment(octokit, { org, assignmentId }) {
   try {

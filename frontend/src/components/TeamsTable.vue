@@ -439,81 +439,27 @@
       @seeded="emit('refresh')"
     />
 
-    <!-- Modal: Team Autograding Test Breakdown -->
-    <div v-if="activeTeamAutograde" class="modal-overlay" @click.self="closeTeamAutogradeModal">
-      <div class="modal card autograde-modal" role="dialog" aria-modal="true" :aria-label="`Autograding Results for ${activeTeamAutograde.team_name}`" style="max-width: 650px;">
-        <header class="modal-head flex justify-between items-center">
-          <div class="flex items-center gap-sm">
-            <Icon name="check-circle" :size="20" :class="activeTeamAutograde.ci_status === 'success' ? 'text-success' : 'text-danger'" />
-            <h3 style="margin: 0;">
-              Team Autograding: <strong>{{ activeTeamAutograde.team_name }}</strong> (<code>{{ activeTeamAutograde.team_slug }}</code>)
-            </h3>
-          </div>
-          <button class="modal-close" type="button" @click="closeTeamAutogradeModal" aria-label="Close">×</button>
-        </header>
-
-        <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
-          <!-- Summary Banner -->
-          <div class="score-banner flex justify-between items-center p-md" :class="activeTeamAutograde.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-default); padding: 12px 16px;">
-            <div>
-              <div class="text-xs text-secondary uppercase font-semibold">Team Score</div>
-              <div class="text-xl font-bold" style="font-size: 1.4rem;">
-                <!-- No invented denominator: `points_possible` is not a schema
-                     field, so the 100 was a number nobody set. -->
-                {{ activeTeamAutograde.earned_points != null ? `${activeTeamAutograde.earned_points} / ${activeTeamAutograde.total_points} pts` : (activeTeamAutograde.ci_status || 'No score read yet') }}
-              </div>
-            </div>
-            <div>
-              <span :class="['badge', activeTeamAutograde.ci_status === 'success' ? 'badge-success' : activeTeamAutograde.ci_status === 'failure' ? 'badge-error' : 'badge-warning']" style="font-size: 0.85rem; padding: 4px 10px;">
-                {{ activeTeamAutograde.ci_status || 'completed' }}
-              </span>
-            </div>
-          </div>
-
-          <!-- Team Test Breakdown List -->
-          <div v-if="activeTeamAutograde.tests && activeTeamAutograde.tests.length" class="tests-breakdown-list flex flex-col gap-sm">
-            <h4 style="margin: 0 0 4px 0;">Test Suites</h4>
-            <div v-for="t in activeTeamAutograde.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-default); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface);">
-              <div class="flex justify-between items-center">
-                <div class="flex items-center gap-xs">
-                  <span :class="['badge', t.passed ? 'badge-success' : 'badge-error']" style="font-size: 0.7rem; padding: 2px 6px;">
-                    {{ t.passed ? 'PASSED' : 'FAILED' }}
-                  </span>
-                  <strong>{{ t.name || t.id }}</strong>
-                </div>
-                <span class="mono font-semibold text-sm">{{ t.earned != null ? t.earned : (t.passed ? t.points : 0) }}/{{ t.points }} pts</span>
-              </div>
-              <div v-if="t.stdout || t.stderr" class="test-logs mt-xs" style="margin-top: 6px;">
-                <pre class="mono text-xs p-xs" style="background: var(--bg-canvas); border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; margin: 0; padding: 8px;">{{ t.stderr || t.stdout }}</pre>
-              </div>
-            </div>
-          </div>
-          <!-- Check-run annotations carry the grand total only; the per-check
-               breakdown exists in the run and nowhere else. -->
-          <div v-else class="text-secondary text-sm">
-            <p style="margin: 0;">
-              The per-check breakdown is in the grading run itself.
-              <a v-if="activeTeamAutograde.ci_run_url" :href="activeTeamAutograde.ci_run_url" target="_blank" rel="noopener" class="btn-link">
-                Open the run →
-              </a>
-              <a v-else-if="activeTeamAutograde.repo_url" :href="`${activeTeamAutograde.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link">
-                Open GitHub Actions →
-              </a>
-            </p>
-          </div>
-        </div>
-
-        <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-default);">
-          <button class="btn btn-secondary" type="button" @click="closeTeamAutogradeModal">Close</button>
-        </footer>
-      </div>
-    </div>
+    <!-- Team autograding results. Same component AssignmentDetailView uses:
+         this markup was duplicated there, byte-for-byte apart from the item
+         name and comments each copy had reworded on its own. -->
+    <AutogradeResultsModal
+      v-if="activeTeamAutograde"
+      :item="activeTeamAutograde"
+      :subject-label="activeTeamAutograde.team_name"
+      score-label="Team Score"
+      @close="closeTeamAutogradeModal"
+    >
+      <template #title>
+        Team Autograding: <strong>{{ activeTeamAutograde.team_name }}</strong> (<code>{{ activeTeamAutograde.team_slug }}</code>)
+      </template>
+    </AutogradeResultsModal>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
+import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { commitFile, commitFiles, deleteFile, getRepoContent, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'

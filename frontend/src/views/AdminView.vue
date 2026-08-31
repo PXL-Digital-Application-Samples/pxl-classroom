@@ -73,7 +73,7 @@
         <div v-else-if="assignmentsError === 'no-control-repo'" class="list-empty error-state-box" style="padding: var(--space-md); border: 1px dashed var(--accent-red); border-radius: var(--radius-md); text-align: center;">
           <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} isn't onboarded yet</h4>
           <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
-            There is no <code>{{ org }}/pxl-classroom-control</code> repository (or you can't see it).
+            There is no <code>{{ org }}/{{ config.controlRepo }}</code> repository (or you can't see it).
             A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow.
           </p>
         </div>
@@ -794,7 +794,7 @@
             </div>
             <div class="field">
               <label>Timezone (display)</label>
-              <input v-model="form.timezone" placeholder="Europe/Brussels" />
+              <input v-model="form.timezone" :placeholder="TIMEZONE" />
             </div>
             <!-- No `acceptance_mode` control: the enum has one value, so the
                  select was a decision the lecturer could not make. The field is
@@ -1057,12 +1057,19 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { config } from '../lib/config.js'
+// deployment.yml's display timezone, so the form default, the placeholder and
+// the value buildDoc() writes are one fact rather than three literals.
+import { TIMEZONE } from '../lib/deployment.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
-import { cleanChecks, summariseAutograde } from '../lib/autograde.js'
+import { summariseAutograde } from '../lib/autograde.js'
+// One implementation of the document this panel writes, and of the
+// datetime-local <-> UTC conversion around it. See assignment-doc.js for what a
+// second, hand-maintained copy had already quietly dropped.
+import { buildAssignmentDoc, localToUtc, utcToLocalInput } from '../lib/assignment-doc.js'
 import { toast } from '../lib/toast.js'
 import { parseInviteFields, inviteDataUrl, linkSecretFrom } from '../lib/invite.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
@@ -1643,7 +1650,7 @@ function emptyForm() {
     deadline_at_local: toLocalInputValue(in14d),
     _opens_at_original: '',
     _deadline_at_original: '',
-    timezone: 'Europe/Brussels',
+    timezone: TIMEZONE,
     submission_ref: 'refs/heads/main',
     student_permission: 'admin',
     // One enum value, so there is nothing to choose and no control for it.
@@ -1709,12 +1716,6 @@ function emptyForm() {
 
 // If the user-visible HH:MM still matches what we derived from the original
 // UTC value, preserve the original (with seconds/ms) rather than zeroing them.
-function preserveOrLocal(localStr, originalUtc) {
-  if (!originalUtc) return localToUtc(localStr)
-  if (utcToLocalInput(originalUtc) === localStr) return originalUtc
-  return localToUtc(localStr)
-}
-
 function toSlug(title) {
   return title
     .toLowerCase()
@@ -1729,24 +1730,6 @@ function toLocalInputValue(date) {
   // Returns YYYY-MM-DDTHH:MM in browser's local time, for datetime-local input
   const pad = (n) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function localToUtc(localStr) {
-  // datetime-local string -> UTC ISO. Browser interprets as local.
-  if (!localStr) return ''
-  const d = new Date(localStr)
-  // `toISOString()` throws RangeError on an unparseable date, and this runs
-  // inside the `shareAssignment` computed - so a hand-edited YAML carrying
-  // `deadline_at: soon` took the entire editor pane down during render, with
-  // the field that would fix it on the far side of the crash. An empty string
-  // instead: the cohort card says "no deadline set", fieldErrors names it, and
-  // the schema refuses the save.
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString()
-}
-
-function utcToLocalInput(utcIso) {
-  if (!utcIso) return ''
-  return toLocalInputValue(new Date(utcIso))
 }
 
 function utcHint(localStr) {
@@ -1947,7 +1930,7 @@ function editAssignment(a) {
     deadline_at_local: utcToLocalInput(a.deadline_at),
     _opens_at_original: a.opens_at || '',
     _deadline_at_original: a.deadline_at || '',
-    timezone: a.timezone || 'Europe/Brussels',
+    timezone: a.timezone || TIMEZONE,
     submission_ref: a.submission_ref || 'refs/heads/main',
     student_permission: a.student_permission || 'admin',
     acceptance_mode: a.acceptance_mode || 'self-service',
@@ -2067,79 +2050,14 @@ function clearAutograde() {
 
 // ---------------------------------------------------------------- YAML generation + validation
 
+// The document itself lives in frontend/src/lib/assignment-doc.js, imported by
+// the contract test as well. It used to be inline here, and
+// tests/contract-form-diagnostics.test.mjs carried a hand-maintained COPY of it
+// that had drifted past the signed-acceptance keypair, claim_domains, autograde
+// and feedback_pr - so the diagnostics contract was checked against a shape this
+// panel had not written for months.
 function buildDoc(state = null) {
-  const [tplOwner, tplRepo] = (form.value.template || '').split('/')
-  return {
-    schema_version: 1,
-    id: form.value.id,
-    title: form.value.title,
-    ...(form.value.description ? { description: form.value.description } : {}),
-    organization: form.value.organization,
-    template: { owner: tplOwner || '', repository: tplRepo || '' },
-    repository_name_pattern: form.value.repository_name_pattern,
-    opens_at: preserveOrLocal(form.value.opens_at_local, form.value._opens_at_original),
-    deadline_at: preserveOrLocal(form.value.deadline_at_local, form.value._deadline_at_original),
-    timezone: form.value.timezone || 'Europe/Brussels',
-    submission_ref: form.value.submission_ref || 'refs/heads/main',
-    student_permission: form.value.student_permission,
-    acceptance_mode: form.value.acceptance_mode,
-    roster_mode: form.value.roster_mode || 'enforced',
-    late_policy: form.value.late_policy,
-    state: state || form.value.state,
-    ...(form.value.max_acceptances ? { max_acceptances: Number(form.value.max_acceptances) } : {}),
-    lock_down_enabled: !!form.value.lock_down_enabled,
-    // Minted by publish-assignment.yml and never edited here - but this rebuilds
-    // the whole document, so anything not carried through is deleted. Dropping
-    // these silently retires the invitation link already handed to students.
-    ...(form.value.invite_token ? { invite_token: form.value.invite_token } : {}),
-    ...(form.value.invite_nonce ? { invite_nonce: form.value.invite_nonce } : {}),
-    ...(form.value.invite_expires_at ? { invite_expires_at: form.value.invite_expires_at } : {}),
-    // The signed-acceptance keypair. invite_key is the link secret and
-    // invite_pubkey is what the broker verifies against - dropping either on a
-    // save breaks every student's acceptance, the same way dropping the token
-    // used to retire every link.
-    ...(form.value.invite_key ? { invite_key: form.value.invite_key } : {}),
-    ...(form.value.invite_pubkey ? { invite_pubkey: form.value.invite_pubkey } : {}),
-    // Carried, not authored. There is no control for claim_domains yet, so the
-    // only way to set one is by hand - and buildDoc rebuilds the whole document
-    // field by field, so a field it does not carry is DELETED on the next save.
-    // That is the invite_token bug exactly: a lecturer who narrowed the allowed
-    // domains would have them silently reverted to the deployment default by
-    // editing anything else on the assignment, and students accepted under the
-    // narrowed list would start being refused.
-    //
-    // Array.isArray, not a truthy check, so an explicit [] - the deliberate
-    // opt-out - survives a save as well.
-    ...(Array.isArray(form.value.claim_domains) ? { claim_domains: form.value.claim_domains } : {}),
-    ...(form.value.assignment_type ? { assignment_type: form.value.assignment_type } : {}),
-    ...(form.value.assignment_type === 'group'
-      ? {
-          group_config: {
-            max_team_size: teamMaxSize(form.value.group_config),
-            ...(form.value.group_config?.min_team_size ? { min_team_size: Number(form.value.group_config.min_team_size) } : {}),
-            formation_mode: form.value.group_config?.formation_mode || 'self-service',
-            allow_team_creation: form.value.group_config?.allow_team_creation !== false,
-            ...(form.value.group_config?.formation_mode === 'pre-assigned'
-              ? {
-                  unassigned_fallback:
-                    form.value.group_config?.unassigned_fallback === 'self-service' ? 'self-service' : 'block',
-                }
-              : {}),
-          },
-        }
-      : {}),
-    ...(form.value.feedback_pr
-      ? {
-          feedback_pr: true,
-          feedback_pr_baseline_branch: form.value.feedback_pr_baseline_branch || 'pxl-baseline',
-        }
-      : {}),
-    // Included whenever enabled - an empty tests list then fails schema
-    // validation visibly instead of being silently dropped from the YAML.
-    ...(form.value.autograde_enabled
-      ? { autograde: { enabled: true, execution_environment: form.value.autograde_execution_environment, visibility: form.value.autograde_visibility, tests: cleanChecks(form.value.autograde_tests) } }
-      : {}),
-  }
+  return buildAssignmentDoc(form.value, { state })
 }
 
 

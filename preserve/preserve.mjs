@@ -9,7 +9,7 @@
 
 import { appendFile, readFile, writeFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { gh } from "../lib/gh.mjs";
 import { archiveRepoName } from "../lib/archive-repo.mjs";
@@ -51,6 +51,10 @@ async function fail(category, note) {
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const PATH = /^[A-Za-z0-9._/\\:-]+$/;
+// A team slug or a GitHub login - whichever names the preserved branch. Both
+// shapes are already enforced at acceptance; this is the read-back check, for
+// values arriving from a record a human may have edited.
+const REF_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 function validate() {
   if (!cfg.token) return "GITHUB_TOKEN is required (App installation token)";
@@ -85,10 +89,26 @@ function gitEnv() {
   };
 }
 
+/**
+ * Run git with an ARGUMENT ARRAY, never a command string.
+ *
+ * This was `execSync(\`git ${args}\`)`, so every value interpolated into that
+ * string reached a shell: `snapshot_sha`, the repository name and the team slug
+ * or login the preserved ref is built from, all read straight out of
+ * `lockdowns/<id>/lockdown-record.json` and none of them shape-checked -
+ * validate() covers ORG, ASSIGNMENT_ID and DATA_DIR only. That record is not a
+ * hostile input, but it is a HAND-EDITED one: RUNBOOK.md §3.3 tells a lecturer
+ * to delete a student's entry from it, and the loop below already anticipates
+ * "a hand-edited record, a half-written one". A stray quote there turned into a
+ * baffling shell error; a stray `$(...)` into something worse.
+ *
+ * execFileSync removes the shell from the path entirely, which is the same
+ * reasoning CLAUDE.md applies to `${{ }}` in workflow YAML: the question is
+ * never "is this attacker-reachable", it is "is this a literal I wrote".
+ */
 function git(args, opts = {}) {
-  const cmd = `git ${args}`;
-  console.log(`$ ${cmd}`);
-  return execSync(cmd, {
+  console.log(`$ git ${args.join(" ")}`);
+  return execFileSync("git", args, {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
     ...opts,
@@ -209,11 +229,29 @@ async function main() {
       const missing = [!login && "github_login", !sourceRepo && "repo_name"].filter(Boolean).join(" and ");
       log(`preserve ${login ?? "(no login)"}`, { ok: false, note: `lockdown record row has no ${missing}` });
       errorCount++;
-      rows.push(`| ${login ?? "(no login)"} | \`${sourceSha.slice(0, 12)}\` | fail: record row has no ${missing} |`);
+      rows.push(`| ${login ?? "(no login)"} | \`${String(sourceSha).slice(0, 12)}\` | fail: record row has no ${missing} |`);
       continue;
     }
 
+    // SHAPE-CHECK EVERY VALUE THAT BECOMES A GIT ARGUMENT OR A REF.
+    //
+    // validate() covers ORG, ASSIGNMENT_ID and DATA_DIR; these three come out of
+    // `lockdowns/<id>/lockdown-record.json`, which the loop above already treats
+    // as possibly hand-written - and RUNBOOK.md §3.3 tells a lecturer to edit
+    // it. A malformed sha or slug is one bad row, not a reason to fail the
+    // cohort, so it is reported the same way a missing field is.
     const targetRefKey = rec.team_slug || login;
+    const shapeProblem =
+      !/^[0-9a-f]{7,40}$/i.test(String(sourceSha)) ? `snapshot_sha "${sourceSha}" is not a git object id`
+      : !NAME.test(String(sourceRepo)) ? `repo_name "${rec.repo_name}" is not a valid repository name`
+      : !REF_KEY.test(String(targetRefKey)) ? `"${targetRefKey}" is not a valid team slug or login`
+      : null;
+    if (shapeProblem) {
+      log(`preserve ${login}`, { ok: false, note: shapeProblem });
+      errorCount++;
+      rows.push(`| ${login} | \`${String(sourceSha).slice(0, 12)}\` | fail: ${shapeProblem} |`);
+      continue;
+    }
     const workDir = await mkdtemp(join(tmpdir(), `pxl-preserve-${targetRefKey}-`));
     const presRef = `refs/heads/preserved/${cfg.assignmentId}/${targetRefKey}`;
     let verified = false;
@@ -224,17 +262,17 @@ async function main() {
       const cloneDir = join(workDir, "src");
 
       await mkdir(cloneDir);
-      git(`init --bare`, { cwd: cloneDir });
+      git(["init", "--bare"], { cwd: cloneDir });
       // Full fetch, NOT --depth=1. A shallow fetch grafts away the commit's
       // ancestors, so the pack we then push references objects the archive
       // does not have and the remote rejects it with
       //   "remote unpack failed: index-pack failed".
       // That only bites once a student has more than the initial template
       // commit, which is why shallow appeared to work at first.
-      git(`fetch --no-tags "${srcUrl}" ${sourceSha}`, { cwd: cloneDir });
+      git(["fetch", "--no-tags", srcUrl, sourceSha], { cwd: cloneDir });
 
       try {
-        git(`cat-file -e ${sourceSha}`, { cwd: cloneDir });
+        git(["cat-file", "-e", sourceSha], { cwd: cloneDir });
       } catch {
         throw new Error(`SHA ${sourceSha} not found in ${cfg.org}/${sourceRepo}`);
       }
@@ -250,9 +288,9 @@ async function main() {
       // retries, so a retry pushes the same SHA to the same ref. A genuine
       // non-fast-forward here means the archive holds something we did not put
       // there, and overwriting it silently is the wrong answer.
-      git(`push --quiet "${arcUrl}" ${sourceSha}:${presRef}`, { cwd: cloneDir });
-      
-      const lsOut = git(`ls-remote "${arcUrl}" ${presRef}`, { cwd: cloneDir });
+      git(["push", "--quiet", arcUrl, `${sourceSha}:${presRef}`], { cwd: cloneDir });
+
+      const lsOut = git(["ls-remote", arcUrl, presRef], { cwd: cloneDir });
       const remoteSha = lsOut.split(/\s/)[0] || "";
       verified = remoteSha === sourceSha;
       

@@ -285,12 +285,20 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
 // which is exactly what makes it easy to drop - and dropping it silently
 // retires the invitation link already in students' hands, leaving a document
 // that still validates against the schema.
+// The builder moved out of the view into lib/assignment-doc.mjs, so the SPA and
+// tests/contract-form-diagnostics.test.mjs build ONE document - that test used
+// to carry a hand-maintained copy which had already stopped emitting the
+// signed-acceptance keypair. These guards follow it: an anchor left pointing at
+// AdminView.vue would have gone on passing against a file that no longer
+// contains the thing it asserts about.
+const buildDocSrc = () => readFileSync(join(root, "lib", "assignment-doc.mjs"), "utf8");
+
 test("saving an edited assignment preserves its invitation", () => {
-  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  const src = buildDocSrc();
   for (const field of ["invite_token", "invite_nonce", "invite_expires_at"]) {
     assert.ok(
-      src.includes(`...(form.value.${field} ? { ${field}: form.value.${field} } : {})`),
-      `buildDoc must carry ${field} through, or saving an edit deletes it from the YAML`
+      src.includes(`...(form.${field} ? { ${field}: form.${field} } : {})`),
+      `buildAssignmentDoc must carry ${field} through, or saving an edit deletes it from the YAML`
     );
   }
 });
@@ -314,12 +322,12 @@ test("buildDoc carries every field the assignment schema allows", () => {
   const declared = Object.keys(schema.properties ?? {});
   assert.ok(declared.length >= 20, `expected a substantial schema, saw ${declared.length}`);
 
-  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  const src = buildDocSrc();
   // Anchored on the function, then its `return {`. An anchor that misses must
   // FAIL, never fall back to scanning the whole file - a first draft of this
   // check did exactly that and reported a confident all-clear.
-  const fn = src.indexOf("function buildDoc");
-  assert.ok(fn > -1, "buildDoc no longer exists under that name");
+  const fn = src.indexOf("export function buildAssignmentDoc");
+  assert.ok(fn > -1, "buildAssignmentDoc no longer exists under that name");
   const at = src.indexOf("return {", fn);
   assert.ok(at > -1, "buildDoc no longer returns an object literal");
   const open = src.indexOf("{", at);
@@ -335,9 +343,31 @@ test("buildDoc carries every field the assignment schema allows", () => {
   assert.deepEqual(
     dropped,
     [],
-    "the schema allows these and buildDoc does not carry them, so saving an edit deletes them:\n" +
+    "the schema allows these and buildAssignmentDoc does not carry them, so saving an edit deletes them:\n" +
       dropped.map((f) => `  ${f}`).join("\n"),
   );
+});
+
+test("the Admin Panel does not rebuild the document itself", () => {
+  // The point of the extraction: one implementation. A second object literal
+  // growing back inside the view is how the contract test's copy drifted in the
+  // first place, and every guard above this line reads the module, not the view.
+  const view = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  assert.match(
+    view,
+    /buildAssignmentDoc\(form\.value, \{ state \}\)/,
+    "AdminView must delegate to lib/assignment-doc.mjs",
+  );
+  // Anchored on what only the DOCUMENT has and the form state does not: a
+  // split `template: { owner, repository }` and the UTC `opens_at`/`deadline_at`
+  // (the form carries `opens_at_local`). `emptyForm()` legitimately declares
+  // schema_version and repository_name_pattern, so those cannot be the anchor.
+  for (const marker of ["template: { owner:", "opens_at: preserveOrLocal("]) {
+    assert.ok(
+      !view.includes(marker),
+      `AdminView.vue is building an assignment document of its own again (${marker})`,
+    );
+  }
 });
 
 // Same shape, different field, and the same consequence. There is no control
@@ -346,15 +376,16 @@ test("buildDoc carries every field the assignment schema allows", () => {
 // reverts the cohort to the deployment default, and students accepted under the
 // narrowed list start being refused at the button.
 test("saving an edited assignment preserves claim_domains, including an empty one", () => {
-  const src = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  const src = buildDocSrc();
+  const view = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
 
   assert.ok(
-    src.includes("...(Array.isArray(form.value.claim_domains) ? { claim_domains: form.value.claim_domains } : {})"),
-    "buildDoc must carry claim_domains through, or saving an edit deletes it from the YAML",
+    src.includes("...(Array.isArray(form.claim_domains) ? { claim_domains: form.claim_domains } : {})"),
+    "buildAssignmentDoc must carry claim_domains through, or saving an edit deletes it from the YAML",
   );
   assert.ok(
-    src.includes("claim_domains: Array.isArray(a.claim_domains) ? a.claim_domains : undefined"),
-    "the edit form must load claim_domains, or buildDoc has nothing to preserve",
+    view.includes("claim_domains: Array.isArray(a.claim_domains) ? a.claim_domains : undefined"),
+    "the edit form must load claim_domains, or buildAssignmentDoc has nothing to preserve",
   );
 
   // Array.isArray rather than a truthy check, in BOTH directions: `[]` is the
@@ -487,7 +518,11 @@ test("acceptance_mode has no control, and is still written", () => {
     !/v-model="form\.acceptance_mode"/.test(src),
     "a select with one option asks the lecturer a question they cannot answer"
   );
-  assert.match(src, /acceptance_mode: form\.value\.acceptance_mode/, "buildDoc still writes the field");
+  assert.match(
+    buildDocSrc(),
+    /acceptance_mode: form\.acceptance_mode/,
+    "buildAssignmentDoc still writes the field",
+  );
   assert.match(src, /acceptance_mode: 'self-service'/, "and the form still carries a value for it");
 });
 

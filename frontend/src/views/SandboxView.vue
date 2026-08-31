@@ -390,6 +390,7 @@ import StarterSyncModal from '../components/StarterSyncModal.vue'
 import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import { toast } from '../lib/toast.js'
+import { TIMEZONE } from '../lib/deployment.js'
 import { resolvedTheme } from '../lib/theme.js'
 
 // This page documents the palette, so it must never state a value that the
@@ -454,7 +455,7 @@ const mockAssignment = {
   template: { owner: 'PXL-Digital', repository: 'template-lab-processes' },
   opens_at: '2026-09-01T08:00:00Z',
   deadline_at: '2026-09-15T23:59:59Z',
-  timezone: 'Europe/Brussels',
+  timezone: TIMEZONE,
 }
 
 const mockGroupAssignment = {

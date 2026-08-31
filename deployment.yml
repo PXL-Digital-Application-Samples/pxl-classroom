@@ -74,6 +74,16 @@ device_flow_proxy: https://pxl-cors.tom-cool-38e.workers.dev/?url=
 # read the App's declared permissions.
 app_slug: pxl-classroom-provisioner
 
+# The provisioning App's CLIENT ID - the `Iv23...` value, not the numeric App id.
+#
+# NOT A SECRET: it is what the device flow sends to mint a code, so it is baked
+# into the public bundle and visible to anyone who opens the page. It is here
+# because it was written out twice - in lib/audit.mjs and in
+# frontend/src/lib/config.js - and two copies of "which App is this deployment"
+# is one copy too many. An installation record carries `client_id` but not
+# always a usable `app_slug`, which is why the audit needs it at all.
+app_client_id: Iv23li0H0Je93H2FkMPW
+
 # The per-organization repository holding a course's data: roster, assignments,
 # acceptances, observations, reports. Always PRIVATE.
 #

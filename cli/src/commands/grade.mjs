@@ -21,15 +21,11 @@ import { requireToken } from "../lib/auth.mjs";
 import { runDocker } from "../lib/runner-docker.mjs";
 import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
-import { getAssignment, getReport } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
-
-const CONTROL_REPO = "pxl-classroom-control";
-
-
 
 function runGit(args, cwd) {
   return new Promise((resolveFn, reject) => {
@@ -227,6 +223,18 @@ export function registerGradeCommand(program) {
             }
             const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
             const run = pickAutogradeCheckRun(checkRuns);
+            // No autograding run is not a zero and not a pass. The picker used
+            // to fall back to the first check run of any kind, so a student who
+            // replaced the autograding workflow with a green one of their own
+            // was awarded the full total off `conclusion: success`.
+            if (!run) {
+              process.stderr.write(`  ! ${s.github_login}: no autograding run at preserved SHA\n`);
+              summary.failed.push({
+                login: s.github_login,
+                reason: `no autograding run at preserved SHA (${checkRuns.length} other check run(s) present)`,
+              });
+              return;
+            }
             // The score is in the annotations, not in `output.summary` - see
             // lib/check-run-score.mjs. Skipped when the run declares none, so
             // the ordinary case costs no extra request.

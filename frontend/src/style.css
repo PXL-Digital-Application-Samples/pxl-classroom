@@ -1,5 +1,5 @@
 /* PXL Classroom — Global Styles
- * Dual-theme (dark default / light / system) GitHub Primer-inspired palette.
+ * Dual-theme (system default / light / dark) GitHub Primer-inspired palette.
  * Human-crafted, high-density developer ergonomics.
  * See DESIGN.md §2 for the token tables and §5 for theming rules. */
 
@@ -199,9 +199,13 @@
 }
 
 /* Theme switch. lib/theme.js writes data-theme on <html>; an absent attribute
-   means dark. light-dark() reads the *computed* color-scheme, so flipping this
-   one property re-resolves every token above — and it simultaneously themes
-   native scrollbars, form controls and autofill for free. */
+   FOLLOWS THE OS, exactly as :root's `color-scheme: light dark` above says and
+   as the no-JS case does. (This comment used to claim an absent attribute meant
+   dark, which stopped being true when DEFAULT_MODE became 'system' - a stale
+   comment 175 lines from the declaration that contradicts it.) light-dark()
+   reads the *computed* color-scheme, so flipping this one property re-resolves
+   every token above — and it simultaneously themes native scrollbars, form
+   controls and autofill for free. */
 :root[data-theme="light"]  { color-scheme: light; }
 :root[data-theme="dark"]   { color-scheme: dark; }
 :root[data-theme="system"] { color-scheme: light dark; }
@@ -1122,6 +1126,99 @@ select:focus {
 }
 .field label { font-weight: 500; font-size: 0.9rem; color: var(--text-secondary); }
 .field small { color: var(--text-muted); font-size: 0.8rem; }
+
+/* ------------------------------------------------------------------------
+   SHARED VOCABULARY THAT WAS DECLARED NOWHERE.
+
+   Each class below is written by two or more components, which is exactly the
+   case a scoped `<style>` cannot serve (CLAUDE.md: "If more than one component
+   uses a class, it belongs in style.css") - and none of them was declared at
+   all, so every element wearing one rendered unstyled with no build error and
+   no console warning. They came off the standing register in
+   tests/fixtures/undeclared-classes.backlog.json.
+
+   The values are the ones the markup was already asking for: `.form-group` is
+   `.field` under another name, `.data-table` is the table style the Teams tab
+   and the sandbox both assume, and the three student-facing ones carried their
+   layout as inline `flex`/`text-xs` utilities that DID exist. Nothing here
+   invents a look; it declares the one already implied.
+   ------------------------------------------------------------------------ */
+
+/* A label + control + hint stack. `.field` is the same idea, named differently
+   by AdminView; both spellings are in the markup, so both are declared and one
+   is defined in terms of the other rather than copied. */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--space-md);
+}
+.form-group label { font-weight: 500; font-size: 0.9rem; color: var(--text-secondary); }
+.form-group small,
+.form-group .form-hint { color: var(--text-muted); font-size: 0.8rem; }
+
+/* The row-per-record table. Wrap it in `.table-responsive` to scroll it. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.data-table th,
+.data-table td {
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+  border-bottom: 1px solid var(--border-muted);
+  vertical-align: middle;
+}
+.data-table th {
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  white-space: nowrap;
+}
+.data-table tbody tr:hover { background: var(--bg-surface-hover); }
+.data-table tbody tr:last-child td { border-bottom: none; }
+
+/* "3 days remaining" beside the deadline, on the student's own card. */
+.deadline-countdown {
+  white-space: nowrap;
+}
+
+/* The "Latest commit: abc1234 · <date>" line under a submission status. */
+.latest-commit-info {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* "Deadline extended to …" - the one piece of good news on the card, so it is
+   allowed to be loud. Both callers carried these declarations inline; declared
+   once here, they can be removed from the markup. */
+.override-alert-banner {
+  background: var(--tint-success-muted);
+  border: 1px solid var(--tint-success-emphasis);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+/* The "Regenerate now" affordance under a generated report. */
+.regen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+/* Where a student lands when acceptance did not complete in time, or their
+   account is blocked. Centred, roomy, and never red: the ordinary cause is a
+   slow run, not a fault of theirs. */
+.timeout-state {
+  text-align: center;
+  padding: var(--space-xl) var(--space-md);
+  color: var(--text-secondary);
+}
 
 .empty-state {
   text-align: center;

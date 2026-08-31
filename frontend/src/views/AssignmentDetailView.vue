@@ -957,7 +957,7 @@
                 <li><strong>No student code is altered or merged:</strong> The student's <code>main</code> branch, files, and git commit history remain completely untouched.</li>
                 <li><strong>Safe Draft mode:</strong> The pull request is opened in Draft status for inline review comments and annotations only.</li>
                 <li><strong>Continuous tracking:</strong> As students make and push further commits to <code>main</code>, the pull request automatically updates to include their new work.</li>
-                <li><strong>Control repository records:</strong> PR numbers and links are saved to your control repository (<code>pxl-classroom-control/repositories/</code>), not written to student repos.</li>
+                <li><strong>Control repository records:</strong> PR numbers and links are saved to your control repository (<code>{{ config.controlRepo }}/repositories/</code>), not written to student repos.</li>
               </ul>
             </div>
 
@@ -997,78 +997,15 @@
         </div>
       </div>
 
-      <!-- Modal: Autograding Test Breakdown & Failure Logs -->
-      <div v-if="showAutogradeModal && activeAutogradeItem" class="modal-overlay" @click.self="closeAutogradeModal">
-        <div class="modal card autograde-modal" role="dialog" aria-modal="true" :aria-label="`Autograding Results for ${activeAutogradeItem.github_login || activeAutogradeItem.team_slug}`" style="max-width: 650px;">
-          <header class="modal-head flex justify-between items-center">
-            <div class="flex items-center gap-sm">
-              <Icon name="check-circle" :size="20" :class="activeAutogradeItem.ci_status === 'success' ? 'text-success' : 'text-danger'" />
-              <h3 style="margin: 0;">
-                Autograding: <code>{{ activeAutogradeItem.github_login || activeAutogradeItem.team_slug }}</code>
-              </h3>
-            </div>
-            <button class="modal-close" type="button" @click="closeAutogradeModal" aria-label="Close">×</button>
-          </header>
-
-          <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
-            <!-- Summary Banner -->
-            <div class="score-banner flex justify-between items-center p-md" :class="activeAutogradeItem.ci_status === 'success' ? 'banner-success' : 'banner-warning'" style="border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-default); padding: 12px 16px;">
-              <div>
-                <div class="text-xs text-secondary uppercase font-semibold">Total Score</div>
-                <div class="text-xl font-bold" style="font-size: 1.4rem;">
-                  <!-- No invented denominator. `points_possible` is not a
-                       schema field and never existed; the 100 was the same
-                       class of guess as the `?? 150` acceptance cap. -->
-                  {{ activeAutogradeItem.earned_points != null ? `${activeAutogradeItem.earned_points} / ${activeAutogradeItem.total_points} pts` : (activeAutogradeItem.ci_status || 'No score read yet') }}
-                </div>
-              </div>
-              <div>
-                <span :class="['badge', activeAutogradeItem.ci_status === 'success' ? 'badge-success' : activeAutogradeItem.ci_status === 'failure' ? 'badge-error' : 'badge-warning']" style="font-size: 0.85rem; padding: 4px 10px;">
-                  {{ activeAutogradeItem.ci_status || 'completed' }}
-                </span>
-              </div>
-            </div>
-
-            <!-- Test Breakdown List -->
-            <div v-if="activeAutogradeItem.tests && activeAutogradeItem.tests.length" class="tests-breakdown-list flex flex-col gap-sm">
-              <h4 style="margin: 0 0 4px 0;">Test Suites</h4>
-              <div v-for="t in activeAutogradeItem.tests" :key="t.id" class="test-item-card p-sm" style="border: 1px solid var(--border-default); border-radius: var(--radius-sm, 6px); padding: 10px; background: var(--bg-surface);">
-                <div class="flex justify-between items-center">
-                  <div class="flex items-center gap-xs">
-                    <span :class="['badge', t.passed ? 'badge-success' : 'badge-error']" style="font-size: 0.7rem; padding: 2px 6px;">
-                      {{ t.passed ? 'PASSED' : 'FAILED' }}
-                    </span>
-                    <strong>{{ t.name || t.id }}</strong>
-                  </div>
-                  <span class="mono font-semibold text-sm">{{ t.earned != null ? t.earned : (t.passed ? t.points : 0) }}/{{ t.points }} pts</span>
-                </div>
-                <div v-if="t.stdout || t.stderr" class="test-logs mt-xs" style="margin-top: 6px;">
-                  <pre class="mono text-xs p-xs" style="background: var(--bg-canvas); border-radius: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; margin: 0; padding: 8px;">{{ t.stderr || t.stdout }}</pre>
-                </div>
-              </div>
-            </div>
-            <!-- A check run's annotations carry the grand total and nothing
-                 else - there is no per-test data to show here, and inventing a
-                 breakdown out of one number would be worse than pointing at
-                 the run that has the real one. -->
-            <div v-else class="text-secondary text-sm">
-              <p style="margin: 0;">
-                The per-check breakdown is in the grading run itself.
-                <a v-if="activeAutogradeItem.ci_run_url" :href="activeAutogradeItem.ci_run_url" target="_blank" rel="noopener" class="btn-link">
-                  Open the run →
-                </a>
-                <a v-else-if="activeAutogradeItem.repo_url" :href="`${activeAutogradeItem.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link">
-                  Open GitHub Actions →
-                </a>
-              </p>
-            </div>
-          </div>
-
-          <footer class="modal-foot flex justify-end gap-sm" style="padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-default);">
-            <button class="btn btn-secondary" type="button" @click="closeAutogradeModal">Close</button>
-          </footer>
-        </div>
-      </div>
+      <!-- Autograding results. One component, shared with TeamsTable: this was
+           ~70 lines of markup duplicated there, and the two copies had already
+           reworded their own explanatory comments independently. -->
+      <AutogradeResultsModal
+        v-if="showAutogradeModal && activeAutogradeItem"
+        :item="activeAutogradeItem"
+        :subject-label="activeAutogradeItem.github_login || activeAutogradeItem.team_slug"
+        @close="closeAutogradeModal"
+      />
 
       <!-- Roster promotion: turns this assignment's acceptances into roster
            entries a later assignment can enforce against. -->
@@ -1172,6 +1109,7 @@ import InvitationShare from '../components/InvitationShare.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
 import PromoteRosterModal from '../components/PromoteRosterModal.vue'
+import AutogradeResultsModal from '../components/AutogradeResultsModal.vue'
 
 // Tiny render helper - keeps the table markup readable. `dir` is "asc" |
 // "desc" | null; null renders nothing so non-active columns stay quiet.
@@ -2866,6 +2804,18 @@ async function syncGradesFromGitHub() {
         }
 
         const run = pickAutogradeCheckRun(checkRuns)
+
+        // No autograding run at this commit is NOT a zero and NOT a pass. The
+        // picker used to fall back to the first check run of any kind, so a
+        // student who deleted the autograding workflow and added a green one of
+        // their own was awarded the full total from `conclusion: success`.
+        if (!run) {
+          summary.failed.push({
+            login: s.github_login,
+            reason: `no autograding run at commit ${targetSha.slice(0, 7)} - ${checkRuns.length} other check run(s) were found and none of them grades`,
+          })
+          continue
+        }
 
         // The score is an ANNOTATION, not an output body: a check run created
         // by GitHub Actions has `output.summary === null` and carries

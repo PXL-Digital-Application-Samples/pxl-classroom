@@ -186,6 +186,82 @@ template:
   assert.equal(res.outputs.outcome, "rejected:cap-reached");
 });
 
+test("a cap-reached rejection leaves the team manifest untouched", () => {
+  // The cap check used to sit at step 7, AFTER the group resolution at step 5
+  // had already appended the student to teams/<id>/<slug>.json. The rejection
+  // exits 0 with no acceptance record, so the manifest was left naming somebody
+  // who never accepted - counted against max_team_size for the next student,
+  // shown on the dashboard, and seeded forward into the next assignment.
+  const yaml = `state: published
+assignment_type: group
+max_acceptances: 1
+group_config:
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const before = {
+    schema_version: 1,
+    assignment_id: "test-asgn",
+    team_slug: "team-a",
+    team_name: "Team A",
+    members: ["alice"],
+    max_members: 4,
+  };
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "456", TEAM_SLUG: "team-a" },
+    {
+      assignmentYaml: yaml,
+      teams: { "test-asgn": { "team-a": before } },
+      acceptances: { "test-asgn": { alice: { accepted_at: "2026-01-01" } } },
+    }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "rejected:cap-reached");
+
+  const after = JSON.parse(
+    readFileSync(join(res.dir, "teams", "test-asgn", "team-a.json"), "utf8")
+  );
+  assert.deepEqual(after.members, ["alice"], "bob was rejected, so bob is not on the team");
+});
+
+test("a corrupt team manifest fails loudly instead of throwing", () => {
+  // `JSON.parse(await readFile(teamFile))` was unguarded while the oldTeam scan
+  // ten lines above it was not, so one half-written manifest became
+  // `fail:exception` with a SyntaxError as its only explanation.
+  const yaml = `state: published
+assignment_type: group
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const dir = mkdtempSync(join(tmpdir(), "pxl-accept-corrupt-"));
+  mkdirSync(join(dir, "students"), { recursive: true });
+  writeFileSync(
+    join(dir, "students", "roster.yml"),
+    JSON.stringify({ schema_version: 2, students: [{ student_number: "SIS-3", full_name: "Bob", github_login: "bob" }] })
+  );
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", "test-asgn.yml"), yaml);
+  mkdirSync(join(dir, "teams", "test-asgn"), { recursive: true });
+  writeFileSync(join(dir, "teams", "test-asgn", "team-a.json"), "{ not json");
+
+  const outputEnv = join(dir, "output.env");
+  const res = spawnSync("node", [acceptScript], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      DATA_DIR: dir,
+      GITHUB_OUTPUT: outputEnv,
+      ASSIGNMENT_ID: "test-asgn",
+      GITHUB_LOGIN: "bob",
+      GITHUB_ID: "456",
+      TEAM_SLUG: "team-a",
+    },
+  });
+  assert.equal(res.status, 1);
+  assert.match(readFileSync(outputEnv, "utf8"), /outcome=fail:team-manifest/);
+});
+
 test("accepted - happy path with deriveRepoName `{github_login}` substitution", () => {
   const yaml = `state: published
 repository_name_pattern: hw-{github_login}
