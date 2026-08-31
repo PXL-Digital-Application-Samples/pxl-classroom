@@ -10,6 +10,8 @@ Target platform: GitHub Team for Education (no GitHub Enterprise required).
 
 Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) | [ARCHITECTURE.md](ARCHITECTURE.md) | [RUNBOOK.md](RUNBOOK.md) | [DESIGN.md](DESIGN.md)
 
+**PXL** stands for *PXL eXecutable Labs.
+
 ---
 
 ## Why

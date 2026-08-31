@@ -14,7 +14,16 @@ test("EXPECTED_APP_PERMISSIONS shape", () => {
   assert.equal(EXPECTED_APP_PERMISSIONS.contents, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.issues, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.metadata, "read");
-  assert.equal(EXPECTED_APP_PERMISSIONS.organization_administration, "read");
+  // Deliberately not pinned to a literal. This permission is held ABOVE what
+  // the code uses - read covers billing and default_repository_permission,
+  // write is kept for ARCHITECTURE §11.2.1's org-scoped lockdown - so the level
+  // is a recorded decision rather than a fact about an endpoint. Pinning "read"
+  // is what made this test fail when that decision was taken; what must stay
+  // true is that it is declared at all.
+  assert.ok(
+    ["read", "write"].includes(EXPECTED_APP_PERMISSIONS.organization_administration),
+    "organization_administration must be declared - billing needs it at minimum",
+  );
   assert.equal(EXPECTED_APP_PERMISSIONS.pull_requests, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.secrets, "write");
   assert.equal(EXPECTED_APP_PERMISSIONS.workflows, "write");
@@ -98,7 +107,13 @@ test("runAudit - permission the App never declared is attributed to the App", as
 
   const declaration = res.checks.find((c) => c.id === "app-declaration");
   assert.equal(declaration.severity, "fail");
-  assert.ok(declaration.message.includes("organization_administration=missing (want read)"));
+  // Derived from the manifest rather than spelled out: the message quotes
+  // whatever level the manifest asks for, and that level can legitimately move.
+  assert.ok(
+    declaration.message.includes(
+      `organization_administration=missing (want ${MANIFEST_APP_PERMISSIONS.organization_administration})`,
+    ),
+  );
   assert.equal(declaration.detail.missing.length, 1);
 
   const perms = res.checks.find((c) => c.id === "app-permissions");

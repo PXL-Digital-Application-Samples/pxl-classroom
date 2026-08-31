@@ -790,10 +790,12 @@ The App's permissions page has four collapsible sections, and **which section a 
 | Permission | Section | Live | Action | Why |
 |---|---|---|---|---|
 | `members` | Organization | write | **leave** (postponed) | *Not* dead - `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and therefore cannot be frozen at a deadline. The code needs only **read**; `write` is held deliberately (2026-08-31, Tom's call) to keep `roster_mode: org_member` restorable, since that mode enrols by org invitation and genuinely needs write. Downgrading is a one-way door on a practical timescale - see below. |
-| `organization_administration` | Organization | write | **→ read** | Enhanced Billing (`/organizations/{id}/settings/billing/usage`) needs read. `write` is org settings. |
-| `organization_plan` | Organization | read | **remove** | No caller. |
-| `plan` | Account | read | **remove** | No caller. |
-| `starring` | Account | write | **remove** | Acceptance stopped starring the broker at §4.3.2; nothing in the codebase stars anything. |
+| `organization_administration` | Organization | write | **leave** (deliberate) | Read is all the code uses - Enhanced Billing, and `default_repository_permission` on `GET /orgs/{org}`. But ARCHITECTURE §11.2.1's org-scoped lockdown needs **write**, and named this permission as its blocker; the App already has it, so that feature is unblocked. Narrowing would re-block it and cost twelve approvals to undo. |
+| `organization_plan` | Organization | read | **remove** | Gates only the `plan` object inside `GET /orgs/{org}`. `usage-fetch.mjs` reads `.id` from that response and nothing else; no code anywhere reads `.plan`. |
+| `plan` | Account | read | **remove** | The account-level equivalent, gating plan info on `GET /user`. `auth.js` reads `login`, `id`, `avatar_url`, `name`, `email` - never `plan`. |
+| `starring` | Account | write | **remove** | Acceptance stopped starring the broker at §4.3.2; nothing in the codebase stars anything. Zero call sites. |
+
+Only **three** are genuinely removable, and each was checked against the code rather than the changelog. The two that stay are staying on purpose, both for the same reason: a reduction is instant and an increase needs twelve org owners to approve, so a permission a designed feature will need is cheaper to hold than to re-acquire.
 
 The first pass of this review called `members` dead and was **wrong** - deleting `roster_mode: org_member` removed the *enrolment* use, not the *diagnostic* one. Dropping it would have turned a Tier 3 check into "no owner list readable", which by its own rule yields **no check at all** rather than a red one - a control that silently stops existing. Verify against the code before removing a permission, not against the changelog.
 

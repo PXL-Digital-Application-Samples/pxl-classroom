@@ -96,7 +96,15 @@ test("check-app-declaration - drift fails the run with the remediation", () => {
 
   assert.equal(code, 1);
   assert.match(stdout, /^::error::/m);
-  assert.match(stdout, /organization_administration=missing \(want read\)/);
+  // Derived from the manifest, not spelled out: the level this permission is
+  // declared at is a recorded decision (see lib/audit.mjs) and can move without
+  // this test's actual subject - drift attribution - changing at all.
+  assert.match(
+    stdout,
+    new RegExp(
+      `organization_administration=missing \\(want ${MANIFEST_APP_PERMISSIONS.organization_administration}\\)`,
+    ),
+  );
   assert.match(stdout, /RUNBOOK\.md section 6\.7/);
 });
 
