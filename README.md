@@ -79,14 +79,11 @@ The rows where the three genuinely differ. Everything else - assignment creation
 | **Student repo role** | Write | Write | **Admin** - secrets, environments, runners, OIDC |
 | **Deadline** | Soft; freeze by hand | Timestamps, reviewed by hand | Your choice per assignment: record late work, or stop writes at the instant it passes |
 | **Submission archive** | None; the live repo is the grade | None; the live repo is the grade | Private archive repo per assignment, out of the student's reach |
-| **Auto-grading via GitHub Actions** | Yes | Yes | Yes |
-| **Auto-grading off the cloud** | No | No | Sandboxed Docker via CLI - no Actions minutes |
+| **Auto-grading** | GitHub Actions | GitHub Actions | GitHub Actions and local Sandboxed Docker via CLI |
 | **Enrolment** | Roster or LMS sync | Org repository roster | Roster, email claim matched to your roster, or open signup with a cap |
 | **Starter-code fixes** | Manual pull or fork | Manual upstream pull | Per file: direct where untouched, pull request where edited |
 | **Cost when idle** | GitHub-hosted | Hosted service | Nothing runs, so nothing is billed |
 | **Hosting** | GitHub's servers | Hosted web service | Your own Pages site and Actions; no server, no database |
-
-Two things the others have and this does not: direct LMS gradebook sync over LTI 1.3, and someone else running the service for you.
 
 ---
 
@@ -144,36 +141,23 @@ An owner installs the App there with access to **All repositories**, then runs *
 
 ```mermaid
 graph LR
-    Hub[pxl-classroom<br/>PUBLIC Hub<br/>Workflows, SPA, Actions, CLI]
-    Control[org/pxl-classroom-control<br/>PRIVATE Data Only<br/>Assignments, Rosters, Reports]
-    Archive["org/pxl-classroom-archive-&lt;assignment-id&gt;<br/>PRIVATE Archive, 1 per assignment<br/>Preserved SHAs"]
-    Broker["broker-&lt;assignment-id&gt;<br/>PUBLIC Dispatcher"]
-    StudentRepo["org/&lt;assignment&gt;-&lt;login&gt;<br/>PRIVATE, student is Admin"]
-    SPA[GitHub Pages SPA]
-    CLI[pxl-classroom CLI]
-    ProvApp[("Provisioner App<br/>every course org, all repos<br/>+ the hub repo, scoped to it")]
-    BrokerApp[("Broker App<br/>the hub repo only<br/>contents: write, nothing else")]
-
-    Student[Student] -->|Invitation link| SPA
-    SPA -->|Assertion signed in the browser| Broker
-    Broker -->|Verify signature, then dispatch| Hub
-    Hub -->|Creates from template| StudentRepo
-    Hub -->|Preserves at the deadline| Archive
-    Hub --> Control
-    Hub -.Deploys.-> SPA
-    Student -.Works in.-> StudentRepo
+    Student[Student] -->|Invitation link| SPA[Pages SPA]
     Lecturer[Lecturer] --> SPA
-    Lecturer --> CLI
-    SPA -.Reads/Writes.-> Control
-    CLI -.Reads/Writes.-> Control
-    CLI -.Clones.-> Archive
-    Broker -.Mints its token with.-> BrokerApp
-    Hub -.Acts as.-> ProvApp
-    SPA -.Device flow.-> ProvApp
-    CLI -.Device flow.-> ProvApp
-```
+    Lecturer --> CLI[pxl-classroom CLI]
 
-**Why two Apps.** A broker is a public repository, one per assignment, and it needs a credential to dispatch into the hub. The Provisioner's key there would put administration over every course organization on a public host — so the broker gets its own App that can do exactly one thing, and a leaked broker key buys an acceptance the signature check already gates. [ARCHITECTURE §3.2](ARCHITECTURE.md) and [§4.3.0](ARCHITECTURE.md).
+    SPA -->|Signed acceptance| Broker["Broker repo<br/>PUBLIC, 1 per assignment"]
+    Broker -->|Verify, then dispatch| Hub["pxl-classroom<br/>PUBLIC, every workflow runs here"]
+
+    Hub -->|Creates from template| StudentRepo["Student repo<br/>PRIVATE, student is Admin"]
+    Hub -->|Preserves at the deadline| Archive["Archive<br/>PRIVATE, 1 per assignment"]
+    Hub --> Control["Control repo<br/>PRIVATE, all course data"]
+
+    SPA -.Reads/writes.-> Control
+    CLI -.Reads/writes.-> Control
+
+    Broker -.Mints token.-> BrokerApp[("Broker App<br/>hub repo only")]
+    Hub -.Mints token.-> ProvApp[("Provisioner App<br/>every course org")]
+```
 
 ---
 
