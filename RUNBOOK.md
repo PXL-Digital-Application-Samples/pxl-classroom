@@ -789,7 +789,7 @@ The App's permissions page has four collapsible sections, and **which section a 
 
 | Permission | Section | Live | Action | Why |
 |---|---|---|---|---|
-| `members` | Organization | write | **→ read** | *Not* dead - `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and therefore cannot be frozen at a deadline. Listing needs read; `write` additionally **adds and removes organization members**. |
+| `members` | Organization | write | **leave** (postponed) | *Not* dead - `unfreezableAcceptorsFinding` lists `GET /orgs/{org}/members?role=admin` to find acceptors who are org owners and therefore cannot be frozen at a deadline. The code needs only **read**; `write` is held deliberately (2026-08-31, Tom's call) to keep `roster_mode: org_member` restorable, since that mode enrols by org invitation and genuinely needs write. Downgrading is a one-way door on a practical timescale - see below. |
 | `organization_administration` | Organization | write | **→ read** | Enhanced Billing (`/organizations/{id}/settings/billing/usage`) needs read. `write` is org settings. |
 | `organization_plan` | Organization | read | **remove** | No caller. |
 | `plan` | Account | read | **remove** | No caller. |
