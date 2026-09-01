@@ -190,6 +190,7 @@ import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { clearAuth, getUser } from '../lib/auth.js'
 import { toast } from '../lib/toast.js'
+import { copyText } from '../lib/clipboard.js'
 import { rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
 
 const props = defineProps({
@@ -290,7 +291,7 @@ function handleSwitchAccount() {
   window.location.reload()
 }
 
-function copyReport() {
+async function copyReport() {
   const report = [
     `### Student Diagnostics Report`,
     `- **User**: @${activeUser.value?.login || 'unknown'} (${userEmail.value || 'no email provided'})`,
@@ -301,16 +302,14 @@ function copyReport() {
     `- **Timestamp**: ${new Date().toISOString()}`,
   ].join('\n')
 
-  try {
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(report)
-        .then(() => toast.success('Diagnostic report copied to clipboard'))
-        .catch(() => toast.success('Diagnostic report copied to clipboard'))
-    } else {
-      toast.success('Diagnostic report copied to clipboard')
-    }
-  } catch {
+  // This said "copied to clipboard" in its .catch(), in its else branch, AND in
+  // its outer catch - success on every path including the ones that copied
+  // nothing. A student following that toast pastes an empty clipboard into a
+  // message to their lecturer. DESIGN.md §1.5.
+  if (await copyText(report)) {
     toast.success('Diagnostic report copied to clipboard')
+  } else {
+    toast.error('Could not copy - your browser blocked it. Select the details above instead.')
   }
 }
 </script>

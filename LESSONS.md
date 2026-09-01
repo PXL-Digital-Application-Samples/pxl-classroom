@@ -532,6 +532,32 @@ Measured live on 2026-08-25 against repos created by `POST /generate` (same-owne
 
 ## The SPA: routes, controls and copy
 
+### The copy button said "Copied" over an empty clipboard, and nobody could sign in.
+
+Reported from live use on 2026-09-01: *"copy code using the button does not copy code. no one can log in."* Both halves were the same bug. The device-flow card shows a user code that has to be pasted into GitHub; a student who cannot get it onto the clipboard cannot complete sign-in, and the code is the only thing standing between them and their repository.
+
+The button did this:
+
+```js
+let ok = copySync(code)
+if (!ok && navigator.clipboard?.writeText) {
+  navigator.clipboard.writeText(code).then(() => {…}, () => {})
+  ok = true                          // claims success, before knowing
+}
+copied.value = ok                    // button says "Copied"
+window.open(verificationUrl, …)      // and takes focus away
+```
+
+`writeText` is **rejected on an unfocused document** — reproduced in the browser: `NotAllowedError: Document is not focused.` — and `window.open` unfocuses it microseconds later. So the write lost that race, its rejection went into `() => {}`, and the button reported success over an empty clipboard.
+
+The two halves of that button are **mutually exclusive**: the open has to be synchronous inside the click or a popup blocker eats it, and the write has to finish before focus moves. They cannot share a gesture. The card has two controls now — a copy button that awaits a real answer, and GitHub as a plain `<a target="_blank">`, which no popup blocker touches and which steals no focus. When the copy does fail the card *says so in the page* (a toast is gone in seconds, and this is the step the student is stuck on) and selects the code, so the manual path is Ctrl+C and nothing else.
+
+**Why no test caught it, which is the sharper half.** There was a guard, `tests/device-flow-clipboard.test.mjs`, asserting three things — the copy is initiated before `window.open`, a synchronous path exists, and there is an `else toast…` branch for failure. All three were true. The third is the lesson: **the branch existed and could never run**, because the line above it had just forced `ok = true`. A test that greps source text cannot tell live code from dead code — the same sentence `tests/invitation-link-surface.test.mjs` opens with, learned again one component over. The e2e could not help either, and that was already written down in the guard's own header: headless Chromium with clipboard permissions granted does not enforce the focus rule, so the browser test passes with the bug present.
+
+The fix for the fix: the behaviour moved into `frontend/src/lib/clipboard.js` with its dependencies injected, and `tests/clipboard.test.mjs` **runs** it — a rejected write with no fallback must resolve `false`, and does.
+
+**Ten copy implementations across eight files** were found in the sweep, and a second one was lying outright: `StudentDiagnosticsModal` reported *"Diagnostic report copied to clipboard"* from its `.catch()`, from its `else` branch, and from its outer `catch` — success on every path, including the ones that copied nothing. LESSONS.md already records this shape for the invitation link ("three implementations of *put the link on the clipboard* across two views, one silently broken for months"); only that one had been consolidated, and the rest kept their copies until this.
+
 ### `timezone` was validated as required, exported by both readers, and read by nothing.
 
 `deployment.yml`'s header says it plainly: *"Forking this software? This is the file you edit — and apart from secrets, it should be the only one."* The 2026-09-01 audit counted **49** occurrences of the literal `pxl-classroom-control` across **29** files while `CONTROL_REPO` was exported by both deployment readers and consumed by `lib/audit.mjs` alone. `hub_owner`/`hub_repo` and the App client id were written out the same way, the client id in two places.
