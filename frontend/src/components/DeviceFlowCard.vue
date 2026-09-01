@@ -10,28 +10,20 @@
       <code ref="codeEl" tabindex="0" @click="selectCode" @focus="selectCode">{{ flow.user_code }}</code>
     </div>
 
-    <!-- TWO CONTROLS, NOT ONE, and that is the fix rather than a preference.
-         This was a single "Copy code & open GitHub" button, and the two halves
-         are mutually exclusive: window.open moves focus to the new tab, and a
-         clipboard write on an unfocused document is REJECTED. The write lost
-         that race every time, its rejection was swallowed, and the button said
-         "Copied" over an empty clipboard - so students had no code to paste and
-         could not sign in.
+    <!-- ONE gesture does both, as it always has. Copying and opening as two
+         clicks is easy to get half-right: open the page, then discover you
+         never copied the code and have to come back for it.
 
-         Copy now awaits a real answer and nothing steals focus while it runs.
-         GitHub is a plain <a>, which no popup blocker touches - the reason the
-         open had to share the click in the first place. -->
-    <div class="device-actions">
-      <button class="btn btn-with-icon" type="button" @click="copyCode">
-        <Icon :name="copied ? 'check' : 'copy'" :size="14" />
-        <span>{{ copied ? 'Copied' : 'Copy code' }}</span>
-      </button>
-
-      <a class="btn btn-with-icon" :href="verificationUrl" target="_blank" rel="noopener noreferrer">
-        <Icon name="external-link" :size="14" />
-        <span>Open GitHub</span>
-      </a>
-    </div>
+         ORDER IS THE FIX, not splitting the button. The copy is AWAITED before
+         window.open, so the write completes while the document still has focus
+         - a clipboard write on an unfocused document is rejected, and opening
+         first is what left the clipboard empty. Awaiting costs a millisecond or
+         two, well inside the ~5s of transient user activation that keeps the
+         open out of the popup blocker. -->
+    <button class="btn btn-with-icon" type="button" @click="copyAndOpen">
+      <Icon :name="copied ? 'check' : 'external-link'" :size="14" />
+      <span>{{ copied ? 'Copied - GitHub opened' : 'Copy code & open GitHub' }}</span>
+    </button>
 
     <!-- Said in the page, not only in a toast: a toast is gone in seconds and
          this is the step the student is stuck on. -->
@@ -93,15 +85,21 @@ function selectCode() {
 }
 
 /**
- * Copy the code, and report what actually happened.
+ * Copy the code, then open GitHub. One gesture, and the order is the fix.
  *
- * `copyText` resolves to a real boolean and NOTHING moves focus while it runs -
- * the two properties the old combined button lacked. It set `ok = true` before
- * the write settled, swallowed the rejection, then called `window.open`, which
- * removed focus and made the write fail. The button said "Copied" over an empty
- * clipboard, and a student with no code to paste cannot sign in.
+ * The old version started the clipboard write, did NOT wait for it, set
+ * `ok = true` regardless, swallowed the rejection into `() => {}`, and called
+ * `window.open` - which removed focus, which is exactly what makes the write
+ * reject ("Document is not focused"). The button reported "Copied" over an
+ * empty clipboard, so a student had no code to paste and could not sign in.
+ *
+ * AWAITING it fixes both halves at once: the write finishes while the document
+ * is still focused, and `ok` is then the truth rather than an assumption. The
+ * open still happens on the same click - a resolved clipboard write takes a
+ * millisecond or two, far inside the ~5 seconds of transient user activation a
+ * browser allows, so the popup blocker is not involved.
  */
-async function copyCode() {
+async function copyAndOpen() {
   const code = props.flow?.user_code
   if (!code) return
 
@@ -116,6 +114,14 @@ async function copyCode() {
     selectCode()
     toast.info('Could not copy automatically - the code above is selected, press Ctrl+C.')
   }
+
+  // `noopener` in the FEATURES string makes window.open return null even when
+  // it succeeded, so the old `if (!win)` warned about pop-ups on every single
+  // click. Nulling `opener` on the returned window keeps the same security
+  // property and leaves null meaning what it should: actually blocked.
+  const win = window.open(verificationUrl.value, '_blank')
+  if (win) win.opener = null
+  else toast.info('Allow pop-ups, or open github.com/login/device yourself.')
 }
 </script>
 
@@ -143,12 +149,6 @@ async function copyCode() {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
   user-select: all;
-}
-.device-actions {
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  justify-content: center;
 }
 /* Stated in the page rather than only in a toast: a toast is gone in seconds,
    and this is the step the student is stuck on. */

@@ -27,29 +27,36 @@ import { join } from "node:path";
 const CARD = join(process.cwd(), "frontend", "src", "components", "DeviceFlowCard.vue");
 const card = () => readFile(CARD, "utf8");
 
-test("nothing steals focus while the copy is in flight", async () => {
+test("the copy is AWAITED before anything moves focus", async () => {
+  // This is the whole fix, and it is an ordering fix rather than a layout one.
   // window.open moves focus to the new tab, and a clipboard write on an
   // unfocused document is rejected (Chrome: "Document is not focused" -
-  // reproduced in the browser 2026-09-01). The two cannot share a click, so
-  // GitHub is a plain <a> now: no popup blocker, and no focus change racing the
-  // write. Any window.open here brings the bug straight back.
+  // reproduced in the browser 2026-09-01). Awaiting the write first means it
+  // completes while the document still has focus; the open still happens on the
+  // same click, because a resolved clipboard write takes a millisecond or two
+  // and transient user activation lasts seconds.
   const src = await card();
-  assert.doesNotMatch(
-    src,
-    /window\.open\(/,
-    "Opening GitHub must be an <a href target=_blank>, not window.open - " +
-      "window.open unfocuses the document and the clipboard write is then rejected",
+  const fn = src.match(/async function copyAndOpen\(\)[\s\S]*?\n\}/)?.[0];
+  assert.ok(fn, "DeviceFlowCard must define copyAndOpen()");
+
+  const awaitAt = fn.indexOf("await copyText(");
+  const openAt = fn.indexOf("window.open(");
+  assert.ok(awaitAt > -1, "the copy must be awaited, not fired and forgotten");
+  assert.ok(openAt > -1, "and the same click must still open GitHub");
+  assert.ok(
+    awaitAt < openAt,
+    "The copy must be AWAITED before window.open. Opening first - or starting " +
+      "the write without waiting - moves focus away and the write is rejected, " +
+      "leaving the student with an empty clipboard and a button claiming success.",
   );
-  assert.match(src, /<a[^>]*:href="verificationUrl"[^>]*target="_blank"/, "and the link must exist");
-  assert.match(src, /rel="noopener/, "with noopener, as an external link");
 });
 
 test("the button reports the copy's real answer", async () => {
   const src = await card();
-  const fn = src.match(/async function copyCode\(\)[\s\S]*?\n\}/)?.[0];
-  assert.ok(fn, "DeviceFlowCard must define copyCode()");
+  const fn = src.match(/async function copyAndOpen\(\)[\s\S]*?\n\}/)?.[0];
+  assert.ok(fn, "DeviceFlowCard must define copyAndOpen()");
 
-  assert.match(fn, /await copyText\(/, "it must await a real answer");
+  assert.match(fn, /const ok = await copyText\(/, "it must await a real answer");
   assert.match(fn, /copied\.value = ok/, "and report exactly that");
   // The specific defect: a truthy literal assigned to the success flag.
   assert.doesNotMatch(
@@ -58,6 +65,21 @@ test("the button reports the copy's real answer", async () => {
     "the success flag may never be set to a literal - that is how the button " +
       "came to say 'Copied' over an empty clipboard",
   );
+});
+
+test("a blocked pop-up is reported only when it was actually blocked", async () => {
+  // `noopener` in the FEATURES string makes window.open return null even on
+  // success, so `if (!win) toast('Allow pop-ups')` fired on every single click.
+  // Nulling `opener` on the returned window keeps the security property and
+  // leaves null meaning blocked.
+  const src = await card();
+  const fn = src.match(/async function copyAndOpen\(\)[\s\S]*?\n\}/)?.[0];
+  assert.doesNotMatch(
+    fn,
+    /window\.open\([^)]*noopener/,
+    "noopener in the features string makes the return value always null",
+  );
+  assert.match(fn, /win\.opener = null/, "so the opener is nulled on the window instead");
 });
 
 test("the copy logic is shared, not re-implemented here", async () => {
@@ -76,7 +98,8 @@ test("a failed copy is visible in the page, not only in a toast", async () => {
   const src = await card();
   assert.match(src, /v-if="copyFailed"/, "the failure must render in the card");
   assert.match(src, /role="alert"/, "and be announced");
-  const fn = src.match(/async function copyCode\(\)[\s\S]*?\n\}/)?.[0];
+  const fn = src.match(/async function copyAndOpen\(\)[\s\S]*?\n\}/)?.[0];
+  assert.ok(fn, "DeviceFlowCard must define copyAndOpen()");
   assert.match(fn, /copyFailed\.value = !ok/, "set from the real answer");
   assert.match(fn, /selectCode\(\)/, "and the code selected so Ctrl+C works");
 });
