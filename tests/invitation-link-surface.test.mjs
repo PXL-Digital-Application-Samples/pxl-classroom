@@ -43,7 +43,7 @@ const ADMIN = () => readFileSync(join(root, "frontend", "src", "views", "AdminVi
 const DETAIL = () => readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
 const INVITE_LIB = () => readFileSync(join(root, "frontend", "src", "lib", "invite.js"), "utf8");
 // Copying the link and reading the token behind it moved out of the two views
-// into one component (ARCHITECTURE §11.3). They had a copy each, with a guard each,
+// into one component (ARCHITECTURE §10.3). They had a copy each, with a guard each,
 // and one of the two reads was dead for months.
 const SHARE = () => readFileSync(join(root, "frontend", "src", "components", "InvitationShare.vue"), "utf8");
 // Watching for the invitation the publish workflow mints - the poll, the two

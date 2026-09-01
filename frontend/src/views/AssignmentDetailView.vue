@@ -469,7 +469,7 @@
 
         <!-- Handing the link to students is the thing this page is for before
              anyone has accepted, so it is a block with the student-facing
-             status on it, not a lone button (ARCHITECTURE §11.3). -->
+             status on it, not a lone button (ARCHITECTURE §10.3). -->
         <InvitationShare :org="org" :assignment="shareAssignment" variant="inline" class="detail-share" />
 
         <!-- Segmented Tab for Group Assignments -->

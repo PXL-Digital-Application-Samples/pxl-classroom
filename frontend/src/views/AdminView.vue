@@ -102,7 +102,7 @@
               <div class="meta">
                 <span class="badge" :class="`badge-${a.state}`">{{ a.state }}</span>
                 <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
-                <!-- The link, without opening the editor first (ARCHITECTURE §11.3).
+                <!-- The link, without opening the editor first (ARCHITECTURE §10.3).
                      The list already parsed each YAML, so the token is in hand
                      and this costs no request. -->
                 <InvitationShare
@@ -880,7 +880,7 @@
                 Archive
               </button>
               <!-- No "Copy invitation link" here: copying is not a lifecycle
-                   transition (ARCHITECTURE §11.3 / UX24). It lives in the share block
+                   transition (ARCHITECTURE §10.3 / UX24). It lives in the share block
                    above and on every assignment row. -->
               <button v-if="form.state === 'draft'" class="btn btn-danger" type="button" @click="deleteDraft" :disabled="deleting">
                 {{ deleting ? 'Deleting…' : 'Delete draft' }}

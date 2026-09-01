@@ -1,7 +1,7 @@
 <template>
   <!-- compact: one icon button, for a list row or a card. It exists so a
        lecturer coming back a week later does not have to open the editor to
-       find the link (ARCHITECTURE §11.3). -->
+       find the link (ARCHITECTURE §10.3). -->
   <button
     v-if="variant === 'compact'"
     type="button"
@@ -18,9 +18,10 @@
     <h4 v-if="variant === 'banner'" class="invitation-share-title">Share with students</h4>
 
     <div class="invitation-share-row">
-      <!-- Truncated, never the full 122 characters: enough to recognise, and
-           the whole thing on hover and in the clipboard. -->
-      <code class="invitation-link" :title="link || undefined">{{ display }}</code>
+      <!-- The secret is not on screen and not on hover. Copy and Open are how
+           the link is used; see `display` for why showing part of it was worse
+           than showing none. -->
+      <code class="invitation-link" :title="display">{{ display }}</code>
       <button
         type="button"
         :class="['btn', 'btn-sm', 'btn-with-icon', copyClass]"
@@ -60,7 +61,7 @@
 </template>
 
 <script setup>
-// The one place the invitation link is presented (ARCHITECTURE §11.3).
+// The one place the invitation link is presented (ARCHITECTURE §10.3).
 //
 // It used to exist as a bare <span> in the publish banner, a primary button on
 // the detail header, and nowhere at all on either list of assignments - so a
@@ -113,14 +114,32 @@ const token = computed(() => linkSecretFrom(props.assignment) || fetched.value |
 const expiresAt = computed(() => props.assignment?.invite_expires_at || fetchedExpiry.value || null)
 const link = computed(() => (token.value ? invitationUrl(props.org, token.value) : null))
 
-// A published assignment always has one; a draft never does. Anything else is a
-// publish that half-happened, which the status line has to say rather than
-// showing an empty box.
+// NO PART OF THE SECRET IS RENDERED, and the truncation this replaced is the
+// argument for it. It showed the first 8 characters and the last 4, written
+// when the secret was a random 122-character bearer token - 8 characters that
+// genuinely told two links apart. The link now carries the acceptance PRIVATE
+// KEY (§4.3.2), a PKCS#8 P-256 export whose DER header is the same bytes for
+// every key ever generated, so those 8 characters were the constant `MIGHAgEA`
+// on every assignment in every org: zero entropy, no two links distinguishable,
+// and a lecturer sharing their screen projecting the opening of a private key
+// for no reason at all. The `title` carried the whole thing on hover, which is
+// the same problem with a delay.
+//
+// What is left is the only part that identifies anything - the host and the org
+// - and none of it is a secret. Nothing is lost by hiding the rest: the URL has
+// never contained the assignment id, so it could not name which assignment this
+// is either way. Copy puts the real link on the clipboard and Open follows it.
 const display = computed(() => {
+  // A published assignment always has a link; a draft never does. Anything else
+  // is a publish that half-happened, which the status line has to say rather
+  // than leaving an empty box.
   if (!link.value) return 'No invitation link yet'
-  const [head, tail] = link.value.split('/i/')
-  if (!tail) return link.value
-  return `${head}/i/${tail.slice(0, 8)}…${tail.slice(-4)}`
+  // lastIndexOf, and the whole link if it is somehow not this shape: a display
+  // that invents a `/i/` the link does not have would be describing a URL that
+  // does not exist.
+  const cut = link.value.lastIndexOf('/i/')
+  if (cut === -1) return link.value
+  return `${link.value.slice(0, cut)}/i/…`
 })
 
 const copyClass = computed(() => (props.variant === 'inline' ? 'btn-primary' : 'btn-secondary'))

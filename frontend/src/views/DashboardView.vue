@@ -397,7 +397,7 @@
                 <!-- dashboard.json carries no invitation token - it must not,
                      and does not need to: the component reads it from the
                      control repo on click, so a card costs nothing until
-                     somebody actually wants the link (ARCHITECTURE §11.3). -->
+                     somebody actually wants the link (ARCHITECTURE §10.3). -->
                 <InvitationShare
                   v-if="a.state === 'published'"
                   :org="selectedOrg"

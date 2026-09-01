@@ -90,12 +90,24 @@ test.describe('27 - The invitation link, end to end', () => {
     expect(shown, 'the link box must not render an empty string or "null"').not.toBe('');
     expect(shown).not.toContain('null');
     expect(shown, 'the link is /:org/i/:token').toContain(`/${ORG}/i/`);
-    // Truncated, not hidden (ARCHITECTURE §11.3): enough to recognise, never the full
-    // 122 characters. The whole value lives on the title and in the clipboard.
+    // REDACTED, not truncated (ARCHITECTURE §10.3). The secret is a PKCS#8
+    // P-256 private key, so its opening characters are a DER header identical
+    // for every key - the truncation that used to sit here showed 8 constant
+    // characters, told no two links apart, and put the start of a private key
+    // on a projector. Not one character of it is on screen or on hover now.
+    // Copy and Open are how the link is used, and both are asserted below.
+    //
+    // Asserted as "what follows /i/ is exactly the ellipsis", not as
+    // `not.toContain(token.slice(0, 8))`: a substring check against a base64url
+    // key can pass because the four characters happen not to occur in a
+    // hostname, which is luck rather than a redaction.
     const token = inviteToken(ORG, ID);
-    expect(shown, 'the box must not print the whole token').not.toContain(token);
-    expect(shown).toContain(token.slice(0, 8));
-    expect(await linkText.getAttribute('title'), 'hover gives the full link').toContain(token);
+    expect(shown.split(`/${ORG}/i/`)[1], 'nothing of the secret survives').toBe('…');
+    expect(shown, 'and certainly not the whole key').not.toContain(token);
+    expect(
+      await linkText.getAttribute('title'),
+      'hover must not reveal what the box redacts',
+    ).toBe(shown);
 
     await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -103,7 +115,8 @@ test.describe('27 - The invitation link, end to end', () => {
     expect(copied, 'and the whole token, not the truncation').toContain(token);
   });
 
-  test('The link appears when the workflow mints it, without a page reload', async ({ page }) => {
+  test('The link appears when the workflow mints it, without a page reload', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     // THE bug. Publishing writes the invitation straight into the control repo,
     // so the form the lecturer is holding has never seen it - the list was
     // loaded before the workflow ran. Re-reading it is the only way the link
@@ -157,12 +170,22 @@ test.describe('27 - The invitation link, end to end', () => {
     tokenMinted = true;
     await page.locator('button', { hasText: /Check status/i }).first().click();
 
+    // The box used to be observed through its `title`, which held the whole
+    // link. It no longer holds any of it, so the observation is the pair that
+    // actually matters: the box stops saying there is nothing, and the
+    // clipboard holds the value that was just minted. The second half is the
+    // stronger of the two - a display that merely became truthy would pass the
+    // first on a re-read that returned the wrong secret.
     const linkText = page.locator('.invitation-link').first();
-    await expect(linkText, 'the re-read must pick up the freshly minted token').toHaveAttribute(
-      'title',
-      new RegExp(inviteToken(ORG, ID).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    await expect(linkText, 'the re-read must pick up the freshly minted invitation').toHaveText(
+      new RegExp(`/${ORG}/i/`),
       { timeout: 15000 },
     );
+
+    await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 10000 })
+      .toContain(inviteToken(ORG, ID));
   });
 
   test('An assignment published before invitations existed says so, rather than copying nothing', async ({ page }) => {
