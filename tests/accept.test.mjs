@@ -1005,3 +1005,75 @@ test("the cap-reached message says what to actually do", () => {
   const message = src.slice(at, at + 700);
   assert.match(message, /raise the cap/i, "it must name the action that unblocks the student");
 });
+
+// --- a member list that is not all strings ------------------------------------
+//
+// team.schema.json says `members: { items: { type: "string" } }`, and nothing
+// validates a manifest on the way IN - accept.mjs reads whatever is on disk in
+// the control repository. The target-team read was hardened for exactly this
+// ("a red run and no repository, for a student whose only mistake was accepting
+// after somebody hand-edited a file"); the two reads around it were not, and
+// they fail in two different ways.
+
+test("a non-string member does not hide the team a student is already in", () => {
+  // The oldTeam SCAN. `m.toLowerCase()` threw on the non-string, the bare
+  // `catch {}` swallowed it, and team-a was skipped - so switching to team-b
+  // never removed alice from team-a and both manifests named her.
+  const yaml = `state: published
+assignment_type: group
+group_config:
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", TEAM_SLUG: "team-b" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          // The bad entry FIRST, so `.some()` hits it before it can match.
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: [null, "alice"], max_members: 4 },
+          "team-b": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-b", team_name: "B", members: [], max_members: 4 },
+        },
+      },
+    },
+  );
+
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  const teamA = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "team-a.json"), "utf8"));
+  assert.ok(
+    !teamA.members.some((m) => String(m).toLowerCase() === "alice"),
+    "alice switched to team-b, so team-a must not still name her",
+  );
+});
+
+test("a non-string member after the student does not cost them their repository", () => {
+  // The oldTeam FILTER, and the sharper half. `.some()` stops at the first
+  // match, so a bad entry AFTER alice was never evaluated in the scan - it
+  // reached the filter, which evaluates every entry, and threw out of main()
+  // into fail:exception: exit 1, no repository, for a student switching team.
+  const yaml = `state: published
+assignment_type: group
+group_config:
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", TEAM_SLUG: "team-b" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: ["alice", null], max_members: 4 },
+          "team-b": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-b", team_name: "B", members: [], max_members: 4 },
+        },
+      },
+    },
+  );
+
+  assert.notEqual(res.outputs.outcome, "fail:exception", res.stdout + res.stderr);
+  assert.equal(res.status, 0, "a hand-edited manifest must not turn a team switch into a red run");
+  assert.equal(res.outputs.outcome, "accepted");
+});

@@ -599,7 +599,14 @@ async function main() {
       for (const tf of teamFiles) {
         try {
           const tdata = JSON.parse(await readFile(join(teamsDir, tf), "utf-8"));
-          if (tdata.members?.some((m) => m.toLowerCase() === login.toLowerCase())) {
+          // `String(m)`, as the target-team read below already does. A member
+          // list is `items: {type: string}` in team.schema.json and nothing
+          // validates a manifest on the way IN, so one hand-edited entry that
+          // is not a string threw a TypeError here - swallowed by the catch,
+          // which silently hid the team this student is actually in. They then
+          // joined another without being removed from it, and two manifests
+          // named them.
+          if (tdata.members?.some((m) => String(m).toLowerCase() === login.toLowerCase())) {
             oldTeam = tdata;
             oldTeamFile = join(teamsDir, tf);
             break;
@@ -681,7 +688,13 @@ async function main() {
         log("team-switch", { ok: true, note: `switching from ${oldTeam.team_slug} to ${teamSlug}` });
         previousTeamSlug = oldTeam.team_slug;
         previousRepo = deriveRepoName(assignment.repository_name_pattern, oldTeam.team_slug, login);
-        oldTeam.members = oldTeam.members.filter((m) => m.toLowerCase() !== login.toLowerCase());
+        // Same coercion, and this one mattered more: `.some()` above stops at
+        // the first match, so a non-string sitting AFTER the student was never
+        // evaluated there and reached this filter, which evaluates every entry.
+        // It threw out of main() into fail:exception - a red run and no
+        // repository for a student doing nothing but switching team, which is
+        // the failure the target-team read below was hardened against.
+        oldTeam.members = oldTeam.members.filter((m) => String(m).toLowerCase() !== login.toLowerCase());
         if (oldTeam.members.length === 0) {
           oldTeam.vacant = true;
         }

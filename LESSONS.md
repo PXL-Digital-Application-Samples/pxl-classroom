@@ -520,6 +520,21 @@ Nothing in the system ever wrote `earned_points` onto a report row, so the Score
 
 `open-feedback-prs.mjs` records `feedback_pr_number` and `feedback_pr_url` and **nothing else** - state and review-comment count are on neither the report nor the repository record, and the count changes every time a lecturer reviews. So it sits behind an explicit *Refresh feedback PR status* control rather than firing on render: one `GET /repos/{o}/{r}/pulls/{n}` per **open** PR (which carries `state`, `draft` and `review_comments` together, unlike the CLI's page-the-comments trick), 6-way pooled, and on a 200-student cohort that is 200 requests nobody asked for otherwise. Partial results **are** shown - nothing is committed, so a half-answer is still an answer, and the count that could not be read is part of it. A 404 on a PR means it is **gone**, and is recorded as closed rather than left claiming "Open" beside a dead link.
 
+### The hardening went onto one of the three member lists.
+
+`accept.mjs` reads a team's `members` in three places, and only one of them had been made safe. The comment on that one says exactly why:
+
+> a bare `JSON.parse` plus `teamData.members.some(...)`, so one corrupt or half-written manifest threw a SyntaxError or a TypeError out of `main()` and into `fail:exception` - a red run and no repository, for a student whose only mistake was accepting after somebody hand-edited a file.
+
+`team.schema.json` declares `members: { items: { type: "string" } }`, and **nothing validates a manifest on the way in** - `accept.mjs` reads whatever is in the control repository. So a single hand-edited entry that is not a string broke the other two reads, in two different ways:
+
+* **The oldTeam scan** (`m.toLowerCase()` inside a bare `catch {}`). It threw, the catch swallowed it, and that team file was skipped - which silently hid the team the student was *already in*. They joined another without being removed from the first, and two manifests named them.
+* **The oldTeam filter** on a team switch, and this is the sharper one. `.some()` stops at the first match, so a bad entry sitting **after** the student is never evaluated in the scan; it reaches the filter, which evaluates every entry, and throws out of `main()`. Exit 1, no repository, for a student doing nothing but changing team.
+
+Both are `String(m).toLowerCase()` now, which is what the hardened read already did ten lines below. **A defensive fix belongs on every reader of the same shape, not the one that was in the stack trace** - and the two tests for it were written by reverting the fix and watching them fail, because a guard for a case nobody can reproduce is worth exactly what it can be shown to catch.
+
+Found reviewing `accept.mjs` end to end. Nothing else in it needed changing: the file is the most carefully reasoned in the repository, and the one defect hypothesis worth chasing - `opened.githubId !== githubId` looking like a number compared to a string, which would reject every claim as a replay - was wrong, because both call sites pass `Number(githubId)` deliberately.
+
 ### Group Assignments (M:1 Student-to-Repository mapping)
 
 Polymorphic assignments (`assignment_type: "individual" | "group"`). Configured via `group_config` (`formation_mode: "self-service" | "pre-assigned"`, `max_team_size`, `min_team_size`, `allow_team_creation`). Teams are stored as manifests in `teams/<id>/<team-slug>.json` conforming to `team.schema.json`. Group repos use `{team_slug}` in `repository_name_pattern`. Sequential concurrency on `accept-${org}-${id}-${team_slug || login}` serializes joins and guarantees capacity limits without distributed locks. The first member provisions the repo from the template; subsequent members receive `PUT /collaborators/{login}` with admin access. Team switching revokes old repo collaborator access (`DELETE /collaborators/{login}`) and adds to new, marking 0-member teams `vacant: true`. Lecturer dashboard provides segmented Teams View and Students View, under-capacity warnings, and interactive team creation/member management modals. Lockdown demotes all team members to `pull`; preservation archives to `refs/heads/preserved/<id>/<team-slug>`; reporting aggregates top-level `teams` array and maps `team_slug`/`team_name` across CSV exports and student tables.
