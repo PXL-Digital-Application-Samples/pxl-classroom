@@ -110,10 +110,65 @@ export async function findUndeclaredClasses() {
   return undeclared;
 }
 
+/**
+ * Split the undeclared classes by whether the ELEMENT carrying them is styled.
+ *
+ * The list on its own reads like a 60-item defect backlog, and it is not: most
+ * of these sit on an element that already carries `card`, `flex`, `btn`,
+ * `alert-info` or `fade-in`, and the undeclared word beside them is a name, not
+ * a look. Telling those apart is the difference between a register somebody can
+ * act on and one they misread - DESIGN.md §7 had to say "left, and that is the
+ * answer" in prose because nothing computed it.
+ *
+ * `styledBySiblings` is a POSITIVE proof: another class on the same element is
+ * declared, so the element is styled whatever this name does. `alone` is NOT
+ * the negative - an element's look can also come from its tag or an ancestor
+ * (`.field label` styles a `<label>` that carries no declared class of its
+ * own), and only a browser knows. So `alone` means "needs a reason written
+ * down", not "broken".
+ *
+ * @returns {Promise<{styledBySiblings: Record<string,string[]>, alone: Record<string,string[]>}>}
+ */
+export async function classifyUndeclared() {
+  const undeclared = await findUndeclaredClasses();
+  const globalClasses = classesDeclared(await readFile(join(FRONTEND_SRC, "style.css"), "utf8"));
+  const declaredSomewhere = new Set(globalClasses);
+  const parsed = [];
+  for (const file of await vueFiles()) {
+    const { markup, style } = splitBlocks(await readFile(file, "utf8"));
+    const declared = classesDeclared(style);
+    for (const c of declared) declaredSomewhere.add(c);
+    parsed.push({ name: basename(file), markup });
+  }
+
+  const styledBySiblings = {};
+  const alone = {};
+  for (const [cls, owners] of undeclared) {
+    // Every static class attribute that carries this class, in every owner.
+    let everyElementStyled = true;
+    for (const owner of owners) {
+      const markup = parsed.find((p) => p.name === owner)?.markup ?? "";
+      for (const m of markup.matchAll(/(?<![:\w-])class="([^"]*)"/g)) {
+        const names = m[1].split(/\s+/).filter(Boolean);
+        if (!names.includes(cls)) continue;
+        if (!names.some((n) => n !== cls && declaredSomewhere.has(n))) everyElementStyled = false;
+      }
+    }
+    (everyElementStyled ? styledBySiblings : alone)[cls] = [...owners];
+  }
+  return { styledBySiblings, alone };
+}
+
 if (process.argv[1] && process.argv[1].endsWith("lint-undeclared-classes.mjs")) {
   const undeclared = await findUndeclaredClasses();
   const rows = [...undeclared].sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0]));
-  if (process.argv.includes("--json")) {
+  if (process.argv.includes("--split")) {
+    const { styledBySiblings, alone } = await classifyUndeclared();
+    console.log(`${Object.keys(styledBySiblings).length} on an element another declared class already styles:`);
+    for (const [c, w] of Object.entries(styledBySiblings)) console.log(`  .${c}  <- ${w.join(", ")}`);
+    console.log(`\n${Object.keys(alone).length} whose element carries no declared class at all:`);
+    for (const [c, w] of Object.entries(alone)) console.log(`  .${c}  <- ${w.join(", ")}`);
+  } else if (process.argv.includes("--json")) {
     console.log(JSON.stringify(Object.fromEntries(rows.map(([c, w]) => [c, [...w]])), null, 2));
   } else {
     console.log(`${rows.length} class(es) used in markup and declared nowhere:\n`);

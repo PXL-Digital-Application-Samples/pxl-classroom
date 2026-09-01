@@ -12,10 +12,20 @@
 // present in the template - which it was. And how `.font-semibold`, written in
 // ten components, rendered every one of those headings at the body weight.
 //
-// The utilities are fixed. The rest is a real backlog of component vocabulary
-// whose intended appearance is not recorded anywhere, so it is pinned here
-// rather than invented: nothing new may join it, and removing one from the code
-// forces removing it from the list.
+// The utilities are fixed. What is pinned here is not one thing, and reading it
+// as one is a real cost: a flat list of sixty "undeclared classes" invites
+// somebody to restyle sixty elements that were never broken. So it is split, and
+// the split is computed rather than asserted:
+//
+//   38  the element carries another class that IS declared - `card`, `flex`,
+//       `btn`, `alert-info`, `fade-in`. The undeclared word beside it is a NAME.
+//       Nothing to decide; the element is styled either way.
+//   21  the element carries no declared class at all. Its look comes from its
+//       tag, an ancestor, an inline style, or nothing - and only somebody who
+//       looked can say which, so each carries a written reason.
+//
+// Nothing new may join either group, removing one from the code forces removing
+// it from the list, and a reason may not outlive the entry it explains.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,15 +35,18 @@ import { fileURLToPath } from "node:url";
 
 import {
   findUndeclaredClasses,
+  classifyUndeclared,
   classesUsed,
   classesDeclared,
 } from "../scripts/lint-undeclared-classes.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const BACKLOG = JSON.parse(
+const BACKLOG_DOC = JSON.parse(
   readFileSync(join(root, "tests", "fixtures", "undeclared-classes.backlog.json"), "utf8")
-).classes;
+);
+const BACKLOG = BACKLOG_DOC.classes;
+const REASONS = BACKLOG_DOC.reasons;
 
 test("no NEW class is used without being declared anywhere", async () => {
   const undeclared = await findUndeclaredClasses();
@@ -70,6 +83,39 @@ test("the utilities that shipped dead are declared globally", async () => {
   for (const cls of ["font-medium", "font-semibold", "font-bold", "uppercase", "text-xl", "text-left", "list-disc"]) {
     assert.ok(style.has(cls), `.${cls} must be declared in style.css`);
   }
+});
+
+test("a class whose element nothing else styles carries a written reason", async () => {
+  // The list read like a 60-item defect backlog and was not one - which is a
+  // real cost, because a reader who believes there are sixty broken classes
+  // either restyles things that were fine or stops trusting the register. Most
+  // of these sit on an element already carrying `card`, `flex`, `btn`,
+  // `alert-info` or `fade-in`: the undeclared word beside them is a NAME, and
+  // that is provable rather than asserted.
+  //
+  // What is left is the honest half - an element with no declared class at all.
+  // Its look then comes from its tag, an ancestor, an inline style or nothing,
+  // and only somebody who looked can say which. So each one has to say.
+  const { alone } = await classifyUndeclared();
+  const missing = Object.keys(alone).filter((cls) => !REASONS[cls]);
+  assert.deepEqual(
+    missing,
+    [],
+    "These sit on an element no declared class styles, so what they look like " +
+      "depends on their tag, an ancestor or an inline style. Say which in " +
+      "`reasons` in tests/fixtures/undeclared-classes.backlog.json, or declare " +
+      "the class:\n  " + missing.join("\n  "),
+  );
+});
+
+test("a reason left behind after the class was fixed is removed", async () => {
+  const { alone } = await classifyUndeclared();
+  const stale = Object.keys(REASONS).filter((cls) => !(cls in alone));
+  assert.deepEqual(
+    stale,
+    [],
+    "These now carry declared styling, or are gone - drop their `reasons` entry:\n  " + stale.join("\n  "),
+  );
 });
 
 test("btn-warning stays gone", async () => {

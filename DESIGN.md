@@ -419,6 +419,45 @@ guess. **A multi-component entry is not that**, and a test now refuses one: a
 scoped block cannot reach another component, so leaving it renders unstyled in
 both.
 
+#### The remainder is two groups, and the split is computed
+
+"Left, and that is the answer" was the right call and it was only a claim — a
+flat list of sixty invites the next reader to restyle sixty elements that were
+never broken. `classifyUndeclared()` in `scripts/lint-undeclared-classes.mjs`
+now separates them, and `tests/undeclared-classes.test.mjs` holds both halves:
+
+* **38 sit on an element that carries another *declared* class** — `card`,
+  `flex`, `btn`, `alert-info`, `fade-in`. That is a positive proof: the element
+  is styled whatever the undeclared word does, so the word is a name and there
+  is nothing to decide.
+* **21 sit on an element with no declared class at all.** That is *not* the
+  negative — an element's look can come from its tag or an ancestor, which only
+  a browser knows — so each one carries a written reason, and the test refuses
+  an entry without one or a reason that outlived its entry.
+
+Those 21 were checked rather than assumed, with a Playwright probe that asked
+the browser which rules actually matched each element (the universal reset
+excluded, or everything looks styled). What it found:
+
+| Why it needs no rule | Examples |
+| :--- | :--- |
+| A scoped rule styles the **tag** | `.advanced` on `<details>`, `.col-ci`/`.col-score` on `<th>`/`<td>` |
+| The **element default** is the intent | `.team-name` on `<strong>`, `.file-path` on `<code>` |
+| A **sibling** does the work | `.org-item-text` — `.org-dropdown-item` is flex and `.check-icon` carries `margin-left: auto` |
+| An **ancestor** sets it | `.deadline` inherits size and colour from `.assignment-list .meta` |
+| It carries an **inline style** | `.template-preflight-badge`, `.diff-patch-view-container` |
+| **Page root**, no look intended | `.not-found-page`, `.usage-page`, `.usage-overview-page`, `.student-dashboard` |
+
+`.field-label` came off the list rather than onto it: the `<label>` sits inside
+`<div class="field">`, and `.field label` already styles it, so the name was a
+synonym for a rule that exists. **A static scan cannot see that** — it is why
+the browser had to be asked, and why "the element has no declared class" is
+worded as *needs a reason*, not *is broken*.
+
+The app declares **no `code` or `pre` rule anywhere**, so every `<code>` renders
+at the browser default. That is consistent rather than accidental, and changing
+it is a decision about type in §2 — not about `.file-path`.
+
 Global vocabulary now includes:
 
 | Group | Classes |

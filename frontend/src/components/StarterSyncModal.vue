@@ -178,7 +178,7 @@
 
           <div class="form-group flex flex-col gap-sm">
             <div class="field">
-              <label for="sync-pr-title" class="field-label">Commit / PR Title</label>
+              <label for="sync-pr-title">Commit / PR Title</label>
               <input
                 id="sync-pr-title"
                 v-model="customPrTitle"
@@ -189,7 +189,7 @@
             </div>
 
             <div class="field">
-              <label for="sync-pr-body" class="field-label">Student Instructions (Markdown)</label>
+              <label for="sync-pr-body">Student Instructions (Markdown)</label>
               <textarea
                 id="sync-pr-body"
                 v-model="customPrBody"
