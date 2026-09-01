@@ -942,14 +942,24 @@ async function moveMemberTo(login, targetSlug) {
     const repoOf = (t) => (t?.repo_name ? String(t.repo_name).split('/').pop() : null)
     const sourceRepo = repoOf(managingTeam.value)
     const targetRepo = repoOf(target)
+    // The reporting below was already right; the DETECTION could not fire.
+    // These call `ghApi`, which resolves `{ ok: false, status }` on an HTTP
+    // failure instead of throwing, so `.catch()` never ran, `problems` was
+    // always empty, and this always took the success branch. A student moved
+    // between teams could silently keep access to the old team's repository and
+    // have none on the new one, while the lecturer read "@login moved to X".
     const problems = []
     if (sourceRepo) {
-      await removeCollaborator(token, props.org, sourceRepo, login)
-        .catch((e) => problems.push(`revoke on ${sourceRepo}: ${e.message}`))
+      const res = await removeCollaborator(token, props.org, sourceRepo, login)
+      // 404 means they were not a collaborator there: the end state is the one
+      // we wanted, so it is not a problem to report.
+      if (!res?.ok && res?.status !== 404) {
+        problems.push(`revoke on ${sourceRepo} (HTTP ${res?.status ?? '?'})`)
+      }
     }
     if (targetRepo) {
-      await addCollaborator(token, props.org, targetRepo, login, 'admin')
-        .catch((e) => problems.push(`grant on ${targetRepo}: ${e.message}`))
+      const res = await addCollaborator(token, props.org, targetRepo, login, 'admin')
+      if (!res?.ok) problems.push(`grant on ${targetRepo} (HTTP ${res?.status ?? '?'})`)
     }
 
     await republishTeams(token)
@@ -1054,17 +1064,32 @@ async function saveTeamMembers() {
 
     const repoName = managingTeam.value.repo_name ? managingTeam.value.repo_name.split('/').pop() : null
 
-    // Sync live GitHub collaborators if repo exists
+    // Sync live GitHub collaborators if the repo exists.
+    //
+    // THE RESULT IS CHECKED, and `.catch()` was never checking it. These call
+    // `ghApi`, which RESOLVES `{ ok: false, status }` on an HTTP failure rather
+    // than throwing - so the old `.catch((e) => console.warn(...))` could not
+    // fire for a 403 or a 404, and the returned value was discarded. A student
+    // whose access could not be granted was still written into the manifest and
+    // the lecturer was told "Team updated successfully"; a student who could not
+    // be REMOVED silently kept admin on a repository they are no longer part of,
+    // which on an exam is the sharper half.
+    const accessFailures = []
     if (token && repoName) {
       for (const m of removed) {
-        await removeCollaborator(token, props.org, repoName, m).catch((e) =>
-          console.warn(`Failed to remove collaborator ${m}:`, e)
-        )
+        const res = await removeCollaborator(token, props.org, repoName, m)
+        // 204 is the success shape; 404 means they were not a collaborator, so
+        // the end state is the one we wanted and it is not a failure.
+        if (!res?.ok && res?.status !== 404) {
+          accessFailures.push(`could not remove @${m} (HTTP ${res?.status ?? '?'})`)
+        }
       }
       for (const m of added) {
-        await addCollaborator(token, props.org, repoName, m, 'admin').catch((e) =>
-          console.warn(`Failed to add collaborator ${m}:`, e)
-        )
+        const res = await addCollaborator(token, props.org, repoName, m, 'admin')
+        // 201 is "invitation created", 204 is "already a collaborator".
+        if (!res?.ok) {
+          accessFailures.push(`could not give @${m} access (HTTP ${res?.status ?? '?'})`)
+        }
       }
     }
 
@@ -1078,7 +1103,18 @@ async function saveTeamMembers() {
     )
     if (res.ok) {
       await republishTeams(token)
-      toast.success(`Team "${managingTeam.value.team_name}" updated successfully.`)
+      // The membership is recorded either way - the manifest is the source of
+      // truth and a later reconcile can repair access - but "updated
+      // successfully" over a student who cannot reach the repository is the
+      // lecturer finding out from the student instead.
+      if (accessFailures.length) {
+        toast.error(
+          `Team "${managingTeam.value.team_name}" was saved, but repository access did not all change: ` +
+            `${accessFailures.join('; ')}. Fix the access on GitHub, or re-open this dialog and save again.`,
+        )
+      } else {
+        toast.success(`Team "${managingTeam.value.team_name}" updated successfully.`)
+      }
       managingTeam.value = null
       emit('refresh')
     } else {

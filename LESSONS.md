@@ -538,6 +538,26 @@ Measured live on 2026-08-25 against repos created by `POST /generate` (same-owne
 
 ## The SPA: routes, controls and copy
 
+### `.catch()` on a call that never rejects, twice, on repository access.
+
+Swept after the copy button, because that bug has a shape — a control announcing an outcome it never verified — and it was worth asking where else it lived. Every control handler in the SPA was read. Almost all of them are honest: `SeedTeamsModal.apply` even reports the partial case where the manifests were written and the dashboard dispatch failed, which is the hard one to get right.
+
+Two were not, both in `TeamsTable`, both wearing the same disguise:
+
+```js
+await addCollaborator(token, org, repo, m, 'admin').catch((e) =>
+  console.warn(`Failed to add collaborator ${m}:`, e)
+)
+…
+toast.success(`Team "${name}" updated successfully.`)
+```
+
+**`addCollaborator` returns `ghApi(...)`, which RESOLVES `{ ok: false, status }` on an HTTP failure.** It does not throw. So the `.catch()` could not fire for a 403 or a 404, the returned value was dropped on the floor, and the lecturer was told it worked. A student whose access could not be granted was written into the manifest with no repository; a student who could not be *removed* kept admin on a repository they are no longer part of, which on an exam is the sharper half.
+
+`moveMember` is the instructive one. Its reporting was already correct — it collected `problems` and raised a distinct "moved, but repository access needs attention" error — so a reviewer reading it sees a handled failure. The collection just could never happen, so it took the success branch every time. **A `.catch()` on a resolving function is worse than no handler at all: it is the appearance of care, and it stops anyone looking.**
+
+`tests/button-honesty.test.mjs` sweeps for it now, with balanced-paren matching rather than a regex — the first draft used a lazy `[^;]*?` and reported `res.json().catch(() => null)` three lines away as a dead catch, which is a promise that genuinely does reject. It also pins the premise it rests on: that `ghApi` returns a result object rather than throwing.
+
 ### The copy button said "Copied" over an empty clipboard, and nobody could sign in.
 
 Reported from live use on 2026-09-01: *"copy code using the button does not copy code. no one can log in."* Both halves were the same bug. The device-flow card shows a user code that has to be pasted into GitHub; a student who cannot get it onto the clipboard cannot complete sign-in, and the code is the only thing standing between them and their repository.
