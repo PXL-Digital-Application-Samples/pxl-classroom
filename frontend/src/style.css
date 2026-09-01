@@ -1278,3 +1278,28 @@ select:focus {
 @media (max-width: 640px) {
   .repo-link-card { flex-direction: column; }
 }
+
+/* A titled block inside a dialog. Scoped inside AssignmentDetailView until the
+   dialogs using it became components - StudentActionsModal and FeedbackPrModal
+   both render one, and CLAUDE.md is explicit that a class more than one
+   component uses belongs here. */
+.modal-section {
+  padding: var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+.modal-section h4 { margin: 0 0 var(--space-sm); font-size: 0.9rem; font-weight: 600; }
+.modal-section .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-sm); }
+.modal-section .field label { font-size: 0.85rem; color: var(--text-secondary); }
+.modal-section .field input,
+.modal-section .field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.modal-section p { margin: 0 0 var(--space-sm); font-size: 0.85rem; }

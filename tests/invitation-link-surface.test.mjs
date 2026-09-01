@@ -46,6 +46,11 @@ const INVITE_LIB = () => readFileSync(join(root, "frontend", "src", "lib", "invi
 // into one component (ARCHITECTURE §11.3). They had a copy each, with a guard each,
 // and one of the two reads was dead for months.
 const SHARE = () => readFileSync(join(root, "frontend", "src", "components", "InvitationShare.vue"), "utf8");
+// Watching for the invitation the publish workflow mints - the poll, the two
+// verification questions, and the re-read that keeps the panel from copying a
+// link the broker has already retired. It was five functions and six refs loose
+// in AdminView; it is one composable, which also clears its own timer.
+const WATCH = () => readFileSync(join(root, "frontend", "src", "composables", "usePublishWatch.js"), "utf8");
 const SETTER = () => readFileSync(join(root, "scripts", "set-assignment-invite.mjs"), "utf8");
 
 const KEYPAIR = generateKeyPair();
@@ -201,7 +206,7 @@ test("the invitation is re-read whenever the live check runs, not only when abse
   // Gating on "the form has no token" means a REGENERATED invitation never
   // reaches the form, so the panel goes on copying a link the broker now
   // rejects as superseded - worse than having no button at all.
-  const src = ADMIN();
+  const src = WATCH();
   const reader = src.slice(src.indexOf("async function refreshInvitation"));
   const readerBody = reader.slice(0, reader.indexOf("\n}") + 2);
   assert.match(readerBody, /parseInviteFields\(/, "refreshInvitation must parse the invitation");
@@ -221,7 +226,7 @@ test("liveness is decided by the page a student opens, not by the index", () => 
   // still adds the id to assignments.json. Asking the index therefore reported
   // "Verified Live" over a page that 404s for every student. Diagnostics Tier 5
   // was corrected for this in e594f4f; the publish flow beside it was not.
-  const src = ADMIN();
+  const src = WATCH();
   const fn = src.slice(src.indexOf("async function acceptanceCardIsLive"));
   const body = fn.slice(0, fn.indexOf("\n}") + 2);
   assert.match(body, /inviteDataUrl\(/, "it must fetch the acceptance card");
@@ -242,9 +247,16 @@ test("the publish watcher fetches the invitation before it claims the link is li
   // The watcher polls Pages, sets 'ready' and toasts. The token is minted into
   // the control repo while it polls, so without a re-read the success banner
   // renders an empty link box under the words "verified live".
-  const src = ADMIN();
+  const src = WATCH();
   const fn = src.slice(src.indexOf("function startPublishWatch"));
-  const body = fn.slice(0, fn.indexOf("\nfunction stopPublishWatch"));
+  // Anchored on what FOLLOWS the function, and checked. `indexOf` returns -1
+  // when an anchor misses and `slice(0, -1)` then yields all-but-one character
+  // of the file - so a missed anchor makes the assertions below read the whole
+  // module and pass on something else entirely. That is the exact failure
+  // tests/test-anchor-liveness.test.mjs exists for, and it caught this one.
+  const endsAt = fn.indexOf("\n  onBeforeUnmount(");
+  assert.ok(endsAt > -1, "startPublishWatch is no longer followed by the unmount hook");
+  const body = fn.slice(0, endsAt);
 
   const ready = body.indexOf("publishWatch.value = 'ready'");
   const timeout = body.indexOf("publishWatch.value = 'timeout'");
@@ -257,6 +269,22 @@ test("the publish watcher fetches the invitation before it claims the link is li
       `the ${label} branch must re-read the invitation before it stops polling`
     );
   }
+});
+
+test("the publish watch stops itself when the view goes away", () => {
+  // It polls every 10 seconds for up to eight minutes, re-reads the control
+  // repo, mutates the form and finally raises a toast. AdminView called
+  // stopPublishWatch() from three places - restarting the watch and two
+  // edit-flow transitions - and from NO unmount hook, so navigating away
+  // mid-publish left the poll running for the life of the tab: hitting the
+  // GitHub API, writing to a form on a component that no longer exists, and
+  // eventually announcing success on a page nobody is looking at.
+  //
+  // A timer belongs with the thing that starts it, which is the whole reason
+  // this is a composable rather than five loose functions on a view.
+  const src = WATCH();
+  assert.match(src, /onBeforeUnmount\(stopPublishWatch\)/, "the watch must clear its own timer");
+  assert.match(src, /import \{[^}]*\bonBeforeUnmount\b[^}]*\} from 'vue'/, "and import the hook it uses");
 });
 
 test('copying with no invitation reports it instead of writing "null"', () => {
@@ -311,9 +339,12 @@ test("the edit form loads the invitation from the assignment", () => {
 });
 
 test("every reader imports the one parser rather than re-implementing it", () => {
-  // AdminView still reads the invitation for its own liveness check; the share
-  // component reads it to copy. Both go through the same module.
-  for (const src of [ADMIN(), SHARE()]) {
+  // The publish watch reads the invitation for its liveness check; the share
+  // component reads it to copy. Both go through the same module. The watch
+  // moved out of AdminView into composables/usePublishWatch.js, so that is
+  // where the read now lives - the guard follows the code rather than sitting
+  // on a file that no longer performs it.
+  for (const src of [WATCH(), SHARE()]) {
     assert.match(src, /parseInviteFields/, "readers must use the shared parser");
   }
   // Matched as a re-export from the shared module rather than as an exact
@@ -333,7 +364,7 @@ test("which field IS the link is decided in one place", () => {
   // agree, and three of them already read it independently - the exact shape
   // that made diffRosters and the effective deadline fork.
   assert.match(INVITE_LIB(), /\blinkSecretFrom\b/, "invite.js must re-export the rule");
-  for (const [name, src] of [["AdminView", ADMIN()], ["InvitationShare", SHARE()]]) {
+  for (const [name, src] of [["usePublishWatch", WATCH()], ["InvitationShare", SHARE()]]) {
     assert.match(src, /\blinkSecretFrom\(/, `${name} must ask linkSecretFrom which field is the link`);
     assert.doesNotMatch(
       src,

@@ -260,21 +260,28 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
     "Must render 'Republish broker' label when published"
   );
 
-  // Confirmation modal dialog check
+  // Confirmation dialog. The view still decides WHEN it renders; what it says
+  // moved into components/RepublishBrokerModal.vue with the markup, so the copy
+  // assertions read that file. An assertion left pointing here would have gone
+  // on passing against a template that no longer contains the sentence.
   assert.ok(
     template.includes('v-if="showRepublishModal"'),
     "Must render confirmation dialog when showRepublishModal is true"
   );
+  const dialog = readFileSync(
+    join(root, "frontend", "src", "components", "RepublishBrokerModal.vue"),
+    "utf8"
+  );
   assert.ok(
-    template.includes("What will happen"),
+    dialog.includes("What will happen"),
     "Dialog must explain what will happen"
   );
   assert.ok(
-    template.includes("Effect on existing student repositories"),
+    dialog.includes("Effect on existing student repositories"),
     "Dialog must explicitly explain the effect on existing student repositories"
   );
   assert.ok(
-    template.includes("100% Safe") || template.includes("Safe"),
+    dialog.includes("100% Safe"),
     "Dialog must assure user that existing repositories are safe and untouched"
   );
 });

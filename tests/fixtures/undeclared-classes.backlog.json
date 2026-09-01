@@ -11,7 +11,7 @@
       "AdminView.vue"
     ],
     "alert": [
-      "AdminView.vue"
+      "RepublishBrokerModal.vue"
     ],
     "archive-link": [
       "TeamsTable.vue"
@@ -41,10 +41,10 @@
       "StarterSyncModal.vue"
     ],
     "consequence-item": [
-      "AssignmentDetailView.vue"
+      "FreezeConfirmModal.vue"
     ],
     "consequences-list": [
-      "AssignmentDetailView.vue"
+      "FreezeConfirmModal.vue"
     ],
     "deadline": [
       "AdminView.vue"
@@ -75,9 +75,6 @@
     ],
     "file-row-box": [
       "StarterSyncModal.vue"
-    ],
-    "modal-consequences": [
-      "AssignmentDetailView.vue"
     ],
     "not-found-page": [
       "NotFoundView.vue"

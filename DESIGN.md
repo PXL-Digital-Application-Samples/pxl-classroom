@@ -227,10 +227,15 @@ theme regardless of the OS.
 
 | Export | |
 | :--- | :--- |
-| `themeMode` | the stored choice — `'dark' \| 'light' \| 'system'` |
 | `resolvedTheme` | what is actually on screen — `'dark' \| 'light'` |
 | `setThemeMode(m)` | validate, persist, apply (invalid input is ignored) |
 | `toggleTheme()` | flips `resolvedTheme`; only ever produces `dark` or `light` |
+
+The stored choice — which may be `'system'` — is deliberately **not** exported.
+Every surface wants `resolvedTheme`: what is on screen is the only question a
+toggle, an icon or a screenshot can act on, and a caller comparing against
+`'system'` gets the wrong answer for the visitor who has never touched the
+control. `STORABLE_MODES` documents what may legitimately be stored.
 
 **The toggle has two states, not three.** `system` is the *implicit* state of a
 visitor who has never touched it — they get their OS theme and the control shows
@@ -242,7 +247,7 @@ a preference would silently override them. Hence two exported lists —
 
 **Every toggle persists.** `setThemeMode()` writes to `localStorage` under **`pxl_theme`**,
 wrapped in `try`/`catch` (Safari private mode and blocked storage must not break boot), and
-`cycleThemeMode()` routes through it. A plain visit never writes a preference — only an
+`toggleTheme()` routes through it. A plain visit never writes a preference — only an
 explicit choice or a `?theme=` override does. That distinction matters: if a first load stored
 the resolved theme, it would silently pin whatever the OS happened to be and `system` could
 never follow a later OS change.
@@ -320,6 +325,37 @@ Rules:
 logo, product name, tagline — not a card, and forcing it into AuthCard would flatten that
 design. It is the only remaining copy of the device-flow handler.
 
+### A dialog is a component, and it owns its own state
+
+`AssignmentDetailView` and `AdminView` held four dialogs inline — their markup,
+their form state, their focus handling and their scoped styles spread through
+views of 3,800 and 3,200 lines. They are components now:
+`StudentActionsModal`, `FeedbackPrModal`, `FreezeConfirmModal`,
+`RepublishBrokerModal`, alongside the `AutogradeResultsModal` that ended a
+70-line duplication between `AssignmentDetailView` and `TeamsTable`.
+
+Three rules came out of doing it:
+
+* **A form that exists only while a dialog is open is the dialog's state.**
+  `actionExt` and `regenerateInvite` were refs on the views, so they outlived
+  every close and had to be reset by hand on every open. With `v-if` on the
+  parent the component is created fresh, and there is nothing to reset.
+* **Focus is not view logic.** `composables/useFocusTrap.js` owns the ref, the
+  Tab cycling and giving focus back to the trigger. It was three pieces of one
+  behaviour, 1,800 lines apart, in exactly one of the app's dialogs.
+* **Scoped styles do not cross a component boundary, so they move with the
+  markup.** Extracting a dialog and leaving its rules in the parent renders it
+  completely unstyled — `tests/scoped-style-leakage.test.mjs` caught 12 of them
+  in one go. A rule that two components then need goes to `style.css` (§7).
+
+**Decisions stay with the thing that owns the rule.** `FreezeConfirmModal` takes
+the archive repository *name* as a prop rather than composing it, because
+`lib/archive-repo.mjs` is the only thing allowed to decide where a preservation
+goes; `StudentActionsModal` collects the extension but does not validate it,
+because `lib/effective-deadline.mjs` decides what "later than the current
+deadline" means. A dialog that re-derived either would be the second
+implementation those modules exist to prevent.
+
 ## 7. Shared Component Vocabulary
 
 Vue `<style scoped>` **does not leak**. A class declared in one component's scoped
@@ -355,10 +391,33 @@ there.
 `scripts/lint-undeclared-classes.mjs` lists them; `tests/undeclared-classes.test.mjs`
 pins the remainder in `tests/fixtures/undeclared-classes.backlog.json`. Nothing
 new may join that list, and a class that gets declared must be removed from it.
-The backlog is **not** cleared — it is component vocabulary (`.score-banner`,
-`.test-logs`, `.data-table`, `.override-alert-banner`, …) whose intended
-appearance is recorded nowhere, so it needs a design decision rather than a
-guess.
+
+The 2026-09-01 pass took it from 98 to 60 by triaging it, because the entries
+were never one thing:
+
+| Group | Then | What it is | What happened |
+| :--- | ---: | :--- | :--- |
+| Inline-styled | 17 | The element carried a `style="…"` saying what the class meant | Moved into a stylesheet. **No visual change** — the values are unchanged. |
+| Conditional | 6 | Applied by a `:class` to make a state visible, and declared nowhere | **Defects.** Declared, from existing tokens. |
+| Shared | 14 | Used by two or more components, so a scoped block could never reach both | Declared in this file's stylesheet. Now **zero**. |
+| Hooks | ~60 | Page roots and e2e selectors (`.admin-view`, `.sandbox-page`) never meant to carry a look | Left, and that is the answer. |
+
+The six conditional ones are why this stopped being tidy-up.
+`banner-success`/`banner-warning` meant a **passing and a failing autograding
+run rendered identically**; `is-complete` meant a finished onboarding step
+looked unfinished; `spin-anim` meant the refresh icon never span; `clean` /
+`conflict` / `skipped` meant the three outcomes of a pre-flight scan were three
+identical cards. A class applied conditionally exists *to* make a state visible,
+so declaring nothing is the bug — the same shape as §5 rule 3.
+
+`text-error` was **deleted rather than declared**: `.text-danger` already exists,
+and a synonym is the `.link-btn` mistake again.
+
+What remains is the honest half of the register — vocabulary whose intended
+appearance is recorded nowhere, which needs a design decision rather than a
+guess. **A multi-component entry is not that**, and a test now refuses one: a
+scoped block cannot reach another component, so leaving it renders unstyled in
+both.
 
 Global vocabulary now includes:
 

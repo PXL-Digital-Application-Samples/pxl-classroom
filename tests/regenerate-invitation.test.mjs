@@ -22,15 +22,26 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const ADMIN = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
 const STYLE = readFileSync(join(root, "frontend", "src", "style.css"), "utf8");
+// The dialog is its own component now. Its markup, its `regenerate` tick and
+// the styles for both moved together - a scoped rule left behind in the parent
+// cannot reach a child's DOM, so they had to.
+const MODAL_FILE = join(root, "frontend", "src", "components", "RepublishBrokerModal.vue");
+const MODAL_SRC = readFileSync(MODAL_FILE, "utf8");
 
 /** The republish modal's markup, comments stripped. */
 function modal() {
-  const start = ADMIN.indexOf('v-if="showRepublishModal"');
-  const end = ADMIN.indexOf("<!-- SEED TEAMS", start);
-  assert.ok(start > -1 && end > start, "the republish modal must exist");
+  const end = MODAL_SRC.indexOf("</template>");
+  assert.ok(end > -1, "RepublishBrokerModal must still be a single-file component");
   // Comments explain the class choices, so counting classes without stripping
   // them counts the explanation as a usage.
-  return ADMIN.slice(start, end).replace(/<!--[\s\S]*?-->/g, "");
+  return MODAL_SRC.slice(0, end).replace(/<!--[\s\S]*?-->/g, "");
+}
+
+/** The modal's scoped style block. */
+function modalStyle() {
+  const at = MODAL_SRC.search(/<style\b/);
+  assert.ok(at > -1, "RepublishBrokerModal must carry the styles that moved with it");
+  return MODAL_SRC.slice(at);
 }
 
 // --- The wiring -------------------------------------------------------------
@@ -50,10 +61,16 @@ test("publishExisting forwards the flag", () => {
 });
 
 test("the modal offers it, and the confirm passes what was chosen", () => {
-  assert.match(modal(), /v-model="regenerateInvite"/, "the modal must offer the choice");
+  // The tick belongs to the dialog: it is a question that only exists while the
+  // dialog is open, and it used to be a ref on the view that outlived every
+  // cancel and had to be reset by hand in two places.
+  assert.match(modal(), /v-model="regenerate"/, "the modal must offer the choice");
+  assert.match(modal(), /emit\('confirm', regenerate\)/, "and hand it back on confirm");
+
   const fn = ADMIN.slice(ADMIN.indexOf("async function confirmRepublish"));
   const body = fn.slice(0, fn.indexOf("\n}") + 2);
-  assert.match(body, /publishExisting\(\{ regenerate: regenerateInvite\.value \}\)/);
+  assert.match(body, /confirmRepublish\(regenerate\)/, "the view takes it from the event");
+  assert.match(body, /publishExisting\(\{ regenerate \}\)/, "and forwards exactly that");
 });
 
 // --- The default: a repair must not break links -----------------------------
@@ -97,7 +114,7 @@ test("DESIGN.md §1.2 - the modal has exactly one solid button", () => {
   assert.equal(dangers, 1, "and one .btn-danger, on the same button");
   assert.match(
     m,
-    /regenerateInvite \? 'btn-danger' : 'btn-primary'/,
+    /regenerate \? 'btn-danger' : 'btn-primary'/,
     "they must be the two states of one button, not two buttons"
   );
 });
@@ -124,7 +141,7 @@ test("DESIGN.md §1.1 - the new control is a tonal step, not a third box", () =>
   // The modal outlines itself, and its alerts are bordered. A bordered control
   // inside one of those is the box prison §1.1 names. --bg-inset is the
   // recessed step that differs in BOTH themes.
-  const style = ADMIN.slice(ADMIN.search(/<style\b/));
+  const style = modalStyle();
   const rule = style.slice(style.indexOf(".regen-choice {"), style.indexOf("}", style.indexOf(".regen-choice {")));
   assert.ok(rule, ".regen-choice must be styled");
   assert.match(rule, /background: var\(--bg-inset\)/, "a tonal step");
@@ -132,7 +149,7 @@ test("DESIGN.md §1.1 - the new control is a tonal step, not a third box", () =>
 });
 
 test("DESIGN.md §2/§5 - the control introduces no colour literal and no dead fallback", () => {
-  const style = ADMIN.slice(ADMIN.search(/<style\b/));
+  const style = modalStyle();
   const added = style.slice(style.indexOf(".alert-danger {"));
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(added), "no colour literal outside :root");
   assert.ok(!/var\(--[\w-]+,\s*[^)]+\)/.test(added), "no var() fallbacks - they pin one theme");
@@ -141,7 +158,7 @@ test("DESIGN.md §2/§5 - the control introduces no colour literal and no dead f
 test("every token the new styles reference actually resolves", () => {
   // Undefined custom properties fail SILENTLY: border-color falls back to
   // currentColor, background to transparent, box-shadow to none.
-  const style = ADMIN.slice(ADMIN.search(/<style\b/));
+  const style = modalStyle();
   const added = style.slice(style.indexOf(".alert-danger {"));
   for (const m of added.matchAll(/var\((--[\w-]+)\)/g)) {
     assert.ok(STYLE.includes(`${m[1]}:`), `${m[1]} is used but not defined in style.css`);
@@ -153,6 +170,6 @@ test("every token the new styles reference actually resolves", () => {
 test("ticking the box says what it will do", () => {
   const m = modal();
   assert.match(m, /Every link already handed out stops working/i, "the consequence must be explicit");
-  assert.match(m, /v-if="regenerateInvite"/, "and shown only when it applies");
+  assert.match(m, /v-if="regenerate"/, "and shown only when it applies");
   assert.match(m, /Republish and retire the old link/, "the button must say it too");
 });

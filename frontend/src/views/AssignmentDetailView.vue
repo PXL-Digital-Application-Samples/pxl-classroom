@@ -883,118 +883,32 @@
         <button class="btn btn-primary" type="button" @click="loadAll">Retry</button>
       </div>
 
-      <!-- Per-row action modal -->
-      <div v-if="actionStudent" class="modal-overlay" @click.self="closeActions">
-        <div class="modal" ref="modalEl" role="dialog" aria-modal="true" :aria-label="`Actions for ${actionStudent.github_login}`" @keydown="trapTab">
-          <header class="modal-head">
-            <h3>Actions: <code>{{ actionStudent.github_login }}</code></h3>
-            <button class="modal-close" type="button" @click="closeActions" :disabled="actionExtending || actionRetrying" aria-label="Close">×</button>
-          </header>
+      <!-- Per-student actions: extension, retry, archive link. Lifted out with
+           its own form state and focus trap - the dialog owned all three and
+           they were spread across 2,100 lines of this file. -->
+      <StudentActionsModal
+        v-if="actionStudent"
+        :student="actionStudent"
+        :extension="extensionFor(actionStudent.github_login)"
+        :archive-url="studentArchiveUrl(actionStudent)"
+        :extending="actionExtending"
+        :retrying="actionRetrying"
+        @close="closeActions"
+        @grant="grantExtensionFor(actionStudent, $event)"
+        @retry="retryAcceptanceFor(actionStudent)"
+      />
 
-          <section class="modal-section">
-            <h4>Grant deadline extension</h4>
-            <p v-if="extensionFor(actionStudent.github_login)" class="text-secondary">
-              Currently extended to <strong>{{ fmt(extensionFor(actionStudent.github_login).value) }}</strong>
-              ("{{ extensionFor(actionStudent.github_login).reason }}"). Granting again adds a new extension to their override history.
-            </p>
-            <div class="field">
-              <label>New deadline (just for this student)</label>
-              <input type="datetime-local" v-model="actionExt.deadline_local" />
-            </div>
-            <div class="field">
-              <label>Reason (recorded in the override)</label>
-              <textarea v-model="actionExt.reason" rows="2" placeholder="Medical certificate / approved by program coordinator / etc."></textarea>
-            </div>
-            <button class="btn btn-primary" type="button" @click="grantExtensionFor(actionStudent)" :disabled="actionExtending || !actionExt.deadline_local || !actionExt.reason.trim()">
-              {{ actionExtending ? 'Granting…' : 'Grant extension' }}
-            </button>
-          </section>
-
-          <section class="modal-section">
-            <h4>Retry acceptance</h4>
-            <p class="text-secondary">Wipes the half-done state and re-runs the full pipeline. Use when a student's acceptance got stuck (e.g. rate-limit during a burst).</p>
-            <button class="btn" type="button" @click="retryAcceptanceFor(actionStudent)" :disabled="actionRetrying">
-              {{ actionRetrying ? 'Triggering…' : 'Retry acceptance' }}
-            </button>
-          </section>
-
-          <section v-if="actionStudent.preservation_status === 'preserved' && actionStudent.preserved_sha && studentArchiveUrl(actionStudent)" class="modal-section">
-            <h4>Preserved Submission Archive</h4>
-            <p class="text-secondary">
-              Preserved commit SHA: <code class="mono">{{ actionStudent.preserved_sha }}</code>
-            </p>
-            <a
-              :href="studentArchiveUrl(actionStudent)"
-              target="_blank"
-              rel="noopener"
-              class="btn btn-secondary btn-with-icon"
-              style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none;"
-            >
-              <Icon name="external-link" :size="14" />
-              <span>View Preserved Code in Archive</span>
-            </a>
-          </section>
-        </div>
-      </div>
-
-      <!-- Feedback PRs Confirmation Modal -->
-      <div v-if="showFeedbackPrModal" class="modal-overlay" @click.self="showFeedbackPrModal = false">
-        <div class="modal feedback-pr-modal" role="dialog" aria-modal="true" aria-label="Open Feedback Pull Requests">
-          <header class="modal-head">
-            <h3>Open Feedback Pull Requests</h3>
-            <button class="modal-close" type="button" @click="showFeedbackPrModal = false" :disabled="openingFeedbackPrs" aria-label="Close">×</button>
-          </header>
-
-          <section class="modal-section">
-            <p>
-              This creates a dedicated <strong>Draft Pull Request</strong> (comparing <code>main</code> against the frozen <code>{{ assignment?.feedback_pr_baseline_branch || 'pxl-baseline' }}</code> branch) in student repositories that have pushed commits.
-            </p>
-
-            <div class="safety-box">
-              <h4 class="safety-box-title">Student Code Safety & Scope</h4>
-              <ul class="safety-list">
-                <li><strong>No student code is altered or merged:</strong> The student's <code>main</code> branch, files, and git commit history remain completely untouched.</li>
-                <li><strong>Safe Draft mode:</strong> The pull request is opened in Draft status for inline review comments and annotations only.</li>
-                <li><strong>Continuous tracking:</strong> As students make and push further commits to <code>main</code>, the pull request automatically updates to include their new work.</li>
-                <li><strong>Control repository records:</strong> PR numbers and links are saved to your control repository (<code>{{ config.controlRepo }}/repositories/</code>), not written to student repos.</li>
-              </ul>
-            </div>
-
-            <div class="cohort-summary-grid">
-              <div class="cohort-summary-item">
-                <span class="cohort-summary-val">{{ feedbackPrEligibleCount }}</span>
-                <span class="cohort-summary-lbl">Eligible (commits pushed)</span>
-              </div>
-              <div class="cohort-summary-item">
-                <span class="cohort-summary-val">{{ feedbackPrAlreadyOpenedCount }}</span>
-                <span class="cohort-summary-lbl">Already opened</span>
-              </div>
-              <div class="cohort-summary-item">
-                <span class="cohort-summary-val">{{ feedbackPrSkippedNoCommitsCount }}</span>
-                <span class="cohort-summary-lbl">Skipped (0 commits yet)</span>
-              </div>
-            </div>
-
-            <div v-if="feedbackPrEligibleCount === 0" class="empty-eligible-notice">
-              All student repositories with pushed commits already have Feedback PRs opened, or no students have pushed code yet.
-            </div>
-          </section>
-
-          <footer class="modal-actions">
-            <button class="btn" type="button" @click="showFeedbackPrModal = false" :disabled="openingFeedbackPrs">
-              Cancel
-            </button>
-            <button
-              class="btn btn-primary"
-              type="button"
-              @click="executeOpenFeedbackPrs"
-              :disabled="openingFeedbackPrs || feedbackPrEligibleCount === 0"
-            >
-              {{ openingFeedbackPrs ? 'Opening Pull Requests…' : `Open Feedback PRs on ${feedbackPrEligibleCount} Repo(s)` }}
-            </button>
-          </footer>
-        </div>
-      </div>
+      <!-- Open a draft Feedback PR per eligible student repository. -->
+      <FeedbackPrModal
+        v-if="showFeedbackPrModal"
+        :assignment="assignment"
+        :eligible-count="feedbackPrEligibleCount"
+        :already-opened-count="feedbackPrAlreadyOpenedCount"
+        :skipped-no-commits-count="feedbackPrSkippedNoCommitsCount"
+        :busy="openingFeedbackPrs"
+        @close="showFeedbackPrModal = false"
+        @confirm="executeOpenFeedbackPrs"
+      />
 
       <!-- Autograding results. One component, shared with TeamsTable: this was
            ~70 lines of markup duplicated there, and the two copies had already
@@ -1025,81 +939,22 @@
         @synced="loadAll"
       />
 
-      <!-- Modal: Freeze & Preserve Consequences Confirmation -->
-      <div v-if="showFreezeConfirmModal" class="modal-overlay" @click.self="showFreezeConfirmModal = false">
-        <div class="modal card modal-consequences" role="dialog" aria-modal="true" aria-label="Confirm Immediate Freeze and Lockdown" style="max-width: 560px;">
-          <header class="modal-head flex justify-between items-center" style="border-bottom: 1px solid var(--border-default); padding: 14px 18px;">
-            <div class="flex items-center gap-xs">
-              <Icon name="alert-triangle" :size="18" class="stat-yellow" />
-              <h3 style="margin: 0; font-size: 1.05rem;">Confirm Immediate Freeze &amp; Lockdown</h3>
-            </div>
-            <button class="modal-close" type="button" @click="showFreezeConfirmModal = false" aria-label="Close">×</button>
-          </header>
-          <div class="modal-body flex flex-col gap-md" style="padding: 16px 18px;">
-            <div class="card" style="background: var(--tint-attention-subtle); border: 1px solid var(--tint-attention-emphasis); padding: 12px; border-radius: 6px;">
-              <p class="text-sm font-semibold" style="margin-bottom: 4px; color: var(--accent-yellow);">
-                ⚠️ Immediate Submissions Lockdown
-              </p>
-              <p class="text-xs text-secondary" style="margin: 0;">
-                You are initiating an administrative freeze for assignment <strong>{{ assignment?.id }}</strong> across all {{ eligiblePreservationCount }} student repositories.
-              </p>
-            </div>
-
-            <div class="consequences-list flex flex-col gap-sm text-sm">
-              <div class="consequence-item flex gap-sm items-start">
-                <Icon name="lock" :size="16" class="stat-red" style="margin-top: 2px; flex-shrink: 0;" />
-                <div>
-                  <strong>Demotes Student Permissions to Read-Only:</strong>
-                  <p class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                    All students and team members will be demoted from Admin/Write to Read (<code>pull</code>). They will not be able to push new commits.
-                  </p>
-                </div>
-              </div>
-
-              <div class="consequence-item flex gap-sm items-start">
-                <Icon name="archive" :size="16" class="stat-green" style="margin-top: 2px; flex-shrink: 0;" />
-                <div>
-                  <strong>Snapshots Immutable Archive Commits:</strong>
-                  <p class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                    The current <code>HEAD</code> commit of each student repository is cloned and committed into this assignment's private archive repository (<code>{{ plannedArchiveRepoName }}</code>) as the authoritative grading snapshot.
-                  </p>
-                </div>
-              </div>
-
-              <div class="consequence-item flex gap-sm items-start">
-                <Icon name="clock" :size="16" class="stat-blue" style="margin-top: 2px; flex-shrink: 0;" />
-                <div>
-                  <strong>Locks Deadline Classification:</strong>
-                  <p class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                    The lockdown timestamp is recorded. Any future commits pushed after this moment will require an explicit lecturer deadline extension to count toward grading.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <footer class="modal-foot flex justify-end gap-sm" style="padding-top: 14px; border-top: 1px solid var(--border-default); margin-top: 6px;">
-              <button class="btn btn-secondary" type="button" @click="showFreezeConfirmModal = false">
-                Cancel
-              </button>
-              <button
-                class="btn btn-danger btn-with-icon"
-                type="button"
-                :disabled="freezingNow"
-                @click="executeFreezeNow"
-              >
-                <Icon name="lock" :size="14" />
-                <span>{{ freezingNow ? 'Executing Lockdown…' : 'Confirm Freeze &amp; Lockdown' }}</span>
-              </button>
-            </footer>
-          </div>
-        </div>
-      </div>
+      <!-- Freeze and preserve the whole cohort now, and what that costs. -->
+      <FreezeConfirmModal
+        v-if="showFreezeConfirmModal"
+        :assignment="assignment"
+        :eligible-count="eligiblePreservationCount"
+        :archive-repo-name="plannedArchiveRepoName"
+        :busy="freezingNow"
+        @close="showFreezeConfirmModal = false"
+        @confirm="executeFreezeNow"
+      />
     </main>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
@@ -1109,6 +964,9 @@ import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
 import PromoteRosterModal from '../components/PromoteRosterModal.vue'
 import AutogradeResultsModal from '../components/AutogradeResultsModal.vue'
+import StudentActionsModal from '../components/StudentActionsModal.vue'
+import FeedbackPrModal from '../components/FeedbackPrModal.vue'
+import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
 
 // Tiny render helper - keeps the table markup readable. `dir` is "asc" |
 // "desc" | null; null renders nothing so non-active columns stay quiet.
@@ -1205,13 +1063,16 @@ const refreshedStudentsCount = ref(0)
 const liveRefreshedAt = ref(null)
 const rateLimit = ref({ remaining: null, limit: null })
 
-// Per-row action modal (Grant extension / Retry acceptance)
+// Per-row action modal (Grant extension / Retry acceptance).
+//
+// Which student, and whether either action is in flight. The FORM, the focus
+// trap and the element ref went with the dialog into
+// components/StudentActionsModal.vue - a form that exists only while a dialog
+// is open is the dialog's state, and holding it here meant it outlived every
+// close and had to be reset by hand on every open.
 const actionStudent = ref(null)
-const actionExt = ref({ deadline_local: '', reason: '' })
 const actionExtending = ref(false)
 const actionRetrying = ref(false)
-const modalEl = ref(null)
-let modalReturnFocus = null
 
 // "Run daily activity now" - dispatch + watch for the first report to land.
 const dailyTriggering = ref(false)
@@ -2978,48 +2839,17 @@ async function syncDashboardAggregate(token) {
 
 // --- per-row actions ----------------------------------------------------------
 
+// Opening is now just "which student", because StudentActionsModal owns the
+// rest: the form it seeds from `effective_deadline_at`, the focus it takes and
+// gives back (composables/useFocusTrap.js), and the Tab cycling. All three used
+// to live here, ~1,700 lines from the markup they belong to.
 function openActions(student) {
   actionStudent.value = student
-  const fallbackDeadline = student.effective_deadline_at || ''
-  actionExt.value = {
-    deadline_local: fallbackDeadline ? toLocalInputValue(new Date(fallbackDeadline)) : '',
-    reason: '',
-  }
-  // Move focus into the dialog; restore it to the trigger on close.
-  modalReturnFocus = document.activeElement
-  nextTick(() => {
-    modalEl.value?.querySelector('input, textarea, select, button:not([disabled])')?.focus()
-  })
 }
 
 function closeActions() {
   if (actionExtending.value || actionRetrying.value) return
   actionStudent.value = null
-  modalReturnFocus?.focus?.()
-  modalReturnFocus = null
-}
-
-// Keep Tab cycling inside the dialog while it is open.
-function trapTab(e) {
-  if (e.key !== 'Tab' || !modalEl.value) return
-  const focusables = [...modalEl.value.querySelectorAll(
-    'input, textarea, select, button:not([disabled]), a[href]',
-  )].filter((el) => el.offsetParent !== null)
-  if (focusables.length === 0) return
-  const first = focusables[0]
-  const last = focusables[focusables.length - 1]
-  if (e.shiftKey && document.activeElement === first) {
-    e.preventDefault()
-    last.focus()
-  } else if (!e.shiftKey && document.activeElement === last) {
-    e.preventDefault()
-    first.focus()
-  }
-}
-
-function toLocalInputValue(date) {
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function localToUtc(localStr) {
@@ -3027,8 +2857,8 @@ function localToUtc(localStr) {
   return new Date(localStr).toISOString()
 }
 
-async function grantExtensionFor(student) {
-  if (!actionExt.value.deadline_local || !actionExt.value.reason.trim()) {
+async function grantExtensionFor(student, ext) {
+  if (!ext.deadline_local || !ext.reason.trim()) {
     toast.error('Deadline and reason are required.')
     return
   }
@@ -3038,7 +2868,7 @@ async function grantExtensionFor(student) {
   const currentEffective = extensionFor(student.github_login)?.value
     || student.effective_deadline_at
     || assignment.value?.deadline_at
-  if (currentEffective && new Date(localToUtc(actionExt.value.deadline_local)) <= new Date(currentEffective)) {
+  if (currentEffective && new Date(localToUtc(ext.deadline_local)) <= new Date(currentEffective)) {
     toast.error(`New deadline must be after the current effective deadline (${fmt(currentEffective)}).`)
     return
   }
@@ -3054,12 +2884,12 @@ async function grantExtensionFor(student) {
       }
     } catch { /* ignore and use empty */ }
 
-    const newExtValue = localToUtc(actionExt.value.deadline_local)
+    const newExtValue = localToUtc(ext.deadline_local)
 
     overridesList.push({
       type: 'deadline_extension',
       value: newExtValue,
-      reason: actionExt.value.reason.trim(),
+      reason: ext.reason.trim(),
       overridden_by: 'admin-panel',
       overridden_at: new Date().toISOString(),
     })
@@ -3512,26 +3342,6 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 0 var(--space-xs);
 }
 .modal-close:hover { color: var(--text-primary); }
-.modal-section {
-  padding: var(--space-md);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-}
-.modal-section h4 { margin: 0 0 var(--space-sm); font-size: 0.9rem; font-weight: 600; }
-.modal-section .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-sm); }
-.modal-section .field label { font-size: 0.85rem; color: var(--text-secondary); }
-.modal-section .field input,
-.modal-section .field textarea {
-  width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.9rem;
-}
-.modal-section p { margin: 0 0 var(--space-sm); font-size: 0.85rem; }
 
 /* Export Dropdown Menu */
 .dropdown-container {
@@ -3670,86 +3480,16 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   flex-wrap: wrap;
 }
 
-.feedback-pr-modal {
-  max-width: 580px;
-}
 
-.safety-box {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm, 4px);
-  padding: var(--space-sm, 12px) var(--space-md, 16px);
-  margin: var(--space-md, 16px) 0;
-}
 
-.safety-box-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  margin: 0 0 var(--space-xs, 6px) 0;
-  color: var(--text-primary);
-}
 
-.safety-list {
-  margin: 0;
-  padding-left: var(--space-md, 18px);
-  font-size: 0.84rem;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
 
-.safety-list li + li {
-  margin-top: 4px;
-}
 
-.cohort-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-sm, 8px);
-  margin: var(--space-md, 16px) 0;
-}
 
-.cohort-summary-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: var(--space-sm, 8px);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm, 4px);
-}
 
-.cohort-summary-val {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
 
-.cohort-summary-lbl {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
 
-.empty-eligible-notice {
-  padding: var(--space-sm, 8px) var(--space-md, 12px);
-  background: var(--bg-secondary);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-sm, 4px);
-  font-size: 0.84rem;
-  color: var(--text-secondary);
-  text-align: center;
-  margin-top: var(--space-sm, 8px);
-}
 
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-sm, 8px);
-  padding: var(--space-md, 16px);
-  border-top: 1px solid var(--border-default);
-  background: var(--bg-secondary);
-}
 
 @media (max-width: 768px) {
   .summary-row { grid-template-columns: repeat(2, 1fr); }
