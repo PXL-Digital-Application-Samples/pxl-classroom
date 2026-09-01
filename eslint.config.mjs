@@ -94,6 +94,38 @@ export default [
       // Without this, a <script setup> binding used ONLY in the template reads
       // as dead code and no-unused-vars would have us delete live UI.
       'vue/script-setup-uses-vars': 'error',
+
+      // `no-undef` above stops at </script>. Nothing was checking the TEMPLATE,
+      // which is the half that fails silently: a binding to a name that does
+      // not exist renders EMPTY, with no build error and no console warning.
+      // That is the same family as the copy button that reported success over
+      // an empty clipboard, and it is why "why did testing not find this?" has
+      // an answer here now.
+      'vue/no-undef-properties': 'error',
+      // The mirror: a prop threaded through call sites that the child never
+      // reads. StudentDiagnosticsModal declared `org` REQUIRED and ignored it.
+      'vue/no-unused-properties': ['error', { groups: ['props'] }],
+      // A declared emit nobody fires is a listener the parent writes and waits
+      // on forever.
+      'vue/no-unused-emit-declarations': 'error',
+      'vue/no-unused-refs': 'error',
+      // A component used but never imported renders nothing. router-link and
+      // router-view are registered globally by the router, not imported.
+      'vue/no-undef-components': ['error', { ignorePatterns: ['router-link', 'router-view'] }],
+      // A v-for variable named after a prop shadows it. DashboardView looped
+      // `org` (an object) over its own `org` prop (a String) - correct only for
+      // as long as every `.login` stayed inside the loop.
+      'vue/no-template-shadow': 'error',
+      // Bug shapes with no visible symptom until the data changes.
+      'vue/no-mutating-props': 'error',
+      'vue/require-explicit-emits': 'error',
+      'vue/no-side-effects-in-computed-properties': 'error',
+      'vue/no-async-in-computed-properties': 'error',
+      'vue/no-watch-after-await': 'error',
+      'vue/no-lifecycle-after-await': 'error',
+      'vue/no-use-v-if-with-v-for': 'error',
+      'vue/require-v-for-key': 'error',
+      'vue/no-unused-components': 'error',
     },
   },
 

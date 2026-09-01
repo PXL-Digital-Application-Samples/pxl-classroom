@@ -197,7 +197,6 @@ const props = defineProps({
   show: { type: Boolean, default: false },
   user: { type: Object, default: () => ({}) },
   assignment: { type: Object, default: () => ({}) },
-  org: { type: String, required: true },
   acceptState: { type: String, default: 'ready' },
   pendingInvitation: { type: Object, default: null },
   rosterStatus: { type: String, default: 'enrolled' }, // 'enrolled' | 'missing' | 'unknown'

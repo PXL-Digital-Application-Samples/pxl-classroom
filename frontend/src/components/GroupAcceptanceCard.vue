@@ -360,7 +360,6 @@
       :show="showDiagnosticsModal"
       :user="user"
       :assignment="assignment"
-      :org="org"
       :accept-state="acceptState"
       :pending-invitation="pendingInvitation"
       :roster-status="rosterStatus"

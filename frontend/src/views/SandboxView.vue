@@ -344,12 +344,15 @@
     <section v-if="currentTab === 'components'" class="sandbox-section flex flex-col gap-lg">
       <div class="card">
         <h3 class="section-title mb-md">Embedded TeamsTable (Mock Cohort)</h3>
+        <!-- The Score and CI Status columns are NOT props: TeamsTable derives
+             both from the data (`hasGrades`, and the assignment declaring
+             Actions autograding). Passing them as attributes preview-ed
+             nothing and shipped two junk attributes into the DOM; the mock
+             teams carry `earned_points` instead. -->
         <TeamsTable
           :teams="mockTeams"
           :assignment="mockGroupAssignment"
           :org="'PXL-Digital'"
-          :autogradeEnabled="true"
-          :isGitHubActionsAutograde="true"
         />
       </div>
     </section>
@@ -501,6 +504,8 @@ const mockTeams = [
     commit_count: 14,
     submission_status: 'on-time',
     ci_status: 'success',
+    earned_points: 100,
+    total_points: 100,
   },
   {
     team_slug: 'team-beta',
@@ -512,6 +517,11 @@ const mockTeams = [
     commit_count: 5,
     submission_status: 'late',
     ci_status: 'failure',
+    // Partial score: the badge-warning branch. `badge-error` (0 points) is the
+    // one grade state these three teams do not show - team-gamma is vacant and
+    // has no grade at all, which is the other thing worth seeing.
+    earned_points: 45,
+    total_points: 100,
   },
   {
     team_slug: 'team-gamma',

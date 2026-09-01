@@ -37,25 +37,30 @@
                 aria-label="Organizations"
                 tabindex="-1"
               >
+                <!-- `orgOption`, not `org`: this component has a String prop
+                     called `org`, and a loop variable of the same name holding
+                     an OBJECT shadowed it. Correct only for as long as every
+                     `.login` stays inside the loop - move one line out and it
+                     renders empty, with no error. -->
                 <div
-                  v-for="org in orgs"
-                  :key="org.login"
+                  v-for="orgOption in orgs"
+                  :key="orgOption.login"
                   class="org-dropdown-item org-choice-item"
-                  :class="{ 'is-selected': org.login === selectedOrg }"
+                  :class="{ 'is-selected': orgOption.login === selectedOrg }"
                   role="option"
-                  :aria-selected="org.login === selectedOrg"
-                  @click="selectOrg(org.login)"
-                  @keydown.enter.prevent="selectOrg(org.login)"
-                  @keydown.space.prevent="selectOrg(org.login)"
+                  :aria-selected="orgOption.login === selectedOrg"
+                  @click="selectOrg(orgOption.login)"
+                  @keydown.enter.prevent="selectOrg(orgOption.login)"
+                  @keydown.space.prevent="selectOrg(orgOption.login)"
                   tabindex="0"
                 >
                   <span
                     class="status-lamp"
-                    :class="`lamp-${getOrgStatus(org.login)}`"
-                    :title="getOrgStatusTitle(org.login)"
+                    :class="`lamp-${getOrgStatus(orgOption.login)}`"
+                    :title="getOrgStatusTitle(orgOption.login)"
                   ></span>
-                  <span class="org-item-text">{{ org.login }}</span>
-                  <Icon v-if="org.login === selectedOrg" name="check" :size="13" class="check-icon" />
+                  <span class="org-item-text">{{ orgOption.login }}</span>
+                  <Icon v-if="orgOption.login === selectedOrg" name="check" :size="13" class="check-icon" />
                 </div>
 
                 <div class="org-dropdown-divider" role="separator"></div>

@@ -88,6 +88,7 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **An isomorphic module takes configuration as a parameter and never imports it.** A static `node:` builtin import in the SPA's graph is a blank page that `npm run build` will not catch.
 - **A route nothing links to does not ship.** Exactly two exemptions exist (`invitation`, `not-found`); the list may not grow without writing down why.
 - **A published field is a public field.** Anything in an assignment's `title`/`description` reaches GitHub Pages; `lib/public-text.mjs` is the one judge.
+- **A prop the child never declared is a DOM attribute, not configuration.** It falls through silently, and a same-named computed inside the child keeps winning — the Sandbox asked `<TeamsTable>` for the autograde variant twice and previewed the plain one. Drive the child's own inputs; `vue/no-undef-properties` and friends are errors now.
 - **Nothing throws at module scope** in a file the SPA imports — a throw there is a blank page.
 - **One primary button per view** (DESIGN.md §1.2), and never invent a `.btn-` variant that DESIGN.md does not define.
 

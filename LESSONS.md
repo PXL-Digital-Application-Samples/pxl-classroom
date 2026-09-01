@@ -718,6 +718,20 @@ The SPA strictly follows the GitHub Primer design system (`DESIGN.md` is canonic
 
 `.btn-warning` was used seven times across `AdminView` and `StudentDiagnosticsModal` and declared in neither `style.css` nor any scoped block, so every one rendered as a plain `.btn` - and `tests/admin-lifecycle-ui.test.mjs` asserted the class was *in the template*, which it was. DESIGN.md §3 has four variants and no warning; those buttons are now `.btn-secondary`, or `.btn-danger` where the action is destructive. `tests/scoped-style-leakage.test.mjs` skips classes styled nowhere by design (`if (!owners) continue`), which is the gap - see the remaining backlog noted there.
 
+### `no-undef` stops at `</script>`, and the template is the half that fails silently.
+
+The eslint config exists because "a component that renders a value it never declared is the bug this config exists for" - and it was checking the script only. A template binding to a name that does not exist renders **empty**, with no build error, no console warning and no test failure. Same family as the undeclared class above, and as the copy button that reported success over an empty clipboard.
+
+`vue/no-undef-properties` and its siblings are now errors. Turning them on cost nothing - the codebase was already at zero for all of them - which is the argument for turning a rule on the day it is clean rather than the day it is needed. Three real defects came out of the surrounding sweep:
+
+**A sandbox that previewed a state it could not reach.** `SandboxView` passed `:autogradeEnabled="true"` and `:isGitHubActionsAutograde="true"` to `<TeamsTable>`. Both are **computeds inside TeamsTable**, not props - `autogradeEnabled` is `hasGrades`, and `hasGrades` is "some team has `earned_points`". No mock team had one, so the Score column was hidden; `ciStatusColumn` is `hasGrades || isGitHubActionsAutograde`, so the CI column was hidden too, and the `ci_status` written onto all three mock teams rendered nowhere. The two attributes fell through to the DOM as literal `autogradeenabled="true" isgithubactionsautograde="true"` on `.teams-table-component`. The Sandbox is the one place a state is checked without a live org; this state was unreachable there. Fixed in the **data** - grades on the mock teams - because that is what the component actually reads.
+
+**A required prop nobody read.** `StudentDiagnosticsModal` declared `org: { required: true }`, never referenced it, and two call sites threaded it in. Deleting it from the child alone would have moved it into `$attrs` and straight back into the DOM, so all three went together.
+
+**A loop variable shadowing a prop.** `DashboardView` has a String prop `org` and looped `v-for="org in orgs"` over objects. Correct only for as long as every `.login` stays inside the loop; move one line out and it renders empty. It is `orgOption` now.
+
+And a methodological one, the same shape as *a scripted transform must be verified by something that does not share its logic*: the regex scanner that started this reported **53** undefined template bindings. The real Vue AST parser reported **zero**, and it was the parser that was right - the scanner was truncating object keys (`{ active: … }` → `activ`) and losing props to comments inside `defineProps`. It was verified against a deliberately broken file first, so its zero was known not to be a vacuous pass. A hand-rolled parser competing with the one the framework ships is a source of findings that do not exist.
+
 ### The field wanted `owner/repo` and the clipboard held an address bar.
 
 Reported from live use. Pasting `https://github.com/PXL-SNE-AutomationAndScripting2627/ps-02-ext_lab` into *Template repository* produced *"Use the full name, e.g. .../linux-template"* - a required field refusing the most ordinary way anyone fills one in, then explaining itself. The reporter's own words for what it costs: people paste, swear, read the message, and only then realise they have to edit the URL by hand. DESIGN.md §1.5 has one answer for that shape and it is **never a better message** - give the system the behaviour. `lib/github-repo-ref.js` normalises to `owner/repo` on input.
