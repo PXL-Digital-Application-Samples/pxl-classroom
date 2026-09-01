@@ -76,28 +76,59 @@ export function copyWithExecCommand(text, doc = globalThis.document) {
  * resolved true; on false it has to tell the user to copy manually, because the
  * text they need is not where they will look for it.
  *
- * The async API is tried FIRST and AWAITED - it is the supported one, and
- * awaiting is the only way to get a real answer out of it. `execCommand` is the
- * fallback for where it is blocked.
+ * THE SYNCHRONOUS PATH GOES FIRST, and that ordering is load-bearing.
+ *
+ * It used to await the async API first and fall back to `execCommand`. That
+ * fallback could never run. Both engines stop attributing a clipboard call to
+ * the click handler once an `await` has intervened, so in the ONE situation the
+ * fallback exists for - the async write was refused - the synchronous retry is
+ * refused too. MDN says it outright: after an await "the function call is then
+ * not anymore assigned to a click handler"; Firefox tracks it as bug 1605928,
+ * "writeText() does not work in asynchronous environments". A fallback that
+ * cannot run is the `.catch()`-on-a-resolving-promise shape one level up.
+ *
+ * `execCommand` is deprecated but SYNCHRONOUS, which is exactly why it leads
+ * here: it finishes inside the gesture, its answer is known without yielding,
+ * and it cannot lose the focus race against a `window.open` the caller may want
+ * to make on the same click. If an engine ever drops it, this degrades to the
+ * async API rather than breaking.
  *
  * @param {string} text
  * @param {{navigator?: Navigator, document?: Document}} [deps] injectable for tests
  * @returns {Promise<boolean>}
  */
 export async function copyText(text, deps = {}) {
-  const nav = deps.navigator ?? globalThis.navigator
   const doc = deps.document ?? globalThis.document
   if (typeof text !== 'string' || text.length === 0) return false
 
-  if (typeof nav?.clipboard?.writeText === 'function') {
-    try {
-      await nav.clipboard.writeText(text)
-      return true
-    } catch {
-      // Blocked, insecure, or the document lost focus. Fall through - do not
-      // report success, and do not swallow this into a resolved promise.
-    }
-  }
+  if (copyWithExecCommand(text, doc)) return true
 
-  return copyWithExecCommand(text, doc)
+  return copyTextAsync(text, deps)
+}
+
+/**
+ * The async Clipboard API on its own, resolving to whether the write landed.
+ *
+ * Exported separately because the CALLER has to be able to choose. This one
+ * yields, and yielding is what costs you the user activation - so a handler
+ * that also needs to open a window on the same click must know which path it
+ * is on rather than having the decision hidden inside `copyText`.
+ *
+ * @param {string} text
+ * @param {{navigator?: Navigator}} [deps] injectable for tests
+ * @returns {Promise<boolean>}
+ */
+export async function copyTextAsync(text, deps = {}) {
+  const nav = deps.navigator ?? globalThis.navigator
+  if (typeof text !== 'string' || text.length === 0) return false
+  if (typeof nav?.clipboard?.writeText !== 'function') return false
+
+  try {
+    await nav.clipboard.writeText(text)
+    return true
+  } catch {
+    // Blocked, insecure origin, or the document lost focus. Report the failure
+    // - do not swallow it into a resolved promise.
+    return false
+  }
 }

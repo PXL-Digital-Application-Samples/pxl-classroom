@@ -32,7 +32,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { copyText, copyWithExecCommand } from "../frontend/src/lib/clipboard.js";
+import { copyText, copyTextAsync, copyWithExecCommand } from "../frontend/src/lib/clipboard.js";
 
 /** A navigator whose clipboard write resolves. */
 const writes = (sink) => ({
@@ -82,7 +82,7 @@ test("a rejected clipboard write with no fallback resolves FALSE, never true", a
   assert.equal(ok, false, "an unverified copy must never report success");
 });
 
-test("a rejected write falls back to execCommand and reports ITS answer", async () => {
+test("when both paths fail the answer is false", async () => {
   const failing = fakeDocument({ execCommandReturns: false });
   assert.equal(
     await copyText("914F-59D8", { navigator: rejects(), document: failing }),
@@ -94,16 +94,47 @@ test("a rejected write falls back to execCommand and reports ITS answer", async 
   assert.equal(
     await copyText("914F-59D8", { navigator: rejects(), document: working }),
     true,
-    "the fallback succeeded, so the answer is true",
+    "one path worked, so the answer is true",
   );
 });
 
-test("the async API is used first, and awaited", async () => {
+test("the SYNCHRONOUS path is used first, and the async API is not spent", async () => {
+  // INVERTED DELIBERATELY - this test used to assert the opposite, and the
+  // opposite is what broke the button in Firefox.
+  //
+  // With the async API first, `execCommand` only ever ran AFTER an await, and a
+  // clipboard call that follows an await is no longer attributed to the click
+  // handler - so the fallback was refused in exactly the case it existed for
+  // (MDN; Firefox bug 1605928). Sync-first is the only order in which the
+  // fallback is reachable, and the only one in which a caller can still open a
+  // window on the same gesture.
+  const sink = [];
+  const doc = fakeDocument({ execCommandReturns: true });
+  assert.equal(await copyText("914F-59D8", { navigator: writes(sink), document: doc }), true);
+  assert.equal(doc.appended.length, 1, "the synchronous path ran");
+  assert.deepEqual(sink, [], "and the async API was never needed");
+});
+
+test("the async API is the fallback, and it is awaited", async () => {
   const sink = [];
   const doc = fakeDocument({ execCommandReturns: false });
   assert.equal(await copyText("914F-59D8", { navigator: writes(sink), document: doc }), true);
   assert.deepEqual(sink, ["914F-59D8"], "the text must reach the clipboard API");
-  assert.deepEqual(doc.appended, [], "and the deprecated fallback must not run when it succeeded");
+});
+
+test("copyTextAsync is the async half on its own, and never guesses", async () => {
+  // Exported separately so a caller that also has to open a window can choose
+  // its path with its eyes open, rather than discovering mid-await that the
+  // gesture is gone.
+  const sink = [];
+  assert.equal(await copyTextAsync("914F-59D8", { navigator: writes(sink) }), true);
+  assert.deepEqual(sink, ["914F-59D8"]);
+
+  assert.equal(await copyTextAsync("914F-59D8", { navigator: rejects() }), false,
+    "a rejected write is false, never an assumed true");
+  assert.equal(await copyTextAsync("914F-59D8", { navigator: {} }), false,
+    "no clipboard API is false, not a TypeError");
+  assert.equal(await copyTextAsync("", { navigator: writes([]) }), false);
 });
 
 test("no clipboard API at all still copies through execCommand", async () => {

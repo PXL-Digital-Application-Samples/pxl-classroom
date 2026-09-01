@@ -16,7 +16,7 @@
         <div class="container">
           <img :src="logoUrl" alt="PXL Classroom" class="hero-logo" />
           <h1>PXL Classroom</h1>
-          <p class="subtitle">GitHub-native assignment distribution and evaluation for PXL</p>
+          <p class="subtitle">GitHub-native assignment distribution and evaluation</p>
 
           <p v-if="authError" class="auth-error" role="alert" style="max-width: 420px; margin: 0 auto var(--space-lg) auto;">
             {{ authError }} - try signing in again.

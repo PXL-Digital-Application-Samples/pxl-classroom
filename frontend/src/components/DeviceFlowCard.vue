@@ -14,14 +14,18 @@
          clicks is easy to get half-right: open the page, then discover you
          never copied the code and have to come back for it.
 
-         ORDER IS THE FIX, not splitting the button. The copy is AWAITED before
-         window.open, so the write completes while the document still has focus
-         - a clipboard write on an unfocused document is rejected, and opening
-         first is what left the clipboard empty. Awaiting costs a millisecond or
-         two, well inside the ~5s of transient user activation that keeps the
-         open out of the popup blocker. -->
-    <button class="btn btn-with-icon" type="button" @click="copyAndOpen">
-      <Icon :name="copied ? 'check' : 'external-link'" :size="14" />
+         SYNCHRONOUS IS THE FIX, not splitting the button and not awaiting. The
+         handler copies and opens without yielding, so both run inside the
+         click's user activation. An `await` in between is what broke it:
+         engines stop attributing a clipboard call - and a window.open - to the
+         handler once one has intervened, and Firefox is stricter about it than
+         Chrome.
+
+         While this card is up the sign-in button is v-if'd out, so this is the
+         view's only call to action: btn-primary btn-lg is DESIGN.md §3's
+         "single decisive action", not an exception to it. -->
+    <button class="btn btn-primary btn-lg btn-with-icon copy-open" type="button" @click="copyAndOpen">
+      <Icon :name="copied ? 'check' : 'external-link'" :size="16" />
       <span>{{ copied ? 'Copied - GitHub opened' : 'Copy code & open GitHub' }}</span>
     </button>
 
@@ -54,7 +58,7 @@
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
 import { toast } from '../lib/toast.js'
-import { copyText } from '../lib/clipboard.js'
+import { copyWithExecCommand, copyTextAsync } from '../lib/clipboard.js'
 
 const props = defineProps({
   // { verification_uri, user_code, … } from startDeviceFlow()
@@ -85,36 +89,61 @@ function selectCode() {
 }
 
 /**
- * Copy the code, then open GitHub. One gesture, and the order is the fix.
+ * Copy the code, then open GitHub - both inside the click's user activation.
  *
- * The old version started the clipboard write, did NOT wait for it, set
- * `ok = true` regardless, swallowed the rejection into `() => {}`, and called
- * `window.open` - which removed focus, which is exactly what makes the write
- * reject ("Document is not focused"). The button reported "Copied" over an
- * empty clipboard, so a student had no code to paste and could not sign in.
+ * THIS HANDLER DOES NOT AWAIT ON THE PATH THAT MATTERS, and that is the fix.
  *
- * AWAITING it fixes both halves at once: the write finishes while the document
- * is still focused, and `ok` is then the truth rather than an assumption. The
- * open still happens on the same click - a resolved clipboard write takes a
- * millisecond or two, far inside the ~5 seconds of transient user activation a
- * browser allows, so the popup blocker is not involved.
+ * Two earlier versions failed in opposite directions. The first opened GitHub
+ * while the clipboard write was still in flight: window.open removes focus, a
+ * write on an unfocused document is rejected, and the rejection was swallowed -
+ * the button said "Copied" over an empty clipboard and the student had nothing
+ * to paste. The second awaited the write before opening. That fixed the lie,
+ * but put an `await` between the click and everything after it, and browsers
+ * stop attributing clipboard calls to the handler once one has intervened
+ * (MDN; Firefox bug 1605928, "writeText() does not work in asynchronous
+ * environments"). So the execCommand fallback inside copyText could never run
+ * in the one case it existed for, and Firefox's popup blocker got involved in
+ * the open. It worked in Chrome, which is more forgiving, and not in Firefox.
+ *
+ * So: the SYNCHRONOUS copy leads. It finishes before window.open can take
+ * focus, its answer is known without yielding, and the open therefore happens
+ * in the same synchronous turn as the click - no activation is ever spent.
+ * Only when that path is unavailable do we spend the async API, and then the
+ * window stays SHUT until the write settles, because opening it is precisely
+ * what would make the write fail.
  */
-async function copyAndOpen() {
+function copyAndOpen() {
   const code = props.flow?.user_code
   if (!code) return
 
-  const ok = await copyText(code)
+  if (copyWithExecCommand(code)) {
+    reportCopy(true)
+    openGitHub()
+    return
+  }
+
+  copyTextAsync(code).then((ok) => {
+    reportCopy(ok)
+    openGitHub()
+  })
+}
+
+/** Say truthfully what happened, and lay out the manual path when it failed. */
+function reportCopy(ok) {
   copied.value = ok
   copyFailed.value = !ok
 
   if (ok) {
     setTimeout(() => { copied.value = false }, 6000)
-  } else {
-    // Select it for them, so the manual path is Ctrl+C and nothing else.
-    selectCode()
-    toast.info('Could not copy automatically - the code above is selected, press Ctrl+C.')
+    return
   }
 
+  // Select it for them, so the manual path is Ctrl+C and nothing else.
+  selectCode()
+  toast.info('Could not copy automatically - the code above is selected, press Ctrl+C.')
+}
+
+function openGitHub() {
   // `noopener` in the FEATURES string makes window.open return null even when
   // it succeeded, so the old `if (!win)` warned about pop-ups on every single
   // click. Nulling `opener` on the returned window keeps the same security
@@ -149,6 +178,11 @@ async function copyAndOpen() {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
   user-select: all;
+}
+/* The card's decisive action, and the step everything else waits on - it gets
+   room of its own rather than sitting flush against the code and the notice. */
+.copy-open {
+  margin: var(--space-xs) 0 var(--space-sm) 0;
 }
 /* Stated in the page rather than only in a toast: a toast is gone in seconds,
    and this is the step the student is stuck on. */
