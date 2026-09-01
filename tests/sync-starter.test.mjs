@@ -15,8 +15,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Ajv from "ajv";
@@ -41,6 +44,7 @@ const git = (args, cwd) =>
 const schemaPath = join(process.cwd(), "schemas", "sync-record.schema.json");
 const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
 const validateSyncRecord = ajv.compile(schema);
+const here = dirname(fileURLToPath(import.meta.url));
 
 // `git ls-tree -r` is the same path -> blob sha mapping the GitHub tree API
 // returns, so a fixture built here exercises the real comparison.
@@ -419,4 +423,160 @@ test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself"
       `${file} must not merge or compare a template SHA against a student repo: the compare 404s and the merge carries the whole tree`,
     );
   }
+});
+
+// --- the script itself, end to end -------------------------------------------
+//
+// Everything above tests lib/starter-sync.mjs, which decides clean-vs-conflict.
+// Nothing drove scripts/sync-starter.mjs, and the bug below lived in the part
+// no test reached: the per-student work is carefully wrapped so one student's
+// failure is recorded and the loop continues, but the record PARSE sat outside
+// that try. One unreadable repositories/<id>/<login>.json threw out of main(),
+// so the run stopped partway and the sync record was never written - after
+// students earlier in the list had already had a commit pushed to their main
+// and a pull request opened against it. The one document that says who got the
+// correction is exactly what was lost.
+//
+// `commitWithRebase` does not take an apiBase and defaults to api.github.com,
+// so this drives the path that writes nothing: a student whose tree already
+// carries the head blob is `skipped-up-to-date`.
+
+function runSyncStarter({ records }) {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-sync-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(
+    join(dir, "assignments", "exam.yml"),
+    "state: published\ntemplate:\n  owner: TestOrg\n  repository: tpl\n",
+  );
+  mkdirSync(join(dir, "repositories", "exam"), { recursive: true });
+  for (const [name, body] of Object.entries(records)) {
+    writeFileSync(join(dir, "repositories", "exam", name), body);
+  }
+
+  const HEAD_SHA = "a".repeat(40);
+  const BASE_SHA = "b".repeat(40);
+  const tree = (sha) => ({ truncated: false, tree: [{ path: "README.md", type: "blob", sha }] });
+  const server = createServer((req, res) => {
+    const [path] = req.url.split("?");
+    const send = (code, body) => {
+      res.writeHead(code, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    if (path === "/repos/TestOrg/tpl/commits") return send(200, [{ sha: HEAD_SHA }]);
+    if (path === `/repos/TestOrg/tpl/commits/${HEAD_SHA}`) {
+      return send(200, {
+        sha: HEAD_SHA,
+        commit: { message: "Fix a typo in the brief" },
+        parents: [{ sha: BASE_SHA }],
+        files: [{ filename: "README.md", status: "modified" }],
+      });
+    }
+    if (path === `/repos/TestOrg/tpl/git/trees/${HEAD_SHA}`) return send(200, tree("blob-new"));
+    if (path === `/repos/TestOrg/tpl/git/trees/${BASE_SHA}`) return send(200, tree("blob-old"));
+    if (path.startsWith("/repos/TestOrg/tpl/git/blobs/")) {
+      return send(200, { content: Buffer.from("hello").toString("base64"), encoding: "base64" });
+    }
+    // Every student already carries the head blob, so nothing is written.
+    if (/^\/repos\/TestOrg\/[^/]+\/git\/trees\/main$/.test(path)) return send(200, tree("blob-new"));
+    return send(404, { message: `not stubbed: ${path}` });
+  });
+
+  // `spawn`, never `spawnSync`: the stub server runs on THIS event loop, and a
+  // synchronous child blocks it - so the script's first request would never be
+  // answered and the test would hang rather than fail.
+  return new Promise((resolve, reject) => {
+    server.listen(0, "127.0.0.1", () => {
+      const child = spawn("node", [join(here, "..", "scripts", "sync-starter.mjs")], {
+        env: {
+          ...process.env,
+          GITHUB_TOKEN: "stub",
+          GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
+          ORG: "TestOrg",
+          ASSIGNMENT_ID: "exam",
+          DATA_DIR: dir,
+          CREATE_ISSUE: "false",
+        },
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("error", reject);
+      child.on("close", (status) => {
+        server.close(() => {
+          let record = null;
+          try {
+            const syncDir = join(dir, "syncs", "exam");
+            record = JSON.parse(readFileSync(join(syncDir, readdirSync(syncDir)[0]), "utf8"));
+          } catch { /* left null - the test says what that means */ }
+          resolve({ status, stdout, stderr, record });
+        });
+      });
+    });
+  });
+}
+
+test("an unreadable repository record does not abandon the run, or the record of it", async () => {
+  const res = await runSyncStarter({
+    records: {
+      "alice.json": JSON.stringify({ github_login: "alice", repo_name: "TestOrg/exam-alice" }),
+      "bob.json": "{ this is not json",
+      "carol.json": JSON.stringify({ github_login: "carol", repo_name: "TestOrg/exam-carol" }),
+    },
+  });
+
+  assert.equal(res.status, 0, `the run must finish:\n${res.stdout}\n${res.stderr}`);
+  assert.ok(res.record, "the sync record must be written - it is what says who got the correction");
+
+  const byLogin = Object.fromEntries(res.record.results.map((r) => [r.github_login, r]));
+  assert.equal(byLogin.alice?.outcome, "skipped-up-to-date");
+  assert.equal(byLogin.carol?.outcome, "skipped-up-to-date", "a student AFTER the bad record is still processed");
+  // Named from the filename, which still identifies the student when the
+  // contents do not.
+  assert.equal(byLogin.bob?.outcome, "failed");
+  assert.match(byLogin.bob.error, /unreadable/);
+  assert.equal(res.record.summary.failed, 1);
+  assert.equal(res.record.summary.skipped, 2);
+});
+
+test("the sync record still validates with a failed row in it", () => {
+  // The row the fix adds has to be a document the backend can read back, or the
+  // validate-before-write below it turns one bad record into no record at all -
+  // which is the failure it was guarding against.
+  const doc = {
+    schema_version: 1,
+    sync_id: "sync-20260901T120000Z-abc123",
+    assignment_id: "exam",
+    synced_at: "2026-09-01T12:00:00Z",
+    synced_by: "lecturer",
+    template_repo: "TestOrg/tpl",
+    template_sha: "a".repeat(40),
+    selected_files: ["README.md"],
+    pr_title: "t",
+    pr_body: "b",
+    created_issues: false,
+    summary: { total: 1, auto_merged: 0, pr_opened: 0, skipped: 0, failed: 1 },
+    results: [
+      { github_login: "bob", repo_name: "unknown", outcome: "failed", error: "repository record unreadable: x" },
+    ],
+  };
+  assert.equal(validateSyncRecord(doc), true, JSON.stringify(validateSyncRecord.errors));
+});
+
+test("a notification issue that could not be created is recorded, not just logged", () => {
+  // The issue IS how a student learns a pull request is waiting. `if (ok)` with
+  // no else left the row looking like a clean sync, and the record is what a
+  // lecturer reads to see who still needs a second look.
+  const src = readFileSync(join(here, "..", "scripts", "sync-starter.mjs"), "utf8");
+  const at = src.indexOf("issueRes.ok");
+  assert.ok(at > 0, "the issue creation must still be there");
+  const after = src.slice(at, at + 700);
+  assert.match(after, /else \{/, "a failed issue creation must have an else branch");
+  assert.match(after, /issue_error/, "and must record why on the row");
+
+  const schema = JSON.parse(readFileSync(join(here, "..", "schemas", "sync-record.schema.json"), "utf8"));
+  assert.ok(
+    "issue_error" in schema.properties.results.items.properties,
+    "and the schema must permit it - results items are additionalProperties:false",
+  );
 });

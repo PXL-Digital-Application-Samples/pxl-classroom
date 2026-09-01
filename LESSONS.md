@@ -378,6 +378,18 @@ Who accepted is recorded in `acceptances/<id>/<login>.json`; `students/roster.ym
 
 ## Deadlines, lockdown and preservation
 
+### The careful per-student `try` did not cover the line that read the student.
+
+`sync-starter.mjs` writes into student repositories — a commit straight onto `main` for files they never touched, a branch and a pull request for the ones they did. Its per-student work is properly wrapped: one student's failure becomes `outcome: "failed"` with the message, and the loop carries on. The `JSON.parse` of the repository record sat one line **above** that `try`.
+
+So one unreadable `repositories/<id>/<login>.json` threw out of `main()`, and `main().catch()` logs and exits 1. The run stopped partway — after students earlier in the list had already had a commit pushed to their `main` and a pull request opened against it — and the sync record was **never written**. The file's own comment says what that record is for: *"what a lecturer reads to see which students got the correction and which need a second look"*. It is exactly what the failure destroyed. `accept.mjs` guards the same file type with the same reasoning; this one did not.
+
+The record is named `<login>.json`, so the filename still identifies the student when the contents do not — the failed row carries a real login rather than "unknown".
+
+Two smaller things from the same read. A notification issue that could not be created was `if (issueRes.ok)` with **no else**: the issue IS how a student learns a pull request is waiting, and failing it silently left the row reading like a clean sync. It records `issue_error` now, which needed a schema addition because result items are `additionalProperties: false`. And the script had **no end-to-end test at all** — everything covered `lib/starter-sync.mjs`, which decides clean-vs-conflict, and nothing drove the script that does the writing. The new harness stubs the API and drives the real file.
+
+Two things that harness taught, both worth keeping: `spawnSync` **hangs** a test that stubs an HTTP server, because the child blocks the same event loop the server runs on — `spawn` and a promise, as the sentinel test already does. And the script's own validate-before-write caught the first fixture: `sha: "head"` is not `^[0-9a-f]{40}$`. The guard rejecting a *test's* invented shape is the pleasant direction of "a fixture must be the shape the app actually writes".
+
 ### A sentinel watches a GROUP, and "the deadline moved" was only ever asked of the group.
 
 `find-armable` puts every assignment sharing an exact deadline instant into one sentinel — efficient, and it made the sentinel's own promise false. Its header said *"a lecturer moving the assignment deadline while the sentinel waits is honoured without restarting anything"*, and `currentTarget()` reported the **earliest** across the group. Extending one assignment does not move the earliest, so the sentinel fired at the other's instant and the stop step ran `lockdown.mjs` **for the whole group**: the extended cohort demoted to `pull` before its own deadline, which is the worst outcome this system has and the one hardest to undo afterwards.

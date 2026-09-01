@@ -56,7 +56,9 @@
     },
     "selected_files": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "The paths actually applied. Previously the raw request, recorded as ['*'] while the operation merged the entire template tree regardless of what the lecturer had ticked."
     },
     "pr_title": {
@@ -71,29 +73,67 @@
     },
     "summary": {
       "type": "object",
-      "required": ["total", "auto_merged", "pr_opened", "skipped", "failed"],
+      "required": [
+        "total",
+        "auto_merged",
+        "pr_opened",
+        "skipped",
+        "failed"
+      ],
       "additionalProperties": false,
       "properties": {
-        "total": { "type": "integer", "minimum": 0 },
-        "auto_merged": { "type": "integer", "minimum": 0 },
-        "pr_opened": { "type": "integer", "minimum": 0 },
-        "skipped": { "type": "integer", "minimum": 0 },
-        "failed": { "type": "integer", "minimum": 0 }
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "auto_merged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pr_opened": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "results": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["github_login", "repo_name", "outcome"],
+        "required": [
+          "github_login",
+          "repo_name",
+          "outcome"
+        ],
         "additionalProperties": false,
         "properties": {
-          "github_login": { "type": "string" },
-          "team_slug": { "type": "string" },
-          "repo_name": { "type": "string" },
+          "github_login": {
+            "type": "string"
+          },
+          "team_slug": {
+            "type": "string"
+          },
+          "repo_name": {
+            "type": "string"
+          },
           "outcome": {
             "type": "string",
-            "enum": ["auto-merged", "pr-opened", "merged-and-pr", "skipped-up-to-date", "skipped-no-repo", "failed"],
+            "enum": [
+              "auto-merged",
+              "pr-opened",
+              "merged-and-pr",
+              "skipped-up-to-date",
+              "skipped-no-repo",
+              "failed"
+            ],
             "description": "`merged-and-pr` exists because the clean/conflict split is per FILE: one sync can put three corrections straight onto a student's main and raise a pull request for the fourth. Such a student is counted in both auto_merged and pr_opened, so the summary counters deliberately do not sum to total."
           },
           "files_merged": {
@@ -106,12 +146,46 @@
             "minimum": 0,
             "description": "Files the student had changed, offered as a pull request instead."
           },
-          "commit_sha": { "type": ["string", "null"] },
-          "pr_number": { "type": ["integer", "null"] },
-          "pr_url": { "type": ["string", "null"] },
-          "issue_number": { "type": ["integer", "null"] },
-          "issue_url": { "type": ["string", "null"] },
-          "error": { "type": ["string", "null"] }
+          "commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pr_number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pr_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "issue_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_error": {
+            "type": "string",
+            "description": "Why the notification issue could not be created. The issue IS how a student learns a starter-code pull request is waiting, so a failure to open one has to reach the record a lecturer reads - not just the run log."
+          }
         }
       }
     }

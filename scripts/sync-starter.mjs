@@ -167,7 +167,28 @@ async function main() {
   const results = [];
 
   for (const file of repoFiles) {
-    const rec = JSON.parse(await readFile(join(reposDir, file), "utf8"));
+    // OUTSIDE the per-student try below, which is what made it fatal: one
+    // unreadable repository record threw out of main(), so the run stopped
+    // partway and the sync record was never written - after some students had
+    // already had a commit pushed to their main and a pull request opened. The
+    // one document that says which students got the correction is exactly what
+    // was lost. accept.mjs guards the same file type for the same reason.
+    let rec;
+    try {
+      rec = JSON.parse(await readFile(join(reposDir, file), "utf8"));
+    } catch (err) {
+      // The record is named <login>.json, so the filename still identifies the
+      // student even when its contents do not.
+      const named = file.replace(/\.json$/, "");
+      console.log(`[fail] ${named}: repository record is unreadable - ${err.message}`);
+      results.push({
+        github_login: named,
+        repo_name: "unknown",
+        outcome: "failed",
+        error: `repository record unreadable: ${err.message}`,
+      });
+      continue;
+    }
     const login = rec.github_login;
     const teamSlug = rec.team_slug;
     const repoNameFull = rec.repo_name;
@@ -279,6 +300,13 @@ async function main() {
         if (issueRes.ok) {
           row.issue_number = issueRes.data.number;
           row.issue_url = issueRes.data.html_url;
+        } else {
+          // The issue IS the notification - without it a student is not told a
+          // pull request is waiting for them. Failing it silently left the row
+          // reading like a clean sync with no issue number, and the record is
+          // what a lecturer reads to see who still needs a second look.
+          row.issue_error = `HTTP ${issueRes.status}${issueRes.data?.message ? `: ${issueRes.data.message}` : ""}`;
+          console.log(`[warn] ${login}: the notification issue could not be created (${row.issue_error}) - they have not been told`);
         }
       }
 
