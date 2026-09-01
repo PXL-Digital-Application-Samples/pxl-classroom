@@ -214,14 +214,22 @@ jobs:
       # The script is run directly rather than through ./lockdown because the
       # job already holds the token and the dependencies, and the composite
       # action takes one assignment.
+      #
+      # `due_assignment_ids`, NOT the matrix's group. A sentinel watches every
+      # assignment sharing one instant, and a lecturer can extend one of them
+      # while it waits - which does not move the group's earliest deadline, so
+      # the sentinel still fires. Locking the whole group there demoted the
+      # extended cohort to `pull` before its own deadline. lockdown.mjs will not
+      # catch it: it deliberately does not second-guess its caller, so that a
+      # lecturer can run a lockdown early on purpose.
       - name: Stop writes
-        if: steps.sentinel.outputs.fired == 'true'
+        if: steps.sentinel.outputs.fired == 'true' && steps.sentinel.outputs.due_assignment_ids != ''
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
           ORG: ${{ matrix.sentinel.org }}
           DATA_DIR: control
           STOP_ONLY: "1"
-          ASSIGNMENT_IDS: ${{ join(matrix.sentinel.assignment_ids, ',') }}
+          ASSIGNMENT_IDS: ${{ steps.sentinel.outputs.due_assignment_ids }}
         run: |
           set -e
           for id in $(printf '%s' "$ASSIGNMENT_IDS" | tr ',' ' '); do

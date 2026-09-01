@@ -151,16 +151,26 @@ async function main() {
     const files = fs.readdirSync(assignmentsDir);
     for (const file of files) {
       if (file.endsWith('.yml') || file.endsWith('.yaml') || file.endsWith('.json')) {
+        const id = file.replace(/\.(yml|yaml|json)$/, '');
         try {
           const assignment = await loadYaml(path.join(assignmentsDir, file));
           if (assignment && (assignment.state === 'published' || assignment.state === 'closed')) {
-            const id = file.replace(/\.(yml|yaml|json)$/, '');
             const latest = latestEffectiveDeadline(assignment, readOverrides(controlDir, id));
             if (!latest || latest.getTime() > Date.now()) {
               activeCount++;
             }
           }
-        } catch(e) {}
+        } catch (e) {
+          // COUNTS AS ACTIVE, and says so. This was a silent `catch(e) {}`, so an
+          // assignment whose YAML would not parse was simply not counted - and
+          // `activeCount === 0` is what makes daily-activity.yml DISABLE ITSELF.
+          // One unreadable file could therefore switch off the nightly that
+          // enforces every deadline, from a read failure. Unreadable is not
+          // evidence that nothing is active; the cost of being wrong the other
+          // way is one cron firing that finds nothing to do.
+          console.error(`${id}: unreadable, counting it as active - ${e.message}`);
+          activeCount++;
+        }
       }
     }
   }

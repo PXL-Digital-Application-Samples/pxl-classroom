@@ -38,7 +38,7 @@ function runFindFinalizable(assignments = {}, lockdowns = []) {
     activeCount = activeCountJson.active;
   } catch (e) {}
 
-  return { status: res.status, finalizable, activeCount, dir };
+  return { status: res.status, finalizable, activeCount, dir, stderr: res.stderr };
 }
 
 test("Deadline 30 min ago -> in-window", () => {
@@ -401,4 +401,37 @@ test("draft and past-deadline not counted in activeCount, published and closed w
     "a9": `state: closed\ndeadline_at: "${past}"`
   });
   assert.equal(res.activeCount, 2); // a7 (closed with future deadline) + a8 (published with future deadline)
+});
+
+// --- activeCount is what switches the nightly off -----------------------------
+//
+// daily-activity.yml disables itself when `active` reaches 0, and that cron is
+// what enforces every deadline. The count used to be computed inside a silent
+// `catch(e) {}`, so an assignment whose YAML would not parse was simply not
+// counted - and one unreadable file could switch the nightly off. Unreadable is
+// not evidence that nothing is active. Being wrong the other way costs one cron
+// firing that finds nothing to do.
+
+test("an unreadable assignment counts as active rather than switching the nightly off", () => {
+  const res = runFindFinalizable({
+    // Valid YAML scalars where a mapping is required: loadYaml resolves it and
+    // the shape blows up downstream, which is the ordinary way a hand-edited
+    // file fails.
+    broken: ": : not: valid: yaml: [",
+  });
+  assert.equal(
+    res.activeCount,
+    1,
+    "an assignment we could not read must not be counted as 'nothing is active'",
+  );
+  assert.match(res.stderr ?? "", /unreadable/i, "and it must say so rather than failing silently");
+});
+
+test("a readable, finished assignment still counts as inactive", () => {
+  // The other half: the fallback above must not make everything look active for
+  // ever, or the nightly never switches off and the minimal-minutes design goes
+  // with it.
+  const past = new Date(Date.now() - 48 * 3600_000).toISOString();
+  const res = runFindFinalizable({ done: `state: published\ndeadline_at: "${past}"\n` });
+  assert.equal(res.activeCount, 0, "a published assignment past its deadline is not active");
 });

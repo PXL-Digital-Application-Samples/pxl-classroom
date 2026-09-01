@@ -127,6 +127,7 @@ async function watchedRepos() {
  */
 async function samplePushedAt(watched) {
   const seen = {};
+  let complete = false;
   for (let page = 1; page <= cfg.maxPages; page++) {
     const res = await gh("GET", `/orgs/${cfg.org}/repos?sort=pushed&direction=desc&per_page=100&page=${page}`);
     if (!res.ok) return { ok: false, reason: `list repos HTTP ${res.status}`, pushed: seen };
@@ -134,17 +135,46 @@ async function samplePushedAt(watched) {
     for (const repo of list) {
       if (watched.has(repo.name)) seen[repo.name] = repo.pushed_at;
     }
-    if (list.length < 100) break;
-    if (Object.keys(seen).length >= watched.size) break;
+    // The org has no more repositories, or every watched one has been seen.
+    // Either is a complete answer; running out of pages is not.
+    if (list.length < 100 || Object.keys(seen).length >= watched.size) {
+      complete = true;
+      break;
+    }
+  }
+  // A capped walk is not a clean read, and this sample is EVIDENCE - it settles
+  // "I pushed before the deadline". A repository missing because the walk ran
+  // out of pages is otherwise indistinguishable from one that was never pushed.
+  // The ordering argument (everything recent is on page one) holds for a quiet
+  // org and not for a busy one: the sort is over ALL of the org's repositories,
+  // so several cohorts pushing near a shared deadline can push a watched repo
+  // past the cap while it is being actively worked on.
+  if (!complete) {
+    return {
+      ok: false,
+      reason: `capped at ${cfg.maxPages} page(s): ${Object.keys(seen).length} of ${watched.size} watched repositories seen`,
+      pushed: seen,
+    };
   }
   return { ok: true, reason: null, pushed: seen };
 }
 
 /**
- * The assignment's current deadline, read live so a lecturer moving it is
+ * Each assignment's current deadline, read live so a lecturer moving one is
  * honoured without restarting the sentinel.
+ *
+ * PER ASSIGNMENT, not just the earliest. A sentinel watches every assignment
+ * sharing one instant (find-armable groups them by exact ISO), and this used to
+ * return only the minimum - so extending ONE of them did not move the minimum,
+ * the sentinel fired at the other's instant, and the stop step locked the whole
+ * group. The extended cohort was demoted to `pull` before its new deadline,
+ * while this file's own header promised the move would be honoured.
+ *
+ * @returns {Promise<{byId: Map<string, Date>, earliest: Date|null}>}
+ *   `byId` omits an assignment whose YAML could not be read or parsed.
  */
-async function currentTarget() {
+async function currentTargets() {
+  const byId = new Map();
   let earliest = null;
   for (const id of cfg.assignmentIds) {
     let doc = null;
@@ -164,9 +194,26 @@ async function currentTarget() {
       at = new Date(parseYaml(doc)?.deadline_at ?? "");
     } catch { continue; }
     if (Number.isNaN(at.getTime())) continue;
+    byId.set(id, at);
     if (!earliest || at < earliest) earliest = at;
   }
-  return earliest;
+  return { byId, earliest };
+}
+
+/**
+ * The assignments this sentinel may stop, at the instant it fired.
+ *
+ * An assignment is due when its own current deadline has passed. One whose
+ * deadline could not be re-read counts as due: the armed instant is the best
+ * evidence available and it has arrived, which is also what the sentinel did
+ * before this existed. The only assignment now skipped is one we positively
+ * READ a later deadline for - which is exactly the lecturer-moved-it case.
+ */
+export function dueAssignments(assignmentIds, byId, now) {
+  return assignmentIds.filter((id) => {
+    const at = byId.get(id);
+    return !at || at.getTime() <= now;
+  });
 }
 
 async function main() {
@@ -185,6 +232,9 @@ async function main() {
   const samples = [];
   let polls = 0;
   let outcome = "fired";
+  // Each assignment's own deadline as last read. Empty until the first poll, so
+  // an assignment never re-read counts as due against the armed instant.
+  let latestByAssignment = new Map();
 
   // Sample first, then look at the clock. A sentinel armed close to the instant
   // still records where the cohort stood when it fired, which is the evidence
@@ -200,7 +250,9 @@ async function main() {
       polls++;
     }
 
-    const moved = await currentTarget();
+    const live = await currentTargets();
+    latestByAssignment = live.byId;
+    const moved = live.earliest;
     if (moved && moved.getTime() !== target.getTime()) {
       log(`deadline moved: ${target.toISOString()} -> ${moved.toISOString()}`);
       target = moved;
@@ -225,6 +277,12 @@ async function main() {
     await sleep(Math.min(cfg.pollIntervalMs, target.getTime() - now));
   }
 
+  const due = outcome === "fired" ? dueAssignments(cfg.assignmentIds, latestByAssignment, Date.now()) : [];
+  const skipped = cfg.assignmentIds.filter((id) => !due.includes(id));
+  if (skipped.length) {
+    log(`not due at this instant, so not stopped: ${skipped.join(", ")} (deadline moved out)`);
+  }
+
   // Persist the timeline before anything else can fail. It sits beside the
   // lockdown record it explains; nothing globs that directory.
   for (const id of cfg.assignmentIds) {
@@ -234,9 +292,16 @@ async function main() {
       schema_version: 1,
       assignment_id: id,
       organization: cfg.org,
-      deadline_at: target.toISOString(),
+      // THIS assignment's deadline as last read, not the group's earliest. The
+      // two differ exactly when a lecturer moved one of them, and recording the
+      // group's instant against an assignment that no longer has it is the
+      // record claiming a freeze at a time that was never its deadline.
+      deadline_at: (latestByAssignment.get(id) ?? target).toISOString(),
       armed_for: cfg.deadlineAt,
       outcome,
+      // Whether the stop step covers this assignment. A sentinel can fire for
+      // the group while one member has been extended past it.
+      due: outcome === "fired" ? due.includes(id) : false,
       polls,
       observer_run: cfg.runUrl,
       // GitHub's own push timestamps through the critical window. A student can
@@ -257,7 +322,11 @@ async function main() {
   await setOutput("target_at", target.toISOString());
   // Only a sentinel that actually reached its instant should trigger the stop.
   await setOutput("fired", outcome === "fired" ? "true" : "false");
-  log(`${outcome} after ${polls} poll(s); target ${target.toISOString()}`);
+  // The assignments the stop step may lock. The workflow iterates THIS, not the
+  // matrix's full group: an assignment extended past this instant is still
+  // watched and still gets a timeline, but must not be stopped.
+  await setOutput("due_assignment_ids", due.join(","));
+  log(`${outcome} after ${polls} poll(s); target ${target.toISOString()}; due: ${due.join(", ") || "none"}`);
 }
 
 // Only when run as the CLI the workflow invokes, so a test can import

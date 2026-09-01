@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { planSentinels, sentinelKey } from "../scripts/find-armable.mjs";
-import { positiveNumber } from "../scripts/deadline-sentinel.mjs";
+import { positiveNumber, dueAssignments } from "../scripts/deadline-sentinel.mjs";
 
 // A SET-BUT-EMPTY environment variable is the ordinary shape of an unset
 // workflow input threaded through `env:`, and `env()` is `?? default` - so
@@ -147,7 +147,7 @@ test("find-armable prints the armed list and names what it dropped", () => {
  * Stub GitHub API. `deadlineFor(id)` is re-read every poll, which is how a
  * lecturer moving the deadline mid-watch is simulated.
  */
-async function withStubApi(fn, { deadlineFor, pushedAt = () => "2026-09-10T21:12:00Z" } = {}) {
+async function withStubApi(fn, { deadlineFor, pushedAt = () => "2026-09-10T21:12:00Z", repos } = {}) {
   const calls = [];
   const server = createServer((req, res) => {
     const send = (code, body) => {
@@ -158,6 +158,7 @@ async function withStubApi(fn, { deadlineFor, pushedAt = () => "2026-09-10T21:12
     calls.push(`${req.method} ${path}`);
 
     if (/^\/orgs\/[^/]+\/repos$/.test(path)) {
+      if (repos) return send(200, repos(Number(new URL(req.url, "http://x").searchParams.get("page") || 1)));
       return send(200, [
         { name: "exam-alice", pushed_at: pushedAt("exam-alice", calls.length) },
         { name: "unrelated-repo", pushed_at: "2020-01-01T00:00:00Z" },
@@ -193,7 +194,7 @@ function makeControlDir(logins = ["alice"]) {
   return dir;
 }
 
-function runSentinel(dir, apiBase, { deadlineAt, pollMs = 40, maxRuntimeMs = 60_000 } = {}) {
+function runSentinel(dir, apiBase, { deadlineAt, pollMs = 40, maxRuntimeMs = 60_000, assignmentIds = "exam", maxPages } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn("node", [sentinelScript], {
       env: {
@@ -202,11 +203,12 @@ function runSentinel(dir, apiBase, { deadlineAt, pollMs = 40, maxRuntimeMs = 60_
         GITHUB_API_URL: apiBase,
         ORG: "TestOrg",
         DATA_DIR: dir,
-        ASSIGNMENT_IDS: "exam",
+        ASSIGNMENT_IDS: assignmentIds,
         DEADLINE_AT: deadlineAt,
         SENTINEL_KEY: "TESTKEY",
         POLL_INTERVAL_MS: String(pollMs),
         SENTINEL_MAX_RUNTIME_MS: String(maxRuntimeMs),
+        ...(maxPages ? { SENTINEL_MAX_PAGES: String(maxPages) } : {}),
         GITHUB_OUTPUT: join(dir, "out.env"),
       },
     });
@@ -433,5 +435,100 @@ test("the watch matrix carries the global bound the per-org cap cannot", async (
     watch.strategy?.["fail-fast"],
     false,
     "one org's sentinel failing must not cancel every other org's",
+  );
+});
+
+// --- a group is not one assignment -------------------------------------------
+//
+// find-armable groups every assignment sharing an exact deadline instant into
+// ONE sentinel. That is efficient and it made "the deadline moved" ambiguous:
+// currentTargets() reports the earliest, so extending ONE assignment does not
+// move it, the sentinel still fires, and the stop step used to lock the whole
+// group - demoting the extended cohort to `pull` before its own deadline.
+//
+// lockdown.mjs will not catch that. Its comment is explicit: "Gated on
+// `extended`, not on the deadline alone: a lecturer running a lockdown early
+// still locks the cohort." It trusts its caller, so the caller has to be right.
+
+test("dueAssignments skips only an assignment read as still in the future", () => {
+  const now = Date.parse("2026-09-10T22:00:00Z");
+  const byId = new Map([
+    ["past", new Date(now - 1000)],
+    ["exactly-now", new Date(now)],
+    ["moved-later", new Date(now + 3600_000)],
+  ]);
+  assert.deepEqual(
+    dueAssignments(["past", "exactly-now", "moved-later", "unreadable"], byId, now),
+    // `unreadable` is due: the armed instant is the best evidence we have and it
+    // has arrived. Only a deadline we positively READ as later is skipped.
+    ["past", "exactly-now", "unreadable"],
+  );
+});
+
+test("extending one assignment of a shared-instant group does not lock the others early", async () => {
+  const original = new Date(Date.now() + 200).toISOString();
+  const extended = new Date(Date.now() + 8 * HOUR).toISOString();
+  const dir = makeControlDir();
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: original, assignmentIds: "exam,exam-two" });
+      assert.equal(res.status, 0, res.stderr);
+      // It still fires: `exam` really is due, and the group's earliest has not
+      // moved. That is the whole trap.
+      assert.match(res.outputs, /fired=true/);
+      assert.match(
+        res.outputs,
+        /due_assignment_ids=exam\n/,
+        `only exam is due; exam-two was extended:\n${res.outputs}`,
+      );
+
+      const two = JSON.parse(readFileSync(join(dir, "lockdowns", "exam-two", "sentinel-TESTKEY.json"), "utf8"));
+      assert.equal(two.due, false, "exam-two must be recorded as not stopped");
+      // Its OWN deadline, not the group's instant - a record claiming a freeze
+      // at a time that was never this assignment's deadline is a false record.
+      assert.equal(two.deadline_at, new Date(extended).toISOString());
+
+      const one = JSON.parse(readFileSync(join(dir, "lockdowns", "exam", "sentinel-TESTKEY.json"), "utf8"));
+      assert.equal(one.due, true, "exam is due and must still be stopped");
+    },
+    { deadlineFor: (id) => (id === "exam-two" ? extended : original) },
+  );
+});
+
+test("a sample that ran out of pages is recorded as partial, not as a clean read", async () => {
+  // The timeline is EVIDENCE - it settles "I pushed before the deadline". A
+  // watched repository missing because the walk hit its page cap was
+  // indistinguishable from one that was never pushed, and the sample said ok.
+  // The sort is over ALL the org's repositories, so several cohorts pushing
+  // near a shared deadline can carry a watched repo past the cap.
+  const deadline = new Date(Date.now() + 250).toISOString();
+  const fullPage = (page) =>
+    Array.from({ length: 100 }, (_, i) => ({ name: `other-${page}-${i}`, pushed_at: "2026-09-10T21:59:00Z" }));
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(makeControlDir(), api, { deadlineAt: deadline, maxPages: 2 });
+      assert.equal(res.status, 0, res.stderr);
+      const sample = res.timeline.samples[0];
+      assert.ok(sample.error, `a capped walk must record why it is incomplete: ${JSON.stringify(sample)}`);
+      assert.match(sample.error, /capped at 2 page\(s\)/);
+      assert.match(sample.error, /0 of 1 watched/);
+    },
+    { deadlineFor: () => deadline, repos: fullPage },
+  );
+});
+
+test("a complete walk is still reported as clean", async () => {
+  // The other half: the guard above must not mark an ordinary read partial.
+  const deadline = new Date(Date.now() + 250).toISOString();
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(makeControlDir(), api, { deadlineAt: deadline });
+      const sample = res.timeline.samples[0];
+      assert.equal(sample.error, undefined, `an ordinary read carries no error: ${JSON.stringify(sample)}`);
+      assert.equal(sample.pushed_at["exam-alice"], "2026-09-10T21:12:00Z");
+    },
+    { deadlineFor: () => deadline },
   );
 });
