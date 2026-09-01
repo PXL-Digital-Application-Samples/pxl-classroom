@@ -127,4 +127,63 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await expect(err).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Save checks' })).toBeEnabled();
   });
+
+  // Reported from live use: the field wants `owner/repo` and what a lecturer
+  // has on the clipboard is an address bar, so pasting produced "Use the full
+  // name, e.g. ..." - a control refusing the ordinary way to fill it in and
+  // then explaining itself (DESIGN.md §1.5).
+  //
+  // tests/github-repo-ref.test.mjs covers what the parser makes of each shape.
+  // This is the other half, and the half a unit test cannot reach: that the
+  // parser is actually WIRED to the input event, that the box is rewritten
+  // rather than only the model, and that the pre-flight check then runs on the
+  // normalised value.
+  const templateBox = (page) => page.getByPlaceholder('Type or select a template repository');
+
+  test('A pasted GitHub URL is rewritten to owner/repo, and the field accepts it', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+
+    const box = templateBox(page);
+    await expect(box).toBeVisible();
+    await box.fill(`https://github.com/${ORG}/linux-template`);
+
+    await expect(box, 'the box shows what will be saved, not the URL').toHaveValue(
+      `${ORG}/linux-template`,
+    );
+    await expect(page.locator('.field-error-msg', { hasText: /Use the full name/ })).toHaveCount(0);
+    // The whole point: it reaches the pre-flight check, which is what tells the
+    // lecturer the template is real.
+    await expect(page.locator('.template-preflight-badge .badge-success')).toBeVisible({
+      timeout: 10000,
+    });
+  });
+
+  test('The "Use this template" URL is the likeliest paste, and it works too', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+
+    await templateBox(page).fill(`https://github.com/${ORG}/linux-template/generate`);
+    await expect(templateBox(page)).toHaveValue(`${ORG}/linux-template`);
+  });
+
+  test('A non-GitHub URL is left alone and still says what the field wants', async ({ page }) => {
+    // Normalising this to `x/y` would hand back a valid-looking value for a
+    // repository that cannot exist. The error is the honest answer.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+
+    await templateBox(page).fill('https://gitlab.com/x/y');
+    await expect(templateBox(page)).toHaveValue('https://gitlab.com/x/y');
+    await expect(page.locator('.field-error-msg', { hasText: /Use the full name/ })).toBeVisible();
+  });
 });

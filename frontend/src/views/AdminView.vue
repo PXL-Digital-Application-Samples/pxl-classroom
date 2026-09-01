@@ -984,6 +984,7 @@ import { summariseAutograde } from '../lib/autograde.js'
 // datetime-local <-> UTC conversion around it. See assignment-doc.js for what a
 // second, hand-maintained copy had already quietly dropped.
 import { buildAssignmentDoc, localToUtc, utcToLocalInput } from '../lib/assignment-doc.js'
+import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
@@ -1403,6 +1404,23 @@ function selectTemplate(t) {
 function onTemplateInput() {
   showTemplateDropdown.value = true
   activeDropdownIdx.value = -1
+
+  // A pasted GitHub URL becomes `owner/repo` in the box, as it lands. Nothing
+  // announces it: the red "Use the full name" clearing and the pre-flight badge
+  // turning green are the feedback, and a toast confirming something that
+  // worked is noise. See lib/github-repo-ref.js for why this is a rewrite
+  // rather than a better error message (DESIGN.md §1.5).
+  //
+  // On input rather than on paste or on blur. `@paste` misses drag-and-drop and
+  // autofill, and blur-only leaves the error on screen while the lecturer is
+  // still looking at it. Typing by hand converges too, because the rewrite
+  // fires only once owner AND repo are both present and the caret is already
+  // at the end.
+  const normalized = normalizeRepoRef(templateSearchText.value)
+  if (normalized && normalized !== templateSearchText.value) {
+    templateSearchText.value = normalized
+  }
+
   // Keep form.template in sync if they type exactly an item, or update form.template with text
   const match = templates.value.find(t => t.full_name.toLowerCase() === templateSearchText.value.toLowerCase().trim())
   form.value.template = match ? match.full_name : templateSearchText.value.trim()
