@@ -558,6 +558,31 @@ toast.success(`Team "${name}" updated successfully.`)
 
 `tests/button-honesty.test.mjs` sweeps for it now, with balanced-paren matching rather than a regex — the first draft used a lazy `[^;]*?` and reported `res.json().catch(() => null)` three lines away as a dead catch, which is a promise that genuinely does reject. It also pins the premise it rests on: that `ghApi` returns a result object rather than throwing.
 
+### The other way to throw the answer away is to not ask for it.
+
+`.catch()` on a resolving helper was one shape. Sweeping for the generalisation — `await f(...)` as a bare statement, result discarded — found two more, and this shape reads even more like success because there is nothing on the line to look wrong.
+
+`RosterTab.confirmUnlink` deleted the claim record and the failed-attempt counter and then said so:
+
+```js
+await deleteFile(token, org, repo, `students/claims/${id}.json`, message)
+await deleteFile(token, org, repo, `students/claim-attempts/${id}.json`, message)
+toast.success(`Unlinked @${login}. They can claim again.`)
+```
+
+`deleteFile` resolves `{ ok: false, status }` — its own GET-then-DELETE returns that shape for a missing file, and `ghApi` returns it for a 403. So a permission failure or a sha conflict left the binding in place, the `catch` never fired, and the lecturer read the one sentence that was certainly false. The counter delete is now 404-tolerant for the same reason the TeamsTable removal is: a student who never exhausted their attempts has no counter file, and that is the end state we wanted.
+
+`removeCollaborator` was the sharper one, because the discard was *labelled*:
+
+```js
+try { …cancel any pending invitation… } catch { /* non-critical */ }
+return res
+```
+
+Removing a collaborator does not withdraw an invitation they have not accepted yet. It stays live and they can accept it afterwards, back onto the repository they were just removed from — so the function's own docstring promised something its return value did not report. Both call sites in `TeamsTable` were already reading `.ok` correctly and were being handed the wrong `ok`. Two rules already written down cover it: **never describe behaviour the system does not have**, and **unreadable is not evidence** — a failed invitations *read* was being reported as "there was none". The cancel outcome now reaches the caller as a non-ok result and the existing `!res.ok && status !== 404` handling does the rest.
+
+`tests/button-honesty.test.mjs` sweeps for the shape and pins both fixes. Bare `f(...)` without `await` is deliberately not flagged: that shape here is a `Promise.all` array element, where the array collects every result — six of the first draft's eight hits were those. The sweep was verified by dropping a real offender into the tree and watching it fail, not by reading it.
+
 ### The copy button said "Copied" over an empty clipboard, and nobody could sign in.
 
 Reported from live use on 2026-09-01: *"copy code using the button does not copy code. no one can log in."* Both halves were the same bug. The device-flow card shows a user code that has to be pasted into GitHub; a student who cannot get it onto the clipboard cannot complete sign-in, and the code is the only thing standing between them and their repository.

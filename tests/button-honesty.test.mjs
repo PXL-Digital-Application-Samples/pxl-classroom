@@ -108,6 +108,79 @@ test("no .catch() is attached to a call that cannot reject", () => {
   );
 });
 
+/**
+ * Every helper in api.js that hands back a ghApi result. Wider than
+ * RESOLVING_API above, which lists the ones a `.catch()` had been attached to.
+ */
+const RESULT_RETURNING = [
+  "ghApi", "addCollaborator", "removeCollaborator", "getRepo", "getInvitations",
+  "getUserRepos", "acceptInvitation", "getInstallations", "getRepoContent",
+  "listRepoDir", "commitFile", "commitFiles", "deleteFile", "triggerWorkflow",
+  "getWorkflowRuns", "getWorkflowRunByRequestId", "listOrgRepos",
+  "listOrgTemplates", "validateTemplateRepository",
+];
+
+test("no awaited call throws its result away", () => {
+  // The other half of the same bug. `.catch()` on a resolving helper is one way
+  // to discard the answer; `await f(...)` as a bare statement is the other, and
+  // it reads even more like success:
+  //
+  //     await deleteFile(token, org, repo, `students/claims/${id}.json`, msg)
+  //     await deleteFile(token, org, repo, `students/claim-attempts/${id}.json`, msg)
+  //     toast.success(`Unlinked @${login}. They can claim again.`)
+  //
+  // deleteFile resolves `{ ok: false, status }`. A 403 or a conflict left the
+  // claim in place, the catch never fired, and the lecturer was told the
+  // student could claim again while they stayed bound to the old address.
+  //
+  // Bare `f(...)` without `await` is NOT flagged: that shape is a Promise.all
+  // array element here, where the array collects every result.
+  const offenders = [];
+  const re = new RegExp(`^\\s*await\\s+(${RESULT_RETURNING.join("|")})\\(`);
+  for (const [file, src] of files) {
+    if (file.endsWith("frontend/src/lib/api.js")) continue; // composes its own calls
+    src.split("\n").forEach((line, i) => {
+      const m = line.match(re);
+      if (m) offenders.push(`${file}:${i + 1} — result of ${m[1]}() discarded`);
+    });
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "These helpers RESOLVE `{ ok, status }` on an HTTP failure rather than " +
+      "throwing, so awaiting one without reading the result means the failure " +
+      "is invisible and whatever is announced next is announced regardless:\n  " +
+      offenders.join("\n  "),
+  );
+});
+
+test("unlinking a claim reports whether the claim was actually removed", () => {
+  const src = files.find(([f]) => f.endsWith("components/RosterTab.vue"))[1];
+  const fn = src.slice(src.indexOf("async function confirmUnlink"));
+  const body = fn.slice(0, fn.indexOf("\n}\n") + 3);
+  assert.match(body, /const claimRes = await deleteFile/, "the claim delete must be read");
+  assert.match(body, /if \(!claimRes\.ok\)/, "and must gate the success message");
+  // The attempt counter is usually absent - the student never exhausted it -
+  // so a 404 there is the end state we wanted, not a failure to report.
+  assert.match(body, /attemptsRes\.status !== 404/, "an absent attempt counter is not a failure");
+});
+
+test("removing a collaborator also withdraws an invitation they never accepted", () => {
+  // A pending invitation survives the collaborator DELETE. Reporting `ok` while
+  // one is still standing means the student can accept it afterwards and walk
+  // back onto the repository they were removed from.
+  const api = files.find(([f]) => f.endsWith("frontend/src/lib/api.js"))[1];
+  const fn = api.slice(api.indexOf("export async function removeCollaborator"));
+  const body = fn.slice(0, fn.indexOf("\n}\n") + 3);
+  assert.match(body, /invitationCleared/, "the cancel outcome must be tracked");
+  assert.match(body, /invitationPending: true/, "and must reach the caller as a non-ok result");
+  assert.doesNotMatch(
+    body,
+    /catch \{\s*\n\s*\/\/ non-critical/,
+    "a swallowed invitation read reports 'there was none' from a read that failed",
+  );
+});
+
 test("changing repository access reports what actually happened", () => {
   // The specific case, pinned: saveTeamMembers grants and revokes collaborator
   // access, and a lecturer who is told "updated successfully" over a failed

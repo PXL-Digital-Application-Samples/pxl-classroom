@@ -108,18 +108,39 @@ export async function addCollaborator(token, owner, repo, username, permission =
  */
 export async function removeCollaborator(token, owner, repo, username) {
   const res = await ghApi(token, 'DELETE', `/repos/${owner}/${repo}/collaborators/${username}`)
+
+  // Removing a collaborator does NOT withdraw an invitation they have not
+  // accepted yet. It stays live, and they can accept it afterwards - back onto
+  // the repository they were just removed from, with the permission it grants.
+  // So cancelling it is part of the removal, and whether it happened is part of
+  // the answer: this used to discard both results behind `// non-critical` and
+  // return `ok` from the collaborator DELETE alone, which is the "removed" that
+  // isn't. Unreadable is not evidence either - a failed invitation READ cannot
+  // be reported as "there was none".
+  let invitationCleared = false
+  let invitationStatus = 0
   try {
     const invRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/invitations`)
     if (invRes.ok && Array.isArray(invRes.data)) {
       const pending = invRes.data.find((inv) => inv.invitee?.login?.toLowerCase() === username.toLowerCase())
-      if (pending) {
-        await ghApi(token, 'DELETE', `/repos/${owner}/${repo}/invitations/${pending.id}`)
+      if (!pending) {
+        invitationCleared = true
+      } else {
+        const delRes = await ghApi(token, 'DELETE', `/repos/${owner}/${repo}/invitations/${pending.id}`)
+        invitationCleared = delRes.ok
+        invitationStatus = delRes.status
       }
+    } else {
+      invitationStatus = invRes.status
     }
-  } catch {
-    // non-critical
+  } catch (e) {
+    invitationStatus = e?.status ?? 0
   }
-  return res
+
+  // A failed removal is already the report; do not overwrite its status.
+  if (!res.ok) return res
+  if (invitationCleared) return res
+  return { ...res, ok: false, status: invitationStatus || res.status, invitationPending: true }
 }
 
 /**

@@ -543,13 +543,33 @@ async function confirmUnlink(student, binding) {
     const token = getToken()
     const id = binding.claim.github_id
     const message = `Unlink claim for @${binding.login} (${binding.claim.email})`
-    await deleteFile(token, props.org, controlRepo, `students/claims/${id}.json`, message)
+    // deleteFile RESOLVES `{ ok: false, status }`; it does not throw, so the
+    // catch below never sees a 403 or a conflict. Announcing the unlink
+    // without reading this told the lecturer the binding was gone while the
+    // student stayed locked to the old address.
+    const claimRes = await deleteFile(token, props.org, controlRepo, `students/claims/${id}.json`, message)
+    if (!claimRes.ok) {
+      toast.error(
+        `Could not unlink @${binding.login}: the claim record could not be removed (HTTP ${claimRes.status}). The binding is unchanged.`
+      )
+      await loadClaims()
+      return
+    }
     // The attempt counter goes too, and that is the point rather than tidiness:
     // a lecturer unlinks because the binding is wrong, which usually means the
     // student has been failing to claim - and an exhausted counter locks them
     // out of the door that was just reopened.
-    await deleteFile(token, props.org, controlRepo, `students/claim-attempts/${id}.json`, message)
-    toast.success(`Unlinked @${binding.login}. They can claim again.`)
+    //
+    // 404 is the end state we wanted: a student who never exhausted their
+    // attempts has no counter file, which is the common case and not a failure.
+    const attemptsRes = await deleteFile(token, props.org, controlRepo, `students/claim-attempts/${id}.json`, message)
+    if (!attemptsRes.ok && attemptsRes.status !== 404) {
+      toast.warning(
+        `Unlinked @${binding.login}, but their failed-attempt counter could not be cleared (HTTP ${attemptsRes.status}). If they are locked out, clear it before they retry.`
+      )
+    } else {
+      toast.success(`Unlinked @${binding.login}. They can claim again.`)
+    }
     await loadClaims()
   } catch (e) {
     toast.error(`Could not unlink: ${e?.message || e}`)
