@@ -153,7 +153,13 @@ jobs:
           elif [ -f "$JSON" ]; then
             # Same reason the revert handles both: a JSON assignment recorded no
             # prior state, so the revert had nothing to restore it to.
-            STATE=$(node -p "require('./$JSON').state || ''" 2>/dev/null || true)
+            #
+            # Not `node -p "require('./$JSON')…"`: that is inline JS in workflow
+            # YAML with a shell value composed into its source text, and its
+            # `2>/dev/null || true` turned an unreadable file into "no prior
+            # state" - which is the one answer that makes the revert strand the
+            # assignment. A file that cannot be parsed now fails here instead.
+            STATE=$(node scripts/read-json-field.mjs "$JSON" state)
           fi
           echo "state=${STATE}" >> "$GITHUB_OUTPUT"
           echo "Prior state: ${STATE:-<unknown>}"
@@ -251,7 +257,15 @@ jobs:
           # credentials embedded writes them into .git/config and quotes them
           # back in every error message git prints, on a public repository's
           # run log.
-          git config http.https://github.com/.extraheader             "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          #
+          # What the header buys is exactly that, and no more: `git config`
+          # writes it into .git/config just as an embedded credential would, so
+          # the on-disk copy is the residual. Unset it as soon as the push is
+          # done rather than leaving it for the runner to discard - on the
+          # failure path too, which is what the trap is for. setup-org.yml has
+          # carried this since it learned the same thing.
+          trap 'git config --unset http.https://github.com/.extraheader 2>/dev/null || true' EXIT
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git remote add origin "https://github.com/${ORG}/${BROKER_REPO}.git"
 
           # Continue the broker's existing history rather than force-pushing a

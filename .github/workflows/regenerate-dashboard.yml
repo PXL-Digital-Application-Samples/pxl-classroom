@@ -61,7 +61,10 @@ jobs:
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control add public/ reports/ || true
+          # See daily-activity.yml: a missing pathspec makes `git add` stage
+          # nothing at all, and `|| true` turns that into a green "No changes."
+          mkdir -p control/public control/reports
+          git -C control add public/ reports/
           if git -C control diff --cached --quiet; then
             echo "No changes."
             exit 0

@@ -46,10 +46,10 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **Every dispatchable workflow that reads a hub credential rejects a `[bot]` actor as its first step** — unless another workflow legitimately dispatches it, or a guarded job sits upstream in its `needs:` graph.
 - **The provisioning App's key never reaches a broker.** Brokers hold the *broker* App's key: hub repo only, `contents: write` only. Publishing fails closed if it is unset rather than falling back.
 - **Every action is pinned to a SHA**, never a tag. App tokens are minted with `client-id`, never `app-id`.
-- **Credentials never appear in a git command line or a remote URL.** Use `http.<host>/.extraheader`; unset it when done.
+- **Credentials never appear in a git command line or a remote URL.** Use `http.<host>/.extraheader`, and unset it in a `trap … EXIT` — `git config` writes the header into `.git/config` exactly as an embedded credential would, so the on-disk copy is the residual and the step that dies mid-push must not be the one that leaves it behind.
 - **`.tools/`, `.claude/` and `.env*` stay gitignored.** GitHub push protection blocks provider tokens, but not the P-256 keys this system mints.
 - **Two entry points run with NO `npm ci`** — `scripts/verify-invite-token.mjs` on the broker and `scripts/scaffold-control-repo.mjs` in `setup-org.yml`. A bare specifier anywhere in either import graph is a total outage, not a slow start. `#deployment` is the live trap.
-- **`git add <dir>/` is fatal when the directory is absent** — exits 128 and stages nothing. `mkdir -p` immediately before it, within four lines.
+- **`git add <dir>/` is fatal when the directory is absent** — exits 128 and stages nothing, *including the pathspecs that did match*. `mkdir -p` immediately before it, within four lines. **`|| true` is not the fix, it is the worse failure**: the step then stages nothing, `diff --cached --quiet` is true, and it exits 0 reporting "no changes". `git add -A` is safe — no pathspec to miss.
 - **`gh` writes API errors to stdout.** Guard on the exit code, then validate the shape; `--jq` prints the string `null` for a missing field.
 - **Narrowing a GitHub App permission is instant; restoring one needs every org owner to approve.** Check the code, not the changelog, before removing one.
 
@@ -74,8 +74,8 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **Never describe behaviour the system does not have.** A control that promises a queue, a retry or a guarantee nobody implemented is worse than no control.
 - **The UI never points a user at the repo's documentation** (DESIGN.md §1.6, `tests/doc-refs.test.mjs`). The runbooks are for whoever operates a deployment; a student who cannot sign in is not that person. Say what happened and who can fix it. Comments are exempt — that is where a `§` reference belongs.
 - **Dry-run is sacred.** Every CLI `--dry-run` has zero side effects — no writes, no PRs, no commits.
-- **Generated YAML is serialised, never concatenated.** Build an object, hand it to the `yaml` library.
-- **No inline `node -e` in workflow YAML.** Extract to `scripts/`.
+- **Generated YAML is serialised, never concatenated.** Build an object, hand it to the `yaml` library. One exception, and it is forced: `setup-org.yml` appends to `participating-orgs.yml` with `printf`, because that workflow deliberately runs with **no `npm ci`** and so cannot have the `yaml` library. It is safe only because both values are checked against `^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$` first — keep that validation next to any change there.
+- **No inline JavaScript in workflow YAML** — `node -e`, `node -p`, `--eval`, `--print`. Extract to `scripts/`. eslint cannot see it, the tests cannot import it, and every value in it arrives by *shell* substitution into the source text.
 - **Never compose an archive name or a `preserved/` URL yourself** — `lib/archive-repo.mjs` decides where a preservation *is* versus where a new one *goes*.
 - **Every deadline comparison is the deadline for *that student*** — `lib/effective-deadline.mjs` decides, nothing else.
 - **`max_acceptances` can overshoot, and that is a decision.** Do not "fix" it by serialising every acceptance.

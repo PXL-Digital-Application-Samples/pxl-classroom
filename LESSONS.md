@@ -805,6 +805,26 @@ A GitHub list endpoint answers with a page; reading it and then making a stateme
 
 A *secondary* limit answers 403 **or** 429, does not necessarily zero `x-ratelimit-remaining`, and does not always send `retry-after` - it announces itself in the **message**, so a header-only test misses it and the call fails outright instead of backing off. `retryDelayMs` honours `retry-after`, waits out a primary limit's `x-ratelimit-reset` when it is near, falls back to GitHub's documented 60 s floor for a secondary limit, and still returns `null` for a permission 403, which carries neither the headers nor the wording. `lib/gittree.mjs` (large multi-file commits - seeding a cohort's teams) and `lib/gh.mjs` (provisioning, collect, lockdown, preserve, report, notify, usage, team-payload read) both import it; `gittree` had the fix and `gh` did not, which is exactly the fork the shared module exists to prevent. **`gh()` must read the response body before deciding to retry** - the signal is in `data.message`. `tests/rate-limit.test.mjs` fails if either file grows its own copy.
 
+### `|| true` on a `git add` is not a safety net, it is the silent version of the same bug.
+
+The guard for *"no workflow stages a control-repo directory that might not exist"* exempted `|| true` with the comment *"also safe: neither is fatal"* — and that was wrong against the guard's own premise, three paragraphs higher in the same file, which already said `git add` on a missing pathspec "stages nothing at all - not even the pathspecs that did match". Measured rather than argued:
+
+```
+$ git add missing/ present/          # present/f.txt has a real, staged-worthy change
+fatal: pathspec 'missing/' did not match any files
+exit=128
+$ git diff --cached --name-only
+(nothing)
+```
+
+So `|| true` swallows the 128, `diff --cached --quiet` is true, and the step **exits 0 reporting "No changes."** Not fatal, and therefore invisible: the version without it at least turns the step red. Two workflows had it — `daily-activity` staging `observations/ lockdowns/ reports/` after finalising a deadline, and `regenerate-dashboard` staging `public/ reports/`. On a control repo missing any one of those, both would have computed the work, committed none of it, and gone green; and `find-finalizable` decides whether to retry from exactly those records. The precedent was already written down in that comment: `teams/` joined the staging list on 2026-08-19 and two live orgs did not have it. **Not fatal is not the same as not broken** — when the remedy for a loud failure is to silence it, the guard is now enforcing the quiet one.
+
+### A rule that lives only in CLAUDE.md is a rule with a spelling.
+
+`node -p "require('./$JSON').state || ''"` sat in `publish-assignment.yml` under a rule that says **No inline `node -e` in workflow YAML**. Nothing enforced it, so the rule was only as good as the reviewer remembering that `-p` is `--print` is the same thing as `-e`. It broke three rules at once, in eleven characters: inline JS in YAML, a shell value composed into JS *source text*, and `2>/dev/null || true` turning an unreadable assignment file into "no prior state" — which is the one answer that makes the failure-revert strand the assignment it was written to rescue. It is `scripts/read-json-field.mjs` now, with the absent-field and unreadable-file cases pinned apart, because those two had been the same answer.
+
+The same sweep found `publish-assignment.yml` setting `http.<host>/.extraheader` and never unsetting it, while `setup-org.yml` one file away had carried a `trap … EXIT` for months with a comment explaining exactly why. Both rules have guards now. The lesson is not about either bug: **the rules with tests behind them were all clean, and every violation found was under a rule that had none.** The credential rules with guards — SHA pinning, `environment: provisioning`, the `[bot]` dispatch refusal, `${{ }}` never reaching a script — were at zero, and the `[bot]` guard in particular is worth reading as a model: it derives the class instead of listing files, computes the "legitimately machine-dispatched" exemption from real dispatch calls, resolves `needs:` transitively, and asserts a floor so a walk that stops matching cannot look like a clean repo.
+
 ## Tests and guards
 
 ### A guard whose anchor was renamed away checks nothing, silently.

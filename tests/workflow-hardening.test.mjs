@@ -501,7 +501,24 @@ test("no workflow stages a control-repo directory that might not exist", () => {
   // and, as this repo found the hard way, a shell helper defined in one `run:`
   // block does not exist in the next one.
   //
-  // `|| true` and `git add -A` are also safe: neither is fatal.
+  // `|| true` was exempted here as "also safe: not fatal". That was wrong, and
+  // it was wrong against this comment's own premise. Measured:
+  //
+  //     $ git add missing/ present/    # present/f.txt has a real change
+  //     fatal: pathspec 'missing/' did not match any files
+  //     exit=128
+  //     $ git diff --cached --name-only
+  //     (nothing)
+  //
+  // So with `|| true` the 128 is swallowed, `diff --cached --quiet` is TRUE,
+  // and the step exits 0 having staged none of the work - including the
+  // pathspecs that did match. Not fatal, and therefore INVISIBLE: the fatal
+  // version at least turns the step red. Two workflows had exactly this
+  // (daily-activity staging observations/lockdowns/reports, regenerate-dashboard
+  // staging public/reports) and would have silently committed nothing on a
+  // control repo missing one of them.
+  //
+  // `git add -A` stays exempt - it carries no pathspec, so it cannot miss one.
   const offenders = [];
   for (const file of readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f))) {
     const raw = readFileSync(join(WORKFLOW_DIR, file), "utf8");
@@ -509,8 +526,7 @@ test("no workflow stages a control-repo directory that might not exist", () => {
     lines.forEach((line, i) => {
       if (!/git\s+(-C\s+\S+\s+)?add\s/.test(line)) return;
       if (/^\s*#/.test(line)) return;
-      if (/\|\|\s*true/.test(line)) return;           // tolerated on purpose
-      if (/add\s+-A\b|add\s+\.$/.test(line)) return;  // stages whatever is there
+      if (/add\s+-A\b|add\s+\.$/.test(line)) return;  // no pathspec to miss
       if (/git\s+remote\s+add/.test(line)) return;
 
       const dirs = [...line.matchAll(/["']?([a-z][a-z-]*)\/["']?/g)].map((m) => m[1]);
@@ -533,6 +549,56 @@ test("no workflow stages a control-repo directory that might not exist", () => {
     "git add is fatal on a missing directory, and these are unguarded:\n" +
       offenders.map((o) => `  ${o}`).join("\n"),
   );
+});
+
+test("a credential written into .git/config is unset again", () => {
+  // `http.<host>/.extraheader` keeps the token out of the remote URL, which is
+  // what stops git quoting it back in an error message on a public run log.
+  // It does NOT keep it out of the filesystem: `git config` writes the header
+  // into .git/config exactly as an embedded credential would, so the on-disk
+  // copy is the residual and it gets unset rather than left for the runner to
+  // discard.
+  //
+  // A `trap ... EXIT` rather than a trailing command, because the step that
+  // dies mid-push must not be the one that leaves the header behind.
+  // publish-assignment.yml set the header and never unset it, while
+  // setup-org.yml one file away had carried the trap for months.
+  const offenders = [];
+  for (const file of [...readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f)).map((f) => join(WORKFLOW_DIR, f)),
+                      join(root, "acceptance", "broker-workflow.yml")]) {
+    if (!existsSync(file)) continue;
+    const raw = readFileSync(file, "utf8");
+    const name = relative(root, file).replace(/\\/g, "/");
+    const sets = raw.split("\n").some((l) => /^\s*git config .*\.extraheader/.test(l) && !/^\s*#/.test(l));
+    if (!sets) continue;
+    if (!/git config --unset [^\n]*\.extraheader/.test(raw)) {
+      offenders.push(`${name} sets .extraheader and never unsets it`);
+    } else if (!/trap\s+'[^']*--unset[^']*\.extraheader/.test(raw)) {
+      offenders.push(`${name} unsets .extraheader outside a trap, so a failed push leaves it behind`);
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+});
+
+test("no workflow runs JavaScript inline", () => {
+  // Inline JS in workflow YAML is unreviewable and unlintable: eslint does not
+  // see it, the repo's own test suite cannot import it, and every value in it
+  // arrives by SHELL substitution into the source text.
+  //
+  // publish-assignment.yml carried `node -p "require('./$JSON').state || ''"`
+  // past this rule because the rule was only ever written in CLAUDE.md, and it
+  // says `node -e`. `-p`/`--print` and `--eval` are the same thing.
+  const offenders = [];
+  for (const { file } of workflows()) {
+    const raw = readFileSync(join(WORKFLOW_DIR, file), "utf8");
+    raw.split("\n").forEach((line, i) => {
+      if (/^\s*#/.test(line)) return;
+      if (/\bnode\s+(-e|-p|--eval|--print)\b/.test(line)) {
+        offenders.push(`${file}:${i + 1} runs inline JavaScript - extract it to scripts/`);
+      }
+    });
+  }
+  assert.deepEqual(offenders, [], offenders.join("\n"));
 });
 
 test("a reusable workflow has a caller, and every workflow can actually fire", () => {

@@ -238,7 +238,14 @@ jobs:
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control add observations/ lockdowns/ reports/ || true
+          # `git add a/ b/ c/` with ANY of them missing exits 128 and stages
+          # NOTHING - not even the ones that matched. `|| true` then swallows
+          # that, `diff --cached --quiet` is true, and the step exits 0 having
+          # committed none of the finalisation it just computed. A control repo
+          # scaffolded before a directory joined CONTROL_SCAFFOLD_DIRS has that
+          # shape today. mkdir -p is a no-op when the directory is there.
+          mkdir -p control/observations control/lockdowns control/reports
+          git -C control add observations/ lockdowns/ reports/
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Finalize deadline for ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
