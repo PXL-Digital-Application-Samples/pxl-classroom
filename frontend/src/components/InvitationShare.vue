@@ -77,6 +77,7 @@ import { getRepoContent } from '../lib/api.js'
 import { invitationUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
+import { copyText } from '../lib/clipboard.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -244,7 +245,14 @@ async function copy() {
       toast.error('No invitation link yet - publish this assignment to mint one.')
       return
     }
-    await navigator.clipboard.writeText(invitationUrl(props.org, value))
+    // lib/clipboard.js, not navigator.clipboard: the API rejects on an
+    // unfocused document, and the helper falls back to execCommand there. This
+    // reported the failure honestly - it just failed more often than it needed
+    // to.
+    if (!(await copyText(invitationUrl(props.org, value)))) {
+      toast.error('Could not copy the link')
+      return
+    }
     copied.value = true
     clearTimeout(copiedTimer)
     copiedTimer = setTimeout(() => { copied.value = false }, 2000)

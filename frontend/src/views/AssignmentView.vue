@@ -466,6 +466,7 @@ import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
 import { toast } from '../lib/toast.js'
+import { copyText } from '../lib/clipboard.js'
 // Shared with acceptance/accept.mjs, so the page and the gate agree on which
 // mode is in force - fail-closed fallback included.
 import { normalizeRosterMode, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
@@ -1129,15 +1130,14 @@ async function checkAgain() {
 
 function copyRepoUrl() {
   if (repoUrl.value) {
-    navigator.clipboard.writeText(repoUrl.value).then(
-      () => {
+    copyText(repoUrl.value).then((ok) => {
+      if (ok) {
         repoCopied.value = true
         setTimeout(() => { repoCopied.value = false }, 2000)
-      },
-      () => {
+      } else {
         toast.error('Could not copy repository URL')
       }
-    )
+    })
   }
 }
 

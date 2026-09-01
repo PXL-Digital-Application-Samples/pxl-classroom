@@ -2061,6 +2061,14 @@ const canSave = computed(() => {
 
 // ---------------------------------------------------------------- save / publish
 
+/**
+ * Writes the assignment YAML. Returns whether it was actually saved.
+ *
+ * It used to return nothing, and `saveAndPublish` read that as success: on an
+ * already-published assignment it went straight on to dispatch the publish
+ * workflow even when the commit had failed, so the run went out against a YAML
+ * that was never written.
+ */
 async function saveAssignment(stateOverride = null) {
   // Touch all fields to show error styling
   for (const k of Object.keys(touchedFields.value)) {
@@ -2068,17 +2076,17 @@ async function saveAssignment(stateOverride = null) {
   }
   if (Object.keys(fieldErrors.value).length > 0) {
     toast.error('Validation failed. Please fix the errors in the form.')
-    return
+    return false
   }
   if (!(await validate(stateOverride))) {
     toast.error('Validation failed. Please fix the issues listed below the form.')
-    return
+    return false
   }
   if (isNew.value) {
     const slug = form.value.id
     if (assignments.value.some((a) => a.id === slug)) {
       toast.error(`${slug} already exists; pick another slug or edit the existing assignment.`)
-      return
+      return false
     }
     try {
       const token = getToken()
@@ -2086,7 +2094,7 @@ async function saveAssignment(stateOverride = null) {
       const exists = await getRepoContent(token, props.org, config.controlRepo, path)
       if (exists !== null) {
         toast.error(`${slug} already exists; pick another slug or edit the existing assignment.`)
-        return
+        return false
       }
     } catch { /* ignore and let commitFile handle any errors */ }
   }
@@ -2107,9 +2115,10 @@ async function saveAssignment(stateOverride = null) {
       if (form.value.state === 'published') {
         verifyLiveInfrastructure(form.value.id)
       }
-    } else {
-      toast.error(`Save failed: ${res.data?.message || 'unknown error'}`)
+      return true
     }
+    toast.error(`Save failed: ${res.data?.message || 'unknown error'}`)
+    return false
   } finally {
     saving.value = false
   }
@@ -2121,7 +2130,9 @@ async function saveAssignment(stateOverride = null) {
 async function saveAndPublish() {
   // Save current edits first (with state=published) then trigger publish workflow.
   if (form.value.state === 'published') {
-    await saveAssignment()
+    // Gated on the save actually landing: dispatching the publish workflow for
+    // a YAML the commit failed to write runs it against the OLD document.
+    if (!(await saveAssignment())) return
     if (brokerExists.value === false) {
       await publishExisting()
     }

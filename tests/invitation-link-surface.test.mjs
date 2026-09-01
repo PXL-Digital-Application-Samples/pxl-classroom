@@ -291,7 +291,11 @@ test('copying with no invitation reports it instead of writing "null"', () => {
   const src = SHARE();
   const fn = src.slice(src.indexOf("async function copy()"));
   const guard = fn.indexOf("if (!value)");
-  const write = fn.indexOf("clipboard.writeText");
+  // `copyText(`, not `clipboard.writeText`: the write goes through
+  // lib/clipboard.js now, which carries the execCommand fallback for an
+  // unfocused document. The `write > -1` below is what keeps this from passing
+  // vacuously when the anchor moves again.
+  const write = fn.indexOf("copyText(");
   assert.ok(guard > -1, "copy() must guard against a null token");
   assert.ok(write > -1 && guard < write, "the guard must come before the clipboard write");
 });

@@ -376,6 +376,7 @@ import { getToken } from '../lib/auth.js'
 import { config } from '../lib/config.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
+import { copyText } from '../lib/clipboard.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
@@ -896,15 +897,14 @@ function startSwitchTeam() {
 
 function copyRepoUrl() {
   if (repoUrl.value) {
-    navigator.clipboard.writeText(repoUrl.value).then(
-      () => {
+    copyText(repoUrl.value).then((ok) => {
+      if (ok) {
         repoCopied.value = true
         setTimeout(() => { repoCopied.value = false }, 2000)
-      },
-      () => {
+      } else {
         toast.error('Could not copy repository URL')
       }
-    )
+    })
   }
 }
 </script>

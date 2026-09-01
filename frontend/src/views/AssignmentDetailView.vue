@@ -982,10 +982,11 @@ import { validateAgainst } from '../lib/validate.js'
 import { parseCheckRunScore, pickAutogradeCheckRun, fetchCheckRunAnnotations } from '../lib/check-run-score.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
+import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { archiveBranchName, archiveBranchUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
-import { buildDashboardEntry } from '../../../lib/dashboard-aggregate.mjs'
+import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const REFRESH_CONCURRENCY = 6
@@ -1104,8 +1105,24 @@ function startDailyWatch() {
   const tick = async () => {
     dailyPollCount.value++
     const token = getToken()
+    // `getRepoContent` THROWS on anything that is not a 404 - a 401, a 403, a
+    // 5xx. This await was outside any catch, so one failed read rejected the
+    // async tick, nothing rescheduled the timer, and the poll simply stopped:
+    // `dailyWatch` stayed 'watching' for ever, because the timeout below lives
+    // inside the function that threw. A spinner that cannot end is worse than
+    // an error, and the run it is watching may well have succeeded.
     if (token) {
-      const content = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`)
+      let content
+      try {
+        content = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`)
+      } catch (e) {
+        stopDailyWatch()
+        dailyWatch.value = ''
+        toast.error(
+          `Stopped watching for the report: ${e.message || e}. The workflow may still be running - reload to check.`,
+        )
+        return
+      }
       if (content) {
         try {
           report.value = JSON.parse(content)
@@ -1242,9 +1259,21 @@ const preservationUncertaintySeconds = computed(() => {
 })
 
 // Capacity Alert & 1-Click Bumper Logic (2.D)
-const acceptedStudentsCount = computed(() =>
-  (report.value?.students || []).filter((s) => s.repo_name || s.acceptance_state === 'accepted' || s.status !== 'no-submission').length
-)
+//
+// `countAccepted`, not a predicate spelled out here. The local one read
+//
+//     s.repo_name || s.acceptance_state === 'accepted' || s.status !== 'no-submission'
+//
+// and report rows have `submission_status`, not `status` - the schema is
+// `additionalProperties: false`, so `s.status` was undefined on every row,
+// `undefined !== 'no-submission'` was true, and the chain short-circuited to
+// true for the whole cohort. A report carries a row per ROSTER student, so this
+// counted everyone who had not accepted as having accepted: the capacity alert
+// fired on cohorts nowhere near their cap, and the share block reported "cap
+// reached" over an empty one. This same file already wrote the correct number
+// to reports/dashboard.json through buildDashboardEntry, so one assignment had
+// two accepted counts that disagreed.
+const acceptedStudentsCount = computed(() => countAccepted(report.value?.students))
 
 const capacityAlert = computed(() => {
   const cap = assignment.value?.max_acceptances
@@ -1739,7 +1768,12 @@ const filteredStudents = computed(() => {
     list = list.filter((s) => {
       const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
       const profile = userProfilesByLogin.value.get(s.github_login?.toLowerCase())
-      const fullName = (s.name || s.full_name || roster?.name || roster?.full_name || profile?.name || (!isBot(s.author_name) ? s.author_name : '') || '').toLowerCase()
+      // `full_name` on both, not `name`: neither report.schema.json's student
+      // items nor roster.schema.json's declare a `name`, and the report's are
+      // `additionalProperties: false` - so `s.name` and `roster.name` were
+      // always undefined. Harmless in an `||` chain, unlike the `s.status`
+      // that made the accepted count wrong, but the same mis-spelling.
+      const fullName = (s.full_name || roster?.full_name || profile?.name || (!isBot(s.author_name) ? s.author_name : '') || '').toLowerCase()
       const email = (s.email || roster?.email || s.author_email || profile?.email || '').toLowerCase()
       const studentNr = (s.student_number || roster?.student_number || '').toLowerCase()
       const classGroup = (s.class_group || roster?.class_group || '').toLowerCase()
@@ -2294,20 +2328,24 @@ function downloadManifest() {
   URL.revokeObjectURL(url)
 }
 
+// `copyText`, not navigator.clipboard directly. The API rejects outright when
+// the document is not focused - which is the failure that made the sign-in
+// button report "Copied" over an empty clipboard - and lib/clipboard.js carries
+// the execCommand fallback written for it. These two reported failure honestly,
+// but they failed where the shared helper succeeds.
+function copyCliCommand(cmd) {
+  copyText(cmd).then((ok) => {
+    if (ok) toast.success('CLI command copied')
+    else toast.error('Could not copy command')
+  })
+}
+
 function copyDownloadCmd() {
-  const cmd = `pxl-classroom download --org ${props.org} --assignment ${props.assignmentId} --dir ./${props.assignmentId} --concurrency 4`
-  navigator.clipboard.writeText(cmd).then(
-    () => toast.success('CLI command copied'),
-    () => toast.error('Could not copy command'),
-  )
+  copyCliCommand(`pxl-classroom download --org ${props.org} --assignment ${props.assignmentId} --dir ./${props.assignmentId} --concurrency 4`)
 }
 
 function copyGradeCmd() {
-  const cmd = `pxl-classroom grade --org ${props.org} --assignment ${props.assignmentId} --runner docker --concurrency 2`
-  navigator.clipboard.writeText(cmd).then(
-    () => toast.success('CLI command copied'),
-    () => toast.error('Could not copy command'),
-  )
+  copyCliCommand(`pxl-classroom grade --org ${props.org} --assignment ${props.assignmentId} --runner docker --concurrency 2`)
 }
 
 function clearFilters() {

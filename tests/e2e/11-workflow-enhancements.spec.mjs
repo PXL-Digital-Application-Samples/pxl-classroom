@@ -29,7 +29,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
           students: [
             {
               github_login: 'student-ontime',
-              name: 'Alice OnTime',
+              full_name: 'Alice OnTime',
               acceptance_state: 'accepted',
               submission_status: 'on-time',
               preservation_status: 'preserved',
@@ -39,7 +39,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
             },
             {
               github_login: 'student-late',
-              name: 'Bob Late',
+              full_name: 'Bob Late',
               acceptance_state: 'accepted',
               submission_status: 'late',
               preservation_status: 'failed',
@@ -48,7 +48,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
             },
             {
               github_login: 'student-nosub',
-              name: 'Charlie NoSub',
+              full_name: 'Charlie NoSub',
               acceptance_state: 'accepted',
               submission_status: 'no-submission',
               commit_count: 1,
@@ -365,8 +365,13 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
           assignment_id: 'lab-summary-filter',
           students: [
             {
+              // `full_name`, not `name`. report.schema.json declares full_name
+              // and is additionalProperties:false, so `name` is a field the
+              // backend never writes - and this fixture only worked because the
+              // view read `s.name` as a fallback, which was the same
+              // mis-spelling as the `s.status` that broke the accepted count.
               github_login: 'student-ontime',
-              name: 'Alice OnTime',
+              full_name: 'Alice OnTime',
               acceptance_state: 'accepted',
               submission_status: 'on-time',
               preservation_status: 'preserved',
@@ -375,7 +380,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
             },
             {
               github_login: 'student-late',
-              name: 'Bob Late',
+              full_name: 'Bob Late',
               acceptance_state: 'accepted',
               submission_status: 'late',
               commit_count: 7,
@@ -383,7 +388,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
             },
             {
               github_login: 'student-nosub',
-              name: 'Charlie NoSub',
+              full_name: 'Charlie NoSub',
               acceptance_state: 'accepted',
               submission_status: 'no-submission',
               commit_count: 1,

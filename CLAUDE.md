@@ -61,6 +61,7 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **A deployment.yml value is read, never re-spelled.** JavaScript imports `#deployment`; YAML cannot, so `tests/deployment-literals.test.mjs` checks the workflows and the CORS Worker against it.
 - **Unreadable is not evidence.** A read that failed yields *no* check, never a green one and never "none found".
 - **Absent and empty are different answers.** A truthy check silently re-imposes a rule someone deliberately removed.
+- **A schema field spelled wrong compares as a constant.** Report rows are `additionalProperties: false`, so `s.status` (the field is `submission_status`) is `undefined` on every row and `!== 'x'` is always true — which counted a whole roster as having accepted. `===` fails closed and is survivable; `!==` fails open. `tests/report-row-fields.test.mjs` sweeps comparisons against undeclared row fields; a dead `||` fallback is deliberately not flagged.
 - **Fail closed.** An unrecognised `roster_mode` is `enforced`; an absent nonce rejects; an absent `lock_down_enabled` is `true`. Never relax one of these to match a form default.
 - **Merge, never replace.** A document rebuilt field-by-field from what a form shows drops whatever nobody listed. Read the stored document, spread it, override only what changed — and validate before committing.
 - **One source of truth per cross-surface concern.** Don't fork a shared `lib/` module into a second implementation; the tests fail if you do.

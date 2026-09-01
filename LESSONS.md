@@ -757,6 +757,24 @@ The eslint config exists because "a component that renders a value it never decl
 
 And a methodological one, the same shape as *a scripted transform must be verified by something that does not share its logic*: the regex scanner that started this reported **53** undefined template bindings. The real Vue AST parser reported **zero**, and it was the parser that was right - the scanner was truncating object keys (`{ active: … }` → `activ`) and losing props to comments inside `defineProps`. It was verified against a deliberately broken file first, so its zero was known not to be a vacuous pass. A hand-rolled parser competing with the one the framework ships is a source of findings that do not exist.
 
+### A field that does not exist compares as a constant, and `!==` is the dangerous half.
+
+`AssignmentDetailView` counted acceptances with
+
+```js
+s.repo_name || s.acceptance_state === 'accepted' || s.status !== 'no-submission'
+```
+
+The field is `submission_status`. `report.schema.json`'s student items are `additionalProperties: false`, so `s.status` was **never** a row field: `undefined !== 'no-submission'` is true, the `||` chain short-circuited on every row, and the count was the whole roster. A report carries a row per roster student, `acceptance_state: 'not-accepted'` included — so on a 30-student cohort with 8 acceptances and a cap of 10, the panel showed **30 accepted and raised "cap reached" with two slots free**, and the invitation share block said students could not accept when they could.
+
+Two things make it worth writing down rather than just fixing.
+
+**The correct rule was already in the file.** The same view imports `lib/dashboard-aggregate.mjs` and calls `buildDashboardEntry` to WRITE `accepted: students.filter(s => s.acceptance_state !== 'not-accepted')` into `reports/dashboard.json`. One file, one cohort, two accepted counts — one persisted and one displayed, disagreeing. The predicate is `countAccepted()` now and both callers use it.
+
+**The mis-spelling was there twice, and only one instance was fatal.** The search filter read `s.name || s.full_name || roster?.name || …` — also fields no schema declares, also always `undefined`, and completely harmless because they sit in an `||` chain. That is the discriminator `tests/report-row-fields.test.mjs` sweeps on: it flags a **comparison** against an undeclared row field, because that is a branch which can never be taken, and ignores a dead fallback, because a guard that reported both would be argued with until somebody switched it off.
+
+Removing `s.name` then failed an e2e test, which is the third thing: the fixture had written `name: 'Alice OnTime'` onto a report row, a field the backend cannot produce, and **the test only passed because the app read the same wrong field**. Fixture and code agreed with each other and with nothing else. That is the shape already recorded two entries below as *two fixtures described a system that does not exist* — here the app was one of the two.
+
 ### The field wanted `owner/repo` and the clipboard held an address bar.
 
 Reported from live use. Pasting `https://github.com/PXL-SNE-AutomationAndScripting2627/ps-02-ext_lab` into *Template repository* produced *"Use the full name, e.g. .../linux-template"* - a required field refusing the most ordinary way anyone fills one in, then explaining itself. The reporter's own words for what it costs: people paste, swear, read the message, and only then realise they have to edit the URL by hand. DESIGN.md §1.5 has one answer for that shape and it is **never a better message** - give the system the behaviour. `lib/github-repo-ref.js` normalises to `owner/repo` on input.

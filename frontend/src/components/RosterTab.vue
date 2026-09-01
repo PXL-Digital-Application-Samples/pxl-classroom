@@ -345,6 +345,7 @@ import { commitFile, getRepoContent, listClaims, deleteFile } from '../lib/api.j
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
+import { copyText } from '../lib/clipboard.js'
 
 const props = defineProps({ org: { type: String, required: true } })
 
@@ -396,10 +397,13 @@ function copyUnlinkedEmails() {
     return
   }
   const formatted = emails.join('; ')
-  navigator.clipboard.writeText(formatted).then(
-    () => toast.success(`Copied ${emails.length} unlinked email(s) to clipboard`),
-    () => toast.error('Failed to copy emails to clipboard')
-  )
+  // `copyText`, not navigator.clipboard directly: the API rejects outright when
+  // the document is not focused, and lib/clipboard.js carries the execCommand
+  // fallback that exists because of it.
+  copyText(formatted).then((ok) => {
+    if (ok) toast.success(`Copied ${emails.length} unlinked email(s) to clipboard`)
+    else toast.error('Failed to copy emails to clipboard')
+  })
 }
 
 function openQuickAddModal() {
