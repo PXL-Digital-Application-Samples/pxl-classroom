@@ -88,6 +88,10 @@ async function main() {
   await mkdir(outDir, { recursive: true });
 
   const activeOrgs = [];
+  // Orgs the App IS installed on that could not be read for an unexpected
+  // reason. Not the same as a 404 (nothing published yet) or a missing
+  // installation (registered, not installed) - both of those are real answers.
+  const failedOrgs = [];
 
   // 4. Fetch assignments.json for each participating org
   for (const org of orgs) {
@@ -164,43 +168,52 @@ async function main() {
         }
       }
 
-      // Fetch public/teams/*.json for group assignments
-      try {
-        const teamsListUrl = `https://api.github.com/repos/${org}/${CONTROL_REPO}/contents/public/teams`;
-        const teamsList = await request(teamsListUrl, {
-          headers: { Authorization: `token ${token}` },
-        });
-        if (Array.isArray(teamsList)) {
-          const orgTeamsDir = join(outDir, org, "teams");
-          await mkdir(orgTeamsDir, { recursive: true });
-          for (const item of teamsList) {
-            if (item.type === "file" && item.name.endsWith(".json")) {
-              const fileItem = await request(item.url, {
-                headers: { Authorization: `token ${token}` },
-              });
-              if (fileItem?.content) {
-                const teamBin = Buffer.from(fileItem.content.replace(/\n/g, ""), "base64").toString("utf8");
-                await writeFile(join(orgTeamsDir, item.name), teamBin);
-                console.log(`[ok] Saved teams/${item.name} for ${org}`);
-              }
-            }
-          }
-        }
-      } catch (tErr) {
-        if (tErr.status !== 404) {
-          console.warn(`[warning] Failed to fetch public/teams for ${org}:`, tErr.message);
-        }
-      }
+      // `public/teams/` IS NOT FETCHED, and that is the point.
+      //
+      // pages/generate.mjs deletes it on every regeneration, and says why:
+      // "public/teams/ predates the move behind the invitation digest. Anything
+      // still there is a public cohort list for an assignment that no longer
+      // publishes one." This script used to copy that directory onto the
+      // world-readable site - so for any org whose control repo had not
+      // regenerated since the retirement, every deploy republished exactly the
+      // cohort list the generator exists to remove.
+      //
+      // pages/scan.mjs does not stop it: it looks for email addresses and
+      // invitation-token shapes, and a teams file is `members: ["alice", …]` -
+      // GitHub logins, which trip neither rule. Nothing in the SPA reads
+      // `data/<org>/teams` either; teams reach a student through the invitation
+      // card behind the digest.
     } catch (err) {
       if (err.status === 404) {
         console.log(`[info] No assignments.json found in control repo for ${org} (or repository does not exist).`);
       } else {
         console.error(`[error] Failed to fetch data for ${org}:`, err.message);
+        failedOrgs.push(`${org}: ${err.message}`);
       }
     }
   }
 
-  // 5. Generate index.json containing all successfully resolved orgs
+  // 5. Refuse to publish an index that is missing an org we simply could not
+  //    read.
+  //
+  // index.json is rebuilt from the orgs that succeeded THIS run, and HomeView
+  // discovers participating orgs through it - so an org dropped here is an org
+  // whose students open the site and see none of their assignments. A transient
+  // 500 while minting a token used to do that silently, with the run still
+  // exiting 0 and the deploy going ahead.
+  //
+  // Failing keeps the PREVIOUS Pages deployment live, which is the whole point:
+  // yesterday's complete index serves the cohort correctly, and a partial one
+  // does not. Unreadable is not evidence that an org has nothing.
+  if (failedOrgs.length) {
+    console.error(
+      `[fail] ${failedOrgs.length} participating org(s) could not be read, so this index would be ` +
+        `incomplete and their students would see no assignments. Not publishing; the previous ` +
+        `deployment stays live.\n  ${failedOrgs.join("\n  ")}`,
+    );
+    process.exit(1);
+  }
+
   await writeFile(join(outDir, "index.json"), JSON.stringify({ orgs: activeOrgs }, null, 2) + "\n");
   console.log(`[ok] Generated index.json with ${activeOrgs.length} org(s).`);
 }

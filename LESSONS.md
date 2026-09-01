@@ -378,6 +378,16 @@ Who accepted is recorded in `acceptances/<id>/<login>.json`; `students/roster.ym
 
 ## Deadlines, lockdown and preservation
 
+### One half deleted the cohort list; the other half published it.
+
+`pages/generate.mjs` removes `public/teams/` on every regeneration, and says exactly why: *"public/teams/ predates the move behind the invitation digest. Anything still there is a public cohort list for an assignment that no longer publishes one."* `scripts/fetch-pages-data.mjs` walked that same directory and copied it into `frontend/public/data`, which is what gets uploaded to GitHub Pages. So for any org whose control repo had not regenerated since the retirement, **every frontend deploy republished the cohort list the generator exists to remove.**
+
+`pages/scan.mjs` does not stop it, and that is the part worth remembering: the gate was added precisely because this script *"copies `public/i/*.json` and `public/teams/*.json` verbatim out of twelve control repos, and whatever is in them ships"* — but it looks for **email addresses and invitation-token shapes**, and a teams file is `members: ["alice", …]`. GitHub logins match neither rule. A gate that covers the right *files* can still be blind to the *contents* those particular files carry. Nothing in the SPA reads `data/<org>/teams` either; teams reach a student through the invitation card, behind the digest. The fetch is gone.
+
+**And an org that could not be read simply vanished from the published index.** `index.json` is rebuilt from the orgs that succeeded on that run, `HomeView` discovers participating orgs through it, and a non-404 failure was logged as `[error]` while the run exited **0** and the deploy went ahead. A transient 500 while minting one org's token therefore published an index without it — and that org's students open the site and see none of their assignments, with nothing red anywhere.
+
+It fails the run now, which is the useful direction: a failed deploy leaves the **previous** Pages deployment live, and yesterday's complete index serves the cohort correctly where today's partial one does not. A 404 is still an answer — an org with nothing published yet, or no control repo — and does not stop anyone else's deploy.
+
 ### The careful per-student `try` did not cover the line that read the student.
 
 `sync-starter.mjs` writes into student repositories — a commit straight onto `main` for files they never touched, a branch and a pull request for the ones they did. Its per-student work is properly wrapped: one student's failure becomes `outcome: "failed"` with the message, and the loop carries on. The `JSON.parse` of the repository record sat one line **above** that `try`.

@@ -36,7 +36,7 @@ function cardDigest(n) {
 }
 
 /** @returns {{ log: string[], outDir: string, stdout: string }} */
-function run({ cards = 3, truncated = false } = {}) {
+function run({ cards = 3, truncated = false, assignmentsStatus = 200, allowFailure = false } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "pxl-pages-"));
   mkdirSync(join(cwd, "frontend", "public", "data"), { recursive: true });
   writeFileSync(join(cwd, "participating-orgs.yml"), `orgs:\n  - login: ${ORG}\n`);
@@ -60,7 +60,11 @@ function run({ cards = 3, truncated = false } = {}) {
     { match: "app/installations/42/access_tokens", body: { token: "ghs_stub" } },
     {
       match: "contents/public/assignments\\.json",
-      body: { content: b64(JSON.stringify({ schema_version: 1, assignments: {} })) },
+      status: assignmentsStatus,
+      body:
+        assignmentsStatus === 200
+          ? { content: b64(JSON.stringify({ schema_version: 1, assignments: {} })) }
+          : { message: "Server Error" },
     },
     { match: "git/trees/HEAD", body: { tree, truncated } },
     ...blobRoutes,
@@ -84,11 +88,13 @@ function run({ cards = 3, truncated = false } = {}) {
       PXL_APP_PRIVATE_KEY: PEM,
     },
   });
-  assert.equal(proc.status, 0, `script failed:\n${proc.stderr}`);
+  if (!allowFailure) assert.equal(proc.status, 0, `script failed:\n${proc.stderr}`);
 
   return {
+    status: proc.status,
     log: readFileSync(logFile, "utf8").split("\n").filter(Boolean),
     outDir: join(cwd, "frontend", "public", "data", ORG),
+    dataDir: join(cwd, "frontend", "public", "data"),
     stdout: `${proc.stdout}\n${proc.stderr}`,
     cwd,
   };
@@ -138,4 +144,51 @@ test("an org with no invitation cards is not an error", () => {
   const { stdout, outDir } = run({ cards: 0 });
   assert.match(stdout, /Saved 0 invitation file\(s\)/);
   assert.ok(existsSync(join(outDir, "assignments.json")), "the index is still written");
+});
+
+// --- what must NOT be published ----------------------------------------------
+
+test("public/teams is not fetched - the generator deletes it for a reason", () => {
+  // pages/generate.mjs removes `public/teams/` on every regeneration and says
+  // why: "Anything still there is a public cohort list for an assignment that no
+  // longer publishes one." This script used to copy that directory onto the
+  // world-readable site, so any org whose control repo had not regenerated since
+  // the retirement had its cohort lists republished on every deploy.
+  //
+  // pages/scan.mjs does not catch it: it looks for email addresses and
+  // invitation-token shapes, and a teams file is `members: ["alice", …]` -
+  // GitHub logins, which match neither rule. Nothing in the SPA reads it either.
+  const res = run({ cards: 1 });
+  assert.deepEqual(
+    res.log.filter((line) => /public\/teams/.test(line)),
+    [],
+    `the teams directory must not be requested at all:\n${res.log.join("\n")}`,
+  );
+  assert.ok(!existsSync(join(res.outDir, "teams")), "and nothing may be written there");
+});
+
+test("an org that cannot be read stops the publish instead of vanishing from the index", () => {
+  // index.json is rebuilt from the orgs that succeeded THIS run, and HomeView
+  // discovers participating orgs through it - so an org silently dropped is an
+  // org whose students open the site and see none of their assignments. A
+  // transient 500 while reading one org used to do exactly that, with the run
+  // still exiting 0 and the deploy going ahead.
+  const res = run({ cards: 1, assignmentsStatus: 500, allowFailure: true });
+
+  assert.notEqual(res.status, 0, `the run must fail:\n${res.stdout}`);
+  assert.match(res.stdout, /students would see no assignments/);
+  assert.ok(
+    !existsSync(join(res.dataDir, "index.json")),
+    "and no index may be written - the previous deployment stays live instead",
+  );
+});
+
+test("a 404 is still an answer, not a failure", () => {
+  // The other half: an org with nothing published yet, or one whose control repo
+  // does not exist, is a real state and must not stop every other org's deploy.
+  const res = run({ cards: 1, assignmentsStatus: 404, allowFailure: true });
+  assert.equal(res.status, 0, `a 404 must not fail the run:\n${res.stdout}`);
+  assert.ok(existsSync(join(res.dataDir, "index.json")), "the index is still published");
+  const index = JSON.parse(readFileSync(join(res.dataDir, "index.json"), "utf8"));
+  assert.deepEqual(index.orgs, [], "and the org with nothing published is simply not in it");
 });
