@@ -583,6 +583,55 @@ test("a path-filtered workflow can be triggered by the scripts it runs", () => {
   assert.deepEqual(offenders, [], offenders.join("\n"));
 });
 
+test("no step runs a repo script after replacing the working tree", () => {
+  // `git checkout <branch>` REPLACES the working tree. `participating-orgs` is
+  // an orphan branch holding one file, so after checking it out there is no
+  // `scripts/` and no `lib/` - and a step that then runs
+  // `node "${GITHUB_WORKSPACE}/scripts/register-participating-org.mjs"` dies
+  // with MODULE_NOT_FOUND, at the last step of org onboarding, with the control
+  // repo already created.
+  //
+  // That is exactly what shipped when that registration moved from shell into a
+  // script: printf/grep/sed are builtins and do not live in the working tree, so
+  // the shell version could not have this bug and the rewrite could. The unit
+  // tests exercise the script directly and the dependency-free guard checks its
+  // IMPORT graph - neither can see that the file is absent at runtime.
+  //
+  // The fix is to copy what you need to $RUNNER_TEMP before the checkout, which
+  // is what this insists on.
+  const offenders = [];
+  for (const { file, doc } of workflows()) {
+    const steps = [
+      ...Object.values(doc?.jobs ?? {}).flatMap((j) => j?.steps ?? []),
+      ...(doc?.runs?.steps ?? []),
+    ];
+    for (const step of steps) {
+      if (typeof step?.run !== "string") continue;
+      const lines = step.run.split("\n");
+      const checkoutAt = lines.findIndex((l) => /^\s*git\s+checkout\s+(?!-)/.test(l) && !/^\s*#/.test(l));
+      if (checkoutAt === -1) continue;
+      for (const line of lines.slice(checkoutAt + 1)) {
+        if (/^\s*#/.test(line)) continue;
+        const m = line.match(/\bnode\s+"?(\$\{?(\w+)\}?\/)?((?:scripts|lib|pages|report|lockdown)\/[\w./-]+\.mjs)/);
+        if (!m) continue;
+        const [, , varName, scriptPath] = m;
+        // Rooted at a variable that was assigned from RUNNER_TEMP earlier in the
+        // same block: that is the copy-out fix, not the bug. `$GITHUB_WORKSPACE`
+        // is NOT a pass - that is the workspace the checkout just replaced.
+        if (varName && varName !== "GITHUB_WORKSPACE") {
+          const assigned = lines.some((l) => new RegExp(`^\\s*${varName}=.*RUNNER_TEMP`).test(l));
+          if (assigned) continue;
+        }
+        offenders.push(
+          `${file}:${step.name ?? "(unnamed step)"} runs ${scriptPath} after a git checkout replaced the ` +
+            `working tree - copy it to $RUNNER_TEMP before the checkout`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+});
+
 test("a credential written into .git/config is unset again", () => {
   // `http.<host>/.extraheader` keeps the token out of the remote URL, which is
   // what stops git quoting it back in an error message on a public run log.

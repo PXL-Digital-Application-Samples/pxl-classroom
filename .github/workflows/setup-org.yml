@@ -199,6 +199,24 @@ jobs:
             fi
           done
 
+          # COPIED OUT BEFORE THE CHECKOUT, and that is the whole point.
+          #
+          # `participating-orgs` is an ORPHAN branch holding one file. Checking
+          # it out replaces the working tree, so `scripts/` and `lib/` are gone
+          # by the time the registration runs - `Cannot find module
+          # .../scripts/register-participating-org.mjs`, and org onboarding
+          # fails at the last step with the control repo already created. The
+          # shell this replaced never noticed because printf/grep/sed are
+          # builtins that do not live in the working tree.
+          #
+          # The relative layout is preserved because the script imports
+          # `../lib/github-login.mjs`; copying the file alone would move the
+          # failure one line down.
+          REG="${RUNNER_TEMP}/register"
+          mkdir -p "$REG/scripts" "$REG/lib"
+          cp scripts/register-participating-org.mjs "$REG/scripts/"
+          cp lib/github-login.mjs "$REG/lib/"
+
           git fetch origin participating-orgs:participating-orgs || true
           git checkout participating-orgs || git checkout --orphan participating-orgs
 
@@ -209,7 +227,7 @@ jobs:
           # existing pxl-foo would have registered the same org twice. This
           # workflow still installs nothing: the script's whole import graph is
           # node: builtins and lib/github-login.mjs, which imports nothing.
-          node "${GITHUB_WORKSPACE}/scripts/register-participating-org.mjs" \
+          node "$REG/scripts/register-participating-org.mjs" \
             participating-orgs.yml "$TARGET_ORG" "$BUDGET_OWNER_LOGIN"
 
           # git decides whether there is anything to commit rather than the
