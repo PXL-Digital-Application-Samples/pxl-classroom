@@ -10,7 +10,7 @@ orgs:
     budget_owner_login: d-ries
   - login: PXL-2TIN-DevOps-2627
     budget_owner_login: d-ries
-  - login: PXL-CSMobile
+  - login: pxl-grpro-csmobile
     budget_owner_login: arnobarzan
   - login: PXL-SNE-Security-Adv
     budget_owner_login: dhoubrechts
