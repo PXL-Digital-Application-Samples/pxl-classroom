@@ -202,39 +202,27 @@ jobs:
           git fetch origin participating-orgs:participating-orgs || true
           git checkout participating-orgs || git checkout --orphan participating-orgs
 
-          # Normalise any pre-existing UTF-16 / BOM file to plain UTF-8 LF.
-          if [ -f participating-orgs.yml ]; then
-            head -c 3 participating-orgs.yml | od -An -tx1 | tr -d ' \n' > .porgs-magic
-            MAGIC=$(cat .porgs-magic); rm -f .porgs-magic
-            case "$MAGIC" in
-              fffe*) iconv -f UTF-16LE -t UTF-8 participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml ;;
-              feff*) iconv -f UTF-16BE -t UTF-8 participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml ;;
-              efbbbf) tail -c +4 participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml ;;
-            esac
-            # Strip CRs that may remain from a Windows source.
-            tr -d '\r' < participating-orgs.yml > participating-orgs.yml.new && mv participating-orgs.yml.new participating-orgs.yml
-          fi
+          # Encoding normalisation, the schema_version header, unpicking a
+          # flow-style `orgs: []`, the case-insensitive dedup and the append all
+          # live in the script now - they were `od`/`iconv`/`sed`/`grep` here,
+          # untestable, and the dedup compared the raw string so PXL-Foo over an
+          # existing pxl-foo would have registered the same org twice. This
+          # workflow still installs nothing: the script's whole import graph is
+          # node: builtins and lib/github-login.mjs, which imports nothing.
+          node "${GITHUB_WORKSPACE}/scripts/register-participating-org.mjs" \
+            participating-orgs.yml "$TARGET_ORG" "$BUDGET_OWNER_LOGIN"
 
-          if [ ! -f participating-orgs.yml ]; then
-            printf 'schema_version: 1\norgs:\n' > participating-orgs.yml
-          elif ! grep -q '^schema_version:' participating-orgs.yml; then
-            { printf 'schema_version: 1\n'; cat participating-orgs.yml; } > participating-orgs.yml.new
-            mv participating-orgs.yml.new participating-orgs.yml
-          fi
-
-          # A flow-style empty list ('orgs: []') cannot take appended block
-          # entries - normalize it to block form first.
-          sed -i 's/^orgs:[[:space:]]*\[\][[:space:]]*$/orgs:/' participating-orgs.yml
-
-          if ! grep -Eq "^[[:space:]]*-[[:space:]]+login:[[:space:]]+${TARGET_ORG}[[:space:]]*$" participating-orgs.yml; then
-            printf '  - login: %s\n    budget_owner_login: %s\n' "$TARGET_ORG" "$BUDGET_OWNER_LOGIN" >> participating-orgs.yml
-            git config user.name "pxl-classroom-provisioner[bot]"
-            git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
-            git add participating-orgs.yml
+          # git decides whether there is anything to commit rather than the
+          # script reporting it: normalising a UTF-16 registry is a real change
+          # even when the org was already listed.
+          git config user.name "pxl-classroom-provisioner[bot]"
+          git config user.email "pxl-classroom-provisioner[bot]@users.noreply.github.com"
+          git add participating-orgs.yml
+          if git diff --cached --quiet; then
+            echo "participating-orgs.yml is already up to date."
+          else
             git commit -m "Register ${TARGET_ORG} in participating-orgs"
             git push origin participating-orgs
-          else
-            echo "${TARGET_ORG} is already registered."
           fi
 
       - name: Trigger initial frontend deployment

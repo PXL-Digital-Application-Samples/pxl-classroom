@@ -32,6 +32,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRY_POINTS = [
   ["acceptance/broker-workflow.yml", "scripts/verify-invite-token.mjs"],
   [".github/workflows/setup-org.yml", "scripts/scaffold-control-repo.mjs"],
+  // Same workflow, same constraint. This one replaced ~40 lines of od/iconv/
+  // sed/grep that had no dependencies because it was shell; moving it into
+  // JavaScript is only safe for as long as its graph stays this small.
+  [".github/workflows/setup-org.yml", "scripts/register-participating-org.mjs"],
 ];
 
 function specifiersOf(file) {
