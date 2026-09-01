@@ -26,3 +26,5 @@ orgs:
     budget_owner_login: arnobarzan
   - login: PXL-Research-Project
     budget_owner_login: tomcoolpxl
+  - login: pxl-classroom-testbed
+    budget_owner_login: tomcoolpxl
