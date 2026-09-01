@@ -551,6 +551,38 @@ test("no workflow stages a control-repo directory that might not exist", () => {
   );
 });
 
+test("a path-filtered workflow can be triggered by the scripts it runs", () => {
+  // "EVERY PATH THE BUNDLE READS BELONGS HERE, or a change ships to main and
+  // never reaches a student" - deploy-frontend.yml's own comment, written after
+  // `acceptance/claim-keys.json` was missing from the filter and the live SPA
+  // served a bundle whose key list was empty.
+  //
+  // The same rule one level out, and it was not being applied: the workflow RUNS
+  // `scripts/fetch-pages-data.mjs` and `pages/scan.mjs`, which decide what the
+  // published artifact contains and whether it is scanned at all. Neither was in
+  // the filter, so removing the republished `public/teams` cohort lists landed
+  // on main and could not deploy itself - and neither could a fix to the privacy
+  // gate.
+  const offenders = [];
+  for (const { file, doc } of workflows()) {
+    const paths = doc?.on?.push?.paths ?? doc?.true?.push?.paths;
+    if (!Array.isArray(paths) || !paths.length) continue; // not path-filtered
+
+    const covered = (target) =>
+      paths.some((p) => (p.endsWith("/**") ? target.startsWith(p.slice(0, -2)) : p === target));
+
+    const raw = readFileSync(join(WORKFLOW_DIR, file), "utf8");
+    for (const m of raw.matchAll(/^\s*(?:run:\s*)?node\s+([\w./-]+\.mjs)/gm)) {
+      const script = m[1];
+      if (!existsSync(join(root, script))) continue; // not a repo path
+      if (!covered(script)) {
+        offenders.push(`${file} runs ${script}, which cannot trigger it - a change there ships to main and stops`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+});
+
 test("a credential written into .git/config is unset again", () => {
   // `http.<host>/.extraheader` keeps the token out of the remote URL, which is
   // what stops git quoting it back in an error message on a public run log.

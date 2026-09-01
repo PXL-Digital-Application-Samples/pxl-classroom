@@ -18,6 +18,15 @@ on:
       - 'acceptance/claim-keys.json'
       - 'deployment.yml'
       - '.github/workflows/deploy-frontend.yml'
+      # The two scripts this workflow RUNS, which is the same rule one level
+      # out: they decide what the published artifact contains, so a change to
+      # either has to be able to reach the site. Removing the republished
+      # legacy `public/teams` cohort lists landed on main and would have sat
+      # there until some unrelated frontend change happened to fire a deploy;
+      # so would a fix to the privacy gate itself. Named individually rather
+      # than `scripts/**`, which would deploy on every unrelated script change.
+      - 'scripts/fetch-pages-data.mjs'
+      - 'pages/scan.mjs'
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
