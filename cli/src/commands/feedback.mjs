@@ -22,6 +22,7 @@ import {
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { CONTROL_REPO, getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
+import { sameLogin } from "../../../lib/github-login.mjs";
 const DEFAULT_BASELINE = "pxl-baseline";
 
 
@@ -97,7 +98,9 @@ export function registerFeedbackCommand(program) {
       const body = feedbackPrBody(baseline);
 
       const records = await listRepoRecords(octokit, { org, assignmentId: opts.assignment });
-      const targets = opts.login ? records.filter((r) => r.doc.github_login === opts.login) : records;
+      // `sameLogin`: --login is typed by a lecturer, and a casing difference showed
+      // as "No repository records to act on."
+      const targets = opts.login ? records.filter((r) => sameLogin(r.doc.github_login, opts.login)) : records;
       if (targets.length === 0) {
         process.stdout.write(`No repository records to act on.\n`);
         return;

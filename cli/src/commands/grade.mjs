@@ -26,6 +26,7 @@ import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
+import { sameLogin } from "../../../lib/github-login.mjs";
 
 function runGit(args, cwd) {
   return new Promise((resolveFn, reject) => {
@@ -153,7 +154,9 @@ export function registerGradeCommand(program) {
       const eligible = (report.students || []).filter(
         (s) => s.preservation_status === "preserved" && s.preserved_sha && s.github_login,
       );
-      const queue = opts.login ? eligible.filter((s) => s.github_login === opts.login) : eligible;
+      // `sameLogin`: --login is typed by a lecturer, and a casing difference read as
+      // "No preserved submission for X" - for a student who has one.
+      const queue = opts.login ? eligible.filter((s) => sameLogin(s.github_login, opts.login)) : eligible;
       if (queue.length === 0) {
         process.stdout.write(opts.login
           ? `No preserved submission for ${opts.login}.\n`

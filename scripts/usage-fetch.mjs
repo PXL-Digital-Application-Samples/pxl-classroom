@@ -4,6 +4,7 @@ import { parse as parseYaml } from "yaml";
 import { gh, ghAllItems } from "../lib/gh.mjs";
 import { readUtf8OrFail } from "./lib/encoding.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+import { sameLogin } from "../lib/github-login.mjs";
 
 const {
   ORG,
@@ -41,7 +42,14 @@ const limits = parseYaml(readUtf8OrFail(LIMITS_PATH));
 const globalLimits = new Map((limits.weekly_limits || []).map(l => [l.sku, l.limit]));
 
 const porgs = parseYaml(readUtf8OrFail(PORGS_PATH));
-const orgEntry = (porgs.orgs || []).find(o => o.login === ORG) || {};
+// `sameLogin`, not `===`. A GitHub login is case-insensitive and the registry
+// keeps whatever spelling the org was registered with, so a caller passing a
+// different casing found no entry, `orgOverrides` stayed empty, and the org was
+// measured against the GLOBAL limit instead of its own - which is precisely the
+// failure the comment below describes for the repo-level overrides file: "the
+// lecturer's raised limit silently stopped applying and the org was warned
+// against the global number instead, with nothing said anywhere."
+const orgEntry = (porgs?.orgs || []).find((o) => sameLogin(o.login, ORG)) || {};
 const orgOverrides = orgEntry.overrides || {};
 
 // ABSENT and MALFORMED are different answers. The old `catch {}` swallowed

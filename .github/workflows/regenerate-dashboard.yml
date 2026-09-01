@@ -55,7 +55,13 @@ jobs:
         run: |
           node scripts/generate-interim-reports.mjs control
 
+      # `always()`, because generate-interim-reports.mjs now exits non-zero when
+      # some reports could not be generated. The ones that DID generate are
+      # already on disk, and abandoning them would mean the dashboard serves
+      # yesterday's numbers for every assignment rather than only the failed
+      # ones. Same pairing open-feedback-prs.yml uses for the same reason.
       - name: Commit public data and reports
+        if: always()
         shell: bash
         run: |
           set -e

@@ -378,6 +378,16 @@ Who accepted is recorded in `acceptances/<id>/<login>.json`; `students/roster.ym
 
 ## Deadlines, lockdown and preservation
 
+### The login rule had no guard, and there were seven of them.
+
+CLAUDE.md has said for a long time that *"a GitHub login is compared and indexed lowercased - `lib/github-login.mjs`, never a hand-written `.toLowerCase()`"*. Nothing enforced it, and `lib/github-login.mjs` turned out to have three importers in the whole repository. A sweep for the sharp shape - a **raw `===`** on a login, with no normalisation at all - found seven live call sites, each failing in silence:
+
+* `scripts/get-budget-owner.mjs` found no entry and printed an empty owner. `weekly-usage-report.yml` skips the notification when it is empty, so **an org over its budget was simply never told**, on a green run.
+* `scripts/usage-fetch.mjs` found no org entry, so `orgOverrides` stayed empty and the org was measured against the **global** limit instead of its own. That file already carried a comment about that exact consequence arriving by another route - the repo-level overrides file - and had it open through the org-level one.
+* Four CLI filters (`download`, `feedback`, `grade`) compare a **lecturer-typed `--login`** against a stored login. `--login Alice` for a stored `alice` produced *"No preserved submission for Alice"* and *"No repository records to act on"* - a confident report of nothing, for a student who has one.
+
+**Where the guard draws its line is the point.** A raw `===` is unambiguously wrong: two real spellings of one account compare unequal. `a.toLowerCase() === b.toLowerCase()` is a different thing - nearly right, differing from the shared helper only in that the helper also trims - and `acceptance/accept.mjs` has nine of those which were reviewed and deliberately left. A sweep that flagged both would have been switched off rather than fixed, so it catches the sharp shape only. The first draft also reported `typeof claim.github_login === "string"`, which is a type check; that false positive would have been the other reason to delete it.
+
 ### One half deleted the cohort list; the other half published it.
 
 `pages/generate.mjs` removes `public/teams/` on every regeneration, and says exactly why: *"public/teams/ predates the move behind the invitation digest. Anything still there is a public cohort list for an assignment that no longer publishes one."* `scripts/fetch-pages-data.mjs` walked that same directory and copied it into `frontend/public/data`, which is what gets uploaded to GitHub Pages. So for any org whose control repo had not regenerated since the retirement, **every frontend deploy republished the cohort list the generator exists to remove.**

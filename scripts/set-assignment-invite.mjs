@@ -25,7 +25,7 @@ import { join } from "node:path";
 
 import { signInviteToken, newNonce } from "../lib/invite-token.mjs";
 import { readInviteField, quoteInviteValue } from "../lib/invite-token-format.mjs";
-import { generateAcceptanceKeypair } from "../lib/acceptance-signature.mjs";
+import { generateAcceptanceKeypair, ACCEPTANCE_KEY_LENGTH } from "../lib/acceptance-signature.mjs";
 
 function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT) {
@@ -112,7 +112,35 @@ const token = signInviteToken({ org, assignmentId, expiresAt, nonce, kid, privat
 // REGENERATE mints a new pair, and that retires them deliberately.
 const existingKey = readField("invite_key");
 const existingPubkey = readField("invite_pubkey");
-const keypairOk = Boolean(existingKey) && Boolean(existingPubkey);
+// SHAPE-CHECKED, like the nonce and the expiry above it - this was the one of
+// the three reused values that was only tested for truthiness.
+//
+// generateAcceptanceKeypair asserts the private half is exactly
+// ACCEPTANCE_KEY_LENGTH base64url characters, and says why: "The link parser
+// accepts exactly this length, so that a TRUNCATED link - an email client
+// wrapping a URL, a student copying half of it - is refused as malformed."
+// That check ran at MINT time only, so a truncated or hand-mangled `invite_key`
+// already in the assignment file was reused verbatim on every republish, and
+// every link built from it was refused by the parser while the publish reported
+// success.
+const keypairOk =
+  typeof existingKey === "string" &&
+  existingKey.length === ACCEPTANCE_KEY_LENGTH &&
+  typeof existingPubkey === "string" &&
+  existingPubkey.length > 0;
+
+// A keypair that is PRESENT but the wrong shape is not a reason to mint a new
+// one: that would retire every link already handed out, silently, on a
+// republish whose whole contract is that it does not. Say so and stop.
+if (!regenerate && (existingKey || existingPubkey) && !keypairOk) {
+  die(
+    `${assignmentId} carries an invite_key/invite_pubkey that is not the shape this system mints ` +
+      `(private half must be ${ACCEPTANCE_KEY_LENGTH} base64url characters, got ` +
+      `${typeof existingKey === "string" ? existingKey.length : typeof existingKey}). ` +
+      `Every link built from it is refused as malformed. Republish with "Regenerate link" to mint a ` +
+      `fresh pair - that retires the links already handed out, which is why it is not done for you.`,
+  );
+}
 const keypair =
   !regenerate && keypairOk
     ? { privateKey: existingKey, publicKey: existingPubkey }

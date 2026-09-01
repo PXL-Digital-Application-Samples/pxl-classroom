@@ -24,6 +24,7 @@ import { makeOctokit } from "../lib/octokit.mjs";
 import { saveConfig } from "../lib/config.mjs";
 import { requireToken } from "../lib/auth.mjs";
 import { resolveOrg } from "../lib/org.mjs";
+import { sameLogin } from "../../../lib/github-login.mjs";
 import { getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { archiveBranchName, archiveBranchUrl, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
@@ -121,7 +122,10 @@ export function registerDownloadCommand(program) {
       const eligible = (report.students || []).filter(
         (s) => s.preservation_status === "preserved" && s.preserved_sha && s.github_login,
       );
-      const queue = opts.login ? eligible.filter((s) => s.github_login === opts.login) : eligible;
+      // `sameLogin`: --login is typed by a lecturer, and `--login Alice` against a
+      // stored `alice` matched nothing - reported as "no preserved submissions"
+      // for a student who has one.
+      const queue = opts.login ? eligible.filter((s) => sameLogin(s.github_login, opts.login)) : eligible;
       if (queue.length === 0) {
         process.stdout.write(
           opts.login
@@ -186,7 +190,7 @@ export function registerDownloadCommand(program) {
               downloaded_at: s.downloaded_at || null,
             }));
             for (const r of studentsList) {
-              const idx = list.findIndex((s) => s.login === r.login);
+              const idx = list.findIndex((s) => sameLogin(s.login, r.login));
               if (idx !== -1) {
                 list[idx] = r;
               } else {

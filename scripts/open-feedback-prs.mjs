@@ -65,7 +65,19 @@ async function main() {
 
   for (const file of files) {
     const filePath = join(reposDir, file);
-    const rec = JSON.parse(await readFile(filePath, "utf8"));
+    // Guarded for the same reason sync-starter.mjs is: an unreadable record
+    // used to throw out of main(), so the loop stopped partway, every student
+    // after it got nothing, and the summary below - the only thing that says
+    // how many failed - was never printed. Counted as a failure, which is what
+    // makes the run exit non-zero.
+    let rec;
+    try {
+      rec = JSON.parse(await readFile(filePath, "utf8"));
+    } catch (err) {
+      console.log(`[fail] ${file.replace(/\.json$/, "")}: repository record is unreadable - ${err.message}`);
+      failed++;
+      continue;
+    }
     const login = rec.github_login;
     const repoName = rec.repo_name?.split("/")[1] || rec.repo_name;
 
