@@ -47,6 +47,17 @@ function loadEnv() {
     const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
     if (m) env[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
   }
+  // A real environment variable WINS over the file, so a run can be pointed at
+  // a different org without editing credentials:
+  //
+  //   TEST_ORG=… TEST_ASSIGNMENT_ID=… node tests/live/smoke.mjs
+  //
+  // .env.test's own TEST_ORG went stale once already - the accounts were
+  // removed from the org it names - and editing a file full of tokens to
+  // retarget a test run is the wrong shape.
+  for (const key of Object.keys(env)) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
   return env;
 }
 
@@ -162,10 +173,17 @@ async function signOnly(assignment, student) {
   console.log(`\n3. Signing an acceptance as ${student.login} (nothing is submitted)\n`);
   if (!assignment?.secret) { bad("no secret to sign with"); return null; }
   try {
+    // The same four arguments frontend/src/lib/invite.js passes. `kid` is the
+    // format tag ("a1"), `subject` is the assignment id (hashed to 8 bytes
+    // inside), and the nonce is 4 random bytes as hex - it is per-acceptance,
+    // not the assignment's invite_nonce.
+    const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(4))).toString("hex");
     const title = await signAcceptanceTitle({
       privateKey: assignment.secret,
-      assignmentId: ASSIGNMENT,
+      kid: "a1",
+      subject: ASSIGNMENT,
       githubId: student.id,
+      nonce,
     });
     ok(`signed title: ${title.slice(0, 48)}…  (${title.length} chars)`);
     // The broker refuses a title over MAX_TITLE_LENGTH, so a signature that
@@ -181,26 +199,65 @@ async function signOnly(assignment, student) {
 
 // --- 4. the real thing -------------------------------------------------------
 
-async function submitAcceptance(title, student) {
-  console.log(`\n4. Submitting a REAL acceptance as ${student.login}\n`);
+async function submitAcceptance(title, student, { teamSlug = null, teamName = null } = {}) {
+  console.log(`\n4. Submitting a REAL acceptance as ${student.login}${teamSlug ? ` (team ${teamSlug})` : ""}\n`);
   const broker = `broker-${ASSIGNMENT}`;
+
+  // The team hint is appended AFTER signing - it is a concurrency key, never an
+  // authoritative value, and the hub re-derives the real team from the body.
+  // read-team-payload.mjs refuses a body that names a different team from the
+  // title, so these two must agree.
+  const fullTitle = teamSlug ? `${title} team:${teamSlug}` : title;
+  if (fullTitle.length > 256) { bad(`title with the team hint is ${fullTitle.length} chars, over GitHub's 256`); return; }
+
   const res = await api(`/repos/${ORG}/${broker}/issues`, {
     token: student.token,
     method: "POST",
-    body: { title, body: JSON.stringify({ schema_version: 1 }) },
+    body: {
+      title: fullTitle,
+      // TOP-LEVEL fields, exactly what buildAcceptanceBody writes. Nesting them
+      // under `team` produced `rejected:no-team` - parseTeamPayload reads
+      // parsed.team_slug and nothing else, so a well-formed but differently
+      // shaped body is indistinguishable from no team at all. `join` is one of
+      // the three actions it honours (join | create | switch); anything else is
+      // dropped to "".
+      body: teamSlug
+        ? JSON.stringify({ team_slug: teamSlug, team_name: teamName ?? teamSlug, team_action: "join" })
+        : "",
+    },
   });
   if (!res.ok) { bad(`could not open the broker issue: HTTP ${res.status} ${res.data?.message ?? ""}`); return; }
   ok(`opened ${ORG}/${broker}#${res.data.number}`);
 
   // Provisioning is synchronous but not instant. The SPA waits the same way.
-  const repoGuess = `${ASSIGNMENT}-${normalizeLogin(student.login)}`;
+  // A group repository is named for the TEAM, an individual one for the
+  // student - repository_name_pattern decides, and this mirrors it.
+  const repoGuess = teamSlug
+    ? `${ASSIGNMENT}-${teamSlug}`
+    : `${ASSIGNMENT}-${normalizeLogin(student.login)}`;
+  // Polled with the LECTURER's token, not the student's. A student repository
+  // is PRIVATE and provisioning adds the student as a collaborator, which is an
+  // INVITATION they have not accepted yet - so `GET /repos/...` as the student
+  // is 404 even though the repository exists. Polling as the student reported
+  // "no repository after 120s" over a repository that had been created 30
+  // seconds earlier, which is the `invited` state the SPA renders as "Accept
+  // invitation", not a provisioning failure.
   note(`polling for ${ORG}/${repoGuess} …`);
   for (let i = 1; i <= 20; i++) {
     await new Promise((r) => setTimeout(r, 6000));
-    const repo = await api(`/repos/${ORG}/${repoGuess}`, { token: student.token });
-    if (repo.ok) { ok(`repository exists after ~${i * 6}s: ${repo.data.html_url}`); return; }
+    const repo = await api(`/repos/${ORG}/${repoGuess}`, { token: ACCOUNTS.LECTURER.token });
+    if (repo.ok) { ok(`repository exists after ~${i * 6}s: ${repo.data.html_url}`); break; }
+    if (i === 20) { bad(`no repository after 120s - check the hub's acceptance-handler run`); return; }
   }
-  bad(`no repository after 120s - check the hub's acceptance-handler run`);
+
+  // And then do what a student does: accept the invitation. Until they do, they
+  // have no access at all, so this is part of the flow rather than a detail.
+  const invites = await api("/user/repository_invitations", { token: student.token });
+  const mine = (invites.data || []).find((v) => v.repository?.name === repoGuess);
+  if (!mine) { note(`${student.login}: no pending invitation (already a collaborator?)`); return; }
+  const accepted = await api(`/user/repository_invitations/${mine.id}`, { token: student.token, method: "PATCH" });
+  if (accepted.status === 204) ok(`${student.login} accepted the repository invitation`);
+  else bad(`${student.login} could not accept the invitation: HTTP ${accepted.status}`);
 }
 
 // --- run ---------------------------------------------------------------------
@@ -209,10 +266,52 @@ console.log(`PXL Classroom live smoke - org=${ORG} assignment=${ASSIGNMENT} mode
 
 await preflight();
 const assignment = failures === 0 ? await readAssignment() : null;
+const isGroup = assignment?.type === "group";
+const TEAM = process.env.TEST_TEAM_SLUG || "smoke-team";
+
 if (assignment) {
-  const title = await signOnly(assignment, ACCOUNTS.STUDENT_A);
-  if (title && ACCEPT) await submitAcceptance(title, ACCOUNTS.STUDENT_A);
-  else if (title) note("re-run with --accept to submit it and watch the repository appear");
+  const titleA = await signOnly(assignment, ACCOUNTS.STUDENT_A);
+  if (titleA && ACCEPT) {
+    await submitAcceptance(titleA, ACCOUNTS.STUDENT_A, isGroup ? { teamSlug: TEAM, teamName: "Smoke Team" } : {});
+
+    // The second member is the scenario three accounts exist for: the first
+    // acceptance CREATES the team and provisions the repository, the second
+    // JOINS it and must be added to the same one rather than getting a second.
+    if (isGroup) {
+      const titleB = await signOnly(assignment, ACCOUNTS.STUDENT_B);
+      if (titleB) await submitAcceptance(titleB, ACCOUNTS.STUDENT_B, { teamSlug: TEAM, teamName: "Smoke Team" });
+      await verifyTeam();
+    }
+  } else if (titleA) {
+    note("re-run with --accept to submit it and watch the repository appear");
+  }
+}
+
+// --- 5. did the team actually end up with both members? ----------------------
+
+async function verifyTeam() {
+  console.log("\n5. The team manifest and the repository's collaborators\n");
+  const res = await api(
+    `/repos/${ORG}/pxl-classroom-control/contents/teams/${ASSIGNMENT}/${TEAM}.json`,
+    { token: ACCOUNTS.LECTURER.token },
+  );
+  if (!res.ok) { bad(`teams/${ASSIGNMENT}/${TEAM}.json: HTTP ${res.status}`); return; }
+  const doc = JSON.parse(Buffer.from(res.data.content, "base64").toString("utf8"));
+  const members = (doc.members || []).map(normalizeLogin);
+  for (const who of [ACCOUNTS.STUDENT_A, ACCOUNTS.STUDENT_B]) {
+    if (members.includes(normalizeLogin(who.login))) ok(`${who.login} is on the team manifest`);
+    else bad(`${who.login} is NOT on the manifest (members: ${members.join(", ") || "none"})`);
+  }
+
+  // The manifest saying so is not the same as GitHub saying so. With the org's
+  // base permission at "none", a collaborator grant is the only way in - so
+  // this is the check that provisioning actually worked.
+  const repo = `${ASSIGNMENT}-${TEAM}`;
+  for (const who of [ACCOUNTS.STUDENT_A, ACCOUNTS.STUDENT_B]) {
+    const c = await api(`/repos/${ORG}/${repo}/collaborators/${who.login}`, { token: ACCOUNTS.LECTURER.token });
+    if (c.status === 204) ok(`${who.login} has repository access on ${repo}`);
+    else bad(`${who.login} is NOT a collaborator on ${repo} (HTTP ${c.status})`);
+  }
 }
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
