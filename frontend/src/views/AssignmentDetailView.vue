@@ -70,35 +70,46 @@
         <!-- `report.students.length`, not just `report`: an absent report is
              now an empty one, and "Preservation Pending 0/0" for an assignment
              nobody accepted is a status about nothing. -->
-        <div v-if="deadlinePassed && report && report.students.length > 0" class="card preservation-banner">
-          <div class="preservation-banner-header">
-            <div class="preservation-banner-title-group">
-              <span class="preservation-banner-title">Preservation &amp; Lockdown Status</span>
-              <span :class="['badge', allPreserved ? 'badge-success' : preservedCount > 0 ? 'badge-warning' : 'badge-neutral']">
-                {{ allPreserved ? 'All Preserved' : preservedCount > 0 ? `${preservedCount}/${eligiblePreservationCount} Preserved` : 'Preservation Pending' }}
-              </span>
-            </div>
-            <div class="preservation-banner-meta text-secondary text-sm">
-              <span v-if="preservationLockdownTime">
-                Lockdown: {{ fmt(preservationLockdownTime) }}
-                <span v-if="preservationUncertaintySeconds != null" :title="`Delay between deadline and lockdown execution`">
-                  (delay: {{ preservationUncertaintySeconds }}s)
-                </span>
-              </span>
-              <span v-else>
-                Deadline passed: {{ deadlineAbs }}
-              </span>
+        <!-- ONE STATUS LINE PLUS A MENU.
+             This was a five-button panel whose controls read as siblings while
+             one was navigation, one was irreversible, and two were duplicates
+             of the Export menu at the top of this page. A lecturer reading it
+             live could not tell what any of them did (reported 2026-09-02).
+             Manifest and CLI Download are NOT reproduced here: they already
+             exist under Export, and one action in two places is how they came
+             to look like different things.
+
+             The wording deliberately avoids this project's own vocabulary.
+             "Preservation" and "lockdown" mean nothing to somebody who has not
+             read ARCHITECTURE.md, and the person reading this is a lecturer. -->
+        <div v-if="showPreservationBanner" class="card preservation-strip">
+          <div class="preservation-strip-status">
+            <span
+              class="status-dot"
+              :class="allPreserved ? 'dot-success' : preservedCount > 0 ? 'dot-warning' : 'dot-neutral'"
+            ></span>
+            <div class="preservation-strip-text">
+              <span class="preservation-strip-title">{{ preservationSummary }}</span>
+              <span class="preservation-strip-meta text-secondary text-sm">{{ preservationMeta }}</span>
             </div>
           </div>
 
-          <div class="preservation-banner-body">
-            <p class="text-sm text-secondary" style="margin: 0;">
-              Submission commit snapshots are preserved in a private archive repository for this assignment,
-              <code v-if="archiveRepoSlug" class="mono">{{ archiveRepoSlug.split('/')[1] }}</code><span v-else>created on the first preservation</span>.
-            </p>
-            <div class="preservation-banner-actions">
-              <!-- Only once something is actually preserved: before that the
-                   archive repository does not exist, and a button to it is the
+          <div class="dropdown-container" ref="preservationMenuRef">
+            <button
+              class="btn btn-secondary btn-sm btn-with-icon"
+              type="button"
+              @click.stop="togglePreservationMenu"
+              :aria-expanded="preservationMenuOpen"
+              aria-haspopup="true"
+            >
+              <Icon name="archive" :size="14" />
+              <span>Manage</span>
+              <Icon :name="preservationMenuOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
+            </button>
+
+            <div v-if="preservationMenuOpen" class="export-dropdown-menu fade-in" role="menu">
+              <!-- Only once something is actually archived: before that the
+                   archive repository does not exist, and a link to it is the
                    page guessing. The href comes off the report, never from the
                    assignment id - a cohort archived before per-assignment
                    archives is in the org's old shared one. -->
@@ -107,47 +118,56 @@
                 :href="archiveRepoHref"
                 target="_blank"
                 rel="noopener"
-                class="btn btn-sm btn-secondary btn-with-icon"
+                class="export-dropdown-item"
+                role="menuitem"
+                @click="preservationMenuOpen = false"
               >
-                <Icon name="external-link" :size="13" />
-                <span>Archive Repo</span>
+                <Icon name="external-link" :size="14" class="dropdown-icon" />
+                <div class="dropdown-item-text">
+                  <span class="dropdown-item-title">Open the archive</span>
+                  <span class="dropdown-item-sub">
+                    A private repository holding a copy of every student's work exactly as it was at the deadline
+                  </span>
+                </div>
               </a>
-              <button
-                class="btn btn-sm btn-danger btn-with-icon"
-                type="button"
-                @click="showFreezeConfirmModal = true"
-                :disabled="freezingNow"
-                title="Immediately lock down student repositories and snapshot commits into the archive"
-              >
-                <Icon name="lock" :size="13" />
-                <span>{{ freezingNow ? 'Freezing…' : 'Freeze & Preserve Now' }}</span>
-              </button>
+
               <button
                 v-if="unpreservedCount > 0"
-                class="btn btn-sm btn-secondary btn-with-icon"
+                class="export-dropdown-item"
                 type="button"
-                @click="retryPreservation"
+                role="menuitem"
+                @click="handleRetryPreservation"
                 :disabled="retryingPreservation"
               >
-                <Icon name="refresh-cw" :size="13" />
-                <span>{{ retryingPreservation ? 'Retrying…' : `Retry Preservation (${unpreservedCount})` }}</span>
+                <Icon name="refresh-cw" :size="14" class="dropdown-icon" />
+                <div class="dropdown-item-text">
+                  <span class="dropdown-item-title">
+                    {{ retryingPreservation ? 'Starting…' : `Try again for ${unpreservedCount} student${unpreservedCount === 1 ? '' : 's'}` }}
+                  </span>
+                  <span class="dropdown-item-sub">
+                    Copies the work that has not made it to the archive yet, instead of waiting for tonight's run
+                  </span>
+                </div>
               </button>
+
+              <div class="dropdown-divider"></div>
+
               <button
-                class="btn btn-sm btn-secondary btn-with-icon"
+                class="export-dropdown-item"
                 type="button"
-                @click="handleDownloadManifest"
-                :disabled="preservedCount === 0"
+                role="menuitem"
+                @click="handleFreezeNow"
+                :disabled="freezingNow"
               >
-                <Icon name="tag" :size="13" />
-                <span>Download Manifest</span>
-              </button>
-              <button
-                class="btn btn-sm btn-secondary btn-with-icon"
-                type="button"
-                @click="handleCopyDownloadCmd"
-              >
-                <Icon name="copy" :size="13" />
-                <span>Copy CLI Download</span>
+                <Icon name="lock" :size="14" class="dropdown-icon text-danger" />
+                <div class="dropdown-item-text">
+                  <span class="dropdown-item-title text-danger">
+                    {{ freezingNow ? 'Locking…' : 'Lock everyone out now' }}
+                  </span>
+                  <span class="dropdown-item-sub">
+                    Immediately takes away every student's write access and copies their work to the archive. This cannot be undone.
+                  </span>
+                </div>
               </button>
             </div>
           </div>
@@ -272,6 +292,38 @@
             </div>
           </div>
           <div class="flex gap-xs items-center">
+            <!-- HANDING THE LINK TO STUDENTS IS WHAT THIS PAGE IS FOR before
+                 anyone has accepted, and ARCHITECTURE §10.6 requires it never
+                 to vanish - the whole view was once replaced by a "No report
+                 yet" page, taking the link with it at the one moment it was the
+                 only thing that mattered. A labelled button that is always
+                 present satisfies that; what it replaces is a large unlabelled
+                 URL block wedged between the tab pills and the table, which a
+                 lecturer could not identify (reported 2026-09-02).
+                 DESIGN.md §1.2 names this view's one CTA, so the TRIGGER is the
+                 primary and the Copy inside the popover is secondary. -->
+            <div class="dropdown-container" ref="inviteMenuRef">
+              <button
+                class="btn btn-primary btn-sm btn-with-icon"
+                type="button"
+                @click.stop="toggleInviteMenu"
+                :aria-expanded="inviteMenuOpen"
+                aria-haspopup="true"
+              >
+                <Icon name="link" :size="13" />
+                <span>Invite link</span>
+                <Icon :name="inviteMenuOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
+              </button>
+
+              <!-- Not role="menu": this is a labelled group holding a link and
+                   two controls, not a list of menu items. -->
+              <div v-if="inviteMenuOpen" class="export-dropdown-menu invite-menu fade-in" aria-label="Invite link for students">
+                <p class="invite-menu-title">Invite link for students</p>
+                <p class="invite-menu-help">Send this to students so they can join this assignment.</p>
+                <InvitationShare :org="org" :assignment="shareAssignment" variant="popover" />
+              </div>
+            </div>
+
             <!-- Refresh Button (Neutral Secondary) -->
             <button class="btn btn-secondary btn-sm btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive" title="Fetch live commit and autograding status">
               <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': refreshingLive }" />
@@ -467,10 +519,6 @@
           </div>
         </div>
 
-        <!-- Handing the link to students is the thing this page is for before
-             anyone has accepted, so it is a block with the student-facing
-             status on it, not a lone button (ARCHITECTURE §10.3). -->
-        <InvitationShare :org="org" :assignment="shareAssignment" variant="inline" class="detail-share" />
 
         <!-- Segmented Tab for Group Assignments -->
         <div v-if="isGroupAssignment" class="tab-pill-selector" style="margin-bottom: var(--space-md);">
@@ -1730,7 +1778,11 @@ const WARNING_MAP = {
   },
   'late-activity-detected': {
     label: 'late activity',
-    desc: 'Commits were detected after the student\'s effective deadline.'
+    // NOT "commits were detected after the deadline". Observations are
+    // collector runs: the nightly and the lockdown pass re-read an untouched
+    // repository after the deadline, which is not activity. What this warning
+    // means is that the repository's commit CHANGED after it was due.
+    desc: 'A commit that was not there at the deadline was observed afterwards. Re-reading an unchanged repository does not trigger this.'
   },
   'deadline-gap': {
     label: 'deadline gap',
@@ -1756,10 +1808,84 @@ const deadlinePassed = computed(() => {
   if (!currentDeadline.value) return false
   return new Date(currentDeadline.value).getTime() < Date.now()
 })
+
+// The preservation banner used to appear on nothing more than "the deadline has
+// passed", which put a "Preservation Pending" panel on assignments still marked
+// Accepting - reported as confusing from live use (2026-09-02). It waits for the
+// assignment to actually be CLOSED now.
+//
+// `preservedCount > 0` is a deliberate escape hatch, and it fails SAFE: if
+// anything really has been locked down and preserved, the lecturer sees that
+// record whatever the state field says. An assignment nobody got round to
+// closing must not silently hide what was already preserved.
+const showPreservationBanner = computed(() =>
+  deadlinePassed.value &&
+  !!report.value &&
+  report.value.students.length > 0 &&
+  (assignment.value?.state === 'closed' || preservedCount.value > 0))
 const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value) : '')
 const deadlineAbs = computed(() => {
   return currentDeadline.value ? fmt(currentDeadline.value) : ''
 })
+
+// Plain language on purpose - see the strip's template comment. A lecturer
+// should not need the words "preservation" or "lockdown" to understand that
+// student work has been copied somewhere safe and that nobody can still edit it.
+const preservationSummary = computed(() => {
+  if (allPreserved.value) return 'All student work is archived'
+  if (preservedCount.value > 0) {
+    return `${preservedCount.value} of ${eligiblePreservationCount.value} students' work is archived`
+  }
+  return 'No student work has been archived yet'
+})
+
+/** Seconds as something a lecturer reads, not as a number of seconds. */
+function formatDelay(seconds) {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`
+  return `${(seconds / 3600).toFixed(1)} h`
+}
+
+// The lockdown delay STAYS ON SCREEN. It is how long students could still push
+// after the deadline, and per the note on preservationUncertaintySeconds this is
+// the screen a lecturer would cite in a dispute - the redesign shortened this
+// panel, it must not quietly drop its evidence. It reads as words now rather
+// than as the old "(delay: 125s)".
+const preservationMeta = computed(() => {
+  if (!preservationLockdownTime.value) return `Deadline passed ${deadlineAbs.value}`
+  const base = `Locked ${fmt(preservationLockdownTime.value)}`
+  const delay = preservationUncertaintySeconds.value
+  return delay == null ? base : `${base} · writes stopped ${formatDelay(delay)} after the deadline`
+})
+
+// The strip's one menu. Same open/close contract as the Export and More menus
+// above it, including the document-click and Escape handlers - a third dropdown
+// that closed by its own rules would be the odd one out.
+const preservationMenuOpen = ref(false)
+const preservationMenuRef = ref(null)
+
+function togglePreservationMenu() {
+  preservationMenuOpen.value = !preservationMenuOpen.value
+}
+
+function handleRetryPreservation() {
+  preservationMenuOpen.value = false
+  retryPreservation()
+}
+
+function handleFreezeNow() {
+  preservationMenuOpen.value = false
+  showFreezeConfirmModal.value = true
+}
+
+// The Invite link popover. Same open/close contract as every other dropdown on
+// this page, for the same reason.
+const inviteMenuOpen = ref(false)
+const inviteMenuRef = ref(null)
+
+function toggleInviteMenu() {
+  inviteMenuOpen.value = !inviteMenuOpen.value
+}
 
 const filteredStudents = computed(() => {
   let list = report.value?.students || []
@@ -1881,12 +2007,20 @@ function onDocumentClick(e) {
   if (moreActionsRef.value && !moreActionsRef.value.contains(e.target)) {
     moreActionsOpen.value = false
   }
+  if (preservationMenuRef.value && !preservationMenuRef.value.contains(e.target)) {
+    preservationMenuOpen.value = false
+  }
+  if (inviteMenuRef.value && !inviteMenuRef.value.contains(e.target)) {
+    inviteMenuOpen.value = false
+  }
 }
 
 function onKeydown(e) {
   if (e.key === 'Escape') {
     if (exportDropdownOpen.value) exportDropdownOpen.value = false
     if (moreActionsOpen.value) moreActionsOpen.value = false
+    if (preservationMenuOpen.value) preservationMenuOpen.value = false
+    if (inviteMenuOpen.value) inviteMenuOpen.value = false
     if (actionStudent.value) closeActions()
   }
 }
@@ -3304,8 +3438,26 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 0.8rem;
   margin-top: var(--space-sm);
 }
-.detail-share {
-  margin-bottom: var(--space-md);
+/* The Invite link popover. Wider than the action menus because it holds a URL
+   chip and two controls rather than a column of menu items, and it lays its
+   contents out as a block - the dropdown menus are flex columns of full-width
+   rows, which would stretch the Copy and Open buttons across the whole width. */
+.invite-menu {
+  min-width: 320px;
+  display: block;
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+}
+
+.invite-menu-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.invite-menu-help {
+  margin: 2px 0 var(--space-sm);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .ext-note {
@@ -3477,45 +3629,46 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   color: var(--accent-blue);
 }
 
-.preservation-banner {
-  padding: var(--space-md, 16px);
+/* One row: status on the left, the single menu on the right. The old banner
+   was a header, a paragraph and a five-button action row; the paragraph said
+   what the archive was and the buttons said nothing, so the explanation now
+   lives on the menu items themselves where the action is. */
+.preservation-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md, 6px);
-  margin-bottom: var(--space-md, 16px);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
 }
 
-.preservation-banner-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-xs, 6px);
-}
-
-.preservation-banner-title-group {
+.preservation-strip-status {
   display: flex;
   align-items: center;
-  gap: var(--space-sm, 8px);
+  gap: var(--space-sm);
+  min-width: 0;
 }
 
-.preservation-banner-title {
+.preservation-strip-text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.preservation-strip-title {
   font-weight: 600;
   font-size: 0.95rem;
 }
 
-.preservation-banner-body {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-md, 16px);
-  flex-wrap: wrap;
-}
-
-.preservation-banner-actions {
-  display: flex;
-  gap: var(--space-xs, 6px);
-  align-items: center;
-  flex-wrap: wrap;
+/* Wraps under the title on a narrow window rather than pushing the menu off
+   the row - the menu is the part that has to stay reachable. */
+.preservation-strip-meta {
+  white-space: nowrap;
 }
 
 

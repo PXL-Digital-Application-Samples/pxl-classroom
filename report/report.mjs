@@ -323,12 +323,27 @@ async function main() {
     // without a submit/ tag represents an unstarted repository where the student submitted no work.
     const isUnstarted = !latestTagObservation && (latestCommitCount != null ? latestCommitCount <= 1 : false);
 
+    // LATE ACTIVITY IS A DIFFERENT SHA, NOT A LATER OBSERVATION.
+    //
+    // Observations are COLLECTOR RUNS, not commits. The nightly, the lockdown
+    // pass and preservation all re-read an untouched repository after the
+    // deadline and record an observation whose `observed_at` is "now" and whose
+    // `sha` is still the student's last on-time commit - so `firstLateSha`
+    // comes back equal to `lastOnTimeSha` for a repo nobody touched.
+    //
+    // The status logic has always known this. The `warnings` array did not, and
+    // used the weaker `if (firstLateSha)`, so an entire finished exam cohort was
+    // flagged "late activity" while every row's status read "on-time" (reported
+    // from live use, PXLAutomation, 2026-09-02). One boolean now, so the two
+    // cannot drift apart again.
+    const hasLateActivity = Boolean(firstLateSha) && firstLateSha !== lastOnTimeSha;
+
     let submissionStatus = "unknown";
     if (!acceptance || isUnstarted) {
       submissionStatus = "no-submission";
       noSubCount++;
     } else if (lastOnTimeSha) {
-      if (firstLateSha && firstLateSha !== lastOnTimeSha) {
+      if (hasLateActivity) {
         submissionStatus = "late";
         lateCount++;
       } else {
@@ -357,7 +372,7 @@ async function main() {
     const warnings = [];
     if (repo && !repo.repo_id) warnings.push("missing-repo-id");
     if (acceptance && !repo) warnings.push("accepted-not-provisioned");
-    if (firstLateSha) warnings.push("late-activity-detected");
+    if (hasLateActivity) warnings.push("late-activity-detected");
 
     const team = studentTeam;
     const rosterEntry = rosterByLogin.get(key);

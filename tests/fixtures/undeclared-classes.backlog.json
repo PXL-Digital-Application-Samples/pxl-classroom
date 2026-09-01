@@ -82,9 +82,6 @@
     "preassigned-flow": [
       "GroupAcceptanceCard.vue"
     ],
-    "preservation-banner-meta": [
-      "AssignmentDetailView.vue"
-    ],
     "quick-filter-pills": [
       "AssignmentDetailView.vue"
     ],

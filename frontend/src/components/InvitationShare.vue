@@ -87,7 +87,12 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'inline',
-    validator: (v) => ['banner', 'inline', 'compact'].includes(v),
+    // `popover` renders exactly what `inline` does, with one difference that is
+    // the whole reason it exists: its Copy is SECONDARY. On the detail view the
+    // popover's trigger carries btn-primary (DESIGN.md §1.2 names this view's
+    // one CTA), and the conformity test counts VISIBLE primaries - so an open
+    // popover containing inline's primary Copy would put two on screen.
+    validator: (v) => ['banner', 'inline', 'compact', 'popover'].includes(v),
   },
   // Whether an absent `invite_token` may be read from the control repo.
   //

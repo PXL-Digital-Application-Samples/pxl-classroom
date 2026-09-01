@@ -125,16 +125,39 @@ test("UI E2E Contract: AssignmentDetailView exports 1-Primary CTA and grouped Mo
   const detailViewPath = join(FRONTEND_SRC, "views", "AssignmentDetailView.vue");
   const content = await readFile(detailViewPath, "utf8");
 
-  // The single primary CTA is the share block's Copy, which now lives in
-  // InvitationShare.vue (ARCHITECTURE §10.3) rather than as a lone header button.
+  // The single primary CTA is still the invitation link, and it is still
+  // InvitationShare.vue that presents it - but it is now the popover's TRIGGER
+  // that carries btn-primary, not the Copy inside it.
+  //
+  // The share block used to render as a large unlabelled URL between the tab
+  // pills and the table, where a lecturer could not tell what it was (reported
+  // 2026-09-02). It is a labelled "Invite link" button opening a popover now.
+  // The popover variant exists precisely so its Copy is SECONDARY: the
+  // conformity spec counts VISIBLE primaries, so trigger-plus-inline-Copy would
+  // put two on screen the moment it opened.
   assert.ok(
     content.includes("<InvitationShare"),
     "Detail view must render the share block",
   );
   assert.match(
     content,
+    /<InvitationShare[^>]*variant="popover"/s,
+    "the popover variant is the one whose Copy is secondary",
+  );
+  assert.doesNotMatch(
+    content,
     /<InvitationShare[^>]*variant="inline"/s,
-    "and the inline variant is the one whose Copy is this view's primary",
+    "inline's Copy is btn-primary - with the trigger also primary that is two " +
+      "visible primaries, which DESIGN.md §1.2 forbids",
+  );
+  assert.match(
+    content,
+    /class="btn btn-primary[^"]*"[^>]*@click\.stop="toggleInviteMenu"/s,
+    "and the trigger is this view's one primary CTA",
+  );
+  assert.ok(
+    content.includes("inviteMenuOpen"),
+    "Detail view must manage inviteMenuOpen popover state",
   );
   assert.ok(
     content.includes("moreActionsOpen"),

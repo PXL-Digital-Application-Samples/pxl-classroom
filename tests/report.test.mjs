@@ -195,6 +195,58 @@ test("student with observation after deadline is late", () => {
   assert.equal(bob.first_late_sha, "c".repeat(40));
 });
 
+// THE WARNING AND THE STATUS HAVE TO AGREE, and for a long time they did not.
+//
+// Observations are COLLECTOR RUNS, not commits. The nightly, the lockdown pass
+// and preservation all re-read an untouched repository after the deadline, so
+// `first_late_sha` comes back EQUAL to `last_on_time_sha` for a repo nobody
+// pushed to. The status logic guarded against exactly that; the `warnings`
+// array used the weaker `if (firstLateSha)` and flagged an entire finished exam
+// cohort as "late activity" while every row's status read "on-time" - reported
+// from live use on PXLAutomation, 2026-09-02, by a lecturer who was one of the
+// flagged accounts and had touched nothing.
+test("a repo merely RE-OBSERVED after the deadline is not late activity", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "dave", status: "accepted" }],
+    observations: {
+      dave: [
+        { observed_at: "2026-09-09T20:00:00Z", sha: "d".repeat(40) },
+        // The lockdown pass, the night after the deadline. SAME SHA - this is
+        // the collector doing its job, not the student pushing.
+        { observed_at: "2026-09-11T02:00:00Z", sha: "d".repeat(40) },
+      ],
+    },
+  });
+  const dave = report.students.find((s) => s.github_login === "dave");
+  assert.equal(dave.submission_status, "on-time", "the status was always right");
+  assert.ok(
+    !(dave.warnings || []).includes("late-activity-detected"),
+    "and the warning must agree with it - a collector run is not a commit",
+  );
+});
+
+test("a genuinely different SHA after the deadline still warns", () => {
+  // The other half of the fix: silencing the false positive must not silence
+  // the real thing. This is the case the warning exists for.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "erin", status: "accepted" }],
+    observations: {
+      erin: [
+        { observed_at: "2026-09-09T20:00:00Z", sha: "e".repeat(40) },
+        { observed_at: "2026-09-11T02:00:00Z", sha: "f".repeat(40) },
+      ],
+    },
+  });
+  const erin = report.students.find((s) => s.github_login === "erin");
+  assert.equal(erin.submission_status, "late");
+  assert.ok(
+    (erin.warnings || []).includes("late-activity-detected"),
+    "a different commit after the deadline is exactly what this warning is for",
+  );
+});
+
 // --- login case (lib/github-login.mjs) ---------------------------------------
 //
 // GitHub logins are case-insensitive and accept.mjs's roster gate compares them

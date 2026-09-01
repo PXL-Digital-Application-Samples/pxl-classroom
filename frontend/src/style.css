@@ -1031,6 +1031,12 @@ select:focus {
 .invitation-share-banner .invitation-link {
   background: var(--bg-surface);
 }
+/* Inside the detail view's Invite link popover. The popover already provides
+   the padding and the tonal step, so this variant adds no box of its own -
+   nesting one here would be the prison (DESIGN.md §1.1). */
+.invitation-share-popover {
+  gap: var(--space-sm);
+}
 .invitation-share-status {
   display: flex;
   align-items: baseline;

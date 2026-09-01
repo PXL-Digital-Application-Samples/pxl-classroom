@@ -14,7 +14,7 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * Check the tone actually differs in **both** themes before removing a border. `--bg-surface` and `--bg-surface-elevated` are both `#ffffff` in light (§2), so an "elevated" panel on a white modal has a contrast ratio of exactly 1.000. `--bg-inset` is the recessed step that differs in both.
 
 2. **Strict 1-Primary-Button Rule:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
-   * **Only ONE** solid primary button (`.btn-primary`) per view or major screen section (e.g., `+ New assignment` on Dashboard, `Copy invitation link` on Detail view).
+   * **Only ONE** solid primary button (`.btn-primary`) per view or major screen section (e.g., `+ New assignment` on Dashboard, the `Invite link` popover trigger on Detail view).
    * Standard toolbar actions (`Refresh`, `Export`, `Sync`) must use neutral secondary styling (`.btn-secondary`).
    * Destructive actions (`Close acceptance`, `Freeze`) belong in a `··· More` overflow dropdown or use subtle danger outlines until confirmed in a modal dialog.
    * A **modal counts as its own view**. An action repeated per row or per card is never primary - one card per assignment meant one primary button per assignment before this was caught.
