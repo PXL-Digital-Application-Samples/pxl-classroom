@@ -560,7 +560,7 @@
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
                     ext -> {{ fmt(extensionFor(s.github_login).value) }}
                   </div>
-                  <div v-if="s.preservation_status === 'preserved' && s.preserved_sha && studentArchiveUrl(s)" class="archive-link-wrap" style="margin-top: 3px;">
+                  <div v-if="s.preservation_status === 'preserved' && s.preserved_sha && studentArchiveUrl(s)" class="archive-link-wrap">
                     <a
                       :href="studentArchiveUrl(s)"
                       target="_blank"
@@ -601,7 +601,6 @@
                     :class="['badge badge-clickable', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']"
                     @click="openAutogradeModal(s)"
                     title="Click to view autograding details"
-                    style="cursor: pointer; border: none;"
                   >
                     {{ s.ci_status }}
                   </button>
@@ -611,11 +610,11 @@
                   <button
                     v-if="s.earned_points != null"
                     type="button"
-                    class="badge"
+                    class="badge badge-clickable"
                     :class="s.earned_points >= s.total_points && s.total_points > 0 ? 'badge-success' : (s.earned_points > 0 ? 'badge-warning' : 'badge-error')"
                     @click="openAutogradeModal(s)"
                     title="Click to view the score and open the CI run"
-                    style="cursor: pointer; border: none; font-size: 0.75rem;"
+                    style="font-size: 0.75rem;"
                   >
                     {{ s.earned_points }}/{{ s.total_points }} pts
                   </button>
@@ -3764,5 +3763,29 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .mobile-only { display: block; }
   .card-list { display: flex; flex-direction: column; gap: var(--space-sm); }
   .modal { padding: var(--space-md); }
+}
+
+/* ------------------------------------------------------------------------
+   Vocabulary that was carried INLINE.
+
+   Each class below was written in the markup beside a `style="…"` that said
+   what it meant, so the class itself was declared nowhere and the look lived on
+   the element. Moving the declarations here changes nothing on screen - the
+   values are unchanged - but it takes them off the undeclared-class register
+   and puts the appearance where DESIGN.md says it belongs.
+   ------------------------------------------------------------------------ */
+
+.archive-link-wrap {
+  margin-top: 3px;
+}
+
+/* A badge that is a button. Both clickable badges in the student table carried
+   `cursor: pointer; border: none;` inline - the same two declarations twice -
+   while the class naming the behaviour was declared nowhere. Scoped, so
+   `[data-v-*].badge-clickable` (0,2,0) still out-specifies the global `.badge`
+   (0,1,0) exactly as the inline style did. */
+.badge-clickable {
+  cursor: pointer;
+  border: none;
 }
 </style>

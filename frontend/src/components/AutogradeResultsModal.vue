@@ -138,6 +138,23 @@ const subject = computed(
   padding: 12px 16px;
 }
 
+/* THE WHOLE POINT OF THE BANNER, and it did nothing.
+   `:class="… ? 'banner-success' : 'banner-warning'"` has been in this markup
+   since it was written - in both copies of it - and neither class was declared
+   anywhere, so a passing autograding run and a failing one rendered identically.
+   An undeclared class fails silently (DESIGN.md §7), which is why a template
+   test asserting the class is present could confirm it and prove nothing.
+   Tints, not hand-rolled rgba (DESIGN.md §2). */
+.score-banner.banner-success {
+  background: var(--tint-success-subtle);
+  border-color: var(--tint-success-emphasis);
+}
+
+.score-banner.banner-warning {
+  background: var(--tint-attention-subtle);
+  border-color: var(--tint-attention-emphasis);
+}
+
 .score-banner-value {
   font-size: 1.4rem;
 }

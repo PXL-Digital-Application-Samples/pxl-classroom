@@ -16,44 +16,20 @@
     "archive-link": [
       "TeamsTable.vue"
     ],
-    "archive-link-wrap": [
-      "AssignmentDetailView.vue"
-    ],
     "autograde-modal": [
-      "AutogradeResultsModal.vue"
-    ],
-    "badge-clickable": [
-      "AssignmentDetailView.vue"
-    ],
-    "badge-danger": [
-      "AdminView.vue"
-    ],
-    "banner-success": [
-      "AutogradeResultsModal.vue"
-    ],
-    "banner-warning": [
       "AutogradeResultsModal.vue"
     ],
     "capacity-banner": [
       "AssignmentDetailView.vue"
     ],
-    "card-actions": [
-      "HomeView.vue"
-    ],
     "card-top": [
       "HomeView.vue"
-    ],
-    "check-list": [
-      "SetupView.vue"
     ],
     "checkbox-row": [
       "StarterSyncModal.vue"
     ],
     "checks-list": [
       "StudentDiagnosticsModal.vue"
-    ],
-    "clean": [
-      "StarterSyncModal.vue"
     ],
     "col-ci": [
       "AssignmentDetailView.vue"
@@ -62,9 +38,6 @@
       "AssignmentDetailView.vue"
     ],
     "commit-msg-headline": [
-      "StarterSyncModal.vue"
-    ],
-    "conflict": [
       "StarterSyncModal.vue"
     ],
     "consequence-item": [
@@ -82,26 +55,14 @@
     "demo-toolbar": [
       "SandboxView.vue"
     ],
-    "deploy-steps-row": [
-      "AdminView.vue"
-    ],
-    "diff-patch-pre": [
-      "StarterSyncModal.vue"
-    ],
     "diff-patch-view-container": [
       "StarterSyncModal.vue"
     ],
     "diff-toggle-btn": [
       "StarterSyncModal.vue"
     ],
-    "direct-link-box": [
-      "HomeView.vue"
-    ],
     "empty-teams": [
       "GroupAcceptanceCard.vue"
-    ],
-    "error-state-box": [
-      "AdminView.vue"
     ],
     "field-label": [
       "StarterSyncModal.vue"
@@ -114,18 +75,6 @@
     ],
     "file-row-box": [
       "StarterSyncModal.vue"
-    ],
-    "group-config-box": [
-      "AdminView.vue"
-    ],
-    "is-complete": [
-      "DashboardView.vue"
-    ],
-    "is-success": [
-      "AdminView.vue"
-    ],
-    "modal-actions-box": [
-      "StudentDiagnosticsModal.vue"
     ],
     "modal-consequences": [
       "AssignmentDetailView.vue"
@@ -145,25 +94,13 @@
     "quick-filter-pills": [
       "AssignmentDetailView.vue"
     ],
-    "radio-group": [
-      "AdminView.vue"
-    ],
     "report-content": [
       "AssignmentDetailView.vue"
-    ],
-    "result-summary": [
-      "SetupView.vue"
-    ],
-    "roster-filter-chips": [
-      "RosterTab.vue"
     ],
     "roster-overview-header": [
       "RosterTab.vue"
     ],
     "roster-table": [
-      "RosterTab.vue"
-    ],
-    "roster-table-wrapper": [
       "RosterTab.vue"
     ],
     "sandbox-page": [
@@ -187,15 +124,6 @@
     "signed-out-section": [
       "HomeView.vue"
     ],
-    "skipped": [
-      "StarterSyncModal.vue"
-    ],
-    "space-y-xs": [
-      "AdminView.vue"
-    ],
-    "spin-anim": [
-      "UsagePanel.vue"
-    ],
     "starter-sync-modal": [
       "StarterSyncModal.vue"
     ],
@@ -209,9 +137,6 @@
       "GroupAcceptanceCard.vue"
     ],
     "team-action-btn": [
-      "GroupAcceptanceCard.vue"
-    ],
-    "team-actions": [
       "GroupAcceptanceCard.vue"
     ],
     "team-info": [
@@ -241,9 +166,6 @@
     "tests-breakdown-list": [
       "AutogradeResultsModal.vue"
     ],
-    "text-error": [
-      "StarterSyncModal.vue"
-    ],
     "theme-toggle": [
       "ThemeToggle.vue"
     ],
@@ -261,9 +183,6 @@
     ],
     "usage-page": [
       "UsageView.vue"
-    ],
-    "verify-results": [
-      "SetupView.vue"
     ]
   }
 }

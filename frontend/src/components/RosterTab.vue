@@ -80,7 +80,7 @@
           </div>
 
           <!-- Roster Filter Chips -->
-          <div class="roster-filter-chips flex gap-xs items-center w-full" style="margin-top: var(--space-sm);">
+          <div class="roster-filter-chips flex gap-xs items-center w-full">
             <button
               :class="['chip-btn', { active: rosterFilter === 'all' }]"
               type="button"
@@ -105,7 +105,7 @@
           </div>
 
           <!-- Student List Table -->
-          <div class="roster-table-wrapper w-full" style="margin-top: var(--space-sm); max-height: 380px; overflow-y: auto;">
+          <div class="roster-table-wrapper w-full">
             <table class="roster-table w-full text-left text-sm" style="border-collapse: collapse;">
               <thead>
                 <tr style="border-bottom: 1px solid var(--border-default); color: var(--text-secondary);">
@@ -322,7 +322,7 @@
             </div>
           </div>
 
-          <footer class="modal-foot flex justify-end gap-sm" style="margin-top: var(--space-sm);">
+          <footer class="modal-foot flex justify-end gap-sm">
             <button class="btn btn-secondary" type="button" @click="showQuickAddModal = false">Cancel</button>
             <button class="btn btn-primary" type="submit" :disabled="quickAddSaving">
               {{ quickAddSaving ? 'Adding…' : 'Add Student' }}
@@ -905,5 +905,25 @@ defineExpose({
 }
 .mono {
   font-family: var(--font-mono);
+}
+
+/* ------------------------------------------------------------------------
+   Vocabulary that was carried INLINE.
+
+   Each class below was written in the markup beside a `style="…"` that said
+   what it meant, so the class itself was declared nowhere and the look lived on
+   the element. Moving the declarations here changes nothing on screen - the
+   values are unchanged - but it takes them off the undeclared-class register
+   and puts the appearance where DESIGN.md says it belongs.
+   ------------------------------------------------------------------------ */
+
+.roster-filter-chips {
+  margin-top: var(--space-sm);
+}
+
+.roster-table-wrapper {
+  margin-top: var(--space-sm);
+  max-height: 380px;
+  overflow-y: auto;
 }
 </style>

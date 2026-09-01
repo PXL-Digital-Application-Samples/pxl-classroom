@@ -119,7 +119,7 @@
             You have not accepted any course assignments yet. When your lecturer gives you an assignment link, open it to join.
           </p>
 
-          <div class="direct-link-box" style="margin-top: var(--space-lg); width: 100%; max-width: 480px;">
+          <div class="direct-link-box">
             <p class="text-sm font-semibold" style="margin-bottom: var(--space-xs); text-align: left;">
               Have a link from your lecturer?
             </p>
@@ -168,7 +168,7 @@
               <span>Tagged submission: <code>{{ a.submitTag }}</code></span>
             </div>
 
-            <div class="card-actions flex items-center justify-between" style="margin-top: var(--space-md); padding-top: var(--space-sm); border-top: 1px solid var(--border-muted);">
+            <div class="card-actions flex items-center justify-between">
               <!-- No link back to the acceptance page: it is reached by
                    invitation token, which this card does not have, and a
                    student who is already accepted wants the repository. -->
@@ -699,5 +699,27 @@ h1 {
 @media (max-width: 640px) {
   h1 { font-size: 2rem; }
   .jump-form { flex-direction: column; }
+}
+
+/* ------------------------------------------------------------------------
+   Vocabulary that was carried INLINE.
+
+   Each class below was written in the markup beside a `style="…"` that said
+   what it meant, so the class itself was declared nowhere and the look lived on
+   the element. Moving the declarations here changes nothing on screen - the
+   values are unchanged - but it takes them off the undeclared-class register
+   and puts the appearance where DESIGN.md says it belongs.
+   ------------------------------------------------------------------------ */
+
+.card-actions {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-muted);
+}
+
+.direct-link-box {
+  margin-top: var(--space-lg);
+  width: 100%;
+  max-width: 480px;
 }
 </style>

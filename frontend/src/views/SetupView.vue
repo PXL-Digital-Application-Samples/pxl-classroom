@@ -114,13 +114,13 @@
             {{ verifyError }}
           </div>
 
-          <div v-if="verifyChecks" class="verify-results" style="margin-top: var(--space-md); max-width: 480px;">
-            <div :class="['result-summary', verifyChecks.allOk ? 'text-success' : 'text-danger']" style="font-weight: 600; font-size: 0.95rem; margin-bottom: var(--space-sm); display: flex; align-items: center; gap: 6px;">
+          <div v-if="verifyChecks" class="verify-results">
+            <div :class="['result-summary', verifyChecks.allOk ? 'text-success' : 'text-danger']">
               <Icon :name="verifyChecks.allOk ? 'check-circle' : 'x-circle'" :size="16" />
               <span>{{ verifyChecks.allOk ? 'App healthy!' : 'Drift detected - action required' }}</span>
             </div>
 
-            <ul class="check-list" style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-xs);">
+            <ul class="check-list">
               <li v-for="c in verifyChecks.permissions" :key="c.name" class="flex items-center justify-between" style="padding: 8px 12px; background: var(--bg-surface-hover); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); font-size: 0.85rem;">
                 <span class="mono" style="color: var(--text-primary);">{{ c.name }}</span>
                 <span class="status-indicator">
@@ -512,4 +512,36 @@ onMounted(() => {
 .text-success { color: var(--accent-green); }
 .text-danger { color: var(--accent-red); }
 .text-warning { color: var(--accent-yellow); }
+
+/* ------------------------------------------------------------------------
+   Vocabulary that was carried INLINE.
+
+   Each class below was written in the markup beside a `style="…"` that said
+   what it meant, so the class itself was declared nowhere and the look lived on
+   the element. Moving the declarations here changes nothing on screen - the
+   values are unchanged - but it takes them off the undeclared-class register
+   and puts the appearance where DESIGN.md says it belongs.
+   ------------------------------------------------------------------------ */
+
+.check-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.result-summary {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verify-results {
+  margin-top: var(--space-md);
+  max-width: 480px;
+}
 </style>

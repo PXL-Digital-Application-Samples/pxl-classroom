@@ -1275,6 +1275,19 @@ main {
   align-items: flex-start;
   gap: var(--space-sm);
 }
+/* A finished step, and it looked exactly like an unfinished one.
+   `:class="{ 'is-complete': orgIsInstalled }"` was in the markup with nothing
+   declaring it, so the checklist a lecturer follows during onboarding never
+   showed progress. Dimmed rather than tinted: the point of a done step is that
+   the eye skips it and lands on the next one. */
+.onboarding-step.is-complete .step-body strong,
+.onboarding-step.is-complete .step-body p {
+  color: var(--text-muted);
+}
+.onboarding-step.is-complete .step-body strong {
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
 .onboarding-step .step-icon {
   margin-top: 2px;
   flex-shrink: 0;

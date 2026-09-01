@@ -162,7 +162,7 @@
         </div>
 
         <!-- Action Buttons -->
-        <div class="modal-actions-box flex justify-between items-center flex-wrap gap-sm pt-sm" style="border-top: 1px solid var(--border-default);">
+        <div class="modal-actions-box flex justify-between items-center flex-wrap gap-sm pt-sm">
           <div class="flex gap-xs">
             <button class="btn btn-sm btn-secondary" type="button" @click="copyReport">
               Copy Report
@@ -324,5 +324,19 @@ function copyReport() {
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: 6px;
+}
+
+/* ------------------------------------------------------------------------
+   Vocabulary that was carried INLINE.
+
+   Each class below was written in the markup beside a `style="…"` that said
+   what it meant, so the class itself was declared nowhere and the look lived on
+   the element. Moving the declarations here changes nothing on screen - the
+   values are unchanged - but it takes them off the undeclared-class register
+   and puts the appearance where DESIGN.md says it belongs.
+   ------------------------------------------------------------------------ */
+
+.modal-actions-box {
+  border-top: 1px solid var(--border-default);
 }
 </style>

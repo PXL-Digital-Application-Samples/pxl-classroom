@@ -820,4 +820,13 @@ onBeforeUnmount(() => {
     max-width: 100%;
   }
 }
+
+/* The refresh icon that never span.
+   `:class="{ 'spin-anim': triggering }"` had nothing behind it, so the one
+   affordance saying "this is working" did nothing while a report regenerated.
+   `@keyframes spin` already exists in style.css and drives `.spinner`; this
+   reuses it rather than declaring a second set of frames. */
+.spin-anim {
+  animation: spin 0.8s linear infinite;
+}
 </style>

@@ -833,6 +833,10 @@ select:focus {
 
 .gap-xs { gap: var(--space-xs); }
 .gap-sm { gap: var(--space-sm); }
+/* Vertical rhythm BETWEEN children, for a list that is not a flex container -
+   `gap` does nothing on a plain <ul>. Written in AdminView and declared
+   nowhere, so the bullet list it spaces had no spacing at all. */
+.space-y-xs > * + * { margin-top: var(--space-xs); }
 .gap-md { gap: var(--space-md); }
 .gap-lg { gap: var(--space-lg); }
 

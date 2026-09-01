@@ -27,7 +27,7 @@
             <span class="text-sm text-secondary">Inspecting template repository…</span>
           </div>
 
-          <div v-else-if="templateError" class="text-error text-sm">
+          <div v-else-if="templateError" class="text-danger text-sm">
             {{ templateError }}
           </div>
 
@@ -87,7 +87,7 @@
 
                   <!-- Diff Patch View -->
                   <div v-if="expandedDiffs[file.filename]" class="diff-patch-view-container" style="margin-top: 8px;">
-                    <pre class="diff-patch-pre mono text-xs" style="background: var(--bg-canvas); border-radius: 4px; max-height: 200px; overflow-y: auto; margin: 0; padding: 8px; line-height: 1.4;"><template v-for="(line, idx) in formatPatchLines(file.patch)" :key="idx"><span :style="line.type === 'diff-line-add' ? 'color: var(--accent-green); display: block; background: var(--tint-success-muted);' : line.type === 'diff-line-del' ? 'color: var(--accent-red); display: block; background: var(--tint-danger-muted);' : line.type === 'diff-line-hunk' ? 'color: var(--accent-blue); display: block;' : 'color: var(--text-muted); display: block;'">{{ line.text }}</span></template></pre>
+                    <pre class="diff-patch-pre mono text-xs"><template v-for="(line, idx) in formatPatchLines(file.patch)" :key="idx"><span :style="line.type === 'diff-line-add' ? 'color: var(--accent-green); display: block; background: var(--tint-success-muted);' : line.type === 'diff-line-del' ? 'color: var(--accent-red); display: block; background: var(--tint-danger-muted);' : line.type === 'diff-line-hunk' ? 'color: var(--accent-blue); display: block;' : 'color: var(--text-muted); display: block;'">{{ line.text }}</span></template></pre>
                   </div>
                 </div>
               </div>
@@ -636,6 +636,30 @@ onMounted(() => {
   border-radius: var(--radius-sm);
 }
 
+/* The three outcomes of a pre-flight scan, told apart. Each card already
+   carries its verdict on the count (`.stat-green` / `.stat-yellow` /
+   `.text-muted`) and on its status dot, but the three MODIFIERS were declared
+   nowhere - so the cards themselves were identical and the colour was carried
+   by two small elements inside them. Only the tint and the border move, the
+   same way `.published-info-card.is-warning` does: DESIGN.md §1.1 forbids
+   turning a card inside a modal into a third box. */
+.preflight-card.clean {
+  background: var(--tint-success-subtle);
+  border-color: var(--tint-success-emphasis);
+}
+
+.preflight-card.conflict {
+  background: var(--tint-attention-subtle);
+  border-color: var(--tint-attention-emphasis);
+}
+
+/* Neutral, deliberately: "nothing to do" is not a warning. An empty population
+   is not a failure (DESIGN.md §4). */
+.preflight-card.skipped {
+  background: var(--tint-neutral-subtle);
+  border-color: var(--tint-neutral-emphasis);
+}
+
 .preflight-count {
   font-size: 1.3rem;
   font-weight: 700;
@@ -703,5 +727,25 @@ onMounted(() => {
 
 .btn-link:hover {
   text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------------
+   Vocabulary that was carried INLINE.
+
+   Each class below was written in the markup beside a `style="…"` that said
+   what it meant, so the class itself was declared nowhere and the look lived on
+   the element. Moving the declarations here changes nothing on screen - the
+   values are unchanged - but it takes them off the undeclared-class register
+   and puts the appearance where DESIGN.md says it belongs.
+   ------------------------------------------------------------------------ */
+
+.diff-patch-pre {
+  background: var(--bg-canvas);
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 8px;
+  line-height: 1.4;
 }
 </style>

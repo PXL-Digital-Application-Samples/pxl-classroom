@@ -70,14 +70,14 @@
         </button>
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
-        <div v-else-if="assignmentsError === 'no-control-repo'" class="list-empty error-state-box" style="padding: var(--space-md); border: 1px dashed var(--accent-red); border-radius: var(--radius-md); text-align: center;">
+        <div v-else-if="assignmentsError === 'no-control-repo'" class="list-empty error-state-box">
           <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} isn't onboarded yet</h4>
           <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
             There is no <code>{{ org }}/{{ config.controlRepo }}</code> repository (or you can't see it).
             A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow.
           </p>
         </div>
-        <div v-else-if="assignmentsError" class="list-empty error-state-box" style="padding: var(--space-md); border: 1px dashed var(--accent-red); border-radius: var(--radius-md); text-align: center;">
+        <div v-else-if="assignmentsError" class="list-empty error-state-box">
           <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load assignments</h4>
           <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0;">{{ assignmentsError }}</p>
           <button class="btn btn-sm" @click="loadAssignments">Retry</button>
@@ -190,7 +190,7 @@
               <p class="published-desc">
                 GitHub Actions is setting up the student acceptance broker and publishing the web portal. You can safely stay on this page or navigate away — setup will finish automatically in the background.
               </p>
-              <div class="deploy-steps-row" style="display: flex; gap: var(--space-md); margin: var(--space-xs) 0; font-size: 0.85rem; flex-wrap: wrap;">
+              <div class="deploy-steps-row">
                 <div style="display: flex; align-items: center; gap: 4px; color: var(--accent-green);">
                   <Icon name="check-circle" :size="14" />
                   <span>1. Setup Workflow Launched</span>
@@ -251,7 +251,7 @@
               <div class="published-header">
                 <Icon name="alert-triangle" :size="16" class="text-danger" />
                 <h4 style="color: var(--accent-red);">Publish Incomplete: Student Acceptance Broker Missing</h4>
-                <span class="badge badge-danger" style="margin-left: auto; font-size: 0.75rem;">Action Required</span>
+                <span class="badge badge-danger">Action Required</span>
               </div>
               <p class="published-desc text-danger">
                 This assignment is set to published, but its student acceptance broker (<code>broker-{{ form.id }}</code>) does not exist on GitHub. Students cannot accept until the broker is created.
@@ -502,7 +502,7 @@
             <legend>Assignment Type</legend>
             <div class="field">
               <label>Collaboration Model</label>
-              <div class="radio-group" style="display: flex; gap: var(--space-lg); margin-top: 4px;">
+              <div class="radio-group">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                   <input type="radio" v-model="form.assignment_type" value="individual" @change="onAssignmentTypeChange" />
                   <span><strong>Individual</strong> (1 student per repository)</span>
@@ -514,7 +514,7 @@
               </div>
             </div>
 
-            <div v-if="form.assignment_type === 'group'" class="group-config-box" style="margin-top: var(--space-md); padding: var(--space-md); background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-default); display: flex; flex-direction: column; gap: var(--space-md);">
+            <div v-if="form.assignment_type === 'group'" class="group-config-box">
               <div class="field">
                 <label>Formation Mode</label>
                 <select v-model="form.group_config.formation_mode">
@@ -2887,6 +2887,14 @@ details .field { padding: 0 var(--space-sm); }
   background: var(--tint-danger-subtle);
   border-color: var(--tint-danger-emphasis);
 }
+/* Declared even though the BASE is already the success tint. The markup applies
+   `is-success` and the trio was two-thirds written, so the success state was the
+   unnamed default - which reads as an oversight and is the shape somebody adds
+   `.is-info` on top of. Stating it costs nothing and changes nothing. */
+.published-info-card.is-success {
+  background: var(--tint-success-subtle);
+  border-color: var(--tint-success-muted);
+}
 /* Tonal step, no border: the editor pane already draws one and the fieldsets
    below draw another (DESIGN.md §1.1 - never nest three boxes). --bg-inset is
    the recessed step that differs from --bg-surface in BOTH themes. */
@@ -3117,4 +3125,58 @@ details .field { padding: 0 var(--space-sm); }
 }
 .regen-choice .field.checkbox { margin: 0; }
 .regen-choice small { color: var(--text-secondary); }
+
+/* ------------------------------------------------------------------------
+   Vocabulary that was carried INLINE.
+
+   Each of these classes was written in the markup beside a `style="…"` that
+   said what it meant, so the class itself was declared nowhere and the look
+   lived on the element. Moving the declarations here changes nothing on
+   screen - the values are unchanged - but it takes them off
+   tests/fixtures/undeclared-classes.backlog.json and puts the appearance
+   where DESIGN.md §5 says colour and spacing belong.
+   ------------------------------------------------------------------------ */
+
+/* AFTER `.list-empty` on purpose. Both are scoped, so both carry this
+   component's [data-v-*] and their specificity is equal - source order is what
+   decides, and the inline style this replaces used to win outright. */
+.error-state-box {
+  padding: var(--space-md);
+  border: 1px dashed var(--accent-red);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+/* Scoped, so `[data-v-*].badge-danger` (0,2,0) out-specifies the global
+   `.badge` (0,1,0) and this font-size still wins - which is what the inline
+   declaration was doing. */
+.badge-danger {
+  margin-left: auto;
+  font-size: 0.75rem;
+}
+
+.deploy-steps-row {
+  display: flex;
+  gap: var(--space-md);
+  margin: var(--space-xs) 0;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.group-config-box {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.radio-group {
+  display: flex;
+  gap: var(--space-lg);
+  margin-top: 4px;
+}
 </style>
