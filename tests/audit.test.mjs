@@ -4,7 +4,10 @@ import {
   runAudit,
   EXPECTED_APP_PERMISSIONS,
   MANIFEST_APP_PERMISSIONS,
+  ACCOUNT_APP_PERMISSIONS,
   permissionMeetsRequirement,
+  missingManifestPermissions,
+  excessDeclaredPermissions,
 } from "../lib/audit.mjs";
 
 test("EXPECTED_APP_PERMISSIONS shape", () => {
@@ -231,4 +234,70 @@ test("runAudit - assignment broker audit: draft assignment", async () => {
   assert.ok(brokerCheck);
   assert.equal(brokerCheck.severity, "info");
   assert.ok(brokerCheck.message.includes("broker not required"));
+});
+
+// --- excessDeclaredPermissions ------------------------------------------------
+//
+// Never named in a test, and it carries a deliberate argument SWAP that reads
+// like a bug:
+//
+//     permissionMeetsRequirement(actual, expected)   // rank(actual) >= rank(expected)
+//     ...
+//     !permissionMeetsRequirement(want, level)       // want=required, level=granted
+//
+// Passing (required, granted) asks "does the requirement meet the grant?", and
+// negating it gives "the requirement is BELOW the grant" - excess. Read quickly
+// it looks like the missing-permission test with the arguments the wrong way
+// round, so an edit that "corrects" it would invert the check that guards the
+// blast radius on PXL_APP_PRIVATE_KEY, and nothing would have said so.
+
+test("excessDeclaredPermissions flags a grant ABOVE what the manifest asks for", () => {
+  const required = { ...MANIFEST_APP_PERMISSIONS };
+  const [firstPerm, firstLevel] = Object.entries(required).find(([, v]) => v === "read")
+    ?? Object.entries(required)[0];
+
+  // Granted one rank higher than required.
+  const higher = firstLevel === "read" ? "write" : "admin";
+  const excess = excessDeclaredPermissions({ ...required, [firstPerm]: higher });
+  const hit = excess.find((e) => e.permission === firstPerm);
+  assert.ok(hit, `${firstPerm} granted ${higher} over a required ${firstLevel} must be excess`);
+  assert.equal(hit.actual, higher);
+  assert.equal(hit.required, firstLevel);
+});
+
+test("excessDeclaredPermissions does NOT flag a grant that is short - that is the other check", () => {
+  // The inversion this guards against. A permission granted BELOW what the
+  // manifest asks for is missingManifestPermissions' business; reporting it here
+  // too would put a second, differently-worded error beside it and send the App
+  // owner to remove a permission they need to add.
+  const required = { ...MANIFEST_APP_PERMISSIONS };
+  const writePerm = Object.entries(required).find(([, v]) => v === "write")?.[0];
+  if (!writePerm) return; // nothing to prove with this manifest
+
+  const short = excessDeclaredPermissions({ ...required, [writePerm]: "read" });
+  assert.ok(
+    !short.some((e) => e.permission === writePerm),
+    "a permission granted below the requirement is missing, not excess",
+  );
+  assert.ok(
+    missingManifestPermissions({ ...required, [writePerm]: "read" })
+      .some((m) => m.permission === writePerm),
+    "and it must be reported by the check that does own it",
+  );
+});
+
+test("excessDeclaredPermissions flags a permission nothing asks for at all", () => {
+  const excess = excessDeclaredPermissions({ ...MANIFEST_APP_PERMISSIONS, packages: "write" });
+  const hit = excess.find((e) => e.permission === "packages");
+  assert.ok(hit, "a permission absent from the manifest is pure blast radius");
+  assert.equal(hit.required, null, "and it must say nothing asks for it");
+});
+
+test("excessDeclaredPermissions is empty for an App declaring exactly the manifest", () => {
+  // The state the weekly check expects. If this ever fails, the check fires on
+  // every run and stops being read.
+  assert.deepEqual(
+    excessDeclaredPermissions({ ...MANIFEST_APP_PERMISSIONS, ...ACCOUNT_APP_PERMISSIONS }),
+    [],
+  );
 });
