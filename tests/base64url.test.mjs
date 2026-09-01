@@ -15,7 +15,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { toBase64Url, fromBase64Url } from "../lib/base64url.mjs";
+import { toBase64Url, fromBase64Url, B64URL_ERRORS } from "../lib/base64url.mjs";
+import { parseToken, TOKEN_PATTERN } from "../lib/invite-token-format.mjs";
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -89,6 +90,87 @@ test("a non-string is refused rather than coerced", () => {
     assert.throws(() => fromBase64Url(bad), /not base64url/, `must refuse ${JSON.stringify(bad)}`);
   }
 });
+
+// --- why the failures are told apart -----------------------------------------
+//
+// lib/invite-token-format.mjs was the last of the three modules that had its own
+// base64url pair; the acceptance signature and the claim had already migrated.
+// Merging it needed one thing this module did not offer: parseToken answers
+// `null` for "not a token" and `{ canonical: false }` for "a token with a second
+// valid spelling", and those are different things to tell a student - the link
+// is invalid, not broken. A branch keyed on the error MESSAGE would break the
+// first time anyone improved the wording, so the reason is a code.
+
+test("a decode failure says which kind it was", () => {
+  const canonical = toBase64Url(bytes(26, 9));
+
+  // Not base64url at all.
+  assert.equal(tryCode(() => fromBase64Url("AA+A")), B64URL_ERRORS.MALFORMED);
+  assert.equal(tryCode(() => fromBase64Url(null)), B64URL_ERRORS.MALFORMED);
+  // A length the alphabet cannot produce - atob throws, Buffer is lenient, and
+  // both runtimes must report the same thing.
+  assert.equal(tryCode(() => fromBase64Url("A")), B64URL_ERRORS.MALFORMED);
+
+  // Decodes, but not to the size the caller demanded.
+  assert.equal(tryCode(() => fromBase64Url(canonical, { expectedBytes: 64 })), B64URL_ERRORS.LENGTH);
+
+  // Decodes to the right size, spelled a second way.
+  const dirty = secondSpelling(canonical);
+  assert.notEqual(dirty, canonical);
+  assert.equal(tryCode(() => fromBase64Url(dirty, { expectedBytes: 26 })), B64URL_ERRORS.NON_CANONICAL);
+});
+
+test("parseToken still separates a bad token from a second spelling of a good one", () => {
+  // The behaviour the merge had to preserve, asserted here rather than only
+  // through the token suite - this file owns the decoder those answers rest on.
+  const payload = toBase64Url(bytes(26, 4));
+  const signature = toBase64Url(bytes(64, 5));
+  const token = `${payload}.${signature}`;
+  assert.ok(TOKEN_PATTERN.test(token), "fixture must look like a token");
+
+  const good = parseToken(token);
+  assert.equal(good?.canonical, true);
+
+  assert.deepEqual(
+    parseToken(`${secondSpelling(payload)}.${signature}`),
+    { canonical: false },
+    "a second spelling of the payload is reported, not rejected",
+  );
+  assert.deepEqual(
+    parseToken(`${payload}.${secondSpelling(signature)}`),
+    { canonical: false },
+    "and of the signature",
+  );
+
+  assert.equal(parseToken("not-a-token"), null);
+  assert.equal(parseToken(`${payload}.${signature.slice(0, 40)}`), null, "wrong shape is null, not canonical:false");
+});
+
+function tryCode(fn) {
+  try { fn(); } catch (err) { return err.code ?? `NO CODE: ${err.message}`; }
+  throw new Error("expected a throw");
+}
+
+/**
+ * The same bytes, spelled differently.
+ *
+ * The trailing character carries bits the decode discards, and HOW MANY depends
+ * on the length: 26 bytes in 35 chars leaves 2 spare bits, 64 bytes in 86 chars
+ * leaves 4. So "change the last character" is not a mutation - it usually
+ * produces a different, perfectly canonical value, which is how the first draft
+ * of this test asserted the wrong thing. Incrementing WITHIN the group of
+ * alphabet indices that share the significant bits is the actual second
+ * spelling.
+ */
+const B64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+function secondSpelling(encoded) {
+  const bits = encoded.length * 6 - Math.floor((encoded.length * 6) / 8) * 8;
+  assert.ok(bits > 0, `${encoded.length} chars leaves no spare bits to vary`);
+  const group = 2 ** bits; // indices sharing the significant bits
+  const last = B64URL_ALPHABET.indexOf(encoded.at(-1));
+  const sibling = Math.floor(last / group) * group + ((last % group) + 1) % group;
+  return encoded.slice(0, -1) + B64URL_ALPHABET[sibling];
+}
 
 test("encoding is stable, so a digest of it is stable", () => {
   // The acceptance card is named sha256(secret); an unstable encoding would
