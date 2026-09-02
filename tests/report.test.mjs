@@ -290,6 +290,52 @@ test("a commit made AFTER the deadline is late however early it was seen", () =>
   assert.ok((frank.warnings || []).includes("late-activity-detected"));
 });
 
+// FAILING OPEN IS THE ONE DIRECTION THIS MUST NEVER FAIL IN.
+//
+// lockdown.mjs writes an observation when it freezes a repo, recording what it
+// froze. It has no commit_date and its observed_at is always after the deadline,
+// so it looked late, claimed `first_late_sha`, and the `!firstLateSha` guard
+// then blocked the genuinely late commit that arrived afterwards - reporting a
+// submission 52 hours late as ON-TIME. Found by a deliberate test commit on
+// 2526-examen-aut2-ek2 (2026-09-02).
+test("a lockdown observation cannot mask a genuinely late commit", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML, // deadline 2026-09-10T23:59:59Z
+    acceptances: [{ github_login: "heidi", status: "accepted" }],
+    observations: {
+      heidi: [
+        { observed_at: "2026-09-10T00:30:00Z", sha: "1".repeat(40), commit_date: "2026-09-09T12:00:00Z" },
+        // The freeze. No commit_date, and after the deadline by definition.
+        { observed_at: "2026-09-11T00:36:58Z", sha: "1".repeat(40), collection_type: "lockdown" },
+        // The student pushes anyway, well after the deadline.
+        { observed_at: "2026-09-13T00:31:00Z", sha: "2".repeat(40), commit_date: "2026-09-12T20:42:20Z" },
+      ],
+    },
+  });
+  const heidi = report.students.find((s) => s.github_login === "heidi");
+  assert.equal(heidi.submission_status, "late", "a commit two days past the deadline is late");
+  assert.equal(heidi.first_late_sha, "2".repeat(40), "and the LATE sha is the student's, not the freeze's");
+  assert.ok((heidi.warnings || []).includes("late-activity-detected"));
+});
+
+test("a lockdown observation alone does not make an on-time student late", () => {
+  // The other half: the freeze must not invent lateness either. This is what
+  // produced the false first_late_sha === last_on_time_sha rows.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "ivan", status: "accepted" }],
+    observations: {
+      ivan: [
+        { observed_at: "2026-09-10T00:30:00Z", sha: "3".repeat(40), commit_date: "2026-09-09T12:00:00Z" },
+        { observed_at: "2026-09-11T00:36:58Z", sha: "3".repeat(40), collection_type: "lockdown" },
+      ],
+    },
+  });
+  const ivan = report.students.find((s) => s.github_login === "ivan");
+  assert.equal(ivan.submission_status, "on-time");
+  assert.ok(!(ivan.warnings || []).includes("late-activity-detected"));
+});
+
 test("an observation with no commit_date still falls back to when it was seen", () => {
   // Older observations predate the field. Losing the fallback would silently
   // reclassify every historical report as on-time.

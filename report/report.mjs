@@ -269,6 +269,23 @@ async function main() {
       latestObservedSha = obs.sha;
       latestObservedAt = obs.observed_at;
 
+      // A LOCKDOWN OBSERVATION IS A SYSTEM EVENT, NOT A SUBMISSION.
+      //
+      // lockdown.mjs writes one when it freezes a repository, to record WHAT it
+      // froze (`collection_type: "lockdown"`). It carries no commit_date, and
+      // its observed_at is necessarily after the deadline because that is when
+      // lockdown runs - so letting it into the comparison marks every frozen
+      // student late on the strength of the system's own clock. It was the
+      // source of the false `first_late_sha === last_on_time_sha` rows.
+      //
+      // Worse, it claims `first_late_sha`, and the `!firstLateSha` guard below
+      // then stops a GENUINELY late commit from ever being recorded - which
+      // reports a late submission as on-time. Caught by a deliberately-late test
+      // commit on 2526-examen-aut2-ek2 (2026-09-02) that the report called
+      // on-time 52 hours after the deadline. Failing open is the one direction
+      // this must never fail in.
+      if (obs.collection_type === "lockdown") continue;
+
       // THE COMMIT'S OWN TIMESTAMP DECIDES, not when the collector looked.
       //
       // `observed_at` is when the nightly ran. A student who pushes at 13:00 on
