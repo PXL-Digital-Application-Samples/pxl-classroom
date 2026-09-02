@@ -1986,37 +1986,30 @@ async function loadAssignments() {
       return (order[a.state] ?? 9) - (order[b.state] ?? 9) || a.id.localeCompare(b.id)
     })
 
-    // `?new=1` is an INTENT - "open a blank form" - and it is consumed here.
+    // Nothing about the URL is acted on here, and that is the point.
     //
-    // It used to be left in the URL, which turned a one-shot instruction into
-    // standing state, and this block runs on every loadAssignments(). Saving
-    // awaits loadAssignments() immediately after the commit lands, so the save
-    // that had just written `state: published` was followed by newAssignment()
-    // wiping form.value back to a blank draft. Control returned to
-    // saveAndPublish, `form.value.state === 'published'` was then false, and it
-    // dispatched NOTHING and reverted nothing - leaving a published assignment
-    // with no broker and no error anywhere. The visible symptom was the form
-    // appearing to switch to some other assignment right after saving.
+    // This function used to apply `?new=1` and `?edit=<id>` itself, and it runs
+    // every time the list is refreshed - including from inside saveAssignment(),
+    // which awaits it immediately after the commit lands. So a save went:
     //
-    // Deterministic, and it only ever hit the dashboard's "+ Assignment"
-    // shortcut, which is the one entry point that carries the query. Opening
-    // the Admin panel directly and clicking New assignment was always fine,
-    // which is why exactly one assignment in thirteen orgs was affected.
-    // PXL-Automation-II/test-pe-1 and test-pe-2, 2026-09-02.
-    if (route.query.new === '1' || route.query.new === 'true' || route.query.action === 'new') {
-      activeTab.value = 'assignments'
-      newAssignment()
-      const { new: _new, action: _action, ...rest } = route.query
-      router.replace({ query: rest })
-    } else {
-      const editId = route.query.edit
-      if (editId && (!editing.value || editing.value.id !== editId)) {
-        const a = assignments.value.find((x) => x.id === editId)
-        if (a) {
-          editAssignment(a)
-        }
-      }
-    }
+    //   commit the YAML with state: published   written
+    //   form.value.state = 'published'          set
+    //   await loadAssignments()   ->  re-applies the URL  ->  form.value is
+    //                                 replaced by a blank draft, or by a
+    //                                 DIFFERENT assignment
+    //   back in saveAndPublish:   form.value.state === 'published' is false
+    //                             -> no dispatch, and no revert either
+    //
+    // and the assignment was left saying "published" with no broker, no
+    // workflow run, and no error anywhere. Worse with `?edit=<id>`: the form
+    // became that OTHER assignment, so publishExisting() dispatched with its
+    // id - a publish for a repository the lecturer had not touched. That is
+    // exactly what happened on 2026-09-02: test-pe-2 was committed at 17:21:41Z
+    // and four seconds later a publish ran for test-pe-1.
+    //
+    // A loader loads. Route intents are applied by applyRouteIntent(), once on
+    // mount and once per query change, where re-running is not a thing that
+    // happens.
   } catch (e) {
     console.error('Failed to load assignments', e)
     assignmentsError.value = e.message || 'Unknown error'
@@ -2552,6 +2545,43 @@ async function setState(newState) {
 
 // ---------------------------------------------------------------- lifecycle
 
+/**
+ * Open what the URL asks for. The ONLY place that reads a route query.
+ *
+ * There were two copies of this - one here and one inside loadAssignments() -
+ * which is how they came to disagree about whether the query had been consumed.
+ * A loader must never change what the user is editing; see the comment in
+ * loadAssignments() for what that cost.
+ *
+ * The two queries are deliberately treated differently:
+ *
+ *   ?new=1      an ACTION. Consumed, because leaving it standing means any
+ *               later reload re-opens a blank form over your work - and because
+ *               a refresh should not silently discard what you typed.
+ *   ?edit=<id>  a LOCATION. Kept, because it is a shareable deep link to one
+ *               assignment and a refresh should land back on it.
+ *
+ * Neither is re-applied by anything except a genuine query change, which is the
+ * property that makes keeping `?edit` safe.
+ */
+function applyRouteIntent() {
+  const q = route.query
+  if (q.new === '1' || q.new === 'true' || q.action === 'new') {
+    activeTab.value = 'assignments'
+    newAssignment()
+    const { new: _new, action: _action, ...rest } = q
+    router.replace({ query: rest })
+    return
+  }
+  if (q.edit && (!editing.value || editing.value.id !== q.edit)) {
+    const a = assignments.value.find((x) => x.id === q.edit)
+    if (a) {
+      activeTab.value = 'assignments'
+      editAssignment(a)
+    }
+  }
+}
+
 onMounted(async () => {
   window.pxlHasUnsavedState = () => {
     return hasUnsavedEdits() || rosterDirty()
@@ -2562,7 +2592,14 @@ onMounted(async () => {
   clockTimer = setInterval(() => { now.value = new Date() }, 60000)
   if (!isAuthenticated()) { loadingList.value = false; return }
   user.value = getUser()
-  await Promise.all([loadAssignments(), loadTemplates(), loadCohortSummary()])
+  // Chained onto the LIST only, not onto all three. `?edit=<id>` needs the
+  // assignment list and nothing else, and hanging it off Promise.all made
+  // opening a deep link wait for the cohort report - a request that can be
+  // slow, and which tests/e2e/38 holds open on purpose to check the card says
+  // "reading the report…" rather than guessing a number. Behind Promise.all
+  // the assignment was never selected at all while that request was in flight.
+  const listed = loadAssignments().then(() => applyRouteIntent())
+  await Promise.all([listed, loadTemplates(), loadCohortSummary()])
 })
 
 onUnmounted(() => {
@@ -2586,16 +2623,7 @@ watch(
 
 watch(
   () => route.query,
-  (q) => {
-    if (q.new === '1' || q.new === 'true' || q.action === 'new') {
-      activeTab.value = 'assignments'
-      newAssignment()
-    } else if (q.edit) {
-      activeTab.value = 'assignments'
-      const a = assignments.value.find((x) => x.id === q.edit)
-      if (a) editAssignment(a)
-    }
-  }
+  () => applyRouteIntent(),
 )
 </script>
 
