@@ -226,6 +226,87 @@ test("a repo merely RE-OBSERVED after the deadline is not late activity", () => 
   );
 });
 
+// THE COMMIT'S OWN TIMESTAMP DECIDES, NOT WHEN THE COLLECTOR LOOKED.
+//
+// Reproduces PXL-Automation-II/2526-examen-aut2-ek2 exactly (2026-09-02). Every
+// student in that finished exam had committed BEFORE the deadline and the repo
+// held zero commits after it, yet the two who worked closest to the deadline
+// were both marked `late` - because the nightly ran at 00:33 the morning OF the
+// deadline day and again at 00:34 the morning AFTER, so a commit made at 13:10
+// in between was first observed after the deadline had passed.
+//
+// The failure is systematic in the worst possible direction: it penalises
+// exactly the students who work up to the deadline and nobody else.
+test("a commit made BEFORE the deadline is on-time even when first seen after it", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML, // deadline 2026-09-10T23:59:59Z
+    acceptances: [{ github_login: "ilkay", status: "accepted" }],
+    observations: {
+      ilkay: [
+        // The nightly the morning OF the deadline day: sees yesterday's work.
+        {
+          observed_at: "2026-09-10T00:33:53Z",
+          sha: "a".repeat(40),
+          commit_date: "2026-09-09T10:37:04Z",
+        },
+        // The student commits at 13:10, comfortably before 23:59:59 - and the
+        // nightly does not look again until the next morning.
+        {
+          observed_at: "2026-09-11T00:34:26Z",
+          sha: "b".repeat(40),
+          commit_date: "2026-09-10T13:10:30Z",
+        },
+      ],
+    },
+  });
+  const ilkay = report.students.find((s) => s.github_login === "ilkay");
+  assert.equal(
+    ilkay.submission_status,
+    "on-time",
+    "the commit was ~11h inside the deadline; only the observation was late",
+  );
+  assert.ok(
+    !(ilkay.warnings || []).includes("late-activity-detected"),
+    "and nothing about it is late activity",
+  );
+  assert.equal(ilkay.last_on_time_sha, "b".repeat(40), "their real submission is the on-time one");
+});
+
+test("a commit made AFTER the deadline is late however early it was seen", () => {
+  // The other direction, so the fix cannot be 'call everything on-time'.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "frank", status: "accepted" }],
+    observations: {
+      frank: [
+        { observed_at: "2026-09-10T00:33:00Z", sha: "c".repeat(40), commit_date: "2026-09-09T09:00:00Z" },
+        { observed_at: "2026-09-11T00:34:00Z", sha: "d".repeat(40), commit_date: "2026-09-11T02:15:00Z" },
+      ],
+    },
+  });
+  const frank = report.students.find((s) => s.github_login === "frank");
+  assert.equal(frank.submission_status, "late");
+  assert.equal(frank.first_late_sha, "d".repeat(40));
+  assert.ok((frank.warnings || []).includes("late-activity-detected"));
+});
+
+test("an observation with no commit_date still falls back to when it was seen", () => {
+  // Older observations predate the field. Losing the fallback would silently
+  // reclassify every historical report as on-time.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "grace", status: "accepted" }],
+    observations: {
+      grace: [
+        { observed_at: "2026-09-05T10:00:00Z", sha: "e".repeat(40) },
+        { observed_at: "2026-09-11T10:00:00Z", sha: "f".repeat(40) },
+      ],
+    },
+  });
+  const grace = report.students.find((s) => s.github_login === "grace");
+  assert.equal(grace.submission_status, "late", "no commit_date means observed_at still decides");
+});
+
 test("a genuinely different SHA after the deadline still warns", () => {
   // The other half of the fix: silencing the false positive must not silence
   // the real thing. This is the case the warning exists for.

@@ -21,6 +21,7 @@ export {
   resolveArchiveRepo,
   archiveBranchName,
   archiveRepoUrl,
+  archiveBranchesUrl,
   archiveBranchUrl,
   reportArchiveRepo,
 } from '../../../lib/archive-repo.mjs'

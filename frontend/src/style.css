@@ -1037,6 +1037,12 @@ select:focus {
 .invitation-share-popover {
   gap: var(--space-sm);
 }
+/* In a 320px popover the status and its note are on one flex line, so they run
+   together as "Live - students can accept now Anyone with this link can accept
+   until ..." and wrap raggedly. The note takes its own row here. */
+.invitation-share-popover .invitation-share-note {
+  flex-basis: 100%;
+}
 .invitation-share-status {
   display: flex;
   align-items: baseline;

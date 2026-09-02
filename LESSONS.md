@@ -962,3 +962,24 @@ Two tests, because a false positive and a false negative are different failures:
 
 **Why nothing caught it.** There was no test on `warnings` at all. Every rule in this repo with a guard behind it was clean; this sat under one that had none, which is the same sentence as most of the entries above it.
 
+### Then two students were marked LATE on an exam for finishing on time.
+
+Investigating the warnings above turned up something worse underneath them. `PXL-Automation-II/2526-examen-aut2-ek2`, a finished exam, read:
+
+| student | status | last commit | vs deadline |
+| :--- | :--- | :--- | :--- |
+| IlkayDuranPXL | **late** | 30 Aug 13:10 | **6h50m early** |
+| LowieSerneelsPXL | **late** | 30 Aug 19:05 | **0h54m early** |
+
+Deadline `2026-08-30T20:00Z`. Verified against GitHub itself, not just the report: both authored *and* committed dates are before the deadline, and `GET /commits?since=<deadline>` returns **zero** commits for either repository. Nobody in the cohort pushed anything late.
+
+**`observed_at` is when the collector looked, not when the student acted.** The classifier compared the *observation's* timestamp to the deadline. The nightly ran 00:33 on the deadline day and again 00:34 the next morning, so a commit made at 13:10 in between was first *seen* after the deadline and classified late. The row even carried `uncertainty_interval_seconds: 69966` — 19.4 hours of acknowledged ambiguity — and nothing consulted it.
+
+**The systematic shape is the worst one available for grading.** It cannot mark a late student on time; it only marks *on-time students late*, and only those who worked close to the deadline. Students who finished days early were unaffected, because an earlier nightly had already seen their work. On an exam, "worked up to the deadline" is most of the cohort.
+
+**This file already contained the lesson, one field over.** `lock_down_at` had been moved off the observation for exactly this reason — *"when the nightly happened to look, not when the student stopped being able to push"* — and the same mistake sat untouched in the deadline comparison beside it. The observation records carried `commit_date` the whole time; `report.mjs` read it only to *display*, never to decide.
+
+The commit's own timestamp decides now, with `observed_at` kept as the fallback for observations that predate the field, and the observation window still recorded so the tamper-evidence is not lost. Three tests: a commit before the deadline first seen after it is **on-time**; a commit after the deadline is **late** however early it was seen; and an observation with no `commit_date` still falls back to when it was seen — because losing that fallback would silently reclassify every historical report.
+
+**The column that started it is gone.** Of the three warnings a student row could carry, `accepted-not-provisioned` *was* the acceptance column restated and `late-activity-detected` fired only where the status already said `late`. Only `missing-repo-id` said anything no other column could, and it now renders on the repository cell where the fault is. A fourth entry, `deadline-gap`, had a tooltip in the SPA and could never appear — `report.mjs` emits it as a cohort notification, never as a student warning — which is DESIGN.md §1.5 in miniature.
+

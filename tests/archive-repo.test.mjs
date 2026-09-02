@@ -28,6 +28,7 @@ import {
   resolveArchiveRepo,
   archiveBranchName,
   archiveRepoUrl,
+  archiveBranchesUrl,
   archiveBranchUrl,
   reportArchiveRepo,
 } from "../lib/archive-repo.mjs";
@@ -282,6 +283,18 @@ test("an unresolvable link is null", () => {
   assert.equal(archiveBranchUrl({ org: "PXLAutomation", assignmentId: "hw-1" }), null, "no login and no team");
   assert.equal(archiveBranchUrl({ assignmentId: "hw-1", login: "alice" }), null, "no org");
   assert.equal(archiveRepoUrl({}), null);
+});
+
+test("archiveBranchesUrl points at the branch list, which is where the work is", () => {
+  // A preservation is a BRANCH. The default branch holds only a README, so the
+  // repository root reads as an empty repository - a lecturer opening a
+  // finished exam's archive concluded the evidence was gone (2026-09-02). The
+  // UI links here instead.
+  assert.equal(
+    archiveBranchesUrl({ recorded: "PXLAutomation/pxl-classroom-archive-hw-1" }),
+    "https://github.com/PXLAutomation/pxl-classroom-archive-hw-1/branches",
+  );
+  assert.equal(archiveBranchesUrl({}), null, "nothing to link to is no link, never a dead one");
 });
 
 test("archiveRepoUrl accepts an already-resolved slug", () => {

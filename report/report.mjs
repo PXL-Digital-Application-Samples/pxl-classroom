@@ -269,10 +269,34 @@ async function main() {
       latestObservedSha = obs.sha;
       latestObservedAt = obs.observed_at;
 
-      if (effectiveDeadline && obsTime <= effectiveDeadline) {
+      // THE COMMIT'S OWN TIMESTAMP DECIDES, not when the collector looked.
+      //
+      // `observed_at` is when the nightly ran. A student who pushes at 13:00 on
+      // the deadline day is not SEEN until the run at 00:34 the next morning, so
+      // comparing observation time against the deadline marks them late for
+      // finishing early. It is exactly the mistake this file already fixed one
+      // field over for `lock_down_at` - "when the nightly happened to look, not
+      // when the student stopped being able to push" - and the systematic shape
+      // is the worst possible one for grading: it penalises precisely the
+      // students who work up to the deadline, and nobody else.
+      //
+      // Measured on PXL-Automation-II/2526-examen-aut2-ek2 (2026-09-02): every
+      // student in a finished exam had committed BEFORE the deadline, zero
+      // commits existed after it, and the two marked late were the two whose
+      // last commit fell between the two nightly runs.
+      //
+      // `observed_at` remains the fallback when an observation carries no
+      // commit_date, and `uncertainty_interval_seconds` below still measures the
+      // observation window - so the tamper-evidence the old rule gave is
+      // recorded rather than thrown away.
+      const commitTime = obs.commit_date ? new Date(obs.commit_date) : null;
+      const decidingTime =
+        commitTime && !Number.isNaN(commitTime.getTime()) ? commitTime : obsTime;
+
+      if (effectiveDeadline && decidingTime <= effectiveDeadline) {
         lastOnTimeSha = obs.sha;
         lastOnTimeObservedAt = obs.observed_at;
-      } else if (effectiveDeadline && obsTime > effectiveDeadline && !firstLateSha) {
+      } else if (effectiveDeadline && decidingTime > effectiveDeadline && !firstLateSha) {
         firstLateSha = obs.sha;
         firstLateObservedAt = obs.observed_at;
       }

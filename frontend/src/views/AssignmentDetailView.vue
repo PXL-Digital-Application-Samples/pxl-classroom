@@ -117,7 +117,7 @@
                    archives is in the org's old shared one. -->
               <a
                 v-if="archiveRepoHref"
-                :href="archiveRepoHref"
+                :href="archiveBranchesHref"
                 target="_blank"
                 rel="noopener"
                 class="export-dropdown-item"
@@ -128,7 +128,7 @@
                 <div class="dropdown-item-text">
                   <span class="dropdown-item-title">Open the archive</span>
                   <span class="dropdown-item-sub">
-                    A private repository holding a copy of every student's work exactly as it was at the deadline
+                    One branch per student, each holding their work exactly as it was at the deadline
                   </span>
                 </div>
               </a>
@@ -586,7 +586,6 @@
                 <th v-if="ciStatusColumn" class="col-ci">CI Status</th>
                 <th v-if="hasGrades" class="col-score">Score</th>
                 <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
-                <th v-if="hasWarnings" class="col-warnings">Warnings</th>
                 <th v-if="hasSubmitTags" @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
                   <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
                 </th>
@@ -635,6 +634,17 @@
                 <td class="col-repo">
                   <a v-if="s.repo_url" :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
                   <span v-else class="text-muted">-</span>
+                  <!-- The one warning no other column can express. It is a fault
+                       in the repository RECORD, so it belongs on the repository
+                       - not in a column of its own beside two warnings that were
+                       restating the acceptance and status columns. -->
+                  <Icon
+                    v-if="s.warnings?.includes('missing-repo-id')"
+                    name="alert-triangle"
+                    :size="13"
+                    class="text-warning repo-fault"
+                    :title="MISSING_REPO_ID_DESC"
+                  />
                 </td>
                 <td class="col-last-commit">
                   <template v-if="s.repo_url && latestSha(s)">
@@ -701,14 +711,6 @@
                     </span>
                   </template>
                   <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">- pending</span>
-                </td>
-                <td v-if="hasWarnings" class="col-warnings">
-                  <div v-if="s.warnings?.length" class="flex gap-sm flex-wrap">
-                    <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs" :title="getWarningDesc(w)">
-                      {{ getWarningLabel(w) }}
-                    </span>
-                  </div>
-                  <span v-else class="text-muted">-</span>
                 </td>
                 <td v-if="hasSubmitTags" class="col-submit-tag">
                   <template v-if="s.tagged_submission_tag">
@@ -844,10 +846,10 @@
                 <span v-else class="text-muted">- pending</span>
               </div>
             </div>
-            <div v-if="s.warnings?.length" class="student-card-warnings">
-              <span v-for="w in s.warnings" :key="w" class="badge badge-warning text-xs" :title="getWarningDesc(w)">
-                {{ getWarningLabel(w) }}
-              </span>
+            <!-- Same single fault as the table's repository cell. The other two
+                 warnings restated the acceptance and status lines above. -->
+            <div v-if="s.warnings?.includes('missing-repo-id')" class="student-card-warnings">
+              <span class="badge badge-warning text-xs" :title="MISSING_REPO_ID_DESC">missing repo ID</span>
             </div>
           </article>
         </div>
@@ -1043,7 +1045,7 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
-import { archiveBranchName, archiveBranchUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
+import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
@@ -1273,6 +1275,14 @@ const archiveRepoSlug = computed(() =>
 )
 const archiveRepoHref = computed(() =>
   archiveRepoSlug.value ? archiveRepoUrl({ recorded: archiveRepoSlug.value }) : null
+)
+// THE BRANCH LIST, not the repository root. A preservation is a branch; the
+// default branch holds only a README, so the root reads as an empty repository
+// and a lecturer opening a finished exam's archive concluded the evidence was
+// gone (2026-09-02). Linking one click deeper is the difference between "there
+// is nothing here" and six branches with a student's name on each.
+const archiveBranchesHref = computed(() =>
+  archiveRepoSlug.value ? archiveBranchesUrl({ recorded: archiveRepoSlug.value }) : null
 )
 // What "Freeze & Preserve Now" would create. Derived, not resolved: this one is
 // about the archive that does not exist yet, which is the only question
@@ -1751,9 +1761,7 @@ function studentTooltip(s) {
 }
 
 // Base columns: login, acceptance, status, repo, last commit,
-// commits, actions - plus the four conditional columns (CI, Feedback PR, Warnings, Submit tag).
-const hasWarnings = computed(() =>
-  (report.value?.students || []).some(s => s.warnings && s.warnings.length > 0))
+// commits, actions - plus the three conditional columns (CI, Feedback PR, Submit tag).
 
 const hasSubmitTags = computed(() =>
   (report.value?.students || []).some(s => !!s.tagged_submission_tag))
@@ -1766,7 +1774,6 @@ const tableColumnCount = computed(() =>
   (ciStatusColumn.value ? 1 : 0) +
   (hasGrades.value ? 1 : 0) +
   (feedbackPrEnabled.value ? 1 : 0) +
-  (hasWarnings.value ? 1 : 0) +
   (hasSubmitTags.value ? 1 : 0))
 
 // One rule, shared with the backend (lib/effective-deadline.mjs): the last
@@ -1777,36 +1784,30 @@ function extensionFor(login) {
   return ext ? { value: ext.at.toISOString(), reason: ext.reason } : null
 }
 
-const WARNING_MAP = {
-  'missing-repo-id': {
-    label: 'missing repo ID',
-    desc: 'The repository record is missing a GitHub repository ID. Run Setup Org or reconcile registry.'
-  },
-  'accepted-not-provisioned': {
-    label: 'accepted not provisioned',
-    desc: 'The student accepted the assignment, but no repository has been provisioned yet. Try triggering a retry acceptance.'
-  },
-  'late-activity-detected': {
-    label: 'late activity',
-    // NOT "commits were detected after the deadline". Observations are
-    // collector runs: the nightly and the lockdown pass re-read an untouched
-    // repository after the deadline, which is not activity. What this warning
-    // means is that the repository's commit CHANGED after it was due.
-    desc: 'A commit that was not there at the deadline was observed afterwards. Re-reading an unchanged repository does not trigger this.'
-  },
-  'deadline-gap': {
-    label: 'deadline gap',
-    desc: 'There is a large uncertainty interval between the student\'s last on-time push and the deadline.'
-  }
-}
-
-function getWarningLabel(w) {
-  return WARNING_MAP[w]?.label || w
-}
-
-function getWarningDesc(w) {
-  return WARNING_MAP[w]?.desc || ''
-}
+// THERE IS NO WARNINGS COLUMN, and this is the whole of what replaced it.
+//
+// The column could only ever hold three values, and two of them restated
+// columns already on the row:
+//
+//   accepted-not-provisioned  IS the acceptance column - `acceptance_state`
+//                             distinguishes `accepted` from `provisioned`, so a
+//                             row reading "accepted" with no repository already
+//                             says exactly this.
+//   late-activity-detected    fires only where the status column already reads
+//                             `late`. (And in the one case where it WOULD add
+//                             something - pushes after an on-time tagged
+//                             submission - report.mjs nulls firstLateSha, so it
+//                             cannot fire there at all.)
+//   missing-repo-id           is the only one no other column can express: the
+//                             repository record exists but carries no GitHub
+//                             repo id. It renders on the repository cell now.
+//
+// A fourth entry, `deadline-gap`, was in the map and could never appear:
+// report.mjs emits it as a cohort NOTIFICATION, never as a student warning. A
+// tooltip for a state nothing computes is DESIGN.md §1.5, so it is gone rather
+// than kept "just in case".
+const MISSING_REPO_ID_DESC =
+  'The repository record is missing a GitHub repository ID. Run Setup Org or reconcile registry.'
 
 // Deadline source of truth: the current assignment YAML (so a Live Status
 // refresh after a deadline change reclassifies correctly), with the report's
@@ -3336,7 +3337,8 @@ td {
   border-bottom: 1px solid var(--border-muted);
   white-space: nowrap;
 }
-th.col-warnings, td.col-warnings { white-space: normal; min-width: 160px; }
+/* The repository cell's fault marker sits beside the link, not under it. */
+.repo-fault { margin-left: var(--space-xs); vertical-align: middle; }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--accent-blue); }
 .th-label { display: inline-flex; align-items: center; gap: 4px; }
@@ -3459,10 +3461,16 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
    chip and two controls rather than a column of menu items, and it lays its
    contents out as a block - the dropdown menus are flex columns of full-width
    rows, which would stretch the Copy and Open buttons across the whole width. */
-.invite-menu {
+/* Compounded with .export-dropdown-menu ON PURPOSE. Both are single-class
+   selectors and .export-dropdown-menu is declared further down this stylesheet,
+   so a bare `.invite-menu` lost every property they share - the popover was
+   silently taking the menu's `padding: 4px` and `display: flex`, which put the
+   text hard against its left edge. Two classes outrank one, whatever the
+   order. */
+.export-dropdown-menu.invite-menu {
   min-width: 320px;
   display: block;
-  padding: var(--space-sm) var(--space-md) var(--space-md);
+  padding: var(--space-md);
 }
 
 .invite-menu-title {
@@ -3568,7 +3576,12 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   z-index: 100;
   min-width: 270px;
   background: var(--bg-surface);
-  border: 1px solid var(--border-default);
+  /* An OPEN MENU has to read as a separate surface floating over the page.
+     --border-default is #30363d in dark, barely a step from the surface behind
+     it, so the menu's edge was hard to find at all - reported 2026-09-02.
+     --border-strong is DESIGN.md's "emphasised outlines" and moves the right
+     way in both themes: darker than default in light, lighter in dark. */
+  border: 1px solid var(--border-strong);
   /* No inline fallback after the comma: --radius-md is defined, and a fallback
      only hides a typo (DESIGN.md §5 rule 2). */
   border-radius: var(--radius-md);

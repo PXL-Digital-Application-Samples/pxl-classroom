@@ -81,6 +81,7 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **No inline JavaScript in workflow YAML** — `node -e`, `node -p`, `--eval`, `--print`. Extract to `scripts/`. eslint cannot see it, the tests cannot import it, and every value in it arrives by *shell* substitution into the source text.
 - **Never compose an archive name or a `preserved/` URL yourself** — `lib/archive-repo.mjs` decides where a preservation *is* versus where a new one *goes*.
 - **Every deadline comparison is the deadline for *that student*** — `lib/effective-deadline.mjs` decides, nothing else.
+- **`observed_at` is when the collector looked, never when the student acted.** Deadline classification compares the **commit's own** timestamp; the observation time is a fallback for records that predate `commit_date`. Comparing observation time to the deadline marked two students late on a finished exam for committing 6h50m and 54m *before* it — it can only ever err in that direction, and only against students who work up to the deadline. `lock_down_at` was moved off the observation for this same reason; the rule is the field, not the one call site.
 - **`max_acceptances` can overshoot, and that is a decision.** Do not "fix" it by serialising every acceptance.
 - **A rejection is an outcome, not a failure.** `rejected:*` exits 0; only `fail:*` goes red.
 

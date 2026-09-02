@@ -319,10 +319,14 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     // menu sat side by side, and a lecturer could not tell them apart.
     await banner.getByRole('button', { name: /Manage/i }).click();
 
-    // The strip's own link resolves the same way.
+    // The strip's own link resolves the same way, and lands on the BRANCH LIST.
+    // A preservation is a branch; the archive's default branch holds only a
+    // README, so linking to the repository root showed a lecturer what looked
+    // like an empty repository and invited the conclusion that a finished
+    // exam's evidence had been lost (2026-09-02).
     await expect(banner.locator('a', { hasText: 'Open the archive' })).toHaveAttribute(
       'href',
-      `https://github.com/${ORG}/pxl-classroom-archive-lab-preservation`,
+      `https://github.com/${ORG}/pxl-classroom-archive-lab-preservation/branches`,
     );
 
     // 3. Retry Preservation Button for Student 2 (unpreserved)
