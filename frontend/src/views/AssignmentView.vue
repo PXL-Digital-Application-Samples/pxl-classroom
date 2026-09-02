@@ -518,7 +518,15 @@ const rosterMode = computed(() => normalizeRosterMode(assignment.value?.roster_m
 // this deployment rather than a request that can fail at the button.
 const claim = ref(null)
 const authToken = ref('')
-const needsClaim = computed(() => rosterMode.value === 'claim')
+// Under `claim` the address IS the gate, so it is always required. Under `open`
+// it is opt-in and off by default: `open` exists for cohorts a lecturer does not
+// know up front - an exam, most often - and making that identify itself by
+// accident is the opposite of the point. Ticked, the address becomes required
+// to accept, which is what makes reconciling logins to students possible
+// afterwards instead of merely hoped for.
+const needsClaim = computed(() =>
+  rosterMode.value === 'claim' ||
+  (rosterMode.value === 'open' && assignment.value?.require_claim === true))
 const claimKeyReady = computed(() => Boolean(hubClaimKey()))
 
 async function checkRosterStatus() {

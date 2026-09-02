@@ -328,17 +328,40 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
     };
   }
 
+  // `require_claim` turns the address from a review aid into a condition of
+  // accepting. Off by default: `open` exists for a cohort nobody listed up
+  // front, and making an exam identify itself by accident is the opposite of
+  // the point. Ticked, every branch below that used to shrug has to refuse
+  // instead - a requirement that quietly passes when the machinery fails is not
+  // a requirement.
+  const required = assignment?.require_claim === true;
+
   const payload = env("CLAIM_PAYLOAD", "").trim();
   if (!payload) {
+    if (required) {
+      await reject(
+        CLAIM_REJECTIONS.NO_CLAIM,
+        `this assignment asks you to confirm your institutional email address before accepting.`,
+      );
+    }
     log("claim", { ok: true, note: "no address confirmed - open enrolment does not require one" });
     return null;
   }
 
-  // A missing key is a deployment fault under `claim` and fails the run there,
-  // because nobody could claim at all. Here it must NOT fail: the claim is a
-  // review aid, and losing it is not worth refusing a student their repository.
+  // A missing key is a deployment fault, never the student's. Where the address
+  // is only a review aid, losing it is not worth refusing anyone their
+  // repository - so this shrugs. Where it is REQUIRED, shrugging would admit
+  // everybody unidentified while reporting success, so it fails red exactly as
+  // `claim` does, and the lecturer is told rather than the cohort silently
+  // becoming anonymous.
   const privateKeys = claimPrivateKeys(env("CLAIM_PRIVATE_KEY", ""), env("CLAIM_PRIVATE_KEYS_RETIRED", ""));
   if (privateKeys.length === 0) {
+    if (required) {
+      await fail(
+        "fail:no-claim-key",
+        `require_claim is set but PXL_CLAIM_PRIVATE_KEY is not - no address can be read, so nobody can accept. See INSTALL.md §3.2.`,
+      );
+    }
     log("claim", { ok: true, note: "PXL_CLAIM_PRIVATE_KEY is not set - address not recorded (see INSTALL.md §3.2)" });
     return null;
   }
@@ -347,6 +370,12 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
   try {
     opened = await decryptClaimWithAnyKey({ privateKeys, payload });
   } catch {
+    if (required) {
+      await reject(
+        CLAIM_REJECTIONS.NO_CLAIM,
+        `the address you confirmed could not be read. Try again, or ask your lecturer.`,
+      );
+    }
     log("claim", { ok: true, note: "the confirmed address could not be read - not recorded" });
     return null;
   }
@@ -356,6 +385,12 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
   // account to an address it did not sign for would write a false one, and a
   // false record is worse than no record.
   if (opened.githubId !== githubId) {
+    if (required) {
+      await reject(
+        CLAIM_REJECTIONS.NO_CLAIM,
+        `the address you confirmed was signed for a different GitHub account. Confirm it again from this account.`,
+      );
+    }
     log("claim", { ok: true, note: `the confirmation names another account - not recorded` });
     return null;
   }

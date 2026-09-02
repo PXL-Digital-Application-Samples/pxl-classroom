@@ -189,6 +189,11 @@
       "default": "self-service",
       "description": "How student repos are created. Only self-service is implemented: the student opens their invitation link and the repository is provisioned on acceptance. A pre-provisioned mode (lecturer creates repos up front, GitHub sends its own repository invitations) was offered here but implemented nowhere, so selecting it silently produced self-service behaviour."
     },
+    "require_claim": {
+      "type": "boolean",
+      "default": false,
+      "description": "Under roster_mode 'open' only: ask each student to confirm an institutional email address, and REFUSE acceptance without one. Default false, so an open assignment stays anonymous unless the lecturer opts in - that is what 'open' is for, and an exam cohort should not be made to identify itself by accident. Under 'claim' an address is inherently required and this flag is not read; under 'enforced' the roster gates by GitHub username and no address is collected. What is required is an ADDRESS, not a roster match: 'open' means anyone with the link may accept, and requiring the address to be on the roster would just be 'claim' by another name. The domain is recorded (`domain_allowed`) rather than enforced, as it already is under open - refusing on domain would lock out a student whose GitHub account carries no institutional address, which is a gate nobody asked for. See lib/claim.mjs."
+    },
     "class_groups": {
       "type": "array",
       "items": {

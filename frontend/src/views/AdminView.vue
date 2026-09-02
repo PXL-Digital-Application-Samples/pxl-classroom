@@ -714,6 +714,32 @@
               </small>
             </div>
 
+            <!-- ASK WHO THEY ARE, under open enrolment only.
+                 `open` collects nothing by default and that is deliberate - it
+                 is the mode for a cohort nobody listed up front. Ticked, the
+                 address becomes a condition of accepting, which is what makes
+                 "reconcile logins to students afterward" possible rather than
+                 merely hoped for. Under `claim` an address is already required,
+                 and under `enforced` none is collected, so the control would
+                 mean nothing in either. -->
+            <div v-if="form.roster_mode === 'open'" class="field checkbox">
+              <label>
+                <input type="checkbox" v-model="form.require_claim" />
+                Ask students to confirm their institutional email address
+              </label>
+              <small v-if="form.require_claim">
+                Students must confirm an address before they can accept. The page offers the addresses
+                GitHub has already verified for their account; a typed one is recorded as
+                <strong>unverified</strong> rather than refused. This does not restrict who may accept -
+                anyone with the link still can - it records <em>who</em> accepted, so you can match
+                accounts to students afterwards.
+              </small>
+              <small v-else>
+                Off. Anyone with the link accepts anonymously, and you will have their GitHub username
+                and nothing else to match against your roster.
+              </small>
+            </div>
+
             <!-- WHICH SECTION THIS ASSIGNMENT IS FOR.
                  The roster is org-wide, so a course running two groups has one
                  gate for both unless an assignment narrows it. Nothing ticked
@@ -1775,6 +1801,11 @@ function emptyForm() {
     // Open requires a cap (schema `allOf`/`if`/`then`), and `max_acceptances`
     // below is why a new assignment is valid the moment it is created.
     roster_mode: 'open',
+    // Off, so an open assignment stays anonymous unless the lecturer asks for
+    // an address. `open` is what you choose when you do not know the cohort up
+    // front - most often an exam - and making that identify itself by default
+    // would be the opposite of the point.
+    require_claim: false,
     // Empty means EVERY class group, which is what a new assignment should
     // mean - restricting a cohort is a decision a lecturer makes, never a
     // default they inherit.
@@ -2041,6 +2072,7 @@ function editAssignment(a) {
     // mode it predated to 'enforced' on load, and buildDoc saved the rewrite
     // back - the same silent field-loss as the invitation tokens.
     roster_mode: normalizeRosterMode(a.roster_mode),
+    require_claim: a.require_claim === true,
     // Read, never re-derived: an absent list means every group, and turning
     // that into anything else on load would let a save write a restriction the
     // lecturer never chose.
