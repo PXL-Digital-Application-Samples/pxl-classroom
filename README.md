@@ -199,23 +199,25 @@ flowchart LR
     CLI <--> Control
 ```
 
-Three groups, and which one a thing sits in is the point.
+Notes:
 
-**Nothing you run holds a credential.** The web app and the CLI act as *you*,
-through your own GitHub sign-in, so they can only reach what you could reach by
-hand. **All the code lives in the central organization** and runs nowhere else -
-the hub repository owns every workflow, which is why a course organization can be
-handed over or deleted without taking the machinery with it. **A course
-organization holds only data and student work**, and has no workflows of its own.
+- **Nothing you run holds a credential.**
+  - The web app and the CLI act as *you*, through your own GitHub sign-in
+  - they can only reach what you could reach by hand.
+- **All the code lives in the central organization**
+  - and runs nowhere else
+  - the hub repository owns every workflow, which is why a course organization can be
+handed over or deleted without taking the machinery with it.
+- **A course organization holds only data and student work**, and has no workflows of its own.
 
-The two Apps are split on purpose. The Provisioner is the powerful one and is
-installed on every course organization, so only workflows in the hub ever use it.
-The Broker exists because a public acceptance page needs *something* to carry a
-request inward: it is installed on one repository and can do one thing, which is
-why the broker repo being public costs nothing.
+The two Apps are split on purpose:
+
+- The Provisioner is installed on every course organization, so only workflows in the hub ever use it.
+- The Broker exists because a public acceptance page needs *something* to carry a
+request inward: it is installed on one repository and can do only one thing.
 
 The request path a single acceptance takes, and the table of what each repository
-role owns, are in [ARCHITECTURE.md](ARCHITECTURE.md) §3 - written once, there.
+role owns, are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -262,8 +264,6 @@ Full command list: [cli/README.md](cli/README.md).
 | `tests/`, `cli/tests/` | Unit and integration test suites |
 
 ## Further documentation
-
-## Where to start
 
 | If you are | Read |
 |---|---|
