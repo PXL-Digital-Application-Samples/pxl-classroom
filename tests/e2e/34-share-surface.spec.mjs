@@ -29,6 +29,23 @@ const share = (page) => page.locator('.invitation-share');
 const copyBtn = (page) => page.locator('.invitation-share button', { hasText: /Copy/ }).first();
 const compact = (page) => page.locator('.invitation-compact');
 
+/**
+ * The detail view's trigger for the link.
+ *
+ * On that one surface the block moved behind a labelled primary button: as a
+ * always-open block it rendered a large truncated URL between the tab pills and
+ * the table, and a lecturer reading it live could not tell what it was
+ * (2026-09-02). The guarantee this file exists for is unchanged and still
+ * asserted - the route back to the link never disappears - so these tests check
+ * the trigger is there FIRST and only then open it.
+ */
+const inviteTrigger = (page) => page.locator('button:has(span:text-is("Invite link"))');
+
+async function openInvitePopover(page) {
+  await inviteTrigger(page).click();
+  await expect(share(page).first()).toBeVisible();
+}
+
 function assignment(over = {}) {
   return {
     schema_version: 1,
@@ -98,6 +115,7 @@ test.describe('34 - §4.1 The share block says what a student would see', () => 
     });
     await page.goto(`/dashboard/${ORG}/${ID}`);
 
+    await openInvitePopover(page);
     await expect(share(page).first()).toContainText('Not shared yet', { timeout: 15000 });
     await expect(share(page).first()).toContainText('Publish the assignment to mint a link');
     await expect(share(page).first().locator('.status-dot.dot-neutral')).toBeVisible();
@@ -128,6 +146,7 @@ test.describe('34 - §4.1 The share block says what a student would see', () => 
     });
     await page.goto(`/dashboard/${ORG}/${ID}`);
 
+    await openInvitePopover(page);
     await expect(share(page).first()).toContainText('Cap reached', { timeout: 15000 });
     await expect(share(page).first()).toContainText('2 of 2 places taken');
   });
@@ -248,7 +267,12 @@ test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page'
   test('With nobody accepted, the share block and the actions bar survive', async ({ page }) => {
     await detailWithNoReport(page);
 
-    await expect(share(page).first()).toBeVisible();
+    // THE POINT OF THIS TEST: with nobody accepted the route to the link is
+    // still on the page. It is a labelled button now rather than an open block,
+    // so the trigger is what must survive - and the link must be one click
+    // behind it, which is what the rest of this asserts.
+    await expect(inviteTrigger(page)).toBeVisible();
+    await openInvitePopover(page);
     await expect(copyBtn(page)).toBeVisible();
     await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
     await expect(page.locator('button:has(span:text-is("More"))')).toBeVisible();
@@ -288,7 +312,7 @@ test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page'
     });
     // Positive first, for the same reason as above.
     await expect(page.locator('.cohort-empty')).toBeVisible();
-    await expect(page.locator('.preservation-banner')).toHaveCount(0);
+    await expect(page.locator('.preservation-strip')).toHaveCount(0);
   });
 
   test('Once someone accepts, the table replaces the empty state', async ({ page }) => {
@@ -312,6 +336,6 @@ test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page'
     await expect(page.locator('table')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('td', { hasText: 'alice' }).first()).toBeVisible();
     await expect(page.locator('.cohort-empty')).toHaveCount(0);
-    await expect(share(page).first()).toBeVisible();
+    await expect(inviteTrigger(page)).toBeVisible();
   });
 });

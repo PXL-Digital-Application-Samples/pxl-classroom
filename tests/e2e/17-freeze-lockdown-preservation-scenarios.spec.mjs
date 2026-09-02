@@ -71,9 +71,18 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     });
 
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    // Wait for the assignment to actually be loaded before touching a menu.
+    // The freeze item is gated on the deadline having passed, which cannot be
+    // known until the assignment YAML has arrived - clicking More before that
+    // opens a menu that is still one item short.
+    await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
 
-    // 1. Verify preservation banner is visible with Freeze & Preserve button
-    const freezeBtn = page.getByRole('button', { name: /Freeze & Preserve Now/i });
+    // 1. The freeze is a More-menu action (DESIGN.md §1.2). It has to be: the
+    //    preservation strip only renders once the assignment is closed, so an
+    //    assignment past its deadline while still Accepting would otherwise
+    //    have no route to freezing at all.
+    await page.locator('button:has(span:text-is("More"))').click();
+    const freezeBtn = page.locator('button', { hasText: 'Lock everyone out now' });
     await expect(freezeBtn).toBeVisible();
 
     // 2. Open confirmation modal
@@ -162,9 +171,18 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     });
 
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    // Wait for the assignment to actually be loaded before touching a menu.
+    // The freeze item is gated on the deadline having passed, which cannot be
+    // known until the assignment YAML has arrived - clicking More before that
+    // opens a menu that is still one item short.
+    await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
 
-    // Verify Retry Preservation (1) button
-    const retryBtn = page.getByRole('button', { name: /Retry Preservation \(1\)/i });
+    // The retry is in the preservation strip's Manage menu, in plain language.
+    await page.getByRole('button', { name: /Manage/i }).click();
+    // A plain locator, not getByRole('button'): these are role="menuitem", so
+    // the implicit button role is overridden and getByRole('button') finds
+    // nothing.
+    const retryBtn = page.locator('button', { hasText: 'Try again for 1 student' });
     await expect(retryBtn).toBeVisible();
 
     await retryBtn.click();
@@ -246,6 +264,11 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     });
 
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    // Wait for the assignment to actually be loaded before touching a menu.
+    // The freeze item is gated on the deadline having passed, which cannot be
+    // known until the assignment YAML has arrived - clicking More before that
+    // opens a menu that is still one item short.
+    await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
 
     // Verify Team Preserved renders green "Preserved" badge with archive link
     const preservedTeamRow = page.locator('tr', { hasText: 'Team Preserved' });
@@ -317,9 +340,15 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     });
 
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    // Wait for the assignment to actually be loaded before touching a menu.
+    // The freeze item is gated on the deadline having passed, which cannot be
+    // known until the assignment YAML has arrived - clicking More before that
+    // opens a menu that is still one item short.
+    await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
 
-    // Click Freeze button
-    await page.getByRole('button', { name: /Freeze & Preserve Now/i }).click();
+    // Click Freeze, from the More menu
+    await page.locator('button:has(span:text-is("More"))').click();
+    await page.locator('button', { hasText: 'Lock everyone out now' }).click();
 
     // Click Confirm in modal
     const modal = page.locator('.modal-consequences');
@@ -377,24 +406,34 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     });
 
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    // Wait for the assignment to actually be loaded before touching a menu.
+    // The freeze item is gated on the deadline having passed, which cannot be
+    // known until the assignment YAML has arrived - clicking More before that
+    // opens a menu that is still one item short.
+    await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
 
-    const freezeBtn = page.getByRole('button', { name: /Freeze & Preserve Now/i });
+    // Choosing the item closes the More menu, as every menu here does, so each
+    // attempt goes back in through it.
+    const openFreeze = async () => {
+      await page.locator('button:has(span:text-is("More"))').click();
+      await page.locator('button', { hasText: 'Lock everyone out now' }).click();
+    };
     const modal = page.locator('.modal-consequences');
 
     // 1. Dismiss via Cancel button
-    await freezeBtn.click();
+    await openFreeze();
     await expect(modal).toBeVisible();
     await modal.getByRole('button', { name: 'Cancel' }).click();
     await expect(modal).not.toBeVisible();
 
     // 2. Dismiss via close X button
-    await freezeBtn.click();
+    await openFreeze();
     await expect(modal).toBeVisible();
     await modal.locator('.modal-close').click();
     await expect(modal).not.toBeVisible();
 
     // 3. Dismiss via overlay backdrop click
-    await freezeBtn.click();
+    await openFreeze();
     await expect(modal).toBeVisible();
     await page.locator('.modal-overlay').click({ position: { x: 5, y: 5 } });
     await expect(modal).not.toBeVisible();

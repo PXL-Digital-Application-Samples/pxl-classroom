@@ -293,13 +293,17 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     await page.goto(`/dashboard/${ORG}/lab-preservation`);
 
     // 1. Inspect Post-Deadline Preservation Summary Banner
-    const banner = page.locator('.card.preservation-banner');
+    const banner = page.locator('.card.preservation-strip');
     await expect(banner).toBeVisible();
-    await expect(banner.locator('.preservation-banner-title')).toContainText('Preservation & Lockdown Status');
-    await expect(banner).toContainText('1/2 Preserved');
+    // One status line in plain language now: "Preservation" and "Lockdown" are
+    // this project's vocabulary, not a lecturer's.
+    await expect(banner.locator('.preservation-strip-title'))
+      .toContainText("1 of 2 students' work is archived");
     // The WORST delay across the cohort, not the first non-null: one student
-    // demoted late is exactly what this number exists to surface.
-    await expect(banner).toContainText('(delay: 22s)');
+    // demoted late is exactly what this number exists to surface. It survived
+    // the redesign deliberately - it is what a lecturer would cite in a dispute
+    // - and only its wording changed, from "(delay: 22s)".
+    await expect(banner).toContainText('writes stopped 22s after the deadline');
 
     // 2. Inspect Student 1 archive link - the ASSIGNMENT's archive, from the
     //    report row, not a name rebuilt from the assignment id.
@@ -310,16 +314,27 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
       `https://github.com/${ORG}/pxl-classroom-archive-lab-preservation/tree/preserved%2Flab-preservation%2Fstudent-1`,
     );
 
-    // The banner's own link resolves the same way.
-    await expect(banner.locator('a', { hasText: 'Archive Repo' })).toHaveAttribute(
+    // The strip's own controls live behind one Manage menu. As a row of five
+    // buttons a link, an irreversible action and two duplicates of the Export
+    // menu sat side by side, and a lecturer could not tell them apart.
+    await banner.getByRole('button', { name: /Manage/i }).click();
+
+    // The strip's own link resolves the same way.
+    await expect(banner.locator('a', { hasText: 'Open the archive' })).toHaveAttribute(
       'href',
       `https://github.com/${ORG}/pxl-classroom-archive-lab-preservation`,
     );
 
     // 3. Retry Preservation Button for Student 2 (unpreserved)
-    const retryBtn = banner.locator('button', { hasText: 'Retry Preservation (1)' });
+    const retryBtn = banner.locator('button', { hasText: 'Try again for 1 student' });
     await expect(retryBtn).toBeVisible();
     await retryBtn.click();
+
+    // Choosing an item closes the menu, as every other menu on this page does.
+    // The retry is still offered when it is re-opened: one student is still
+    // unarchived until a regenerated report says otherwise.
+    await expect(retryBtn).toBeHidden();
+    await banner.getByRole('button', { name: /Manage/i }).click();
     await expect(retryBtn).toBeVisible();
   });
 

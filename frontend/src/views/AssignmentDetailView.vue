@@ -94,7 +94,9 @@
             </div>
           </div>
 
-          <div class="dropdown-container" ref="preservationMenuRef">
+          <!-- Nothing to manage until there is an archive to open or something
+               left to archive. An empty menu is a control that does nothing. -->
+          <div v-if="hasPreservationActions" class="dropdown-container" ref="preservationMenuRef">
             <button
               class="btn btn-secondary btn-sm btn-with-icon"
               type="button"
@@ -150,25 +152,6 @@
                 </div>
               </button>
 
-              <div class="dropdown-divider"></div>
-
-              <button
-                class="export-dropdown-item"
-                type="button"
-                role="menuitem"
-                @click="handleFreezeNow"
-                :disabled="freezingNow"
-              >
-                <Icon name="lock" :size="14" class="dropdown-icon text-danger" />
-                <div class="dropdown-item-text">
-                  <span class="dropdown-item-title text-danger">
-                    {{ freezingNow ? 'Locking…' : 'Lock everyone out now' }}
-                  </span>
-                  <span class="dropdown-item-sub">
-                    Immediately takes away every student's write access and copies their work to the archive. This cannot be undone.
-                  </span>
-                </div>
-              </button>
             </div>
           </div>
         </div>
@@ -510,6 +493,33 @@
                     </span>
                     <span class="dropdown-item-sub">
                       {{ assignment.state === 'published' ? 'Prevent new student registrations' : 'Allow new students to join' }}
+                    </span>
+                  </div>
+                </button>
+
+                <!-- FREEZE LIVES HERE, not in the preservation strip.
+                     DESIGN.md §1.2 names Freeze as an overflow-menu action, and
+                     it has to be one: the strip only appears once the
+                     assignment is closed, so an assignment whose deadline has
+                     passed while it is still Accepting - exactly the one a
+                     lecturer wants to freeze - had no route to this at all
+                     while it sat inside the strip. It is beside Close
+                     Acceptance because they are the same kind of decision. -->
+                <button
+                  v-if="deadlinePassed"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleFreezeNow"
+                  :disabled="freezingNow"
+                >
+                  <Icon name="lock" :size="14" class="dropdown-icon text-danger" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title text-danger">
+                      {{ freezingNow ? 'Locking…' : 'Lock everyone out now' }}
+                    </span>
+                    <span class="dropdown-item-sub">
+                      Immediately takes away every student's write access and copies their work to the archive. This cannot be undone.
                     </span>
                   </div>
                 </button>
@@ -1873,10 +1883,17 @@ function handleRetryPreservation() {
   retryPreservation()
 }
 
+// Reachable from the More menu, which is where DESIGN.md §1.2 puts a
+// destructive action and - since the preservation strip only appears once the
+// assignment is closed - the only place it is always reachable from.
 function handleFreezeNow() {
+  moreActionsOpen.value = false
   preservationMenuOpen.value = false
   showFreezeConfirmModal.value = true
 }
+
+const hasPreservationActions = computed(() =>
+  Boolean(archiveRepoHref.value) || unpreservedCount.value > 0)
 
 // The Invite link popover. Same open/close contract as every other dropdown on
 // this page, for the same reason.

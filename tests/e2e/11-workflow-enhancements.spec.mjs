@@ -257,8 +257,15 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
 
     await page.goto(`/dashboard/${ORG}/lab-freeze-test`);
 
-    // 1. Click 'Freeze & Preserve Now' button in preservation banner
-    const freezeBtn = page.locator('button', { hasText: 'Freeze & Preserve Now' });
+    // 1. The freeze lives in the More menu now, beside Close Acceptance.
+    //    DESIGN.md §1.2 names it as an overflow action, and it has to be one:
+    //    the preservation strip only appears once the assignment is CLOSED, so
+    //    an assignment past its deadline while still Accepting - exactly the
+    //    one a lecturer wants to freeze - would otherwise have no route to it.
+    //    As a solid red button beside a plain archive LINK it also read as that
+    //    link's sibling, and a lecturer could not tell which was irreversible.
+    await page.locator('button:has(span:text-is("More"))').click();
+    const freezeBtn = page.locator('button', { hasText: 'Lock everyone out now' });
     await expect(freezeBtn).toBeVisible();
     await freezeBtn.click();
 
@@ -618,23 +625,28 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
 
     await page.goto(`/dashboard/${ORG}/lab-freeze-dismiss`);
 
-    const freezeBtn = page.locator('button', { hasText: 'Freeze & Preserve Now' });
+    // Choosing an item closes the menu, as every menu on this page does, so
+    // each attempt goes in through Manage again.
+    const openFreeze = async () => {
+      await page.locator('button:has(span:text-is("More"))').click();
+      await page.locator('button', { hasText: 'Lock everyone out now' }).click();
+    };
     const modal = page.locator('.modal-consequences');
 
     // 1. Open and Dismiss via 'Cancel' button
-    await freezeBtn.click();
+    await openFreeze();
     await expect(modal).toBeVisible();
     await modal.locator('button', { hasText: 'Cancel' }).click();
     await expect(modal).not.toBeVisible();
 
     // 2. Open and Dismiss via '×' close button
-    await freezeBtn.click();
+    await openFreeze();
     await expect(modal).toBeVisible();
     await modal.locator('.modal-close').click();
     await expect(modal).not.toBeVisible();
 
     // 3. Open and Dismiss via backdrop overlay click
-    await freezeBtn.click();
+    await openFreeze();
     await expect(modal).toBeVisible();
     await page.locator('.modal-overlay').click({ position: { x: 5, y: 5 } });
     await expect(modal).not.toBeVisible();
