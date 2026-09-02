@@ -27,6 +27,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import { getToken } from '../lib/auth.js'
 import { getRepo, getRepoContent } from '../lib/api.js'
 import { config } from '../lib/config.js'
+import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { inviteDataUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
 
 /** 48 ticks of 10s after a 5s head start - eight minutes. */
@@ -104,7 +105,7 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
     }
     liveCheckLoading.value = true
     const token = getToken()
-    const brokerRepo = form.value.broker_repo || `broker-${assignmentId}`
+    const brokerRepo = brokerRepoName({ assignment: form.value, assignmentId })
     try {
       if (token) {
         const brokerRes = await getRepo(token, org(), brokerRepo)
@@ -137,7 +138,7 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
       publishPollCount.value++
       try {
         const token = getToken()
-        const brokerRepo = form.value.broker_repo || `broker-${form.value.id}`
+        const brokerRepo = brokerRepoName({ assignment: form.value })
         if (token && !brokerExists.value) {
           const brokerRes = await getRepo(token, org(), brokerRepo)
           if (brokerRes.ok) brokerExists.value = true

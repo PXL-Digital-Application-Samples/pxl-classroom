@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { normalizeRosterMode } from "../lib/roster-mode.mjs";
+import { brokerRepoName } from "../lib/broker-repo.mjs";
 import { inviteFileFor } from "../lib/invite-token.mjs";
 import { linkSecretFrom } from "../lib/invite-token-format.mjs";
 import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.mjs";
@@ -196,7 +197,7 @@ async function main() {
       // to compute the expected repo URL after acceptance (P0-10).
       repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,
       // The broker repo name is public (the broker is a public repo)
-      broker_repo: def.state === "published" ? `broker-${def.id}` : null,
+      broker_repo: def.state === "published" ? brokerRepoName({ assignment: def }) : null,
       // No cap means NO cap. `accept.mjs` reads `if (maxAcceptances && ...)`,
       // so an absent value is unlimited there - publishing `?? 150` invented a
       // limit the assignment does not have, and `AssignmentView` then refused

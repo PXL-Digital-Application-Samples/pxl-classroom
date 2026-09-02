@@ -458,6 +458,7 @@ import ClaimAddressCard from '../components/ClaimAddressCard.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { ROSTER_PATH } from '../lib/roster.js'
+import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
@@ -864,7 +865,7 @@ async function checkExistingState() {
   // put every returning student straight into a three-minute poll. We only get
   // here when there is no repo and no invitation, so an old issue means an
   // acceptance that never completed - they should be offered Accept again.
-  const brokerRepo = assignment.value.broker_repo || `broker-${resolvedId.value}`
+  const brokerRepo = brokerRepoName({ assignment: assignment.value, assignmentId: resolvedId.value })
   const mine = await ghApi(
     token, 'GET',
     `/repos/${org}/${brokerRepo}/issues?creator=${encodeURIComponent(user.value.login)}&state=all&per_page=5`,
@@ -916,7 +917,7 @@ async function acceptAssignment() {
   try {
     const token = getToken()
     const org = props.org
-    const brokerRepo = assignment.value.broker_repo || `broker-${resolvedId.value}`
+    const brokerRepo = brokerRepoName({ assignment: assignment.value, assignmentId: resolvedId.value })
 
     // Everything the broker needs is in the TITLE. It never reads the body of
     // an issue on a repository that holds App credentials (ARCHITECTURE
@@ -984,7 +985,7 @@ async function acceptAssignment() {
 // and no webhook ever fires. Treated as unknown (false) if we cannot tell.
 async function acceptanceIssueVanished() {
   if (!acceptanceIssue.value || !assignment.value) return false
-  const brokerRepo = assignment.value.broker_repo || `broker-${resolvedId.value}`
+  const brokerRepo = brokerRepoName({ assignment: assignment.value, assignmentId: resolvedId.value })
   try {
     const res = await ghApi(getToken(), 'GET', `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}`)
     return res.status === 404

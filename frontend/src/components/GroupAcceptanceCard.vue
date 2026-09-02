@@ -382,6 +382,7 @@ import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
+import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 
@@ -520,7 +521,7 @@ onUnmounted(() => {
 async function loadTeams() {
   loadingTeams.value = true
   const token = getToken()
-  const brokerRepo = props.assignment.broker_repo || `broker-${props.assignment.id}`
+  const brokerRepo = brokerRepoName({ assignment: props.assignment })
   const maxTeamCap = maxTeamSize.value || 3
   const teamsMap = new Map() // slug -> teamObject
 
@@ -759,7 +760,7 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
   accepting.value = true
   try {
     const token = getToken()
-    const brokerRepo = props.assignment.broker_repo || `broker-${props.assignment.id}`
+    const brokerRepo = brokerRepoName({ assignment: props.assignment })
 
     // The TITLE carries the signed invitation and the team slug, because that
     // is all the broker reads - it holds App credentials and must never parse

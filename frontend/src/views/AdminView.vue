@@ -1056,7 +1056,7 @@
     <RepublishBrokerModal
       v-if="showRepublishModal"
       :org="props.org"
-      :broker-repo="`broker-${form.id}`"
+      :broker-repo="brokerRepoName({ assignment: form })"
       :migrates-invitation="migratesInvitation"
       :preselect-regenerate="regenerateInvite"
       :publishing="publishing"
@@ -1112,6 +1112,7 @@ import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoC
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { needsBrokerDispatch } from '../lib/publish.js'
+import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { summariseAutograde } from '../lib/autograde.js'
 // One implementation of the document this panel writes, and of the
