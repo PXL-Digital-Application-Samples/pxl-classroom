@@ -165,6 +165,14 @@
      read as a dirty outline on blue. */
   --border-on-emphasis: rgba(255, 255, 255, 0.15);
 
+  /* ---- Layout ---- */
+  /* The sticky app bar's height, measured (10px padding top and bottom around a
+     29px control row). Anything that sticks BELOW the header offsets by this;
+     `.list-pane` used a bare `top: var(--space-md)` and spent 33px of itself
+     behind the bar (reported 2026-09-02). Declared once, like every other
+     token, so there is one number to change if the bar's height ever does. */
+  --header-height: 49px;
+
   /* ---- Spacing ---- */
   --space-2xs: 2px;
   --space-xs: 4px;
@@ -746,10 +754,17 @@ a:hover {
 .app-header-crumbs {
   min-width: 0;
 }
+/* The ONE definition. AdminView and AssignmentDetailView each carried a scoped
+   copy of this, both setting the same 0.85rem, which is the fork CLAUDE.md
+   forbids - two files to edit and two chances to drift. The smaller size is
+   deliberate and stays: the crumb is a way back, the 1rem `.app-header-heading`
+   beside it is where you are. */
 .app-header-crumbs .back-link {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
+  font-size: 0.85rem;
+  flex-shrink: 0;
   color: var(--text-secondary);
   text-decoration: none;
   white-space: nowrap;

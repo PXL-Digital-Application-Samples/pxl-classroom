@@ -3256,8 +3256,7 @@ async function retryAcceptanceFor(student) {
 <style scoped>
 .detail-page { min-height: 100vh; }
 
-.back-link { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--text-secondary); }
-.back-link:hover { color: var(--accent-blue); text-decoration: none; }
+/* `.back-link` lives in style.css - see the note there. */
 .breadcrumb { min-width: 0; flex: 1; }
 .breadcrumb h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assignment-heading { font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--text-primary); }

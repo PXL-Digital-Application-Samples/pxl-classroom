@@ -962,6 +962,25 @@ Two tests, because a false positive and a false negative are different failures:
 
 **Why nothing caught it.** There was no test on `warnings` at all. Every rule in this repo with a guard behind it was clean; this sat under one that had none, which is the same sentence as most of the entries above it.
 
+### "If I press Set up, I get an empty screen." The button worked.
+
+Reported from live use on 2026-09-02. The *Automated checks* button on the Admin Console opened nothing — a dimmed page and no dialog.
+
+The button fired, the modal mounted, its content was correct, and it was drawn at **y = −1245**: 1245 pixels above the top of the window, where nothing can scroll to it. `.admin-view` carried `fade-in`, and
+
+```css
+@keyframes fadeIn { from { transform: translateY(4px) } to { transform: translateY(0) } }
+.fade-in { animation: fadeIn 0.2s ... forwards; }
+```
+
+`animation-fill-mode: forwards` retains the last keyframe, so the wrapper keeps `transform: matrix(1,0,0,1,0,0)` **for ever** — and an identity transform is still a transform. Any of `transform`, `filter`, `perspective`, `will-change` or `contain` on an ancestor makes that element the containing block for its `position: fixed` descendants, so `.modal-overlay { position: fixed; inset: 0 }` resolved against a 2000px-tall page wrapper instead of the viewport and landed exactly `scrollY` off-screen. Measured: overlay `y=-1281, height=2000`, `scrollY=1281`.
+
+**It only fails once the page is scrolled**, which is why it survived. Every existing modal test opens its dialog near the top of a short page, where `scrollY` is 0 and the bug is invisible; this button sits far enough down the assignment form that reaching it *guarantees* the scroll. Two views used `fade-in` as their root — `AdminView` and `SetupView` — and it would have trapped the first dialog anyone added to the latter.
+
+`tests/e2e/47-modal-in-viewport.spec.mjs` measures the rendered box against the viewport on a scrolled page, and separately walks the overlay's ancestors for *any* containing-block property, so it catches the next cause rather than only this one. Verified by putting `fade-in` back: 3 of 3 fail.
+
+Two things fell out of it. **`.admin-view` and `.setup-view` are declared nowhere** — `fade-in` was the only rule that had ever styled those elements, so removing it left them bare and `tests/undeclared-classes.test.mjs` immediately asked why; they are structural wrappers and now say so. And the page **is** covered by the conformity spec, which checks exactly two rules — one primary button, and *uppercase* pill capsules. The admin list's `draft`/`published` pills were **lowercase**, so they walked straight past a guard written for them. They are status dots now (DESIGN.md §1.3), which is what closed that hole.
+
 ### Then two students were marked LATE on an exam for finishing on time.
 
 Investigating the warnings above turned up something worse underneath them. `PXL-Automation-II/2526-examen-aut2-ek2`, a finished exam, read:

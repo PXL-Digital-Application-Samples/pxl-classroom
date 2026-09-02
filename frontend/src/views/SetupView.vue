@@ -1,5 +1,9 @@
 <template>
-  <div class="setup-view fade-in">
+  <!-- No `fade-in` here either. This view has no modal of its own today, but
+       the class leaves a permanent `transform` on the wrapper (see AdminView),
+       and a wrapper that traps `position: fixed` is a trap laid for whoever
+       adds the first dialog to this page. -->
+  <div class="setup-view">
     <AppHeader>
       <template #left>
         <div class="app-header-crumbs flex items-center gap-sm">

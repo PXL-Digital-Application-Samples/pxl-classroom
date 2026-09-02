@@ -31,10 +31,15 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
 
     await page.goto(`/dashboard/${ORG}/admin`);
 
-    // Verify Draft assignment renders in the table with draft badge
+    // Verify Draft assignment renders in the list with its status.
+    // A status DOT, not a filled pill: DESIGN.md §1.3 asks for
+    // `.status-indicator` + `.status-dot` with mixed-case text, and the pills
+    // that were here evaded the conformity guard only because it matches on
+    // `text-transform: uppercase` and these were lowercase (2026-09-02).
     const draftItem = page.locator('.assignment-list li', { hasText: 'Docker Microservices' });
     await expect(draftItem).toBeVisible();
-    await expect(draftItem.locator('.badge', { hasText: /Draft/i })).toBeVisible();
+    await expect(draftItem.locator('.status-indicator', { hasText: /Draft/i })).toBeVisible();
+    await expect(draftItem.locator('.status-dot.dot-neutral')).toBeVisible();
 
     // Click assignment to open editor
     await draftItem.click();

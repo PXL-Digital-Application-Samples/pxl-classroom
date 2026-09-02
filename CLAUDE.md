@@ -93,6 +93,7 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **A route nothing links to does not ship.** Exactly two exemptions exist (`invitation`, `not-found`); the list may not grow without writing down why.
 - **A published field is a public field.** Anything in an assignment's `title`/`description` reaches GitHub Pages; `lib/public-text.mjs` is the one judge.
 - **A prop the child never declared is a DOM attribute, not configuration.** It falls through silently, and a same-named computed inside the child keeps winning — the Sandbox asked `<TeamsTable>` for the autograde variant twice and previewed the plain one. Drive the child's own inputs; `vue/no-undef-properties` and friends are errors now.
+- **A wrapper that holds a modal may not carry a transform.** `transform`, `filter`, `perspective`, `will-change` or `contain` on ANY ancestor makes it the containing block for `position: fixed` descendants, so `.modal-overlay { inset: 0 }` sizes to that ancestor and the dialog renders `scrollY` pixels off-screen — a button that looks dead. `fade-in` is the trap: it ends on `translateY(0)` with `animation-fill-mode: forwards`, and an identity transform is still a transform. `tests/e2e/47-modal-in-viewport.spec.mjs`.
 - **Nothing throws at module scope** in a file the SPA imports — a throw there is a blank page.
 - **One primary button per view** (DESIGN.md §1.2), and never invent a `.btn-` variant that DESIGN.md does not define.
 

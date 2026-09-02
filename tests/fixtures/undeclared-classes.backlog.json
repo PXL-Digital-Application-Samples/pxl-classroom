@@ -46,9 +46,6 @@
     "consequences-list": [
       "FreezeConfirmModal.vue"
     ],
-    "deadline": [
-      "AdminView.vue"
-    ],
     "deadline-card": [
       "AssignmentDetailView.vue"
     ],
@@ -183,7 +180,8 @@
     "team-name": "A <strong>; the weight is the element default and that is the intent.",
     "file-path": "A <code>. The app declares no code/pre rule anywhere, so every <code> renders at the UA default - consistent, and a change there is a DESIGN decision about type, not about this class.",
     "org-item-text": "Positioned by its siblings: .org-dropdown-item is flex and .check-icon carries margin-left:auto, so the text needs no rule of its own.",
-    "deadline": "Inherits from `.assignment-list .meta`, which sets the row font-size and colour.",
+    "admin-view": "A structural page wrapper with no look of its own - the layout comes from the `.container` inside it. It USED to carry `fade-in`, which was its only declared styling and which left a permanent transform that trapped every modal on the page off-screen; removing that is what left this class bare (2026-09-02).",
+    "setup-view": "A structural page wrapper with no look of its own, for the same reason as `admin-view`.",
     "template-preflight-badge": "Carries its own inline style; the badge look comes from the elements inside it.",
     "diff-patch-view-container": "Carries its own inline style (margin-top).",
     "team-action-btn": "A wrapper around a .btn; the row layout is .team-item-card.",

@@ -1,5 +1,15 @@
 <template>
-  <div class="admin-view fade-in">
+  <!-- NO `fade-in` ON THIS ELEMENT, and it is not a style preference.
+       `fadeIn` ends on `transform: translateY(0)` with `animation-fill-mode:
+       forwards`, so the element keeps `transform: matrix(1,0,0,1,0,0)` for ever
+       - and ANY transform other than `none` makes an element the containing
+       block for its `position: fixed` descendants. Every modal on this page
+       therefore resolved `inset: 0` against this 2000px-tall wrapper instead of
+       the viewport and rendered `scrollY` pixels ABOVE the screen: measured at
+       y=-1245 with the page scrolled to the Automated checks button, which is
+       why "Set up" looked like it opened an empty screen (2026-09-02).
+       tests/e2e/47-modal-in-viewport.spec.mjs holds this. -->
+  <div class="admin-view">
     <AppHeader :user="user" @logout="handleLogout">
       <template #left>
         <div class="app-header-crumbs flex items-center gap-sm">
@@ -100,7 +110,14 @@
               <div class="title">{{ a.title || a.id }}</div>
               <div class="slug">{{ a.id }}</div>
               <div class="meta">
-                <span class="badge" :class="`badge-${a.state}`">{{ a.state }}</span>
+                <!-- DESIGN.md §1.3: a status is a dot with mixed-case text, not
+                     a filled pill capsule. These evaded the conformity guard
+                     only because it matches on `text-transform: uppercase` and
+                     these were lowercase - the shape was always wrong. -->
+                <span class="status-indicator">
+                  <span class="status-dot" :class="stateDot(a.state)"></span>
+                  <span>{{ stateLabel(a.state) }}</span>
+                </span>
                 <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
                 <!-- The link, without opening the editor first (ARCHITECTURE §10.3).
                      The list already parsed each YAML, so the token is in hand
@@ -698,20 +715,32 @@
             </div>
             <div class="field">
               <label>Late work</label>
-              <div class="radio-group" style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
-                <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer;">
+              <!-- Two ALTERNATIVES, so they read as two rows to choose between
+                   rather than two paragraphs of bold text running the full
+                   width. The selected one takes a tonal step and an accent
+                   edge - no bordered card, because this fieldset is already a
+                   box and a second one inside it is DESIGN.md §1.1's prison.
+                   The pixel values that used to be inline here are tokens. -->
+              <div class="policy-options">
+                <label class="policy-option" :class="{ selected: form.late_policy === 'report' }">
                   <input type="radio" v-model="form.late_policy" value="report" @change="onLatePolicyChange" />
-                  <span>
-                    <strong>Counts</strong> - late commits are part of the submission and flagged in the
-                    report. The submission branch is not locked.
+                  <span class="policy-option-text">
+                    <strong>Counts</strong>
+                    <small>
+                      Late commits are part of the submission and flagged in the report.
+                      The submission branch is not locked.
+                    </small>
                   </span>
                 </label>
-                <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer;">
+                <label class="policy-option" :class="{ selected: form.late_policy === 'block' }">
                   <input type="radio" v-model="form.late_policy" value="block" @change="onLatePolicyChange" />
-                  <span>
-                    <strong>Does not count</strong> - the submission branch is locked at the deadline.
-                    Students keep their repository, their Actions, their secrets and their runners;
-                    they simply cannot push to it.
+                  <span class="policy-option-text">
+                    <strong>Does not count</strong>
+                    <small>
+                      The submission branch is locked at the deadline. Students keep their
+                      repository, their Actions, their secrets and their runners; they simply
+                      cannot push to it.
+                    </small>
                   </span>
                 </label>
               </div>
@@ -732,9 +761,9 @@
                 students their Actions, secrets and runners. Tick this only if they should lose those too.
               </small>
               <small v-else>
-                Off by default. Tick this to demote students to read-only on the first nightly run
-                after the deadline - they lose their Actions, secrets, environments and runners with
-                it. Their submission is archived either way.
+                Tick this to demote students to read-only on the first nightly run after the
+                deadline - they lose their Actions, secrets, environments and runners with it.
+                Their submission is archived either way.
               </small>
             </div>
             <div class="field checkbox">
@@ -754,9 +783,17 @@
                  The configuration's existence is the flag; there is no separate
                  checkbox left to disagree with it. -->
             <div class="field autograde-summary">
-              <label>Automated checks</label>
+              <!-- "Automated checks" named nothing a lecturer recognises - the
+                   feature is grading, and a bare "Off" beside a button says
+                   nothing about what is off (reported 2026-09-02). The state
+                   itself stays in `.autograde-summary-text` so it remains one
+                   readable value; the sentence sits beside it. -->
+              <label>Automatic grading</label>
               <div class="autograde-summary-row">
                 <span class="autograde-summary-text">{{ autogradeSummary }}</span>
+                <span v-if="!autogradeConfigured" class="autograde-summary-note">
+                  · submissions are not scored automatically
+                </span>
                 <button class="btn btn-secondary btn-sm" type="button" @click="showAutogradeModal = true">
                   {{ form.autograde_enabled && (form.autograde_tests || []).length ? 'Edit' : 'Set up' }}
                 </button>
@@ -989,6 +1026,26 @@ import { toast } from '../lib/toast.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { formatDate } from '../lib/format.js'
+
+// DESIGN.md §1.3/§4 - a status is a dot plus mixed-case text. The WORDS match
+// AssignmentDetailView's header deliberately: `published` reads as "Accepting"
+// there, and one assignment must not appear to be in two different states
+// depending on which page a lecturer opened.
+function stateLabel(state) {
+  if (state === 'published') return 'Accepting'
+  if (state === 'closed') return 'Closed'
+  if (state === 'draft') return 'Draft'
+  if (state === 'archived') return 'Archived'
+  return state
+}
+
+// §4's table: success is "the state you wanted", warning "needs a look, not an
+// alarm", neutral "not started ... NOT an error". A draft is not a fault.
+function stateDot(state) {
+  if (state === 'published') return 'dot-success'
+  if (state === 'closed') return 'dot-warning'
+  return 'dot-neutral'
+}
 import { countdownParts } from '../lib/countdown.js'
 import RosterTab from '../components/RosterTab.vue'
 import AuthCard from '../components/AuthCard.vue'
@@ -1972,6 +2029,11 @@ function cancelEdit() {
 // summary and the resulting configuration (ARCHITECTURE §11.6).
 const showAutogradeModal = ref(false)
 
+// The same condition the Edit/Set up button and the Remove button already used
+// inline, named once so the three cannot disagree about whether it is on.
+const autogradeConfigured = computed(() =>
+  Boolean(form.value.autograde_enabled) && (form.value.autograde_tests || []).length > 0)
+
 const autogradeSummary = computed(() =>
   summariseAutograde({
     enabled: form.value.autograde_enabled,
@@ -2348,17 +2410,8 @@ watch(
   padding-bottom: var(--space-2xl);
   max-width: 1400px;
 }
-.back-link {
-  font-size: 0.85rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-secondary);
-}
-.back-link:hover {
-  color: var(--accent-blue);
-  text-decoration: none;
-}
+/* `.back-link` lives in style.css - it is on two views, so a scoped copy here
+   was a fork with a second chance to drift. */
 
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
 
@@ -2383,7 +2436,10 @@ watch(
 /* LIST */
 .list-pane {
   position: sticky;
-  top: var(--space-md);
+  /* BELOW the sticky app bar, not behind it. `top: var(--space-md)` stuck the
+     pane 16px from the viewport top while the bar occupies the first 49px, so
+     its own heading sat under the bar and was unreadable. */
+  top: calc(var(--header-height) + var(--space-md));
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: 8px;
@@ -2417,7 +2473,20 @@ watch(
 }
 .assignment-list .title { font-weight: 600; }
 .assignment-list .slug { font-size: 0.8rem; color: var(--text-secondary); font-family: var(--font-mono); }
-.assignment-list .meta { display: flex; gap: var(--space-sm); margin-top: 4px; font-size: 0.8rem; color: var(--text-secondary); }
+/* The date used to break MID-STRING in this narrow column - "30 Sept 2026,
+   22:00" on one line and "CEST" on the next - which left the status alone on
+   its row with dead space beside it and read as a stray empty line. The row
+   wraps as whole items now, and the date is one of them. */
+.assignment-list .meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-xs);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.assignment-list .deadline { white-space: nowrap; }
 
 /* BADGES */
 .badge {
@@ -2484,8 +2553,49 @@ legend {
   margin-bottom: var(--space-md);
 }
 .field:last-child { margin-bottom: 0; }
-.field.checkbox { flex-direction: row; align-items: center; gap: var(--space-xs); }
-.field.checkbox label { display: flex; align-items: center; gap: var(--space-xs); cursor: pointer; }
+/* A checkbox field is a LABEL ROW with its explanation UNDER it.
+   As `flex-direction: row` the field's own <small> became a second COLUMN: the
+   label was squeezed to about 40% of the width and its help text floated
+   alongside at a different height, which is what made this section read as
+   "all over the place" (reported 2026-09-02). */
+.field.checkbox { flex-direction: column; align-items: stretch; gap: var(--space-xs); }
+.field.checkbox > label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+.field.checkbox > label input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+/* Indented to line up with the label's TEXT rather than with its box, so the
+   explanation reads as belonging to the thing above it. */
+.field.checkbox > small { padding-left: calc(var(--space-md) + var(--space-xs)); }
+
+/* Late-work alternatives. Tonal, not bordered - see the template note. */
+.policy-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-top: var(--space-2xs);
+}
+.policy-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  /* An inset edge rather than a border: it does not move the text when the
+     selection changes, and a full outline here would be a nested box. */
+  box-shadow: inset 2px 0 0 transparent;
+}
+.policy-option:hover { background: var(--bg-inset); }
+.policy-option.selected {
+  background: var(--bg-inset);
+  box-shadow: inset 2px 0 0 var(--accent-blue);
+}
+.policy-option input[type="radio"] { margin-top: 3px; flex-shrink: 0; }
+.policy-option-text { display: flex; flex-direction: column; gap: var(--space-2xs); }
+.policy-option-text small { color: var(--text-secondary); }
 .field input[type="text"],
 .field input[type="number"],
 .field input[type="datetime-local"],
@@ -2593,11 +2703,20 @@ details .field { padding: 0 var(--space-sm); }
   flex-wrap: wrap;
 }
 .autograde-summary-text {
-  flex: 1 1 18ch;
+  /* Sized to its own content now that a sentence can follow it; the button is
+     pushed right by its own margin rather than by this growing to fill. */
+  flex: 0 0 auto;
   min-width: 0;
   color: var(--text-secondary);
   font-size: 0.9rem;
 }
+.autograde-summary-note {
+  flex: 1 1 18ch;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.autograde-summary-row button:first-of-type { margin-left: auto; }
 .text-warning { color: var(--accent-yellow); }
 .text-secondary { color: var(--text-secondary); }
 
