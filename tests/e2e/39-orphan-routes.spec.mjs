@@ -4,6 +4,7 @@
 // was to know the URL:
 //
 //   /usage                  the only cross-org view in the app. Zero links.
+//                           REMOVED entirely in 2026-09 - see below.
 //   /dashboard/:org/usage   one link - from /usage, which had none itself, so
 //                           the pair was unreachable together.
 //   /setup                  the App Manifest form. Zero links, and the moment
@@ -49,43 +50,13 @@ const dashboard = {
 };
 
 // ============================================================== /usage
-
-test.describe('39 - The cross-org usage view has a way in', () => {
-  test('The org switcher carries it, with a label rather than an icon', async ({ page }) => {
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, {
-      currentUser: LECTURER,
-      assignments: { [ID]: assignment() },
-      reports: { dashboard },
-    });
-    await page.goto(`/dashboard/${ORG}`);
-
-    await page.locator('.org-dropdown-btn').click();
-    // role="option" here, matching its sibling "Connect an organization": the
-    // container is a listbox, so an <a> inside it is announced as an option.
-    const link = page.locator('.org-dropdown-menu .org-dropdown-item', { hasText: /Usage . limits/i });
-    await expect(link).toBeVisible();
-
-    await link.click();
-    await expect(page).toHaveURL(/\/usage$/);
-    // And it is the real view, not a 404 that happens to have the URL.
-    await expect(page.locator('.not-found-page')).toHaveCount(0);
-  });
-
-  test('Choosing it closes the dropdown behind it', async ({ page }) => {
-    // It sits in a listbox that closes on outside click; a navigation is not
-    // an outside click, so without an explicit close it would still be open
-    // on the way back.
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, reports: { dashboard } });
-    await page.goto(`/dashboard/${ORG}`);
-
-    await page.locator('.org-dropdown-btn').click();
-    await expect(page.locator('.org-dropdown-menu')).toBeVisible();
-    await page.locator('.org-dropdown-menu .org-dropdown-item', { hasText: /Usage . limits/i }).click();
-    await expect(page.locator('.org-dropdown-menu')).toHaveCount(0);
-  });
-});
+//
+// GONE, and that is the other half of this file's rule. `/usage` was the
+// cross-org aggregate; the dashboard already embeds `UsagePanel` for the
+// selected org, and two controls a line apart both reading "usage & limits"
+// were taken for the same thing (2026-09-02). "Link what exists, or remove it"
+// - the link, the route and `UsageOverviewView.vue` went together, because
+// deleting only the link is exactly the orphan this file exists to prevent.
 
 // ================================================= /dashboard/:org/usage
 

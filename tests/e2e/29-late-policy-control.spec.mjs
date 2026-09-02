@@ -49,11 +49,15 @@ test.describe('29 - Late work control', () => {
 
     const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
     // The promise: pushes stop, everything else survives.
-    await expect(guardrails).toContainText('Students keep their repository, their Actions, their secrets');
-    // The caveat, in the UI rather than only in the code: the lock fires on the
-    // nightly, so anything in between is filtered by a client-supplied date.
-    await expect(guardrails).toContainText('first nightly run after the deadline');
-    await expect(guardrails).toContainText('rather than as proof');
+    await expect(guardrails).toContainText('only pushing is blocked');
+    // The caveat, in the UI rather than only in the code, and it is three
+    // separate facts: WHEN the lock lands, what happens to work pushed before
+    // it does, and how much the timestamp behind that is worth. They used to be
+    // one run-on sentence that a lecturer could not parse (2026-09-02), so the
+    // assertions are per fact rather than on one phrase.
+    await expect(guardrails).toContainText('applied by the nightly run');
+    await expect(guardrails).toContainText('Work pushed in that gap does not count');
+    await expect(guardrails).toContainText('not proof');
   });
 
   test('A new assignment does not take admin away by default', async ({ page }) => {

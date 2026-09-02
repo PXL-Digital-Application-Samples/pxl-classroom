@@ -773,6 +773,62 @@ a:hover {
   color: var(--accent-blue);
   text-decoration: none;
 }
+/* A breadcrumb segment that navigates. The org name sat between two links as
+   plain text, which reads as broken: everything else in the trail is clickable
+   and a lecturer expects the org to take them to that org's dashboard
+   (2026-09-02). Same size and colour as the segment it replaced - it is a
+   crumb, not the heading. */
+.app-header-crumbs .crumb-link {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-header-crumbs .crumb-link:hover {
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+/* The two views of one assignment - Overview and Admin - switched from inside
+   the breadcrumb trail rather than from a second tab row. AdminView already
+   carries page-level `.primer-tabs` (Assignments / Roster), and a second
+   full-width row above them would read as competing navigation.
+   The ITEMS are `.primer-tab`, because DESIGN.md §1.4 asks for underline tabs
+   with an active bottom border and this is section switching; only the
+   container differs, since `.primer-tabs` carries a full-width bottom border
+   and a 24px margin meant for a page body. The left rule is a divider, which
+   §1.1 allows. */
+.header-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin-left: var(--space-sm);
+  padding-left: var(--space-sm);
+  border-left: 1px solid var(--border-muted);
+}
+.header-switch .primer-tab {
+  padding: 4px 8px;
+  margin-bottom: 0;
+  font-size: 0.85rem;
+}
+/* On a phone the trail plus the switch is wider than the screen, and the header
+   is not a scrolling region - it pushed the whole page sideways. The switch
+   takes its own row rather than being hidden: it is the only way between an
+   assignment's two views, and that matters most on the screen with least room
+   for a second route to it. */
+@media (max-width: 640px) {
+  .app-header-crumbs {
+    flex-wrap: wrap;
+  }
+  .header-switch {
+    flex-basis: 100%;
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+  }
+}
 .app-header-sep {
   color: var(--text-muted);
 }

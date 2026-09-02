@@ -170,7 +170,10 @@ test.describe('25 - Responsive layout', () => {
     }
   });
 
-  for (const route of ['/', `/dashboard/${ORG}`, `/dashboard/${ORG}/usage`, '/usage']) {
+  // `/usage`, the cross-org aggregate, was removed in 2026-09 - the per-org
+  // report below is the one that remains. Leaving it in this list would have
+  // gone on passing against the not-found page, which measures nothing.
+  for (const route of ['/', `/dashboard/${ORG}`, `/dashboard/${ORG}/usage`]) {
     test(`No sideways scroll and a real gutter at every width: ${route}`, async ({ page }) => {
       await injectAuth(page, LECTURER);
       await setupStandardMockRoutes(page, { currentUser: LECTURER });

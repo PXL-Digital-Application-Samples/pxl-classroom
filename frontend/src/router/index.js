@@ -40,11 +40,6 @@ const routes = [
     props: true,
   },
   {
-    path: '/usage',
-    name: 'usage-overview',
-    component: () => import('../views/UsageOverviewView.vue'),
-  },
-  {
     path: '/setup',
     name: 'setup',
     component: () => import('../views/SetupView.vue'),
@@ -103,9 +98,6 @@ router.afterEach((to) => {
       break
     case 'usage-org':
       page = `Usage - ${to.params.org}`
-      break
-    case 'usage-overview':
-      page = 'Usage - all organizations'
       break
     case 'setup':
       page = 'App setup'

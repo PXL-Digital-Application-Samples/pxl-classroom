@@ -24,7 +24,6 @@ test("all usage surfaces watch the correlated Actions run instead of polling sta
   for (const path of [
     "frontend/src/components/UsagePanel.vue",
     "frontend/src/views/UsageView.vue",
-    "frontend/src/views/UsageOverviewView.vue",
   ]) {
     const source = await read(path);
     assert.match(source, /createWorkflowRequestId/);

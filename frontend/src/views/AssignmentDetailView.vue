@@ -8,24 +8,30 @@
             <span>Dashboard</span>
           </router-link>
           <span class="app-header-sep">/</span>
-          <span class="text-secondary">{{ org }}</span>
+          <!-- Clickable, to that org's dashboard. As plain text between two
+               links it read as broken - every other segment of the trail
+               navigates, so a lecturer tries this one too. -->
+          <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">{{ org }}</router-link>
           <span class="app-header-sep">/</span>
           <h1 class="app-header-heading" :title="assignmentId">{{ assignmentId }}</h1>
           <span v-if="assignment" class="status-indicator">
             <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
             <span class="text-xs text-secondary">{{ assignment.state === 'published' ? 'Accepting' : (assignment.state === 'closed' ? 'Closed' : assignment.state) }}</span>
           </span>
+
+          <!-- THE TWO VIEWS OF THIS ASSIGNMENT, in the trail that names it.
+               This replaces an `Edit` button that sat in the header actions
+               while the route back from the Admin Console was a button buried
+               in the page body - so the pair was asymmetric and neither said
+               the other existed. -->
+          <nav class="header-switch" aria-label="Assignment views">
+            <span class="primer-tab active" aria-current="page">Overview</span>
+            <router-link
+              :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"
+              class="primer-tab"
+            >Admin</router-link>
+          </nav>
         </div>
-      </template>
-      <template #actions>
-        <router-link
-          :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"
-          class="btn btn-secondary btn-with-icon btn-sm"
-          title="Open and edit this assignment in the Admin Panel"
-        >
-          <Icon name="edit-3" :size="13" />
-          <span>Edit</span>
-        </router-link>
       </template>
     </AppHeader>
 
@@ -1018,7 +1024,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
@@ -1894,6 +1900,7 @@ const preservationMenuRef = ref(null)
 
 function togglePreservationMenu() {
   preservationMenuOpen.value = !preservationMenuOpen.value
+  if (preservationMenuOpen.value) keepMenuInView(preservationMenuRef)
 }
 
 function handleRetryPreservation() {
@@ -1920,6 +1927,7 @@ const inviteMenuRef = ref(null)
 
 function toggleInviteMenu() {
   inviteMenuOpen.value = !inviteMenuOpen.value
+  if (inviteMenuOpen.value) keepMenuInView(inviteMenuRef)
 }
 
 const filteredStudents = computed(() => {
@@ -1980,6 +1988,7 @@ const exportDropdownRef = ref(null)
 
 function toggleExportDropdown() {
   exportDropdownOpen.value = !exportDropdownOpen.value
+  if (exportDropdownOpen.value) keepMenuInView(exportDropdownRef)
 }
 
 function handleExportCSV() {
@@ -2008,6 +2017,7 @@ const moreActionsRef = ref(null)
 
 function toggleMoreActions() {
   moreActionsOpen.value = !moreActionsOpen.value
+  if (moreActionsOpen.value) keepMenuInView(moreActionsRef)
 }
 
 function handleSyncStarterCode() {
@@ -2033,6 +2043,52 @@ function handleRefreshFeedbackPrs() {
 function handleToggleAcceptanceState() {
   moreActionsOpen.value = false
   toggleAcceptanceState()
+}
+
+/**
+ * Keep an opened dropdown inside the window.
+ *
+ * These menus anchor to their trigger's RIGHT edge, which is right while the
+ * toolbar is right-aligned. On a narrow window that toolbar WRAPS and the
+ * triggers land at the left edge, so a 437px menu anchored right of a button at
+ * x=15 starts at x=-315 and only its last few pixels are on screen (reported
+ * 2026-09-02).
+ *
+ * A media query cannot fix this. The wrap point is not a fixed width: it moves
+ * with what the toolbar contains, and it moves again by the width of a
+ * scrollbar depending on how tall the page happens to be - measured flipping
+ * either way at 950px between runs. So this measures the rendered menu and
+ * shifts it only when it would actually overflow, which is what Floating UI's
+ * `shift` middleware does and what `position-try-fallbacks` would do if its
+ * overflow were evaluated against the viewport rather than the containing
+ * block.
+ *
+ * Both directions, because this project has had it wrong each way round: the
+ * menus were `left: 0` once and overflowed the RIGHT edge, which is why they
+ * anchor right at all.
+ */
+async function keepMenuInView(containerRef) {
+  await nextTick()
+  const container = containerRef?.value
+  const menu = container?.querySelector('.export-dropdown-menu')
+  if (!menu) return
+
+  // Start from the stylesheet's own anchoring before measuring, or a previous
+  // clamp decides the answer for the next one.
+  menu.style.left = ''
+  menu.style.right = ''
+
+  const pad = 8
+  const cRect = container.getBoundingClientRect()
+  const mRect = menu.getBoundingClientRect()
+
+  if (mRect.left < pad) {
+    menu.style.right = 'auto'
+    menu.style.left = `${Math.round(pad - cRect.left)}px`
+  } else if (mRect.right > window.innerWidth - pad) {
+    menu.style.left = 'auto'
+    menu.style.right = `${Math.round(pad - (window.innerWidth - cRect.right))}px`
+  }
 }
 
 function onDocumentClick(e) {
@@ -3607,6 +3663,9 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   flex-direction: column;
   gap: 2px;
 }
+
+/* ...and `keepMenuInView()` shifts it back when that would put it off screen -
+   see the note there for why this cannot be a media query. */
 
 .export-dropdown-item {
   width: 100%;

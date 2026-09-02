@@ -64,25 +64,13 @@
                 </div>
 
                 <div class="org-dropdown-divider" role="separator"></div>
-                <!-- The only cross-org view in the app, and it had zero inbound
-                     links from anywhere - reachable by typing /usage and no
-                     other way (ARCHITECTURE §10.5 / UX17). It belongs with the other
-                     control that is about organizations rather than about one
-                     organization, and it needs a LABEL: an icon in the header
-                     rail would have been one more thing nobody finds. -->
-                <!-- `.org-action-item`, not `.org-connect-item`: that class
-                     is how two specs address the Connect door specifically,
-                     and borrowing it makes `.org-connect-item` ambiguous. -->
-                <router-link
-                  :to="{ name: 'usage-overview' }"
-                  class="org-dropdown-item org-action-item"
-                  role="option"
-                  aria-selected="false"
-                  @click="orgDropdownOpen = false"
-                >
-                  <Icon name="database" :size="13" />
-                  <span class="org-item-text">Usage &amp; limits, all organizations</span>
-                </router-link>
+                <!-- The cross-organization usage page used to sit here. It was
+                     removed with its route and its view (2026-09-02): the
+                     dashboard already embeds `UsagePanel` for the selected org,
+                     and two controls a line apart both called "usage & limits"
+                     read as the same thing. Deleting the link ALONE would have
+                     stranded the route, which is why the view went with it. -->
+
                 <a
                   :href="appInstallUrl"
                   target="_blank"
@@ -430,9 +418,13 @@
                 <span class="stat-value stat-red">{{ a.no_submission ?? '-' }}</span>
                 <span class="stat-label">No sub</span>
               </div>
-              <div class="stat" v-if="a.with_warnings">
-                <span class="stat-value stat-orange">{{ a.with_warnings }}</span>
-                <span class="stat-label">Warnings</span>
+              <!-- Named for what it is. "Warnings" counted three things, two of
+                   which merely restated other columns and no longer render
+                   anywhere, so the badge sent a lecturer looking for something
+                   that was not on the page. -->
+              <div class="stat" v-if="a.with_repo_faults">
+                <span class="stat-value stat-orange">{{ a.with_repo_faults }}</span>
+                <span class="stat-label">Repo faults</span>
               </div>
             </div>
           </router-link>
@@ -1009,15 +1001,14 @@ function handleLogout() {
   background: var(--border-muted);
   margin: var(--space-xs) 0;
 }
-/* Distinguished from the org rows: this one leaves the app. */
-.org-connect-item,
-.org-action-item {
+/* Distinguished from the org rows: this one leaves the app.
+   `.org-action-item` went with the cross-org usage link it existed for. */
+.org-connect-item {
   color: var(--accent-blue);
   text-decoration: none;
   font-weight: 500;
 }
-.org-connect-item:hover,
-.org-action-item:hover {
+.org-connect-item:hover {
   text-decoration: none;
 }
 

@@ -158,15 +158,18 @@ test.describe('19 - Theme toggle', () => {
     await context.close();
   });
 
-  test('The sign-in card is a centred 480px card on the Usage routes', async ({ browser }) => {
+  test('The sign-in card is a centred 480px card on the Usage route', async ({ browser }) => {
     // Regression: .center-card was declared in five view <style scoped> blocks
-    // while seven views used it, so these two rendered full-bleed and
+    // while seven views used it, so these rendered full-bleed and
     // left-aligned. Vue scoped styles do not leak.
+    //
+    // `/usage`, the cross-org aggregate, was removed in 2026-09; the per-org
+    // report below is the one that remains.
     const context = await browser.newContext({ colorScheme: 'dark' });
     const page = await context.newPage();
     await setupStandardMockRoutes(page);
 
-    for (const route of [`/dashboard/${ORG}/usage`, '/usage']) {
+    for (const route of [`/dashboard/${ORG}/usage`]) {
       await page.goto(route);
       const card = page.locator('.center-card').first();
       await expect(card).toBeVisible();

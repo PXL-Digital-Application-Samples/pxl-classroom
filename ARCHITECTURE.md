@@ -787,7 +787,6 @@ The SPA is dual-theme (dark default / light / system) with every colour declared
 | `/dashboard/:org/admin` | `AdminView` | Lecturer - Admin Panel: create, edit and publish an assignment. A **published or closed** one opens on its cohort (share block, accepted/deadline summary, link to tracking) with the fieldsets behind an *Edit settings* disclosure; a draft opens on the form (§10.1.1) |
 | `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips, amber Admin shortcut, and Export dropdown menu. **Sole home of the per-student operations**: grant a deadline extension, retry a failed acceptance |
 | `/dashboard/:org/usage` | `UsageView` | Lecturer - per-org weekly usage report |
-| `/usage` | `UsageOverviewView` | Lecturer - cross-org usage aggregate |
 | `/setup` | `SetupView` | Admin - App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
 | `/sandbox` | `SandboxView` | Developer / Designer - offline component gallery and design system workbench with mock fixtures |
 

@@ -166,9 +166,6 @@
     "usage-content": [
       "UsagePanel.vue"
     ],
-    "usage-overview-page": [
-      "UsageOverviewView.vue"
-    ],
     "usage-page": [
       "UsageView.vue"
     ]
@@ -194,7 +191,6 @@
     "usage-content": "Layout container; spacing comes from the parent stack.",
     "student-dashboard": "Page root. DESIGN.md 7: page roots and e2e selectors are never meant to carry a look.",
     "not-found-page": "Page root. Confirmed in the browser: no rule matches it, and none should.",
-    "usage-page": "Page root. Confirmed in the browser: no rule matches it, and none should.",
-    "usage-overview-page": "Page root. Confirmed in the browser: no rule matches it, and none should."
+    "usage-page": "Page root. Confirmed in the browser: no rule matches it, and none should."
   }
 }

@@ -18,9 +18,23 @@
             <span>Dashboard</span>
           </router-link>
           <span class="app-header-sep">/</span>
-          <span class="text-secondary">{{ org }}</span>
+          <!-- Clickable, to that org's dashboard - see the note in style.css. -->
+          <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">{{ org }}</router-link>
           <span class="app-header-sep">/</span>
-          <h1 class="app-header-heading">Admin Console</h1>
+          <h1 class="app-header-heading" :title="headerTitle">{{ headerTitle }}</h1>
+
+          <!-- THE TWO VIEWS OF THIS ASSIGNMENT. Only for one that exists: a new
+               assignment has nothing to track until it is saved.
+               Unsaved edits are safe without any handling here - the view's
+               `onBeforeRouteLeave` guard already runs confirmDiscard() on ANY
+               navigation away, so a plain router-link inherits the prompt. -->
+          <nav v-if="switchAssignmentId" class="header-switch" aria-label="Assignment views">
+            <router-link
+              :to="{ name: 'assignment-detail', params: { org, assignmentId: switchAssignmentId } }"
+              class="primer-tab"
+            >Overview</router-link>
+            <span class="primer-tab active" aria-current="page">Admin</span>
+          </nav>
         </div>
       </template>
     </AppHeader>
@@ -737,18 +751,24 @@
                   <span class="policy-option-text">
                     <strong>Does not count</strong>
                     <small>
-                      The submission branch is locked at the deadline. Students keep their
-                      repository, their Actions, their secrets and their runners; they simply
-                      cannot push to it.
+                      Students can no longer push to the submission branch after the deadline.
+                      They keep the repository itself, and their Actions, secrets and runners
+                      keep working - only pushing is blocked.
                     </small>
                   </span>
                 </label>
               </div>
+              <!-- Three separate facts, and they used to run together in one
+                   sentence: WHEN the lock lands, WHAT happens to work pushed
+                   before it does, and HOW MUCH the timestamp behind that is
+                   worth. A lecturer read this and could not tell what it was
+                   telling them (2026-09-02). -->
               <small v-if="form.late_policy === 'block'">
-                Locking happens on the first nightly run after the deadline. Anything pushed in between is
-                filtered out - the submission falls back to the last commit <em>committed</em> before the
-                deadline. That date comes from the student's own machine, so treat it as the ordinary case
-                rather than as proof.
+                The lock is applied by the nightly run, not at the moment of the deadline, so
+                there is a gap where students can still push. Work pushed in that gap does not
+                count: the submission is the last commit <em>dated</em> before the deadline.
+                Be aware that a commit's date is set by the student's own computer - reliable
+                enough for ordinary marking, but not proof if you ever need to challenge it.
               </small>
             </div>
             <div class="field checkbox">
@@ -1226,6 +1246,14 @@ function onBeforeUnload(e) {
 }
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
+
+// The trail NAMES the assignment being edited, and the switch beside it offers
+// that assignment's other view. With nothing open - or with a new assignment,
+// which has nothing to track until it is saved - it falls back to naming the
+// console itself.
+const switchAssignmentId = computed(() =>
+  editing.value && !isNew.value && form.value.id ? form.value.id : null)
+const headerTitle = computed(() => switchAssignmentId.value || 'Admin')
 
 // A published or closed assignment leads with the cohort; a draft leads with
 // the form, because defining it is still the job (ARCHITECTURE §10.1.1). An archived

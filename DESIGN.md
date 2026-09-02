@@ -446,7 +446,7 @@ excluded, or everything looks styled). What it found:
 | A **sibling** does the work | `.org-item-text` — `.org-dropdown-item` is flex and `.check-icon` carries `margin-left: auto` |
 | An **ancestor** sets it | `.deadline` inherits size and colour from `.assignment-list .meta` |
 | It carries an **inline style** | `.template-preflight-badge`, `.diff-patch-view-container` |
-| **Page root**, no look intended | `.not-found-page`, `.usage-page`, `.usage-overview-page`, `.student-dashboard` |
+| **Page root**, no look intended | `.not-found-page`, `.usage-page`, `.student-dashboard` |
 
 `.field-label` came off the list rather than onto it: the `<label>` sits inside
 `<div class="field">`, and `.field label` already styles it, so the name was a
