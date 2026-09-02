@@ -134,7 +134,7 @@ Five repository roles, **two** GitHub Apps, one Pages site.
 | Role | Visibility | Count | Owns |
 |---|---|---|---|
 | **Central hub** - `PXL-Digital-Application-Samples/pxl-classroom` | Public | 1 | All workflows, composite actions, scripts, frontend source, schemas |
-| **Control repo** - `<org>/pxl-classroom-control` | Private | 1 per org | Assignments, roster, acceptances, repositories, observations, reports, overrides, errors |
+| **Control repo** - `<org>/pxl-classroom-control` | Private | 1 per org | Assignments, roster, acceptances, repositories, observations, lockdowns, reports, overrides, public |
 | **Broker repo** - `<org>/broker-<assignment-id>` | Public | 1 per assignment | A single workflow that verifies a signed invitation and dispatches to the hub |
 | **Archive repo** - `<org>/pxl-classroom-archive-<assignment-id>` | Private | 1 per assignment | Preserved submission SHAs as branches |
 | **Student repo** - `<org>/<repository_name_pattern>` | Private | 1 per accepted student | The student's own work |
@@ -1330,7 +1330,11 @@ Open-mode acceptors appear in reports without roster metadata - `report/report.m
 
 ## 17. Retention
 
-Raw observations and reports are retained for the current and previous academic year in the control repo. Older than two academic years: archive out of the active control repo. Archival preserves the Git history needed to audit past assignments and never destroys preserved submission evidence.
+Raw observations and reports accumulate in the control repo and **nothing prunes them** - there is no retention job, and this paragraph used to claim a two-academic-year policy that no code implements. The intent stands: older than two academic years, archive out of the active control repo, preserving the Git history needed to audit past assignments and never destroying preserved submission evidence. Whoever builds it should know it is not built.
+
+It is not yet pressing, and the numbers say why. `collect` writes one observation per student per run, at roughly 1 KB each; a finished exam organization's control repo measured **181 KB across 205 observation files** on 2026-09-02, and the two others 92 KB and 26 KB. What binds first is not repository size but the Contents API, which returns at most 1000 entries for a directory and does not paginate - so a cohort over a thousand truncates a listing long before storage matters.
+
+**Actions runs are not the evidence trail, and after 2026-10-01 they will not survive one.** GitHub's retention setting is extending to cover checks, workflow runs and statuses, and a **public** repository is capped at 90 days with no way to raise it; the hub is public. So a run older than three months is gone - the log, the summary and the run record. That costs nothing that matters, *provided nobody reaches for it in a dispute*: the evidence is `observations/` (§11.1), the preserved branches (§11.3) and the committed reports, all of them in Git and permanent. A workflow run is a debugging aid with a 90-day life.
 
 Preserved submissions are per assignment (§11.3.1), so retiring a finished cohort is its student repositories and its `pxl-classroom-archive-<id>`, one gesture - RUNBOOK.md §5.
 

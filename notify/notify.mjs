@@ -30,6 +30,16 @@ const EMOJI_MAP = {
   "unexpected-deletion": "[DELETE]️",
   "late-activity": "[NOTE]",
   "preservation-failed": "[BACKUP]",
+  // The run itself died, rather than something inside it.
+  //
+  // Every other event here is reported BY the machinery about a student or a
+  // repository. This one is reported about the machinery, and it exists because
+  // nothing else was: a workflow that failed before reaching its notify step -
+  // bad credentials, a checkout that could not clone, a script that threw on
+  // line one - posted nothing anywhere. The only symptom was a dashboard that
+  // quietly stopped updating, which is a signal that something is wrong and no
+  // signal at all about what.
+  "run-failed": "[FAILED]",
 };
 
 export async function notifyEvent({ org, controlRepo, eventType, assignmentId, details, dedupKey }) {

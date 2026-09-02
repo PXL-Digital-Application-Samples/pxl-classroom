@@ -186,6 +186,7 @@ Each org's control repo has an open issue titled **PXL Classroom - Instructor No
 | `unexpected-deletion` | A managed repo was deleted. See §3 (Student deleted their repo). |
 | `late-activity` | Activity observed after the deadline. Reports include details. |
 | `preservation-failed` | The archive copy of the deadline SHA didn't succeed. |
+| `run-failed` | The nightly run itself did not finish, so collection, lock-down, preservation and reporting may all be incomplete and the dashboard is stale. Every other row here is the system reporting about a student; this one is the system reporting about itself, and it exists because a run that died before reaching its notify step used to say nothing at all. One comment per organization, updated rather than repeated. Nothing is lost - a failed leg retries on the next run - so act on it if it appears twice. |
 
 Make this issue your daily checklist.
 
