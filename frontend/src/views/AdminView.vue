@@ -28,7 +28,7 @@
                Unsaved edits are safe without any handling here - the view's
                `onBeforeRouteLeave` guard already runs confirmDiscard() on ANY
                navigation away, so a plain router-link inherits the prompt. -->
-          <nav v-if="switchAssignmentId" class="header-switch" aria-label="Assignment views">
+          <nav v-if="switchAssignmentId" class="app-header-switch" aria-label="Assignment views">
             <router-link
               :to="{ name: 'assignment-detail', params: { org, assignmentId: switchAssignmentId } }"
               class="primer-tab"

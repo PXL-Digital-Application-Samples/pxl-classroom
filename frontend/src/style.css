@@ -800,7 +800,7 @@ a:hover {
    container differs, since `.primer-tabs` carries a full-width bottom border
    and a 24px margin meant for a page body. The left rule is a divider, which
    §1.1 allows. */
-.header-switch {
+.app-header-switch {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
@@ -808,7 +808,7 @@ a:hover {
   padding-left: var(--space-sm);
   border-left: 1px solid var(--border-muted);
 }
-.header-switch .primer-tab {
+.app-header-switch .primer-tab {
   padding: 4px 8px;
   margin-bottom: 0;
   font-size: 0.85rem;
@@ -822,7 +822,7 @@ a:hover {
   .app-header-crumbs {
     flex-wrap: wrap;
   }
-  .header-switch {
+  .app-header-switch {
     flex-basis: 100%;
     margin-left: 0;
     padding-left: 0;

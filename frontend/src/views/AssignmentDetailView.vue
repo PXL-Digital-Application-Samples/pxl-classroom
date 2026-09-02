@@ -24,7 +24,7 @@
                while the route back from the Admin Console was a button buried
                in the page body - so the pair was asymmetric and neither said
                the other existed. -->
-          <nav class="header-switch" aria-label="Assignment views">
+          <nav class="app-header-switch" aria-label="Assignment views">
             <span class="primer-tab active" aria-current="page">Overview</span>
             <router-link
               :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"

@@ -283,7 +283,13 @@ Every route renders exactly one `<AppHeader>`. Two shapes:
 
 * **Brand** (default slot content): logo + "PXL Classroom", both linking home.
 * **Breadcrumb** (`#left` slot): `.app-header-crumbs` with a `.back-link`, `.app-header-sep`
-  separators and an `.app-header-heading`.
+  separators and an `.app-header-heading`. Intermediate segments that navigate are
+  `.crumb-link` — the org name sat between two links as plain text, which reads as broken.
+  A trail may end in an `.app-header-switch`: underline `.primer-tab`s (§1.4) for the *views
+  of the thing the trail names*, which is how one assignment's Overview and Admin pages reach
+  each other. It is a `nav` in `#left` rather than a button in `#actions` deliberately — it
+  switches between views of the current page's subject, it does not act on it — and it takes
+  its own row under 640px so the trail cannot push the page sideways.
 
 Views add buttons via `#actions`; the rail then always appends `<ThemeToggle>` and, when a
 `user` prop is passed, `<UserBadge>`. Props: `user`, `contained` (wrap in `.container`),
