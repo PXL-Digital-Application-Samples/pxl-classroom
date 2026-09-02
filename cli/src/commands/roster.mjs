@@ -118,7 +118,7 @@ function printDiff(diff, { org }) {
 }
 
 export function registerRosterCommand(program) {
-  const roster = new Command("roster").description("Manage the org's student roster (students/roster.yml).");
+  const roster = new Command("roster").description(`Manage the org's student roster (${ROSTER_PATH}).`);
 
   roster
     .command("import <csvFile>")
@@ -174,7 +174,7 @@ export function registerRosterCommand(program) {
       }
 
       const yamlText = yamlStringify(rosterDoc);
-      const message = `Update students/roster.yml via CLI (+${diff.added.length} ~${diff.updated.length} -${diff.removed.length})`;
+      const message = `Update ${ROSTER_PATH} via CLI (+${diff.added.length} ~${diff.updated.length} -${diff.removed.length})`;
 
       const result = await commitWithRebase(octokit, {
         owner: org, repo: CONTROL_REPO, branch: "main",

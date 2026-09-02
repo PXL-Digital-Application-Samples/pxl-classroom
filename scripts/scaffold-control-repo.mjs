@@ -13,6 +13,10 @@ import { join } from "node:path";
 // Imports the dep-free layout module, not lib/audit.mjs: setup-org.yml runs
 // this without `npm ci`, and audit.mjs pulls in the `yaml` package.
 import { CONTROL_SCAFFOLD_DIRS } from "../lib/control-layout.mjs";
+// Safe here despite this script running with NO `npm ci` (CLAUDE.md):
+// lib/roster-entries.mjs imports nothing at all, so it adds no specifier -
+// bare or otherwise - to this entry point's graph.
+import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 
 const README = `# PXL Classroom Control Repo
 
@@ -73,8 +77,8 @@ async function main() {
   if (await writeIfAbsent(join(target, "README.md"), README)) {
     created.push("README.md");
   }
-  if (await writeIfAbsent(join(target, "students", "roster.yml"), ROSTER)) {
-    created.push("students/roster.yml");
+  if (await writeIfAbsent(join(target, ROSTER_PATH), ROSTER)) {
+    created.push(ROSTER_PATH);
   }
 
   console.log(

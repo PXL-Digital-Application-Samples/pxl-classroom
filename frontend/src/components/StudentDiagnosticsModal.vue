@@ -252,7 +252,12 @@ const diagnosticsSummary = computed(() => {
     return {
       hasIssue: true,
       mainTitle: 'Not Found on Course Roster',
-      mainAction: 'Your account is not registered in students/roster.yml. Contact your lecturer with your student number.',
+      // Deliberately does NOT name the control-repo file. This is the STUDENT's
+      // screen and they cannot see that repository, let alone edit it - naming
+      // it is the shape DESIGN.md §1.6 rules out, telling a reader to act on
+      // something that is not theirs to act on. What they can do is the second
+      // sentence, which is now the whole message.
+      mainAction: 'Your GitHub account is not on this course\'s roster yet. Contact your lecturer with your student number.',
     }
   }
   if (props.assignment?.state === 'draft') {

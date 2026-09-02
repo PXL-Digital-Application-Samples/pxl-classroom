@@ -165,6 +165,7 @@ import {
   explainDispatchFailure,
 } from '../lib/api.js'
 import { config } from '../lib/config.js'
+import { ROSTER_PATH } from '../lib/roster.js'
 import { toast } from '../lib/toast.js'
 import { planSeed, teamsFromRoster, seedCommitMessage } from '../../../lib/seed-teams.mjs'
 import { parse as parseYaml } from 'yaml'
@@ -321,7 +322,7 @@ async function computePlan() {
     let roster = null
 
     try {
-      const rosterText = await getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml')
+      const rosterText = await getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH)
       if (rosterText) roster = parseYaml(rosterText)
     } catch {
       // No roster is a warning-level fact, not a reason to refuse to plan.

@@ -25,6 +25,7 @@ import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.
 // and the spelling shown is chosen separately. See lib/github-login.mjs for the
 // row-doubling this prevents.
 import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
+import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 async function setOutput(name, value) {
@@ -93,7 +94,7 @@ async function main() {
   const assignment = await loadYaml(assignmentPath);
 
   // Load roster (now that we have a real YAML parser, arrays parse correctly)
-  const rosterPath = join(dataDir, "students", "roster.yml");
+  const rosterPath = join(dataDir, ROSTER_PATH);
   let roster = [];
   if (existsSync(rosterPath)) {
     const rosterData = await loadYaml(rosterPath);

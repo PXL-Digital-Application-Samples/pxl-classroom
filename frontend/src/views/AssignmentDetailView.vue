@@ -1045,6 +1045,7 @@ const SortIcon = (props) => props.dir
   : null
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
+import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
@@ -2227,7 +2228,7 @@ async function loadAll() {
     const [reportContent, assignmentContent, rosterContent] = await Promise.all([
       getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`),
       getRepoContent(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`),
-      getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml'),
+      getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH),
     ])
     if (reportContent) {
       report.value = JSON.parse(reportContent)

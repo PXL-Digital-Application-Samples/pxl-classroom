@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
+import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { CLAIM_DOMAINS } from "../lib/deployment.mjs";
 import {
@@ -460,7 +461,7 @@ async function main() {
   const rosterMode = normalizeRosterMode(assignment.roster_mode);
   let claimResult = null;
   let roster = null;
-  const rosterPath = join(dataDir, "students", "roster.yml");
+  const rosterPath = join(dataDir, ROSTER_PATH);
   if (existsSync(rosterPath)) {
     try {
       roster = await loadYaml(rosterPath);

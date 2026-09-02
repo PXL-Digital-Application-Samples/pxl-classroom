@@ -339,6 +339,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
+import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken } from '../lib/auth.js'
 import { commitFile, getRepoContent, listClaims, deleteFile } from '../lib/api.js'
 // The one join between a claim and a roster entry. See lib/claim-bindings.mjs.
@@ -462,7 +463,7 @@ async function submitQuickAddStudent() {
     const token = getToken()
     const yaml = stringifyYaml(updatedDoc)
     const message = `Add student ${num} (${name}) to roster`
-    const res = await commitFile(token, props.org, controlRepo, 'students/roster.yml', yaml, message)
+    const res = await commitFile(token, props.org, controlRepo, ROSTER_PATH, yaml, message)
     if (res.ok) {
       toast.success(`Student ${name} added to roster`)
       showQuickAddModal.value = false
@@ -589,7 +590,7 @@ async function loadExisting() {
     const token = getToken()
     // getRepoContent resolves to null on a 404 and throws on anything else, so
     // a falsy body here is a genuine absence.
-    const text = await getRepoContent(token, props.org, controlRepo, 'students/roster.yml')
+    const text = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
     existingRoster.value = text ? parseYaml(text) : null
   } catch (e) {
     rosterReadFailed.value = true
@@ -726,8 +727,8 @@ async function commitRoster() {
   try {
     const token = getToken()
     const yaml = stringifyYaml(parsedRoster.value)
-    const message = `Update students/roster.yml via Admin Panel (+${diff.value.added.length} ~${diff.value.updated.length} -${diff.value.removed.length})`
-    const res = await commitFile(token, props.org, controlRepo, 'students/roster.yml', yaml, message)
+    const message = `Update ${ROSTER_PATH} via Admin Panel (+${diff.value.added.length} ~${diff.value.updated.length} -${diff.value.removed.length})`
+    const res = await commitFile(token, props.org, controlRepo, ROSTER_PATH, yaml, message)
     if (res.ok) {
       toast.success(`Roster committed (${parsedRoster.value.students.length} students)`)
       await loadExisting()

@@ -10,6 +10,7 @@
 
 import { parse as yamlParse } from "yaml";
 import { CONTROL_REPO } from "../../../lib/deployment.mjs";
+import { ROSTER_PATH } from "../../../lib/roster-entries.mjs";
 
 export { CONTROL_REPO };
 
@@ -93,7 +94,7 @@ export async function listTeams(octokit, { org, assignmentId }) {
 export async function getRoster(octokit, { org }) {
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: "students/roster.yml",
+      owner: org, repo: CONTROL_REPO, path: ROSTER_PATH,
     });
     return yamlParse(Buffer.from(res.data.content, "base64").toString("utf8"));
   } catch (e) {

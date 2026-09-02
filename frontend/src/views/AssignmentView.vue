@@ -457,6 +457,7 @@ import StudentDiagnosticsModal from '../components/StudentDiagnosticsModal.vue'
 import ClaimAddressCard from '../components/ClaimAddressCard.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
+import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
@@ -530,7 +531,7 @@ async function checkRosterStatus() {
   }
   try {
     const token = getToken()
-    const content = await getRepoContent(token, props.org, config.controlRepo, 'students/roster.yml')
+    const content = await getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH)
     if (content) {
       const { parse: parseYaml } = await import('yaml')
       const parsed = parseYaml(content)
