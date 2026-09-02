@@ -1102,7 +1102,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { onBeforeRouteLeave, useRoute } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { config } from '../lib/config.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
@@ -1162,6 +1162,7 @@ import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/
 
 const props = defineProps({ org: { type: String, required: true } })
 const route = useRoute()
+const router = useRouter()
 
 // ---------------------------------------------------------------- auth
 
@@ -1985,9 +1986,28 @@ async function loadAssignments() {
       return (order[a.state] ?? 9) - (order[b.state] ?? 9) || a.id.localeCompare(b.id)
     })
 
+    // `?new=1` is an INTENT - "open a blank form" - and it is consumed here.
+    //
+    // It used to be left in the URL, which turned a one-shot instruction into
+    // standing state, and this block runs on every loadAssignments(). Saving
+    // awaits loadAssignments() immediately after the commit lands, so the save
+    // that had just written `state: published` was followed by newAssignment()
+    // wiping form.value back to a blank draft. Control returned to
+    // saveAndPublish, `form.value.state === 'published'` was then false, and it
+    // dispatched NOTHING and reverted nothing - leaving a published assignment
+    // with no broker and no error anywhere. The visible symptom was the form
+    // appearing to switch to some other assignment right after saving.
+    //
+    // Deterministic, and it only ever hit the dashboard's "+ Assignment"
+    // shortcut, which is the one entry point that carries the query. Opening
+    // the Admin panel directly and clicking New assignment was always fine,
+    // which is why exactly one assignment in thirteen orgs was affected.
+    // PXL-Automation-II/test-pe-1 and test-pe-2, 2026-09-02.
     if (route.query.new === '1' || route.query.new === 'true' || route.query.action === 'new') {
       activeTab.value = 'assignments'
       newAssignment()
+      const { new: _new, action: _action, ...rest } = route.query
+      router.replace({ query: rest })
     } else {
       const editId = route.query.edit
       if (editId && (!editing.value || editing.value.id !== editId)) {
