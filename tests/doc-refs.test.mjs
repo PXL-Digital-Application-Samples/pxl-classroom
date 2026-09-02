@@ -216,6 +216,26 @@ test("every markdown anchor link resolves to a heading", () => {
  * thing it exists to catch. Line numbers are preserved by blanking rather than
  * removing, which is what makes a failure report point at the right line.
  */
+/**
+ * Could a `/` at `i` open a regex literal rather than divide?
+ *
+ * Decided by the previous significant character, which is the standard
+ * heuristic: after a value - an identifier, a number, `)`, `]` - a `/` divides;
+ * after an operator, a comma, a `(`, `[`, `{`, `;`, `:`, `!`, `&`, `|`, `?`, `=`
+ * or the start of the file, it opens a regex. `return` and `typeof` are the
+ * keyword cases that matter in this codebase.
+ */
+function regexCanStartHere(source, i) {
+  let k = i - 1;
+  while (k >= 0 && /\s/.test(source[k])) k--;
+  if (k < 0) return true;
+  const prev = source[k];
+  if ("(,=:[!&|?{};+-*%~^<>".includes(prev)) return true;
+  // `return /re/`, `typeof /re/`, `case /re/` - a word boundary before the slash.
+  const word = /(^|[^A-Za-z0-9_$])(return|typeof|case|in|of|do|else|yield|await)$/;
+  return word.test(source.slice(Math.max(0, k - 10), k + 1));
+}
+
 function stripComments(source, { js = true } = {}) {
   const out = source.split("");
   const n = source.length;
@@ -240,6 +260,36 @@ function stripComments(source, { js = true } = {}) {
       continue;
     }
     if (!js) { i++; continue; }
+
+    // REGEX LITERALS, and this is not pedantry - it is what made this guard go
+    // blind. A regex may contain a quote character, and `/[",\n\r]/` in
+    // RosterTab.vue's CSV escaper did: the scanner read that `"` as the start of
+    // a string, scanned forward for a closing one, and never recovered. From
+    // that line to the end of the file NO comment was stripped, so every
+    // developer comment after it was scanned as if it were user-facing text -
+    // the guard reporting an exempt comment while silently no longer checking
+    // the strings it exists for.
+    //
+    // Whether `/` opens a regex or divides is the classic JS lexing question.
+    // The previous significant character settles it: after a value (an
+    // identifier, a literal, a closing bracket) it is division; after an
+    // operator, a comma, or an opening bracket it is a regex. Erring towards
+    // "regex" is the safe direction here - a misread division skips a few
+    // harmless characters, while a misread regex desynchronises everything.
+    if (c === "/" && next !== "/" && next !== "*" && regexCanStartHere(source, i)) {
+      i++;
+      let inClass = false;
+      while (i < n) {
+        const ch = source[i];
+        if (ch === "\\") { i += 2; continue; }
+        if (ch === "\n") break;            // unterminated - do not run away
+        if (ch === "[") inClass = true;
+        else if (ch === "]") inClass = false;
+        else if (ch === "/" && !inClass) { i++; break; }
+        i++;
+      }
+      continue;
+    }
 
     // Strings and templates: skip over them untouched, honouring escapes.
     if (c === '"' || c === "'" || c === "`") {
@@ -291,6 +341,46 @@ function withoutComments(rel, source) {
     stripComments(source.slice(m.index), { js: true })
   );
 }
+
+test("a regex holding a quote does not blind the stripper", () => {
+  // WHAT THIS COST. RosterTab.vue's CSV escaper contains `/[",\n\r]/`. The
+  // scanner did not know a regex from a division, read that `"` as the start of
+  // a string, and scanned forward for a closing one - after which every comment
+  // in the rest of the file was left standing and scanned as if it were
+  // user-facing text. The guard then reported an exempt developer comment,
+  // which by this file's own reasoning is how a test becomes something to
+  // switch off rather than something to fix.
+  //
+  // It did NOT hide real violations - a string is not blanked either way - so
+  // the damage was false positives. That is enough: a guard nobody trusts is a
+  // guard nobody keeps.
+  const source = [
+    'const re = /[",\\n\\r]/;',
+    'const out = s.replace(/"/g, \'""\');',
+    '// ADMIN.md §6.6 - a developer comment, and exempt',
+    'toast("plain");',
+  ].join("\n");
+
+  const cleaned = stripComments(source, { js: true });
+  assert.doesNotMatch(cleaned, /ADMIN\.md/, "the comment after a regex must still be stripped");
+  assert.match(cleaned, /toast\("plain"\)/, "and real code must survive untouched");
+});
+
+test("division is not mistaken for a regex", () => {
+  // The other direction. Treating `a / b` as a regex would swallow to the next
+  // slash and skip whatever lies between - including a comment that should have
+  // been stripped, or a string that should have been read.
+  const source = [
+    "const ratio = total / count;",
+    "const half = (a + b) / 2;",
+    "// INSTALL.md §3.2 - exempt",
+    'label("kept");',
+  ].join("\n");
+
+  const cleaned = stripComments(source, { js: true });
+  assert.doesNotMatch(cleaned, /INSTALL\.md/, "the comment must still be found and stripped");
+  assert.match(cleaned, /label\("kept"\)/);
+});
 
 test("every .vue puts its template before its script and style", () => {
   // Not style policing - the guard below depends on it. A template after a

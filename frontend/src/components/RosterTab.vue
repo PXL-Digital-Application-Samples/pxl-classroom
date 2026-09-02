@@ -59,7 +59,9 @@
             <div>
               <h4 style="margin: 0 0 var(--space-xs) 0;">Committed Roster</h4>
               <p class="text-secondary text-sm" style="margin: 0;">
-                <strong>{{ existingRoster.students?.length || 0 }}</strong> enrolled student(s) in <code>{{ org }}/{{ controlRepo }}</code>.
+                <strong>{{ existingRoster.students?.length || 0 }}</strong> enrolled student(s) in <code>{{ org }}/{{ controlRepo }}</code><template
+                  v-if="autoLinkedCount > 0"
+                >, <strong>{{ autoLinkedCount }}</strong> linked to a GitHub account</template>.
               </p>
             </div>
             <div class="flex gap-xs flex-wrap">
@@ -77,6 +79,48 @@
               </button>
               <button class="btn btn-sm btn-secondary" type="button" @click="exportRosterCsv">Export CSV</button>
             </div>
+          </div>
+
+          <!-- WHAT THE NIGHTLY COULD NOT DECIDE.
+               Verified claims link themselves overnight. These three kinds do
+               not, because each is a decision: an address the student typed
+               rather than confirmed, a claim naming a different account than
+               the row already holds, and an address two accounts claim. They
+               used to exist only in the workflow log, which is not where a
+               lecturer looks. Only rendered when there is something to decide -
+               an empty review box is a chore that is never finished. -->
+          <div v-if="heldClaims.length > 0" class="claim-review w-full">
+            <div class="claim-review-head flex items-center gap-xs">
+              <span class="status-dot dot-warning"></span>
+              <strong>{{ heldClaims.length }} need{{ heldClaims.length === 1 ? 's' : '' }} your decision</strong>
+              <span class="text-secondary text-sm">
+                — everything else linked automatically
+              </span>
+            </div>
+            <ul class="claim-review-list">
+              <li v-for="row in heldClaims" :key="row.key" class="claim-review-row">
+                <span class="claim-review-who">
+                  <code>{{ row.email }}</code>
+                  <span v-if="row.full_name" class="text-secondary"> · {{ row.full_name }}</span>
+                </span>
+                <span class="claim-review-why text-secondary text-sm">
+                  <template v-if="row.login">@{{ row.login }} — </template>{{ row.reason }}
+                </span>
+                <button
+                  v-if="row.canLink"
+                  class="btn btn-sm btn-secondary"
+                  type="button"
+                  :disabled="linkingEmail === row.email"
+                  :title="`Accept this address and link it to @${row.login}`"
+                  @click="linkAnyway(row)"
+                >{{ linkingEmail === row.email ? 'Linking…' : 'Link anyway' }}</button>
+                <!-- No button where one click cannot settle it: a conflict needs
+                     the account in the way unlinked first (the row below), and
+                     an address two accounts claim needs one of them removed.
+                     Offering a control that would refuse is worse than none. -->
+                <span v-else class="text-muted text-sm claim-review-hint">Unlink below to resolve</span>
+              </li>
+            </ul>
           </div>
 
           <!-- Roster Filter Chips -->
@@ -340,10 +384,15 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { ROSTER_PATH } from '../lib/roster.js'
-import { getToken } from '../lib/auth.js'
+import { getToken, getUser } from '../lib/auth.js'
 import { commitFile, getRepoContent, listClaims, deleteFile } from '../lib/api.js'
 // The one join between a claim and a roster entry. See lib/claim-bindings.mjs.
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
+import { normalizeEmail } from '../lib/claim.js'
+// The SAME planner the nightly runs. Imported, never re-implemented: a review
+// list computed a second way could show a lecturer something different from
+// what was actually held back, which is worse than showing nothing.
+import { planClaimPromotion } from '../../../lib/promote-roster.mjs'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -506,6 +555,115 @@ const claimsReadFailed = ref(false)
 const unlinking = ref(false)
 
 const claimIndex = computed(() => indexClaims(claims.value))
+
+// WHAT THE NIGHTLY COULD NOT DECIDE.
+//
+// Verified claims fold themselves into the roster overnight. Three kinds do not
+// - a typed address GitHub never verified, a claim naming a different account
+// than the row already holds, and an address two accounts claim - because each
+// is a decision and there is nobody there to make it. They were only visible in
+// the workflow log, which is not where a lecturer looks.
+//
+// Computed with `verifiedOnly: true`, which is exactly what the nightly passes,
+// so this list IS that list rather than a second opinion about it.
+const claimReview = computed(() => {
+  if (!existingRoster.value || claims.value.length === 0) return null
+  const plan = planClaimPromotion({
+    claims: claims.value,
+    roster: existingRoster.value,
+    verifiedOnly: true,
+  })
+  return plan?.ok ? plan : null
+})
+
+/** One flat list, each row saying which decision it is waiting for. */
+const heldClaims = computed(() => {
+  const p = claimReview.value
+  if (!p) return []
+  return [
+    ...p.unverified.map((u) => ({
+      key: `u:${u.email}`,
+      email: u.email,
+      full_name: u.full_name,
+      login: u.claim_login,
+      reason: 'typed by the student, not verified by GitHub',
+      // The only one a single button can settle: the lecturer IS the check
+      // that GitHub could not perform.
+      canLink: true,
+    })),
+    ...p.conflicts.map((c) => ({
+      key: `c:${c.email}`,
+      email: c.email,
+      full_name: c.full_name,
+      login: c.claim_login,
+      reason: `the roster already names @${c.roster_login}`,
+      // Not a one-click fix: something has to give first, and choosing which
+      // account is the lecturer's call. Unlink below is that action.
+      canLink: false,
+    })),
+    ...p.ambiguous.map((a) => ({
+      key: `a:${a.email}`,
+      email: a.email,
+      full_name: a.full_name,
+      login: null,
+      reason: 'claimed by more than one account',
+      canLink: false,
+    })),
+  ]
+})
+
+const autoLinkedCount = computed(() => linkedCount.value)
+const linkingEmail = ref('')
+
+/**
+ * Link one held claim, on the lecturer's say-so.
+ *
+ * Scoped to a SINGLE claim rather than re-running the whole plan, so the button
+ * does exactly what its row says and cannot quietly fold somebody else's
+ * unverified address at the same time.
+ */
+async function linkAnyway(row) {
+  const claim = claims.value.find((c) => normalizeEmail(c.email) === normalizeEmail(row.email))
+  if (!claim) return
+
+  const plan = planClaimPromotion({
+    claims: [claim],
+    roster: existingRoster.value,
+    actor: getUser()?.login || 'lecturer',
+  })
+  if (!plan.ok || plan.updated.length === 0) {
+    toast.error('Nothing to link - the roster may have changed since this list was drawn.')
+    return
+  }
+
+  const { valid, errors } = await validateAgainst('roster', plan.nextRoster)
+  if (!valid) {
+    toast.error(`Refusing to write an invalid roster: ${errors.map((e) => e.message).join(', ')}`)
+    return
+  }
+
+  linkingEmail.value = row.email
+  try {
+    const res = await commitFile(
+      getToken(),
+      props.org,
+      controlRepo,
+      ROSTER_PATH,
+      stringifyYaml(plan.nextRoster),
+      `Link ${row.email} to @${claim.github_login} (reviewed)`,
+    )
+    if (res.ok) {
+      toast.success(`${row.email} linked to @${claim.github_login}.`)
+      await loadExisting()
+    } else {
+      toast.error(`Commit failed: ${res.data?.message || 'unknown error'}`)
+    }
+  } catch (e) {
+    toast.error(`Could not link: ${e.message}`)
+  } finally {
+    linkingEmail.value = ''
+  }
+}
 function bindingFor(entry) {
   return bindingForEntry(entry, claimIndex.value)
 }
@@ -945,6 +1103,42 @@ defineExpose({
    values are unchanged - but it takes them off the undeclared-class register
    and puts the appearance where DESIGN.md says it belongs.
    ------------------------------------------------------------------------ */
+
+/* The review box. A tonal step with a single attention edge rather than a
+   bordered card - this sits inside the roster panel, which is already a box
+   (DESIGN.md §1.1), and the colour is the warning token because it needs a look
+   rather than an alarm (§4). */
+.claim-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-inset);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 2px 0 0 var(--accent-yellow);
+}
+.claim-review-head {
+  flex-wrap: wrap;
+}
+.claim-review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.claim-review-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.claim-review-who { flex: 0 1 auto; min-width: 0; }
+/* Takes the slack so the action stays at the right edge on a wide row, and
+   wraps under rather than squeezing the button on a narrow one. */
+.claim-review-why { flex: 1 1 16ch; min-width: 0; }
+.claim-review-hint { white-space: nowrap; }
 
 .roster-filter-chips {
   margin-top: var(--space-sm);
