@@ -30,6 +30,7 @@
         "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "commit_count": { "type": ["integer", "null"], "minimum": 0 },
         "commit_date": { "type": ["string", "null"], "format": "date-time" },
+        "late_commit_count": { "type": ["integer", "null"], "minimum": 0 },
         "commit_message": { "type": ["string", "null"] },
         "author_name": { "type": ["string", "null"] },
         "author_email": { "type": ["string", "null"] },

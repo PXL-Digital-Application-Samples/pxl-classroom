@@ -8,6 +8,7 @@
 import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadYaml } from "../lib/yaml.mjs";
+import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -122,6 +123,57 @@ async function readRepoRecords(assignmentId) {
   return records;
 }
 
+// --- Read deadline overrides -------------------------------------------------
+//
+// Same shape as the repository records above. Needed because the late-commit
+// count below is counted against THAT STUDENT's deadline - an extension the
+// lecturer granted moves it, and counting against the assignment's own deadline
+// would report a student who was given more time as having pushed late.
+async function readOverrides(assignmentId) {
+  const dir = join(cfg.dataDir, "overrides", assignmentId);
+  let files;
+  try { files = await readdir(dir); } catch { return []; }
+  const docs = [];
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      docs.push(JSON.parse(await readFile(join(dir, f), "utf8")));
+    } catch (e) {
+      log(`read override ${f}`, { ok: false, note: e.message });
+    }
+  }
+  return docs;
+}
+
+/**
+ * How many commits landed after `deadline` on `branch`.
+ *
+ * Uses the same trick as commit_count: `per_page=1` plus the Link header's last
+ * page number, so the answer is the WHOLE count rather than one page of it -
+ * "one page is not the list". `since` is GitHub's own filter, so nothing is
+ * counted client-side.
+ *
+ * Returns null when it cannot be determined, never 0: an unreadable count is no
+ * evidence, and reporting "0 late commits" for a request that failed would be a
+ * green light nobody earned.
+ */
+async function countCommitsSince(repoName, branch, deadline) {
+  if (!deadline) return null;
+  const res = await gh(
+    "GET",
+    `/repos/${cfg.org}/${repoName}/commits?sha=${encodeURIComponent(branch)}` +
+      `&since=${encodeURIComponent(deadline.toISOString())}&per_page=1`
+  );
+  // A branch with no commits after the deadline answers 409/404 in some states;
+  // only a 200 is an answer.
+  if (!res.ok) return null;
+  const rows = Array.isArray(res.data) ? res.data : [];
+  if (rows.length === 0) return 0;
+  const link = res.headers?.get?.("link");
+  const m = link?.match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/);
+  return m ? parseInt(m[1], 10) : rows.length;
+}
+
 // --- Main --------------------------------------------------------------------
 async function main() {
   const bad = validate();
@@ -164,6 +216,7 @@ async function main() {
     const submissionRef = assignment.submission_ref || "refs/heads/main";
     log("assignment", { ok: true, note: `Processing ${assignmentId} (submission_ref=${submissionRef})` });
 
+    const overrides = await readOverrides(assignmentId);
     const records = await readRepoRecords(assignmentId);
     if (records.length === 0) {
       // An assignment nobody accepted is an empty population, not an error:
@@ -241,6 +294,21 @@ async function main() {
           }
         }
 
+        // How many commits landed after THIS student's deadline. Counted here
+        // rather than at report time because report.mjs has no network: an
+        // observation is a snapshot of HEAD, so nothing downstream can recover
+        // the number from the observations alone.
+        //
+        // Non-fatal by construction - countCommitsSince returns null on any
+        // failure, and a null means "not known", never "none".
+        let lateCommitCount = null;
+        try {
+          const { deadline } = effectiveDeadlineFor(assignment, login, { overrides });
+          lateCommitCount = await countCommitsSince(repoName, branch, deadline);
+        } catch (e) {
+          log(`late-count ${login}`, { ok: true, note: `not counted: ${e.message}` });
+        }
+
         const now = new Date().toISOString();
         const observation = {
           schema_version: 1,
@@ -253,6 +321,7 @@ async function main() {
           sha: sha,
           commit_count: commitCount,
           commit_date: commitDate,
+          late_commit_count: lateCommitCount,
           commit_message: commitMessage,
           author_name: authorName,
           author_email: authorEmail,

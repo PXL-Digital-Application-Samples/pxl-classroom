@@ -366,6 +366,14 @@
             "minimum": 0,
             "description": "Total commit count on the submission ref. Populated by backend collection and frontend refresh."
           },
+          "late_commit_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Commits on the submission ref after THIS student's effective deadline, counted by collect/ against GitHub's own `since` filter. null means not known - an assignment collected before this field existed, or a count the API would not answer - and is deliberately distinct from 0, which means none."
+          },
           "uncertainty_interval_seconds": {
             "type": [
               "number",

@@ -610,7 +610,11 @@
                   </span>
                 </td>
                 <td>
-                  <span class="status-indicator">
+                  <!-- The tooltip is the check on the label. Had it existed it
+                       would have read "6h50m before the deadline" on a row
+                       saying Late, and the classification bug would have been
+                       caught the day it shipped rather than after an exam. -->
+                  <span class="status-indicator" :title="statusDetail(s)">
                     <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? 'dot-neutral' : 'dot-info'))"></span>
                     <span class="text-sm">{{ s.submission_status }}</span>
                   </span>
@@ -1046,6 +1050,7 @@ import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
+import { describeSubmission } from '../lib/submission-detail.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
@@ -1808,6 +1813,18 @@ function extensionFor(login) {
 // than kept "just in case".
 const MISSING_REPO_ID_DESC =
   'The repository record is missing a GitHub repository ID. Run Setup Org or reconcile registry.'
+
+// The sentence behind the status word. Delegated, not written here, so it can be
+// run in a test - `lib/submission-detail.mjs`, `tests/submission-detail.test.mjs`.
+// Uses the row's own effective deadline, never the assignment's: an extension
+// the lecturer granted moves it, and this is the number that decides lateness.
+function statusDetail(s) {
+  return describeSubmission({
+    deadline: s.effective_deadline_at,
+    latestCommitDate: s.latest_commit_date || s.commit_date,
+    lateCommitCount: s.late_commit_count,
+  })
+}
 
 // Deadline source of truth: the current assignment YAML (so a Live Status
 // refresh after a deadline change reclassifies correctly), with the report's

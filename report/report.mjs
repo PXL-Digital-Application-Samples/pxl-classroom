@@ -228,6 +228,10 @@ async function main() {
     let latestObservedAt = null;
     let latestCommitCount = null;
     let latestCommitDate = null;
+    // Counted by the collector against this student's effective deadline. null
+    // means "not known" - an assignment collected before the field existed, or
+    // a count the API would not answer - and is deliberately distinct from 0.
+    let latestLateCommitCount = null;
     let latestCommitMessage = null;
     let latestAuthorName = null;
     let latestAuthorEmail = null;
@@ -247,6 +251,9 @@ async function main() {
       }
       if (obs.commit_date) {
         latestCommitDate = obs.commit_date;
+      }
+      if (obs.late_commit_count != null) {
+        latestLateCommitCount = obs.late_commit_count;
       }
       if (obs.commit_message) {
         latestCommitMessage = obs.commit_message;
@@ -465,6 +472,7 @@ async function main() {
       commit_message: latestCommitMessage ?? null,
       latest_commit_message: latestCommitMessage ?? null,
       commit_count: latestCommitCount ?? null,
+      late_commit_count: latestLateCommitCount ?? null,
       uncertainty_interval_seconds: uncertaintySeconds,
       tagged_submission_tag: latestTagObservation?.tag ?? null,
       tagged_submission_sha: latestTagObservation?.tagged_sha ?? null,
