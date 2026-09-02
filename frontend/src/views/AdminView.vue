@@ -1111,6 +1111,7 @@ import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
+import { needsBrokerDispatch } from '../lib/publish.js'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { summariseAutograde } from '../lib/autograde.js'
 // One implementation of the document this panel writes, and of the
@@ -2340,18 +2341,47 @@ async function saveAndPublish() {
     // Gated on the save actually landing: dispatching the publish workflow for
     // a YAML the commit failed to write runs it against the OLD document.
     if (!(await saveAssignment())) return
-    if (brokerExists.value === false) {
+
+    // `!== true`, NOT `=== false`. brokerExists is a THREE-state flag and the
+    // third state was being read as "fine": `null` means nobody has looked yet.
+    // It is null on arrival and stays null until verifyLiveInfrastructure()
+    // resolves, so saving a published assignment inside that window dispatched
+    // nothing at all - no broker, and no complaint either.
+    //
+    // Unknown now dispatches. Publishing again where a broker already exists is
+    // a supported operation - it is exactly what Republish broker does - so the
+    // cost of guessing wrong is one redundant workflow run. The cost of the
+    // other guess is an assignment that says "published" and cannot be
+    // accepted.
+    if (needsBrokerDispatch(brokerExists.value)) {
       await publishExisting()
     }
     return
   }
   await saveAssignment('published')
   if (form.value.state === 'published') {
-    const dispatched = await publishExisting()
-    // The dispatch failed (typically 403: no hub access / missing
-    // actions:write). Don't leave the YAML claiming "published" while no
-    // broker exists - students would see a published assignment with a dead
-    // accept flow. Revert to draft and say so.
+    // Wrapped, because "the dispatch returned a failure" and "the dispatch
+    // never returned" leave the SAME wreckage: a YAML that says published with
+    // no broker behind it, and a student-facing accept link that goes nowhere.
+    //
+    // Only the first was handled. `publishExisting` has a try/finally and no
+    // catch, and this function had neither, so anything that THREW between the
+    // commit and the revert walked straight out of both and left the assignment
+    // stranded - silently, because the toast that explains a failed dispatch is
+    // in the branch that no longer runs.
+    //
+    // PXL-Automation-II/test-pe-1 (2026-09-02) reached exactly that state: the
+    // file committed as published at 01:18:21Z, no publish workflow ran all
+    // day, and no revert commit was ever made. The trigger is not established -
+    // it may have been the page going away rather than an exception - so this
+    // does not claim to fix the cause. It makes the outcome survivable.
+    let dispatched = false
+    try {
+      dispatched = await publishExisting()
+    } catch (e) {
+      console.error('Publish dispatch threw', e)
+      dispatched = false
+    }
     if (!dispatched) await revertToDraftAfterFailedPublish()
   }
 }
