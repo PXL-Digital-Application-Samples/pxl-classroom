@@ -56,6 +56,13 @@ function createMockRequest({
   // different answer from "no access", and checked separately below.
   hubStatus = 200,
   hubPush = true,
+  // assignments/ directory: { "<name>.yml": <yaml string> | number(status) }.
+  // The default is a healthy org - one published assignment whose broker
+  // exists - because that is what "happy path" has to mean once the audit
+  // checks brokers org-wide.
+  assignmentFiles = { "hw1.yml": "schema_version: 1\nid: hw1\nstate: published\n" },
+  // broker repo name -> HTTP status. Anything unlisted is 200.
+  brokerStatuses = {},
 }) {
   return async (method, path) => {
     if (path === "/apps/pxl-classroom-provisioner") {
@@ -71,6 +78,33 @@ function createMockRequest({
     if (path === `/repos/TestOrg/pxl-classroom-control`) {
       return { status: repoStatus, ok: repoStatus === 200, data: { private: isPrivate } };
     }
+    // assignments/ listing and its documents, for the org-wide broker sweep.
+    // BEFORE the generic contents/ branch below, which answers 200 with no body
+    // and would make every listing look like an empty directory.
+    if (path === `/repos/TestOrg/pxl-classroom-control/contents/assignments`) {
+      // missingPaths still wins: the scaffold tests remove `assignments`
+      // entirely, and this branch must not resurrect it.
+      if (missingPaths.includes("assignments")) return { status: 404, ok: false };
+      if (!assignmentFiles) return { status: 404, ok: false };
+      return {
+        status: 200,
+        ok: true,
+        data: Object.keys(assignmentFiles).map((name) => ({ type: "file", name })),
+      };
+    }
+    if (path.startsWith(`/repos/TestOrg/pxl-classroom-control/contents/assignments/`)) {
+      const name = path.split("/").pop();
+      const entry = assignmentFiles?.[name];
+      if (entry === undefined) return { status: 404, ok: false };
+      if (typeof entry === "number") return { status: entry, ok: false };
+      return { status: 200, ok: true, data: { content: Buffer.from(entry).toString("base64") } };
+    }
+    if (/^\/repos\/TestOrg\/broker-/.test(path)) {
+      const name = path.split("/").pop();
+      const st = brokerStatuses[name] ?? 200;
+      return { status: st, ok: st === 200, data: { full_name: `TestOrg/${name}` } };
+    }
+    // Everything else under contents/ - scaffold presence checks.
     if (path.startsWith(`/repos/TestOrg/pxl-classroom-control/contents/`)) {
       const p = path.split("/").pop();
       if (missingPaths.includes(p)) return { status: 404, ok: false };
@@ -96,7 +130,7 @@ test("runAudit - happy path", async () => {
   const req = createMockRequest({});
   const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
   assert.equal(res.overall, "ok");
-  assert.equal(res.checks.length, 7);
+  assert.equal(res.checks.length, 8);
   assert.equal(res.checks.every(c => c.severity === "ok"), true);
 });
 
@@ -148,6 +182,78 @@ test("hub dispatch - an unreadable hub repo yields no check", async () => {
   const c = res.checks.find((x) => x.id === "hub-dispatch");
   assert.equal(c.severity, "warn");
   assert.match(c.message, /could not be checked/i);
+});
+
+// A published assignment with no broker cannot be accepted by anybody - the
+// invitation link resolves to nothing - and until this check existed it was
+// invisible everywhere except that one assignment's Admin panel. Two sat in
+// that state on 2026-09-02 and were only found by a hand-written sweep.
+const PUBLISHED = (id) => `schema_version: 1\nid: ${id}\nstate: published\n`;
+const DRAFT = (id) => `schema_version: 1\nid: ${id}\nstate: draft\n`;
+
+const sweep = (opts) =>
+  runAudit({ request: createMockRequest(opts), org: "TestOrg", hubOwner: "hub", hubRepo: "repo" })
+    .then((r) => r.checks.find((c) => c.id === "published-brokers"));
+
+test("published brokers - all present is ok", async () => {
+  const c = await sweep({ assignmentFiles: { "a.yml": PUBLISHED("a"), "b.yml": PUBLISHED("b") } });
+  assert.equal(c.severity, "ok");
+  assert.equal(c.detail.published, 2);
+});
+
+test("published brokers - a missing broker fails and names the assignment", async () => {
+  const c = await sweep({
+    assignmentFiles: { "a.yml": PUBLISHED("a"), "b.yml": PUBLISHED("b") },
+    brokerStatuses: { "broker-b": 404 },
+  });
+  assert.equal(c.severity, "fail");
+  assert.deepEqual(c.detail.missing, [{ id: "b", broker: "broker-b" }]);
+  assert.match(c.message, /\bb\b/);
+  // It must say what to do, not just what is wrong.
+  assert.match(c.message, /Complete Setup/);
+});
+
+test("published brokers - a draft needs no broker", async () => {
+  // Drafts have no accept link, so a missing broker is correct, not a fault.
+  const c = await sweep({
+    assignmentFiles: { "a.yml": DRAFT("a") },
+    brokerStatuses: { "broker-a": 404 },
+  });
+  assert.equal(c.severity, "info");
+  assert.equal(c.detail.published, 0);
+});
+
+test("published brokers - an unreadable assignment BLOCKS a green result", async () => {
+  // The rule that makes this check worth trusting. "All brokers present" while
+  // one could not be read is the answer somebody acts on, and it would be a
+  // claim the data does not support.
+  const c = await sweep({
+    assignmentFiles: { "a.yml": PUBLISHED("a"), "b.yml": 500 },
+  });
+  assert.equal(c.severity, "warn");
+  assert.equal(c.detail.unreadable.length, 1);
+});
+
+test("published brokers - a missing broker outranks an unreadable one", async () => {
+  // Both present: the actionable failure must not be downgraded to a warning,
+  // and the unreadable count still has to be reported rather than dropped.
+  const c = await sweep({
+    assignmentFiles: { "a.yml": PUBLISHED("a"), "b.yml": PUBLISHED("b"), "c.yml": 500 },
+    brokerStatuses: { "broker-a": 404 },
+  });
+  assert.equal(c.severity, "fail");
+  assert.equal(c.detail.missing.length, 1);
+  assert.match(c.message, /1 could not be checked/);
+});
+
+test("published brokers - a custom broker_repo is honoured, not guessed", async () => {
+  // brokerRepoName reads what the document RECORDS before falling back to the
+  // default naming. Checking `broker-a` here would report a false failure.
+  const c = await sweep({
+    assignmentFiles: { "a.yml": `schema_version: 1\nid: a\nstate: published\nbroker_repo: broker-custom-name\n` },
+    brokerStatuses: { "broker-a": 404 },
+  });
+  assert.equal(c.severity, "ok");
 });
 
 test("hub dispatch - skipped when the hub is not known", async () => {
