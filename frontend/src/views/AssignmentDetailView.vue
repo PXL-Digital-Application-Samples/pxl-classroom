@@ -95,7 +95,10 @@
               :class="allPreserved ? 'dot-success' : preservedCount > 0 ? 'dot-warning' : 'dot-neutral'"
             ></span>
             <div class="preservation-strip-text">
-              <span class="preservation-strip-title">{{ preservationSummary }}</span>
+              <span class="preservation-strip-title">
+                {{ preservationSummary }}
+                <HelpButton topic="archiving" label="archiving" />
+              </span>
               <span class="preservation-strip-meta text-secondary text-sm">{{ preservationMeta }}</span>
             </div>
           </div>
@@ -1035,6 +1038,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
+import HelpButton from '../components/HelpButton.vue'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
 import InvitationShare from '../components/InvitationShare.vue'

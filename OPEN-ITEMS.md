@@ -84,6 +84,39 @@ What remains is code. `applySubmissionLock` in `lib/submission-lock.mjs` is the 
 
 ---
 
+## 4. The least-privilege way to give a lecturer hub access has never been used
+
+**Status: open.** Verified 2026-09-02.
+
+[ADMIN.md](ADMIN.md) §1.4 tells an administrator to add lecturers as **Write collaborators** on the hub repo, because publishing an assignment and retrying an acceptance both `workflow_dispatch` on the hub with the lecturer's own token, and write is what that needs. It is the correct grant and the smallest one.
+
+Nobody has ever done it. Measured today:
+
+```
+repos/…/pxl-classroom/collaborators?affiliation=outside   0
+repos/…/pxl-classroom/collaborators?affiliation=direct    0
+orgs/PXL-Digital-Application-Samples default_repository_permission   read
+```
+
+Everyone who publishes today is an **owner** of the central organization, which works for a reason unrelated to the documented path: GitHub grants owners admin on every repository. So the instruction in ADMIN.md is followed by no one, and the first administrator to follow it will be the first to find out whether it holds.
+
+Two things make that worth writing down rather than assuming:
+
+- **Organization membership alone does not work, and fails in a confusing way.** The hub org's base permission is `read`, so a plain member lands on read for `pxl-classroom` and every dispatch returns 403 — which reads as "I added the lecturer and it still fails" rather than as a permission level.
+- **The owner workaround is not equivalent.** An owner of the central organization is also an owner of the **App** registered there, and can therefore generate a private key that mints installation tokens for every participating org ([ARCHITECTURE.md](ARCHITECTURE.md) §4.3). Handing that to each lecturer to avoid testing a collaborator grant is a real widening of the blast radius.
+
+A lecturer without hub write can still create and edit assignments — those writes go to their own control repo — but **Publish** and **Retry acceptance** fail, and nothing tells them beforehand.
+
+**How to tell it is closed:** a lecturer who is not an owner of the central organization has published an assignment successfully, and
+
+```bash
+gh api repos/PXL-Digital-Application-Samples/pxl-classroom/collaborators?affiliation=direct --jq 'length'
+```
+
+returns a non-zero count.
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system on 2026-08-31, not against a changelog.

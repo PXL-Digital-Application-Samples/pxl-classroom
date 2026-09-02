@@ -36,27 +36,31 @@ function open() {
 </script>
 
 <style scoped>
+/* Sized and coloured to read as interactive at a glance. The first version was
+   1.1rem in --text-muted with a hairline border, and it was reported as not
+   findable at all - it looked like punctuation. */
 .help-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1.35rem;
+  height: 1.35rem;
   padding: 0;
-  border: 1px solid var(--border-default);
+  margin-left: var(--space-2xs);
+  border: 1px solid var(--accent-blue);
   border-radius: var(--radius-full);
   background: var(--bg-surface);
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  font-weight: 600;
+  color: var(--accent-blue);
+  font-size: 0.82rem;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
   vertical-align: middle;
 }
 
-.help-button:hover {
-  color: var(--text-primary);
-  border-color: var(--border-emphasis);
-  background: var(--bg-surface-hover);
+.help-button:hover,
+.help-button:focus-visible {
+  color: var(--text-on-emphasis);
+  background: var(--accent-blue);
 }
 </style>

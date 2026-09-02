@@ -98,6 +98,7 @@
                   aria-haspopup="true"
                   @click.stop="promotePickerOpen = !promotePickerOpen"
                 >Add students who accepted</button>
+                <HelpButton topic="adding-students-who-accepted" label="adding students who accepted" />
 
                 <div v-if="promotePickerOpen" class="promote-picker" role="menu">
                   <p class="promote-picker-head">From which assignment?</p>
@@ -431,6 +432,7 @@ import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib
 import { validateAgainst } from '../lib/validate.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser } from '../lib/auth.js'
+import HelpButton from './HelpButton.vue'
 import { commitFile, getRepoContent, listClaims, deleteFile } from '../lib/api.js'
 // The one join between a claim and a roster entry. See lib/claim-bindings.mjs.
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'

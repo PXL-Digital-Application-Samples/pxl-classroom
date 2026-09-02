@@ -33,7 +33,7 @@ test.describe('53 - the help drawer', () => {
     const drawer = page.locator('.help-drawer');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('Who may accept');
-    await expect(drawer).toContainText('Roster is the default');
+    await expect(drawer).toContainText('only students you have imported');
   });
 
   test('the drawer is inside the viewport, not scrolled off it', async ({ page }) => {
@@ -70,9 +70,9 @@ test.describe('53 - the help drawer', () => {
     await page.getByRole('button', { name: /What does who may accept mean/ }).click();
 
     const drawer = page.locator('.help-drawer');
-    await drawer.getByRole('button', { name: /Adding students who accepted/ }).click();
+    await drawer.getByRole('button', { name: /add everyone who accepted/ }).click();
 
-    await expect(drawer).toContainText('Adding students who accepted');
+    await expect(drawer).toContainText('Adds the students who accepted');
     await expect(page).toHaveURL(/\/admin/);
   });
 });
@@ -88,8 +88,8 @@ test.describe('53 - the manual page', () => {
 
     // Same source as the drawer, so if these disagree one of the two surfaces
     // has stopped rendering the compiled manual.
-    await expect(page.locator('#who-may-accept')).toContainText('Roster is the default');
-    await expect(page.locator('#archiving')).toContainText('frozen');
+    await expect(page.locator('#who-may-accept')).toContainText('only students you have imported');
+    await expect(page.locator('#archiving')).toContainText('cannot be changed afterwards');
     await expect(page.locator('.manual-topic')).toHaveCount(9);
   });
 });

@@ -542,7 +542,7 @@
           <fieldset>
             <legend>Assignment Type</legend>
             <div class="field">
-              <label>Collaboration Model</label>
+              <label>Collaboration Model <HelpButton topic="group-assignments" label="group assignments" /></label>
               <div class="radio-group">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                   <input type="radio" v-model="form.assignment_type" value="individual" @change="onAssignmentTypeChange" />
@@ -642,7 +642,7 @@
               <small>{{ utcHint(form.opens_at_local) }}</small>
             </div>
             <div class="field">
-              <label>Deadline <span class="req">*</span></label>
+              <label>Deadline <span class="req">*</span> <HelpButton topic="deadlines-and-extensions" label="deadlines and extensions" /></label>
               <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
               <div v-if="(touchedFields.deadline_at || !isNew) && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
               <small>{{ utcHint(form.deadline_at_local) }}</small>
@@ -866,6 +866,7 @@
                 <input type="checkbox" v-model="form.feedback_pr" />
                 Open a draft Feedback PR for each student (pxl-baseline protected branch)
               </label>
+              <HelpButton topic="feedback-pull-requests" label="feedback pull requests" />
               <small>
                 Provisioning creates a frozen <code>{{ form.feedback_pr_baseline_branch || 'pxl-baseline' }}</code> branch and protects it.
                 PRs are opened lazily via <code>pxl-classroom feedback open --assignment {{ form.id || 'ID' }}</code> once students push commits.
@@ -883,7 +884,7 @@
                    nothing about what is off (reported 2026-09-02). The state
                    itself stays in `.autograde-summary-text` so it remains one
                    readable value; the sentence sits beside it. -->
-              <label>Automatic grading</label>
+              <label>Automatic grading <HelpButton topic="automated-checks" label="automatic grading" /></label>
               <div class="autograde-summary-row">
                 <span class="autograde-summary-text">{{ autogradeSummary }}</span>
                 <span v-if="!autogradeConfigured" class="autograde-summary-note">
