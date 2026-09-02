@@ -656,6 +656,79 @@ const claimRec = (login, id, email) => ({
 
 const claimRoster = (...students) => ({ schema_version: 2, students });
 
+// --- what an UNATTENDED fold may touch -------------------------------------
+//
+// The nightly folds claims so a lecturer has no step to find, and that is only
+// safe for claims that are evidence. `claim_verified` is false whenever the
+// student TYPED an address instead of confirming one GitHub had verified, and
+// lib/claim.mjs is blunt about what that is worth: "Someone with a shared link
+// and a made-up address is always false". Unattended, those wait for a human.
+
+test("verifiedOnly folds a GitHub-verified claim", () => {
+  const plan = planClaimPromotion({
+    roster: claimRoster({ student_number: "0123456", full_name: "Alice", email: "alice@student.pxl.be" }),
+    claims: [claimRec("alice-gh", 111, "alice@student.pxl.be")],
+    verifiedOnly: true,
+  });
+
+  assert.equal(plan.stats.updated, 1);
+  assert.equal(plan.stats.unverified, 0);
+  assert.equal(plan.nextRoster.students[0].github_login, "alice-gh");
+});
+
+test("verifiedOnly HOLDS a typed one, and says whose", () => {
+  const typed = { ...claimRec("mallory", 999, "alice@student.pxl.be"), claim_verified: false };
+  const plan = planClaimPromotion({
+    roster: claimRoster({ student_number: "0123456", full_name: "Alice", email: "alice@student.pxl.be" }),
+    claims: [typed],
+    verifiedOnly: true,
+  });
+
+  assert.equal(plan.stats.updated, 0, "nothing may be written unattended on a typed address");
+  assert.equal(plan.stats.unverified, 1);
+  assert.equal(plan.nextRoster.students[0].github_login ?? null, null, "the roster entry is untouched");
+  // Named, not just counted - the review list has to say who to look at.
+  assert.equal(plan.unverified[0].email, "alice@student.pxl.be");
+  assert.equal(plan.unverified[0].claim_login, "mallory");
+  assert.ok(plan.warnings.some((w) => w.code === "claim-unverified"));
+});
+
+test("a lecturer running it by hand still folds a typed one", () => {
+  // verifiedOnly is FALSE by default. The human is the review step, and they
+  // are looking at the plan - taking this away would make the CLI unable to do
+  // the one thing the nightly deliberately refuses to do alone.
+  const typed = { ...claimRec("alice-gh", 111, "alice@student.pxl.be"), claim_verified: false };
+  const plan = planClaimPromotion({
+    roster: claimRoster({ student_number: "0123456", full_name: "Alice", email: "alice@student.pxl.be" }),
+    claims: [typed],
+  });
+
+  assert.equal(plan.stats.updated, 1);
+  assert.equal(plan.stats.unverified, 0, "nothing is held when nobody asked for the distinction");
+  assert.equal(plan.nextRoster.students[0].github_login, "alice-gh");
+});
+
+test("verifiedOnly does not rescue a conflict or an ambiguity", () => {
+  // Verified says the ADDRESS is real. It says nothing about which of two
+  // accounts should win, or about a roster row that already names another - so
+  // the existing guards still apply on top of it.
+  const conflicting = planClaimPromotion({
+    roster: claimRoster({ email: "alice@student.pxl.be", github_login: "someone-else" }),
+    claims: [claimRec("alice-gh", 111, "alice@student.pxl.be")],
+    verifiedOnly: true,
+  });
+  assert.equal(conflicting.stats.updated, 0);
+  assert.equal(conflicting.stats.conflicts, 1);
+
+  const ambiguousPlan = planClaimPromotion({
+    roster: claimRoster({ email: "alice@student.pxl.be" }),
+    claims: [claimRec("one", 1, "alice@student.pxl.be"), claimRec("two", 2, "alice@student.pxl.be")],
+    verifiedOnly: true,
+  });
+  assert.equal(ambiguousPlan.stats.updated, 0);
+  assert.equal(ambiguousPlan.stats.ambiguous, 1);
+});
+
 test("folding writes the claimed account onto the entry that address belongs to", () => {
   const plan = planClaimPromotion({
     roster: claimRoster({ student_number: "0123456", full_name: "Alice", email: "alice@student.pxl.be" }),

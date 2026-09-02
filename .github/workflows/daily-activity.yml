@@ -75,14 +75,24 @@ jobs:
           collection-type: scheduled
           data-dir: control
 
+      # Fold GitHub-VERIFIED claims into the roster, so a lecturer has no step
+      # to find. Only the unambiguous ones: a typed address, a conflict or an
+      # address two accounts claim is a decision, and it is left for a human.
+      # Here rather than in its own workflow because this job already has the
+      # control repo checked out, is serialised per org, and already commits -
+      # so it costs no Actions minutes of its own.
+      - name: Link verified claims into the roster
+        if: always()
+        run: node scripts/link-claims.mjs --data-dir control
+
       - name: Commit + push to control repo
         if: always()
         run: |
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          mkdir -p control/observations
-          git -C control add observations/
+          mkdir -p control/observations control/students
+          git -C control add observations/ students/
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Collect activity"
           scripts/git-push-with-retry.sh control
