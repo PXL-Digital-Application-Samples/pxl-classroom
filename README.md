@@ -113,6 +113,30 @@ An owner installs the App there with access to **All repositories**, then runs *
 
 ## Quickstart
 
+```mermaid
+flowchart LR
+    Create["LECTURER<br/>creates and publishes,<br/>shares one link"] --> Who{"who may<br/>accept?"}
+    Who -->|"roster"| Roster["ROSTER<br/>only students<br/>you imported"]
+    Who -->|"open"| Open["OPEN<br/>anyone with the link,<br/>up to a cap"]
+    Roster --> acc
+    Open --> acc
+
+    subgraph acc [" "]
+        direction TB
+        Accept["STUDENT<br/>opens the link,<br/>signs in"] -.-> Repo["a private repo appears,<br/>from your template,<br/>in under a minute"]
+    end
+
+    acc --> Work["STUDENT<br/>works and pushes"]
+    Work --> Deadline["THE DEADLINE PASSES<br/>work is frozen,<br/>a copy preserved"]
+    Deadline --> Grade["LECTURER<br/>reviews every<br/>submission, and grades"]
+
+    style acc fill:none,stroke:none
+```
+
+The one choice that changes what a student experiences is **who may accept**.
+Everything after the link is the same either way, and there is one link per
+assignment rather than one per student.
+
 ### 1. Connect Organization
 
 - Open the [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) and sign in with the GitHub device flow.
@@ -139,25 +163,61 @@ An owner installs the App there with access to **All repositories**, then runs *
 
 ## Architecture
 
+### Components
+
 ```mermaid
-graph LR
-    Student[Student] -->|Invitation link| SPA[Pages SPA]
-    Lecturer[Lecturer] --> SPA
-    Lecturer --> CLI[pxl-classroom CLI]
+flowchart LR
+    subgraph You["WHAT YOU USE"]
+        direction TB
+        WebApp["STATIC GH PAGES WEB APP<br/><i>public</i><br/>students accept an invitation<br/>lecturers create, watch, grade"]
+        CLI["CLI<br/>roster import, bulk download<br/>local grading, feedback PRs"]
+    end
 
-    SPA -->|Signed acceptance| Broker["Broker repo<br/>PUBLIC, 1 per assignment"]
-    Broker -->|Verify, then dispatch| Hub["pxl-classroom<br/>PUBLIC, every workflow runs here"]
+    subgraph Central["CENTRAL ORGANIZATION - one, shared by everyone"]
+        direction TB
+        Hub["PXL-CLASSROOM REPO<br/><i>public</i><br/>the only place code runs"]
+        Flows["WORKFLOWS<br/>accept - nightly collect and finalize<br/>deadline sentinel - dashboard rebuild"]
+        Prov{{"GH APP: PROVISIONER<br/>installed on every course org"}}
+        Brok{{"GH APP: BROKER<br/>hub repo only"}}
+        Hub --- Flows
+        Flows -.acts through.-> Prov
+    end
 
-    Hub -->|Creates from template| StudentRepo["Student repo<br/>PRIVATE, student is Admin"]
-    Hub -->|Preserves at the deadline| Archive["Archive<br/>PRIVATE, 1 per assignment"]
-    Hub --> Control["Control repo<br/>PRIVATE, all course data"]
+    subgraph Course["COURSE ORGANIZATION - one per course or year"]
+        direction TB
+        BrokerRepo["BROKER REPO<br/><i>public</i><br/>1 per assignment<br/>catches acceptances"]
+        Control["CONTROL REPO<br/><i>private</i><br/>assignments, roster, reports<br/>data only, no workflows"]
+        Student["STUDENT REPOS<br/><i>private</i>"]
+        Archive["ARCHIVE<br/><i>private</i><br/>1 per assignment"]
+        Student -->|"frozen at the deadline"| Archive
+    end
 
-    SPA -.Reads/writes.-> Control
-    CLI -.Reads/writes.-> Control
-
-    Broker -.Mints token.-> BrokerApp[("Broker App<br/>hub repo only")]
-    Hub -.Mints token.-> ProvApp[("Provisioner App<br/>every course org")]
+    WebApp -->|"signed acceptance"| BrokerRepo
+    BrokerRepo -->|"dispatch"| Flows
+    BrokerRepo -.-> Brok
+    Flows -->|"creates"| Student
+    Flows -->|"writes reports"| Control
+    WebApp <-->|"your own sign-in"| Control
+    CLI <--> Control
 ```
+
+Three groups, and which one a thing sits in is the point.
+
+**Nothing you run holds a credential.** The web app and the CLI act as *you*,
+through your own GitHub sign-in, so they can only reach what you could reach by
+hand. **All the code lives in the central organization** and runs nowhere else -
+the hub repository owns every workflow, which is why a course organization can be
+handed over or deleted without taking the machinery with it. **A course
+organization holds only data and student work**, and has no workflows of its own.
+
+The two Apps are split on purpose. The Provisioner is the powerful one and is
+installed on every course organization, so only workflows in the hub ever use it.
+The Broker exists because a public acceptance page needs *something* to carry a
+request inward: it is installed on one repository and can do one thing, which is
+why the broker repo being public costs nothing.
+
+The request path a single acceptance takes, and the table of what each repository
+role owns, are in [ARCHITECTURE.md](ARCHITECTURE.md) §3 - written once, there.
 
 ---
 
