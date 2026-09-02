@@ -8,11 +8,24 @@ GitHub-native assignment distribution and submission reporting for higher educat
 
 Target platform: GitHub Team for Education (no GitHub Enterprise required).
 
-Links: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) | [ARCHITECTURE.md](ARCHITECTURE.md) | [DESIGN.md](DESIGN.md)
-
-Operational docs are split by who reads them: **[RUNBOOK.md](RUNBOOK.md)** for a lecturer running assignments, **[ADMIN.md](ADMIN.md)** for onboarding an organization and everything budget-, permission- or incident-related, and **[INSTALL.md](INSTALL.md)** for standing the whole system up once. Known infrastructure gaps are in [OPEN-ITEMS.md](OPEN-ITEMS.md).
-
 **PXL Classroom** is named for *PXL eXecutable Labs*.
+
+## Where to start
+
+The documentation is split by **who is reading it**, not by topic. Pick your row.
+
+| If you are | Read |
+|---|---|
+| Meeting this for the first time | **[INTRODUCTION.md](INTRODUCTION.md)** - what it is and what using it looks like |
+| A **lecturer** running assignments | **[RUNBOOK.md](RUNBOOK.md)** - publishing, deadlines, grading, a student who is stuck |
+| An **administrator** | **[ADMIN.md](ADMIN.md)** - onboarding an organization, budgets, App permissions, incidents |
+| Standing the system up for an institution | **[INSTALL.md](INSTALL.md)** - the one-time setup |
+| A **developer** changing the code | **[ARCHITECTURE.md](ARCHITECTURE.md)**, then **[CLAUDE.md](CLAUDE.md)** for the working conventions |
+| Changing the **UI** | **[DESIGN.md](DESIGN.md)** - the design system, and the rules the components already follow |
+
+Also here: [MANUAL.md](MANUAL.md) is the in-app help a lecturer sees, rendered inside the web app rather than read here. [OPEN-ITEMS.md](OPEN-ITEMS.md) is a standing register of known infrastructure gaps, each with the command that says whether it is still open. [LESSONS.md](LESSONS.md) records what broke and what it cost - read it before arguing with a rule, because nearly every one is there for a reason that already happened.
+
+Live: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/)
 
 ---
 
