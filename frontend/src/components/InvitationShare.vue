@@ -73,6 +73,7 @@ import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
+import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { getRepoContent } from '../lib/api.js'
 import { invitationUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
 import { formatDate } from '../lib/format.js'
@@ -229,7 +230,7 @@ async function ensureToken() {
   if (!auth || !props.assignment?.id) return null
   try {
     const yaml = await getRepoContent(
-      auth, props.org, config.controlRepo, `assignments/${props.assignment.id}.yml`,
+      auth, props.org, config.controlRepo, assignmentPath(props.assignment.id),
     )
     const fields = parseInviteFields(yaml)
     fetched.value = linkSecretFrom(fields) || null

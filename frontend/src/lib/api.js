@@ -6,6 +6,7 @@
 import { clearAuth } from './auth.js'
 import { READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 import { toast } from './toast.js'
+import { teamsDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { commitWithRebase } from '../../../lib/gittree.mjs'
 
 const API_BASE = 'https://api.github.com'
@@ -445,7 +446,7 @@ export async function commitFiles(token, owner, repo, changes, message, { branch
 export async function listTeams(token, org, controlRepo, assignmentId, { concurrency = 6 } = {}) {
   let files = []
   try {
-    files = await listRepoDir(token, org, controlRepo, `teams/${assignmentId}`)
+    files = await listRepoDir(token, org, controlRepo, teamsDir(assignmentId))
   } catch (e) {
     if (e.status === 404) return []
     throw e
@@ -484,7 +485,7 @@ export async function listTeams(token, org, controlRepo, assignmentId, { concurr
 export async function listAcceptances(token, org, controlRepo, assignmentId, { concurrency = 6 } = {}) {
   let files = []
   try {
-    files = await listRepoDir(token, org, controlRepo, `acceptances/${assignmentId}`)
+    files = await listRepoDir(token, org, controlRepo, acceptancesDir(assignmentId))
   } catch (e) {
     if (e.status === 404) return { records: [], failed: 0 }
     throw e

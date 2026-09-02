@@ -383,6 +383,7 @@ import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
+import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 
@@ -694,7 +695,7 @@ async function refreshTeamSubmissionMeta(org, repoName) {
   // (lib/effective-deadline.mjs): the last grant in the append-only history
   // wins, and an extension only ever extends.
   try {
-    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, `overrides/${props.assignment.id}/${props.user.login}.json`)
+    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, overridePath(props.assignment.id, props.user.login))
     if (overrideFile) {
       const eff = effectiveDeadlineFor(props.assignment, props.user.login, {
         overrides: [JSON.parse(overrideFile)],

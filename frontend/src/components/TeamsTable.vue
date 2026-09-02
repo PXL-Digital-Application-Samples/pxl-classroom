@@ -460,6 +460,7 @@
 import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
+import { teamPath } from '../../../lib/control-layout.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { commitFile, commitFiles, deleteFile, getRepoContent, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
@@ -808,7 +809,7 @@ async function submitCreateTeam() {
       return
     }
 
-    const path = `teams/${props.assignment.id}/${slug}.json`
+    const path = teamPath(props.assignment.id, slug)
     const res = await commitFile(
       token,
       props.org,
@@ -1000,7 +1001,7 @@ async function saveTeamMembers() {
     const slug = managingTeam.value.team_slug
     const oldMembers = managingTeam.value.members || []
     const newMembers = manageMembers.value || []
-    const path = `teams/${props.assignment.id}/${slug}.json`
+    const path = teamPath(props.assignment.id, slug)
 
     // READ the manifest we are about to edit, before touching anything.
     //
@@ -1139,7 +1140,7 @@ async function deleteVacantTeam(team) {
   saving.value = true
   try {
     const token = getToken()
-    const path = `teams/${props.assignment.id}/${team.team_slug}.json`
+    const path = teamPath(props.assignment.id, team.team_slug)
     const res = await deleteFile(
       token,
       props.org,

@@ -1113,6 +1113,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { needsBrokerDispatch } from '../lib/publish.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
+import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { summariseAutograde } from '../lib/autograde.js'
 // One implementation of the document this panel writes, and of the
@@ -2312,7 +2313,7 @@ async function saveAssignment(stateOverride = null) {
     }
     try {
       const token = getToken()
-      const path = `assignments/${slug}.yml`
+      const path = assignmentPath(slug)
       const exists = await getRepoContent(token, props.org, config.controlRepo, path)
       if (exists !== null) {
         toast.error(`${slug} already exists; pick another slug or edit the existing assignment.`)
@@ -2323,7 +2324,7 @@ async function saveAssignment(stateOverride = null) {
   saving.value = true
   try {
     const token = getToken()
-    const path = `assignments/${form.value.id}.yml`
+    const path = assignmentPath(form.value.id)
     const yaml = stringifyYaml(buildDoc(stateOverride))
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, isNew.value ? `Create assignment ${form.value.id}` : `Update assignment ${form.value.id}`)
     if (res.ok) {
@@ -2403,7 +2404,7 @@ async function saveAndPublish() {
 async function revertToDraftAfterFailedPublish() {
   try {
     const token = getToken()
-    const path = `assignments/${form.value.id}.yml`
+    const path = assignmentPath(form.value.id)
     const yaml = stringifyYaml(buildDoc('draft'))
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Revert ${form.value.id} to draft (publish dispatch failed)`)
     if (res.ok) {
@@ -2505,7 +2506,7 @@ async function deleteDraft() {
   deleting.value = true
   try {
     const token = getToken()
-    const res = await deleteFile(token, props.org, config.controlRepo, `assignments/${form.value.id}.yml`, `Delete draft assignment ${form.value.id}`)
+    const res = await deleteFile(token, props.org, config.controlRepo, assignmentPath(form.value.id), `Delete draft assignment ${form.value.id}`)
     if (res.ok) {
       toast.success(`Deleted draft ${form.value.id}`)
       editing.value = null
@@ -2528,7 +2529,7 @@ async function setState(newState) {
   saving.value = true
   try {
     const token = getToken()
-    const path = `assignments/${form.value.id}.yml`
+    const path = assignmentPath(form.value.id)
     const yaml = stringifyYaml(buildDoc(newState))
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Set ${form.value.id} state to ${newState}`)
     if (res.ok) {

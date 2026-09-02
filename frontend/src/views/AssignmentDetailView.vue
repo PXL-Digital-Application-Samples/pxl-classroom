@@ -1039,6 +1039,10 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
 import HelpButton from '../components/HelpButton.vue'
+import {
+  assignmentPath, reportPath, teamsDir,
+  repositoriesDir, repositoryPath, overridesDir, overridePath,
+} from '../../../lib/control-layout.mjs'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
 import InvitationShare from '../components/InvitationShare.vue'
@@ -1115,7 +1119,7 @@ async function toggleAcceptanceState() {
 
   togglingState.value = true
   try {
-    const path = `assignments/${props.assignmentId}.yml`
+    const path = assignmentPath(props.assignmentId)
     const updatedDoc = { ...assignment.value, state: nextState }
     const yamlStr = stringifyYaml(updatedDoc)
     const res = await commitFile(token, props.org, config.controlRepo, path, yamlStr, `Set ${props.assignmentId} state to ${nextState}`)
@@ -1198,7 +1202,7 @@ function startDailyWatch() {
     if (token) {
       let content
       try {
-        content = await getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`)
+        content = await getRepoContent(token, props.org, config.controlRepo, reportPath(props.assignmentId))
       } catch (e) {
         stopDailyWatch()
         dailyWatch.value = ''
@@ -1395,7 +1399,7 @@ async function bumpCapacity(delta) {
   bumpingCapacity.value = true
   try {
     const token = getToken()
-    const content = await getRepoContent(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`)
+    const content = await getRepoContent(token, props.org, config.controlRepo, assignmentPath(props.assignmentId))
     if (!content) throw new Error('Could not load assignment configuration YAML')
     const doc = parseYaml(content)
     let newCap = null
@@ -1410,7 +1414,7 @@ async function bumpCapacity(delta) {
     const commitMsg = delta == null
       ? `Remove max_acceptances cap for ${props.assignmentId}`
       : `Increase max_acceptances by +${delta} (total: ${newCap}) for ${props.assignmentId}`
-    const res = await commitFile(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`, updatedYaml, commitMsg)
+    const res = await commitFile(token, props.org, config.controlRepo, assignmentPath(props.assignmentId), updatedYaml, commitMsg)
     if (res.ok) {
       toast.success(delta == null ? 'Registration cap removed' : `Capacity increased to ${newCap} slots`)
       if (delta == null) {
@@ -1648,7 +1652,7 @@ async function executeOpenFeedbackPrs() {
     const record = async (pr) => {
       s.feedback_pr_number = pr.number
       s.feedback_pr_url = pr.html_url
-      const recPath = `repositories/${props.assignmentId}/${s.github_login}.json`
+      const recPath = repositoryPath(props.assignmentId, s.github_login)
       const existingContent = await getRepoContent(token, props.org, config.controlRepo, recPath)
       if (!existingContent) return
       const recDoc = JSON.parse(existingContent)
@@ -2158,7 +2162,7 @@ async function mergeTeamManifests(token) {
 
   let files = []
   try {
-    files = await listRepoDir(token, props.org, config.controlRepo, `teams/${props.assignmentId}`)
+    files = await listRepoDir(token, props.org, config.controlRepo, teamsDir(props.assignmentId))
   } catch (e) {
     if (e.status !== 404) console.warn('Could not list team manifests:', e.message)
     return
@@ -2238,8 +2242,8 @@ async function loadAll() {
   loadError.value = null
   try {
     const [reportContent, assignmentContent, rosterContent] = await Promise.all([
-      getRepoContent(token, props.org, config.controlRepo, `reports/${props.assignmentId}.json`),
-      getRepoContent(token, props.org, config.controlRepo, `assignments/${props.assignmentId}.yml`),
+      getRepoContent(token, props.org, config.controlRepo, reportPath(props.assignmentId)),
+      getRepoContent(token, props.org, config.controlRepo, assignmentPath(props.assignmentId)),
       getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH),
     ])
     if (reportContent) {
@@ -2349,7 +2353,7 @@ onUnmounted(() => {
 // Best-effort: surface granted deadline extensions in the table + modal.
 async function loadOverrides(token) {
   try {
-    const files = await listRepoDir(token, props.org, config.controlRepo, `overrides/${props.assignmentId}`)
+    const files = await listRepoDir(token, props.org, config.controlRepo, overridesDir(props.assignmentId))
     const jsonFiles = (files || []).filter((f) => f.type === 'file' && f.name.endsWith('.json'))
     const map = new Map()
     await Promise.all(jsonFiles.map(async (f) => {
@@ -2371,7 +2375,7 @@ async function loadOverrides(token) {
 // missing record (drift) just leaves the row's PR fields null.
 async function mergeRepoRecordsIntoReport(token) {
   try {
-    const files = await listRepoDir(token, props.org, config.controlRepo, `repositories/${props.assignmentId}`)
+    const files = await listRepoDir(token, props.org, config.controlRepo, repositoriesDir(props.assignmentId))
     const jsonFiles = (files || []).filter((f) => f.type === 'file' && f.name.endsWith('.json'))
     const records = await Promise.all(
       jsonFiles.map(async (f) => {
@@ -2764,7 +2768,7 @@ async function refreshLiveStatus() {
   // Persist the refreshed report + dashboard aggregate back to the control
   // repo so reloads (and the Dashboard view) see the up-to-date snapshot.
   try {
-    const reportPath = `reports/${props.assignmentId}.json`
+    const reportPath = reportPath(props.assignmentId)
     // Strip the display-only grade join before storing, and refuse rather than
     // write a report that fails its own schema.
     const storable = reportForStorage(report.value)
@@ -3153,7 +3157,7 @@ async function grantExtensionFor(student, ext) {
     const token = getToken()
     let overridesList = []
     try {
-      const existing = await getRepoContent(token, props.org, config.controlRepo, `overrides/${props.assignmentId}/${student.github_login}.json`)
+      const existing = await getRepoContent(token, props.org, config.controlRepo, overridePath(props.assignmentId, student.github_login))
       if (existing) {
         const doc = JSON.parse(existing)
         overridesList = doc.overrides || []
@@ -3181,7 +3185,7 @@ async function grantExtensionFor(student, ext) {
       toast.error('Override failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
       return
     }
-    const path = `overrides/${props.assignmentId}/${student.github_login}.json`
+    const path = overridePath(props.assignmentId, student.github_login)
     const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${student.github_login} on ${props.assignmentId}`)
     if (res.ok) {
       toast.success(`Extension granted to ${student.github_login} (status updates on the next nightly run or Live Status refresh).`)

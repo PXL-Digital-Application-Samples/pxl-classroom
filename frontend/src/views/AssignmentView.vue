@@ -459,6 +459,7 @@ import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
+import { overridePath } from '../../../lib/control-layout.mjs'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
@@ -808,7 +809,7 @@ async function refreshStudentSubmissionMeta(org, repoName) {
   // entry here used to show a student a deadline a later grant had already
   // superseded.
   try {
-    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, `overrides/${resolvedId.value}/${user.value.login}.json`)
+    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, overridePath(resolvedId.value, user.value.login))
     if (overrideFile) {
       const eff = effectiveDeadlineFor(assignment.value, user.value.login, {
         overrides: [JSON.parse(overrideFile)],

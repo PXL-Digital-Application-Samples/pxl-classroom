@@ -11,13 +11,15 @@
 import { parse as yamlParse } from "yaml";
 import { CONTROL_REPO } from "../../../lib/deployment.mjs";
 import { ROSTER_PATH } from "../../../lib/roster-entries.mjs";
+import { assignmentPath, reportPath, repositoriesDir, teamsDir, acceptancesDir } from "../../../lib/control-layout.mjs";
+import { claimPath, claimAttemptsPath } from "../../../lib/claim.mjs";
 
 export { CONTROL_REPO };
 
 export async function getAssignment(octokit, { org, assignmentId }) {
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: `assignments/${assignmentId}.yml`,
+      owner: org, repo: CONTROL_REPO, path: assignmentPath(assignmentId),
     });
     const text = Buffer.from(res.data.content, "base64").toString("utf8");
     return yamlParse(text);
@@ -32,7 +34,7 @@ export async function getAssignment(octokit, { org, assignmentId }) {
 export async function getReport(octokit, { org, assignmentId }) {
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: `reports/${assignmentId}.json`,
+      owner: org, repo: CONTROL_REPO, path: reportPath(assignmentId),
     });
     const text = Buffer.from(res.data.content, "base64").toString("utf8");
     return JSON.parse(text);
@@ -48,7 +50,7 @@ export async function listRepoRecords(octokit, { org, assignmentId }) {
   let files = [];
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: `repositories/${assignmentId}`,
+      owner: org, repo: CONTROL_REPO, path: repositoriesDir(assignmentId),
     });
     files = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
@@ -73,7 +75,7 @@ export async function listTeams(octokit, { org, assignmentId }) {
   let files = [];
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: `teams/${assignmentId}`,
+      owner: org, repo: CONTROL_REPO, path: teamsDir(assignmentId),
     });
     files = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
@@ -139,7 +141,7 @@ export async function listAcceptances(octokit, { org, assignmentId }) {
   let files = [];
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: `acceptances/${assignmentId}`,
+      owner: org, repo: CONTROL_REPO, path: acceptancesDir(assignmentId),
     });
     files = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
@@ -167,7 +169,7 @@ export async function listAcceptances(octokit, { org, assignmentId }) {
 export async function listAcceptedLogins(octokit, { org, assignmentId }) {
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: `acceptances/${assignmentId}`,
+      owner: org, repo: CONTROL_REPO, path: acceptancesDir(assignmentId),
     });
     return (Array.isArray(res.data) ? res.data : [])
       .filter((f) => f.type === "file" && f.name.endsWith(".json"))
@@ -233,7 +235,7 @@ export async function listClaims(octokit, { org }) {
  */
 export async function deleteClaim(octokit, { org, githubId, message }) {
   const removed = [];
-  for (const path of [`students/claims/${githubId}.json`, `students/claim-attempts/${githubId}.json`]) {
+  for (const path of [claimPath(githubId), claimAttemptsPath(githubId)]) {
     let sha;
     try {
       const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {

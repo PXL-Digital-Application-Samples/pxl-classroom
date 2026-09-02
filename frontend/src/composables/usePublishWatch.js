@@ -28,6 +28,7 @@ import { getToken } from '../lib/auth.js'
 import { getRepo, getRepoContent } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
+import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { inviteDataUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
 
 /** 48 ticks of 10s after a 5s head start - eight minutes. */
@@ -62,7 +63,7 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
   async function refreshInvitation(assignmentId) {
     const token = getToken()
     if (!token) return ''
-    const yaml = await getRepoContent(token, org(), config.controlRepo, `assignments/${assignmentId}.yml`)
+    const yaml = await getRepoContent(token, org(), config.controlRepo, assignmentPath(assignmentId))
     const fields = parseInviteFields(yaml)
     if (!linkSecretFrom(fields)) return ''
     const wasClean = !hasUnsavedEdits()
