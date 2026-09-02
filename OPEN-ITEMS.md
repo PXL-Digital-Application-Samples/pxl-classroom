@@ -105,7 +105,9 @@ Two things make that worth writing down rather than assuming:
 - **Organization membership alone does not work, and fails in a confusing way.** The hub org's base permission is `read`, so a plain member lands on read for `pxl-classroom` and every dispatch returns 403 — which reads as "I added the lecturer and it still fails" rather than as a permission level.
 - **The owner workaround is not equivalent.** An owner of the central organization is also an owner of the **App** registered there, and can therefore generate a private key that mints installation tokens for every participating org ([ARCHITECTURE.md](ARCHITECTURE.md) §4.3). Handing that to each lecturer to avoid testing a collaborator grant is a real widening of the blast radius.
 
-A lecturer without hub write can still create and edit assignments — those writes go to their own control repo — but **Publish** and **Retry acceptance** fail, and nothing tells them beforehand.
+A lecturer without hub write can still create and edit assignments — those writes go to their own control repo — but **Publish** and **Retry acceptance** fail.
+
+**Half of this is now closed.** System Health's `hub-dispatch` check reads the viewer's own `permissions.push` on the hub repo and warns before they reach the 403, naming the membership trap explicitly. What remains open is the part a check cannot settle: whether the collaborator grant actually works end to end, which only a real non-owner publishing an assignment will tell you.
 
 **How to tell it is closed:** a lecturer who is not an owner of the central organization has published an assignment successfully, and
 

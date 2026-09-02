@@ -50,7 +50,12 @@ function createMockRequest({
   isPrivate = true,
   missingPaths = [],
   orgsYamlStatus = 200,
-  orgsYaml = "orgs:\n  - login: TestOrg\n    budget_owner_login: admin"
+  orgsYaml = "orgs:\n  - login: TestOrg\n    budget_owner_login: admin",
+  // The viewer's own access to the hub repo. `null` omits `permissions`
+  // entirely, which is what GitHub returns when nobody is authenticated - a
+  // different answer from "no access", and checked separately below.
+  hubStatus = 200,
+  hubPush = true,
 }) {
   return async (method, path) => {
     if (path === "/apps/pxl-classroom-provisioner") {
@@ -71,6 +76,14 @@ function createMockRequest({
       if (missingPaths.includes(p)) return { status: 404, ok: false };
       return { status: 200, ok: true };
     }
+    if (path === `/repos/hub/repo`) {
+      if (hubStatus !== 200) return { status: hubStatus, ok: false };
+      return {
+        status: 200,
+        ok: true,
+        data: hubPush === null ? {} : { permissions: { admin: false, push: hubPush, pull: true } },
+      };
+    }
     if (path === `/repos/hub/repo/contents/participating-orgs.yml?ref=participating-orgs`) {
       if (orgsYamlStatus !== 200) return { status: orgsYamlStatus, ok: false };
       return { status: 200, ok: true, data: { content: Buffer.from(orgsYaml).toString("base64") } };
@@ -83,8 +96,64 @@ test("runAudit - happy path", async () => {
   const req = createMockRequest({});
   const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
   assert.equal(res.overall, "ok");
-  assert.equal(res.checks.length, 6);
+  assert.equal(res.checks.length, 7);
   assert.equal(res.checks.every(c => c.severity === "ok"), true);
+});
+
+// Publishing dispatches a workflow on the hub with the LECTURER's own token, so
+// a lecturer without write there discovers it as a 403 after the assignment has
+// been written. These say so first. OPEN-ITEMS §4 - and note the collaborator
+// grant ADMIN.md §1.4 prescribes has never actually been used, so the warning
+// below is the only thing standing between that instruction and a confused
+// lecturer.
+test("hub dispatch - write access is what Publish needs", async () => {
+  const res = await runAudit({ request: createMockRequest({}), org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
+  const c = res.checks.find((x) => x.id === "hub-dispatch");
+  assert.equal(c.severity, "ok");
+  assert.equal(c.detail.push, true);
+});
+
+test("hub dispatch - no write access warns before the 403, and names the org-membership trap", async () => {
+  const res = await runAudit({
+    request: createMockRequest({ hubPush: false }),
+    org: "TestOrg", hubOwner: "hub", hubRepo: "repo",
+  });
+  const c = res.checks.find((x) => x.id === "hub-dispatch");
+  assert.equal(c.severity, "warn");
+  assert.equal(c.detail.push, false);
+  // The specific confusion this is for: being an org member is not access.
+  assert.match(c.message, /member of the hub organization is not enough/i);
+  // And it must not overstate the damage - editing still works.
+  assert.match(c.message, /Creating and editing assignments still works/i);
+});
+
+test("hub dispatch - permissions absent is no verdict, not a green one", async () => {
+  // GitHub omits `permissions` when nobody is authenticated. That is not the
+  // same answer as "no access", and reporting either colour would be a claim
+  // the response does not support.
+  const res = await runAudit({
+    request: createMockRequest({ hubPush: null }),
+    org: "TestOrg", hubOwner: "hub", hubRepo: "repo",
+  });
+  const c = res.checks.find((x) => x.id === "hub-dispatch");
+  assert.equal(c.severity, "info");
+  assert.equal(c.detail, null);
+});
+
+test("hub dispatch - an unreadable hub repo yields no check", async () => {
+  const res = await runAudit({
+    request: createMockRequest({ hubStatus: 500 }),
+    org: "TestOrg", hubOwner: "hub", hubRepo: "repo",
+  });
+  const c = res.checks.find((x) => x.id === "hub-dispatch");
+  assert.equal(c.severity, "warn");
+  assert.match(c.message, /could not be checked/i);
+});
+
+test("hub dispatch - skipped when the hub is not known", async () => {
+  const res = await runAudit({ request: createMockRequest({}), org: "TestOrg" });
+  const c = res.checks.find((x) => x.id === "hub-dispatch");
+  assert.equal(c.severity, "info");
 });
 
 test("runAudit - missing perm", async () => {

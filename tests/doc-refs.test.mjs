@@ -176,15 +176,33 @@ test("every markdown anchor link resolves to a heading", () => {
   const dead = [];
   for (const file of mdFiles) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
-    readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
-      // [text](#anchor) and [text](OTHER.md#anchor)
-      for (const m of line.matchAll(/\[[^\]]*\]\(([A-Za-z0-9._-]*)#([^)]+)\)/g)) {
-        const target = m[1] === "" ? rel : m[1];
-        const set = anchorsOf.get(target);
-        if (!set) continue; // a file this test does not read is not its business
-        if (!set.has(m[2])) dead.push(`${rel}:${i + 1}  ${target}#${m[2]}`);
-      }
-    });
+    const src = readFileSync(file, "utf8");
+
+    // Scanned whole-file, NOT line by line.
+    //
+    // Prose wraps, so a link's TEXT routinely straddles a newline:
+    //
+    //     See [Adding students who
+    //     accepted](#promote).
+    //
+    // A per-line scan never matches that, and it is not a rare shape - it is
+    // what happens to any link near the end of a wrapped line. One dead anchor
+    // in MANUAL.md survived this guard for exactly that reason (2026-09-02),
+    // and it would have rendered as a dead link on github.com.
+    //
+    // The link text may cross newlines but never a blank line: a `[` left
+    // dangling in one paragraph must not pair with a `](#x)` several
+    // paragraphs later and report a link nobody wrote.
+    const LINK = /\[(?:[^\]]|\n(?!\s*\n))*\]\(([A-Za-z0-9._-]*)#([^)\s]+)\)/g;
+
+    for (const m of src.matchAll(LINK)) {
+      const target = m[1] === "" ? rel : m[1];
+      const set = anchorsOf.get(target);
+      if (!set) continue; // a file this test does not read is not its business
+      if (set.has(m[2])) continue;
+      const line = src.slice(0, m.index).split(/\r?\n/).length;
+      dead.push(`${rel}:${line}  ${target}#${m[2]}`);
+    }
   }
 
   assert.deepEqual(dead, [], `Dead anchors render as a link that goes nowhere:\n  ${dead.join("\n  ")}`);
