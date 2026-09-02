@@ -1,0 +1,41 @@
+{
+  "//": [
+    "Type-checks the JSDoc that lib/ already carries - 118 annotations across",
+    "29 files - without converting anything to TypeScript. `npm run typecheck`.",
+    "",
+    "Scoped to lib/ deliberately. That is where the pure logic lives, it is what",
+    "both the SPA and the hub workflows import, and it is already annotated. The",
+    "22,000 lines of .vue components are a separate question with a much larger",
+    "answer, and checking them is not a prerequisite for this being useful.",
+    "",
+    "Deliberately NOT wired into `npm run lint`, which CI runs. This is a tool to",
+    "look at, not yet a gate to pass; wiring it in before the error count is",
+    "known would mean a red CI on a system that is working.",
+    "",
+    "The class of bug it is here for is the one LESSONS records: a schema field",
+    "spelled wrong compares as a constant. `s.status` where the field is",
+    "`submission_status` is `undefined` on every row, and `!== 'x'` is then",
+    "always true - which counted a whole roster as having accepted. That needed",
+    "its own bespoke test (tests/report-row-fields.test.mjs); a type checker",
+    "reading the same JSDoc would have said so for free."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "//maxNodeModuleJsDepth": [
+      "skipLibCheck only skips .d.ts. Without this, an imported plain-JS",
+      "dependency is type-checked too, and `punycode` alone contributed 16",
+      "errors in somebody else's code - noise that buries the findings in ours."
+    ],
+    "maxNodeModuleJsDepth": 0
+  },
+  "include": ["lib/**/*.mjs"],
+  "exclude": ["node_modules", "frontend", "cli", "tests"]
+}
