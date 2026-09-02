@@ -780,7 +780,7 @@ Admin sets Actions spending limit + budget alerts on <org>
 
 ## 10. Frontend
 
-[10.1 Routes](#101-routes) · [10.2 Authentication](#102-authentication) · [10.2.1 The device-flow CORS proxy](#1021-the-device-flow-cors-proxy) · [10.3 Data sources](#103-data-sources) · [10.4 Validation](#104-validation) · [10.5 CLI companion](#105-cli-companion) · [10.6 Design System & Visual Architecture](#106-design-system--visual-architecture)
+[10.1 Routes](#101-routes) · [10.2 Authentication](#102-authentication) · [10.2.1 The device-flow CORS proxy](#1021-the-device-flow-cors-proxy) · [10.3 Data sources](#103-data-sources) · [10.4 Validation](#104-validation) · [10.5 CLI companion](#105-cli-companion) · [10.6 Design System & Visual Architecture](#106-design-system--visual-architecture) · [10.7 The in-app manual](#107-the-in-app-manual)
 
 Vue 3 SPA, built with Vite, deployed as static files to GitHub Pages from the hub. No server runtime. Auth state stays in memory and sessionStorage only (never localStorage) and dies on tab close.
 
@@ -797,6 +797,7 @@ The SPA is dual-theme (dark default / light / system) with every colour declared
 | `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips, amber Admin shortcut, and Export dropdown menu. **Sole home of the per-student operations**: grant a deadline extension, retry a failed acceptance |
 | `/dashboard/:org/usage` | `UsageView` | Lecturer - per-org weekly usage report |
 | `/setup` | `SetupView` | Admin - App Manifest form; on GitHub's redirect back it exchanges the one-time `?code=` for the App ID / Client ID / private key and displays them once |
+| `/manual` | `ManualView` | Everyone - the whole manual on one page, each topic addressable as `/manual#<topic>`; linked from every `AppHeader` (§10.7) |
 | `/sandbox` | `SandboxView` | Developer / Designer - offline component gallery and design system workbench with mock fixtures |
 
 A `frontend/public/404.html` shim handles SPA deep-link cold loads on GitHub Pages.
@@ -911,6 +912,39 @@ The visual system is canonically specified in **[DESIGN.md](DESIGN.md)** and is 
 The aesthetic those rules serve is developer-centric and Primer-adjacent: tonal surface hierarchy rather than border cages, glowing status dots rather than pill badges, underline tabs for switching view modes. DESIGN.md holds the token reference, the button and status vocabularies, and the light/dark contract.
 
 ---
+
+### 10.7 The in-app manual
+
+`MANUAL.md` at the repository root is the **only** source of in-app help, and it
+is compiled rather than fetched. `scripts/build-manual.mjs` parses it at build
+time into `frontend/src/generated/manual.json` — a block tree the SPA renders
+with ordinary Vue components.
+
+That choice buys three things and costs one. It adds **no runtime dependency**
+to a bundle that has six; nothing goes through `v-html`, so a page that holds a
+GitHub token has no markdown-shaped injection path; and the manual inherits the
+app's own type and colour tokens for free. The cost is that only the markdown
+subset the script implements exists — headings, one level of bullets,
+paragraphs, `**bold**`, `*em*`, `` `code` `` and links — and widening it means
+editing the parser.
+
+The generated file is **gitignored** and rebuilt by the `predev`/`prebuild`
+hooks in `frontend/package.json`, so it cannot be stale against `MANUAL.md`.
+Committing it would create precisely the two-sources problem it exists to avoid.
+
+Two surfaces render that one tree: the **drawer** (`HelpDrawer.vue`, mounted once
+in `App.vue` — see DESIGN.md, *Contextual help*, for why it may not live inside a
+view) and the **page** (`/manual`). A `<HelpButton topic="…">` beside a control
+opens the drawer on that topic without leaving the form.
+
+Three parties must agree and none can see the others: `MANUAL.md` declares
+`{#id}` anchors, `lib/manual-topics.mjs` lists the ids the UI may name, and the
+`.vue` files write them. `tests/manual-topics.test.mjs` checks every direction —
+including that a topic's internal anchor links resolve, and that at least one
+`HelpButton` was found at all, so the guard cannot pass vacuously after a rename.
+It parses the markdown with its own reader rather than importing the build
+script, because a checker built from the transform it checks validates its own
+bugs.
 
 ## 11. Deadlines, evidence, lock-down, preservation
 

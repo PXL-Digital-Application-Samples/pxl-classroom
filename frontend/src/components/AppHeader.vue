@@ -14,6 +14,7 @@
 
         <div class="app-header-right flex items-center gap-sm">
           <slot name="actions" />
+          <router-link :to="{ name: 'manual' }" class="app-header-help">Help</router-link>
           <ThemeToggle />
           <UserBadge v-if="user" :user="user" @logout="emit('logout')" />
         </div>

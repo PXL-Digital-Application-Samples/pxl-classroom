@@ -656,7 +656,7 @@
           <fieldset>
             <legend>Guardrails</legend>
             <div class="field">
-              <label>Who may accept</label>
+              <label>Who may accept <HelpButton topic="who-may-accept" label="who may accept" /></label>
               <select v-model="form.roster_mode">
                 <option value="open">open: anyone with the invitation link</option>
                 <option value="enforced">enforced: only students on the roster (matched by GitHub username)</option>
@@ -803,7 +803,7 @@
               <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
             <div class="field">
-              <label>Late work</label>
+              <label>Late work <HelpButton topic="late-work" label="late work" /></label>
               <!-- Two ALTERNATIVES, so they read as two rows to choose between
                    rather than two paragraphs of bold text running the full
                    width. The selected one takes a tonal step and an accent
@@ -1143,6 +1143,7 @@ function stateDot(state) {
 }
 import { countdownParts } from '../lib/countdown.js'
 import RosterTab from '../components/RosterTab.vue'
+import HelpButton from '../components/HelpButton.vue'
 import AuthCard from '../components/AuthCard.vue'
 import AppHeader from '../components/AppHeader.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'

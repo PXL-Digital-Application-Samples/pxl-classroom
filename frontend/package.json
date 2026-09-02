@@ -8,7 +8,9 @@
     "node": ">=24"
   },
   "scripts": {
+    "predev": "node ../scripts/build-manual.mjs",
     "dev": "vite",
+    "prebuild": "node ../scripts/build-manual.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

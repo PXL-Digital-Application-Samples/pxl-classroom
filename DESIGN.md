@@ -475,6 +475,30 @@ Global vocabulary now includes:
 | Utilities | `.text-center`, `.text-green`, `.text-yellow`, `.text-blue`, `.spinner-sm`, `.btn-icon` |
 | Components | `.repo-link`, `.repo-link-card`, `.progress-bar` (+ `-fill`), `.diag-banner` |
 
+### Contextual help
+
+A control whose meaning is not obvious from its label carries a `<HelpButton>` —
+a small `?` beside the label, never in place of one. It opens the help drawer on
+one topic from `MANUAL.md`; it is not a tooltip and it does not explain itself in
+passing.
+
+Three rules, and they are what keep it from turning into decoration:
+
+- **The drawer renders once, in `App.vue`, beside `<router-view>`.** It is
+  `position: fixed`, so any ancestor carrying `transform`, `filter`,
+  `perspective`, `will-change` or `contain` becomes its containing block and puts
+  it off-screen — the failure `tests/e2e/47` exists for. Putting it inside a view
+  reintroduces that.
+- **A help button carries a topic id and nothing else.** No prose in the markup.
+  The topic lives in `MANUAL.md`, and `tests/manual-topics.test.mjs` fails if the
+  id does not exist.
+- **Use it for a setting a lecturer asks about, not for every field.** A `?` on
+  everything is a `?` on nothing. `title=` stays the right answer for naming an
+  icon; a drawer is for a decision with consequences.
+
+A topic that only needs one line does not need a drawer — say it in the field's
+own `small`, which is already the vocabulary for that.
+
 Where several components had **diverged** on a class, the global rule is the
 shared base and each owner keeps its scoped override — which still wins on the
 `[data-v-*]` specificity, so no existing view shifted.

@@ -44,6 +44,12 @@ const routes = [
     name: 'setup',
     component: () => import('../views/SetupView.vue'),
   },
+  {
+    // Linked from every AppHeader, so this is not a route nothing points at.
+    path: '/manual',
+    name: 'manual',
+    component: () => import('../views/ManualView.vue'),
+  },
   // Developer workbench. It renders fabricated cohort data - invented student
   // logins, teams and reports - and it shipped to production with no link to
   // it from anywhere, on a public Pages site. Nothing found it, which is not
