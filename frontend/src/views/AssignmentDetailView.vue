@@ -477,8 +477,16 @@
                 >
                   <Icon name="users" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">Add accepted students to roster</span>
-                    <span class="dropdown-item-sub">Reuse this cohort on your next assignment</span>
+                    <!-- "Promote" was the word everywhere - a name that says
+                         nothing to a lecturer and reads like grades. The action
+                         is adding people to the roster, and the subtitle says
+                         what it writes rather than what you might do next
+                         ("Reuse this cohort on your next assignment" described
+                         a use case, not an effect). -->
+                    <span class="dropdown-item-title">Add students who accepted to the roster</span>
+                    <span class="dropdown-item-sub">
+                      {{ acceptedStudentsCount }} accepted · adds them to {{ org }}'s roster
+                    </span>
                   </div>
                 </button>
 

@@ -836,9 +836,28 @@ async function loadDashboard(orgArg) {
           return (a.id || '').localeCompare(b.id || '')
         })
 
-      assignments.value = displayList
+      // THE ASSIGNMENTS DIRECTORY DECIDES WHICH ASSIGNMENTS EXIST.
+      //
+      // `reports/dashboard.json` is GENERATED, and the fallback below only ran
+      // when it was missing or empty - so a present-but-stale one was trusted
+      // completely and an assignment published since the last regeneration was
+      // simply absent. A lecturer saw "No active assignments right now", opened
+      // the Admin Panel (which reads the YAML directly), found them all there,
+      // and came back to a dashboard that had meanwhile caught up. Reported
+      // 2026-09-02.
+      //
+      // dashboard.json still supplies the STATS - it is the only thing that has
+      // them - but it no longer decides the roll call. Anything on disk and not
+      // in it is shown from its own YAML, without figures, rather than hidden.
+      const extra = await assignmentsMissingFrom(token, org, reportData.assignments)
+      assignments.value = [...displayList, ...extra].sort((a, b) => {
+        const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
+        if (diff !== 0) return diff
+        return (a.id || '').localeCompare(b.id || '')
+      })
+
       const drafts = Object.values(reportData.assignments).filter(a => a.state === 'draft')
-      draftCount.value = drafts.length
+      draftCount.value = drafts.length + extra.filter((a) => a.state === 'draft').length
 
       const now = new Date()
       const hasActive = assignments.value.some((a) => {
@@ -923,6 +942,70 @@ async function loadDashboard(orgArg) {
 // newly onboarded org - and the pool keeps a large assignments/ directory from
 // firing one request per file at once. `yaml` is imported lazily so it stays
 // out of the dashboard chunk for the ordinary path.
+/**
+ * Assignments that exist on disk but are not in `reports/dashboard.json` yet.
+ *
+ * dashboard.json is generated, so it lags: publish an assignment and it is
+ * absent from the dashboard until the next regeneration, while the Admin Panel
+ * - which reads the YAML - shows it immediately. That gap read as "my
+ * assignments have disappeared" (2026-09-02).
+ *
+ * Returned WITHOUT figures, because there genuinely are none yet: an entry here
+ * has never been reported on. It is listed rather than hidden, since "exists
+ * but has no numbers" is the truth and "does not exist" is not.
+ *
+ * Drafts are excluded to match the generated list, which excludes them too -
+ * they are counted separately and shown as a prompt to publish.
+ */
+async function assignmentsMissingFrom(token, org, reported) {
+  let files = []
+  try {
+    files = await listRepoDir(token, org, config.controlRepo, 'assignments')
+  } catch {
+    // Unreadable is not evidence of none. The generated list still stands; this
+    // only ever ADDS to it, so failing here loses the catch-up and nothing else.
+    return []
+  }
+
+  const known = new Set(Object.keys(reported || {}).map((k) => k.toLowerCase()))
+  const missing = (files || []).filter((f) => {
+    if (f.type !== 'file') return false
+    if (!f.name.endsWith('.yml') && !f.name.endsWith('.yaml')) return false
+    return !known.has(f.name.replace(/\.ya?ml$/, '').toLowerCase())
+  })
+  if (missing.length === 0) return []
+
+  const { parse: parseYaml } = await import('yaml')
+  const out = []
+  const queue = [...missing]
+  const worker = async () => {
+    for (let f = queue.shift(); f; f = queue.shift()) {
+      try {
+        const text = await getRepoContent(token, org, config.controlRepo, f.path)
+        if (!text) continue
+        const doc = parseYaml(text)
+        // An absent state is a draft - the schema's own default.
+        const state = doc?.state || 'draft'
+        if (state === 'draft') continue
+        out.push({
+          id: doc?.id || f.name.replace(/\.ya?ml$/, ''),
+          title: doc?.title || null,
+          state,
+          opens_at: doc?.opens_at || null,
+          deadline_at: doc?.deadline_at || null,
+          // No counts: nothing has reported on this assignment yet, and a zero
+          // here would read as "nobody accepted" rather than "not yet known".
+          not_yet_reported: true,
+        })
+      } catch {
+        // One unreadable YAML must not cost the others their place in the list.
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker))
+  return out
+}
+
 async function countDraftAssignments(token, org, files) {
   const { parse: parseYaml } = await import('yaml')
   const queue = [...files]

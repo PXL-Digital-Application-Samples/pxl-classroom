@@ -20,7 +20,7 @@
         "additionalProperties": false,
         "allOf": [
           {
-            "description": "An imported entry carries an institutional identity; a promoted one cannot. Under roster_mode: open the system only ever learns a GitHub login - deriving a full_name from it would put a guess in a graded field, and a synthesised student_number would collide with real SIS numbering.",
+            "description": "An imported entry must carry an institutional identity; a promoted one need not. Under roster_mode 'open' with no address collected, the system only ever learns a GitHub login - deriving a full_name from it would put a guess in a graded field, and a synthesised student_number would collide with real SIS numbering, so `github_login` is all that is required. It MAY carry more when more was genuinely learned: an open assignment with `require_claim` collects an address the student confirmed, and promotion writes that `email` (and the `student_number` the claim matched, if any) rather than dropping it. Only what was confirmed - never a value derived from a login.",
             "if": {
               "properties": { "source": { "const": "accepted" } },
               "required": ["source"]

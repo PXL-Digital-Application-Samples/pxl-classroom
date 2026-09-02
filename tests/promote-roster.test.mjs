@@ -656,6 +656,75 @@ const claimRec = (login, id, email) => ({
 
 const claimRoster = (...students) => ({ schema_version: 2, students });
 
+// --- a promoted row carries the address, when there is one ------------------
+//
+// A promoted row used to be a GitHub username and nothing else, which left a
+// lecturer a column of usernames and no way to match them to students - the
+// "six students with no name and email" complaint. An open assignment with
+// `require_claim` collects a confirmed address, so by promotion time the system
+// often knows who the account belongs to.
+
+test("a promoted student carries the address they confirmed", () => {
+  const plan = planPromotion({
+    assignment: { id: "hw-1", roster_mode: "open" },
+    roster: { schema_version: 2, students: [] },
+    acceptances: [{ github_login: "alice-pxl", github_id: 111, status: "accepted" }],
+    claims: [{ github_login: "alice-pxl", github_id: 111, email: "alice@student.pxl.be", student_number: "0123456" }],
+  });
+
+  const [alice] = plan.nextRoster.students;
+  assert.equal(alice.github_login, "alice-pxl");
+  assert.equal(alice.email, "alice@student.pxl.be");
+  assert.equal(alice.student_number, "0123456");
+  assert.equal(alice.source, "accepted");
+});
+
+test("no claim means a login-only row, exactly as before", () => {
+  // Honest rather than empty: under `open` without an address nothing else was
+  // ever learned, and inventing a name from a login would put a guess in a
+  // graded field.
+  const plan = planPromotion({
+    assignment: { id: "hw-1", roster_mode: "open" },
+    roster: { schema_version: 2, students: [] },
+    acceptances: [{ github_login: "bram", github_id: 222, status: "accepted" }],
+  });
+
+  const [bram] = plan.nextRoster.students;
+  assert.equal(bram.github_login, "bram");
+  assert.equal(bram.email, undefined);
+  assert.equal(bram.full_name, undefined, "a name is never derived from a login");
+  assert.equal(bram.student_number, undefined, "and a student number is never synthesised");
+});
+
+test("the claim is matched on github_id, which a student cannot change", () => {
+  // A login is the one thing that can change between accepting and being
+  // promoted. Matching on it alone would attach the wrong address after a
+  // rename - or none at all.
+  const plan = planPromotion({
+    assignment: { id: "hw-1", roster_mode: "open" },
+    roster: { schema_version: 2, students: [] },
+    acceptances: [{ github_login: "alice-renamed", github_id: 111, status: "accepted" }],
+    claims: [{ github_login: "alice-old", github_id: 111, email: "alice@student.pxl.be" }],
+  });
+
+  assert.equal(plan.nextRoster.students[0].email, "alice@student.pxl.be");
+  assert.equal(plan.nextRoster.students[0].github_login, "alice-renamed", "the CURRENT login is written");
+});
+
+test("a claim for somebody who did not accept is not dragged in", () => {
+  const plan = planPromotion({
+    assignment: { id: "hw-1", roster_mode: "open" },
+    roster: { schema_version: 2, students: [] },
+    acceptances: [{ github_login: "alice-pxl", github_id: 111, status: "accepted" }],
+    claims: [
+      { github_login: "alice-pxl", github_id: 111, email: "alice@student.pxl.be" },
+      { github_login: "nobody", github_id: 999, email: "nobody@student.pxl.be" },
+    ],
+  });
+
+  assert.equal(plan.nextRoster.students.length, 1, "promotion adds who accepted, not who holds a claim");
+});
+
 // --- what an UNATTENDED fold may touch -------------------------------------
 //
 // The nightly folds claims so a lecturer has no step to find, and that is only

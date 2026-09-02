@@ -407,10 +407,25 @@ export function registerRosterCommand(program) {
       const acceptances = await listAcceptances(octokit, { org, assignmentId: opts.assignment });
       const { roster: existing } = await fetchExistingRoster(octokit, { org });
 
+      // Claims carry the address a student confirmed, so a promoted row can be
+      // more than a bare username. Unreadable is not evidence of none: promote
+      // login-only rather than silently dropping addresses that exist, and say
+      // so, because a row written without an address cannot be told later from
+      // a row whose address was lost.
+      let claimRecords = [];
+      try {
+        ({ records: claimRecords } = await listClaims(octokit, { org }));
+      } catch (e) {
+        process.stdout.write(
+          `  ! could not read students/claims (${e.message}) - promoting without addresses\n`,
+        );
+      }
+
       const plan = planPromotion({
         acceptances,
         roster: existing,
         assignment: { ...assignment, id: assignment.id || opts.assignment },
+        claims: claimRecords,
         actor: "pxl-classroom-cli",
       });
 

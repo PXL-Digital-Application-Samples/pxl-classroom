@@ -2,7 +2,7 @@
   <div class="modal-overlay" @click.self="close">
     <div class="modal promote-modal" role="dialog" aria-modal="true" aria-labelledby="promote-modal-title">
       <header class="modal-head">
-        <h3 id="promote-modal-title">Add accepted students to the roster — {{ assignment.id }}</h3>
+        <h3 id="promote-modal-title">Add students who accepted — {{ assignment.id }}</h3>
         <button class="modal-close" type="button" @click="close" aria-label="Close">×</button>
       </header>
 
@@ -11,6 +11,24 @@
           Open enrolment means nobody had to be on the roster to accept, so this assignment's
           students exist only as GitHub logins. Adding them to the roster lets your
           <em>next</em> assignment enforce it against the cohort that actually turned up.
+        </p>
+
+        <!-- SAYS WHAT WILL ARRIVE, before it is written.
+             A row carries the address the student confirmed when there is one,
+             and a bare GitHub username when there is not - and a lecturer who
+             expected names had no way to know which they were about to get
+             until they looked at the roster afterwards. -->
+        <p v-if="plan?.ok && plan.added.length" class="promote-lede">
+          <template v-if="withAddress > 0">
+            <strong>{{ withAddress }}</strong> of {{ plan.added.length }} will arrive with the email
+            address they confirmed<template v-if="withAddress < plan.added.length">; the rest as a GitHub
+            username only, because this assignment did not ask for one</template>.
+          </template>
+          <template v-else>
+            They will arrive as GitHub usernames only — no name, student number or email, because this
+            assignment never collected one. Tick <em>Ask students to confirm their institutional email
+            address</em> on an open assignment to change that.
+          </template>
         </p>
 
         <div v-if="loading" class="promote-status">
@@ -114,7 +132,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { getToken, getUser } from '../lib/auth.js'
-import { listAcceptances, getRepoContent, commitFile } from '../lib/api.js'
+import { listAcceptances, listClaims, getRepoContent, commitFile } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
@@ -137,6 +155,7 @@ const loadError = ref('')
 const applying = ref(false)
 const failedReads = ref(0)
 const acceptances = ref([])
+const claims = ref([])
 const roster = ref(null)
 
 const plan = computed(() => {
@@ -145,9 +164,15 @@ const plan = computed(() => {
     acceptances: acceptances.value,
     roster: roster.value,
     assignment: props.assignment,
+    claims: claims.value,
     actor: getUser()?.login || 'lecturer',
   })
 })
+
+// How many of the rows about to be written carry the address the student
+// confirmed. Counted off the PLAN rather than off the claims, so it says what
+// will actually be written rather than what exists somewhere.
+const withAddress = computed(() => (plan.value?.added || []).filter((s) => !!s.email).length)
 
 const canApply = computed(() => !applying.value && !!plan.value?.ok && plan.value.added.length > 0)
 
@@ -185,12 +210,20 @@ onMounted(async () => {
   window.addEventListener('keydown', onKey)
   try {
     const token = getToken()
-    const [acc, rosterText] = await Promise.all([
+    // Claims are read alongside, so a student who confirmed an address is added
+    // WITH it rather than as a bare username. Org-scoped: a student claims once
+    // and every later assignment sees it.
+    const [acc, rosterText, claimResult] = await Promise.all([
       listAcceptances(token, props.org, controlRepo, props.assignment.id),
       getRepoContent(token, props.org, controlRepo, ROSTER_PATH),
+      // Unreadable is not evidence of none. Failing the whole promotion because
+      // the claims could not be listed would refuse a lecturer an action that
+      // works perfectly well without them, so this degrades to login-only rows.
+      listClaims(token, props.org, controlRepo).catch(() => ({ records: [] })),
     ])
     acceptances.value = acc.records
     failedReads.value = acc.failed
+    claims.value = claimResult?.records || []
     // getRepoContent resolves to decoded FILE TEXT and returns null on a 404,
     // so a falsy body here is a genuine absence - which the planner treats as
     // "create the roster", not as an error.
