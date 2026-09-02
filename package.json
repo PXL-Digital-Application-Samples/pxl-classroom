@@ -18,6 +18,7 @@
     "lint": "node scripts/lint.mjs",
     "lint:fix": "eslint . --fix",
     "test": "node --test tests/*.test.mjs cli/tests/*.test.mjs",
+    "coverage": "node --test --experimental-test-coverage tests/*.test.mjs cli/tests/*.test.mjs",
     "test:e2e": "playwright test",
     "test:all": "npm run lint && npm test && npm run test:e2e"
   },
