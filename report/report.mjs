@@ -26,6 +26,7 @@ import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.
 // row-doubling this prevents.
 import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
+import { assignmentAdmitsStudent, restrictsByClassGroup } from "../lib/class-groups.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 async function setOutput(name, value) {
@@ -100,6 +101,23 @@ async function main() {
     const rosterData = await loadYaml(rosterPath);
     if (Array.isArray(rosterData?.students)) roster = rosterData.students;
   }
+
+  // THIS ASSIGNMENT'S COHORT, not the whole organization's.
+  //
+  // The roster is org-wide and unaccepted roster students are folded into the
+  // population below, so that a dashboard reads "15 of 22 accepted" rather than
+  // counting only the people already in. Once an assignment names its class
+  // groups, the other sections' students are not part of its 22 - leaving them
+  // in would report a cohort of 40 as half-finished for ever, because 20 of
+  // them were never invited.
+  //
+  // Only the ROSTER-derived half is narrowed. A student who somehow accepted is
+  // always reported: the report says what happened, and quietly dropping a row
+  // because it should not have happened is how you never find out that it did.
+  if (restrictsByClassGroup(assignment)) {
+    roster = roster.filter((s) => assignmentAdmitsStudent(assignment, s));
+  }
+
   const rosterByLogin = indexByLogin(roster);
 
   // Load acceptances

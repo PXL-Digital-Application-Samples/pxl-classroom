@@ -782,6 +782,10 @@ defineExpose({
   isDirty: () => canCommit.value,
   studentCount,
   linkedCount,
+  // The roster as read, so the assignment form can offer this org's real class
+  // groups and say who a cohort restriction would shut out. It has already
+  // fetched the file; a second read there would be the same request twice.
+  rosterStudents: computed(() => existingRoster.value?.students || []),
 })
 </script>
 

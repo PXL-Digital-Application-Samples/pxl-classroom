@@ -17,6 +17,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
+import { assignmentAdmitsStudent, assignmentClassGroups } from "../lib/class-groups.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { CLAIM_DOMAINS } from "../lib/deployment.mjs";
 import {
@@ -223,6 +224,18 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     await reject(
       CLAIM_REJECTIONS.NO_MATCH,
       `${opened.email} is not on the roster for this course. Check the address, or ask your lecturer which one they registered.`,
+    );
+  }
+
+  // 7b. On the roster, but is it this assignment's cohort? The roster is
+  // org-wide, so under `claim` a student from another section holds a perfectly
+  // valid registered address - matching it is not the same as being admitted.
+  if (!assignmentAdmitsStudent(assignment, entry)) {
+    await countFailure();
+    await reject(
+      CLAIM_REJECTIONS.CLASS_GROUP,
+      `${opened.email} is registered for this course, but not in a class group this assignment is for. ` +
+        `Ask your lecturer which assignment your group should use.`,
     );
   }
 
@@ -505,12 +518,30 @@ async function main() {
     if (!roster) {
       await reject("rejected:no-roster", `roster file not found: ${rosterPath}`);
     }
-    const onRoster = (roster?.students || []).some(
+    const rosterEntry = (roster?.students || []).find(
       (s) => s.github_login?.toLowerCase() === login.toLowerCase()
     );
-    if (!onRoster) {
+    if (!rosterEntry) {
       await reject("rejected:not-on-roster", `student @${login} is not registered in the roster`);
     }
+
+    // THE COHORT GATE. The roster is org-wide, so without this a course running
+    // two sections has one gate for both. An assignment may name the class
+    // groups it admits; naming none admits every group, which is what every
+    // assignment written before this field existed means.
+    //
+    // Fails closed on purpose: once a list is given, a student with no
+    // class_group is not admitted. The admin form warns about exactly those
+    // students before the assignment is saved, because being right here is no
+    // use if the surprise arrives at the accept button.
+    if (!assignmentAdmitsStudent(assignment, rosterEntry)) {
+      await reject(
+        "rejected:not-in-class-group",
+        `student @${login} is on the roster but not in a class group this assignment admits ` +
+          `(${assignmentClassGroups(assignment).join(", ")})`,
+      );
+    }
+
     log("roster", { ok: true, note: `@${login} is on the roster` });
   }
 

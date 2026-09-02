@@ -189,6 +189,24 @@
       "default": "self-service",
       "description": "How student repos are created. Only self-service is implemented: the student opens their invitation link and the repository is provisioned on acceptance. A pre-provisioned mode (lecturer creates repos up front, GitHub sends its own repository invitations) was offered here but implemented nowhere, so selecting it silently produced self-service behaviour."
     },
+    "class_groups": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "Which class groups on the org-wide roster may accept this assignment, matched against each student's `class_group` (case-insensitively, trimmed). ABSENT OR EMPTY MEANS EVERY GROUP - that is what every assignment written before this field existed means, and reading absence as 'nobody' would lock every cohort out of all of them. Once a list is given the gate fails closed: a student whose `class_group` is absent is NOT admitted, because 'I did not say' is not 'any'. Only consulted when the roster is the gate (roster_mode 'enforced' or 'claim'); under 'open' the roster does not decide who may accept, so a cohort filter there would be a control that does nothing. Exists so one organization can run two sections of a course without a second roster - the same idea as a GitHub Classroom 'classroom', stored as a column rather than a folder. See lib/class-groups.mjs.",
+      "examples": [
+        [
+          "3A"
+        ],
+        [
+          "3A",
+          "3B"
+        ]
+      ]
+    },
     "roster_mode": {
       "type": "string",
       "enum": [

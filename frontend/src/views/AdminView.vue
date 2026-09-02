@@ -713,6 +713,45 @@
                 and reconcile logins to students afterward.
               </small>
             </div>
+
+            <!-- WHICH SECTION THIS ASSIGNMENT IS FOR.
+                 The roster is org-wide, so a course running two groups has one
+                 gate for both unless an assignment narrows it. Nothing ticked
+                 means every group, which is what every assignment written
+                 before this existed means.
+                 Only rendered when the roster is actually the gate AND this org
+                 has groups - a filter under `open` decides nothing, and a
+                 distinction nobody has made is worse than none at all. -->
+            <div v-if="showClassGroupPicker" class="field">
+              <label>Class groups</label>
+              <div class="group-picker">
+                <label
+                  v-for="g in rosterGroups"
+                  :key="g"
+                  class="group-chip"
+                  :class="{ selected: form.class_groups.includes(g) }"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="form.class_groups.includes(g)"
+                    @change="toggleClassGroup(g)"
+                  />
+                  <span>{{ g }}</span>
+                </label>
+              </div>
+              <small v-if="!form.class_groups.length">
+                <strong>All class groups.</strong> Everyone on the roster may accept. Tick a group to
+                limit this assignment to one section.
+              </small>
+              <small v-else :class="classGroupExcluded.length ? 'text-warning' : null">
+                Only <strong>{{ form.class_groups.join(', ') }}</strong> may accept.
+                <template v-if="classGroupExcluded.length">
+                  {{ classGroupExcluded.length }} of {{ rosterStudents.length }} roster students are
+                  in another group or have none, and will be turned away.
+                </template>
+              </small>
+            </div>
+
             <div class="field">
               <label>Max acceptances<span v-if="form.roster_mode === 'open'"> (required)</span></label>
               <input type="number" v-model.number="form.max_acceptances" min="1" @input="touchedFields.max_acceptances = true" />
@@ -1079,6 +1118,7 @@ import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
 // disagree about which mode an assignment is actually in.
 import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
+import { rosterClassGroups, studentsExcludedByClassGroup } from '../lib/class-groups.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -1225,6 +1265,31 @@ function rosterDirty() {
 }
 // null until the roster has been read (or when there is no roster file at all),
 // so the form can say "not known yet" rather than "nobody can accept".
+// The org's real class groups, and what restricting to some of them would cost.
+//
+// The picker appears ONLY when both halves are true: the roster is actually the
+// gate (under `open` it decides nothing, so a cohort filter there would be a
+// control that does nothing - DESIGN.md §1.5), and the roster genuinely has
+// groups (offering a distinction this org has not made is worse than offering
+// none).
+const rosterStudents = computed(() => rosterTab.value?.rosterStudents ?? [])
+const rosterGroups = computed(() => rosterClassGroups(rosterStudents.value))
+const showClassGroupPicker = computed(() =>
+  rosterGatesAcceptance(form.value.roster_mode) && rosterGroups.value.length > 0)
+
+// Named before the save, not discovered at the accept button. The gate fails
+// closed on an ungrouped student, so a lecturer restricting to "3A" needs to
+// know that four people with no group just lost their way in.
+const classGroupExcluded = computed(() =>
+  studentsExcludedByClassGroup({ class_groups: form.value.class_groups }, rosterStudents.value))
+
+function toggleClassGroup(group) {
+  const list = form.value.class_groups || []
+  form.value.class_groups = list.includes(group)
+    ? list.filter((g) => g !== group)
+    : [...list, group]
+}
+
 const rosterCount = computed(() => rosterTab.value?.studentCount ?? null)
 // How many of them can actually be matched by accept.mjs, which reads
 // github_login and nothing else.
@@ -1710,6 +1775,10 @@ function emptyForm() {
     // Open requires a cap (schema `allOf`/`if`/`then`), and `max_acceptances`
     // below is why a new assignment is valid the moment it is created.
     roster_mode: 'open',
+    // Empty means EVERY class group, which is what a new assignment should
+    // mean - restricting a cohort is a decision a lecturer makes, never a
+    // default they inherit.
+    class_groups: [],
     // `block` discards work. Now that it actually does something, defaulting to
     // it would silently start throwing away students' late commits on every new
     // assignment - so a lecturer opts in.
@@ -1972,6 +2041,10 @@ function editAssignment(a) {
     // mode it predated to 'enforced' on load, and buildDoc saved the rewrite
     // back - the same silent field-loss as the invitation tokens.
     roster_mode: normalizeRosterMode(a.roster_mode),
+    // Read, never re-derived: an absent list means every group, and turning
+    // that into anything else on load would let a save write a restriction the
+    // lecturer never chose.
+    class_groups: Array.isArray(a.class_groups) ? [...a.class_groups] : [],
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
     // 50 is the default for a NEW assignment (emptyForm), not a value to
@@ -2597,6 +2670,32 @@ legend {
 /* Indented to line up with the label's TEXT rather than with its box, so the
    explanation reads as belonging to the thing above it. */
 .field.checkbox > small { padding-left: calc(var(--space-md) + var(--space-xs)); }
+
+/* Class-group chips. Tonal like the late-work options rather than bordered
+   cards: this fieldset is already a box (DESIGN.md §1.1). */
+.group-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: var(--space-2xs) 0 var(--space-xs);
+}
+.group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 10px 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  cursor: pointer;
+  font-size: 0.9rem;
+  user-select: none;
+  box-shadow: inset 0 0 0 1px transparent;
+}
+.group-chip:hover { box-shadow: inset 0 0 0 1px var(--border-default); }
+.group-chip.selected {
+  box-shadow: inset 0 0 0 1px var(--accent-blue);
+  color: var(--text-primary);
+}
 
 /* Late-work alternatives. Tonal, not bordered - see the template note. */
 .policy-options {
