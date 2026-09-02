@@ -5,6 +5,23 @@ on:
   workflow_dispatch:
     inputs:
       org: { type: string }
+      # Exercises the run-failed notification without waiting for a real
+      # failure. Takes an organization LOGIN rather than a boolean, and fails
+      # only that organization's collect leg, so the blast radius is one issue
+      # in one control repo - the org you name.
+      #
+      # A boolean was the obvious shape and is the wrong one: it would fail
+      # every leg of the matrix and post to every participating organization,
+      # which is the accident this notification was reverted for once already
+      # (1b0bcbc). Naming the target is what makes it safe to run against
+      # `pxl-classroom-testbed` on a working day.
+      simulate_failure_org:
+        description: >-
+          TESTING ONLY. Organization login whose collect step should fail on
+          purpose, to prove the run-failed notification reaches its issue.
+          Leave blank for normal operation.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -65,6 +82,19 @@ jobs:
           repository: ${{ matrix.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
           path: control
+      # Placed AFTER both checkouts, so the failure it stages is the realistic
+      # one: the job is fully set up and something inside it dies. A failure
+      # before the hub checkout cannot be reported at all, and pretending to
+      # test that case would prove the opposite of what it claims.
+      - name: Fail on purpose (simulate_failure_org)
+        if: inputs.simulate_failure_org != '' && matrix.org == inputs.simulate_failure_org
+        env:
+          ORG: ${{ matrix.org }}
+        run: |
+          echo "simulate_failure_org names this organization; failing deliberately." >&2
+          echo "Nothing has been written to ${ORG}. This is a notification test." >&2
+          exit 1
+
       - uses: ./collect
         id: collect_action
         with:
@@ -96,6 +126,49 @@ jobs:
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Collect activity"
           scripts/git-push-with-retry.sh control
+
+      # Reported from INSIDE the job that knows which organization it is.
+      #
+      # The first version of this was a separate job gated on `failure()`, which
+      # at job level is true when ANY dependency failed - and
+      # `needs.collect.result` is the aggregate of this whole matrix. One
+      # organization's leg failing would have mailed a "your nightly did not
+      # finish" comment to all thirteen, twelve of them wrongly. Reverted in
+      # 1b0bcbc; an issue comment mails every watcher, and a false alarm nobody
+      # can act on is how the channel RUNBOOK §2.1 calls a daily checklist stops
+      # being read.
+      #
+      # A step sees only its own job, so this reports exactly one organization.
+      # It covers every failure from the runner starting onwards, including a
+      # control-repo checkout that could not clone. What it cannot cover is the
+      # HUB checkout failing - `./notify` lives in the repository that did not
+      # check out - and that case is still visible only on the Actions tab.
+      #
+      # continue-on-error: the collection failure is the thing to report, and
+      # failing to report it must not replace that signal with a different one.
+      - name: Report this org's failure
+        if: failure()
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.org }}
+          control-repo: pxl-classroom-control
+          event-type: run-failed
+          assignment-id: nightly-collect
+          details: |
+            Tonight's collection did not finish for this organization. Observations
+            may be incomplete, and the dashboard will be stale until a run succeeds.
+
+            Nothing is lost: collection is re-run every night, and a deadline that
+            passed in the meantime is still enforced from the commit timestamps
+            rather than from when the collector looked.
+
+            Act on this if it appears two nights running.
+
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: run-failed-collect-${{ matrix.org }}
 
   find-finalizable:
     environment: provisioning
@@ -138,6 +211,32 @@ jobs:
         with:
           name: active-${{ matrix.org }}
           path: active-${{ matrix.org }}.json
+
+      # Per organization, for the reason given in the collect job above.
+      - name: Report this org's failure
+        if: failure()
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.org }}
+          control-repo: pxl-classroom-control
+          event-type: run-failed
+          assignment-id: nightly-finalizable-scan
+          details: |
+            The nightly could not work out which of this organization's assignments
+            are ready to finalize, so none of them were locked down or preserved
+            tonight.
+
+            An assignment past its deadline stays queued and is retried on the next
+            run; the submission is reconstructed from commits made before the
+            deadline either way, so a night's delay does not change anyone's grade.
+
+            Act on this if it appears two nights running.
+
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: run-failed-finalizable-${{ matrix.org }}
 
   aggregate-finalizable:
     needs: find-finalizable
@@ -259,6 +358,36 @@ jobs:
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Finalize deadline for ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
+
+      # Per assignment here, not just per organization: this matrix is over
+      # assignments, and a lecturer with two cohorts finalizing the same night
+      # needs to know which one did not.
+      - name: Report this assignment's failure
+        if: failure()
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.assignment.org }}
+          control-repo: pxl-classroom-control
+          event-type: run-failed
+          assignment-id: ${{ matrix.assignment.assignment_id }}
+          details: |
+            Finalizing this assignment did not complete. Lock-down, preservation
+            or the report may be incomplete.
+
+            It is re-queued automatically: an assignment counts as finalized only
+            once every locked-down student has a verified preservation, so a leg
+            that froze the cohort but failed to archive is retried on the next run
+            and the nightly will not switch itself off while it is failing. A
+            retried snapshot is frozen - a late commit can never replace an on-time
+            submission.
+
+            Act on this if it appears two nights running.
+
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: run-failed-finalize-${{ matrix.assignment.org }}-${{ matrix.assignment.assignment_id }}
 
   check-idle:
     needs: [aggregate-finalizable, finalize]
