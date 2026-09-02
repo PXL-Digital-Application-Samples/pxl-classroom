@@ -31,6 +31,7 @@ import {
   archiveBranchesUrl,
   archiveBranchUrl,
   reportArchiveRepo,
+  archiveReadme,
 } from "../lib/archive-repo.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -355,4 +356,52 @@ test("a mixed report prefers a row that actually recorded one", () => {
     }),
     "PXLAutomation/pxl-classroom-archive-hw-1",
   );
+});
+
+// ==================================================== the archive's own README
+//
+// Every preservation is a branch, so the archive's default branch holds this
+// file and nothing else - and the repository ROOT, which is where a link lands,
+// therefore shows one small file and reads as an empty repository. A lecturer
+// opening the archive for a finished exam concluded exactly that (2026-09-02):
+// that the evidence was gone. GitHub's auto_init README is the repository name,
+// which does nothing to correct it.
+//
+// What is NOT tested here is the write itself in preserve.mjs. That path needs
+// a gh/fetch mock this suite does not have, and the write is deliberately
+// cosmetic - it is logged and never fails a preservation.
+
+test("the README names the assignment it belongs to", () => {
+  const md = archiveReadme({ assignmentId: "2526-examen-aut2-ek2" });
+  assert.ok(md.includes("2526-examen-aut2-ek2"));
+});
+
+test("it says the submissions are branches, and names the tab that lists them", () => {
+  // The whole job of the file: someone opening the root must not conclude the
+  // work was lost.
+  const md = archiveReadme({ assignmentId: "hw-1" });
+  assert.match(md, /branch/i);
+  assert.match(md, /Branches tab/);
+});
+
+test("it does NOT restate the branch naming scheme", () => {
+  // Deliberate omission: nobody types one of these by hand, and a pattern
+  // spelled out in prose is a second source of truth that drifts from
+  // archiveBranchName. Anchored to the real builder rather than to a literal,
+  // so this cannot pass vacuously if the scheme is ever changed.
+  const sample = archiveBranchName({ assignmentId: "hw-1", login: "alice" });
+  assert.ok(sample, "archiveBranchName produced nothing - this guard has no anchor");
+  const prefix = sample.split("/")[0];
+  const md = archiveReadme({ assignmentId: "hw-1" });
+  assert.ok(!md.includes(sample), `README spells out ${sample}`);
+  assert.ok(!md.includes(`${prefix}/`), `README spells out the ${prefix}/ scheme`);
+});
+
+test("no assignment to name yields no README rather than a blank one", () => {
+  // preserve.mjs skips the write on null. A README headed "Archived submissions -"
+  // with nothing after it is worse than the auto_init one it would replace.
+  assert.equal(archiveReadme({ assignmentId: "" }), null);
+  assert.equal(archiveReadme({ assignmentId: "   " }), null);
+  assert.equal(archiveReadme({}), null);
+  assert.equal(archiveReadme(), null);
 });

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { gh } from "../lib/gh.mjs";
-import { archiveRepoName } from "../lib/archive-repo.mjs";
+import { archiveRepoName, archiveReadme } from "../lib/archive-repo.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -125,6 +125,33 @@ async function main() {
   const bad = validate();
   if (bad) await fail("fail:validation", bad);
 
+  // Replaces the auto_init README, whose body is just the repository name, with
+  // one that says where the submissions are - see archiveReadme() for why the
+  // root of this repository reads as empty.
+  //
+  // Cosmetic, and treated as such: a failure is logged and the preservation
+  // carries on. The evidence is the branches; refusing to preserve a cohort
+  // because a README would not write would be the tail wagging the dog.
+  async function writeArchiveReadme() {
+    const body = archiveReadme({ assignmentId: cfg.assignmentId });
+    if (!body) return;
+    const path = `/repos/${cfg.org}/${cfg.archiveRepo}/contents/README.md`;
+    // auto_init already committed one, so this is an update and needs its blob
+    // sha. If that read fails we still try the create-shaped call rather than
+    // give up - a missing sha is only fatal when the file is really there.
+    const existing = await gh("GET", path);
+    const sha = existing.ok && typeof existing.data?.sha === "string" ? existing.data.sha : null;
+    const res = await gh("PUT", path, {
+      message: "Explain where the preserved submissions are",
+      content: Buffer.from(body, "utf8").toString("base64"),
+      ...(sha ? { sha } : {}),
+    });
+    log("archive-readme", {
+      ok: res.ok,
+      note: res.ok ? "written" : `HTTP ${res.status} - archive is unaffected`,
+    });
+  }
+
   // 1. Auth check
   const ping = await gh("GET", "/rate_limit");
   if (!ping.ok) await fail("fail:auth", `token rejected (HTTP ${ping.status})`);
@@ -147,6 +174,7 @@ async function main() {
     });
     if (!create.ok) await fail("fail:create-archive", `create archive HTTP ${create.status} ${create.data?.message ?? ""}`);
     log("archive-repo", { ok: true, note: `created id=${create.data.id}` });
+    await writeArchiveReadme();
   } else if (!arcCheck.ok) {
     await fail("fail:archive-repo", `archive repo HTTP ${arcCheck.status}`);
   } else {
