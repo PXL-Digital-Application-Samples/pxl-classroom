@@ -570,7 +570,9 @@ Any GitHub account can then claim a repo while the assignment is open, so the de
 
 After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.
 
-**SPA flow:** open the assignment's tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add accepted students to roster**. The modal previews exactly who would be added before anything is written. It is offered only on an `open` assignment that somebody has accepted — under `enforced` every acceptor was already on the roster, so the action would be a no-op on every assignment.
+**SPA flow, two entry points onto the same modal.** From the **Roster** tab → **Add students who accepted**, which asks *which* assignment first — the roster is org-wide while the action is per-assignment. Or from the assignment's own tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add accepted students to roster**, which already knows which. Either way the modal previews exactly who would be added before anything is written.
+
+Both appear only where there is something to add: an `open` assignment somebody has accepted. Under `enforced` and `claim` every acceptor was already on the roster, so the control is absent rather than present and inert.
 
 **CLI flow:**
 
@@ -630,7 +632,11 @@ pxl-classroom roster unlink --org <org> --email <address>             # by addre
 
 When a student **deletes and recreates their GitHub account**, their new `github_id` is a different student as far as the binding is concerned - unlink the old one and let them claim again.
 
-**Folding claims into the roster.** The binding already governs acceptance, so this is optional - what it buys is a self-contained roster, so the *next* assignment can run `enforced` against a cohort whose usernames are now known, and an exported CSV carries them:
+**Folding claims into the roster happens by itself.** The nightly `collect` job folds every claim that needs no judgement, so a roster row's `github_login` fills in overnight with nobody running anything. What that buys is a self-contained roster: the *next* assignment can run `enforced` against a cohort whose usernames are now known, and an exported CSV carries them.
+
+**Three cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, and one address claimed by two accounts. Those are listed at the top of the **Roster** tab as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way unlinked first (above), so that row says so instead of offering a button that would refuse.
+
+The CLI folds the same claims but treats **you** as the review step, so it also folds a typed address - you are looking at the plan when you run it:
 
 ```bash
 pxl-classroom roster promote --org <org> --claims --dry-run   # preview

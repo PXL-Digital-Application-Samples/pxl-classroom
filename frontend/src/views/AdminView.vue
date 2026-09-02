@@ -79,7 +79,17 @@
 
     <!-- v-show (not v-if): unmounting would silently discard an un-committed
          CSV import preview when the lecturer flips tabs. -->
-    <RosterTab v-show="activeTab === 'roster'" ref="rosterTab" :org="org" />
+    <!-- The assignments are passed so the roster can offer "add the students
+         who accepted" from here. That action WRITES the roster, so this is
+         where it belongs; it is per-assignment, so it has to be told which
+         assignments exist. AdminView has already loaded them - a second read
+         inside the tab would be the same request twice. -->
+    <RosterTab
+      v-show="activeTab === 'roster'"
+      ref="rosterTab"
+      :org="org"
+      :assignments="assignments"
+    />
 
     <div v-show="activeTab === 'assignments'" class="admin-layout">
       <!-- LEFT: assignment list -->

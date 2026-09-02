@@ -78,6 +78,42 @@
                 Copy unlinked emails ({{ unlinkedStudents.length }})
               </button>
               <button class="btn btn-sm btn-secondary" type="button" @click="exportRosterCsv">Export CSV</button>
+
+              <!-- Adding the students who accepted an assignment writes THIS
+                   file, so the action lives here as well as on the assignment
+                   that prompts it. It is per-assignment and the roster is
+                   org-wide, so it asks which first rather than guessing.
+                   Absent entirely when there is no open assignment to add
+                   from - under `enforced` and `claim` everyone who accepted was
+                   already on the roster, so there would be nobody to add. -->
+              <!-- Its own anchor rather than AssignmentDetailView's
+                   `.dropdown-container`, which is scoped there and would render
+                   this unstyled (DESIGN.md §7). One line of positioning is not
+                   shared vocabulary worth moving to style.css for. -->
+              <div v-if="promotableAssignments.length > 0" class="promote-picker-anchor" ref="promotePickerRef">
+                <button
+                  class="btn btn-sm btn-secondary"
+                  type="button"
+                  :aria-expanded="promotePickerOpen"
+                  aria-haspopup="true"
+                  @click.stop="promotePickerOpen = !promotePickerOpen"
+                >Add students who accepted</button>
+
+                <div v-if="promotePickerOpen" class="promote-picker" role="menu">
+                  <p class="promote-picker-head">From which assignment?</p>
+                  <button
+                    v-for="a in promotableAssignments"
+                    :key="a.id"
+                    class="promote-picker-item"
+                    type="button"
+                    role="menuitem"
+                    @click="pickPromotionSource(a)"
+                  >
+                    <span class="promote-picker-title">{{ a.title || a.id }}</span>
+                    <span class="promote-picker-sub">{{ a.id }}</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -375,11 +411,21 @@
         </form>
       </div>
     </div>
+
+    <!-- The same modal the assignment's own menu opens. One component, so the
+         two entry points cannot drift about what promotion writes. -->
+    <PromoteRosterModal
+      v-if="promoteFrom"
+      :org="org"
+      :assignment="promoteFrom"
+      @close="promoteFrom = null"
+      @promoted="onPromoted"
+    />
   </section>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
@@ -393,11 +439,18 @@ import { normalizeEmail } from '../lib/claim.js'
 // list computed a second way could show a lecturer something different from
 // what was actually held back, which is worse than showing nothing.
 import { planClaimPromotion } from '../../../lib/promote-roster.mjs'
+import PromoteRosterModal from './PromoteRosterModal.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 
-const props = defineProps({ org: { type: String, required: true } })
+const props = defineProps({
+  org: { type: String, required: true },
+  // The org's assignments, so this tab can offer to add the students who
+  // accepted one. Optional: the tab works without them, it simply has nothing
+  // to offer.
+  assignments: { type: Array, default: () => [] },
+})
 
 const controlRepo = config.controlRepo
 
@@ -614,6 +667,28 @@ const heldClaims = computed(() => {
 
 const autoLinkedCount = computed(() => linkedCount.value)
 const linkingEmail = ref('')
+
+// --- adding the students who accepted an assignment -------------------------
+//
+// Per-assignment, offered from the org-wide roster, so the tab has to ask WHICH
+// before it can do anything. Only `open` assignments qualify: under `enforced`
+// and `claim` a student had to be on the roster to accept at all, so there is
+// nobody to add.
+const promoteFrom = ref(null)
+const promotePickerOpen = ref(false)
+
+const promotableAssignments = computed(() =>
+  (props.assignments || []).filter((a) => a?.roster_mode === 'open' && a?.state !== 'draft'))
+
+function pickPromotionSource(assignment) {
+  promotePickerOpen.value = false
+  promoteFrom.value = assignment
+}
+
+async function onPromoted() {
+  promoteFrom.value = null
+  await loadExisting()
+}
 
 /**
  * Link one held claim, on the lecturer's say-so.
@@ -906,7 +981,28 @@ async function commitRoster() {
 watch(() => props.org, () => { loadExisting(); loadClaims() })
 watch(csvText, () => parseAndValidate())
 
-onMounted(() => { loadExisting(); loadClaims() })
+const promotePickerRef = ref(null)
+
+// Closes on an outside click and on Escape, like every other menu in the app.
+function onDocumentClick(e) {
+  if (promotePickerRef.value && !promotePickerRef.value.contains(e.target)) {
+    promotePickerOpen.value = false
+  }
+}
+function onEscape(e) {
+  if (e.key === 'Escape') promotePickerOpen.value = false
+}
+
+onMounted(() => {
+  loadExisting()
+  loadClaims()
+  document.addEventListener('click', onDocumentClick)
+  window.addEventListener('keydown', onEscape)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
+  window.removeEventListener('keydown', onEscape)
+})
 
 // A parsed import with an uncommitted diff is unsaved work - the parent
 // includes it in the route-leave / beforeunload guards.
@@ -1103,6 +1199,46 @@ defineExpose({
    values are unchanged - but it takes them off the undeclared-class register
    and puts the appearance where DESIGN.md says it belongs.
    ------------------------------------------------------------------------ */
+
+/* Anchor for the "which assignment?" picker. */
+.promote-picker-anchor { position: relative; display: inline-flex; }
+.promote-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 100;
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--space-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  text-align: left;
+}
+.promote-picker-head {
+  margin: 0 0 var(--space-2xs);
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.promote-picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.promote-picker-item:hover { background: var(--bg-surface-hover); }
+.promote-picker-title { font-size: 0.9rem; }
+.promote-picker-sub { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
 
 /* The review box. A tonal step with a single attention edge rather than a
    bordered card - this sits inside the roster panel, which is already a box
