@@ -81,7 +81,12 @@ async function openDetail(page, { a = assignment(), accepted = ['bob-pxl', 'caro
   return contentWrites;
 }
 
-const menuItem = (page) => page.getByRole('menuitem', { name: /Add accepted students to roster/ });
+// Match the label the view actually renders. It was renamed in fc374f1 ("Promote"
+// said nothing to a lecturer) and this locator was not, so it matched nothing and
+// all eleven tests below timed out at 60s each - which is what pushed the e2e job
+// past its 20-minute cap and left CI cancelled rather than red for three commits.
+const menuItem = (page) =>
+  page.getByRole('menuitem', { name: /Add students who accepted to the roster/ });
 const modal = (page) => page.locator('.promote-modal');
 
 async function openModal(page) {

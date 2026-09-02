@@ -570,7 +570,7 @@ Any GitHub account can then claim a repo while the assignment is open, so the de
 
 After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.
 
-**SPA flow, two entry points onto the same modal.** From the **Roster** tab → **Add students who accepted**, which asks *which* assignment first — the roster is org-wide while the action is per-assignment. Or from the assignment's own tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add accepted students to roster**, which already knows which. Either way the modal previews exactly who would be added before anything is written.
+**SPA flow, two entry points onto the same modal.** From the **Roster** tab → **Add students who accepted**, which asks *which* assignment first — the roster is org-wide while the action is per-assignment. Or from the assignment's own tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add students who accepted to the roster**, which already knows which. Either way the modal previews exactly who would be added before anything is written.
 
 Both appear only where there is something to add: an `open` assignment somebody has accepted. Under `enforced` and `claim` every acceptor was already on the roster, so the control is absent rather than present and inert.
 
