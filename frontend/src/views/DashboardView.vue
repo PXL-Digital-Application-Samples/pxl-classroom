@@ -87,7 +87,11 @@
               </div>
             </div>
 
-            <span class="lecturer-tag text-muted text-xs">Lecturer</span>
+            <!-- Only where the account has actually demonstrated it. This was
+                 unconditional, so a student who had accepted one assignment
+                 was badged Lecturer on a dashboard they have no access to -
+                 the label asserting a role the system had never checked. -->
+            <span v-if="dashState !== 'no-access'" class="lecturer-tag text-muted text-xs">Lecturer</span>
         </div>
       </template>
       <template #actions>
@@ -181,7 +185,40 @@
 
       <!-- No assignments - say WHY, each cause has a different remedy -->
       <div v-else-if="assignments.length === 0" class="center-card fade-in">
-        <template v-if="dashState === 'no-control-repo'">
+        <!-- NOT STAFF HERE, and it must say so rather than describe a
+             half-configured organization.
+             The org reaches the switcher for anyone whose App installation
+             touches it, which accepting one assignment is enough to do - so a
+             student landed on the onboarding screen, badged Lecturer, told
+             this organization "needs its control repository" and offered a
+             Setup Organization button. The repository exists; they cannot read
+             it. Nothing was ever exposed - every read behind this screen is the
+             private control repo and every write is refused by GitHub - but a
+             surface that hands a student a staff console and an admin button
+             is its own defect (DESIGN.md §1.5). -->
+        <template v-if="dashState === 'no-access'">
+          <Icon name="lock" :size="48" class="status-icon" />
+          <h2>This is a lecturer view for {{ selectedOrg }}</h2>
+          <p class="text-secondary">
+            Your account does not have access to this organization's course data, so there is
+            nothing to show here.
+          </p>
+          <p class="text-secondary">
+            <strong>{{ selectedOrg }}</strong> appears above because you have access to at least
+            one repository in it - accepting an assignment is enough. That is not the same as
+            teaching the course.
+          </p>
+          <p class="text-secondary">
+            If you are a student, your assignments are on your own page. If you are a lecturer for
+            this course, ask a PXL Classroom administrator to set the organization up and to give
+            you access to its control repository.
+          </p>
+          <div class="flex justify-center gap-sm mt-md">
+            <router-link to="/" class="btn btn-primary">My assignments</router-link>
+          </div>
+        </template>
+
+        <template v-else-if="dashState === 'no-control-repo'">
           <!-- Was a dead end pointing at ADMIN.md §1. The org is already in the
                switcher, so the App IS installed - only the control repo is
                missing, and whether the lecturer can create it themselves
@@ -432,7 +469,7 @@
       </div>
 
       <!-- Embedded Resource Usage & Limits Section -->
-      <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo'" :org="selectedOrg" />
+      <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo' && dashState !== 'no-access'" :org="selectedOrg" />
 
       <!-- Unified Health Diagnostics Modal -->
       <SystemHealthModal
@@ -456,7 +493,7 @@ import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getInstallations, getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
+import { getInstallations, getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
 import { APP_INSTALL_URL } from '../../../lib/audit.mjs'
 import { formatDate } from '../lib/format.js'
@@ -499,6 +536,9 @@ function getOrgStatusTitle(orgLogin) {
   if (status === 'active') return 'Active: at least one open assignment available'
   if (status === 'inactive') return 'Inactive: assignments exist, but none currently open'
   if (status === 'empty') return 'Empty: no assignments in this organization'
+  // "no assignments here" and "you cannot see this organization's course data"
+  // are different facts, and the second must not render as the first.
+  if (status === 'no-access') return 'No access: this account is not staff on this organization'
   return 'Loading organization status…'
 }
 
@@ -507,6 +547,7 @@ function getOrgStatusLabel(orgLogin) {
   if (status === 'active') return 'Open Assignments Active'
   if (status === 'inactive') return 'All Assignments Closed'
   if (status === 'empty') return 'No Assignments'
+  if (status === 'no-access') return 'No Access'
   return 'Loading Status…'
 }
 
@@ -877,18 +918,59 @@ async function loadDashboard(orgArg) {
     if (!repoRes.ok) {
       if (repoRes.status === 404) {
         if (superseded()) return
-        dashState.value = 'no-control-repo'
-        orgStatusMap.value.set(org.toLowerCase(), 'empty')
-        // Setup Organization is a workflow_dispatch on the HUB, which needs
-        // write there (ADMIN.md §1.4). A lecturer who has just been made an org
-        // owner usually does not have it yet, so find out before offering a
-        // button that would only 403.
+
+        // A 404 HERE IS TWO DIFFERENT ANSWERS, and this used to pick the
+        // friendlier one. GitHub returns 404 rather than 403 for a private
+        // repository you cannot see, so "the control repo does not exist" and
+        // "the control repo exists and you are not staff here" arrive
+        // identically - and the org appears in the switcher for anyone whose
+        // installation touches it, which one accepted assignment is enough to
+        // do. A student saw "Almost there - <org> needs its control repository"
+        // with an Open Setup Organization button, badged Lecturer, about a
+        // repository that exists and that they simply cannot read.
+        //
+        // So the 404 stops being evidence of absence, and the page asks a
+        // question it CAN answer: has this account demonstrated any staff
+        // capability at all? Write on the hub is what Setup Organization needs
+        // anyway (ADMIN.md §1.4), so the check that gates the button now also
+        // gates the screen - and a lecturer who has just been made an org owner
+        // without hub write is told to ask a hub admin, from a state that does
+        // not call them Lecturer or offer them a button that would 403.
         try {
           const hub = await getRepo(token, config.hubOwner, config.hubRepo)
           hubWritable.value = Boolean(hub.ok && hub.data?.permissions?.push)
         } catch {
           hubWritable.value = false
         }
+
+        // AND whether this account administers the organization, which is the
+        // signal that keeps a real lecturer out of the refusal.
+        //
+        // A lecturer onboarding a NEW org and a student who accepted one
+        // assignment produce the identical 404 above, and neither has hub
+        // write - so hub write alone would have refused the very person the
+        // onboarding screen exists for. GET /orgs/{org} separates them:
+        // `default_repository_permission` is returned to an organization
+        // OWNER and is null to everyone else. Measured 2026-09-03 - "none" for
+        // an org I own, null for one I am not a member of - and lib/audit.mjs
+        // already reads this same field for the base-permission check.
+        //
+        // A POSITIVE signal, so an unreadable or failed call refuses rather
+        // than admits.
+        let orgAdmin = false
+        try {
+          const orgRes = await ghApi(token, 'GET', `/orgs/${org}`)
+          orgAdmin = Boolean(orgRes.ok && orgRes.data?.default_repository_permission != null)
+        } catch {
+          orgAdmin = false
+        }
+
+        // FAIL CLOSED. An unreadable control repo, no hub write and no org
+        // administration is not a half-configured organization - it is an
+        // account with nothing to do here.
+        const staff = hubWritable.value || orgAdmin
+        dashState.value = staff ? 'no-control-repo' : 'no-access'
+        orgStatusMap.value.set(org.toLowerCase(), staff ? 'empty' : 'no-access')
         return
       }
     }
@@ -1216,6 +1298,16 @@ function handleLogout() {
   background-color: transparent;
   border: 1.5px solid var(--border-strong);
   opacity: 0.7;
+}
+
+/* Declared, because `lamp-${status}` composes the class name from data and an
+   undeclared class renders unstyled with no error (DESIGN.md §7). Hollow like
+   `empty` rather than red: not being staff on an organization is not a fault
+   condition, it is simply not yours. */
+.lamp-no-access {
+  background-color: transparent;
+  border: 1.5px dashed var(--border-strong);
+  opacity: 0.55;
 }
 
 .lamp-unknown {

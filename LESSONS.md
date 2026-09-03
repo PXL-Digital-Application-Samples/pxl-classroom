@@ -937,6 +937,27 @@ One limit survives, and it is the whole decision: **enrolling by org membership 
 
 This is *"unreadable is not evidence"* one level deeper than it had been applied. Every earlier instance keyed off the transport - a non-`ok` response, a thrown read, a capped walk. This one was `ok`, well-formed, and empty, and the only thing wrong with it was that it was **an answer to a question we were not entitled to ask**. Where a read's authority cannot be established, a green tick and a "none found" are the same lie. `tests/invitation-evidence.test.mjs` holds the measurement and pins the rule; `tests/student-wait-copy.test.mjs` forbids the sentence on every student surface; `tests/e2e/40-provisioning-wait.spec.mjs` now drives the empty-list case and the 403 case through the *same* expectation, which is the assertion the old file could not make.
 
+### A student reached the lecturer dashboard, badged "Lecturer".
+
+Reported with a screenshot, 2026-09-03. `tomccargo` — a test **student** account, not a member of `PXL-Automation-II` — signed in and was shown the organization in the switcher, a **Lecturer** tag beside their name, and an onboarding card:
+
+> **Almost there - PXL-Automation-II needs its control repository**
+> One more step before you can create assignments.  `[ Open Setup Organization ]`
+
+**Nothing was exposed and nothing would have worked.** Every read behind that screen is the private control repository, which answers 404 to them; every write — workflow dispatch, control-repo commit — is refused by GitHub; and no report, roster, team or student data is served from Pages (checked directly: all 404). But a surface that hands a student a staff console and an admin button is its own defect, and it teaches them they have found a hole. That reaction is the correct reaction.
+
+**Two faults, and the second is what made the first alarming.**
+
+*There was no authorization check anywhere.* `/dashboard/:org?` has no route guard, and the org list is `/user/installations` filtered to organizations. Accepting **one assignment** grants collaborator access to a repository inside an installation whose `repository_selection` is `all`, so GitHub lists that installation — and the page inferred *"the App is installed somewhere you can touch"* as *"you are staff here"*.
+
+*And a 404 was read as "absent".* GitHub returns 404, not 403, for a private repository you cannot see, so **"the control repo does not exist" and "the control repo exists and is not yours" arrive identically** — and the code picked the friendlier one. The repository existed the whole time. Same rule as the invitation, three sections up, in a place nobody thought to look for it.
+
+**The gate is demonstrated capability, and the third signal is the interesting one.** Hub write alone would have refused the very persona the onboarding screen exists for: a lecturer just made an org owner has no hub write and produces the identical 404 as the student. `GET /orgs/{org}` separates them — `default_repository_permission` is returned to an organization **owner** and `null` to everyone else. Measured: `"none"` for an org I own, `null` for one I am not a member of; and `lib/audit.mjs` already reads that field for the base-permission check. So `staff = hubWritable || orgAdmin`, both **positive** signals, and an unreadable answer refuses rather than admits.
+
+**The fixture could not express the bug, which is why no test caught it.** "Student" meant *no installations at all*, so no spec could reach the dashboard as one — the mock modelled a student who could never have been in the reported situation. `studentHasInstallation` is what makes it reachable, and `tests/e2e/58` now drives it. A mock that cannot represent the failure is a mock that guarantees a green suite.
+
+`tests/dashboard-authorization.test.mjs` pins the rest, and promptly caught its own author: two of its guards anchored on `dashState.value = hubWritable.value`, which stopped existing when the org signal was added, and *"every literal a test anchors on still exists in the code"* failed them rather than letting them inspect nothing.
+
 ### A comment is a notification. Metadata is not.
 
 The hub's channel to a student is their own acceptance issue on the public broker — the one surface both halves can read. It was a **comment**, and a student forwarded what that actually looks like from the other side:

@@ -399,6 +399,10 @@ export async function setupStandardMockRoutes(page, {
   // single-issue read makes `res.data.labels` undefined and the channel
   // silently carries nothing.
   brokerIssueLabels = [],
+  // Put a non-lecturer persona's org into /user/installations, which is what a
+  // student who has accepted an assignment actually looks like. Off by default
+  // so no existing spec changes shape.
+  studentHasInstallation = false,
   roster = null,
   // Team manifests as they exist in the CONTROL repo (teams/<id>/<slug>.json),
   // as opposed to `teams`, which is the generated public Pages payload.
@@ -681,8 +685,33 @@ export async function setupStandardMockRoutes(page, {
         status: 200,
         body: JSON.stringify({ slug: 'pxl-classroom-provisioner', permissions: appPermissions }),
       });
+    } else if (/\/orgs\/[^/]+(\?.*)?$/.test(url) && method === 'GET') {
+      // GET /orgs/{org} returns `default_repository_permission` (and the other
+      // admin-only fields) to an organization OWNER and null to everybody else.
+      // Measured 2026-09-03: "none" for an org the caller owns, null for one
+      // they are not a member of. The dashboard uses exactly that to tell a
+      // lecturer onboarding a new organization apart from a student who
+      // accepted one assignment in it - the two are otherwise identical, both
+      // getting a 404 from the private control repo.
+      const owner = currentUser.login.toLowerCase().includes('lecturer');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          login: url.split('/orgs/')[1].split(/[/?]/)[0],
+          default_repository_permission: owner ? 'none' : null,
+          total_private_repos: owner ? 3 : null,
+        }),
+      });
     } else if (url.includes('/user/installations')) {
-      const isLecturerUser = currentUser.login.toLowerCase().includes('lecturer');
+      // A STUDENT WITH AN INSTALLATION IS THE REPORTED CASE, and this fixture
+      // could not express it: "student" meant "no installations at all", so no
+      // test could reach the dashboard as one. Accepting a single assignment
+      // grants collaborator access to a repository inside an installation whose
+      // repository_selection is `all`, and GitHub then lists that installation
+      // for them - which is how a student reached the lecturer dashboard.
+      const isLecturerUser =
+        studentHasInstallation || currentUser.login.toLowerCase().includes('lecturer');
       const instList = isLecturerUser ? participatingOrgs.map((o) => ({
         id: 1000 + (typeof o === 'string' ? 1 : 2),
         account: { type: 'Organization', login: typeof o === 'string' ? o : o.login },
