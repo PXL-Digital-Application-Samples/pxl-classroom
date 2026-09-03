@@ -180,7 +180,7 @@ test.describe('46 - What the page says when it cannot know', () => {
     await student(page, { emailsStatus: 403 });
 
     await expect(page.getByText(/could not check which addresses/i)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/has not verified/i)).toHaveCount(0);
+    await expect(page.getByText(/No verified/i)).toHaveCount(0);
     // And the way forward is still open.
     await expect(page.getByPlaceholder(/you@student\.pxl\.be/i)).toBeVisible();
   });
@@ -196,7 +196,7 @@ test.describe('46 - What the page says when it cannot know', () => {
     // loading line ("addresses GitHub has verified for you") already said the
     // narrower thing one paragraph above. The test was pinning the overclaim.
     await student(page, { emails: [] });
-    await expect(page.getByText(/GitHub has not verified/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/No verified/i)).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/could not check which addresses/i)).toHaveCount(0);
     await expect(
       page.getByText(/None of the addresses on your GitHub account/i),
@@ -213,7 +213,12 @@ test.describe('46 - A non-claim assignment is untouched', () => {
     });
 
     await expect(page.getByRole('button', { name: /Accept assignment/i })).toBeEnabled({ timeout: 15000 });
-    await expect(page.getByText('Confirm your school email address')).toHaveCount(0);
+    // The CARD, not its heading. This asserted the absence of "Confirm your
+    // school email address" - and that heading has since been reworded twice,
+    // so the assertion had quietly become a check that a string nothing renders
+    // is not rendered. An absence assertion anchored on copy is the vacuous
+    // guard this repo keeps finding; the element cannot go stale that way.
+    await expect(page.locator('.claim-card')).toHaveCount(0);
 
     await page.getByRole('button', { name: /Accept assignment/i }).click();
     await expect(page.locator('.pending-state')).toBeVisible({ timeout: 15000 });

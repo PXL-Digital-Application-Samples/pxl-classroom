@@ -2,13 +2,12 @@
   <div class="claim-card">
     <div class="claim-head">
       <Icon name="mail" :size="16" />
-      <span class="font-semibold">Confirm your {{ INSTITUTION }} email address</span>
+      <span class="font-semibold">Confirm your {{ INSTITUTION }} email</span>
     </div>
 
     <p class="text-sm text-secondary claim-intro">
-      Your lecturer registered this course by email address. Confirm yours once and
-      it is remembered for every assignment in
-      <code>{{ org }}</code>.
+      Your lecturer identifies you by your {{ INSTITUTION_SHORT }} email. Confirm it once for
+      all assignments in <code>{{ org }}</code>.
     </p>
 
     <!-- Loading their addresses -->
@@ -48,19 +47,17 @@
              typed-address error, where the reader has typed something that
              failed and needs to know exactly what is accepted). -->
         <p class="text-sm claim-line claim-note">
-          GitHub has not verified {{ article(INSTITUTION) }} {{ INSTITUTION }} email address on this
-          account. Add and verify your official {{ INSTITUTION }} address on
-          GitHub - or sign in with an account that already has it - and your
-          lecturer will recognise you automatically.
+          No verified {{ INSTITUTION }} email was found on this GitHub account. Add and verify
+          your official {{ INSTITUTION_SHORT }} address, or sign in with another account that
+          already has one.
         </p>
         <!-- Its own paragraph, immediately above the field it is about. Run
              together with the paragraph above it this was four sentences in one
              block, and the one sentence that says what to do next was the
              fourth. -->
         <p class="text-sm claim-line claim-note">
-          You can continue with this account instead. Type your
-          {{ INSTITUTION_SHORT }} address below; your lecturer will see it as
-          unconfirmed.
+          You can still continue by entering your {{ INSTITUTION_SHORT }} email below. It will
+          be marked as unconfirmed.
         </p>
       </template>
 

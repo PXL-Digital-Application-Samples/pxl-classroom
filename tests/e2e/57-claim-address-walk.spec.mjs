@@ -1,9 +1,9 @@
 // 57 - What the claim card is entitled to say about a student's addresses.
 //
-// The card tells a student "GitHub has not verified a Hogeschool PXL address on
-// this account" and now sends them to change GitHub accounts on the strength of
-// it. That is a statement about the WHOLE list, and it was made from
-// `/user/emails?per_page=100` read once.
+// The card tells a student "No verified <institution> email was found on this
+// GitHub account" and sends them to add an address or change accounts on the
+// strength of it. That is a statement about the WHOLE list, and it was made
+// from `/user/emails?per_page=100` read once.
 //
 // Nobody has a hundred email addresses, and that is not the point: the same
 // shape - one page, a confident negative - is what told a student with a
@@ -104,7 +104,7 @@ test.describe('57 - The claim card walks the address list', () => {
     expect(servedPages(), 'the second page must actually be requested').toBeGreaterThanOrEqual(2);
 
     // And it must NOT be telling them their account is wrong.
-    await expect(page.locator('.claim-card')).not.toContainText(/has not verified/i);
+    await expect(page.locator('.claim-card')).not.toContainText(/No verified/i);
   });
 
   test('a truncated walk says it could not check, never that there is nothing', async ({ page }) => {
@@ -121,7 +121,7 @@ test.describe('57 - The claim card walks the address list', () => {
 
     await expect(card).toContainText(/could not check which addresses GitHub has verified/i, { timeout: 20000 });
     await expect(card, 'a truncated read is not evidence of an absent address')
-      .not.toContainText(/has not verified/i);
+      .not.toContainText(/No verified/i);
   });
 
   test('a real negative is worded as what was actually checked', async ({ page }) => {
@@ -147,14 +147,16 @@ test.describe('57 - The claim card walks the address list', () => {
     const card = page.locator('.claim-card');
     await expect(card).toBeVisible({ timeout: 20000 });
 
-    await expect(card).toContainText(/GitHub has not verified/i);
+    await expect(card).toContainText(/No verified/i);
     await expect(card, 'the claim is about verified addresses, not everything on the account')
       .not.toContainText(/None of the addresses on your GitHub account/i);
 
     // The INSTITUTION, read from the deployment file rather than spelled here -
     // this sentence named the domain list, and a student does not think of
     // themselves as having "a student.pxl.be address".
-    await expect(card).toContainText(new RegExp(`has not verified an? ${INSTITUTION} email address`, 'i'));
+    await expect(card).toContainText(
+      new RegExp(`No verified ${INSTITUTION} email was found on this GitHub account`, 'i'),
+    );
 
     // The field is the action in this state: present, labelled for the address
     // actually wanted, and not hidden behind "use a different address".
