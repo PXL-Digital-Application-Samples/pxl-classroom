@@ -218,15 +218,19 @@
               the moment the repository appears.
             </p>
 
-            <!-- The guessed link, and the ONLY place it belongs while waiting:
-                 we asked GitHub for your invitations and could not get an
-                 answer, so we cannot tell whether one is waiting for you. It
-                 is held back to ~30s because before that the repository
-                 probably does not exist and the link would 404. -->
-            <div v-if="pollCount >= 10 && showInvitationGuess" class="invitation-hint" role="status">
+            <!-- The guessed link. This page cannot see the student's pending
+                 invitations - a 200 has been observed with a real one missing
+                 from it - so it offers the one check they can run themselves
+                 instead of concluding there is nothing to accept.
+                 Held back to pollCount >= 20 (~60s), which is past the 20-40s
+                 ordinary case: before that the repository probably does not
+                 exist, the link 404s, and every student on the happy path would
+                 be shown a worry they do not have. -->
+            <div v-if="pollCount >= 20 && showInvitationGuess" class="invitation-hint" role="status">
               <p class="text-secondary">
-                We could not check your GitHub invitations from here. If you are not already a
-                member of <strong>{{ org }}</strong>, there may be one waiting:
+                This page cannot see your GitHub invitations. If <strong>{{ org }}</strong> invited
+                you rather than adding you directly, your repository is waiting behind that
+                invitation:
               </p>
               <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary">
                 Look for a repository invitation
@@ -368,38 +372,42 @@
 
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
-            <!-- Two different situations, and they used to share one headline
-                 that guessed at the friendlier of them. If we could read your
-                 invitations and there was none, "One more step - accept your
-                 invitation" is telling a student whose provisioning actually
-                 FAILED to go and accept something that does not exist, with a
-                 link that 404s. -->
-            <h2 v-if="showInvitationGuess">One more step - accept your invitation</h2>
-            <h2 v-else>Your repository has not appeared</h2>
+            <!-- ONE headline, because there are two situations and this page
+                 cannot tell them apart. It used to split on "did the
+                 invitations API answer", and the negative branch stated
+                 "GitHub has no repository for you and no invitation waiting"
+                 as fact - said, live, to a student whose repository existed
+                 and whose invitation was sitting there unaccepted. The page
+                 was never entitled to that sentence; see
+                 lib/invitation-evidence.js. -->
+            <h2>Your repository has not appeared</h2>
 
+            <!-- The link and the two paragraphs about it are ONE block. Split,
+                 the explanation dangles - "if that page shows a 404" beside no
+                 page to open - which is the shape a v-if on the anchor alone
+                 produces the moment `invitationUrl` cannot be built. -->
             <template v-if="showInvitationGuess">
               <p class="text-secondary">
-                We could not check your invitations from this page. Unless you are already a member of
-                <strong>{{ org }}</strong>, GitHub adds you by invitation - and it needs you to accept it
-                before you can see the repository.
+                Either there is a repository invitation you still need to accept, or setup did not
+                finish. This page cannot tell which - it is not able to see your pending
+                invitations - but you can, in one click:
               </p>
               <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
-                Accept your repository invitation
+                Check for a repository invitation
               </a>
               <p class="text-muted" style="margin-top: var(--space-sm);">
-                It is also waiting in your GitHub notifications and in the email GitHub sent you.
-                Once accepted, come back and press <strong>Check again</strong>.
-                If that page shows a "404", the repository was never created - the causes below apply instead.
+                If that page offers you an invitation, accept it - then come back and press
+                <strong>Check again</strong>. It is also in your GitHub notifications and in the
+                email GitHub sent you.
+                If it shows a "404", there is no invitation for you to accept: the causes below
+                apply instead, and they are not something you can fix from here.
               </p>
             </template>
             <p v-else class="text-secondary">
-              GitHub has no repository for you and no invitation waiting, so setup did not finish.
-              This is not something you can fix from here.
+              Setup did not finish, and this is not something you can fix from here.
             </p>
 
-            <p class="text-secondary">
-              {{ showInvitationGuess ? 'Less commonly, setup can stall because:' : 'The usual causes:' }}
-            </p>
+            <p class="text-secondary">Setup can also stall because:</p>
             <ul class="text-secondary" style="text-align: left; margin: var(--space-md) auto; max-width: 420px; line-height: 1.5;">
               <li>The assignment registration cap has been reached.</li>
               <li v-if="rosterMatchesLogin(rosterMode)">You are not on the lecturer's roster for this course.</li>
@@ -479,6 +487,7 @@ import { overridePath } from '../../../lib/control-layout.mjs'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
+import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
@@ -898,19 +907,18 @@ async function checkExistingState() {
     return
   }
 
-  // Check for pending invitation
+  // Check for pending invitation. Same rule as the poll, through the same
+  // helper: a match is knowledge, anything else is silence.
   const invites = await getInvitations(token)
-  if (invites.ok && Array.isArray(invites.data)) {
-    const match = invites.data.find(
-      (inv) => inv.repository?.name === expectedName && inv.repository?.owner?.login === org
-    )
-    if (match) {
-      pendingInvitation.value = match
-      repoUrl.value = match.repository.html_url
-      repoFullName.value = match.repository.full_name
-      acceptState.value = 'invited'
-      return
-    }
+  const evidence = invitationEvidence(invites, { org, repo: expectedName })
+  invitationProven.value = evidence.proven
+  if (evidence.invitation) {
+    const match = evidence.invitation
+    pendingInvitation.value = match
+    repoUrl.value = match.repository.html_url
+    repoFullName.value = match.repository.full_name
+    acceptState.value = 'invited'
+    return
   }
 
   // Did they already accept in a tab they closed? Acceptance is an issue on the
@@ -1105,26 +1113,30 @@ const invitationUrl = computed(() => {
   return `https://github.com/${props.org}/${repo}/invitations`
 })
 
-// null until the poll has asked once; true when GET /user/repository_invitations
-// answered, false when it did not.
+// Has an invitation been PROVEN to exist? False means unknown, not "none".
 //
-// This is the only thing that may put the guessed link on screen, and the
-// reasoning is worth keeping because a comment beside the old hint claimed the
-// opposite of what the polling code does:
+// The middle branch of the old reasoning was the bug. It ran:
 //
-//   * The API answers and names a match -> we are in `invited`, holding the
-//     real invitation and an in-app Accept button. No guess needed.
-//   * The API answers and names nothing -> there is no invitation. Either the
-//     repository does not exist yet, or it does and we were added directly
-//     (an org owner or member is - no invitation is ever sent), in which case
-//     getRepo already succeeded and we are in `provisioned`. Both ways the
-//     guessed link 404s, and offering it asserts a cause that is not true.
-//   * The API fails -> we are blind, and a guess is the best on offer.
+//   * a match -> `invited`, with the real invitation and an in-app Accept
+//     button; no guess needed.
+//   * an answer naming nothing -> THERE IS NO INVITATION. Either the repository
+//     does not exist yet, or we were added directly (an org owner or member is,
+//     and is never sent one) and getRepo already put us in `provisioned`.
+//   * a failed read -> blind, and a guess beats silence.
 //
-// So: only when we are blind.
-const invitationsReadable = ref(null)
-const showInvitationGuess = computed(
-  () => invitationsReadable.value === false && Boolean(invitationUrl.value),
+// The middle case is not sound: `GET /user/repository_invitations` answered 200
+// without a real, verified pending invitation in it - see
+// lib/invitation-evidence.js for the measurement. So the only knowledge the
+// page has is a match, and it must stop asserting the negative it cannot prove.
+//
+// The consequence is deliberate: `showInvitationGuess` is now true whenever we
+// are still waiting and have somewhere to send the student, and the copy beside
+// it says we cannot tell rather than that an invitation is waiting. Opening the
+// link is what settles it - the page renders if there is one, 404s if there is
+// not - which makes it the one check a student can actually run themselves.
+const invitationProven = ref(false)
+const showInvitationGuess = computed(() =>
+  mayOfferInvitationLink(invitationProven.value, invitationUrl.value),
 )
 
 // Poll for repo provisioning
@@ -1153,22 +1165,19 @@ function startPolling() {
       return
     }
 
-    // Check invitation. Whether this call ANSWERS is itself the signal that
-    // decides whether the guessed link may ever be shown - see
-    // `showInvitationGuess`.
+    // Check invitation. A MATCH is the only outcome that settles anything: an
+    // answer without one has already been observed while an invitation existed,
+    // so it leaves the question open rather than closing it.
     const invites = await getInvitations(token)
-    invitationsReadable.value = invites.ok && Array.isArray(invites.data)
-    if (invitationsReadable.value) {
-      const match = invites.data.find(
-        (inv) => inv.repository?.name === expectedName && inv.repository?.owner?.login === org
-      )
-      if (match) {
-        pendingInvitation.value = match
-        repoUrl.value = match.repository.html_url
-        repoFullName.value = match.repository.full_name
-        acceptState.value = 'invited'
-        return
-      }
+    const evidence = invitationEvidence(invites, { org, repo: expectedName })
+    invitationProven.value = evidence.proven
+    if (evidence.invitation) {
+      const match = evidence.invitation
+      pendingInvitation.value = match
+      repoUrl.value = match.repository.html_url
+      repoFullName.value = match.repository.full_name
+      acceptState.value = 'invited'
+      return
     }
 
     // Increase poll interval after many attempts (after ~1 minute, slow down to 10s)

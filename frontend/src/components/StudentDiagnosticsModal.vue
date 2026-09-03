@@ -29,8 +29,15 @@
         >
           <Icon name="check-circle" :size="20" class="stat-green" />
           <div class="text-sm">
-            <strong>All diagnostic checks look healthy</strong>
-            <div class="text-xs text-secondary">Setup is in progress or waiting on repository invitation acceptance.</div>
+            <!-- NOT "all checks look healthy". One of them cannot be run at
+                 all, and saying otherwise told a student everything was fine
+                 while a pending invitation was the exact thing blocking them
+                 - see lib/invitation-evidence.js. -->
+            <strong>No blocking problem found in what this page can check</strong>
+            <div class="text-xs text-secondary">
+              One check below cannot be run from the browser, so a pending repository invitation
+              cannot be ruled out.
+            </div>
           </div>
         </div>
 
@@ -138,24 +145,31 @@
             </div>
           </div>
 
-          <!-- Check 5: Pending Invitation Status -->
+          <!-- Check 5: Pending Invitation Status.
+               This check has TWO outcomes, not three: an invitation we are
+               holding, or no answer. It used to report "Clear - No blocked
+               invitations detected" for the second, which is a green tick on a
+               question nobody asked GitHub successfully. Live, 3 Sep 2026, it
+               showed exactly that beside a pending invitation the student
+               needed to accept. -->
           <div class="check-item flex items-start gap-sm">
             <Icon
-              :name="pendingInvitation || acceptState === 'invited' ? 'alert-triangle' : 'check-circle'"
+              :name="invitationPending ? 'alert-triangle' : 'help-circle'"
               :size="16"
-              :class="pendingInvitation || acceptState === 'invited' ? 'stat-yellow' : 'stat-green'"
+              :class="invitationPending ? 'stat-yellow' : 'stat-blue'"
               style="margin-top: 2px;"
             />
             <div>
               <div class="text-sm font-semibold">
                 Repository Collaboration Invitation:
-                <span>{{ (pendingInvitation || acceptState === 'invited') ? 'Invitation Pending' : 'Clear' }}</span>
+                <span>{{ invitationPending ? 'Invitation Pending' : 'Cannot be checked from here' }}</span>
               </div>
-              <div v-if="pendingInvitation || acceptState === 'invited'" class="text-xs text-warning">
+              <div v-if="invitationPending" class="text-xs text-warning">
                 GitHub has sent an invitation to your account. You must click "Accept Invitation" to access the repository.
               </div>
               <div v-else class="text-xs text-muted">
-                No blocked invitations detected.
+                This page cannot list your pending GitHub invitations, so it cannot rule one out.
+                Check GitHub Notifications below, or the invitation link on the assignment page.
               </div>
             </div>
           </div>
@@ -223,6 +237,13 @@ const isPersonalEmail = computed(() => {
   )
 })
 
+// The only invitation state this page can assert. Named once because the
+// template and the summary both used to spell the condition out, and the
+// template's negative branch then claimed the opposite - "Clear".
+const invitationPending = computed(
+  () => Boolean(props.pendingInvitation) || props.acceptState === 'invited',
+)
+
 const isPastDeadline = computed(() => {
   if (!props.assignment?.deadline_at) return false
   return new Date() > new Date(props.assignment.deadline_at)
@@ -274,16 +295,18 @@ const diagnosticsSummary = computed(() => {
       mainAction: 'The maximum student capacity has been reached.',
     }
   }
-  if (props.pendingInvitation || props.acceptState === 'invited') {
+  if (invitationPending.value) {
     return {
       hasIssue: true,
       mainTitle: 'Collaboration Invitation Awaiting Acceptance',
       mainAction: 'Check your GitHub notifications to accept the repository invitation.',
     }
   }
+  // Not "System Healthy". Nothing this page can check is failing, which is a
+  // narrower claim and the only one it is entitled to.
   return {
     hasIssue: false,
-    mainTitle: 'System Healthy',
+    mainTitle: 'No blocking problem found',
     mainAction: '',
   }
 })
@@ -303,6 +326,14 @@ async function copyReport() {
     `- **Roster Status**: ${props.rosterStatus}`,
     `- **Accept State**: ${props.acceptState}`,
     `- **Cap**: ${props.assignment?.accepted_count || 0}/${props.assignment?.max_acceptances || 'unlimited'}`,
+    // The lecturer reads this paste. Without the line they would take the
+    // report's silence for "no invitation", which is the misreading that cost
+    // a student two and a half minutes and a wrong answer.
+    `- **Pending invitation**: ${
+      invitationPending.value
+        ? 'yes - not yet accepted'
+        : 'unknown (the browser cannot list this student\'s invitations)'
+    }`,
     `- **Timestamp**: ${new Date().toISOString()}`,
   ].join('\n')
 

@@ -17,8 +17,20 @@
 //     window where it could not work.
 //
 // The page already polls /user/repository_invitations every tick and has an
-// `invited` state with a real in-app Accept button, so the guess is only ever
-// right when that call does not answer. That is the rule this pins.
+// `invited` state with a real in-app Accept button, so the guess was gated on
+// that call not answering.
+//
+// THAT GATE WAS WRONG, and this file now pins its replacement. Live on
+// 3 Sep 2026, PXL-Automation-II/test-pe3: the repository existed, GitHub held
+// a pending invitation for the signed-in student, and
+// /user/repository_invitations answered 200 without it. The page therefore
+// concluded there was no invitation and told the student setup had failed.
+//
+// So an answer is not knowledge - only a MATCH is. The link is now offered
+// whenever nothing has been proven, held back past ~60s so it is not put in
+// front of every student on the 20-40s happy path, and the copy beside it says
+// the page cannot tell rather than that an invitation is waiting.
+// tests/invitation-evidence.test.mjs holds the measurement.
 
 import { test, expect } from '@playwright/test';
 import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
@@ -42,7 +54,8 @@ const assignment = () => ({
 
 /**
  * Land on the student page mid-provisioning: the repository does not exist
- * yet, and `invitationsReadable` decides what the page may say about it.
+ * yet, and neither answer from the invitations endpoint settles whether one is
+ * waiting.
  */
 async function waiting(page, { invitationsAnswer = 'empty' } = {}) {
   await injectAuth(page, STUDENT_1);
@@ -71,20 +84,22 @@ async function waiting(page, { invitationsAnswer = 'empty' } = {}) {
 const guessLink = (page) => page.getByRole('link', { name: /repository invitation/i });
 
 test.describe('40 - The waiting state does not guess', () => {
-  test('No invitation link while GitHub is telling us there is no invitation', async ({ page }) => {
+  test('Nothing in the first half-minute, whatever the invitations API says', async ({ page }) => {
     // The reported bug. Fifteen seconds in, with the repository still being
     // created, the page offered a link that 404s - and blamed the student for
-    // not having accepted something that was never sent.
+    // not having accepted something that was never sent. The threshold is what
+    // prevents that now: before the repository exists the URL cannot resolve,
+    // so the affordance would be offered exactly where it cannot work.
     await waiting(page, { invitationsAnswer: 'empty' });
     await expect(page.locator('.pending-state')).toContainText('Waiting');
 
-    // Well past pollCount >= 5, which is where the old hint appeared.
+    // Well past pollCount >= 5, which is where the first bad hint appeared.
     await expect
       .poll(async () => Number((await page.locator('.pending-state').innerText()).match(/Waiting (\d+)s/)?.[1] ?? 0),
         { timeout: 40000 })
       .toBeGreaterThanOrEqual(18);
 
-    await expect(guessLink(page), 'the invitations API answered - there is nothing to accept')
+    await expect(guessLink(page), 'the repository probably does not exist yet - the link would 404')
       .toHaveCount(0);
     await expect(page.locator('.invitation-hint')).toHaveCount(0);
   });
@@ -94,27 +109,6 @@ test.describe('40 - The waiting state does not guess', () => {
     const pending = page.locator('.pending-state');
     await expect(pending).toContainText(/Still going, and that is normal/i, { timeout: 30000 });
     await expect(pending, 'no accusation').not.toContainText(/waiting for you to accept/i);
-  });
-
-  test('The link comes back when we genuinely cannot see invitations', async ({ page }) => {
-    // A 403 is the one case where a guess beats silence: we cannot tell
-    // whether an invitation is waiting, so we say exactly that.
-    await waiting(page, { invitationsAnswer: 'blind' });
-    await expect(guessLink(page)).toBeVisible({ timeout: 60000 });
-
-    const hint = page.locator('.invitation-hint');
-    await expect(hint).toContainText(/could not check your GitHub invitations/i);
-    await expect(hint, 'and a 404 there is explained rather than mysterious')
-      .toContainText(/404/);
-    await expect(guessLink(page)).toHaveAttribute('href', `https://github.com/${ORG}/${REPO}/invitations`);
-  });
-
-  test('Even blind, it is held back past the window where it would 404', async ({ page }) => {
-    // pollCount >= 10, not >= 5. Before ~30s the repository probably does not
-    // exist and the guessed URL cannot resolve.
-    await waiting(page, { invitationsAnswer: 'blind' });
-    await expect(page.locator('.pending-state')).toContainText('Waiting');
-    await expect(guessLink(page), 'not in the first few seconds').toHaveCount(0);
   });
 
   test('The wait sets an expectation instead of promising "less than a minute"', async ({ page }) => {
@@ -133,6 +127,31 @@ test.describe('40 - The waiting state does not guess', () => {
     await expect(pending).not.toContainText(/attempt/i);
     await expect(pending).not.toContainText(/Checking every/i);
   });
+});
+
+// Each of these has to sit through the real ~60s hold-back before the link is
+// allowed to appear, so they run beside each other rather than one after the
+// other. They share nothing: a page, a set of routes and a clock each.
+test.describe('40 - Past the ordinary window, the link is offered either way', () => {
+  test.describe.configure({ mode: 'parallel' });
+
+  for (const invitationsAnswer of ['empty', 'blind']) {
+    test(`invitations answer: ${invitationsAnswer}`, async ({ page }) => {
+      // BOTH answers, and that is the whole fix. A 200 with an empty list used
+      // to suppress this link entirely - and that is the exact response the
+      // live page got on 3 Sep 2026 while an invitation with the student's
+      // name on it sat unaccepted in PXL-Automation-II/test-pe3-tomccargo.
+      test.setTimeout(120000);
+      await waiting(page, { invitationsAnswer });
+      await expect(guessLink(page)).toBeVisible({ timeout: 90000 });
+
+      const hint = page.locator('.invitation-hint');
+      await expect(hint).toContainText(/cannot see your GitHub invitations/i);
+      await expect(hint, 'and a 404 there is explained rather than mysterious')
+        .toContainText(/404/);
+      await expect(guessLink(page)).toHaveAttribute('href', `https://github.com/${ORG}/${REPO}/invitations`);
+    });
+  }
 });
 
 test.describe('40 - An invitation on page two is still an invitation', () => {

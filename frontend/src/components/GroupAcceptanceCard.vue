@@ -92,10 +92,11 @@
         Still going, and that is normal. Leave this page open - it updates by itself.
       </p>
 
-      <div v-if="pollCount >= 10 && showInvitationGuess" class="invitation-hint" role="status">
+      <!-- Held back past the ordinary provisioning window; see AssignmentView. -->
+      <div v-if="pollCount >= 20 && showInvitationGuess" class="invitation-hint" role="status">
         <p class="text-secondary">
-          We could not check your GitHub invitations from here. If you are not already a member of
-          <strong>{{ org }}</strong>, there may be one waiting:
+          This page cannot see your GitHub invitations. If <strong>{{ org }}</strong> invited you
+          rather than adding you directly, your team repository is waiting behind that invitation:
         </p>
         <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary">
           Look for a repository invitation
@@ -124,23 +125,32 @@
     <!-- State: Timeout -->
     <div v-else-if="acceptState === 'timeout'" class="timeout-state text-center">
       <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
-      <h2 v-if="showInvitationGuess">Invitation may be pending</h2>
-      <h2 v-else>Your team repository has not appeared</h2>
+      <!-- ONE headline. The page cannot see pending invitations, so it may not
+           split on "we asked and there was none" - see AssignmentView. -->
+      <h2>Your team repository has not appeared</h2>
+      <!-- One block: the explanation is about the link, and dangles without it. -->
       <template v-if="showInvitationGuess">
         <p class="text-secondary">
-          We could not check your invitations from this page. Please check your GitHub
-          notifications or email for an invitation to the team repository.
+          Either there is a team repository invitation you still need to accept, or setup did not
+          finish. This page cannot tell which - it is not able to see your pending invitations -
+          but you can, in one click:
         </p>
-        <a :href="invitationUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg" style="margin-bottom: var(--space-sm);">
-          Open Repository Invitations
+        <a
+          :href="invitationUrl"
+          target="_blank"
+          rel="noopener"
+          class="btn btn-primary btn-lg"
+          style="margin-bottom: var(--space-sm);"
+        >
+          Check for a repository invitation
         </a>
         <p class="text-muted" style="margin-bottom: var(--space-sm);">
-          If that page shows a "404", the repository was never created - tell your lecturer.
+          If that page offers you an invitation, accept it, then press <strong>Check again</strong>.
+          If it shows a "404", there is no invitation for you to accept - tell your lecturer.
         </p>
       </template>
       <p v-else class="text-secondary">
-        GitHub has no repository for your team and no invitation waiting, so setup did not
-        finish. This is not something you can fix from here - tell your lecturer.
+        Setup did not finish - tell your lecturer.
       </p>
       <button class="btn btn-secondary" @click="checkExistingState">Check again</button>
     </div>
@@ -378,6 +388,7 @@ import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
+import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
@@ -493,9 +504,9 @@ const filteredTeams = computed(() => {
 const openTeamsCount = computed(() => teams.value.filter((t) => !t.is_full).length)
 
 // A GUESS at the invitation page, and it 404s until the repository exists.
-// Only shown when GET /user/repository_invitations is not answering, because
-// otherwise we already know the truth - see AssignmentView for the full
-// reasoning, which this card duplicates.
+// Offered whenever no invitation has been PROVEN, because this page cannot see
+// the student's pending invitations - see lib/invitation-evidence.js for the
+// measurement, and AssignmentView for the same reasoning at length.
 const invitationUrl = computed(() => {
   if (!targetTeamName.value && !myCurrentTeam.value) return null
   const slug = myCurrentTeam.value?.team_slug || selectedTeam.value?.team_slug || computedSlug.value
@@ -504,9 +515,9 @@ const invitationUrl = computed(() => {
   return `https://github.com/${props.org}/${repo}/invitations`
 })
 
-const invitationsReadable = ref(null)
-const showInvitationGuess = computed(
-  () => invitationsReadable.value === false && Boolean(invitationUrl.value),
+const invitationProven = ref(false)
+const showInvitationGuess = computed(() =>
+  mayOfferInvitationLink(invitationProven.value, invitationUrl.value),
 )
 
 onMounted(async () => {
@@ -728,19 +739,18 @@ async function checkExistingState() {
       return
     }
 
+    // A match is the only outcome that settles anything - see
+    // lib/invitation-evidence.js.
     const invites = await getInvitations(token)
-    invitationsReadable.value = invites.ok && Array.isArray(invites.data)
-    if (invitationsReadable.value) {
-      const match = invites.data.find(
-        (inv) => inv.repository?.name === expectedName && inv.repository?.owner?.login === props.org
-      )
-      if (match) {
-        pendingInvitation.value = match
-        repoUrl.value = match.repository.html_url
-        repoFullName.value = match.repository.full_name
-        acceptState.value = 'invited'
-        return
-      }
+    const evidence = invitationEvidence(invites, { org: props.org, repo: expectedName })
+    invitationProven.value = evidence.proven
+    if (evidence.invitation) {
+      const match = evidence.invitation
+      pendingInvitation.value = match
+      repoUrl.value = match.repository.html_url
+      repoFullName.value = match.repository.full_name
+      acceptState.value = 'invited'
+      return
     }
   }
 }
@@ -849,17 +859,15 @@ function startPolling(teamSlug) {
     }
 
     const invites = await getInvitations(token)
-    if (invites.ok && Array.isArray(invites.data)) {
-      const match = invites.data.find(
-        (inv) => inv.repository?.name === expectedName && inv.repository?.owner?.login === props.org
-      )
-      if (match) {
-        pendingInvitation.value = match
-        repoUrl.value = match.repository.html_url
-        repoFullName.value = match.repository.full_name
-        acceptState.value = 'invited'
-        return
-      }
+    const evidence = invitationEvidence(invites, { org: props.org, repo: expectedName })
+    invitationProven.value = evidence.proven
+    if (evidence.invitation) {
+      const match = evidence.invitation
+      pendingInvitation.value = match
+      repoUrl.value = match.repository.html_url
+      repoFullName.value = match.repository.full_name
+      acceptState.value = 'invited'
+      return
     }
 
     if (pollCount.value > 20) {

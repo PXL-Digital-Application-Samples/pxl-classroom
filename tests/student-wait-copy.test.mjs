@@ -35,27 +35,70 @@ const STUDENT_SURFACES = [
   ["components/GroupAcceptanceCard.vue", "the group student card"],
 ];
 
-test("the guessed invitation link is gated on not being able to see the real one", () => {
-  // The rule, and the reason it is this and not "wait longer": the page polls
-  // /user/repository_invitations every tick. If that answers, we already know
-  // - a match puts us in `invited` with an in-app Accept button, and no match
-  // means there is nothing to accept. Either way the guess is wrong. Only a
-  // FAILED read leaves us blind enough for a guess to beat silence.
+test("the guessed invitation link is gated on nothing having been proven", () => {
+  // The rule used to be "only when the invitations read FAILED", on the
+  // premise that a read which answered told us the truth. It does not: live on
+  // 3 Sep 2026 `GET /user/repository_invitations` answered 200 without a
+  // pending invitation that provably existed, so the page concluded there was
+  // none and said so. tests/invitation-evidence.test.mjs holds the measurement.
+  //
+  // What replaced it: a MATCH is the only proof, and it puts the page in
+  // `invited` with a real in-app Accept button. Everything else is unknown, and
+  // the link is offered precisely because the page cannot tell.
   for (const [file, label] of STUDENT_SURFACES) {
     const src = view(file);
     assert.match(
       src,
-      /const showInvitationGuess = computed\(\s*\(\) => invitationsReadable\.value === false/,
-      `${label}: the guess must be gated on the invitations read having FAILED`,
+      /const showInvitationGuess = computed\(\(\) =>\s*mayOfferInvitationLink\(invitationProven\.value, invitationUrl\.value\),?\s*\)/,
+      `${label}: the guess must be gated on nothing having been PROVEN`,
     );
     assert.match(
       src,
-      /invitationsReadable\.value = invites\.ok && Array\.isArray\(invites\.data\)/,
-      `${label}: the poll must record whether the read answered`,
+      /invitationProven\.value = evidence\.proven/,
+      `${label}: the poll must record proof, not readability`,
+    );
+    assert.ok(
+      !/invitationsReadable/.test(src),
+      `${label}: "the read answered" is not knowledge about invitations - that is the bug`,
     );
     assert.ok(
       !/v-if="pollCount >= 5 && invitationUrl"/.test(src),
-      `${label}: a timer is not evidence of an invitation - that is the bug`,
+      `${label}: a timer is not evidence of an invitation - that is the older bug`,
+    );
+  }
+});
+
+test("no student surface claims there is no invitation waiting", () => {
+  // The sentence that was on screen beside a repository that existed and an
+  // invitation with the student's name on it. Nothing may assert the negative,
+  // in any wording, because nothing can check it.
+  for (const [file, label] of STUDENT_SURFACES) {
+    const text = rendered(file);
+    assert.ok(
+      !/no invitation waiting/i.test(text),
+      `${label}: the page cannot see pending invitations, so it may not rule one out`,
+    );
+    // And it must say why it is offering a link rather than an answer. Without
+    // this the copy could drift back to asserting one of the two possibilities
+    // while still passing the sweep above.
+    assert.match(
+      text,
+      /cannot tell which/,
+      `${label}: name both possibilities and admit the page cannot choose`,
+    );
+  }
+});
+
+test("the guessed link is held back past the ordinary provisioning window", () => {
+  // It is now shown to everyone still waiting, not only the blind - so the
+  // threshold is the whole protection against handing a worry to every student
+  // on the happy path. pollCount 20 is ~60s at the 3s cadence, past the 20-40s
+  // ordinary case, and past the window where the URL would 404.
+  for (const [file, label] of STUDENT_SURFACES) {
+    assert.match(
+      view(file),
+      /v-if="pollCount >= 20 && showInvitationGuess"/,
+      `${label}: not before ~60s`,
     );
   }
 });
@@ -63,6 +106,12 @@ test("the guessed invitation link is gated on not being able to see the real one
 test("nothing accuses the student of not having accepted something", () => {
   // "GitHub may be waiting for you to accept an invitation" was asserted from
   // a timer, and for an org member it is never true.
+  //
+  // What this forbids is naming it as THE cause. Offering it as one of two
+  // possibilities the page says it cannot choose between is a different claim,
+  // and is what the timeout state does now - so the copy there is worded as
+  // "either there is an invitation you still need to accept, or setup did not
+  // finish", which is not this sentence and does not accuse anyone.
   for (const [file, label] of STUDENT_SURFACES) {
     assert.ok(
       !/waiting for you to accept an\s+invitation/i.test(rendered(file)),
@@ -113,10 +162,18 @@ test("the first poll fires immediately, not at +3s", () => {
   }
 });
 
-test("timing out distinguishes 'accept your invitation' from 'it was never created'", () => {
-  // The old copy told EVERY timed-out student their repository "has almost
-  // certainly been created" and handed them the guessed link. For a student
-  // whose provisioning genuinely failed that is a 404 and no idea why.
+test("timing out names both possibilities and picks neither", () => {
+  // Three copies have stood here. The first told EVERY timed-out student their
+  // repository "has almost certainly been created" and handed them the guessed
+  // link - a 404 and no idea why, for the ones whose provisioning failed. The
+  // second split on whether the invitations read answered, and its negative
+  // branch stated "GitHub has no repository for you and no invitation waiting"
+  // as fact; that is the sentence a student read on 3 Sep 2026 while holding
+  // an unaccepted invitation.
+  //
+  // This one says there are two possibilities, says the page cannot tell them
+  // apart, and hands over the one check the student CAN run - where a 404 is
+  // itself the answer.
   const src = view("views/AssignmentView.vue");
   // `blocked-account` is rendered BEFORE `timeout`, so slicing between them
   // in template order gives an empty string - and every assertion below would
@@ -127,15 +184,28 @@ test("timing out distinguishes 'accept your invitation' from 'it was never creat
   const next = rest.indexOf(`v-else-if="acceptState`, 10);
   const timeout = next === -1 ? rest.slice(0, 4000) : rest.slice(0, next);
   assert.ok(timeout.length > 200, "the timeout branch must still have content");
-  assert.match(timeout, /<h2 v-if="showInvitationGuess">One more step - accept your invitation<\/h2>/);
-  assert.match(timeout, /<h2 v-else>Your repository has not appeared<\/h2>/);
+  assert.match(timeout, /<h2>Your repository has not appeared<\/h2>/);
+  assert.ok(
+    !/<h2 v-if=/.test(timeout),
+    "one headline: the page has no evidence on which to choose between two",
+  );
+  assert.match(
+    timeout,
+    /cannot tell which/,
+    "the page must say it cannot tell, rather than pick the answer it renders best",
+  );
+  assert.match(timeout, /404/, "and a 404 on that link is the student's own way to settle it");
   assert.ok(
     !/almost certainly been created/.test(timeout),
     "a claim the page cannot support, made to the students it is least true for",
   );
 
   const group = view("components/GroupAcceptanceCard.vue");
-  assert.match(group, /<h2 v-else>Your team repository has not appeared<\/h2>/);
+  assert.match(group, /<h2>Your team repository has not appeared<\/h2>/);
+  assert.ok(
+    !/no invitation waiting/.test(group),
+    "the group card carried the same sentence and the same false premise",
+  );
 });
 
 test("a 404 on the guessed link is explained wherever it is offered", () => {
@@ -143,4 +213,39 @@ test("a 404 on the guessed link is explained wherever it is offered", () => {
   for (const [file, label] of STUDENT_SURFACES) {
     assert.match(view(file), /404/, `${label}: say what a 404 there means`);
   }
+});
+
+test("the diagnostics modal reports the invitation check as unrunnable, not as clear", () => {
+  // It said "Repository Collaboration Invitation: Clear - No blocked
+  // invitations detected" under "All diagnostic checks look healthy", to a
+  // student whose repository was sitting behind an unaccepted invitation. The
+  // modal has no way to check this: it reads the same `pendingInvitation` the
+  // acceptance page holds, which is set only when a match was FOUND. A green
+  // tick on an unasked question is worse than no check.
+  const src = view("components/StudentDiagnosticsModal.vue");
+  const text = rendered("components/StudentDiagnosticsModal.vue");
+
+  assert.ok(!/'Clear'/.test(src), "'Clear' is a verdict this check cannot reach");
+  assert.ok(
+    !/No blocked invitations detected/.test(text),
+    "nor is 'none detected' - nothing detected them because nothing could look",
+  );
+  assert.ok(
+    !/All diagnostic checks look healthy/.test(text),
+    "one of them cannot be run, so 'all healthy' is false on its face",
+  );
+  assert.match(
+    text,
+    /Cannot be checked from here/,
+    "say that it cannot be checked, which is the true answer",
+  );
+
+  // The copyable report is what a student pastes to their lecturer, and
+  // silence there reads as "no invitation" to the person who can actually fix
+  // it. It must carry the unknown explicitly.
+  const from = src.indexOf("async function copyReport");
+  assert.ok(from > 0, "copyReport must still exist");
+  const report = src.slice(from, from + 1600);
+  assert.match(report, /Pending invitation/, "the report names the check");
+  assert.match(report, /unknown/, "and says it is unknown rather than leaving it out");
 });

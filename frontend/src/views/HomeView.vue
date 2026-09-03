@@ -206,6 +206,7 @@ import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getInvitations, getUserRepos } from '../lib/api.js'
+import { invitationEvidence } from '../lib/invitation-evidence.js'
 import { formatDate } from '../lib/format.js'
 import { parseInvitationLink } from '../lib/invite.js'
 
@@ -356,9 +357,14 @@ async function loadStudentAssignments() {
     }
     const userRepos = reposRes.data
 
-    // Invitations degrade rather than block: a failed read here costs the
-    // "Invitation pending" badge on assignments the student has not accepted,
-    // while everything they HAVE accepted still lists correctly.
+    // Invitations degrade rather than block: a read that gives us nothing costs
+    // the "Invitation pending" badge on assignments the student has not
+    // accepted, while everything they HAVE accepted still lists correctly.
+    //
+    // And "gives us nothing" covers a 200 with an empty list, which this
+    // endpoint has been observed returning to a student who had one - see
+    // lib/invitation-evidence.js. This list is therefore only ever used to ADD
+    // a row, never to conclude that an assignment has no invitation.
     const userInvites = (invitesRes.ok && Array.isArray(invitesRes.data)) ? invitesRes.data : []
 
     const userLogin = user.value.login.toLowerCase()
@@ -410,9 +416,11 @@ async function loadStudentAssignments() {
         continue
       }
 
-      // Check pending invitation
-      const existingInvite = userInvites.find(
-        (inv) => inv.repository?.owner?.login?.toLowerCase() === a.org.toLowerCase() && inv.repository?.name?.toLowerCase() === expectedName
+      // Check pending invitation. Fourth copy of this match in the SPA until
+      // it went through the one judge the other three now use.
+      const { invitation: existingInvite } = invitationEvidence(
+        { ok: true, data: userInvites },
+        { org: a.org, repo: expectedName },
       )
       if (existingInvite) {
         matched.push({
