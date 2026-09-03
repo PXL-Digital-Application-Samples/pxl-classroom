@@ -1,0 +1,61 @@
+{
+  "//": [
+    "Works out the next version from the commits since the last tag, tags it,",
+    "and writes a GitHub Release with generated notes. Run from the Actions tab",
+    "when you want to cut a release - see .github/workflows/release.yml for why",
+    "it is not on every push.",
+    "",
+    "Three plugins, and the absences matter more than the presences:",
+    "",
+    "  NO @semantic-release/npm    - every package here is private. The CLI is",
+    "                                installed from a clone with `npm link`, so",
+    "                                there is nothing to publish and a publish",
+    "                                step would be a credential this repository",
+    "                                does not need to hold.",
+    "  NO @semantic-release/git    - nothing is committed back. A release that",
+    "                                pushes to main races the deploy it just",
+    "                                triggered, and `main` is protected against",
+    "                                force-push, so a bad write is not",
+    "                                reversible. The tag IS the record; the",
+    "                                build reads it with `git describe`.",
+    "",
+    "Version numbers therefore live in git tags only - package.json versions are",
+    "left alone deliberately, because three packages with three numbers was the",
+    "shape this project explicitly did not choose."
+  ],
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "docs", "release": false },
+          { "type": "test", "release": false },
+          { "type": "chore", "release": false },
+          { "type": "refactor", "release": "patch" },
+          { "type": "revert", "release": "patch" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Features" },
+            { "type": "fix", "section": "Fixes" },
+            { "type": "revert", "section": "Reverted" },
+            { "type": "refactor", "section": "Internal" },
+            { "type": "docs", "section": "Documentation", "hidden": false },
+            { "type": "chore", "hidden": true },
+            { "type": "test", "hidden": true }
+          ]
+        }
+      }
+    ],
+    "@semantic-release/github"
+  ]
+}

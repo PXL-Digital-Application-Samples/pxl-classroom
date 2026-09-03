@@ -1,0 +1,80 @@
+name: Release
+
+# Manual, deliberately.
+#
+# semantic-release's usual home is a push trigger, and on this repository that
+# would be wrong: every push to `main` deploys, and a day of ordinary work
+# carries ten or more `fix:` and `feat:` commits. Releasing on each one turns
+# the release list into the commit log with extra steps, and a release that
+# means nothing is not worth the tag.
+#
+# So the NUMBER is computed automatically - from the conventional commits that
+# are already written - and the DECISION to cut a release stays a human one.
+# Run it from the Actions tab when a batch of work is worth naming.
+#
+# What it does: reads commits since the last tag, works out patch/minor/major,
+# creates the tag and a GitHub Release with generated notes. It writes nothing
+# back to the branch (see .releaserc.json for why), so it cannot race the deploy
+# it triggers.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report the version that WOULD be released, and change nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Tags and releases.
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      # A release is a statement about what a human decided to ship. Nothing
+      # here reads a hub App credential, but the guard is the same one every
+      # other dispatchable workflow carries: a bot may not cut a release.
+      - name: Refuse a bot actor
+        if: endsWith(github.actor, '[bot]')
+        run: |
+          echo "Releases are cut by people, not by ${GITHUB_ACTOR}." >&2
+          exit 1
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # semantic-release reads the whole history to find the last tag and
+          # everything after it. A shallow clone makes it believe the project
+          # has no releases and start again at 1.0.0.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -e
+          # Pinned exactly, like every other tool this repository fetches.
+          # `npx semantic-release` unpinned would mean a release process that
+          # changes under you between runs.
+          ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then ARGS="--dry-run"; fi
+          npx --yes \
+            --package semantic-release@24.2.9 \
+            --package @semantic-release/commit-analyzer@13.0.1 \
+            --package @semantic-release/release-notes-generator@14.0.3 \
+            --package @semantic-release/github@11.0.6 \
+            --package conventional-changelog-conventionalcommits@8.0.0 \
+            -- semantic-release $ARGS

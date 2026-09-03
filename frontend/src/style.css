@@ -739,6 +739,21 @@ a:hover {
   text-decoration: none;
 }
 
+/* Which build is running. The same size and colour as UserBadge's session
+   label, because it is the same kind of thing: metadata you ignore until you
+   need it, and then need exactly. Never an action. */
+.app-header-build {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.app-header-build:hover {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
 /* The manual, reachable from every bar. Deliberately quiet - it sits beside
    ThemeToggle as a utility, not as an action competing with the view's own
    primary button (DESIGN.md 1.2). */

@@ -14,6 +14,18 @@
 
         <div class="app-header-right flex items-center gap-sm">
           <slot name="actions" />
+          <!-- What is running. Deliberately the quietest thing in the bar -
+               nobody needs it until something is wrong, and then they need it
+               immediately. -->
+          <a
+            v-if="BUILD_COMMIT_URL"
+            class="app-header-build"
+            :href="BUILD_COMMIT_URL"
+            target="_blank"
+            rel="noopener noreferrer"
+            :title="`Deployed build - opens commit ${BUILD_SHORT_SHA}`"
+          >{{ BUILD_LABEL }}</a>
+          <span v-else class="app-header-build" title="Local development build">{{ BUILD_LABEL }}</span>
           <router-link :to="{ name: 'manual' }" class="app-header-help">Help</router-link>
           <ThemeToggle />
           <UserBadge v-if="user" :user="user" @logout="emit('logout')" />
@@ -25,6 +37,7 @@
 
 <script setup>
 import logoUrl from '../assets/logo.png'
+import { BUILD_LABEL, BUILD_SHORT_SHA, BUILD_COMMIT_URL } from '../lib/build-info.js'
 import ThemeToggle from './ThemeToggle.vue'
 import UserBadge from './UserBadge.vue'
 
