@@ -7,7 +7,7 @@
 //   BROKER_REPO: PXL-Automation-II/broker-test-pe3
 //   [ok] could not comment on the broker issue (HTTP 404)
 //
-// `comment-acceptance-outcome.mjs` composed `/repos/${ORG}/${BROKER_REPO}/...`
+// `publish-acceptance-outcome.mjs` (then named comment-…) composed `/repos/${ORG}/${BROKER_REPO}/...`
 // against a value that is ALREADY `owner/repo`, so every request went to
 // `/repos/PXL-Automation-II/PXL-Automation-II/broker-test-pe3/...`. The feature
 // - telling a rejected student why, on the one surface both sides can read -
@@ -122,7 +122,7 @@ test("missing pieces are refused with a reason, never with a guess", () => {
 test("neither hub script composes the broker path by hand any more", () => {
   // The fork this module exists to end. A second implementation is how the
   // read side stayed guarded while the write side did not.
-  for (const f of ["scripts/comment-acceptance-outcome.mjs", "scripts/read-team-payload.mjs"]) {
+  for (const f of ["scripts/publish-acceptance-outcome.mjs", "scripts/read-team-payload.mjs"]) {
     const src = code(f);
     assert.match(src, /resolveBrokerIssue/, `${f}: must go through the shared resolver`);
     assert.ok(
@@ -136,14 +136,19 @@ test("neither hub script composes the broker path by hand any more", () => {
   }
 });
 
-test("a failure to comment is a warning, never printed as [ok]", () => {
+test("a failure to publish the outcome is a warning, never printed as [ok]", () => {
   // The 404 ran on every acceptance for as long as the feature existed and was
   // logged as if it were the expected path, under a step that is
   // continue-on-error by design. The step must stay non-fatal AND be visible;
   // those are not the same requirement.
-  const src = code("scripts/comment-acceptance-outcome.mjs");
+  const src = code("scripts/publish-acceptance-outcome.mjs");
   const bad = src.match(/console\.log\(\s*`\[ok\][^`]*(could not|failed)[^`]*`/g);
   assert.equal(bad, null, `a failure printed as [ok]: ${bad}`);
-  assert.match(src, /::warning::Could not comment on/, "the HTTP failure is annotated");
+  assert.match(src, /::warning::Could not label/, "the HTTP failure is annotated");
   assert.match(src, /::warning::Could not tell the student/, "and so is an unexpected throw");
+
+  // WITH GitHub's own message. "403" alone cost two wrong inferences - a
+  // locked conversation, a missing permission and a suspended account all look
+  // identical - before one word from the API would have settled it.
+  assert.match(src, /res\.data\?\.message/, "the API's message must travel with the status");
 });

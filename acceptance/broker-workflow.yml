@@ -263,7 +263,7 @@ jobs:
       #
       # `gh issue edit --title` needs only `issues: write`, so this costs no
       # extra credential on a repository that already holds too many.
-      - name: Redact and close trigger issue
+      - name: Redact and lock trigger issue
         if: always() && steps.verify.outputs.valid == 'true'
         shell: bash
         env:
@@ -272,6 +272,22 @@ jobs:
           ISSUE_NUMBER: ${{ steps.parse.outputs.number }}
         run: |
           [ -n "$ISSUE_NUMBER" ] || exit 0
+          # REDACT and LOCK, but do NOT close.
+          #
+          # The student authored this issue, so GitHub subscribes them to it -
+          # and closing is a state change, which emails them. A student
+          # reported receiving "Re: [org/broker-x] Acceptance (processed) -
+          # Closed #1 has been completed", which is mail about internal
+          # plumbing they never asked for and which reads like a failure.
+          #
+          # Editing the title does NOT notify - the same student got exactly
+          # one email, about the close, while this line had already rewritten
+          # their title. So redaction still happens the moment it can, which is
+          # what actually protects the signed invitation (ARCHITECTURE §4.3.2).
+          #
+          # Locking is silent too, and still worth doing: it keeps the issue
+          # from being used as a conversation. Closed vs open changes nothing
+          # else - the hub reads the issue by number, and the page's
+          # "acceptance in flight" check reads `state=all`.
           gh issue edit "$ISSUE_NUMBER" --title "Acceptance (processed)" || true
-          gh issue close "$ISSUE_NUMBER" --reason "completed" || true
           gh issue lock "$ISSUE_NUMBER" --reason "resolved" || true

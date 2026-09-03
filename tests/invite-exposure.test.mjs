@@ -38,13 +38,30 @@ const handlerSteps = Object.values(HANDLER.jobs).flatMap((j) => j.steps || []);
 // --- 1. The broker redacts, and does not try to delete ----------------------
 
 test("the broker redacts the title on the success path", () => {
-  const step = brokerSteps.find((s) => s.name === "Redact and close trigger issue");
+  const step = brokerSteps.find((s) => s.name === "Redact and lock trigger issue");
   assert.ok(step, "the broker must clean up after a valid invitation");
-  assert.match(step.run, /gh issue edit .* --title/, "it must rename the issue, not only close it");
+  assert.match(step.run, /gh issue edit .* --title/, "it must rename the issue");
 
   const edit = step.run.indexOf("gh issue edit");
-  const close = step.run.indexOf("gh issue close");
-  assert.ok(edit > -1 && close > -1 && edit < close, "redact before closing");
+  const lock = step.run.indexOf("gh issue lock");
+  assert.ok(edit > -1 && lock > -1 && edit < lock, "redact first - the title is the exposure");
+});
+
+test("the broker does NOT close the issue, because closing emails the student", () => {
+  // The student authored this issue, so GitHub subscribes them to it, and a
+  // state change notifies. One reported receiving "Re: [org/broker-x]
+  // Acceptance (processed) - Closed #1 has been completed" - mail about
+  // internal plumbing that reads like a failure.
+  //
+  // Editing the title is silent: the same student got exactly one email, about
+  // the close, while the redaction above had already rewritten their title. So
+  // the redaction stays and the close goes.
+  const step = brokerSteps.find((s) => s.name === "Redact and lock trigger issue");
+  assert.ok(step, "the cleanup step must still exist");
+  assert.ok(
+    !/gh issue close/.test(step.run),
+    "closing the issue emails its author, and the issue is authored by the student",
+  );
 });
 
 test("the broker redacts the title on the reject path too", () => {

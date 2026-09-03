@@ -937,6 +937,25 @@ One limit survives, and it is the whole decision: **enrolling by org membership 
 
 This is *"unreadable is not evidence"* one level deeper than it had been applied. Every earlier instance keyed off the transport - a non-`ok` response, a thrown read, a capped walk. This one was `ok`, well-formed, and empty, and the only thing wrong with it was that it was **an answer to a question we were not entitled to ask**. Where a read's authority cannot be established, a green tick and a "none found" are the same lie. `tests/invitation-evidence.test.mjs` holds the measurement and pins the rule; `tests/student-wait-copy.test.mjs` forbids the sentence on every student surface; `tests/e2e/40-provisioning-wait.spec.mjs` now drives the empty-list case and the 403 case through the *same* expectation, which is the assertion the old file could not make.
 
+### A comment is a notification. Metadata is not.
+
+The hub's channel to a student is their own acceptance issue on the public broker — the one surface both halves can read. It was a **comment**, and a student forwarded what that actually looks like from the other side:
+
+> Re: [PXL-Automation-II/broker-test-pe4] Acceptance (processed) (Issue #1)
+> **Closed #1 has been completed.**
+
+They authored that issue, so GitHub subscribes them to it, and every state change and comment mails them. The system was sending a student email about its own plumbing — a redacted title and a closed issue — which reads like a failure and explains nothing. Nobody had thought about the issue from the inbox of the person who opened it.
+
+The same inbox settled the mechanism for free: the broker **edits the title and closes** in the same step, and only the close produced mail. **Metadata is silent; conversation and state changes are not.**
+
+So the outcome moved from a comment to a **label**, and the broker stopped closing (it still redacts, which is what actually protects the signed invitation, and still locks). Three separate problems fell out at once:
+
+* **No mail.** Labels notify nobody.
+* **The 403 disappears.** `POST .../comments` on the locked issue was returning 403 with the cause still unidentified after two wrong inferences; `POST .../labels` on the *same* locked issue returned **200**. Measured on the testbed, along with labels being auto-created on first use, so publishing provisions nothing.
+* **It cannot be forged.** Applying a label needs triage or write access, which a student does not have on a broker. Anyone can comment on a public issue — which is why the comment version needed a rule making a rejection outrank a success. The rule is kept, but only as insurance against a bug setting both.
+
+**And the label is deliberately coarse.** `outcome:invited` and `outcome:rejected`, no more. A per-reason label is filterable in one click, so `outcome:rejected-not-on-roster` would have been a public, sortable list of which named students are not enrolled — enrolment data about people who never chose to publish it, which is not the same as their own acceptance being public. Nineteen per-slug sentences on the student's page went with it: the label says *who* was refused, the private control repo says *why*, and the page now says "your lecturer can see the reason". That is a real loss of student-facing detail, taken deliberately, and it is written down here so the trade is not quietly reversed by someone adding "just one more label".
+
 ### The read side was guarded and the write side was not.
 
 Found in the run log of the acceptance above, while checking whether the *fix* for it could use the same channel:

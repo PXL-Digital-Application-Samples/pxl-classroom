@@ -115,33 +115,35 @@ jobs:
             [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           dedup-key: reject-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.github_login }}-${{ steps.accept.outputs.outcome }}
 
-      # Tell the STUDENT, not only the lecturer.
+      # Tell the STUDENT, not only the lecturer - with a LABEL, not a comment.
       #
-      # A rejection was recorded in two places a student cannot read - the
+      # A rejection was recorded in two places a student cannot read (the
       # notifications issue and the claim-attempt record, both in the private
-      # control repo - so their page had nothing to go on and guessed. It
+      # control repo), so their page had nothing to go on and guessed: it
       # offered "the registration cap has been reached" to somebody refused for
       # `rejected:no-claim`. The broker issue is the surface both sides already
-      # share: the browser opened it and still holds its number.
+      # share - the browser opened it and still holds its number.
       #
-      # Only the CATEGORY crosses. The broker repository is public and the
-      # rejection notes carry the address the student typed; the claim is sealed
-      # so that address reaches nobody but the hub, and republishing it here
-      # would undo that. See scripts/comment-acceptance-outcome.mjs.
-      # Tell the student their repository EXISTS and is behind an invitation.
+      # A COMMENT EMAILS THEM. The student authored that issue, so GitHub
+      # subscribes them to it; a student reported "Re: Acceptance (processed) -
+      # Closed #1 has been completed" arriving in their inbox, which is mail
+      # about internal plumbing. Metadata is silent, and labelling a LOCKED
+      # issue returns 200 where commenting was returning 403. A label also
+      # cannot be forged: applying one needs triage or write access, which a
+      # student does not have on a broker.
       #
-      # The grant returned 201, which is the only evidence anywhere that GitHub
-      # sent one: measured 2026-09-03, the student's own token gets `200 []`
-      # from /user/repository_invitations and 403 from
-      # /user/memberships/orgs/{org}, so their page can see neither the
-      # invitation nor the org membership that would imply it. Without this the
-      # page can only offer a guessed link after a minute of waiting and say it
-      # cannot tell what is going on.
-      #
-      # Nothing is posted for a 204 grant. See scripts/comment-acceptance-outcome.mjs.
+      # Two labels exist and no more - lib/acceptance-labels.mjs. A per-reason
+      # label is filterable in one click, which would turn a public broker into
+      # a sortable list of which named students are not on the roster.
       - name: Tell the student their repository is waiting on an invitation
+        # The grant returned 201, the only evidence anywhere that GitHub sent an
+        # invitation: measured 2026-09-03, the student's own token gets `200 []`
+        # from /user/repository_invitations and 403 from
+        # /user/memberships/orgs/{org}, so their page can see neither the
+        # invitation nor the org membership that would imply it. A 204 grant
+        # earns no label - the repository is readable at once.
         if: steps.prov.outputs.invited == 'true'
-        # A courtesy comment must never turn a successful provisioning red.
+        # A courtesy label must never turn a successful provisioning red.
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
@@ -149,11 +151,11 @@ jobs:
           BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
           ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
           OUTCOME: provisioned:invited
-        run: node scripts/comment-acceptance-outcome.mjs
+        run: node scripts/publish-acceptance-outcome.mjs
 
-      - name: Tell the student why they were turned away
+      - name: Tell the student they were turned away
         if: startsWith(steps.accept.outputs.outcome, 'rejected')
-        # A courtesy comment must never turn a handled rejection into a red run.
+        # A courtesy label must never turn a handled rejection into a red run.
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
@@ -161,7 +163,7 @@ jobs:
           BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
           ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
           OUTCOME: ${{ steps.accept.outputs.outcome }}
-        run: node scripts/comment-acceptance-outcome.mjs
+        run: node scripts/publish-acceptance-outcome.mjs
 
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')

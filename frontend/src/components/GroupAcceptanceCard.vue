@@ -402,7 +402,7 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
-import { outcomeFromComments, announcesInvitation } from '../lib/acceptance-outcome.js'
+import { outcomeFromLabels, announcesInvitation } from '../lib/acceptance-outcome.js'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
@@ -546,12 +546,13 @@ async function readTeamAcceptanceOutcome() {
   if (!acceptanceIssue.value) return null
   const brokerRepo = brokerRepoName({ assignment: props.assignment, assignmentId: props.assignment?.id })
   try {
+    // The issue's LABELS - see AssignmentView for why not comments.
     const res = await ghApi(
       getToken(), 'GET',
-      `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}/comments?per_page=20`,
+      `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}`,
     )
     if (!res.ok) return null
-    return outcomeFromComments(res.data)
+    return outcomeFromLabels(res.data?.labels)
   } catch {
     return null
   }

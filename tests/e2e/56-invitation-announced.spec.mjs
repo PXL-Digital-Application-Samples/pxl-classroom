@@ -13,13 +13,21 @@
 //
 // The hub CAN see it, and always could: provision.mjs gets 201 from the
 // collaborator grant when GitHub sends an invitation, and 204 when it does not.
-// acceptance-handler.yml now writes that onto the student's own broker issue -
-// public, already open, already read by this page for rejections.
+// acceptance-handler.yml writes that onto the student's own broker issue as a
+// LABEL - public, already open, and readable by the page.
+//
+// A label rather than a comment, and all three reasons were found the same day:
+// a comment EMAILS the student (they authored the issue, so they are subscribed
+// - one reported "Re: Acceptance (processed) - Closed #1 has been completed"
+// arriving in their inbox); a comment can be forged, because anyone may comment
+// on a public issue; and commenting was returning 403 on the locked issue while
+// labelling the same issue returned 200.
 //
 // What this pins is the whole point: a student who is invited stops waiting.
 
 import { test, expect } from '@playwright/test';
 import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
+import { INVITED_LABEL, REJECTED_LABEL } from '../../lib/acceptance-labels.mjs';
 
 const GROUP_ID = 'grp-announce';
 const TEAM = 'team-alpha';
@@ -42,22 +50,17 @@ const assignment = () => ({
   broker_repo: `broker-${ID}`,
 });
 
-const comment = (category) => ({
-  id: 900,
-  body: `<!-- pxl-acceptance-outcome:${category} -->\nSomething the student reads.`,
-});
-
 /**
  * Accept, with the repository invisible (404 - which is what a private repo
  * behind an unaccepted invitation looks like) and the invitations endpoint
  * answering exactly as production does: 200, empty.
  */
-async function acceptWith(page, brokerComments) {
+async function acceptWith(page, brokerIssueLabels) {
   await injectAuth(page, STUDENT_1);
   await setupStandardMockRoutes(page, {
     currentUser: STUDENT_1,
     assignments: { [ID]: assignment() },
-    brokerComments,
+    brokerIssueLabels,
   });
   await page.route(`**/api.github.com/repos/${ORG}/${REPO}`, (route) =>
     route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
@@ -70,9 +73,9 @@ async function acceptWith(page, brokerComments) {
 
 test.describe('56 - An announced invitation', () => {
   test('the student is told in seconds, not left to time out', async ({ page }) => {
-    await acceptWith(page, [comment('provisioned:invited')]);
+    await acceptWith(page, [INVITED_LABEL]);
 
-    // The marker is read from the third tick (~6s), and the whole point is
+    // The label is read from the third tick (~6s), and the whole point is
     // that this arrives long before the 60s hold-back on the guessed link and
     // the ~160s timeout.
     await expect(page.locator('.invited-state')).toBeVisible({ timeout: 30000 });
@@ -85,29 +88,29 @@ test.describe('56 - An announced invitation', () => {
   });
 
   test('and never reaches the state that says it cannot tell', async ({ page }) => {
-    await acceptWith(page, [comment('provisioned:invited')]);
+    await acceptWith(page, [INVITED_LABEL]);
     await expect(page.locator('.invited-state')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('.pending-state')).toHaveCount(0);
     await expect(page.locator('.timeout-state')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText(/cannot see your GitHub invitations/i);
   });
 
-  test('a rejection still wins, wherever it sits', async ({ page }) => {
-    // The forgery that would matter. The broker locks the acceptance issue with
-    // `|| true`, so the lock is best effort and the repository is public: if the
-    // last marker won unconditionally, posting `provisioned:invited` underneath
-    // somebody's rejection would swap "you were turned away, here is why" for a
-    // link that 404s.
+  test('a rejection outranks a success, whichever order they arrive in', async ({ page }) => {
+    // The two must never both be set - the hub writes one per attempt, and a
+    // student cannot apply either. If a bug ever set both, "you were refused"
+    // is the answer that sends them to their lecturer rather than to a link
+    // that cannot work.
+    //
     // The rejected state shares .timeout-state; its wording is what tells them
-    // apart, and rejected:no-claim has its own sentence.
-    await acceptWith(page, [comment('rejected:no-claim'), comment('provisioned:invited')]);
+    // apart.
+    await acceptWith(page, [REJECTED_LABEL, INVITED_LABEL]);
     await expect(page.locator('.timeout-state')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('.invited-state'), 'the rejection is the answer').toHaveCount(0);
-    await expect(page.locator('.timeout-state')).toContainText(/email address/i);
+    await expect(page.locator('.timeout-state')).toContainText(/lecturer can see the reason/i);
   });
 
   test('a group student is told too', async ({ page }) => {
-    // The group card is a second reader of the same markers, and it was the
+    // The group card is a second reader of the same labels, and it was the
     // copy that would have been left behind: it had no outcome reading at all,
     // so a team member behind an invitation got nothing an individual student
     // got. It recovers its own acceptance issue from the broker issue list it
@@ -143,7 +146,7 @@ test.describe('56 - An announced invitation', () => {
         user: { login: STUDENT_1.login },
         created_at: new Date().toISOString(),
       }],
-      brokerComments: [comment('provisioned:invited')],
+      brokerIssueLabels: [INVITED_LABEL],
     });
     await page.route(`**/api.github.com/repos/${ORG}/${GROUP_REPO}`, (route) =>
       route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
@@ -157,9 +160,9 @@ test.describe('56 - An announced invitation', () => {
     await expect(accept).toHaveAttribute('href', `https://github.com/${ORG}/${GROUP_REPO}/invitations`);
   });
 
-  test('no marker means no claim - the old behaviour is untouched', async ({ page }) => {
-    // Absence is still "unknown". A 204 grant posts nothing at all, and a
-    // failed comment posts nothing either, so this is the ordinary path and it
+  test('no label means no claim - the old behaviour is untouched', async ({ page }) => {
+    // Absence is still "unknown". A 204 grant earns no label at all, and a
+    // failed publish leaves none either, so this is the ordinary path and it
     // must keep waiting rather than invent an invitation.
     await acceptWith(page, []);
     await expect(page.locator('.pending-state')).toBeVisible({ timeout: 20000 });

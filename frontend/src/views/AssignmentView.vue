@@ -525,7 +525,7 @@ import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
-import { outcomeFromComments, announcesInvitation, isRejection } from '../lib/acceptance-outcome.js'
+import { outcomeFromLabels, announcesInvitation, isRejection } from '../lib/acceptance-outcome.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
@@ -573,40 +573,26 @@ const acceptanceIssue = ref(null)
 const rejectedCategory = ref(null)
 
 /**
- * One sentence per rejection, in the student's terms, with the next step.
+ * ONE sentence, because the public channel carries one word.
  *
- * Written from what a student can DO. "rejected:no-claim" is not a message; it
- * is a slug, and the page's job is to turn it into the thing they were never
- * told: that this assignment wanted their institutional address first.
+ * There were nineteen here - a sentence per rejection slug, written from what a
+ * student could DO about each. They are gone, and deliberately: the hub tells
+ * the page by putting a LABEL on the student's acceptance issue, that issue is
+ * on a PUBLIC repository, and labels are filterable in one click. Per-reason
+ * labels would have made `outcome:rejected-not-on-roster` a sortable public
+ * list of which named students are not enrolled - enrolment data about people
+ * who never chose to publish it, and not the same as the student's own
+ * acceptance being public.
  *
- * Anything unrecognised falls through to a plain statement rather than a
- * guess - a category invented later must not silently render as one of these.
+ * So the label says who was refused and never why. The specific reason is in
+ * the control repository, where the lecturer reads it and the student can ask
+ * for it - which is the trade this sentence has to carry honestly rather than
+ * pretending to know more than it does.
  */
-const REJECTION_TEXT = Object.freeze({
-  'rejected:no-claim': `This assignment asks you to confirm your ${INSTITUTION} email address before accepting. Go back and enter it, then accept again.`,
-  'rejected:no-claim-match': 'The address you confirmed is not the one your lecturer registered for you. Check for a typo, or ask which address they used.',
-  'rejected:claim-taken': 'That address has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.',
-  'rejected:claim-blocked': 'Too many attempts have been made with this account. Contact your lecturer; they can reset it.',
-  'rejected:claim-domain': `That address is not from a domain this assignment accepts. Use your ${INSTITUTION} address.`,
-  'rejected:not-on-roster': "You are not on the lecturer's roster for this course. Ask them to add you.",
-  'rejected:not-in-class-group': 'This assignment is for a different class group. Check with your lecturer that you have the right link.',
-  'rejected:no-roster': 'No roster has been imported for this course yet, so nobody can accept. Tell your lecturer.',
-  'rejected:cap-reached': 'This assignment has reached its limit on how many students may accept. Tell your lecturer.',
-  'rejected:past-deadline': 'The deadline for this assignment has passed, so it can no longer be accepted.',
-  'rejected:not-open': 'This assignment is not open for acceptance yet. Check the opening date above.',
-  'rejected:not-published': 'This assignment is not published, so it cannot be accepted yet. Tell your lecturer.',
-  'rejected:no-assignment': 'This assignment no longer exists. Check the link with your lecturer.',
-  'rejected:no-team': 'You need to join or create a team before accepting this group assignment.',
-  'rejected:team-full': 'The team you chose is full. Pick another, or ask your lecturer to raise the size.',
-  'rejected:no-assigned-team': 'Your lecturer assigns the teams for this assignment, and you are not in one yet.',
-  'rejected:team-not-assigned': 'That team is not part of this assignment.',
-  'rejected:team-creation-disabled': 'Creating new teams is switched off for this assignment - join an existing one.',
-  'rejected:invalid-team-slug': 'That team name is not valid. Pick a team from the list.',
-})
+const REJECTION_MESSAGE =
+  'Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next.'
 
-const rejectionMessage = computed(() =>
-  REJECTION_TEXT[rejectedCategory.value] ||
-  'Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next.')
+const rejectionMessage = computed(() => REJECTION_MESSAGE)
 const repoCopied = ref(false)
 
 // Student Diagnostics & Account Checker State (1.A)
@@ -1140,14 +1126,17 @@ async function readAcceptanceOutcome() {
   if (!acceptanceIssue.value || !assignment.value) return null
   const brokerRepo = brokerRepoName({ assignment: assignment.value, assignmentId: resolvedId.value })
   try {
+    // The ISSUE, for its labels - not its comments. One request either way,
+    // and the labels come back on the issue the page already needs, so a
+    // student who arrives with the answer already posted never pays for a
+    // second call. Labels are also silent: a comment would email the student,
+    // who authored this issue and is therefore subscribed to it.
     const res = await ghApi(
       getToken(), 'GET',
-      `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}/comments?per_page=20`,
+      `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}`,
     )
     if (!res.ok) return null
-    // Rejection precedence and last-one-wins live in the shared parser, because
-    // the group card reads the same markers off the same kind of issue.
-    return outcomeFromComments(res.data)
+    return outcomeFromLabels(res.data?.labels)
   } catch {
     // Unreadable is not evidence: fall through to the existing causes rather
     // than claiming a rejection that may not have happened.

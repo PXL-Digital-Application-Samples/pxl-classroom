@@ -38,7 +38,7 @@
 // What answers instead is the HUB. `provisioning/provision.mjs` gets 201 from
 // the collaborator grant when GitHub sends an invitation, and posts
 // `provisioned:invited` to the student's own broker issue - see
-// scripts/comment-acceptance-outcome.mjs. That is the only evidence of a
+// scripts/publish-acceptance-outcome.mjs. That is the only evidence of a
 // pending invitation this page can ever read, and it arrives in seconds.
 //
 // The mechanism is not certain and this module does not depend on which it is.

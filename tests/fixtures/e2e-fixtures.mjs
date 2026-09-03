@@ -388,13 +388,17 @@ export async function setupStandardMockRoutes(page, {
   userRepos = [],
   invitations = [],
   brokerIssues = [],
-  // Comments on a broker acceptance issue. This is how the HUB answers a
-  // student: acceptance-handler.yml posts `<!-- pxl-acceptance-outcome:... -->`
-  // there, and it is the only channel that can tell them an invitation is
-  // waiting - their own token cannot see one (measured 2026-09-03).
-  // Must be routed before the generic /issues GET, which would otherwise hand
-  // back issue objects for a /comments request and quietly match nothing.
-  brokerComments = [],
+  // LABELS on a broker acceptance issue. This is how the hub answers a student:
+  // acceptance-handler.yml puts `outcome:invited` or `outcome:rejected` there,
+  // and it is the only channel that can tell them an invitation is waiting -
+  // their own token cannot see one (measured 2026-09-03).
+  //
+  // A label rather than a comment because a comment EMAILS the student, who
+  // authored the issue and is subscribed to it. Must be routed before the
+  // generic /issues GET, which returns a LIST - handing an array back to a
+  // single-issue read makes `res.data.labels` undefined and the channel
+  // silently carries nothing.
+  brokerIssueLabels = [],
   roster = null,
   // Team manifests as they exist in the CONTROL repo (teams/<id>/<slug>.json),
   // as opposed to `teams`, which is the generated public Pages payload.
@@ -715,7 +719,21 @@ export async function setupStandardMockRoutes(page, {
         body: JSON.stringify({ id: 201, body: 'Comment posted' }),
       });
     } else if (url.includes('/issues') && url.includes('/comments') && method === 'GET') {
-      await route.fulfill({ status: 200, body: JSON.stringify(brokerComments) });
+      await route.fulfill({ status: 200, body: JSON.stringify([]) });
+    } else if (/\/issues\/\d+(\?.*)?$/.test(url) && method === 'GET') {
+      // ONE issue, as an object. The list route below would answer an array,
+      // and `outcomeFromLabels(undefined)` is null - a channel that carries
+      // nothing while every request succeeds.
+      const number = Number(url.match(/\/issues\/(\d+)/)?.[1] || 1);
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          number,
+          state: 'open',
+          locked: true,
+          labels: brokerIssueLabels.map((name) => ({ name })),
+        }),
+      });
     } else if (url.includes('/issues') && method === 'GET') {
       await route.fulfill({
         status: 200,
