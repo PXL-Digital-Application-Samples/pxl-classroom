@@ -14,6 +14,19 @@
 // browser opened it and still holds its number; the hub reads it to get the
 // team payload. Writing the outcome back closes the loop with no new channel.
 //
+// It carries the SUCCESS half too, for the same reason. `provisioned:invited`
+// says the collaborator grant returned 201, which is the only evidence anywhere
+// that GitHub sent an invitation: the student's own token gets `200 []` from
+// /user/repository_invitations and 403 from /user/memberships/orgs/{org}, both
+// measured 2026-09-03. Without this the page can only offer a guessed link
+// after a minute of waiting while admitting it cannot tell what happened.
+//
+// AND IT NEVER WORKED UNTIL 2026-09-03. `BROKER_REPO` is a full `owner/repo`,
+// this composed `/repos/${ORG}/${BROKER_REPO}/...`, and every request 404'd -
+// printed as `[ok]`, under a `continue-on-error` step, so nothing was red for
+// as long as the feature existed. Both the parse and the "the owner must be the
+// dispatched org" authorisation now live in lib/broker-issue-target.mjs.
+//
 // ONLY THE CATEGORY IS PUBLISHED, never the reason text.
 //
 // That is not tidiness. The broker repository is PUBLIC, and the rejection
@@ -27,6 +40,7 @@
 import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { gh } from "../lib/gh.mjs";
+import { resolveBrokerIssue } from "../lib/broker-issue-target.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -61,11 +75,56 @@ const PUBLISHABLE = new Set([
   "rejected:invalid-team-slug",
 ]);
 
+/**
+ * The one thing this system publishes about a SUCCESSFUL acceptance.
+ *
+ * `provisioned:invited` means the collaborator grant returned 201 - GitHub sent
+ * an invitation and the student has to accept it before the repository is
+ * visible to them. It is here because the browser cannot find that out:
+ * measured 2026-09-03, `GET /user/repository_invitations` returns `200 []` to
+ * the account the invitation is addressed to.
+ *
+ * There is deliberately no `provisioned:direct` counterpart. A 204 grant means
+ * the student is already a collaborator or an org member, and this comment
+ * lands on a PUBLIC repository - publishing it would put "this account is an
+ * org member" where anyone can read it, for no benefit, because a directly
+ * granted repository is readable at once and the page reaches `provisioned` by
+ * itself. Silence is the existing "unknown", which the page already handles.
+ *
+ * The category carries NO repository URL and NO invitation id. The page builds
+ * the invitation URL from the assignment's own naming pattern, so nothing from
+ * this public comment is rendered or dereferenced - which is what keeps a
+ * forged comment (the issue lock is `|| true`, so it is not a guarantee) from
+ * being worth writing.
+ */
+const PROVISIONED_INVITED = "provisioned:invited";
+
 /** @param {string} raw */
 export function publishableCategory(raw) {
   const v = String(raw || "").trim();
+  if (v === PROVISIONED_INVITED) return v;
   if (!v.startsWith("rejected:")) return null;
   return PUBLISHABLE.has(v) ? v : "rejected";
+}
+
+/**
+ * What the student reads under the marker. Fixed text per category - never the
+ * reason note, which carries the address they typed.
+ * @param {string} category
+ */
+function bodyFor(category) {
+  if (category === PROVISIONED_INVITED) {
+    return (
+      `Your repository has been created, and GitHub has invited you to it.\n\n` +
+      `**You need to accept that invitation before you can see it.** ` +
+      `It is on your assignment page, in your GitHub notifications, and in the email GitHub sent you.`
+    );
+  }
+  return (
+    `Your acceptance was not completed: \`${category}\`.\n\n` +
+    `Your assignment page explains what this means and what to do next. ` +
+    `If it is not clear, contact your lecturer - they can see the details.`
+  );
 }
 
 async function main() {
@@ -76,7 +135,7 @@ async function main() {
 
   const category = publishableCategory(outcome);
   if (!category) {
-    console.log(`[ok] outcome "${outcome}" is not a rejection - nothing to post`);
+    console.log(`[ok] outcome "${outcome}" is not publishable - nothing to post`);
     return;
   }
   if (!org || !brokerRepo || !issueNumber) {
@@ -84,32 +143,62 @@ async function main() {
     return;
   }
 
-  const body =
-    `<!-- ${MARKER}:${category} -->\n` +
-    `Your acceptance was not completed: \`${category}\`.\n\n` +
-    `Your assignment page explains what this means and what to do next. ` +
-    `If it is not clear, contact your lecturer - they can see the details.`;
+  // BROKER_REPO is a full name, and the owner has to be the org the dispatch
+  // claims. Composing `/repos/${org}/${brokerRepo}/...` produced a doubled
+  // owner and a 404 on every run since this script shipped; skipping the owner
+  // check would let a forged dispatch aim the hub's token at another org. Both
+  // live in lib/broker-issue-target.mjs.
+  const target = resolveBrokerIssue({ brokerRepo, issueNumber, org });
+  if (!target.ok) {
+    console.log(
+      `::warning::Cannot tell the student "${category}": ${target.reason}. ` +
+        `The acceptance outcome itself is unaffected.`,
+    );
+    return;
+  }
 
-  const res = await gh("POST", `/repos/${org}/${brokerRepo}/issues/${issueNumber}/comments`, { body });
+  const body = `<!-- ${MARKER}:${category} -->\n${bodyFor(category)}`;
+
+  const res = await gh(
+    "POST",
+    `/repos/${target.owner}/${target.name}/issues/${target.issue}/comments`,
+    { body },
+  );
   if (!res.ok) {
     // Never fatal. The rejection is the outcome that matters and it is already
     // recorded for the lecturer; failing the run because a courtesy comment did
     // not post would turn a handled rejection into a red run, which is exactly
     // what accept.mjs exits 0 to avoid.
-    console.log(`[ok] could not comment on the broker issue (HTTP ${res.status}) - the rejection stands`);
+    //
+    // But NOT `[ok]` either. That is how this went unnoticed: a 404 on every
+    // acceptance, printed as if it were the expected path, under a step that is
+    // `continue-on-error` by design. A warning is visible in the run's
+    // annotations without turning a handled rejection red - which is the whole
+    // point of the distinction.
+    console.log(
+      `::warning::Could not comment on ${target.fullName}#${target.issue} (HTTP ${res.status}) - ` +
+        `the student will not be told "${category}". The acceptance outcome itself is unaffected.`,
+    );
     return;
   }
-  console.log(`[ok] posted ${category} to ${org}/${brokerRepo}#${issueNumber}`);
+  console.log(`[ok] posted ${category} to ${target.fullName}#${target.issue}`);
   if (process.env.GITHUB_STEP_SUMMARY) {
     await appendFile(process.env.GITHUB_STEP_SUMMARY, `Told the student: \`${category}\`\n`);
   }
+}
+
+// Same failure shape as above, one level out: an exception here used to print
+// `[ok] comment step failed`, which reads as a handled path in a log nobody
+// scrolls.
+function reportUnexpected(e) {
+  console.log(
+    `::warning::Could not tell the student (${e.message}) - the acceptance outcome is unaffected.`,
+  );
 }
 
 // pathToFileURL, not a hand-built `file://` string - the hand-built one is
 // short a slash on Windows, so the guard is false forever and the script exits
 // having done nothing.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((e) => {
-    console.log(`[ok] comment step failed (${e.message}) - the rejection stands`);
-  });
+  main().catch(reportUnexpected);
 }

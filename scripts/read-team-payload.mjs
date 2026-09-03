@@ -22,9 +22,7 @@ import { appendFile } from "node:fs/promises";
 import { gh } from "../lib/gh.mjs";
 import { parseTeamPayload, teamHintMatches } from "../lib/team-payload.mjs";
 import { parseClaimFields } from "../lib/claim.mjs";
-
-const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-const ORG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+import { resolveBrokerIssue } from "../lib/broker-issue-target.mjs";
 
 // GraphQL node ids are base64-ish. Anything else must not reach a mutation, and
 // an empty one is how the caller knows there is nothing to delete.
@@ -58,26 +56,18 @@ async function main() {
     return;
   }
 
-  if (!/^[1-9][0-9]{0,9}$/.test(issueNumber)) {
-    console.error(`[warn] issue_number="${issueNumber}" is not a positive integer - ignoring payload`);
+  // Shape and authorisation together - lib/broker-issue-target.mjs. This is
+  // where the "the broker must belong to the org the dispatch claims to be for,
+  // or a forged dispatch could make the hub read an issue from anywhere" rule
+  // was written, correctly; the sibling script that WRITES to the same issue
+  // had neither half, so the pair now share one implementation.
+  const target = resolveBrokerIssue({ brokerRepo, issueNumber, org });
+  if (!target.ok) {
+    console.error(`[warn] ${target.reason} - ignoring payload`);
     await setOutputs(EMPTY);
     return;
   }
-
-  const [owner, name] = brokerRepo.split("/");
-  if (!owner || !name || !ORG_NAME.test(owner) || !REPO_NAME.test(name)) {
-    console.error(`[warn] broker_repo="${brokerRepo}" is not a valid owner/repo - ignoring payload`);
-    await setOutputs(EMPTY);
-    return;
-  }
-
-  // The broker must belong to the org the dispatch claims to be for, or a
-  // forged dispatch could make the hub read an issue from anywhere.
-  if (!ORG_NAME.test(org) || owner.toLowerCase() !== org.toLowerCase()) {
-    console.error(`[warn] broker_repo="${brokerRepo}" is not owned by org="${org}" - ignoring payload`);
-    await setOutputs(EMPTY);
-    return;
-  }
+  const { owner, name } = target;
 
   const res = await gh("GET", `/repos/${owner}/${name}/issues/${issueNumber}`, null, {
     token: process.env.GH_TOKEN,

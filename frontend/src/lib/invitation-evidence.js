@@ -20,6 +20,27 @@
 // "Repository Collaboration Invitation: Clear" and "All diagnostic checks look
 // healthy".
 //
+// CONFIRMED FROM THE STUDENT'S OWN TOKEN, same day, in the browser holding the
+// session - not inferred from how the page behaved:
+//
+//     GET /user/repository_invitations          -> 200 []
+//     GET /user/memberships/orgs/{org}          -> 403
+//         "You do not have access to this organization membership."
+//
+// The second line kills the obvious next idea, so do not spend an afternoon on
+// it: org membership would settle this by implication, because a non-member
+// granted a private repository is ALWAYS invited. The App declares
+// `members: write` (lib/audit.mjs), and GitHub's "Permissions required for
+// GitHub Apps" reference lists `GET /user/memberships/orgs/{org}` under
+// Organization -> Members at `read`, token type UAT - a user access token,
+// exactly what this page holds. Both checks say it should work. It does not.
+//
+// What answers instead is the HUB. `provisioning/provision.mjs` gets 201 from
+// the collaborator grant when GitHub sends an invitation, and posts
+// `provisioned:invited` to the student's own broker issue - see
+// scripts/comment-acceptance-outcome.mjs. That is the only evidence of a
+// pending invitation this page can ever read, and it arrives in seconds.
+//
 // The mechanism is not certain and this module does not depend on which it is.
 // The documented rule for GitHub App user access tokens is that they reach only
 // what BOTH the user and the App can reach, and a student holding nothing but a

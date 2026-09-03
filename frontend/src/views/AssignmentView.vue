@@ -329,9 +329,34 @@
             <button v-if="pendingInvitation" class="btn btn-primary btn-lg" @click="handleAcceptInvitation">
               Accept invitation
             </button>
-            <a v-else href="https://github.com/notifications" target="_blank" class="btn btn-primary btn-lg">
+            <!-- We know an invitation exists because the hub said so, but this
+                 token cannot list it, so there is nothing to PATCH and no
+                 in-app Accept. The guessed link is the whole affordance - and
+                 it is safe here in a way it never was while waiting, because
+                 the same message is proof the repository exists. Sending them
+                 to /notifications instead was a page of everything that has
+                 ever happened to them on GitHub, with this buried in it. -->
+            <a
+              v-else-if="invitationUrl"
+              :href="invitationUrl"
+              target="_blank"
+              rel="noopener"
+              class="btn btn-primary btn-lg"
+            >
+              Accept your invitation on GitHub
+            </a>
+            <a v-else href="https://github.com/notifications" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
               Check GitHub notifications
             </a>
+            <p v-if="!pendingInvitation" class="text-muted" style="margin-top: var(--space-sm);">
+              It is also in your GitHub notifications and in the email GitHub sent you.
+              Once you have accepted, press <strong>Check again</strong>.
+            </p>
+            <div v-if="!pendingInvitation" class="flex justify-center gap-sm mt-md">
+              <button class="btn btn-secondary" @click="checkAgain" :disabled="checkingAgain">
+                {{ checkingAgain ? 'Checking…' : 'Check again' }}
+              </button>
+            </div>
           </div>
 
           <!-- Timeout state -->
@@ -488,6 +513,7 @@ import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
+import { outcomeFromComments, announcesInvitation, isRejection } from '../lib/acceptance-outcome.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
@@ -936,13 +962,34 @@ async function checkExistingState() {
   )
   if (mine.ok && Array.isArray(mine.data)) {
     const cutoff = Date.now() - 15 * 60 * 1000
-    const inFlight = mine.data.some(
+    const inFlight = mine.data.find(
       (issue) =>
         typeof issue.title === 'string' &&
         issue.title.startsWith('pxl-accept:') &&
         new Date(issue.created_at).getTime() > cutoff,
     )
     if (inFlight) {
+      // Remember WHICH issue. Without this the hub's answer is unreadable to
+      // exactly the student who most needs it: `acceptanceIssue` is otherwise
+      // only set by accepting in this tab, so anyone who closed the tab and
+      // came back had no issue number, `readAcceptanceOutcome` returned null on
+      // the spot, and both the rejection reason and the invitation notice were
+      // invisible to them.
+      acceptanceIssue.value = inFlight.number
+
+      // And ask before starting a three-minute poll. The answer may already be
+      // sitting there from the run that finished while the tab was closed.
+      const said = await readAcceptanceOutcome()
+      if (isRejection(said)) {
+        rejectedCategory.value = said
+        acceptState.value = 'rejected'
+        return
+      }
+      if (announcesInvitation(said)) {
+        acceptState.value = 'invited'
+        return
+      }
+
       acceptState.value = 'pending'
       startPolling()
       return
@@ -1076,8 +1123,6 @@ async function acceptanceIssueVanished() {
  * acceptance was not rejected, so a timeout here is a genuine provisioning
  * stall and the existing causes apply.
  */
-const OUTCOME_MARKER = /<!--\s*pxl-acceptance-outcome:(rejected[a-z:-]*)\s*-->/
-
 async function readAcceptanceOutcome() {
   if (!acceptanceIssue.value || !assignment.value) return null
   const brokerRepo = brokerRepoName({ assignment: assignment.value, assignmentId: resolvedId.value })
@@ -1086,14 +1131,10 @@ async function readAcceptanceOutcome() {
       getToken(), 'GET',
       `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}/comments?per_page=20`,
     )
-    if (!res.ok || !Array.isArray(res.data)) return null
-    // Last one wins: a student who accepted, was refused, fixed the problem and
-    // accepted again should see the latest answer, not the first.
-    for (const c of [...res.data].reverse()) {
-      const m = OUTCOME_MARKER.exec(c?.body || '')
-      if (m) return m[1]
-    }
-    return null
+    if (!res.ok) return null
+    // Rejection precedence and last-one-wins live in the shared parser, because
+    // the group card reads the same markers off the same kind of issue.
+    return outcomeFromComments(res.data)
   } catch {
     // Unreadable is not evidence: fall through to the existing causes rather
     // than claiming a rejection that may not have happened.
@@ -1135,6 +1176,12 @@ const invitationUrl = computed(() => {
 // link is what settles it - the page renders if there is one, 404s if there is
 // not - which makes it the one check a student can actually run themselves.
 const invitationProven = ref(false)
+// The hub can also TELL us an invitation exists - `provisioned:invited` on the
+// broker issue, written when the collaborator grant returned 201. That is
+// different knowledge from `invitationProven`: this page is then not holding
+// the invitation and cannot PATCH it, so `acceptState` goes to 'invited' with
+// the guessed link instead of an in-app button. Safe there in a way it never is
+// while waiting, because the same message proves the repository exists.
 const showInvitationGuess = computed(() =>
   mayOfferInvitationLink(invitationProven.value, invitationUrl.value),
 )
@@ -1178,6 +1225,35 @@ function startPolling() {
       repoFullName.value = match.repository.full_name
       acceptState.value = 'invited'
       return
+    }
+
+    // Ask the hub, which is the only party that can actually answer.
+    //
+    // The call above is expected to come back empty even when an invitation is
+    // waiting - that is the whole finding of 2026-09-03 - so this is not a
+    // second opinion, it is the first real one. The grant returned 201 inside
+    // provisioning, and acceptance-handler.yml wrote that onto this student's
+    // own broker issue, which is public and which the browser can read.
+    //
+    // Not from tick one: provisioning takes 20-40s, and the marker cannot
+    // exist before the repository does. Two ticks in (~6s) is early enough to
+    // catch the fast path and late enough not to spend a request on every
+    // student's first second.
+    if (pollCount.value >= 2) {
+      const said = await readAcceptanceOutcome()
+      if (isRejection(said)) {
+        rejectedCategory.value = said
+        acceptState.value = 'rejected'
+        return
+      }
+      if (announcesInvitation(said)) {
+        // We do not hold the invitation - GitHub will not show it to this
+        // token - but we now KNOW the repository exists and that an invitation
+        // is waiting, which is exactly what makes the guessed link safe to
+        // offer: it can no longer 404 for the "not created yet" reason.
+        acceptState.value = 'invited'
+        return
+      }
     }
 
     // Increase poll interval after many attempts (after ~1 minute, slow down to 10s)

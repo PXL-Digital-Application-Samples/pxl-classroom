@@ -307,6 +307,10 @@ async function main() {
 
   // 4. Create from template (skip if exists / dry-run).
   let repo = alreadyExists ? existing.data : null;
+  // Set by the grant below. Stays false through dry-run and through every
+  // failure path, so the caller can only ever be told about an invitation that
+  // GitHub actually reported creating.
+  let grantInvited = false;
   if (!alreadyExists && !cfg.dryRun) {
     const gen = await gh("POST", `/repos/${cfg.templateOwner}/${cfg.templateRepo}/generate`, {
       owner: cfg.org, name: cfg.targetRepo, private: cfg.isPrivate, include_all_branches: false,
@@ -321,6 +325,23 @@ async function main() {
     const add = await gh("PUT", `/repos/${cfg.org}/${cfg.targetRepo}/collaborators/${cfg.studentLogin}`, { permission: cfg.permission });
     if (!(add.status === 201 || add.status === 204)) await fail("fail:grant", `grant HTTP ${add.status} ${add.data?.message ?? ""}`);
     log("grant", { ok: true, note: add.status === 201 ? `invitation created (${cfg.permission})` : `already a collaborator (${cfg.permission})` });
+
+    // 201 means GitHub SENT AN INVITATION, and this is the only place in the
+    // system that knows. The student's browser cannot find out: measured
+    // 2026-09-03, `GET /user/repository_invitations` answers `200 []` to the
+    // very account the invitation is addressed to, and
+    // `GET /user/memberships/orgs/{org}` answers 403 to the same token, so
+    // neither the invitation nor the org membership that would imply it is
+    // visible from the page. See frontend/src/lib/invitation-evidence.js.
+    //
+    // Published only for 201. A 204 says the student was added directly, which
+    // means they are already a collaborator or an org member - and the broker
+    // repository this ends up on is PUBLIC, so saying so would put "this
+    // account is an org member" in front of anyone who looks. Absence stays
+    // "unknown", which is the rule the page already follows, and a 204 needs no
+    // help anyway: the repository is immediately readable and the page moves to
+    // `provisioned` on its own.
+    grantInvited = add.status === 201;
 
     // 5.1 If student switched teams, remove collaborator access and cancel pending invitations on previous repository
     if (cfg.previousRepo && cfg.previousRepo !== cfg.targetRepo) {
@@ -370,6 +391,7 @@ async function main() {
   await setOutput("repo_name", repo?.full_name ?? "");
   await setOutput("outcome", outcome);
   await setOutput("baseline_sha", baselineSha);
+  await setOutput("invited", grantInvited ? "true" : "false");
   await summary(
     `### Provisioning: \`${outcome}\`\n\n` +
     `| field | value |\n|---|---|\n` +

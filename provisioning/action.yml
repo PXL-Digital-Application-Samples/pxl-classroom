@@ -62,6 +62,13 @@ outputs:
   outcome:
     description: created | reused | dry-run:ok | fail:*
     value: ${{ steps.run.outputs.outcome }}
+  invited:
+    description: >-
+      true when the collaborator grant returned 201, i.e. GitHub sent the
+      student an invitation they must accept before the repository is visible
+      to them. This is the only place that knows: the student's own browser
+      cannot see their pending invitations.
+    value: ${{ steps.run.outputs.invited }}
   baseline-sha:
     description: SHA the baseline branch was pinned to (empty if feedback-pr not enabled).
     value: ${{ steps.run.outputs.baseline_sha }}

@@ -128,6 +128,29 @@ jobs:
       # rejection notes carry the address the student typed; the claim is sealed
       # so that address reaches nobody but the hub, and republishing it here
       # would undo that. See scripts/comment-acceptance-outcome.mjs.
+      # Tell the student their repository EXISTS and is behind an invitation.
+      #
+      # The grant returned 201, which is the only evidence anywhere that GitHub
+      # sent one: measured 2026-09-03, the student's own token gets `200 []`
+      # from /user/repository_invitations and 403 from
+      # /user/memberships/orgs/{org}, so their page can see neither the
+      # invitation nor the org membership that would imply it. Without this the
+      # page can only offer a guessed link after a minute of waiting and say it
+      # cannot tell what is going on.
+      #
+      # Nothing is posted for a 204 grant. See scripts/comment-acceptance-outcome.mjs.
+      - name: Tell the student their repository is waiting on an invitation
+        if: steps.prov.outputs.invited == 'true'
+        # A courtesy comment must never turn a successful provisioning red.
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ github.event.client_payload.org }}
+          BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+          OUTCOME: provisioned:invited
+        run: node scripts/comment-acceptance-outcome.mjs
+
       - name: Tell the student why they were turned away
         if: startsWith(steps.accept.outputs.outcome, 'rejected')
         # A courtesy comment must never turn a handled rejection into a red run.

@@ -117,7 +117,20 @@
       <button v-if="pendingInvitation" class="btn btn-primary btn-lg" @click="handleAcceptInvitation">
         Accept invitation
       </button>
-      <a v-else href="https://github.com/notifications" target="_blank" class="btn btn-primary btn-lg">
+      <!-- We know one exists because the hub said so, but this token cannot
+           list it - so there is nothing to accept in-app, and the link is the
+           whole affordance. Safe here: the same message proves the repository
+           exists. -->
+      <a
+        v-else-if="invitationUrl"
+        :href="invitationUrl"
+        target="_blank"
+        rel="noopener"
+        class="btn btn-primary btn-lg"
+      >
+        Accept your invitation on GitHub
+      </a>
+      <a v-else href="https://github.com/notifications" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
         Check GitHub notifications
       </a>
     </div>
@@ -389,6 +402,8 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
+import { outcomeFromComments, announcesInvitation } from '../lib/acceptance-outcome.js'
+import { sameLogin } from '../../../lib/github-login.mjs'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
@@ -520,6 +535,27 @@ const showInvitationGuess = computed(() =>
   mayOfferInvitationLink(invitationProven.value, invitationUrl.value),
 )
 
+// The broker issue this team registration was filed on. The hub answers there -
+// it is the only surface a student can read - and this page cannot see its own
+// pending invitation any other way.
+const acceptanceIssue = ref(null)
+
+/** What the hub said, if anything. Null when it has not answered or we cannot read. */
+async function readTeamAcceptanceOutcome() {
+  if (!acceptanceIssue.value) return null
+  const brokerRepo = brokerRepoName({ assignment: props.assignment, assignmentId: props.assignment?.id })
+  try {
+    const res = await ghApi(
+      getToken(), 'GET',
+      `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}/comments?per_page=20`,
+    )
+    if (!res.ok) return null
+    return outcomeFromComments(res.data)
+  } catch {
+    return null
+  }
+}
+
 onMounted(async () => {
   claimToken.value = getToken() || ""
   await loadTeams()
@@ -621,6 +657,19 @@ async function loadTeams() {
       // what was read, and a truncated read is not evidence a team is absent.
       console.warn('[teams] broker issue list was truncated; the live team reconciliation may be incomplete')
     }
+
+    // The student's OWN acceptance issue, taken from a list we already have in
+    // hand. It is skipped by the loop below - its title is `pxl-accept:`, not
+    // `team:` - but it is the address the hub answers on, and without it a
+    // student who closed the tab and came back can read neither the rejection
+    // reason nor the invitation notice. Newest first, so the first match is the
+    // current attempt.
+    const mine = issues.find(
+      (i) => typeof i.title === 'string' &&
+        i.title.startsWith('pxl-accept:') &&
+        sameLogin(i.user?.login, props.user?.login),
+    )
+    if (mine) acceptanceIssue.value = mine.number
 
     {
       for (const issue of issues) {
@@ -752,6 +801,15 @@ async function checkExistingState() {
       acceptState.value = 'invited'
       return
     }
+
+    // The hub is the only party that can see the invitation - see
+    // lib/invitation-evidence.js. No poll-count gate here: this runs once, on
+    // mount, and the answer may already have been posted while the tab was
+    // closed. That student is exactly the one with nothing else to go on.
+    if (announcesInvitation(await readTeamAcceptanceOutcome())) {
+      acceptState.value = 'invited'
+      return
+    }
   }
 }
 
@@ -825,6 +883,10 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
       throw new Error(`Failed to submit team registration (${msg}). Ensure the broker repository exists and issues are enabled.`)
     }
 
+    // Which issue the hub will answer on. Without it the announcement below is
+    // unreadable and a group student gets nothing an individual student gets.
+    acceptanceIssue.value = issueRes.data?.number ?? null
+
     acceptState.value = 'pending'
     startPolling(teamSlug)
   } catch (e) {
@@ -866,6 +928,14 @@ function startPolling(teamSlug) {
       pendingInvitation.value = match
       repoUrl.value = match.repository.html_url
       repoFullName.value = match.repository.full_name
+      acceptState.value = 'invited'
+      return
+    }
+
+    // Ask the hub, which is the only party that can answer: the call above is
+    // expected to come back empty even when an invitation is waiting. Not from
+    // tick one - the marker cannot exist before the repository does.
+    if (pollCount.value >= 2 && announcesInvitation(await readTeamAcceptanceOutcome())) {
       acceptState.value = 'invited'
       return
     }
