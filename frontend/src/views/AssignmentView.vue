@@ -266,7 +266,19 @@
                 <span>{{ repoCopied ? 'Copied' : 'Copy URL' }}</span>
               </button>
             </div>
-            <p class="text-secondary">You have administrator access. Clone it and start working!</p>
+            <!-- No sentence about the access level. "You have administrator
+                 access. Clone it and start working!" was hardcoded here, while
+                 `student_permission` is read ONLY by the lecturer's form -
+                 never by this page. A lecturer may pick admin, maintain, push,
+                 triage or pull, and every student was told administrator
+                 either way; under `pull` or `triage` the second half promised
+                 write access they do not have, so they would clone, commit,
+                 and fail to push with nothing on screen explaining why.
+                 Deleted rather than made conditional: the repository link
+                 above is the whole message, and GitHub tells them what they
+                 can do with it. DESIGN.md §1.5 - a status line reporting a
+                 state nothing computes. -->
+
 
             <!-- Student Submission Status & Deadline Countdown Card -->
             <div class="student-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; text-align: left;">

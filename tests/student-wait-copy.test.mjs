@@ -215,6 +215,26 @@ test("a 404 on the guessed link is explained wherever it is offered", () => {
   }
 });
 
+test("the student page states no access level it does not read", () => {
+  // "You have administrator access. Clone it and start working!" sat hardcoded
+  // in the provisioned state while `student_permission` was read only by the
+  // lecturer's form. A lecturer may choose admin, maintain, push, triage or
+  // pull; every student was told administrator, and under pull or triage the
+  // second half promised write access they do not have - so they clone, commit,
+  // fail to push, and nothing on screen explains it.
+  //
+  // The rule is the general one, not that one sentence: this page may name an
+  // access level only if it reads the field that decides it.
+  const src = rendered("views/AssignmentView.vue");
+  for (const level of ["administrator access", "maintain access", "push access", "triage access"]) {
+    assert.ok(!new RegExp(level, "i").test(src), `the page asserts "${level}" without reading student_permission`);
+  }
+  assert.ok(
+    !/student_permission/.test(src) || /assignment(\.value)?\??\.student_permission/.test(view("views/AssignmentView.vue")),
+    "if it names a permission it must read the assignment's own field",
+  );
+});
+
 test("the diagnostics modal reports the invitation check as unrunnable, not as clear", () => {
   // It said "Repository Collaboration Invitation: Clear - No blocked
   // invitations detected" under "All diagnostic checks look healthy", to a
