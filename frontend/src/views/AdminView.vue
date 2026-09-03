@@ -2373,6 +2373,12 @@ async function saveAndPublish() {
     }
     return
   }
+  // Where to go back to if the dispatch does not happen. Captured BEFORE the
+  // save, because saveAssignment writes 'published' into the form.
+  const priorState = form.value.state === 'closed' || form.value.state === 'archived'
+    ? form.value.state
+    : 'draft'
+
   await saveAssignment('published')
   if (form.value.state === 'published') {
     // Wrapped, because "the dispatch returned a failure" and "the dispatch
@@ -2397,32 +2403,42 @@ async function saveAndPublish() {
       console.error('Publish dispatch threw', e)
       dispatched = false
     }
-    if (!dispatched) await revertToDraftAfterFailedPublish()
+    if (!dispatched) await revertAfterFailedPublish(priorState)
   }
 }
 
-async function revertToDraftAfterFailedPublish() {
+/**
+ * Put the state back after a dispatch that never happened.
+ *
+ * Takes the state to return to rather than assuming `draft`. Reopening a
+ * `closed` assignment goes through the same publish path, and a failed dispatch
+ * used to leave it `draft` - a different assignment from the one the lecturer
+ * had, and not a change they asked for.
+ *
+ * @param {'draft'|'closed'|'archived'} toState
+ */
+async function revertAfterFailedPublish(toState = 'draft') {
   try {
     const token = getToken()
     const path = assignmentPath(form.value.id)
-    const yaml = stringifyYaml(buildDoc('draft'))
-    const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Revert ${form.value.id} to draft (publish dispatch failed)`)
+    const yaml = stringifyYaml(buildDoc(toState))
+    const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Revert ${form.value.id} to ${toState} (publish dispatch failed)`)
     if (res.ok) {
-      form.value.state = 'draft'
+      form.value.state = toState
       brokerExists.value = null
       pagesLive.value = null
       snapshotForm()
       await loadAssignments()
-      toast.error(`Publish dispatch failed. ${form.value.id} was reverted to draft. Fix hub access and publish again.`)
+      toast.error(`Publish dispatch failed. ${form.value.id} was reverted to ${toState}. Fix hub access and publish again.`)
     } else {
-      toast.error(`Publish dispatch failed AND the revert to draft failed: ${res.data?.message || 'unknown error'}. The YAML still says "published" but no broker exists. Set the state back to draft manually.`)
+      toast.error(`Publish dispatch failed AND the revert to ${toState} failed: ${res.data?.message || 'unknown error'}. The YAML still says "published" but no broker exists. Set the state back to ${toState} manually.`)
     }
   } catch (e) {
     console.error('Failed to revert state after failed publish:', e)
   }
 }
 
-function handlePublishClick() {
+async function handlePublishClick() {
   if (form.value.state === 'published' && brokerExists.value === true) {
     // Rotating is never the default - a repair republish must not break links.
     // Only openRegenerate(), behind a control that says "Regenerate link",
@@ -2440,7 +2456,23 @@ function handlePublishClick() {
     `Reopen "${form.value.id}" for acceptance? Publishing sets its state back to published, ` +
     `so students can accept it again until the deadline.`
   )) return
-  publishExisting()
+
+  // SAVE FIRST. publish-assignment.yml reads the STORED document, so pressing
+  // Publish with edits on screen dispatched against the previously saved
+  // version - the workflow then wrote `state: published` onto that older
+  // document and the edits were simply not part of what went live. Nothing said
+  // so: the publish succeeded, the broker appeared, and the assignment students
+  // accepted was not the one on screen.
+  //
+  // saveAssignment's own docstring already warns about exactly this - "dispatching
+  // the publish workflow for a YAML the commit failed to write runs it against
+  // the OLD document" - and saveAndPublish was gated on it. This path never was.
+  //
+  // Delegated rather than reimplemented, so there is ONE save-then-dispatch:
+  // saveAndPublish carries the failed-dispatch revert and the broker gate, and a
+  // second copy here would drift from them the way every other duplicated rule
+  // in this repository has.
+  await saveAndPublish()
 }
 
 // `regenerate` arrives from the dialog, which owns the tick. `regenerateInvite`
