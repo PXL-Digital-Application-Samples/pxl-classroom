@@ -253,13 +253,22 @@ const permissionSummary = computed(() =>
 )
 
 const manifest = computed(() => {
-  let appName = 'PXL Classroom Provisioner'
+  // The PRODUCT name, read once rather than spelled three times. It was written
+  // out here as "PXL Classroom Provisioner", "PXL Classroom (org)" and
+  // "PXL (org)" while `config.appName` already held it - so renaming the
+  // product would have left this view minting Apps under the old name, in the
+  // one place a name is baked into GitHub at creation time and awkward to
+  // change afterwards. The short form is the first word, which is what the
+  // 34-character App-name limit was already assuming.
+  const product = config.appName
+  const shortProduct = product.split(' ')[0]
+  let appName = `${product} Provisioner`
   if (ownerOrg.value) {
-    const candidate = `PXL Classroom (${ownerOrg.value})`
+    const candidate = `${product} (${ownerOrg.value})`
     if (candidate.length <= 34) {
       appName = candidate
     } else {
-      const shortCandidate = `PXL (${ownerOrg.value})`
+      const shortCandidate = `${shortProduct} (${ownerOrg.value})`
       appName = shortCandidate.length <= 34
         ? shortCandidate
         : shortCandidate.slice(0, 33) + ')'

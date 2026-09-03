@@ -660,7 +660,7 @@
               <select v-model="form.roster_mode">
                 <option value="open">open: anyone with the invitation link</option>
                 <option value="enforced">enforced: only students on the roster (matched by GitHub username)</option>
-                <option value="claim">claim: students confirm their school email address, matched to the roster</option>
+                <option value="claim">claim: students confirm their {{ INSTITUTION }} email address, matched to the roster</option>
               </select>
               <!-- A roster is still worth importing under `open`: report.mjs
                    builds the population from the union of acceptances and the
@@ -1106,7 +1106,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { config } from '../lib/config.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
-import { TIMEZONE } from '../lib/deployment.js'
+import { TIMEZONE, INSTITUTION } from '../lib/deployment.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'

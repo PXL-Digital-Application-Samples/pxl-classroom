@@ -404,6 +404,7 @@ import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
 import { outcomeFromComments, announcesInvitation } from '../lib/acceptance-outcome.js'
 import { sameLogin } from '../../../lib/github-login.mjs'
+import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
@@ -854,7 +855,7 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
         )
       }
       if (!claim.value) {
-        throw new Error('Confirm your school email address before joining a team.')
+        throw new Error(`Confirm your ${INSTITUTION} email address before joining a team.`)
       }
       claimField = {
         payload: await encryptClaim({

@@ -19,7 +19,7 @@ import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.m
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentClassGroups } from "../lib/class-groups.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
-import { CLAIM_DOMAINS } from "../lib/deployment.mjs";
+import { CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
   buildClaimRecord,
@@ -162,7 +162,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   if (!payload) {
     await reject(
       CLAIM_REJECTIONS.NO_CLAIM,
-      `this assignment needs your school email address, and the acceptance did not carry one. Open the invitation link again and confirm your address.`,
+      `this assignment needs your ${INSTITUTION} email address, and the acceptance did not carry one. Open the invitation link again and confirm your address.`,
     );
   }
 

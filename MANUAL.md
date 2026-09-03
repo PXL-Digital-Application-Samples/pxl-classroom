@@ -6,7 +6,7 @@ What each setting does, and what it changes for your students.
 
 - Decides who is allowed to use the invitation link.
 - **Roster** — only students you have imported. Anyone else is refused. This is the default.
-- **Claim** — the same, but the student confirms their school email address first. Use it when you have email addresses but not GitHub usernames.
+- **Claim** — the same, but the student confirms their institutional email address first. Use it when you have email addresses but not GitHub usernames.
 - **Open** — anyone with the link, until the cap is reached. You match them to real students afterwards.
 - **Open** needs a **Max acceptances** number. The form will not save without one.
 - Your roster belongs to the whole organisation, not to one assignment. An assignment can limit itself to certain class groups.
@@ -16,7 +16,7 @@ What each setting does, and what it changes for your students.
 
 - The check runs on GitHub after the student clicks Accept, not in their browser. A student cannot get in by editing the page.
 - With **Claim**, the email address is encrypted before it leaves the student's browser. Only PXL Classroom can read it.
-- A student who types an address that is not on your roster is refused. A student whose GitHub account has no school address can still type one, and it is recorded as unverified.
+- A student who types an address that is not on your roster is refused. A student whose GitHub account has no institutional address can still type one, and it is recorded as unverified.
 
 ## Late work
 

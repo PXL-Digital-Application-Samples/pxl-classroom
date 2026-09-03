@@ -58,7 +58,11 @@
                 GitHub Identity: <code>@{{ activeUser?.login }}</code>
               </div>
               <div v-if="isPersonalEmail" class="text-xs text-warning">
-                ⚠️ Account email appears to be personal (<code>{{ userEmail || 'personal domain' }}</code>). If your course requires an official school GitHub account (e.g. <code>@student.pxl.be</code>), switch accounts below.
+                <!-- The example domain came from this deployment's own
+                     `claim_domains`, not from a literal: a fork showing a
+                     student "@student.pxl.be" is telling them to use somebody
+                     else's institution. -->
+                ⚠️ Account email appears to be personal (<code>{{ userEmail || 'personal domain' }}</code>). If your course requires an official {{ INSTITUTION }} GitHub account (e.g. <code>@{{ exampleDomain }}</code>), switch accounts below.
               </div>
               <div v-else class="text-xs text-muted">
                 Authenticated session active.
@@ -206,6 +210,11 @@ import { clearAuth, getUser } from '../lib/auth.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
+import { CLAIM_DOMAINS, INSTITUTION } from '../lib/deployment.js'
+
+// The first configured domain is the cohort's - deployment.yml says so - so it
+// is the one to show a student as an example.
+const exampleDomain = CLAIM_DOMAINS[0] || 'your-institution.example'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -266,7 +275,7 @@ const diagnosticsSummary = computed(() => {
     return {
       hasIssue: true,
       mainTitle: 'Personal GitHub Account Detected',
-      mainAction: 'Your active GitHub account is registered with a personal email. Sign into your school GitHub account.',
+      mainAction: `Your active GitHub account is registered with a personal email. Sign into your ${INSTITUTION} GitHub account.`,
     }
   }
   if (props.rosterStatus === 'missing') {
@@ -314,7 +323,7 @@ const diagnosticsSummary = computed(() => {
 function handleSwitchAccount() {
   clearAuth()
   emit('switch-account')
-  toast.info('Signed out. Please sign in with your school GitHub account.')
+  toast.info(`Signed out. Please sign in with your ${INSTITUTION} GitHub account.`)
   window.location.reload()
 }
 

@@ -524,6 +524,7 @@ import { copyText } from '../lib/clipboard.js'
 // Shared with acceptance/accept.mjs, so the page and the gate agree on which
 // mode is in force - fail-closed fallback included.
 import { normalizeRosterMode, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
+import { INSTITUTION } from '../lib/deployment.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -570,11 +571,11 @@ const rejectedCategory = ref(null)
  * guess - a category invented later must not silently render as one of these.
  */
 const REJECTION_TEXT = Object.freeze({
-  'rejected:no-claim': 'This assignment asks you to confirm your institutional email address before accepting. Go back and enter it, then accept again.',
+  'rejected:no-claim': `This assignment asks you to confirm your ${INSTITUTION} email address before accepting. Go back and enter it, then accept again.`,
   'rejected:no-claim-match': 'The address you confirmed is not the one your lecturer registered for you. Check for a typo, or ask which address they used.',
   'rejected:claim-taken': 'That address has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.',
   'rejected:claim-blocked': 'Too many attempts have been made with this account. Contact your lecturer; they can reset it.',
-  'rejected:claim-domain': 'That address is not from a domain this assignment accepts. Use your institutional address.',
+  'rejected:claim-domain': `That address is not from a domain this assignment accepts. Use your ${INSTITUTION} address.`,
   'rejected:not-on-roster': "You are not on the lecturer's roster for this course. Ask them to add you.",
   'rejected:not-in-class-group': 'This assignment is for a different class group. Check with your lecturer that you have the right link.',
   'rejected:no-roster': 'No roster has been imported for this course yet, so nobody can accept. Tell your lecturer.',
@@ -1057,7 +1058,7 @@ async function acceptAssignment() {
         )
       }
       if (!claim.value) {
-        throw new Error('Confirm your school email address before accepting.')
+        throw new Error(`Confirm your ${INSTITUTION} email address before accepting.`)
       }
       claimField = {
         payload: await encryptClaim({

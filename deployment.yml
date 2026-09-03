@@ -27,6 +27,24 @@ claim_domains:
   - student.pxl.be
   - pxl.be
 
+# The institution's name, as a student or lecturer reads it.
+#
+# TWO forms, because the sentences need both. The long one names the
+# institution ("GitHub has not verified a Hogeschool PXL email address on this
+# account"); the short one qualifies a noun without becoming a mouthful ("Your
+# PXL email address"). Writing one and trimming it in code guesses wrong the
+# moment a fork's name does not split that way.
+#
+# NOT DERIVABLE FROM `claim_domains`, which is why these are their own keys:
+# `pxl.be` gives you "PXL" at best and never "Hogeschool PXL", and a fork whose
+# domain is `ugent.be` is not called "UGENT". The domains stay the authority for
+# MATCHING an address; these are only ever the authority for NAMING the place.
+#
+# Distinct from the product name, which stays "PXL Classroom" - see the header.
+# A fork changes these two and the software still calls itself PXL Classroom.
+institution_name: Hogeschool PXL
+institution_short: PXL
+
 # The timezone assignment dates are DISPLAYED in when an assignment carries no
 # timezone of its own.
 #

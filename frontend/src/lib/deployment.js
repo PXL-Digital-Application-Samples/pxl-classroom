@@ -21,6 +21,20 @@ const config = parse(raw) ?? {}
 /** Email domains a student may claim an address in, by default. */
 export const CLAIM_DOMAINS = Object.freeze([...(config.claim_domains ?? [])])
 
+/**
+ * The institution's name, long and short, as a student reads it.
+ *
+ * Both forms come from the file rather than being trimmed from one another: a
+ * fork whose name does not split into "<word> <ACRONYM>" would get nonsense
+ * from any rule we invented. Neither is derivable from `claim_domains` - see
+ * deployment.yml.
+ *
+ * They fall back to the domain-free wording rather than to "PXL", so a fork
+ * that forgets to set them says something true instead of something branded.
+ */
+export const INSTITUTION = config.institution_name || 'your institution'
+export const INSTITUTION_SHORT = config.institution_short || config.institution_name || 'institutional'
+
 /** The timezone assignment dates are displayed in when one is not set. */
 export const TIMEZONE = config.timezone
 

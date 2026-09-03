@@ -2,7 +2,7 @@
   <div class="claim-card">
     <div class="claim-head">
       <Icon name="mail" :size="16" />
-      <span class="font-semibold">Confirm your school email address</span>
+      <span class="font-semibold">Confirm your {{ INSTITUTION }} email address</span>
     </div>
 
     <p class="text-sm text-secondary claim-intro">
@@ -42,19 +42,25 @@
            stronger claim would have been wrong for exactly the students it is
            hardest on. -->
       <template v-else>
+        <!-- The institution, not the domain list. A student does not think of
+             themselves as having "a student.pxl.be address"; the domains stay
+             the authority for MATCHING one (and still name themselves in the
+             typed-address error, where the reader has typed something that
+             failed and needs to know exactly what is accepted). -->
         <p class="text-sm claim-line claim-note">
-          GitHub has not verified {{ domainPhrase }} on this account.
-          Add and verify your official Hogeschool PXL address on GitHub - or
-          sign in with an account that already has it - and your lecturer will
-          recognise you automatically.
+          GitHub has not verified {{ article(INSTITUTION) }} {{ INSTITUTION }} email address on this
+          account. Add and verify your official {{ INSTITUTION }} address on
+          GitHub - or sign in with an account that already has it - and your
+          lecturer will recognise you automatically.
         </p>
         <!-- Its own paragraph, immediately above the field it is about. Run
              together with the paragraph above it this was four sentences in one
              block, and the one sentence that says what to do next was the
              fourth. -->
         <p class="text-sm claim-line claim-note">
-          You can continue with this account instead. Type your PXL address
-          below; your lecturer will see it as unconfirmed.
+          You can continue with this account instead. Type your
+          {{ INSTITUTION_SHORT }} address below; your lecturer will see it as
+          unconfirmed.
         </p>
       </template>
 
@@ -62,7 +68,7 @@
            address is not on their GitHub account must never be locked out. -->
       <div v-if="typing || !matching.length" class="claim-typed">
         <label class="field">
-          <span class="claim-field-label">Your PXL email address</span>
+          <span class="claim-field-label">Your {{ INSTITUTION_SHORT }} email address</span>
           <input
             v-model="typed"
             type="email"
@@ -92,7 +98,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { getUserEmails } from '../lib/api.js'
 import { domainAllowed, normalizeEmail, resolveClaimDomains } from '../lib/claim.js'
-import { CLAIM_DOMAINS } from '../lib/deployment.js'
+import { CLAIM_DOMAINS, INSTITUTION, INSTITUTION_SHORT } from '../lib/deployment.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },

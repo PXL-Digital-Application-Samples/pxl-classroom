@@ -30,7 +30,7 @@
           <textarea
             v-model="csvText"
             rows="10"
-            placeholder="student_number,full_name,email,class_group,github_login,team_slug,team_name&#10;0123456,Alice Example,alice@student.pxl.be,3A,alice-test,team-alpha,Alpha Team"
+            :placeholder="`student_number,full_name,email,class_group,github_login,team_slug,team_name\n0123456,Alice Example,alice@${exampleDomain},3A,alice-test,team-alpha,Alpha Team`"
             @input="onCsvInput"
           ></textarea>
         </div>
@@ -377,7 +377,7 @@
               v-model="quickAddForm.email"
               type="email"
               class="form-control"
-              placeholder="e.g. alice.example@student.pxl.be"
+              :placeholder="`e.g. alice.example@${exampleDomain}`"
               required
             />
           </div>
@@ -445,6 +445,14 @@ import PromoteRosterModal from './PromoteRosterModal.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
+import { CLAIM_DOMAINS } from '../lib/deployment.js'
+
+// The worked examples on this tab - a CSV placeholder, the email field's
+// placeholder and the downloadable sample roster - all showed
+// `@student.pxl.be`. A fork's lecturer would be handed a sample CSV full of
+// somebody else's institution, from the one file deployment.yml promises is the
+// only one they have to edit. The first configured domain is the cohort's.
+const exampleDomain = CLAIM_DOMAINS[0] || 'example.edu'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -916,8 +924,8 @@ function downloadBlob(text, filename, type) {
 function downloadSampleCsv() {
   const sample = [
     CSV_COLUMNS.join(','),
-    '0123456,Alice Example,alice@student.pxl.be,3A,alice-gh,,true,team-alpha,Alpha Team',
-    '0123457,Bob Example,bob@student.pxl.be,3B,,,true,team-alpha,Alpha Team',
+    `0123456,Alice Example,alice@${exampleDomain},3A,alice-gh,,true,team-alpha,Alpha Team`,
+    `0123457,Bob Example,bob@${exampleDomain},3B,,,true,team-alpha,Alpha Team`,
   ].join('\n') + '\n'
   downloadBlob(sample, 'roster-sample.csv', 'text/csv')
 }

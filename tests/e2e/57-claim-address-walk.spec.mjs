@@ -18,8 +18,17 @@
 // JS at all - the trap that made an earlier pagination test pass over a
 // single-page read.
 
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
 import { test, expect } from '@playwright/test';
 import { ORG, STUDENT_1, injectAuth, setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
+
+// Read, not re-spelled. The card takes the institution's name from
+// deployment.yml, so a test that hardcodes "Hogeschool PXL" would be the second
+// spelling - and would fail for a fork whose own copy is perfectly correct.
+const deployment = parse(readFileSync(new URL('../../deployment.yml', import.meta.url), 'utf8'));
+const INSTITUTION = deployment.institution_name;
+const INSTITUTION_SHORT = deployment.institution_short;
 
 const ID = 'claim-walk';
 const PXL = 'tom.cool@student.pxl.be';
@@ -142,14 +151,26 @@ test.describe('57 - The claim card walks the address list', () => {
     await expect(card, 'the claim is about verified addresses, not everything on the account')
       .not.toContainText(/None of the addresses on your GitHub account/i);
 
-    // The article follows the domain's sound. "an student.pxl.be" shipped in
-    // this sentence and in the typed-address error beside it.
-    await expect(card).not.toContainText(/an student\.pxl\.be|an pxl\.be/i);
-    await expect(card).toContainText(/a student\.pxl\.be/i);
+    // The INSTITUTION, read from the deployment file rather than spelled here -
+    // this sentence named the domain list, and a student does not think of
+    // themselves as having "a student.pxl.be address".
+    await expect(card).toContainText(new RegExp(`has not verified an? ${INSTITUTION} email address`, 'i'));
 
-    // The field is the action in this state: it is present, labelled for the
-    // address actually wanted, and not hidden behind "use a different address".
-    await expect(page.locator('.claim-field-label')).toContainText(/PXL email address/i);
+    // The field is the action in this state: present, labelled for the address
+    // actually wanted, and not hidden behind "use a different address".
+    await expect(page.locator('.claim-field-label')).toContainText(
+      new RegExp(`Your ${INSTITUTION_SHORT} email address`, 'i'),
+    );
     await expect(page.locator('.claim-typed input[type="email"]')).toBeVisible();
+
+    // The domain list still names itself in the TYPED error, where the reader
+    // has entered something that failed and needs to know what is accepted -
+    // and the article follows the domain's sound. "an student.pxl.be" was
+    // rendered by every path that showed this phrase.
+    await page.locator('.claim-typed input[type="email"]').fill('someone@gmail.com');
+    const problem = page.locator('.claim-problem');
+    await expect(problem).toBeVisible();
+    await expect(problem).not.toContainText(/\ban (student\.)?pxl\.be/i);
+    await expect(problem).toContainText(/a student\.pxl\.be/i);
   });
 });
