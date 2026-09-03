@@ -981,6 +981,26 @@ So `|| true` swallows the 128, `diff --cached --quiet` is true, and the step **e
 
 The same sweep found `publish-assignment.yml` setting `http.<host>/.extraheader` and never unsetting it, while `setup-org.yml` one file away had carried a `trap … EXIT` for months with a comment explaining exactly why. Both rules have guards now. The lesson is not about either bug: **the rules with tests behind them were all clean, and every violation found was under a rule that had none.** The credential rules with guards — SHA pinning, `environment: provisioning`, the `[bot]` dispatch refusal, `${{ }}` never reaching a script — were at zero, and the `[bot]` guard in particular is worth reading as a model: it derives the class instead of listing files, computes the "legitimately machine-dispatched" exemption from real dispatch calls, resolves `needs:` transitively, and asserts a floor so a walk that stops matching cannot look like a clean repo.
 
+### Two places that must agree, with no mechanism making them agree.
+
+The shape behind more incidents in this file than any other, and it is worth naming because the instances look unrelated until they are listed together:
+
+| the two places | how it failed |
+| :--- | :--- |
+| `submission_status` vs the late-activity warning | one spelled `firstLateSha !== lastOnTimeSha`, the other the weaker `if (firstLateSha)` — a finished exam read `on-time` beside "late activity" on every row |
+| `s.status` vs the row field `submission_status` | a field that does not exist compares as a constant, and `!==` fails **open** — a whole roster counted as having accepted |
+| `client_payload.broker_repo`, read twice | one reader split `owner/repo` and checked the org, the other composed `/repos/${ORG}/${BROKER_REPO}` — 404 on every acceptance, and the write path unauthorised |
+| the `pxl-acceptance-outcome:` marker | the writer emitted `provisioned:invited`, the reader matched `rejected[a-z:-]*` — the hub posting into a void looks exactly like the feature not existing |
+| `setOutput("invited")` / `action.yml` / `if:` | a typo in any of three files yields `''`, so `if: '' == 'true'` is false, the run is **green**, and the step never runs |
+| `tableColumnCount` vs the `<th>`s | a hand-maintained count, already fixed once for the two grading columns, still missing the Team column |
+| a `deployment.yml` value re-spelled in YAML | guarded, and the reason `tests/deployment-literals.test.mjs` exists at all |
+
+**The class cannot be guarded as a class.** There is no sweep that finds "two things that ought to agree" — agreement is semantic, and a checker general enough to find them would flag every pair of similar strings in the repo. What *can* be done is the thing every successful guard here already does: **derive one side from the other**, in a test, and assert a floor so a broken parser cannot pass as a clean repo.
+
+So the remedy is per-contract, and the work is enumerating the contracts rather than inventing a detector. Two were added on 2026-09-03. `tests/workflow-output-contract.test.mjs` walks every `steps.<id>.outputs.<name>` in every workflow, resolves the step to its local action, and fails if `action.yml` does not declare it — then takes each declared output's `value:` back to the script behind it and fails if nothing writes that name. `tests/table-colspan.test.mjs` reads the `<th>`s out of the template, rebuilds the arithmetic `tableColumnCount` should be, and additionally requires every conditional header to have a `<td>` gated on the *same* condition, because a header and a cell disagreeing shifts every column after it and renders perfectly.
+
+Both were written against a live defect and both were checked by re-introducing it. Two notes from doing that. The output guard **failed on its own parser first** — composite actions call scripts as `node "$GITHUB_ACTION_PATH/accept.mjs"`, and `read-team-payload.mjs` writes six outputs from one template rather than through `setOutput` — which is the good failure: a matcher that silently finds nothing is the vacuous guard this whole section warns about, and it announced itself immediately instead of passing. And the guard on the *class* is only ever as good as the floor: `assert.ok(checked >= 15)` is what stops a future refactor from turning the walk into a no-op that still reports success.
+
 ## Tests and guards
 
 ### A guard whose anchor was renamed away checks nothing, silently.

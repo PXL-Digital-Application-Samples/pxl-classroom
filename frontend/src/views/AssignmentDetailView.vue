@@ -587,6 +587,14 @@
                   <span class="th-label">Login<SortIcon :dir="sortDir('github_login')" /></span>
                 </th>
                 <th v-if="isGroupAssignment">Team</th>
+                <!-- Under `open` the claim is RECORDED rather than enforced, so
+                     this column is the whole of the "detection" half - and it
+                     existed everywhere except on screen: report/report.mjs
+                     already says "a lecturer who cannot see it might as well
+                     not have it". -->
+                <th v-if="hasClaimedEmails" @click="sortBy('claimed_email')" @keydown.enter="sortBy('claimed_email')" @keydown.space.prevent="sortBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSort('claimed_email')">
+                  <span class="th-label">Claimed address<SortIcon :dir="sortDir('claimed_email')" /></span>
+                </th>
                 <th @click="sortBy('acceptance_state')" @keydown.enter="sortBy('acceptance_state')" @keydown.space.prevent="sortBy('acceptance_state')" tabindex="0" class="sortable" :aria-sort="ariaSort('acceptance_state')">
                   <span class="th-label">Acceptance<SortIcon :dir="sortDir('acceptance_state')" /></span>
                 </th>
@@ -618,6 +626,31 @@
                   <span v-if="s.team_name || s.team_slug" class="text-sm font-medium">
                     {{ s.team_name || s.team_slug }}
                   </span>
+                  <span v-else class="text-muted text-xs">-</span>
+                </td>
+                <!-- ONE indicator, and never a danger dot.
+                     `claim_verified` is false for every student who has not
+                     verified an institutional address on their GitHub account -
+                     honest ones included - and it is the BROWSER's own
+                     assertion either way, so even `true` is corroboration
+                     rather than proof. DESIGN.md §4 has the right word for
+                     that: `.dot-neutral` is "unknown. Not an error." Rendering
+                     it as a cross, or leaving it blank in a column of dots,
+                     would both turn absence of evidence into a finding - the
+                     mistake that produced "no invitation waiting".
+                     An address outside `claim_domains` IS a positive finding,
+                     recorded rather than refused under `open`, so it takes
+                     `.dot-warning` - "needs a look, not an alarm" - and outranks
+                     the corroboration note, because it is the one thing here a
+                     lecturer has to act on. -->
+                <td v-if="hasClaimedEmails">
+                  <template v-if="s.claimed_email">
+                    <span class="text-sm">{{ s.claimed_email }}</span>
+                    <div class="status-indicator" :title="claimNote(s).title">
+                      <span class="status-dot" :class="claimNote(s).dot"></span>
+                      <span class="text-xs">{{ claimNote(s).label }}</span>
+                    </div>
+                  </template>
                   <span v-else class="text-muted text-xs">-</span>
                 </td>
                 <td>
@@ -1794,11 +1827,63 @@ function studentTooltip(s) {
 const hasSubmitTags = computed(() =>
   (report.value?.students || []).some(s => !!s.tagged_submission_tag))
 
+// Only where a claim was actually collected. `roster_mode: open` without
+// `require_claim` records nothing, and an empty column is a column that teaches
+// a lecturer to ignore one.
+const hasClaimedEmails = computed(() =>
+  (report.value?.students || []).some(s => !!s.claimed_email))
+
+/**
+ * What may be said about a claimed address, in DESIGN.md §4's vocabulary.
+ *
+ * Three states and no fourth, ordered by what a lecturer has to act on. The
+ * off-domain case is the only positive finding here - under `open` the domain
+ * is recorded rather than enforced, so this is the whole of the detection half
+ * - and it outranks the corroboration note.
+ *
+ * `.dot-danger` is deliberately unreachable. "Something did not happen" is not
+ * what an uncorroborated address means: it means GitHub has not confirmed the
+ * address belongs to that account, which is the ordinary state for anyone who
+ * signed up with a personal address. The hub cannot verify a claim at all -
+ * `/user/emails` needs the student's own token - so nothing here is ever proof
+ * of anything, in either direction.
+ */
+function claimNote(s) {
+  if (s.claim_domain_allowed === false) {
+    return {
+      dot: 'dot-warning',
+      label: 'Outside allowed domains',
+      title: 'This address is not in the assignment\'s claim_domains. Recorded rather than refused - under roster_mode open the domain is not a gate.',
+    }
+  }
+  if (s.claim_verified === true) {
+    return {
+      dot: 'dot-success',
+      label: 'GitHub-verified',
+      title: 'The student picked this from the addresses GitHub has verified on their account. Reported by their browser, so corroboration rather than proof.',
+    }
+  }
+  return {
+    dot: 'dot-neutral',
+    label: 'Not corroborated',
+    title: 'Typed rather than picked from a GitHub-verified address - the ordinary state for an account without an institutional address on GitHub. Not a finding.',
+  }
+}
+
 // Two optional grading columns, not one. This counted `isGitHubActionsAutograde`
 // once and the Score column rendered off a different condition entirely, so the
 // empty-state colspan was short by one whenever they disagreed.
+// ...and it was still short by one. `isGroupAssignment` renders a Team column
+// and was never a term here, so every group assignment with no rows drew its
+// empty-state cell one column narrow - the exact defect the paragraph above
+// claims to have fixed, in the same expression, missed because the fix counted
+// the two GRADING columns and stopped looking. A hand-maintained count of a
+// conditionally rendered thing is the shape; tests/table-colspan.test.mjs now
+// derives the answer from the template instead of trusting this arithmetic.
 const tableColumnCount = computed(() =>
   7 +
+  (isGroupAssignment.value ? 1 : 0) +
+  (hasClaimedEmails.value ? 1 : 0) +
   (ciStatusColumn.value ? 1 : 0) +
   (hasGrades.value ? 1 : 0) +
   (feedbackPrEnabled.value ? 1 : 0) +
