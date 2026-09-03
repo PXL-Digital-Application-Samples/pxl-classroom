@@ -18,6 +18,21 @@ export {
 } from '../../../lib/claim.mjs'
 
 import claimKeys from '../../../acceptance/claim-keys.json'
+import { INSTITUTION_SHORT } from './deployment.js'
+
+/**
+ * The `require_claim` checkbox's label, in one place.
+ *
+ * `PromoteRosterModal` tells a lecturer to "Tick <em>…</em>" and quoted the
+ * label verbatim, so the two had to agree and nothing made them: the option
+ * two fields above it started naming the institution while both of these still
+ * said "institutional", and an instruction that quotes a control by a name the
+ * control does not have sends someone looking for a checkbox that is not there.
+ *
+ * Short form deliberately - it sits inside a `<select>` option and a sentence
+ * in a modal, where the long name is a mouthful.
+ */
+export const REQUIRE_CLAIM_LABEL = `Ask students to confirm their ${INSTITUTION_SHORT} email address`
 
 /**
  * The hub public key new claims are sealed to, or null when none is configured.

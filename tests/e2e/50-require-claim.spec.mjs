@@ -13,7 +13,18 @@
 // What it does NOT do is gate: anyone with the link still accepts. It records
 // who, so the reconciliation is possible.
 
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
 import { test, expect } from '@playwright/test';
+
+// The checkbox is found by its label, and the label names the institution from
+// deployment.yml - so this reads it rather than spelling it. Written out, this
+// locator stopped matching the moment the copy stopped saying "institutional",
+// and it would fail for a fork whose own label is perfectly correct.
+const INSTITUTION_SHORT = parse(
+  readFileSync(new URL('../../deployment.yml', import.meta.url), 'utf8'),
+).institution_short;
+const ASK_LABEL = `Ask students to confirm their ${INSTITUTION_SHORT} email address`;
 import {
   ORG,
   STUDENT_1,
@@ -91,7 +102,7 @@ test.describe('50 - the lecturer side', () => {
   }
 
   const askBox = (page) =>
-    guardrails(page).locator('label', { hasText: 'Ask students to confirm their institutional email address' });
+    guardrails(page).locator('label', { hasText: ASK_LABEL });
 
   test('the option is offered on an open assignment, and starts off', async ({ page }) => {
     // A new assignment defaults to open, so this is the state it opens in.

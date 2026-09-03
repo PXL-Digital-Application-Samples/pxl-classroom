@@ -26,8 +26,8 @@
           </template>
           <template v-else>
             They will arrive as GitHub usernames only — no name, student number or email, because this
-            assignment never collected one. Tick <em>Ask students to confirm their institutional email
-            address</em> on an open assignment to change that.
+            assignment never collected one. Tick <em>{{ REQUIRE_CLAIM_LABEL }}</em> on an open
+            assignment to change that.
           </template>
         </p>
 
@@ -141,6 +141,8 @@ import { formatDate } from '../lib/format.js'
 // re-implemented: the merge rule is what stops a lecturer's student_number
 // being overwritten by the little an acceptance record knows.
 import { planPromotion, promoteCommitMessage, ROSTER_PATH } from '../../../lib/promote-roster.mjs'
+// The label is quoted, so it is read from where the checkbox reads it.
+import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 
 const props = defineProps({
   org: { type: String, required: true },

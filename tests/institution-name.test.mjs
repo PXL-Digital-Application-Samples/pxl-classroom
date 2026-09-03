@@ -138,6 +138,27 @@ test("MANUAL.md names no institution at all", () => {
   assert.ok(read("MANUAL.md").includes(PRODUCT), `MANUAL.md should still name the product`);
 });
 
+test("a control quoted by name is quoted from where it is named", () => {
+  // `PromoteRosterModal` tells a lecturer to "Tick <em>Ask students to confirm
+  // their … email address</em>", and had the label written out - so when the
+  // roster-mode option two fields above the checkbox started naming the
+  // institution, both of these still said "institutional". An instruction that
+  // quotes a control by a name the control does not have sends someone hunting
+  // for a checkbox that is not there.
+  const label = /export const REQUIRE_CLAIM_LABEL = `([^`]+)`/.exec(read("frontend/src/lib/claim.js"))?.[1];
+  assert.ok(label, "REQUIRE_CLAIM_LABEL must exist for both sites to read");
+  assert.match(label, /\$\{INSTITUTION_SHORT\}/, "and must take the name from the deployment file");
+
+  for (const f of ["frontend/src/views/AdminView.vue", "frontend/src/components/PromoteRosterModal.vue"]) {
+    const src = read(f);
+    assert.match(src, /REQUIRE_CLAIM_LABEL/, `${f} must read the label rather than spell it`);
+    assert.ok(
+      !/Ask students to confirm their/.test(prose(f)),
+      `${f} spells the checkbox label out - the two copies drifted once already`,
+    );
+  }
+});
+
 test("both readers of the file agree, and neither invents a third spelling", () => {
   // One value, two consumers - the SPA (build-time inlined) and the hub
   // (node:fs). A third copy is the shape this repo has paid for repeatedly.
