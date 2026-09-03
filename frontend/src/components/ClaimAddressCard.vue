@@ -35,17 +35,34 @@
         We could not check which addresses GitHub has verified for you, so type
         the address your lecturer registered.
       </p>
-      <p v-else class="text-sm claim-line claim-note">
-        None of the addresses on your GitHub account is
-        {{ domainPhrase }}. Type the address your lecturer registered - it does
-        not have to be on your GitHub account.
-      </p>
+      <!-- "VERIFIED", not "on your account". This branch only knows what
+           `/user/emails` returned filtered to `verified === true`, so an
+           address sitting on the account unverified is not in it - and the
+           card's own loading line says "verified" one paragraph above. The
+           stronger claim would have been wrong for exactly the students it is
+           hardest on. -->
+      <template v-else>
+        <p class="text-sm claim-line claim-note">
+          GitHub has not verified {{ domainPhrase }} on this account.
+          Add and verify your official Hogeschool PXL address on GitHub - or
+          sign in with an account that already has it - and your lecturer will
+          recognise you automatically.
+        </p>
+        <!-- Its own paragraph, immediately above the field it is about. Run
+             together with the paragraph above it this was four sentences in one
+             block, and the one sentence that says what to do next was the
+             fourth. -->
+        <p class="text-sm claim-line claim-note">
+          You can continue with this account instead. Type your PXL address
+          below; your lecturer will see it as unconfirmed.
+        </p>
+      </template>
 
       <!-- The typed fallback. Always reachable: a student whose institutional
            address is not on their GitHub account must never be locked out. -->
       <div v-if="typing || !matching.length" class="claim-typed">
         <label class="field">
-          <span class="text-sm">Email address</span>
+          <span class="claim-field-label">Your PXL email address</span>
           <input
             v-model="typed"
             type="email"
@@ -73,7 +90,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
-import { ghApi } from '../lib/api.js'
+import { getUserEmails } from '../lib/api.js'
 import { domainAllowed, normalizeEmail, resolveClaimDomains } from '../lib/claim.js'
 import { CLAIM_DOMAINS } from '../lib/deployment.js'
 
@@ -100,11 +117,19 @@ const typing = ref(false)
 
 const domains = computed(() => resolveClaimDomains(props.assignment, CLAIM_DOMAINS))
 
+// "an student.pxl.be", in a sentence a student reads while already stuck. The
+// article follows the sound of the domain, not a constant - every domain this
+// deployment uses starts with a consonant, so the bug was every rendering of
+// this phrase in both places that show it.
+const article = (word) => (/^[aeiou]/i.test(word) ? 'an' : 'a')
+
 const domainPhrase = computed(() => {
   const d = domains.value
   if (!d.length) return 'an accepted address'
-  if (d.length === 1) return `an ${d[0]} address`
-  return `${d.slice(0, -1).map((x) => `an ${x}`).join(', ')} or an ${d[d.length - 1]} address`
+  if (d.length === 1) return `${article(d[0])} ${d[0]} address`
+  const head = d.slice(0, -1).map((x) => `${article(x)} ${x}`).join(', ')
+  const last = d[d.length - 1]
+  return `${head} or ${article(last)} ${last} address`
 })
 
 const placeholder = computed(() =>
@@ -148,7 +173,7 @@ onMounted(async () => {
     return
   }
   try {
-    const res = await ghApi(props.token, 'GET', '/user/emails?per_page=100')
+    const res = await getUserEmails(props.token)
     if (!res.ok || !Array.isArray(res.data)) {
       unreadable.value = true
     } else {
@@ -228,8 +253,28 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
+/* In this state the field IS the action, so it gets air above it and carries
+   more weight than the explanation it follows - not `.text-sm`, which is the
+   size of the paragraph it has to stand out from. Sizes are literal rems the
+   way style.css's own type scale is; §5 rule 1 is about COLOUR literals, and
+   there is no colour here. */
+.claim-typed {
+  margin-top: var(--space-sm);
+}
+
 .claim-typed .field {
   margin: 0;
+}
+
+.claim-field-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.claim-typed .form-control {
+  font-size: 0.95rem;
+  padding: var(--space-sm);
 }
 
 .claim-problem {

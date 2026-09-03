@@ -180,15 +180,28 @@ test.describe('46 - What the page says when it cannot know', () => {
     await student(page, { emailsStatus: 403 });
 
     await expect(page.getByText(/could not check which addresses/i)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/None of the addresses on your GitHub account/i)).toHaveCount(0);
+    await expect(page.getByText(/has not verified/i)).toHaveCount(0);
     // And the way forward is still open.
     await expect(page.getByPlaceholder(/you@student\.pxl\.be/i)).toBeVisible();
   });
 
   test('an empty list IS evidence, and says the other thing', async ({ page }) => {
+    // ...but only about what was actually looked at.
+    //
+    // This asserted "None of the addresses on your GitHub account is …", which
+    // is a claim about the ACCOUNT, and the card only ever sees the addresses
+    // GitHub has VERIFIED - `/user/emails` filtered to `verified === true`. An
+    // address sitting on the account unverified is excluded, so the sentence
+    // was wrong for exactly the student it is hardest on, and the card's own
+    // loading line ("addresses GitHub has verified for you") already said the
+    // narrower thing one paragraph above. The test was pinning the overclaim.
     await student(page, { emails: [] });
-    await expect(page.getByText(/None of the addresses on your GitHub account/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/GitHub has not verified/i)).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/could not check which addresses/i)).toHaveCount(0);
+    await expect(
+      page.getByText(/None of the addresses on your GitHub account/i),
+      'the account-wide claim must not come back',
+    ).toHaveCount(0);
   });
 });
 

@@ -282,6 +282,28 @@ export async function getUserRepos(token) {
 }
 
 /**
+ * Every email address on the signed-in account, verified or not.
+ *
+ * Walked rather than read, because the claim card makes a statement about the
+ * WHOLE collection - "GitHub has not verified a Hogeschool PXL address on this
+ * account" - and now sends a student to change accounts on the strength of it.
+ * A one-page read would make that a statement about the first hundred.
+ *
+ * Nobody has a hundred addresses; that is not the point. `getInvitations` was
+ * one page too, for a list nobody was supposed to be long either, and a student
+ * whose invitation sat on page two was told setup had failed. Where a walk is
+ * capped the capped case must not report `ok`, so a truncated read arrives as a
+ * failure and the card falls back to "we could not check" instead of to a
+ * confident negative.
+ */
+export async function getUserEmails(token) {
+  const { res, merged, truncated } = await pagedGet(token, '/user/emails?per_page=100', { maxPages: 5 })
+  if (!merged) return res
+  if (truncated) return truncatedResponse(res, 'your GitHub email addresses')
+  return { ...res, data: merged }
+}
+
+/**
  * Accept a repository invitation.
  */
 export async function acceptInvitation(token, invitationId) {

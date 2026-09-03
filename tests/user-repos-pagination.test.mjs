@@ -103,8 +103,12 @@ test("there is ONE Link walker, not one per caller", () => {
   );
   assert.match(src, /async function pagedGet\(/, "the shared paginator must exist");
 
-  // And the three ghApi-based callers must all route through it.
-  for (const name of ["getInvitations", "getInstallations", "getUserRepos"]) {
+  // And every ghApi-based caller must route through it. The list is spelled
+  // out rather than derived on purpose - a walker that stops walking would
+  // simply drop off a derived list, and this is the half that says "these
+  // specific reads are statements about a whole collection". Adding a fourth
+  // read of a list endpoint means adding it here.
+  for (const name of ["getInvitations", "getInstallations", "getUserRepos", "getUserEmails"]) {
     const fn = src.slice(src.indexOf(`export async function ${name}`));
     const body = fn.slice(0, fn.indexOf("\n}") + 2);
     assert.match(body, /pagedGet\(/, `${name} must use the shared paginator`);
@@ -141,7 +145,7 @@ test("every pagedGet caller refuses a truncated list", () => {
   const src = readFileSync(API, "utf8");
   const callers = [...src.matchAll(/export async function (\w+)\(token[^)]*\)\s*\{([\s\S]*?)\n\}/g)]
     .filter(([, , body]) => body.includes("pagedGet("));
-  assert.ok(callers.length >= 3, `expected the three paginated readers, saw ${callers.length}`);
+  assert.ok(callers.length >= 4, `expected at least four paginated readers, saw ${callers.length}`);
   for (const [, name, body] of callers) {
     assert.match(
       body,
