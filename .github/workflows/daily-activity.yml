@@ -349,6 +349,30 @@ jobs:
           assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
 
+      # The door this assignment leaves open otherwise.
+      #
+      # publish-assignment.yml sets INVITE_ENABLED=true and nothing ever set it
+      # back, so every broker an organization has ever published still boots a
+      # runner for any `pxl-accept:` issue - measured 2026-09-03, an exam five
+      # days past its deadline was still accepting. The runner is free (public
+      # repository) and serialised per login, so this is not about cost: after
+      # the deadline the hub refuses every one of these as
+      # `rejected:past-deadline`, which makes each boot guaranteed waste, and
+      # the set of open doors grows by one per assignment forever.
+      #
+      # `if: always()` for the same reason as the commit below - lockdown has
+      # already demoted permissions through the API by this point, so the
+      # assignment is finished whether or not a later step failed.
+      - name: 5. Close acceptance on the broker
+        if: always()
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ matrix.assignment.org }}
+          ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/close-acceptance.mjs
+
       # always(): lockdown demotes permissions through the API before preserve
       # runs, so those facts are already true of the world - dropping them on a
       # preserve failure loses the frozen snapshot and the attempt counter that

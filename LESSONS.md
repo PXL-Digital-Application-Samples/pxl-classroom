@@ -937,6 +937,26 @@ One limit survives, and it is the whole decision: **enrolling by org membership 
 
 This is *"unreadable is not evidence"* one level deeper than it had been applied. Every earlier instance keyed off the transport - a non-`ok` response, a thrown read, a capped walk. This one was `ok`, well-formed, and empty, and the only thing wrong with it was that it was **an answer to a question we were not entitled to ask**. Where a read's authority cannot be established, a green tick and a "none found" are the same lie. `tests/invitation-evidence.test.mjs` holds the measurement and pins the rule; `tests/student-wait-copy.test.mjs` forbids the sentence on every student surface; `tests/e2e/40-provisioning-wait.spec.mjs` now drives the empty-list case and the 403 case through the *same* expectation, which is the assertion the old file could not make.
 
+### Publishing opened a door, and nothing ever closed it.
+
+Raised as "a student can spam `pxl-accept:` issues on a public broker, each burning an Actions run **billed to the org**" — and that framing was wrong in the expensive word. The broker is a **public** repository and so is the hub, so the runner is **free**; this file's own broker header already said it: *"one boot on a free public runner."* Cost was never the issue, and chasing it would have produced a rate limiter nobody needed.
+
+What the measurement found instead, on PXL-Automation-II:
+
+| broker | `INVITE_ENABLED` | |
+| :--- | :--- | :--- |
+| `broker-2526-examen-aut2-ek2` | **true** | deadline passed **30 Aug** |
+| `broker-test-pe-1` | true | |
+| `broker-test-pe3` | true | |
+
+`publish-assignment.yml` sets that variable to `true` and **nothing ever set it back**. So every broker an organization has ever published still boots a runner for any `pxl-accept:` title, five days or five years after the assignment finished — and the hub then refuses each one as `rejected:past-deadline`. Not expensive; **guaranteed waste**, on a surface that grows by one door per assignment for the life of the org.
+
+The defence that already existed is worth writing down, because it is why this was never urgent: the job-level `if:` skips anything that is not a `pxl-accept:` title *before a runner is allocated*, the signature is verified before any credential is in scope, and `concurrency: accept-<login>` serialises one attacker to a single run at a time. `INVITE_ENABLED` was the kill switch all along — it was simply only ever switched on.
+
+So the nightly closes it in the pass that finalizes the deadline (`scripts/close-acceptance.mjs`, step 5 of `finalize`), which costs no extra run, and the refusal moves into the pre-runner condition where it costs no runner either. `continue-on-error`, before the commit that can race, and the broker's name comes from `lib/broker-repo.mjs` rather than a composed `broker-<id>` — which would have closed nothing on exactly the assignments carrying a custom `broker_repo`.
+
+**The general lesson is the shape, not the variable.** Every `publish` in this system has a matching state it turns *on*; ask what turns it off, and when. This one had an answer for eleven months and it was "nobody".
+
 ### A student reached the lecturer dashboard, badged "Lecturer".
 
 Reported with a screenshot, 2026-09-03. `tomccargo` — a test **student** account, not a member of `PXL-Automation-II` — signed in and was shown the organization in the switcher, a **Lecturer** tag beside their name, and an onboarding card:
