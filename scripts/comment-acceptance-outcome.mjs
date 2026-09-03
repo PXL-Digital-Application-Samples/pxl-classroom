@@ -175,8 +175,15 @@ async function main() {
     // `continue-on-error` by design. A warning is visible in the run's
     // annotations without turning a handled rejection red - which is the whole
     // point of the distinction.
+    // WITH GitHub's own message. The status alone was not enough: the first
+    // live run after the 404 fix answered 403, and "403" does not distinguish a
+    // locked conversation from a missing permission from a suspended account -
+    // which is the whole question when deciding what to do about it. One word
+    // from the API ("Issue is locked") settles in a log line what otherwise
+    // costs an afternoon.
+    const why = res.data?.message ? `: ${res.data.message}` : "";
     console.log(
-      `::warning::Could not comment on ${target.fullName}#${target.issue} (HTTP ${res.status}) - ` +
+      `::warning::Could not comment on ${target.fullName}#${target.issue} (HTTP ${res.status}${why}) - ` +
         `the student will not be told "${category}". The acceptance outcome itself is unaffected.`,
     );
     return;
