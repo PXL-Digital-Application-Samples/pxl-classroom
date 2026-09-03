@@ -221,6 +221,23 @@ async function main() {
       // These are domains, not addresses - public by nature, and the scanner's
       // email-address rule needs an `@`, so a bare domain cannot trip it.
       claim_domains: Array.isArray(def.claim_domains) ? def.claim_domains : undefined,
+      // WHETHER THE STUDENT IS ASKED FOR AN ADDRESS AT ALL, under `open`.
+      //
+      // `accept.mjs` enforces this and the page decides whether to show the
+      // field, so leaving it unpublished made the two disagree in the worst
+      // possible direction: the student was never shown the input, accepted
+      // without a claim, and was refused with `rejected:no-claim` for omitting
+      // something nobody asked them for. The waiting page then hid the claim
+      // causes on the same missing field, so it could not even name what had
+      // happened - it offered "the registration cap has been reached" instead.
+      // PXL-Automation-II/test-pe3, 2026-09-03.
+      //
+      // Under `claim` the mode already says so and the page reads roster_mode;
+      // this is the `open` + require_claim combination, which has no other
+      // signal on the wire. Published as a boolean rather than omitted-when-
+      // false, because "absent" here would be indistinguishable from an
+      // assignment written before the field existed.
+      require_claim: def.roster_mode === "open" ? def.require_claim === true : undefined,
     };
 
     // The full card is published under the DIGEST of the invitation token, so
