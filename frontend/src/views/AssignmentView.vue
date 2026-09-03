@@ -350,6 +350,22 @@
             <button class="btn btn-secondary" @click="acceptState = 'ready'">Back</button>
           </div>
 
+          <!-- A rejection is not a stall, and showing the stall page for one
+               was the defect: a student refused for `rejected:no-claim` was
+               told the registration cap might be full. This says what happened
+               and what to do about it. -->
+          <div v-else-if="acceptState === 'rejected'" class="timeout-state fade-in">
+            <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
+            <h2>You were not able to accept this assignment</h2>
+            <p class="text-secondary">{{ rejectionMessage }}</p>
+            <div class="flex justify-center gap-sm mt-md">
+              <button class="btn btn-primary" @click="acceptState = 'ready'">Back</button>
+              <button class="btn btn-secondary" @click="checkAgain" :disabled="checkingAgain">
+                {{ checkingAgain ? 'Checking…' : 'Check again' }}
+              </button>
+            </div>
+          </div>
+
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
             <!-- Two different situations, and they used to share one headline
@@ -504,6 +520,45 @@ const pendingInvitation = ref(null)
 // Number of the acceptance issue opened on the broker, so we can tell a
 // restricted account apart from a slow one when polling gives up.
 const acceptanceIssue = ref(null)
+
+/** The category the hub posted back, when it turned this acceptance away. */
+const rejectedCategory = ref(null)
+
+/**
+ * One sentence per rejection, in the student's terms, with the next step.
+ *
+ * Written from what a student can DO. "rejected:no-claim" is not a message; it
+ * is a slug, and the page's job is to turn it into the thing they were never
+ * told: that this assignment wanted their institutional address first.
+ *
+ * Anything unrecognised falls through to a plain statement rather than a
+ * guess - a category invented later must not silently render as one of these.
+ */
+const REJECTION_TEXT = Object.freeze({
+  'rejected:no-claim': 'This assignment asks you to confirm your institutional email address before accepting. Go back and enter it, then accept again.',
+  'rejected:no-claim-match': 'The address you confirmed is not the one your lecturer registered for you. Check for a typo, or ask which address they used.',
+  'rejected:claim-taken': 'That address has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.',
+  'rejected:claim-blocked': 'Too many attempts have been made with this account. Contact your lecturer; they can reset it.',
+  'rejected:claim-domain': 'That address is not from a domain this assignment accepts. Use your institutional address.',
+  'rejected:not-on-roster': "You are not on the lecturer's roster for this course. Ask them to add you.",
+  'rejected:not-in-class-group': 'This assignment is for a different class group. Check with your lecturer that you have the right link.',
+  'rejected:no-roster': 'No roster has been imported for this course yet, so nobody can accept. Tell your lecturer.',
+  'rejected:cap-reached': 'This assignment has reached its limit on how many students may accept. Tell your lecturer.',
+  'rejected:past-deadline': 'The deadline for this assignment has passed, so it can no longer be accepted.',
+  'rejected:not-open': 'This assignment is not open for acceptance yet. Check the opening date above.',
+  'rejected:not-published': 'This assignment is not published, so it cannot be accepted yet. Tell your lecturer.',
+  'rejected:no-assignment': 'This assignment no longer exists. Check the link with your lecturer.',
+  'rejected:no-team': 'You need to join or create a team before accepting this group assignment.',
+  'rejected:team-full': 'The team you chose is full. Pick another, or ask your lecturer to raise the size.',
+  'rejected:no-assigned-team': 'Your lecturer assigns the teams for this assignment, and you are not in one yet.',
+  'rejected:team-not-assigned': 'That team is not part of this assignment.',
+  'rejected:team-creation-disabled': 'Creating new teams is switched off for this assignment - join an existing one.',
+  'rejected:invalid-team-slug': 'That team name is not valid. Pick a team from the list.',
+})
+
+const rejectionMessage = computed(() =>
+  REJECTION_TEXT[rejectedCategory.value] ||
+  'Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next.')
 const repoCopied = ref(false)
 
 // Student Diagnostics & Account Checker State (1.A)
@@ -995,6 +1050,49 @@ async function acceptanceIssueVanished() {
   }
 }
 
+/**
+ * What the hub said about this acceptance, if it said anything.
+ *
+ * The rejection is decided within a second and recorded in the private control
+ * repo - a notifications comment and a claim-attempt record - neither of which
+ * a student can read. So this page had nothing and guessed: it offered "the
+ * assignment registration cap has been reached" to somebody refused for
+ * `rejected:no-claim`, and never mentioned the real reason at all.
+ *
+ * acceptance-handler.yml now writes the CATEGORY back to the student's own
+ * broker issue, which is the surface both sides already share. Only the
+ * category - the reason text carries the address they typed, and the broker
+ * repository is public.
+ *
+ * Returns null when nothing was posted, which is a real answer: it means the
+ * acceptance was not rejected, so a timeout here is a genuine provisioning
+ * stall and the existing causes apply.
+ */
+const OUTCOME_MARKER = /<!--\s*pxl-acceptance-outcome:(rejected[a-z:-]*)\s*-->/
+
+async function readAcceptanceOutcome() {
+  if (!acceptanceIssue.value || !assignment.value) return null
+  const brokerRepo = brokerRepoName({ assignment: assignment.value, assignmentId: resolvedId.value })
+  try {
+    const res = await ghApi(
+      getToken(), 'GET',
+      `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}/comments?per_page=20`,
+    )
+    if (!res.ok || !Array.isArray(res.data)) return null
+    // Last one wins: a student who accepted, was refused, fixed the problem and
+    // accepted again should see the latest answer, not the first.
+    for (const c of [...res.data].reverse()) {
+      const m = OUTCOME_MARKER.exec(c?.body || '')
+      if (m) return m[1]
+    }
+    return null
+  } catch {
+    // Unreadable is not evidence: fall through to the existing causes rather
+    // than claiming a rejection that may not have happened.
+    return null
+  }
+}
+
 // A GUESS at where the invitation would be, derived from the naming pattern.
 // GitHub serves the accept/decline page at /<owner>/<repo>/invitations and
 // redirects to the repo if you are already a collaborator - but it 404s when
@@ -1086,6 +1184,15 @@ function startPolling() {
       // event, so nothing downstream runs and the student waits three minutes
       // for a message about load that has nothing to do with it. Observed on a
       // real account during live testing.
+      // Ask what actually happened before guessing at it. A rejection is a
+      // different state from a stall, and the page used to present the second
+      // while the system knew the first.
+      const outcome = await readAcceptanceOutcome()
+      if (outcome) {
+        rejectedCategory.value = outcome
+        acceptState.value = 'rejected'
+        return
+      }
       acceptState.value = (await acceptanceIssueVanished()) ? 'blocked-account' : 'timeout'
       return
     }

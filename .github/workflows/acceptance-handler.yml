@@ -115,6 +115,31 @@ jobs:
             [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           dedup-key: reject-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.github_login }}-${{ steps.accept.outputs.outcome }}
 
+      # Tell the STUDENT, not only the lecturer.
+      #
+      # A rejection was recorded in two places a student cannot read - the
+      # notifications issue and the claim-attempt record, both in the private
+      # control repo - so their page had nothing to go on and guessed. It
+      # offered "the registration cap has been reached" to somebody refused for
+      # `rejected:no-claim`. The broker issue is the surface both sides already
+      # share: the browser opened it and still holds its number.
+      #
+      # Only the CATEGORY crosses. The broker repository is public and the
+      # rejection notes carry the address the student typed; the claim is sealed
+      # so that address reaches nobody but the hub, and republishing it here
+      # would undo that. See scripts/comment-acceptance-outcome.mjs.
+      - name: Tell the student why they were turned away
+        if: startsWith(steps.accept.outputs.outcome, 'rejected')
+        # A courtesy comment must never turn a handled rejection into a red run.
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ github.event.client_payload.org }}
+          BROKER_REPO: ${{ github.event.client_payload.broker_repo }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+          OUTCOME: ${{ steps.accept.outputs.outcome }}
+        run: node scripts/comment-acceptance-outcome.mjs
+
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
         # The provisioning failure is the thing to report; failing to report it
