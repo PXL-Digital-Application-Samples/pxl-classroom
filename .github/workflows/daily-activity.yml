@@ -315,7 +315,21 @@ jobs:
           assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
 
+      # always(), for the reason Commit + push below already gives: lockdown
+      # demotes permissions through the API before preserve runs, so those facts
+      # are already true of the world. Dropping the archive because a later step
+      # failed loses the frozen snapshot for every student who WAS locked.
+      #
+      # Preserve was the one step never given this treatment, and it cost a
+      # whole cohort: an accepted org owner cannot be demoted, lockdown failed,
+      # preserve was skipped, and nobody's work was archived that night - three
+      # nights running, until find-finalizable hit its ceiling and gave up.
+      # PXL-2TIN-DevOps-2627/test-opdracht, 2026-09-03.
+      #
+      # preserve.mjs already skips a student with no verified snapshot, so this
+      # archives what was frozen and nothing else.
       - name: 3. Preserve
+        if: always()
         id: preserve_step
         uses: ./preserve
         with:

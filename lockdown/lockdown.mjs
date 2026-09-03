@@ -36,6 +36,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
+import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
 import { ensureSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -765,9 +766,60 @@ async function main() {
     log("phase 4 - demote", { ok: true, note: `${demoted.size}/${targets.length} demoted to pull` });
   }
 
+  // --- Who could not be frozen because they own the organization -------------
+  //
+  // An organization OWNER keeps admin on every repository in it, so demoting
+  // their collaborator grant to `pull` changes nothing - GitHub grants the
+  // highest applicable permission. Nothing lockdown can do will freeze them.
+  //
+  // Treating that as an error failed the whole leg, which SKIPPED preservation
+  // for the entire cohort: one unfreezable account meant nobody's work was
+  // archived that night, three nights running, and then find-finalizable gave
+  // up at its ceiling and the assignment never finalized at all. Observed on
+  // PXL-2TIN-DevOps-2627/test-opdracht, 2026-09-03.
+  //
+  // And it is not an exotic case. Owning the course organization is what MAKES
+  // somebody a lecturer here, and accepting your own assignment is the only way
+  // to see what a student sees - so the people most likely to trip this are the
+  // ones running the course.
+  //
+  // lib/audit.mjs has said as much for months: of exactly these accounts, "no
+  // branch of it is ever a failure ... in practice every owner in an acceptance
+  // list is staff". The audit called it benign while lockdown called it fatal.
+  //
+  // Fetched only when something actually failed to lock, so a healthy cohort
+  // costs no extra requests.
+  const unlocked = targets.filter((t) => {
+    const s = lock.byRepo.get(t);
+    return s && !s.locked && lock.method !== "none";
+  });
+  let owners = null;
+  let ownersComplete = true;
+  if (unlocked.length > 0) {
+    const fetched = await fetchOrgOwners(gh, cfg.org);
+    owners = fetched.owners;
+    ownersComplete = fetched.complete;
+    if (owners === null) {
+      // Unreadable is not evidence. Without the list nothing is provably an
+      // owner, so every failure below stays a failure - which is the safe
+      // direction: it refuses to excuse a student from the deadline on a read
+      // that did not happen.
+      log("org owners", { ok: false, note: "owner list unreadable - no student will be excused from the freeze" });
+    } else {
+      log("org owners", {
+        ok: true,
+        note: `${owners.length} owner(s)${ownersComplete ? "" : " (truncated read)"}`,
+      });
+    }
+  }
+
+  /** Every login behind a target - a team repo has several. */
+  const loginsOf = (t) => (t.teamMembers?.length ? t.teamMembers : [t.login]).filter(Boolean);
+
   // --- Assemble the record ---------------------------------------------------
   let lockedCount = 0;
   let errorCount = 0;
+  let unfreezableCount = 0;
   let noSubmissionCount = 0;
   let maxUncertainty = 0;
   const rows = [];
@@ -846,6 +898,14 @@ async function main() {
         demoted: demoted.has(t) || undefined,
         permission_after: stop.permissionAfter,
         verified: stop.locked,
+        // Why this one was not frozen, when it was not. Recorded rather than
+        // inferred from permission_after: "admin" is also what a transient
+        // failure leaves behind, and a grade dispute should not turn on
+        // somebody re-deriving the difference months later.
+        unfreezable_reason:
+          !stop.locked && loginsOf(t).some((l) => isKnownOwner(owners, l))
+            ? "org-owner"
+            : undefined,
         uncertainty_seconds: uncertaintySec,
       });
     }
@@ -857,6 +917,18 @@ async function main() {
       if (stop.locked) lockedCount++;
       log(`lockdown ${t.displayKey}`, { ok: true, note: `${state.branch}@${sha12} -> ${how} (${uncertaintySec ?? "?"}s)` });
       rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | ${state.noSubmission ? "no submission" : `[OK] ${how}`} |`);
+    } else if (loginsOf(t).some((l) => isKnownOwner(owners, l))) {
+      // A terminal outcome, not an error - and reported, never silent. A real
+      // student who owns the organization is exempt from the freeze whatever
+      // this code does, so the honest response is to say so where a lecturer
+      // will read it, not to fail the cohort and hide it in a log.
+      unfreezableCount++;
+      const who = loginsOf(t).filter((l) => isKnownOwner(owners, l)).join(", ");
+      log(`lockdown ${t.displayKey}`, {
+        ok: true,
+        note: `NOT FROZEN - ${who} owns ${cfg.org}, so admin cannot be removed. Change their role to Member to freeze them.`,
+      });
+      rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | **not frozen - org owner** |`);
     } else {
       errorCount++;
       log(`lockdown ${t.displayKey}`, { ok: false, note: `not locked (${stop.method}), permission after=${stop.permissionAfter}` });
@@ -892,6 +964,11 @@ async function main() {
     // carry `deferred_until` in `results`; find-finalizable.mjs re-queues the
     // assignment once that instant passes.
     deferred_count: deferrals.length,
+    // Accounts that own the organization, and therefore keep admin whatever
+    // this run does. Counted separately from errors because they are not one -
+    // nothing can freeze them - and separately from locks because they were NOT
+    // frozen. Each carries `unfreezable_reason` in `results`.
+    unfreezable_count: unfreezableCount,
     max_uncertainty_seconds: maxUncertainty,
     results: lockdownResults,
   };
@@ -916,9 +993,11 @@ async function main() {
     `**${lockedCount}** locked, **${errorCount}** errors` +
     (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
     (noSubmissionCount ? `, **${noSubmissionCount}** with no submission before the deadline` : "") +
+    (unfreezableCount ? `, **${unfreezableCount}** NOT FROZEN (organization owner - change their role to Member to freeze them)` : "") +
     `. Max uncertainty: **${maxUncertainty}s**.\n`
   );
-  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${noSubmissionCount} no-submission, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
+  await setOutput("unfreezable_count", unfreezableCount);
+  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${noSubmissionCount} no-submission, ${unfreezableCount} unfreezable, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 
