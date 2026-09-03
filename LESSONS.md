@@ -957,6 +957,21 @@ So the nightly closes it in the pass that finalizes the deadline (`scripts/close
 
 **The general lesson is the shape, not the variable.** Every `publish` in this system has a matching state it turns *on*; ask what turns it off, and when. This one had an answer for eleven months and it was "nobody".
 
+**So the question was asked of the rest, and the answer was worse.** Publishing switches on five things: two hub workflows, the broker's variables, the broker's secrets, and the broker repository itself.
+
+| switched on by publish | switched off by |
+| :--- | :--- |
+| `daily-activity`, `deadline-sentinel` | themselves ✓ |
+| `INVITE_ENABLED` | the nightly, as of this change |
+| **`PXL_BROKER_PRIVATE_KEY` + client id** | **nothing** |
+| the broker repository and its issues | nothing, by design — it is the audit trail |
+
+The credential is the one that mattered. It is set on every broker at publish and was never removed: measured 2026-09-03, a finished exam's broker still held it five days after the deadline. The blast radius is bounded — the broker App holds `contents: write` on the hub alone, and its whole capability is submitting a dispatch the signature check bounds, which is exactly why the *provisioning* App's key was moved off these repositories in the first place — but it is still **a private key replicated to one PUBLIC repository per assignment, with no expiry**, that stops being needed the moment the door above closes. Eleven assignments is eleven copies.
+
+The same nightly step deletes both, **after** closing acceptance and never before: delete-then-fail-to-close leaves a broker that still accepts and can no longer dispatch, so a student gets a hung acceptance instead of a closed one. This order fails to "closed, key still present", which costs nothing. `publish-assignment.yml` sets them on every publish, so reopening an assignment restores them without anyone knowing this ran — and that file already sweeps the *legacy* provisioning keys off brokers the same way, which is the precedent this follows.
+
+**One trap found while looking and deliberately not fixed yet:** `publish-assignment.yml` composes `broker-${ASSIGNMENT_ID}` in **three** places rather than using `lib/broker-repo.mjs`. It is correct today only because nothing writes a custom `broker_repo` — the module, `audit.mjs` and every reader already support one — so publish would configure one repository while the hub and the page used another. Read side guarded, write side hand-rolled: the same asymmetry as `broker-issue-target`, still open.
+
 ### A student reached the lecturer dashboard, badged "Lecturer".
 
 Reported with a screenshot, 2026-09-03. `tomccargo` — a test **student** account, not a member of `PXL-Automation-II` — signed in and was shown the organization in the switcher, a **Lecturer** tag beside their name, and an onboarding card:

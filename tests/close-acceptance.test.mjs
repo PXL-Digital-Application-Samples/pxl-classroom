@@ -96,6 +96,31 @@ test("a failure is a warning, never [ok] and never fatal", () => {
   assert.match(code, /res\.data\?\.message/, "with GitHub's own message, not just the status");
 });
 
+test("the broker App key is removed once nothing on the broker can use it", () => {
+  // Set on every broker at publish and never removed: measured 2026-09-03, a
+  // finished exam's broker still held PXL_BROKER_PRIVATE_KEY five days after
+  // its deadline. Bounded by design - the broker App is contents:write on the
+  // hub alone - but a private key replicated to one PUBLIC repository per
+  // assignment, with no expiry, that stops being needed when the door closes.
+  assert.match(SCRIPT, /BROKER_SECRETS = Object\.freeze\(\["PXL_BROKER_PRIVATE_KEY", "PXL_BROKER_CLIENT_ID"\]\)/);
+  assert.match(SCRIPT, /"DELETE", `\/repos\/\$\{org\}\/\$\{broker\}\/actions\/secrets\/\$\{secret\}`/);
+
+  // Absent is the ordinary case from the second night on, and on a broker that
+  // never had one. It must not be reported as a failure.
+  assert.match(SCRIPT, /del\.ok \|\| del\.status === 404/, "404 is not a failure here");
+});
+
+test("the key is removed AFTER the door closes, never before", () => {
+  // Deleting first and then failing to close leaves a broker that still accepts
+  // and can no longer dispatch - a student gets a hung acceptance instead of a
+  // closed one. This order fails to "closed, key still present", which costs
+  // nothing.
+  const close = SCRIPT.indexOf('value: "false"');
+  const del = SCRIPT.indexOf("actions/secrets/");
+  assert.ok(close > 0 && del > 0, "both operations must exist");
+  assert.ok(close < del, "close acceptance before removing the credential");
+});
+
 test("an unreadable assignment closes nothing rather than guessing a broker", () => {
   // Reading the document is how the broker is identified. If that read fails,
   // the only alternative is composing a name - which is the bug above.

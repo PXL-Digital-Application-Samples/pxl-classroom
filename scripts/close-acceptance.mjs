@@ -43,6 +43,15 @@ const env = (k, d) => process.env[k] ?? d;
 /** The variable the broker's own `if:` reads, before it allocates a runner. */
 const VARIABLE = "INVITE_ENABLED";
 
+/**
+ * The credential the broker needs only while it is accepting.
+ *
+ * Named here rather than composed, and both of them: the client id is not a
+ * secret but it is stored as one, and leaving half a pair behind is the kind of
+ * residue that makes the next reader wonder which half mattered.
+ */
+const BROKER_SECRETS = Object.freeze(["PXL_BROKER_PRIVATE_KEY", "PXL_BROKER_CLIENT_ID"]);
+
 async function main() {
   const org = env("ORG");
   const assignmentId = env("ASSIGNMENT_ID");
@@ -79,6 +88,39 @@ async function main() {
     return;
   }
   console.log(`[ok] acceptance closed on ${org}/${broker} (${VARIABLE}=false)`);
+
+  // And take the credential off the public repository, now that nothing on it
+  // will ever use one again.
+  //
+  // The broker App's private key is set on every broker at publish and was
+  // never removed - measured 2026-09-03, a finished exam's broker still held
+  // it, five days after the deadline and set five days before that. The blast
+  // radius is bounded by design (the broker App holds `contents: write` on the
+  // hub alone, and its whole capability is submitting a dispatch the signature
+  // check bounds), but it is still a private key replicated to one PUBLIC
+  // repository per assignment, with no expiry, that stops being needed the
+  // moment the door above closes.
+  //
+  // AFTER the close, never before. Deleting the key first and then failing to
+  // close would leave a broker that still accepts and can no longer dispatch -
+  // a student would get a hung acceptance instead of a closed one. This order
+  // fails to "closed, key still present", which costs nothing.
+  //
+  // Republishing sets both again (publish-assignment.yml), so reopening an
+  // assignment restores them without anyone knowing this ran. There is
+  // precedent in that same file: it already sweeps the LEGACY provisioning
+  // keys off brokers this way.
+  for (const secret of BROKER_SECRETS) {
+    const del = await gh("DELETE", `/repos/${org}/${broker}/actions/secrets/${secret}`);
+    // 404 is the ordinary case on the second night, and on a broker that never
+    // had one. It is not a failure.
+    if (del.ok || del.status === 404) continue;
+    const why = del.data?.message ? `: ${del.data.message}` : "";
+    console.log(
+      `::warning::Could not remove ${secret} from ${org}/${broker} (HTTP ${del.status}${why}) - ` +
+        `acceptance is closed, but the broker App key is still on this public repository.`,
+    );
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
