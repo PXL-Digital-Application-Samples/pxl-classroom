@@ -102,7 +102,12 @@ test("buildAutogradingWorkflow: handles io tests with multiline strings and defa
   const ioStep = doc.jobs.grade.steps[1];
   assert.equal(ioStep.uses, "classroom-resources/autograding-io-grader@v1");
   assert.equal(ioStep.with["max-score"], 1);
-  assert.equal(ioStep.with.timeout, 10);
+  // ONE MINUTE, and this line used to read 10. The grader's `timeout` is in
+  // minutes - its own action.yml says so - while the schema field is
+  // `timeout_s`, seconds, default 30. A test that declares no limit never asked
+  // for more than half a minute, so it gets the smallest cap that can express
+  // it rather than the ten minutes the old default silently bought.
+  assert.equal(ioStep.with.timeout, 1);
   assert.equal(ioStep.with.command, "./calc");
 });
 

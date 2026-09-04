@@ -114,6 +114,23 @@ async function setupFeedbackBaseline(repo) {
   return sha;
 }
 
+/**
+ * `timeout_s` seconds -> the MINUTES every classroom-resources grader wants.
+ *
+ * Their `action.yml` says so in as many words - "Duration (in minutes) before
+ * the test is terminated" - and the schema field is seconds, capped at 600.
+ * Handing the number straight over turned a 30-second test into a 30-MINUTE
+ * one on Actions while both CLI runners still stopped it at 30 seconds: the
+ * same test definition meaning two different things, and a student's runaway
+ * loop billing the org sixty times what the lecturer asked for. Rounded UP so a
+ * sub-minute limit stays a limit rather than becoming zero.
+ */
+export function graderTimeoutMinutes(test) {
+  const seconds = Number(test?.timeout_s);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 1;
+  return Math.max(1, Math.ceil(seconds / 60));
+}
+
 // Built as an object and serialised by the YAML library, never by string
 // concatenation.
 //
@@ -198,7 +215,7 @@ export function buildAutogradingWorkflow(assignment, org) {
           input: t.stdin || "",
           "expected-output": t.expected_stdout || "",
           "comparison-method": "included",
-          timeout: t.timeout_s || 10,
+          timeout: graderTimeoutMinutes(t),
           "max-score": t.points || 1,
         },
       });
@@ -232,7 +249,7 @@ export function buildAutogradingWorkflow(assignment, org) {
           // legitimately arrive.
           "setup-command": "",
           command: `python3 ${scriptPath}`,
-          timeout: t.timeout_s || 10,
+          timeout: graderTimeoutMinutes(t),
           "max-score": t.points || 1,
         },
       });
@@ -243,7 +260,7 @@ export function buildAutogradingWorkflow(assignment, org) {
         with: {
           "test-name": String(t.id ?? "test"),
           command: t.command || "exit 0",
-          timeout: t.timeout_s || 10,
+          timeout: graderTimeoutMinutes(t),
           "max-score": t.points || 1,
         },
       });

@@ -1099,7 +1099,14 @@ import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
 import { validateAgainst } from '../lib/validate.js'
-import { parseCheckRunScore, pickAutogradeCheckRun, fetchCheckRunAnnotations } from '../lib/check-run-score.js'
+import {
+  parseCheckRunScore,
+  pickAutogradeCheckRun,
+  fetchCheckRunAnnotations,
+  readSubmissionMarker,
+  submissionBranch,
+  findMarkedCommit,
+} from '../lib/check-run-score.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -2989,6 +2996,92 @@ async function syncGradesFromGitHub() {
   let permissionDenied = false
   let cursor = 0
 
+  // Declared once for the cohort, not per student: the marker belongs to the
+  // assignment, and `readSubmissionMarker` is the one judge of whether there is
+  // one (an empty or unknown-typed marker is no marker).
+  const marker = readSubmissionMarker(assignment.value)
+  const markerBranch = submissionBranch(assignment.value)
+  const totalFallback = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0)
+
+  // ONE commit's worth of reading, so it can be done twice - at the commit the
+  // report names, and again at the hand-in commit when the first says the
+  // workflow never ran there. Returns a verdict; it never invents a score.
+  const readScoreAtCommit = async (s, sha) => {
+    const short = sha.slice(0, 7)
+    // s.repo_name is already the full org/repo name.
+    const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
+    if (!checksReq.ok) {
+      // A 403 here is not transient, and "try again later" is advice that
+      // can never come true: both check-run endpoints are gated by the
+      // App's Checks permission, and a user-to-server token is capped by
+      // what the App declares. Name it, or a lecturer retries for ever.
+      if (checksReq.status === 403 || checksReq.status === 401) {
+        permissionDenied = true
+      }
+      throw new Error(`checks API fetch failed - HTTP ${checksReq.status}`)
+    }
+    const checkRuns = checksReq.data?.check_runs || []
+
+    if (checkRuns.length === 0) {
+      return { verdict: 'no-run', reason: `no CI run at commit ${short}` }
+    }
+
+    const run = pickAutogradeCheckRun(checkRuns)
+
+    // No autograding run at this commit is NOT a zero and NOT a pass. The
+    // picker used to fall back to the first check run of any kind, so a
+    // student who deleted the autograding workflow and added a green one of
+    // their own was awarded the full total from `conclusion: success`.
+    if (!run) {
+      return {
+        verdict: 'no-run',
+        reason: `no autograding run at commit ${short} - ${checkRuns.length} other check run(s) were found and none of them grades`,
+      }
+    }
+
+    // The score is an ANNOTATION, not an output body: a check run created
+    // by GitHub Actions has `output.summary === null` and carries
+    // `Points X/Y` plus `{"totalPoints":…,"maxPoints":…}` as notices. This
+    // used to parse `output.*` only, never match, and fall through to
+    // "green means full marks, anything else means zero" - so a 15/20 was
+    // recorded as 0. Skipped when the run declares no annotations, so the
+    // ordinary case costs no second request.
+    let annotations = []
+    let annotationsComplete = true
+    if (run?.output?.annotations_count) {
+      const res = await fetchCheckRunAnnotations(
+        (path) => ghApi(token, 'GET', path),
+        { repoFullName: s.repo_name, checkRunId: run.id },
+      )
+      annotations = res.annotations
+      annotationsComplete = res.complete
+    }
+
+    const parsed = parseCheckRunScore(run, annotations, totalFallback)
+
+    // An incomplete annotation read that still had to guess from the
+    // conclusion is not a grade, it is a failed read. Saying so beats
+    // writing a plausible number nobody can tell apart from a real one.
+    if (!parsed.matched && !annotationsComplete) {
+      return { verdict: 'unreadable', reason: `could not read the score annotations on the CI run at ${short}` }
+    }
+
+    // A run that was skipped, cancelled or is still going has no score in it -
+    // and `conclusion: skipped` is what a job gated on a hand-in commit leaves
+    // behind at every OTHER commit. Recording the 0 it used to produce was a
+    // grade nobody measured, in the table and in the CSV export.
+    if (!parsed.graded) {
+      return {
+        verdict: 'not-run',
+        reason: marker
+          ? `the grading workflow was ${parsed.conclusion || 'not run'} at commit ${short} - it only runs on a commit whose message is "${marker.value}"`
+          : `the grading run at commit ${short} was ${parsed.conclusion || 'never completed'}, so it carries no score`,
+      }
+    }
+
+    return { verdict: 'graded', run, parsed, sha }
+  }
+
   const syncWorker = async () => {
     while (cursor < queue.length) {
       const s = queue[cursor++]
@@ -3005,73 +3098,50 @@ async function syncGradesFromGitHub() {
           continue
         }
 
-        // s.repo_name is already the full org/repo name.
-        const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${targetSha}/check-runs`)
-        if (!checksReq.ok) {
-          // A 403 here is not transient, and "try again later" is advice that
-          // can never come true: both check-run endpoints are gated by the
-          // App's Checks permission, and a user-to-server token is capped by
-          // what the App declares. Name it, or a lecturer retries for ever.
-          if (checksReq.status === 403 || checksReq.status === 401) {
-            permissionDenied = true
+        let outcome = await readScoreAtCommit(s, targetSha)
+
+        // No grade at that commit. With a hand-in marker declared, that is the
+        // EXPECTED answer for every commit except the hand-in - the template
+        // gates its whole job on the message - so the hand-in commit gets
+        // looked at before anything is concluded. Two extra requests, and only
+        // for the students who need them.
+        //
+        // NOT on `unreadable`: there a grading run was found and its
+        // annotations could not be read, and looking somewhere else would
+        // answer a question nobody asked.
+        if ((outcome.verdict === 'not-run' || outcome.verdict === 'no-run') && marker) {
+          const found = await findMarkedCommit((path) => ghApi(token, 'GET', path), {
+            repoFullName: s.repo_name,
+            branch: markerBranch,
+            marker,
+            until: s.effective_deadline_at || null,
+          })
+          if (!found.ok) {
+            // Could not look. Not "there is no hand-in".
+            summary.failed.push({
+              login: s.github_login,
+              reason: `could not read this repository's commits to find the "${marker.value}" commit`,
+            })
+            continue
           }
-          throw new Error(`checks API fetch failed - HTTP ${checksReq.status}`)
+          if (found.commit && found.commit.sha !== targetSha) {
+            outcome = await readScoreAtCommit(s, found.commit.sha)
+          } else if (!found.commit) {
+            outcome = {
+              verdict: 'not-run',
+              reason: found.complete
+                ? `no commit on this branch says "${marker.value}", so grading never ran`
+                : `no commit says "${marker.value}" in the ${found.scanned} most recent commits`,
+            }
+          }
         }
-        const checkRuns = checksReq.data?.check_runs || []
-        const totalFallback = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0)
 
-        if (checkRuns.length === 0) {
-          summary.failed.push({
-            login: s.github_login,
-            reason: `no CI run at commit ${targetSha.slice(0, 7)}`
-          })
+        if (outcome.verdict !== 'graded') {
+          summary.failed.push({ login: s.github_login, reason: outcome.reason })
           continue
         }
 
-        const run = pickAutogradeCheckRun(checkRuns)
-
-        // No autograding run at this commit is NOT a zero and NOT a pass. The
-        // picker used to fall back to the first check run of any kind, so a
-        // student who deleted the autograding workflow and added a green one of
-        // their own was awarded the full total from `conclusion: success`.
-        if (!run) {
-          summary.failed.push({
-            login: s.github_login,
-            reason: `no autograding run at commit ${targetSha.slice(0, 7)} - ${checkRuns.length} other check run(s) were found and none of them grades`,
-          })
-          continue
-        }
-
-        // The score is an ANNOTATION, not an output body: a check run created
-        // by GitHub Actions has `output.summary === null` and carries
-        // `Points X/Y` plus `{"totalPoints":…,"maxPoints":…}` as notices. This
-        // used to parse `output.*` only, never match, and fall through to
-        // "green means full marks, anything else means zero" - so a 15/20 was
-        // recorded as 0. Skipped when the run declares no annotations, so the
-        // ordinary case costs no second request.
-        let annotations = []
-        let annotationsComplete = true
-        if (run?.output?.annotations_count) {
-          const res = await fetchCheckRunAnnotations(
-            (path) => ghApi(token, 'GET', path),
-            { repoFullName: s.repo_name, checkRunId: run.id },
-          )
-          annotations = res.annotations
-          annotationsComplete = res.complete
-        }
-
-        const parsed = parseCheckRunScore(run, annotations, totalFallback)
-
-        // An incomplete annotation read that still had to guess from the
-        // conclusion is not a grade, it is a failed read. Saying so beats
-        // writing a plausible number nobody can tell apart from a real one.
-        if (!parsed.matched && !annotationsComplete) {
-          summary.failed.push({
-            login: s.github_login,
-            reason: `could not read the score annotations on the CI run at ${targetSha.slice(0, 7)}`,
-          })
-          continue
-        }
+        const { run, parsed } = outcome
 
         summary.graded.push({
           login: s.github_login,

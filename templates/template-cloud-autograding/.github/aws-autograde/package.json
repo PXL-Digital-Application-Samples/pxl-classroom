@@ -1,0 +1,9 @@
+{
+  "name": "aws-autograde",
+  "private": true,
+  "type": "module",
+  "description": "Checks that read the student's own AWS account. Run by .github/workflows/classroom.yml on the hand-in commit.",
+  "dependencies": {
+    "@aws-sdk/client-ec2": "^3.1126.0"
+  }
+}

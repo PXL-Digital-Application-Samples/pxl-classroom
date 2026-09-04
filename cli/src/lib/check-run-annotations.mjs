@@ -7,15 +7,8 @@
 // `complete: false` and the caller reports "score unread", never "no score".
 
 import { fetchCheckRunAnnotations as root } from "../../../lib/check-run-annotations.mjs";
+import { toRequest } from "./gh-request.mjs";
 
 export function fetchCheckRunAnnotations(octokit, opts) {
-  const request = async (path) => {
-    try {
-      const r = await octokit.request(`GET ${path}`);
-      return { status: r.status, data: r.data };
-    } catch (err) {
-      return { status: err?.status ?? 0, data: null };
-    }
-  };
-  return root(request, opts);
+  return root(toRequest(octokit), opts);
 }

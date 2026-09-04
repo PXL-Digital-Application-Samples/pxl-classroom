@@ -13,3 +13,13 @@
 
 export { parseCheckRunScore, pickAutogradeCheckRun } from '../../../lib/check-run-score.mjs'
 export { fetchCheckRunAnnotations } from '../../../lib/check-run-annotations.mjs'
+
+// WHICH commit's check run to read, for a template whose workflow grades the
+// hand-in commit and nothing else. Same rule: one module, imported by the SPA
+// and by `pxl-classroom grade`, never a second `=== 'einde examen'` written
+// wherever it happened to be needed.
+export {
+  readSubmissionMarker,
+  submissionBranch,
+  findMarkedCommit,
+} from '../../../lib/submission-marker.mjs'

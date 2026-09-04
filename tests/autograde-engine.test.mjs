@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
-import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
+import { buildAutogradingWorkflow, graderTimeoutMinutes } from "../provisioning/provision.mjs";
 import { parseCheckRunScore } from "../lib/check-run-score.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -72,7 +72,12 @@ test("autograde workflow: parses valid YAML with multi-step commands and custom 
   assert.equal(steps[1].uses, "classroom-resources/autograding-command-grader@v1");
   assert.equal(steps[1].with["test-name"], "step-1-compile");
   assert.equal(steps[1].with.command, "gcc -Wall -Werror -o solution main.c");
-  assert.equal(steps[1].with.timeout, 30);
+  // MINUTES, from a schema field in seconds. Every classroom-resources grader
+  // documents `timeout` as "Duration (in minutes)", so passing `timeout_s: 30`
+  // straight through - which this line used to assert - gave the student's
+  // command thirty MINUTES on Actions while both CLI runners stopped it at
+  // thirty seconds. Rounded up, so a sub-minute limit stays a limit.
+  assert.equal(steps[1].with.timeout, 1);
   assert.equal(steps[1].with["max-score"], 25);
 
   // Step 2
@@ -244,4 +249,25 @@ test("schema validation: grading-result with full test breakdown", () => {
 
   const { valid, errors } = validateAgainst("grading-result", gradingDoc);
   assert.equal(valid, true, JSON.stringify(errors));
+});
+
+test("the graders are told minutes, and the schema field is seconds", () => {
+  // `classroom-resources/autograding-{io,command,python}-grader@v1` all declare
+  // `timeout` as "Duration (in minutes)". The assignment schema declares
+  // `timeout_s` in seconds, 1..600, and both CLI runners honour it as seconds.
+  // Handing the raw number over made ONE test definition mean two different
+  // limits - 600 seconds locally, ten hours on Actions - and the Actions side
+  // is the one billing an organisation's minutes.
+  assert.equal(graderTimeoutMinutes({ timeout_s: 30 }), 1, "half a minute is still one minute of cap");
+  assert.equal(graderTimeoutMinutes({ timeout_s: 60 }), 1);
+  assert.equal(graderTimeoutMinutes({ timeout_s: 61 }), 2, "rounded up, never down to nothing");
+  assert.equal(graderTimeoutMinutes({ timeout_s: 600 }), 10, "the schema's maximum");
+
+  // No timeout, a broken one, or a nonsense one: one minute, not "unlimited".
+  // The schema's default is 30 seconds, so a test arriving here without the
+  // field never asked for more than that.
+  assert.equal(graderTimeoutMinutes({}), 1);
+  assert.equal(graderTimeoutMinutes({ timeout_s: 0 }), 1);
+  assert.equal(graderTimeoutMinutes({ timeout_s: "soon" }), 1);
+  assert.equal(graderTimeoutMinutes(undefined), 1);
 });

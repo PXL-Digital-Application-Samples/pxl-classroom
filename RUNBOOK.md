@@ -815,7 +815,28 @@ To pull the grades back into the control repository:
 
 **This works for an assignment whose autograding came with the template.** If the template repository ships its own `classroom.yml` - the ordinary GitHub Classroom setup - the assignment does not need an `autograde` block in the Admin Panel, and you do not need to re-enter the exercises or their points: the reporter's annotation carries the maximum. The action is offered on any assignment that has not explicitly chosen a lecturer-local runner.
 
-**Where the number comes from, and what it is not.** A check run created by GitHub Actions has an empty output body; the reporter emits `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` as annotations, and that is what is read. A run with no such annotation is recorded from the run's conclusion instead - full marks or zero - and marked `score_source: "conclusion"` so it can be told apart from a real score. There is **no per-test breakdown** on this path: annotations carry the grand total only, so the drill-down links to the run rather than inventing a table. For a per-test breakdown, grade locally with `pxl-classroom grade --runner docker`, which writes `grading/<id>/<login>.json`.
+**Where the number comes from, and what it is not.** A check run created by GitHub Actions has an empty output body; the reporter emits `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` as annotations, and that is what is read. A run that finished with no such annotation is recorded from the run's conclusion instead - full marks or zero - and marked `score_source: "conclusion"` so it can be told apart from a real score. A run that **never ran** - skipped, cancelled, still going - is not scored at all: those students come back in the failure list by name, because a job that did not run measured nothing. There is **no per-test breakdown** on this path: annotations carry the grand total only, so the drill-down links to the run rather than inventing a table. For a per-test breakdown, grade locally with `pxl-classroom grade --runner docker`, which writes `grading/<id>/<login>.json`.
+
+#### Option C: Graded at hand-in (cloud exams)
+
+For a template whose grading workflow runs on **one commit only**, gated on its message:
+
+```yaml
+if: github.event.head_commit.message == 'einde examen'
+```
+
+That is the shape to use when the checks read the student's **own** cloud account: the sandbox is gone once their lab session ends, so the score has to be taken while they are still working, and it cannot be reproduced afterwards from the archive. `templates/template-cloud-autograding/` is a working starting point.
+
+1. Put the workflow in the template repository. It is preserved during provisioning, exactly as any other template-owned workflow is.
+2. In the Admin Panel, set **Hand-in commit message** (under Automatic grading) to the same words the workflow compares against - `einde examen`. Matched exactly, so tell students the exact words and mind the capitals.
+3. Tell students to commit and push with that message when they are done. They may hand in more than once; the newest one counts.
+4. After the exam, read the scores exactly as in Option B.
+
+**What the marker changes:** only which commit's check run is read. With it set, a student who pushes a fix *after* handing in keeps their score. Without it, that student's last commit carries a skipped run, and they come back as "the grading workflow was skipped" rather than as a score.
+
+**What it does not change:** what is preserved, what counts as late, or what a submission is. Those are still the deadline and the collector's observations. A hand-in pushed **after** the student's own deadline is not read - the walk is bounded by that deadline.
+
+**A student who never handed in has no score, and is named.** They are not scored zero: nothing ran, so nothing was measured. Chase them or grade them by hand.
 
 ### 6.13 Correcting an assignment after students have accepted
 

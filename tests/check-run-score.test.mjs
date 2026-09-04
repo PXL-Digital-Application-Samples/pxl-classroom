@@ -68,6 +68,68 @@ test("without the annotations the same run grades 0/20 - the bug, pinned", () =>
   assert.equal(parsed.source, "conclusion");
 });
 
+// -----------------------------------------------------------------------------
+// A run that never ran is not a zero
+// -----------------------------------------------------------------------------
+
+// Measured live 2026-09-04 on PXL-2TIN-CloudEssentials-2627/proef-pe1-d-ries,
+// whose template gates its whole grading job on
+// `if: github.event.head_commit.message == 'einde examen'`:
+//
+//   9c4e1867 "Initial commit"  run-autograding-tests  skipped  annotations=0
+//   44fbe7f0 "einde examen"    run-autograding-tests  success  annotations=3
+//
+// The skipped one is a real check run at a real commit, and `pickAutogradeCheckRun`
+// picks it - "autograding" contains "grad". Everything downstream then read a
+// 0/10 that nobody measured.
+const SKIPPED_RUN = {
+  name: "run-autograding-tests",
+  conclusion: "skipped",
+  html_url: "https://github.com/Org/repo/runs/100168506864",
+  output: { title: null, summary: null, text: null, annotations_count: 0 },
+};
+
+test("a skipped grading job is not a grade", () => {
+  const parsed = parseCheckRunScore(SKIPPED_RUN, [], 10);
+  assert.equal(parsed.graded, false, "a job that never ran cannot have produced a score");
+  assert.equal(parsed.source, "not-run");
+  assert.equal(parsed.conclusion, "skipped");
+  // The 0 is still there for a caller that ignores `graded` - it is not a
+  // number anybody may record, and the callers check the flag.
+  assert.equal(parsed.earned, 0);
+  assert.equal(parsed.matched, false);
+});
+
+test("only success and failure are grading attempts that happened", () => {
+  // `failure` IS a zero: the run ran and the student's code broke it. The rest
+  // are the run not happening, and a caller that records them writes a mark
+  // nobody measured.
+  for (const conclusion of ["success", "failure"]) {
+    const parsed = parseCheckRunScore({ ...SKIPPED_RUN, conclusion }, [], 10);
+    assert.equal(parsed.graded, true, `${conclusion} is a completed grading attempt`);
+    assert.equal(parsed.source, "conclusion");
+  }
+  for (const conclusion of ["skipped", "cancelled", "timed_out", "stale", "neutral", "action_required", null]) {
+    const parsed = parseCheckRunScore({ ...SKIPPED_RUN, conclusion }, [], 10);
+    assert.equal(parsed.graded, false, `${conclusion} is not a grade`);
+    assert.equal(parsed.earned, 0);
+  }
+});
+
+test("a skipped run that somehow carries a score annotation is still read", () => {
+  // The flag guards the FALLBACK, not the parse. If a reporter did leave
+  // `Points 7/10` behind, that is a measurement and it counts - `graded` is
+  // about "the conclusion is all we have", never about overruling a number.
+  const parsed = parseCheckRunScore(
+    { ...SKIPPED_RUN, output: { ...SKIPPED_RUN.output, annotations_count: 1 } },
+    [{ annotation_level: "notice", title: "Autograding complete", message: "Points 7/10" }],
+    10,
+  );
+  assert.equal(parsed.graded, true);
+  assert.equal(parsed.earned, 7);
+  assert.equal(parsed.matched, true);
+});
+
 test("the runner's deprecation warning is not the student's grading summary", () => {
   // Live, the first annotation on every one of these runs is a multi-line Node
   // deprecation notice. With no output body to fall back on it became the whole

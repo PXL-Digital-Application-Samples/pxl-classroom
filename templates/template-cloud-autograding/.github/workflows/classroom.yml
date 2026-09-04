@@ -1,0 +1,68 @@
+name: Autograding Tests
+
+# Grading runs on the HAND-IN COMMIT and on nothing else.
+#
+# The checks talk to the student's own cloud account, and that account is gone
+# once their lab session ends - so the measurement has to be taken while they
+# are still sitting there, not afterwards from the archive. That is the whole
+# reason this is gated on a commit message rather than run on every push.
+#
+# Whatever you put here, put the SAME string in the assignment's "Hand-in
+# commit message" field in PXL Classroom. That is what makes the dashboard read
+# the score from this commit instead of from the student's last one - and
+# without it, a student who pushes anything afterwards is reported as having no
+# grading run at all.
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  run-autograding-tests:
+    runs-on: ubuntu-latest
+    if: github.event.head_commit.message == 'einde examen'
+    steps:
+      # v4 runs on Node 20, which GitHub has deprecated: every student's
+      # grading result carries a warning annotation saying so.
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # The student commits their own lab credentials as `creds.txt`, in the
+      # format the AWS CLI wants. `-p` because a re-run on a warm image already
+      # has the directory and a bare `mkdir` fails the step - which reads as a
+      # failed submission.
+      - name: Set up the AWS profile
+        run: |
+          mkdir -p ~/.aws
+          printf '[default]\nregion = %s\n' "$AWS_REGION" > ~/.aws/config
+          cp creds.txt ~/.aws/credentials
+        env:
+          AWS_REGION: us-east-1
+
+      - name: vpc-test
+        id: vpc-test
+        uses: classroom-resources/autograding-io-grader@v1
+        with:
+          test-name: vpc test
+          # `npm i`, not `npm ci` - this template ships no lockfile. Commit one
+          # and switch, if you want the checks pinned across a cohort.
+          setup-command: cd .github/aws-autograde && npm i
+          command: node .github/aws-autograde/vpc.js
+          input: ''
+          expected-output: correct
+          comparison-method: exact
+          # MINUTES, not seconds - that is what this action's action.yml says.
+          timeout: 10
+          max-score: 10
+
+      # The score PXL Classroom reads. This step writes `Points X/Y` and
+      # `{"totalPoints":…,"maxPoints":…}` as check-run annotations, and the
+      # dashboard reads them from there - so every grader step above has to be
+      # listed in `runners` and have its `_RESULTS` variable here, or its points
+      # are silently missing from the total.
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        env:
+          VPC-TEST_RESULTS: "${{ steps.vpc-test.outputs.result }}"
+        with:
+          runners: vpc-test

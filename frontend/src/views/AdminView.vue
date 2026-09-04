@@ -906,6 +906,31 @@
                 Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
               </small>
             </div>
+            <!-- For a template whose own workflow grades on the hand-in commit
+                 and on nothing else. Left blank, every push grades and this
+                 changes nothing - which is why it is a blank field rather than
+                 a toggle with a default. -->
+            <div class="field">
+              <!-- `for`/`id`, unlike the fields around it: a <label> that
+                   neither wraps its input nor points at it is decoration, and
+                   nothing announces it to a screen reader. `.field label`
+                   styles it either way, so this costs nothing. -->
+              <label for="submission-marker-value">Hand-in commit message</label>
+              <input
+                id="submission-marker-value"
+                v-model="form.submission_marker_value"
+                maxlength="200"
+                placeholder="e.g. einde examen"
+              />
+              <!-- Precise on purpose (DESIGN.md §1.5): the read still starts at
+                   the student's last commit and only falls back to the hand-in
+                   one, so "scores come from this commit" would describe
+                   behaviour the system does not quite have. -->
+              <small>
+                Leave blank unless the template's own grading workflow runs on one commit message only.
+                Where a student's last commit has no grading run, the score is read from the newest commit carrying this message - matched exactly.
+              </small>
+            </div>
           </fieldset>
 
           <!-- ADVANCED -->
@@ -1852,6 +1877,7 @@ function emptyForm() {
     autograde_execution_environment: 'lecturer_local',
     autograde_visibility: 'private',
     autograde_tests: [],
+    submission_marker_value: '',
     assignment_type: 'individual',
     group_config: {
       max_team_size: DEFAULT_MAX_TEAM_SIZE,
@@ -2135,6 +2161,13 @@ function editAssignment(a) {
     autograde_execution_environment: a.autograde?.execution_environment || 'lecturer_local',
     autograde_visibility: a.autograde?.visibility || 'private',
     autograde_tests: a.autograde?.tests || [],
+    // The hand-in commit message, when the template's own workflow gates on
+    // one. `type` is the schema's only member today, and a SECOND member has to
+    // arrive with its own control: buildDoc rebuilds the document field by
+    // field, so a marker this does not load is deleted by the next save - the
+    // invite_token bug, one field over.
+    submission_marker_value:
+      a.submission_marker?.type === 'commit_message' ? a.submission_marker.value || '' : '',
     assignment_type: a.assignment_type || 'individual',
     group_config: {
       max_team_size: teamMaxSize(a.group_config),

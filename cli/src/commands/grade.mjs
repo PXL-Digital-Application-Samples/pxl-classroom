@@ -25,6 +25,8 @@ import { CONTROL_REPO, getAssignment, getReport } from "../lib/control-repo.mjs"
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
+import { readSubmissionMarker, submissionBranch, findMarkedCommit } from "../../../lib/submission-marker.mjs";
+import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 import { sameLogin } from "../../../lib/github-login.mjs";
 
@@ -205,6 +207,62 @@ export function registerGradeCommand(program) {
       // parallelism would race on the same workdir).
       const summary = { graded: [], failed: [] };
       const teamResultsCache = new Map(); // team_slug -> result
+
+      // The assignment's hand-in marker, read once for the cohort. Null for
+      // every assignment that does not declare one, which is all of them until
+      // a template's workflow grades one commit only.
+      const marker = readSubmissionMarker(assignment);
+      const markerBranch = submissionBranch(assignment);
+      const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
+
+      // ONE commit's worth of reading, so it can be done twice - at the
+      // preserved commit, and again at the hand-in commit when the first says
+      // the workflow never ran there. Returns a verdict, never a guessed score.
+      const readScoreAtCommit = async (s, sha) => {
+        const short = String(sha).slice(0, 7);
+        // s.repo_name is already the full org/repo name.
+        const checksReq = await octokit.request(`GET /repos/${s.repo_name}/commits/${sha}/check-runs`);
+        const checkRuns = checksReq.data.check_runs || [];
+        if (checkRuns.length === 0) {
+          return { verdict: "no-run", reason: `no CI run at commit ${short}` };
+        }
+        const run = pickAutogradeCheckRun(checkRuns);
+        // No autograding run is not a zero and not a pass. The picker used
+        // to fall back to the first check run of any kind, so a student who
+        // replaced the autograding workflow with a green one of their own
+        // was awarded the full total off `conclusion: success`.
+        if (!run) {
+          return {
+            verdict: "no-run",
+            reason: `no autograding run at commit ${short} (${checkRuns.length} other check run(s) present)`,
+          };
+        }
+        // The score is in the annotations, not in `output.summary` - see
+        // lib/check-run-score.mjs. Skipped when the run declares none, so
+        // the ordinary case costs no extra request.
+        const { annotations, complete } = run?.output?.annotations_count
+          ? await fetchCheckRunAnnotations(octokit, { repoFullName: s.repo_name, checkRunId: run.id })
+          : { annotations: [], complete: true };
+        const parsed = parseCheckRunScore(run, annotations, totalFallback);
+        // A guess made from the conclusion because the annotations could not be
+        // read is a failed read, not a grade. The SPA has always said so; this
+        // path used to record the guess.
+        if (!parsed.matched && !complete) {
+          return { verdict: "unreadable", reason: `could not read the score annotations on the CI run at ${short}` };
+        }
+        // Skipped, cancelled, or still going: no score in it. `skipped` is what
+        // a job gated on a hand-in commit leaves at every other commit, and the
+        // 0 this used to record was a grade nobody measured.
+        if (!parsed.graded) {
+          return {
+            verdict: "not-run",
+            reason: marker
+              ? `the grading workflow was ${parsed.conclusion || "not run"} at commit ${short} - it only runs on a commit whose message is "${marker.value}"`
+              : `the grading run at commit ${short} was ${parsed.conclusion || "never completed"}, so it carries no score`,
+          };
+        }
+        return { verdict: "graded", run, parsed, sha };
+      };
       await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
         let result;
         if (s.team_slug && teamResultsCache.has(s.team_slug)) {
@@ -216,45 +274,61 @@ export function registerGradeCommand(program) {
           };
         } else if (isGitHubActions) {
           try {
-            // s.repo_name is already the full org/repo name.
-            const checksReq = await octokit.request(`GET /repos/${s.repo_name}/commits/${s.preserved_sha}/check-runs`);
-            const checkRuns = checksReq.data.check_runs || [];
-            if (checkRuns.length === 0) {
-              process.stderr.write(`  ! ${s.github_login}: no CI run at preserved SHA\n`);
-              summary.failed.push({ login: s.github_login, reason: "no CI run at preserved SHA" });
-              return;
-            }
-            const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
-            const run = pickAutogradeCheckRun(checkRuns);
-            // No autograding run is not a zero and not a pass. The picker used
-            // to fall back to the first check run of any kind, so a student who
-            // replaced the autograding workflow with a green one of their own
-            // was awarded the full total off `conclusion: success`.
-            if (!run) {
-              process.stderr.write(`  ! ${s.github_login}: no autograding run at preserved SHA\n`);
-              summary.failed.push({
-                login: s.github_login,
-                reason: `no autograding run at preserved SHA (${checkRuns.length} other check run(s) present)`,
+            let outcome = await readScoreAtCommit(s, s.preserved_sha);
+
+            // No grade at the preserved commit. With a hand-in marker declared
+            // that is the EXPECTED answer everywhere except the hand-in commit,
+            // so look there before concluding anything. NOT on `unreadable`:
+            // there a grading run was found and could not be read, and looking
+            // somewhere else answers a question nobody asked.
+            if ((outcome.verdict === "not-run" || outcome.verdict === "no-run") && marker) {
+              const found = await findMarkedCommit(toRequest(octokit), {
+                repoFullName: s.repo_name,
+                branch: markerBranch,
+                marker,
+                until: s.effective_deadline_at || null,
               });
+              if (!found.ok) {
+                process.stderr.write(`  ! ${s.github_login}: could not read commits to find the hand-in\n`);
+                summary.failed.push({
+                  login: s.github_login,
+                  reason: `could not read this repository's commits to find the "${marker.value}" commit`,
+                });
+                return;
+              }
+              if (found.commit && found.commit.sha !== s.preserved_sha) {
+                outcome = await readScoreAtCommit(s, found.commit.sha);
+              } else if (!found.commit) {
+                outcome = {
+                  verdict: "not-run",
+                  reason: found.complete
+                    ? `no commit on this branch says "${marker.value}", so grading never ran`
+                    : `no commit says "${marker.value}" in the ${found.scanned} most recent commits`,
+                };
+              }
+            }
+
+            if (outcome.verdict !== "graded") {
+              process.stderr.write(`  ! ${s.github_login}: ${outcome.reason}\n`);
+              summary.failed.push({ login: s.github_login, reason: outcome.reason });
               return;
             }
-            // The score is in the annotations, not in `output.summary` - see
-            // lib/check-run-score.mjs. Skipped when the run declares none, so
-            // the ordinary case costs no extra request.
-            const { annotations } = run?.output?.annotations_count
-              ? await fetchCheckRunAnnotations(octokit, { repoFullName: s.repo_name, checkRunId: run.id })
-              : { annotations: [] };
-            const parsedScore = parseCheckRunScore(run, annotations, totalFallback);
+
+            const parsedScore = outcome.parsed;
             const earned = parsedScore.earned;
             const total = parsedScore.total > 0 ? parsedScore.total : totalFallback;
             const passed = parsedScore.passed;
             const summaryOutput = parsedScore.summaryText || "";
-            
+
             result = {
               schema_version: 1,
               assignment_id: assignment.id,
               github_login: s.github_login,
-              archive_sha: s.preserved_sha,
+              // The commit the grade was actually read at, which under a
+              // hand-in marker is not always the preserved head. Still a commit
+              // on the preserved branch - the hand-in is an ancestor of it -
+              // so the field keeps meaning what it says.
+              archive_sha: outcome.sha,
               archive_branch: archiveBranchName({
                 assignmentId: opts.assignment,
                 login: s.github_login,

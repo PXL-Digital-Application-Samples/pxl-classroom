@@ -311,6 +311,40 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
     expect(valid, JSON.stringify(errors)).toBe(true);
   });
 
+  // The hand-in commit message, for a template whose workflow grades one commit
+  // only (`if: github.event.head_commit.message == 'einde examen'`). A control
+  // is only wired when something drives it and reads the document back out:
+  // buildAssignmentDoc rebuilds the assignment field by field, so a field the
+  // form does not carry is deleted by the next save of anything else.
+  test('The hand-in commit message reaches the document, and comes back', async ({ page }) => {
+    const contentWrites = [];
+    await openNewForm(page, { contentWrites });
+    await fillMinimum(page, 'Proef PE1');
+
+    await page.getByLabel('Hand-in commit message').fill('einde examen');
+    await saveDraft(page).click();
+
+    await expect.poll(() => committed(contentWrites, 'proef-pe1'), { timeout: 10000 }).toBeTruthy();
+    const doc = committed(contentWrites, 'proef-pe1');
+    expect(doc.submission_marker).toEqual({ type: 'commit_message', value: 'einde examen' });
+
+    const { valid, errors } = validateAgainst('assignment', doc);
+    expect(valid, JSON.stringify(errors)).toBe(true);
+  });
+
+  test('An assignment that never had one saves without the field', async ({ page }) => {
+    // Absent means "every push grades", which is every assignment written
+    // before this existed. An empty marker written as `value: ''` would be a
+    // stored value nothing reads, and the schema refuses it.
+    const contentWrites = [];
+    await openNewForm(page, { contentWrites });
+    await fillMinimum(page, 'Plain Lab');
+    await saveDraft(page).click();
+
+    await expect.poll(() => committed(contentWrites, 'plain-lab'), { timeout: 10000 }).toBeTruthy();
+    expect(committed(contentWrites, 'plain-lab')).not.toHaveProperty('submission_marker');
+  });
+
   test('Turning it off writes no autograde block at all', async ({ page }) => {
     const contentWrites = [];
     await openNewForm(page, { contentWrites });

@@ -186,6 +186,11 @@ demo:
   - If your template already ships a standard GitHub Classroom `classroom.yml`, PXL Classroom preserves it without changes
   - After the deadline, the lecturer clicks **'Read scores from GitHub Actions'** in the dashboard.
   - The system reads the score directly from the check run's annotations and populates your grade table and CSV export.
+- **Student-Side, graded at hand-in (cloud exams):**
+  - For a template whose workflow grades one commit only — `if: github.event.head_commit.message == 'einde examen'` — because the checks read the student's **own** AWS account and that account is gone once their lab session ends.
+  - Put the same words in the assignment's **Hand-in commit message** field. Scores are then read from the newest commit carrying it, not from the student's last commit.
+  - A student who pushes a fix afterwards keeps their score. A student who never handed in is **listed by name, not scored zero** — the skipped run is not a measurement.
+  - Starting point: `templates/template-cloud-autograding/`.
 - **Lecturer-Side (Local Docker via CLI):**
   - you can run `pxl-classroom grade --runner docker` locally on your machine against the preserved archive code in an isolated sandbox.
   - useful for large cloud-based AWS and/or Kubernetes deployments

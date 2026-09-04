@@ -1167,3 +1167,34 @@ The commit's own timestamp decides now, with `observed_at` kept as the fallback 
 
 **The column that started it is gone.** Of the three warnings a student row could carry, `accepted-not-provisioned` *was* the acceptance column restated and `late-activity-detected` fired only where the status already said `late`. Only `missing-repo-id` said anything no other column could, and it now renders on the repository cell where the fault is. A fourth entry, `deadline-gap`, had a tooltip in the SPA and could never appear — `report.mjs` emits it as a cohort notification, never as a student warning — which is DESIGN.md §1.5 in miniature.
 
+### A job that never ran was worth zero marks.
+
+A colleague's exam template, running live in `PXL-2TIN-CloudEssentials-2627` on the assignment `proef-pe1`, grades **one commit and no others**:
+
+```yaml
+jobs:
+  run-autograding-tests:
+    if: github.event.head_commit.message == 'einde examen'
+```
+
+It has to. The checks read the student's own AWS account through credentials they commit themselves, and that sandbox is gone when their lab session ends — the measurement cannot be re-taken afterwards from the archive, which is the one thing this system is otherwise built on. So the score is captured at hand-in, by the student, on their way out of the exam.
+
+Probed live on 2026-09-04, `proef-pe1-d-ries` had two commits and two check runs:
+
+| commit | message | check run | conclusion | annotations |
+| :--- | :--- | :--- | :--- | ---: |
+| `9c4e1867` | Initial commit | `run-autograding-tests` | **skipped** | 0 |
+| `44fbe7f0` | einde examen | `run-autograding-tests` | success | 3 |
+
+**A job skipped by an `if:` gate is still a check run.** Not an absence — a real check run, at a real commit, named after the job, which `pickAutogradeCheckRun` therefore picks, correctly: it *is* the grading job. It carries no annotations, so `parseCheckRunScore` fell through to its conclusion branch, and the conclusion branch had two cases — green means full marks, anything else means zero. `skipped` fell into *anything else*.
+
+So a student who handed in and then pushed one more commit — a typo in the readme — was recorded **0**, in the grade table and in the CSV export, beside a CI badge reading `skipped` that nobody has to notice. The file's own picker refuses this two functions up: *"no autograding run at this commit is NOT a zero and NOT a pass."* The conclusion branch had never been asked what to do about a conclusion that means the run did not happen.
+
+`failure` stays a real zero — that run ran, and the student's code broke it. `skipped`, `cancelled`, `timed_out`, `stale`, `neutral`, `action_required` and a run still in progress are now `graded: false`, and both readers list the student by name instead of scoring them. Confirmed on this repository's own workflows, where `disable-when-empty` and `watch` are `conclusion: skipped` on every nightly.
+
+**Then the second half: the score was never lost, it was one commit back.** `submission_marker` on the assignment records the literal the workflow compares against, and when a read finds no grading run, `lib/submission-marker.mjs` walks the submission branch for the newest commit carrying it — bounded by that student's own effective deadline, so a late hand-in cannot be graded, and capped, so "not found in the last 300 commits" stays distinguishable from "never handed in". Two extra requests, and only for the students who need them. It decides **only** which commit's check run is read: preservation, lateness and what counts as a submission are untouched.
+
+Matching is exact and case-sensitive on the whole message, because the workflow's `==` is. Being more generous would name a commit the workflow never graded and then report "the grading workflow was skipped" about the commit the lecturer believes is the hand-in.
+
+**And the timeout on the generated workflow was in the wrong unit the whole time.** Every `classroom-resources` grader documents `timeout` as *"Duration (in minutes)"*; the schema field is `timeout_s`, seconds, capped at 600, and both CLI runners honour it as seconds. `provision.mjs` passed the number straight through, so one test definition meant 30 seconds locally and **30 minutes** on Actions — on the side that bills an organisation's minutes, for a runaway loop nobody is watching.
+

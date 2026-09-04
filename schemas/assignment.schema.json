@@ -169,6 +169,30 @@
       "default": "refs/heads/main",
       "description": "Git ref considered as the submission branch."
     },
+    "submission_marker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "value"
+      ],
+      "description": "How a student marks the commit that hands the work in, for a template-owned grading workflow that runs on that commit only (`if: github.event.head_commit.message == '...'`). Read when scores are read, by the Admin Panel and by `pxl-classroom grade`; it does not change what is preserved, what is late, or what counts as a submission. Absent means every push grades, which is the ordinary GitHub Classroom workflow.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "commit_message"
+          ],
+          "description": "What carries the marker. Only `commit_message` today."
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The literal the workflow compares against, e.g. `einde examen`. Matched exactly and case-sensitively on the whole commit message, because that is what the workflow's `==` does."
+        }
+      }
+    },
     "student_permission": {
       "type": "string",
       "enum": [
