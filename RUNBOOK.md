@@ -429,10 +429,22 @@ The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, 
 
 The reason archives are per assignment (ARCHITECTURE §11.3.1): retiring a cohort is one gesture, and nothing else is in the blast radius.
 
-1. Confirm the grades are out of the system and into wherever they live long-term. Deleting the archive destroys the preserved submission evidence for that cohort - `lockdowns/<id>/lockdown-record.json` in the control repo still holds each student's `snapshot_sha` and GitHub's own `pushed_at`, which is the record of *what* was submitted and *when*, but the content is gone.
+**Delete assignment** does the PXL Classroom half of this. It is offered on the editor's lifecycle row once an assignment is **closed or archived** - never while it is still accepting - and asks you to type the assignment id.
+
+What it does, in this order, because the order is the safety property:
+
+1. Reads the evidence, before anything is removed.
+2. Enumerates what the assignment owns from **one** recursive tree call. A truncated tree **aborts** the whole thing: deleting from a partial listing strands whatever it did not name, unreachable from any surface because the assignment is gone.
+3. Deletes the **broker first**. The nightly finds work by walking `assignments/`, so a record removed while its broker still stands is a public repository nothing will ever close - the rule in CLAUDE.md that whatever `publish` switches on, something has to switch off. If the broker will not delete, nothing else moves.
+4. **One atomic commit** writes `retired/<id>/` (`report.json`, `report.csv`, `grading.json`, `manifest.json`) and deletes `assignments/<id>.yml`, `reports/<id>.*` and every `acceptances|observations|repositories|lockdowns|teams|overrides|grading/<id>/` path, and drops the entry from `reports/dashboard.json`. Evidence and removal land together or not at all.
+
+`retired/` is outside `CONTROL_SCAFFOLD_DIRS` and nothing iterates it, so a deleted assignment cannot come back as a cohort with no students or a nightly with nothing to do. `manifest.json` records what was removed, when, by whom, and which archive repository still holds the code.
+
+**Student repositories and the archive repository are never touched.** GitHub Classroom's delete takes the student repositories with it; Classroom50's keeps them, and so does this. To finish retiring a course year:
+
+1. Confirm the grades are out of the system and into wherever they live long-term. Deleting the archive destroys the preserved submission evidence for that cohort - `retired/<id>/` still holds the grades and the report, and the lockdown record's `snapshot_sha` and `pushed_at` are gone with the rest, so the content is what you lose.
 2. Delete the student repositories for the assignment (`<repository_name_pattern>`).
 3. Delete `<org>/pxl-classroom-archive-<assignment-id>`.
-4. Leave the control repo alone. `assignments/<id>.yml`, `reports/<id>.json` and the lockdown record are small and are the audit trail; they are not what grows.
 
 Do **not** delete an archive for an assignment whose deadline has passed but whose finalize has not completed - `find-finalizable.mjs` re-queues an assignment while any student with a `snapshot_sha` lacks a verified `preservation.json` (ARCHITECTURE §6.2.1), and it would push the branches back.
 

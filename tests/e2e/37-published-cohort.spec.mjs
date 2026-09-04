@@ -305,6 +305,39 @@ test.describe('37 - Per-student operations live on the student', () => {
     await expect(modal).toContainText('Retry acceptance');
     await expect(modal).toContainText(STUDENT);
   });
+
+  test('a roster GitHub cannot serve does not take the cohort down with it', async ({ page }) => {
+    // Reported 2026-09-04 on pxl-classroom-testbed/live-smoke-group: "Failed to
+    // load report - Internal Server Error" over a report and an assignment that
+    // had both answered 200. The three reads share one Promise.all and
+    // getRepoContent throws on anything but a 404, so the page had the failure
+    // tolerance of its least important read. The roster only maps a login to a
+    // name; nothing here depends on it.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment() },
+      reports: {
+        [ID]: {
+          schema_version: 1, assignment_id: ID, org: ORG, generated_at: new Date().toISOString(),
+          students: [{ github_login: STUDENT, acceptance_state: 'accepted', submission_status: 'on-time' }],
+        },
+      },
+    });
+    // Registered after the standard routes so it wins.
+    await page.route('**/pxl-classroom-control/contents/students/roster.y*ml*', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Internal Server Error' }),
+      }),
+    );
+
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+
+    await expect(page.locator('text=Failed to load report')).toHaveCount(0);
+    await expect(page.locator(`text=${STUDENT}`).first()).toBeVisible({ timeout: 15000 });
+  });
 });
 
 // ======================================================== the lifecycle

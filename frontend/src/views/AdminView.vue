@@ -1016,6 +1016,19 @@
               <button v-if="form.state === 'draft'" class="btn btn-danger" type="button" @click="deleteDraft" :disabled="deleting">
                 {{ deleting ? 'Deleting…' : 'Delete draft' }}
               </button>
+              <!-- Only once acceptance is shut. Deleting a live assignment
+                   would take its broker out from under students who can still
+                   be accepting, so the lifecycle does the stopping first and
+                   this only ever runs on something already closed. Outline, not
+                   solid: DESIGN.md §3 keeps the solid danger for the view whose
+                   point IS the destruction, which is the dialog. -->
+              <button
+                v-if="!isNew && (form.state === 'closed' || form.state === 'archived')"
+                class="btn btn-danger-outline"
+                type="button"
+                @click="showDeleteModal = true"
+                :disabled="deleting"
+              >Delete assignment</button>
             </div>
 
             <!-- Both used to live here as accordions that made you type a
@@ -1060,6 +1073,20 @@
       :publishing="publishing"
       @close="showRepublishModal = false"
       @confirm="confirmRepublish"
+    />
+
+    <!-- DELETE. The dialog owns the typed-slug confirmation and its own state
+         (DESIGN.md §6); the two repository names are passed in because
+         lib/archive-repo.mjs and lib/broker-repo.mjs are the only things
+         allowed to decide them. -->
+    <DeleteAssignmentModal
+      v-if="showDeleteModal"
+      :assignment-id="form.id"
+      :archive-repo-name="archiveRepoName(form.id)"
+      :broker-repo-name="brokerRepoName({ assignment: form })"
+      :busy="deleting"
+      @close="showDeleteModal = false"
+      @confirm="deleteAssignment"
     />
 
     <!-- AUTOMATED CHECKS -->
@@ -1112,12 +1139,28 @@ import { config } from '../lib/config.js'
 import { TIMEZONE, INSTITUTION_SHORT } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
-import { commitFile, deleteFile, getRepo, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
+import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { needsBrokerDispatch } from '../lib/publish.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
-import { assignmentPath } from '../../../lib/control-layout.mjs'
+import {
+  assignmentPath,
+  reportPath,
+  reportCsvPath,
+  gradingSummaryPath,
+  retiredDir,
+  DASHBOARD_PATH,
+} from '../../../lib/control-layout.mjs'
+import { archiveRepoName } from '../../../lib/archive-repo.mjs'
+
+/**
+ * The control-repo directories keyed by assignment id.
+ *
+ * Listed rather than derived: `students/` and `errors/` are org-wide, and a
+ * delete that swept every directory would take the roster with it.
+ */
+const OWNED_DIRS = ['acceptances', 'observations', 'repositories', 'lockdowns', 'teams', 'overrides', 'grading']
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { summariseGrading } from '../lib/autograde.js'
 import { assignmentFacts } from '../../../lib/dashboard-aggregate.mjs'
@@ -1165,6 +1208,7 @@ import SystemHealthModal from '../components/SystemHealthModal.vue'
 import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import AutogradeModal from '../components/AutogradeModal.vue'
+import DeleteAssignmentModal from '../components/DeleteAssignmentModal.vue'
 import RepublishBrokerModal from '../components/RepublishBrokerModal.vue'
 import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
@@ -2214,6 +2258,7 @@ function cancelEdit() {
 // The row editor lives in AutogradeModal.vue now; this view holds the one-line
 // summary and the resulting configuration (ARCHITECTURE §11.6).
 const showAutogradeModal = ref(false)
+const showDeleteModal = ref(false)
 
 // The same condition the Edit/Set up button and the Remove button already used
 // inline, named once so the three cannot disagree about whether it is on.
@@ -2795,6 +2840,149 @@ async function syncDashboardState(doc) {
     }
   } catch (e) {
     console.error('Could not update the dashboard entry', e)
+  }
+}
+
+/**
+ * Delete an assignment: everything PXL Classroom made, except the evidence.
+ *
+ * GitHub Classroom's delete takes the student repositories with it, which is
+ * the reputation the word carries. Classroom50's keeps them. So does this.
+ *
+ * ORDER MATTERS, and it is broker-first. The nightly finds work by walking
+ * `assignments/`, so an assignment removed while its broker still stands is a
+ * public repository nothing will ever close or clean - CLAUDE.md's rule that
+ * whatever `publish` switches on, something has to switch off. Deleting the
+ * broker first fails in the safe direction: an assignment that still exists
+ * with no broker is closed anyway.
+ *
+ * The control-repo half is ONE atomic commit: the evidence is written and the
+ * working data removed together, so there is no state where the report is gone
+ * and `retired/` was never written.
+ */
+async function deleteAssignment() {
+  const id = form.value.id
+  const token = getToken()
+  if (!id || !token) return
+
+  deleting.value = true
+  try {
+    // 1. EVIDENCE FIRST, read before anything is removed.
+    const [reportJson, reportCsv, gradingJson] = await Promise.all([
+      getRepoContent(token, props.org, config.controlRepo, reportPath(id)).catch(() => null),
+      getRepoContent(token, props.org, config.controlRepo, reportCsvPath(id)).catch(() => null),
+      getRepoContent(token, props.org, config.controlRepo, gradingSummaryPath(id)).catch(() => null),
+    ])
+
+    // 2. Every path this assignment owns, from ONE tree read rather than a
+    //    listing per directory. `observations/<id>/<login>/<file>` is three
+    //    levels deep, and walking it a directory at a time is a request per
+    //    student.
+    const tree = await ghApi(
+      token,
+      'GET',
+      `/repos/${props.org}/${config.controlRepo}/git/trees/main?recursive=1`,
+    )
+    if (!tree.ok) {
+      toast.error(`Could not read the control repository, so nothing was deleted (HTTP ${tree.status}).`)
+      return
+    }
+    if (tree.data?.truncated) {
+      // A truncated tree is a partial answer, and deleting from one leaves
+      // whatever it did not list behind for ever - unreachable from any surface
+      // because the assignment is gone. Refuse rather than half-delete.
+      toast.error('The control repository is too large to enumerate safely. Nothing was deleted.')
+      return
+    }
+
+    const owned = (tree.data.tree || [])
+      .filter((e) => e.type === 'blob')
+      .map((e) => e.path)
+      .filter(
+        (p) =>
+          p === assignmentPath(id) ||
+          p === reportPath(id) ||
+          p === reportCsvPath(id) ||
+          OWNED_DIRS.some((d) => p.startsWith(`${d}/${id}/`)),
+      )
+
+    // 3. The broker, before any record is removed.
+    const broker = brokerRepoName({ assignment: form.value })
+    const brokerRes = await getRepo(token, props.org, broker)
+    if (brokerRes.ok) {
+      const del = await ghApi(token, 'DELETE', `/repos/${props.org}/${broker}`)
+      if (!del.ok && del.status !== 404) {
+        toast.error(
+          del.status === 403
+            ? `GitHub refused to delete ${broker}. Deleting a repository needs the PXL Classroom App's "Administration" permission and an organization owner. Nothing else was changed.`
+            : `Could not delete ${broker} (HTTP ${del.status}). Nothing else was changed.`,
+        )
+        return
+      }
+    } else if (brokerRes.status !== 404) {
+      toast.error(`Could not check whether ${broker} still exists, so nothing was deleted.`)
+      return
+    }
+
+    // 4. One commit: write the evidence, remove the working data, and take the
+    //    entry off the dashboard.
+    const changes = [
+      {
+        path: `${retiredDir(id)}/manifest.json`,
+        content: JSON.stringify(
+          {
+            schema_version: 1,
+            assignment_id: id,
+            title: form.value.title || null,
+            deleted_at: new Date().toISOString(),
+            deleted_by: user.value?.login || null,
+            broker_repo_deleted: brokerRes.ok ? `${props.org}/${broker}` : null,
+            // Where the code still is. The one thing a grade dispute needs that
+            // this folder does not hold.
+            archive_repo: archiveRepoName(id),
+            removed_paths: owned,
+          },
+          null,
+          2,
+        ) + '\n',
+      },
+      ...owned.map((path) => ({ path, content: null })),
+    ]
+    if (reportJson) changes.push({ path: `${retiredDir(id)}/report.json`, content: reportJson })
+    if (reportCsv) changes.push({ path: `${retiredDir(id)}/report.csv`, content: reportCsv })
+    if (gradingJson) changes.push({ path: `${retiredDir(id)}/grading.json`, content: gradingJson })
+
+    const dashboardText = await getRepoContent(token, props.org, config.controlRepo, DASHBOARD_PATH).catch(() => null)
+    if (dashboardText) {
+      try {
+        const dashboard = JSON.parse(dashboardText)
+        if (dashboard?.assignments?.[id]) {
+          delete dashboard.assignments[id]
+          changes.push({ path: DASHBOARD_PATH, content: JSON.stringify(dashboard, null, 2) + '\n' })
+        }
+      } catch { /* a dashboard we cannot parse is not ours to rewrite */ }
+    }
+
+    const res = await commitFiles(
+      token,
+      props.org,
+      config.controlRepo,
+      changes,
+      `Delete assignment ${id}`,
+    )
+    if (!res.ok) {
+      toast.error(`Delete failed: ${res.error || `HTTP ${res.status}`}. The broker is gone; nothing else changed.`)
+      return
+    }
+
+    toast.success(`Deleted ${id}. Grades and the report are in ${retiredDir(id)}/.`)
+    showDeleteModal.value = false
+    editing.value = null
+    await loadAssignments()
+  } catch (e) {
+    toast.error(`Delete failed: ${e.message || String(e)}`)
+  } finally {
+    deleting.value = false
   }
 }
 

@@ -891,6 +891,10 @@ async function loadDashboard(orgArg) {
       // them - but it no longer decides the roll call. Anything on disk and not
       // in it is shown from its own YAML, without figures, rather than hidden.
       const extra = await assignmentsMissingFrom(token, org, reportData.assignments)
+      // Guarded like every other write below it. An older run landing here
+      // after a newer one has moved to another organization would put that
+      // organization's assignments under this one's name.
+      if (superseded()) return
       assignments.value = [...displayList, ...extra].sort((a, b) => {
         const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
         if (diff !== 0) return diff
@@ -1013,7 +1017,21 @@ async function loadDashboard(orgArg) {
       dashError.value = `Failed to load dashboard: ${e.message || String(e)}`
     }
   } finally {
-    loadingData.value = false
+    // ONLY THE CURRENT RUN OWNS THE SPINNER.
+    //
+    // This was unconditional, and every run begins by wiping `assignments`. So
+    // a superseded run finishing announced "loaded" for a load still in
+    // flight, and the page rendered the wiped list under "No active
+    // assignments right now - assignments in this organization are closed or
+    // archived" while six published ones sat in dashboard.json. Reported
+    // 2026-09-04: it appeared on the first load after signing in, and a reload
+    // fixed it - which is the signature of two overlapping loads, not of stale
+    // data. Entering the dashboard can start more than one: the `selectedOrg`
+    // watcher is `immediate`, and `router.replace` re-triggers it.
+    //
+    // A superseded run leaves the flag alone; the run that superseded it turns
+    // it off when IT finishes.
+    if (!superseded()) loadingData.value = false
   }
 }
 

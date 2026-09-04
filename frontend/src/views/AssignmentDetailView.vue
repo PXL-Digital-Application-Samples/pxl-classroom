@@ -2319,7 +2319,23 @@ function emptyReport() {
   }
 }
 
+// Which run of loadAll() is the current one.
+//
+// Entering this page starts more than one: onMounted, the device-flow
+// `authenticated` handler, and every Retry / Refresh / post-action reload. They
+// share `loadError`, and the catch below used to write it unconditionally - so
+// ONE transient 500 out of three parallel runs replaced a page the other two
+// had loaded perfectly well. Seen live 2026-09-04 on
+// pxl-classroom-testbed/live-smoke-group: "Failed to load report - Internal
+// Server Error" over a report that had come back 200, with three
+// `Failed to load overrides` warnings beside it showing how many runs there
+// were. GitHub answers 500 occasionally; that is not something this page can
+// prevent, and it must not be able to overwrite a good load.
+let loadGeneration = 0
+
 async function loadAll() {
+  const generation = ++loadGeneration
+  const superseded = () => generation !== loadGeneration
   const token = getToken()
   // A session can be half-present: isAuthenticated() reads the stored user, so
   // onMounted sets `user` and renders past the AuthCard, while getToken() has
@@ -2333,10 +2349,25 @@ async function loadAll() {
   }
   loadError.value = null
   try {
+    // `Promise.all` gives the whole page the failure tolerance of its LEAST
+    // important read, and `getRepoContent` throws on anything that is not a
+    // 404. The roster is supplementary - it maps a login to a name and nothing
+    // on this page depends on it - yet a transient 500 on it replaced the
+    // cohort with "Failed to load report - Internal Server Error" while the
+    // report and the assignment had both answered 200. Seen live 2026-09-04 on
+    // pxl-classroom-testbed/live-smoke-group; GitHub returns 500 occasionally
+    // and no page can stop it, so the reads that do not matter must not be
+    // able to take down the ones that do.
+    //
+    // The two below it stay load-bearing: without the report or the assignment
+    // there is no page, and failing loudly is right.
     const [reportContent, assignmentContent, rosterContent] = await Promise.all([
       getRepoContent(token, props.org, config.controlRepo, reportPath(props.assignmentId)),
       getRepoContent(token, props.org, config.controlRepo, assignmentPath(props.assignmentId)),
-      getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH),
+      getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH).catch((e) => {
+        console.warn('Roster unreadable, continuing without student names:', e)
+        return null
+      }),
     ])
     if (reportContent) {
       report.value = JSON.parse(reportContent)
@@ -2408,12 +2439,18 @@ async function loadAll() {
     ])
   } catch (e) {
     console.error('Failed to load report:', e)
-    loadError.value = e.message || String(e)
+    // A superseded run's failure is not this page's state. Another run is
+    // still going or has already succeeded, and it owns what is on screen.
+    if (!superseded()) loadError.value = e.message || String(e)
   } finally {
     // `finally`, not a statement after the try: the early return above (an
     // unreadable assignment) would otherwise skip this and leave the page
     // spinning for ever - trading a crash for a hang.
-    loading.value = false
+    //
+    // Only the current run turns the spinner off. A superseded one announcing
+    // "loaded" is what let a half-finished page render as finished on the
+    // dashboard, and the shape is identical here.
+    if (!superseded()) loading.value = false
   }
 }
 

@@ -138,4 +138,14 @@ Switched on, each student gets one of these on their own repository, kept as a d
 - **Close** stops new students accepting. Nobody's work is touched.
 - **Archive** hides the assignment from the dashboard. Everything is kept.
 - Neither of them deletes anything.
-- To retire a course year, delete the student repositories and the archive repository yourself, once you are sure you need neither.
+
+### Delete
+
+Once an assignment is closed or archived you can delete it. You type its name to confirm.
+
+- **Student repositories are never touched.** Nobody's work is deleted.
+- The archive repository is kept, so the submission preserved at the deadline is still there.
+- The grades and the report are kept, in `retired/<assignment>/`, with a note of what was removed and by whom.
+- Everything else goes: the assignment, its acceptances, observations, repository records, lockdowns, teams and overrides, and its broker repository.
+- Only the broker cannot be brought back. The rest stays in the control repository's history.
+- To finish retiring a course year, delete the student repositories and the archive repository yourself, once you are sure you need neither.

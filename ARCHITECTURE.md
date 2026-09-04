@@ -1087,6 +1087,18 @@ Per assignment, the archive dies with the cohort: retiring a three-year-old assi
 
 On `AssignmentDetailView.vue`, the Post-Deadline Preservation Summary Banner provides real-time verification of preserved vs eligible student records, displays the measured lock-down delay - the report's `lockdown_delay_seconds`, which is `lockdown_at - deadline_at` from the lockdown record, shown as the **maximum** across the cohort, since one student demoted late is what the number is for. Not `uncertainty_interval_seconds`, which measures the other side of the deadline: how stale the evidence was going in. It provides 1-click targeted retries for any failed records, and links directly to the assignment's archive repository. That link is resolved from the report rather than derived, and is **absent until something is actually preserved** - before the first preservation no archive repository exists, and a button to one is the page guessing. Student and team rows render direct hyperlinks to their specific archive branch.
 
+#### 11.3.2 Deleting an assignment
+
+`draft → published → closed → archived` never removed anything, and *archived* means "out of the day-to-day", not "gone". **Delete assignment** is the terminal step, offered on the editor's lifecycle row only when an assignment is `closed` or `archived` and behind a typed-slug dialog (`DeleteAssignmentModal.vue`).
+
+**It never touches student repositories or the archive.** GitHub Classroom's delete removes every student repository for the assignment; Classroom50's removes only the record and keeps them. This follows Classroom50, and additionally removes the working data and the broker, because an assignment that is gone should not leave a public repository behind.
+
+Order is the safety property, and it is broker-first. The collector finds work by walking `assignments/`, so a record removed while its broker stands is a door nothing will ever close - §7's rule that whatever `publish` switches on, something has to switch off. A failed broker delete stops everything; the reverse failure (broker gone, assignment still present) is survivable, since the assignment is closed anyway.
+
+Enumeration is **one** recursive tree read, not a listing per directory - `observations/<id>/<login>/<file>` is three levels deep and a walk costs a request per student. A `truncated` tree aborts: deleting from a partial listing strands whatever it did not name, unreachable from every surface because the assignment is gone. The paths are matched against `<dir>/<id>/`, so an assignment whose id is a prefix of another's is not swept up with it, and `students/` and `errors/` are org-wide and never in scope.
+
+The control-repo half is a **single atomic commit** (`commitFiles`, which deletes via `content: null`): it writes `retired/<id>/` and removes the working data together, so there is no state where the report is gone and the evidence was never written. `retiredDir()` in `lib/control-layout.mjs` owns that path; it is deliberately outside `CONTROL_SCAFFOLD_DIRS` and **nothing iterates it**, which is what stops a deleted assignment reappearing as a cohort with no students. `manifest.json` records what was removed, when, by whom, and the archive repository that still holds the code - the one thing `retired/` does not.
+
 ### 11.4 Feedback PR (optional)
 
 When `feedback_pr: true` on the assignment, provisioning additionally:
