@@ -502,11 +502,13 @@ autograde:
     assert.ok(stdout.includes("alice: 10/10"), `saw: ${stdout}${_stderr}`);
     assert.ok(stdout.includes("1 graded, 0 failed"));
 
-    // The branch and the student's own deadline are both sent, so a hand-in
-    // pushed after it cannot become the graded commit.
+    // The submission branch is read whole; the deadline is applied to each
+    // commit's own timestamp in lib/submission-marker.mjs rather than handed to
+    // GitHub, so a hand-in pushed after it can be reported as late instead of
+    // being invisible.
     assert.ok(commitsQuery, "the hand-in commit has to be looked for");
     assert.match(commitsQuery, /sha=main/);
-    assert.match(commitsQuery, /until=2027-02-28T08%3A37%3A00\.000Z/);
+    assert.ok(!commitsQuery.includes("until="), "the deadline is not GitHub's filter to apply");
 
     // The grade is recorded against the commit it was read at, not the head.
     const result = JSON.parse(Buffer.from(committedBlobs[0].content, committedBlobs[0].encoding || "utf-8").toString());

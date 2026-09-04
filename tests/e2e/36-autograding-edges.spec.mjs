@@ -410,8 +410,12 @@ test.describe('36 - Removing the configuration removes all of it', () => {
     await expect(summaryText(page)).toHaveText('Off');
 
     // Reopening starts empty - a left-behind list would come back on the next
-    // Set up as checks the lecturer thought they had deleted.
+    // Set up as checks the lecturer thought they had deleted. With nothing
+    // configured the modal opens on the template branch now, so the branch
+    // that HELD the list has to be asked for before its emptiness means
+    // anything.
     await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /I define them here/ }).check();
     await expect(modal(page)).toContainText('No checks yet');
     await expect(idInputs(page)).toHaveCount(0);
   });

@@ -224,6 +224,9 @@ test.describe('31 - A python test means one thing, from the form to the workflow
     await openNewAssignmentForm(page, opts);
     await fillMinimum(page, title);
     await openAutogradeModal(page);
+    // The modal opens on the template branch - what every live assignment
+    // actually does - so checks written HERE have to be asked for first.
+    await page.getByRole('radio', { name: /I define them here/ }).check();
   }
 
   const saveChecks = (page) => page.getByRole('button', { name: 'Save checks' });

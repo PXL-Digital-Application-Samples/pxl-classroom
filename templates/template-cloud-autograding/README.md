@@ -21,9 +21,10 @@ point a PXL Classroom assignment at it.
 3. Commit and push with the message **`einde examen`** — exactly that, nothing
    before or after it. That is what runs the checks.
 
-They can hand in more than once; the newest hand-in commit is the one that
-counts. Anything they push afterwards does not re-run the checks and does not
-replace the score.
+They can hand in more than once: the newest hand-in commit on or before the
+deadline is the one that counts, unless you turned that off on the assignment.
+Anything else they push does not re-run the checks and does not replace the
+score.
 
 ## What you do
 

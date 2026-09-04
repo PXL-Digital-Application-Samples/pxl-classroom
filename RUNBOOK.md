@@ -829,12 +829,15 @@ That is the shape to use when the checks read the student's **own** cloud accoun
 
 1. Put the workflow in the template repository. It is preserved during provisioning, exactly as any other template-owned workflow is.
 2. In the Admin Panel, open **How it's graded → Set up**, choose **They come with my template**, then **Only on a hand-in commit**, and type the same words the workflow compares against - `einde examen`. Matched exactly, so tell students the exact words and mind the capitals.
-3. Tell students to commit and push with that message when they are done. They may hand in more than once; the newest one counts.
-4. After the exam, read the scores exactly as in Option B.
+3. Decide whether **they may hand in more than once**, in the same place. On by default: the **last** hand-in on or before that student's deadline is the one graded, so a student who spots a mistake and hands in again is graded on the fix. Turned off, the **first** one counts and a later one does not replace it.
+4. Tell students to commit and push with that message when they are done.
+5. After the exam, read the scores exactly as in Option B.
 
-**What the marker changes:** only which commit's check run is read. With it set, a student who pushes a fix *after* handing in keeps their score. Without it, that student's last commit carries a skipped run, and they come back as "the grading workflow was skipped" rather than as a score.
+**What the marker changes:** which commit's check run is read. With it set, the hand-in commit *is* the submission for grading - the student's last commit is not consulted, so pushing a fix afterwards neither loses the score nor replaces it.
 
-**What it does not change:** what is preserved, what counts as late, or what a submission is. Those are still the deadline and the collector's observations. A hand-in pushed **after** the student's own deadline is not read - the walk is bounded by that deadline.
+**A hand-in after the deadline is never graded.** Each candidate is judged on the **commit's own timestamp** against that student's effective deadline, extension included. A student whose only hand-in is late is listed by name with the commit and its time, rather than being scored or silently dropped - the two are different facts and you do different things about them.
+
+**What it does not change:** what is preserved, what counts as late in the report, or what a submission is. Those are still the deadline and the collector's observations.
 
 **A student who never handed in has no score, and is named.** They are not scored zero: nothing ran, so nothing was measured. Chase them or grade them by hand.
 

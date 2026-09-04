@@ -190,6 +190,11 @@
           "minLength": 1,
           "maxLength": 200,
           "description": "The literal the workflow compares against, e.g. `einde examen`. Matched exactly and case-sensitively on the whole commit message, because that is what the workflow's `==` does."
+        },
+        "multiple": {
+          "type": "boolean",
+          "default": true,
+          "description": "May a student hand in more than once? `true` (the default, and what an absent field means) grades the LAST hand-in on or before that student's deadline, so a student who spots a mistake and hands in again is graded on the fix. `false` grades the FIRST one: once they have handed in, a later one does not replace it. Either way a hand-in after the deadline is never graded."
         }
       }
     },

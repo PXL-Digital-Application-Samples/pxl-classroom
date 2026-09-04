@@ -1306,8 +1306,22 @@ export async function openAutogradeModal(page) {
   await expect(page.locator('.autograde-setup-modal')).toBeVisible({ timeout: 10000 });
 }
 
-/** Add a check from its named preset - each arrives pre-filled and valid. */
+/**
+ * Add a check from its named preset - each arrives pre-filled and valid.
+ *
+ * Selects "I define them here" first when the checks table is not on screen.
+ * The modal opens on the TEMPLATE branch now, because that is what every live
+ * assignment actually does, and a table of empty rows was the wrong first
+ * thing to show. Doing it here rather than at ~15 call sites is safe because
+ * the default is pinned by its own test - tests/e2e/35's "opens on the answer
+ * these courses actually use" - so this convenience cannot hide a regression
+ * in it.
+ */
 export async function addCheck(page, label) {
+  const add = page.locator('.ag-add');
+  if ((await add.count()) === 0) {
+    await page.getByRole('radio', { name: /I define them here/ }).check();
+  }
   await page.locator('.ag-add button', { hasText: label }).click();
 }
 

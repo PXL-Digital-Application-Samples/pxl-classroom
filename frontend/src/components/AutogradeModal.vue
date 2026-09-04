@@ -25,9 +25,14 @@
              Not stored, and it does not need to be: checks on the assignment
              mean one, a hand-in message means the other. It is a route to the
              right controls, so it opens on the branch the assignment is
-             already in. -->
+             already in - and on the TEMPLATE branch for an assignment that is
+             in neither, because that is the answer every live course gives
+             (OPEN-ITEMS §5). -->
         <fieldset class="ag-section">
-          <legend>Who defines the checks?</legend>
+          <legend>
+            Who defines the checks?
+            <HelpButton topic="automated-checks" label="who defines the checks" />
+          </legend>
           <div class="ag-cards">
             <label
               v-for="s in SOURCES"
@@ -70,13 +75,41 @@
             <label class="ag-marker-label" for="ag-marker-value">Commit message</label>
             <input id="ag-marker-value" v-model="draft.markerValue" maxlength="200" placeholder="einde examen" />
             <span class="ag-marker-hint">
-              Matched exactly, as your workflow matches it. Scores are read from the newest commit
-              carrying it, so a student who pushes again afterwards keeps their score.
+              Matched exactly, as your workflow matches it.
+            </span>
+
+            <!-- Beside the message, because it is the same decision continued:
+                 having said what a hand-in looks like, WHICH one counts is the
+                 only thing left to say about it. Ticked by default - a student
+                 who spots a mistake and hands in again has done what handing in
+                 again is for. -->
+            <label class="ag-marker-again">
+              <input type="checkbox" v-model="draft.markerMultiple" />
+              <span>They may hand in more than once</span>
+            </label>
+            <span class="ag-marker-hint">
+              {{ draft.markerMultiple
+                ? 'The last hand-in on or before the deadline counts, so handing in again replaces the one before it.'
+                : 'The first hand-in counts. A later one does not replace it.' }}
+              A hand-in after the deadline is never graded.
             </span>
           </div>
         </fieldset>
 
-        <!-- (3) Where they run. The trade-off IS the decision, so it is two
+        <!-- (3) What choosing the less-travelled branch actually commits you
+             to. The cards say what each answer is FOR; this says what happens
+             next, because "I define them here" is three more questions and a
+             table, and a lecturer who picked it by accident should be able to
+             tell before filling any of it in. -->
+        <p v-if="draft.source === 'here'" class="ag-lede">
+          You describe each check below. PXL Classroom then either writes a workflow into every
+          student's repository from them, or runs them itself from the command line against the
+          preserved submission after the deadline - that is the next question. It is also the only
+          way to keep the checks out of the student's repository, and the only one that gives a
+          score per check rather than one total.
+        </p>
+
+        <!-- (4) Where they run. The trade-off IS the decision, so it is two
              cards with the consequences on them, not a <select>. -->
         <fieldset v-if="draft.source === 'here'" class="ag-section">
           <legend>Where do they run?</legend>
@@ -100,7 +133,7 @@
           </div>
         </fieldset>
 
-        <!-- (4) Only a question when the checks are in the student's repo. -->
+        <!-- (5) Only a question when the checks are in the student's repo. -->
         <fieldset v-if="draft.source === 'here' && draft.execution_environment === 'github_actions'" class="ag-section">
           <legend>Can students read the checks?</legend>
           <label class="ag-choice">
@@ -118,7 +151,7 @@
           </label>
         </fieldset>
 
-        <!-- (5) The checks themselves. -->
+        <!-- (6) The checks themselves. -->
         <fieldset v-if="draft.source === 'here'" class="ag-section">
           <legend>
             The checks
@@ -236,6 +269,7 @@
 // rejected the save three commits later.
 import { computed, onMounted, onUnmounted, reactive } from 'vue'
 import Icon from './Icon.vue'
+import HelpButton from './HelpButton.vue'
 import { CHECK_PRESETS, newCheck, checkProblems, totalPoints } from '../lib/autograde.js'
 
 const props = defineProps({
@@ -246,19 +280,28 @@ const props = defineProps({
   // what matches one, and a dialog that re-derived either would be the second
   // implementation that module exists to prevent (DESIGN.md §6).
   submissionMarker: { type: String, default: '' },
+  /** May a student hand in more than once? The assignment's answer, defaulting
+   *  the way `readSubmissionMarker` defaults an absent field. */
+  submissionMarkerMultiple: { type: Boolean, default: true },
 })
 const emit = defineEmits(['save', 'close'])
 
+// The TEMPLATE card is first and is the default, and that is a statement about
+// which one lecturers actually use. Every assignment across every participating
+// organization is graded by a workflow that came with its template - a GitHub
+// Classroom `classroom.yml`, which is where these courses come from. Not one
+// has ever defined checks in this panel. Offering the unused answer first, with
+// a table of empty rows behind it, described the system backwards.
 const SOURCES = [
-  {
-    value: 'here',
-    title: 'I define them here',
-    what: 'Checks you write in this panel, run on your machine or in each student\'s repository.',
-  },
   {
     value: 'template',
     title: 'They come with my template',
-    what: 'Your template ships its own workflow (classroom.yml). PXL Classroom leaves it alone and reads the score it produces.',
+    what: 'Your template repository ships its own workflow - a GitHub Classroom classroom.yml, or anything like it. PXL Classroom leaves it alone and reads the score it produces.',
+  },
+  {
+    value: 'here',
+    title: 'I define them here',
+    what: 'For checks students must not see, or grading you run yourself after the deadline. Choose this when your template does not grade itself.',
   },
 ]
 
@@ -287,9 +330,13 @@ const draft = reactive({
   // Which branch the assignment is already in. A hand-in message is the only
   // evidence a template workflow is in charge, and checks outrank it: an
   // assignment carrying both is one somebody configured here.
-  source: (props.config.tests || []).length ? 'here' : props.submissionMarker ? 'template' : 'here',
+  // Checks on the assignment are the only reason to open on "here"; everything
+  // else - a hand-in message, or nothing configured at all - opens on the
+  // template branch, which is what these courses actually do.
+  source: (props.config.tests || []).length ? 'here' : 'template',
   markerMode: props.submissionMarker ? 'hand-in' : 'every-push',
   markerValue: props.submissionMarker || '',
+  markerMultiple: props.submissionMarkerMultiple !== false,
   execution_environment: props.config.execution_environment || 'lecturer_local',
   visibility: props.config.visibility || 'private',
   // A whole-object copy, not a field list: `timeout_s` has no control here and
@@ -334,6 +381,7 @@ function removeAll() {
     visibility: draft.visibility,
     tests: [],
     submissionMarker: '',
+    submissionMarkerMultiple: true,
   })
 }
 
@@ -349,6 +397,7 @@ function save() {
       visibility: draft.visibility,
       tests: [],
       submissionMarker: draft.markerMode === 'hand-in' ? draft.markerValue.trim() : '',
+      submissionMarkerMultiple: draft.markerMultiple,
     })
     return
   }
@@ -358,6 +407,7 @@ function save() {
     visibility: draft.visibility,
     tests: draft.tests,
     submissionMarker: '',
+    submissionMarkerMultiple: true,
   })
 }
 
@@ -485,6 +535,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .ag-marker-hint {
   color: var(--text-secondary);
+}
+
+.ag-marker-again {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-top: 4px;
+  cursor: pointer;
 }
 
 .ag-none {

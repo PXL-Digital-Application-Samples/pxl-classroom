@@ -3098,18 +3098,14 @@ async function syncGradesFromGitHub() {
           continue
         }
 
-        let outcome = await readScoreAtCommit(s, targetSha)
-
-        // No grade at that commit. With a hand-in marker declared, that is the
-        // EXPECTED answer for every commit except the hand-in - the template
-        // gates its whole job on the message - so the hand-in commit gets
-        // looked at before anything is concluded. Two extra requests, and only
-        // for the students who need them.
-        //
-        // NOT on `unreadable`: there a grading run was found and its
-        // annotations could not be read, and looking somewhere else would
-        // answer a question nobody asked.
-        if ((outcome.verdict === 'not-run' || outcome.verdict === 'no-run') && marker) {
+        // WITH A MARKER, THE HAND-IN COMMIT IS THE SUBMISSION - the commit the
+        // report names is not consulted at all. It used to be read first and
+        // the hand-in used only as a fallback, which graded a hand-in pushed
+        // AFTER the deadline whenever it happened to be the student's last
+        // commit: the fallback carried the deadline bound and the direct read
+        // never did.
+        let outcome
+        if (marker) {
           const found = await findMarkedCommit((path) => ghApi(token, 'GET', path), {
             repoFullName: s.repo_name,
             branch: markerBranch,
@@ -3124,16 +3120,27 @@ async function syncGradesFromGitHub() {
             })
             continue
           }
-          if (found.commit && found.commit.sha !== targetSha) {
-            outcome = await readScoreAtCommit(s, found.commit.sha)
-          } else if (!found.commit) {
-            outcome = {
-              verdict: 'not-run',
-              reason: found.complete
-                ? `no commit on this branch says "${marker.value}", so grading never ran`
-                : `no commit says "${marker.value}" in the ${found.scanned} most recent commits`,
-            }
+          if (!found.complete) {
+            summary.failed.push({
+              login: s.github_login,
+              reason: `could not finish looking for the "${marker.value}" commit - stopped after ${found.scanned} commits`,
+            })
+            continue
           }
+          if (!found.commit) {
+            // A late hand-in is a different fact from no hand-in, and the
+            // lecturer does something different about each.
+            summary.failed.push({
+              login: s.github_login,
+              reason: found.lateCommit
+                ? `the only "${marker.value}" commit is after the deadline (${found.lateCommit.sha.slice(0, 7)}, ${found.lateCommit.date})`
+                : `no commit says "${marker.value}", so nothing was handed in`,
+            })
+            continue
+          }
+          outcome = await readScoreAtCommit(s, found.commit.sha)
+        } else {
+          outcome = await readScoreAtCommit(s, targetSha)
         }
 
         if (outcome.verdict !== 'graded') {

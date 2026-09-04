@@ -274,38 +274,43 @@ export function registerGradeCommand(program) {
           };
         } else if (isGitHubActions) {
           try {
-            let outcome = await readScoreAtCommit(s, s.preserved_sha);
-
-            // No grade at the preserved commit. With a hand-in marker declared
-            // that is the EXPECTED answer everywhere except the hand-in commit,
-            // so look there before concluding anything. NOT on `unreadable`:
-            // there a grading run was found and could not be read, and looking
-            // somewhere else answers a question nobody asked.
-            if ((outcome.verdict === "not-run" || outcome.verdict === "no-run") && marker) {
+            // WITH A MARKER, THE HAND-IN COMMIT IS THE SUBMISSION - the
+            // preserved head is not consulted at all. It used to be read first
+            // and the hand-in used only as a fallback, which graded a hand-in
+            // pushed AFTER the deadline whenever it was the student's last
+            // commit: the fallback carried the deadline bound and the direct
+            // read never did.
+            let outcome;
+            if (marker) {
               const found = await findMarkedCommit(toRequest(octokit), {
                 repoFullName: s.repo_name,
                 branch: markerBranch,
                 marker,
                 until: s.effective_deadline_at || null,
               });
+              const refuse = (reason) => {
+                process.stderr.write(`  ! ${s.github_login}: ${reason}\n`);
+                summary.failed.push({ login: s.github_login, reason });
+              };
               if (!found.ok) {
-                process.stderr.write(`  ! ${s.github_login}: could not read commits to find the hand-in\n`);
-                summary.failed.push({
-                  login: s.github_login,
-                  reason: `could not read this repository's commits to find the "${marker.value}" commit`,
-                });
+                refuse(`could not read this repository's commits to find the "${marker.value}" commit`);
                 return;
               }
-              if (found.commit && found.commit.sha !== s.preserved_sha) {
-                outcome = await readScoreAtCommit(s, found.commit.sha);
-              } else if (!found.commit) {
-                outcome = {
-                  verdict: "not-run",
-                  reason: found.complete
-                    ? `no commit on this branch says "${marker.value}", so grading never ran`
-                    : `no commit says "${marker.value}" in the ${found.scanned} most recent commits`,
-                };
+              if (!found.complete) {
+                refuse(`could not finish looking for the "${marker.value}" commit - stopped after ${found.scanned} commits`);
+                return;
               }
+              if (!found.commit) {
+                refuse(
+                  found.lateCommit
+                    ? `the only "${marker.value}" commit is after the deadline (${found.lateCommit.sha.slice(0, 7)}, ${found.lateCommit.date})`
+                    : `no commit says "${marker.value}", so nothing was handed in`,
+                );
+                return;
+              }
+              outcome = await readScoreAtCommit(s, found.commit.sha);
+            } else {
+              outcome = await readScoreAtCommit(s, s.preserved_sha);
             }
 
             if (outcome.verdict !== "graded") {

@@ -121,6 +121,34 @@ returns a non-zero count.
 
 ---
 
+## 5. Lecturer-defined checks have never been used on a live assignment
+
+**Status: open.** Verified 2026-09-04.
+
+Autograding has two shapes (ARCHITECTURE §11.6). One reads the score a workflow that came with the template produced; the other has the lecturer describe checks in the Admin Panel, from which the system either writes a workflow into every student repository or grades locally with `pxl-classroom grade --runner docker`.
+
+Every live assignment uses the **first**. Across seven participating organizations and seventeen assignments, not one carries an `autograde` block. Both lecturers doing autograding — `d-ries` on `proef-pe1`, `dhoubrechts` on `python-hacking-intro` — ship a GitHub Classroom `classroom.yml` in their template, which is where these courses come from.
+
+That is not a defect, and the path is not dead code: it is the only way to keep checks **out** of the student's repository, and the only one that produces a score per check rather than one total. But it is unexercised, and unexercised code is wrong in ways tests do not catch. It shipped for months handing every generated workflow a `timeout` in **minutes** where the schema field is seconds — a 30-second test capped at 30 minutes, on the side that bills an organization's Actions minutes — and nothing noticed, because nothing ran one.
+
+The modal now opens on the template branch for that reason, so nobody meets the unproven path by default.
+
+**How to tell it is closed:** an assignment in some organization carries an `autograde` block, and a student repository under it has a grading run that came from `provisioning/provision.mjs` rather than from the template. For the first half:
+
+```bash
+for org in $(gh api "repos/PXL-Digital-Application-Samples/pxl-classroom/contents/participating-orgs.yml?ref=participating-orgs" \
+      -H "Accept: application/vnd.github.raw" | grep -oP '(?<=- login: ).*'); do
+  for f in $(gh api "repos/$org/pxl-classroom-control/contents/assignments" --jq '.[].name' 2>/dev/null); do
+    gh api "repos/$org/pxl-classroom-control/contents/assignments/$f" \
+      -H "Accept: application/vnd.github.raw" 2>/dev/null | grep -q '^autograde:' && echo "$org/$f"
+  done
+done
+```
+
+printing nothing is this item still open. It reads only organizations whose control repository you can see, so run it as an owner of each.
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system on 2026-08-31, not against a changelog.

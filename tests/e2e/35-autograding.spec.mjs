@@ -106,14 +106,47 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
     await openAutogradeModal(page);
   }
 
+  /** The modal opens on the template branch, so this branch has to be asked for. */
+  async function chooseOwnChecks(page, opts = {}) {
+    await open(page, opts);
+    await page.getByRole('radio', { name: /I define them here/ }).check();
+  }
+
   test('It opens with what this does, always visible', async ({ page }) => {
     await open(page);
     await expect(modal(page)).toContainText('record a score per student');
     await expect(modal(page)).toContainText('report and in the CSV export');
   });
 
-  test('Where they run is two cards with the trade-off on them', async ({ page }) => {
+  test('It opens on the answer these courses actually use', async ({ page }) => {
+    // Every live assignment across every participating org is graded by a
+    // workflow that came with its template; not one defines checks here. The
+    // modal used to open on the unused answer, with a table of empty rows
+    // behind it.
     await open(page);
+    await expect(page.getByRole('radio', { name: /They come with my template/ })).toBeChecked();
+    await expect(page.getByRole('radio', { name: /I define them here/ })).not.toBeChecked();
+    // ...and none of that branch's questions are on screen until it is chosen.
+    await expect(modal(page).locator('.ag-add')).toHaveCount(0);
+    await expect(modal(page)).not.toContainText('Where do they run?');
+  });
+
+  test('Choosing to define them here says what that commits you to', async ({ page }) => {
+    // It is three more questions and a table. A lecturer who picked it by
+    // accident should be able to tell before filling any of it in - and the
+    // question carries a `?` into the manual for the rest.
+    await open(page);
+    await page.getByRole('radio', { name: /I define them here/ }).check();
+    await expect(modal(page)).toContainText('writes a workflow into every student');
+    await expect(modal(page)).toContainText('preserved submission after the deadline');
+    await expect(modal(page)).toContainText('Where do they run?');
+    await expect(
+      modal(page).getByRole('button', { name: /who defines the checks/i }),
+    ).toBeVisible();
+  });
+
+  test('Where they run is two cards with the trade-off on them', async ({ page }) => {
+    await chooseOwnChecks(page);
     // Scoped to its own question: "who defines the checks" is asked with the
     // same two-card vocabulary one fieldset up, so a bare `.ag-card` now
     // matches four. No new class for it - `.ag-section` carries no border and
@@ -127,7 +160,7 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
   });
 
   test('Visibility is a question about students, and only when it applies', async ({ page }) => {
-    await open(page);
+    await chooseOwnChecks(page);
     // On your machine: the checks are never in the repo, so there is nothing
     // to ask.
     await expect(modal(page)).not.toContainText('Can students read the checks?');
@@ -141,7 +174,7 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
   });
 
   test('The checks are a table with headers, and a running total', async ({ page }) => {
-    await open(page);
+    await chooseOwnChecks(page);
     await expect(modal(page)).toContainText('No checks yet');
 
     await addCheck(page, CHECK_RUN);
@@ -231,8 +264,14 @@ test.describe('35 - §6.3 The modal cannot produce a document the schema rejects
     await openAutogradeModal(page);
   }
 
+  /** The modal opens on the template branch, so this branch has to be asked for. */
+  async function chooseOwnChecks(page, opts = {}) {
+    await open(page, opts);
+    await page.getByRole('radio', { name: /I define them here/ }).check();
+  }
+
   test('Zero checks cannot be saved - that is what turning it off is for', async ({ page }) => {
-    await open(page);
+    await chooseOwnChecks(page);
     await expect(saveChecks(page)).toBeDisabled();
     await addCheck(page, CHECK_RUN);
     await expect(saveChecks(page)).toBeEnabled();
@@ -295,6 +334,8 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
     await fillMinimum(page, 'Checks Lab');
 
     await openAutogradeModal(page);
+    // "Where do they run?" belongs to the branch that has to be chosen first.
+    await page.getByRole('radio', { name: /I define them here/ }).check();
     await page.getByRole('radio', { name: /In each student's repo/ }).check();
     await addCheck(page, CHECK_RUN);
     await addCheck(page, CHECK_IO);
@@ -340,11 +381,44 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
     await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'proef-pe1'), { timeout: 10000 }).toBeTruthy();
     const doc = committed(contentWrites, 'proef-pe1');
-    expect(doc.submission_marker).toEqual({ type: 'commit_message', value: 'einde examen' });
+    expect(doc.submission_marker).toEqual({
+      type: 'commit_message',
+      value: 'einde examen',
+      multiple: true,
+    });
     expect(doc).not.toHaveProperty('autograde');
 
     const { valid, errors } = validateAgainst('assignment', doc);
     expect(valid, JSON.stringify(errors)).toBe(true);
+  });
+
+  test('Handing in more than once is on by default, and both answers are saved', async ({ page }) => {
+    const contentWrites = [];
+    await openNewForm(page, { contentWrites });
+    await fillMinimum(page, 'Once Only');
+
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+
+    const again = page.getByRole('checkbox', { name: /hand in more than once/ });
+    await expect(again).toBeChecked();
+    await expect(modal(page)).toContainText('The last hand-in on or before the deadline counts');
+
+    await again.uncheck();
+    await expect(modal(page)).toContainText('The first hand-in counts');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+    await saveDraft(page).click();
+
+    await expect.poll(() => committed(contentWrites, 'once-only'), { timeout: 10000 }).toBeTruthy();
+    // Written explicitly: an absent `multiple` reads as true, so a `false` that
+    // is not on the document re-allows handing in again on the next read.
+    expect(committed(contentWrites, 'once-only').submission_marker).toEqual({
+      type: 'commit_message',
+      value: 'einde examen',
+      multiple: false,
+    });
   });
 
   test('It comes back into the modal on the branch it was saved in', async ({ page }) => {

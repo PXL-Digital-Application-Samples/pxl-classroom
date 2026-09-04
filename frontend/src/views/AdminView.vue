@@ -1073,6 +1073,7 @@
         tests: form.autograde_tests,
       }"
       :submission-marker="form.submission_marker_value || ''"
+      :submission-marker-multiple="form.submission_marker_multiple !== false"
       @save="applyAutograde"
       @close="showAutogradeModal = false"
     />
@@ -1854,6 +1855,9 @@ function emptyForm() {
     autograde_visibility: 'private',
     autograde_tests: [],
     submission_marker_value: '',
+    // Handing in again is allowed unless somebody says otherwise, which is the
+    // same direction `readSubmissionMarker` takes for an absent field.
+    submission_marker_multiple: true,
     assignment_type: 'individual',
     group_config: {
       max_team_size: DEFAULT_MAX_TEAM_SIZE,
@@ -2144,6 +2148,9 @@ function editAssignment(a) {
     // invite_token bug, one field over.
     submission_marker_value:
       a.submission_marker?.type === 'commit_message' ? a.submission_marker.value || '' : '',
+    // `!== false`, so a hand-written YAML that omits it loads the way
+    // `readSubmissionMarker` reads it rather than the way a truthy check would.
+    submission_marker_multiple: a.submission_marker?.multiple !== false,
     assignment_type: a.assignment_type || 'individual',
     group_config: {
       max_team_size: teamMaxSize(a.group_config),
@@ -2243,6 +2250,7 @@ function applyAutograde(config) {
   // message", and treating it as "leave whatever was there" is how a setting
   // survives the screen that was meant to clear it.
   form.value.submission_marker_value = config.submissionMarker ?? ''
+  form.value.submission_marker_multiple = config.submissionMarkerMultiple !== false
   showAutogradeModal.value = false
 }
 
@@ -2256,6 +2264,7 @@ function clearAutograde() {
   // behind would keep the summary line saying the template grades this while
   // the button said it had been removed.
   form.value.submission_marker_value = ''
+  form.value.submission_marker_multiple = true
 }
 
 // ---------------------------------------------------------------- YAML generation + validation

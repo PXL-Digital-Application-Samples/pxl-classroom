@@ -57,13 +57,31 @@ What each setting does, and what it changes for your students.
 ## Automated checks
 
 - Optional tests that run against a student's work. An assignment without them works normally in every other way.
-- **On push** — the tests run in the student's own repository when they push, and the student sees the result.
-- **When you grade** — you run the same tests yourself from the command line.
 - Scores are advisory. Nothing is graded for you.
+
+### They come with my template
+
+- The usual answer, and what a template made in GitHub Classroom already does: it contains a workflow that grades, and PXL Classroom leaves it exactly as it is.
+- You do not list the exercises or their points here. The workflow reports them, and the dashboard reads what it reported.
+- **On every push** — the ordinary case. Scores are read from each student's last commit.
+- **Only on a hand-in commit** — for a template whose workflow grades one commit, such as an exam where the tests have to run while the student's cloud account is still open. Type the exact message you asked them for; their score is read from the commit carrying it, not from their last commit.
+- **They may hand in more than once** — on by default. The **last** hand-in on or before that student's deadline counts, so a student who spots a mistake and hands in again is graded on the fix. Turn it off and the **first** one counts instead: once they have handed in, a later one does not replace it.
+- A hand-in **after** the deadline is never graded, either way. A student who only handed in late is listed by name with the time they did it, so you can decide.
+
+### I define them here
+
+- For when your template does **not** grade itself, or when you need something the first answer cannot give you.
+- You list each check: a command that must succeed, a command whose output is compared, or a Python script. Each carries its own points.
+- **On push** — PXL Classroom writes a workflow into every student's repository built from your checks, and the student sees the result on every push.
+- **When you grade** — nothing is written into student repositories. You run the same checks yourself from the command line after the deadline, against the archived submission.
+- Two things only this answer gives you: checks the student cannot read, and a score per check instead of one total.
 - Tests that run in a student's repository are time-limited, so a test that never finishes cannot keep running.
-- **They come with my template** — if your template repository already ships its own grading workflow, it is left alone and its scores are read the same way. You do not describe the tests here.
-- **Only on a hand-in commit** — for a template whose workflow grades one commit, such as an exam where the tests have to run while the student's cloud account is still open. Type the exact message you asked them for. Where a student's last commit has no grading run, their score is read from that commit instead.
-- A student who pushes something after their hand-in commit still keeps that score. A student who never pushed the hand-in commit has no score, and is listed by name rather than counted as a zero.
+
+### Reading the scores
+
+- Either answer produces a score you pull in with **Read scores from GitHub Actions**, or with the command line.
+- A student who pushes something after their hand-in commit still keeps that score.
+- A student whose commit has no grading run at all has **no score**, and is listed by name rather than counted as a zero. Nothing ran, so nothing was measured.
 
 ## Feedback pull requests
 

@@ -48,7 +48,22 @@ test("an empty or unknown-typed marker is no marker", () => {
 
 test("the marker is read whole and trimmed", () => {
   const marker = readSubmissionMarker({ submission_marker: { type: "commit_message", value: " einde examen " } });
-  assert.deepEqual(marker, { type: "commit_message", value: "einde examen" });
+  assert.deepEqual(marker, { type: "commit_message", value: "einde examen", multiple: true });
+});
+
+test("handing in again is allowed unless the assignment says otherwise", () => {
+  // ABSENT IS `true`, deliberately the opposite direction from the fail-closed
+  // defaults elsewhere. A student who hands in, spots a mistake and hands in
+  // again has done what handing in again is for; reading an absent field as
+  // "only the first counts" would silently grade the version they went back
+  // and fixed.
+  const read = (multiple) =>
+    readSubmissionMarker({ submission_marker: { type: "commit_message", value: "einde examen", multiple } });
+  assert.equal(read(undefined).multiple, true);
+  assert.equal(read(true).multiple, true);
+  assert.equal(read(false).multiple, false);
+  // Only an explicit `false` closes it - not a stray falsy value.
+  assert.equal(read(0).multiple, true);
 });
 
 // -----------------------------------------------------------------------------
@@ -123,16 +138,125 @@ test("a student who pushed after handing in still keeps the hand-in commit", asy
   assert.equal(res.commit.sha, "b".repeat(40));
 });
 
-test("the deadline is passed to GitHub, so a late hand-in cannot be graded", async () => {
-  const { request, calls } = pager([[commit("b".repeat(40), "einde examen")]]);
-  await findMarkedCommit(request, {
+test("the branch is read whole, and the deadline is applied here", async () => {
+  // NOT `until=` on the request. Filtering at GitHub would make a late hand-in
+  // invisible, and "this student never handed in" and "this student handed in
+  // late" are different things to tell a lecturer.
+  const { request, calls } = pager([[
+    commit("c".repeat(40), "einde examen", "2026-09-02T09:30:00Z"),
+    commit("b".repeat(40), "einde examen", "2026-09-02T07:50:04Z"),
+  ]]);
+  const res = await findMarkedCommit(request, {
     repoFullName: "Org/r",
     branch: "main",
     marker: MARKER,
     until: "2026-09-02T08:00:00.000Z",
   });
-  assert.match(calls[0], /until=2026-09-02T08%3A00%3A00\.000Z/);
+
   assert.match(calls[0], /sha=main/);
+  assert.ok(!calls[0].includes("until="), "the deadline is not GitHub's filter to apply");
+  assert.equal(res.commit.sha, "b".repeat(40), "the last hand-in ON OR BEFORE the deadline");
+  assert.equal(res.lateCommit.sha, "c".repeat(40), "and the late one is reported, not hidden");
+});
+
+test("only a late hand-in is not a hand-in, and says which", async () => {
+  const { request } = pager([[commit("c".repeat(40), "einde examen", "2026-09-02T09:30:00Z")]]);
+  const res = await findMarkedCommit(request, {
+    repoFullName: "Org/r",
+    branch: "main",
+    marker: MARKER,
+    until: "2026-09-02T08:00:00.000Z",
+  });
+  assert.equal(res.commit, null, "nothing to grade");
+  assert.equal(res.lateCommit.sha, "c".repeat(40));
+  assert.equal(res.complete, true);
+});
+
+test("a hand-in with no readable timestamp cannot be shown to be on time", async () => {
+  // Fail closed: guessing in the student's favour would let an unparseable
+  // date past the deadline.
+  const { request } = pager([[{ sha: "d".repeat(40), commit: { message: "einde examen" } }]]);
+  const res = await findMarkedCommit(request, {
+    repoFullName: "Org/r",
+    branch: "main",
+    marker: MARKER,
+    until: "2026-09-02T08:00:00.000Z",
+  });
+  assert.equal(res.commit, null);
+  assert.equal(res.lateCommit.sha, "d".repeat(40));
+});
+
+test("with no deadline on record, every hand-in counts", async () => {
+  const { request } = pager([[commit("c".repeat(40), "einde examen", "2099-01-01T00:00:00Z")]]);
+  const res = await findMarkedCommit(request, { repoFullName: "Org/r", branch: "main", marker: MARKER });
+  assert.equal(res.commit.sha, "c".repeat(40));
+  assert.equal(res.lateCommit, null);
+});
+
+// -----------------------------------------------------------------------------
+// Handing in more than once
+// -----------------------------------------------------------------------------
+
+const THREE_HAND_INS = [
+  commit("3".repeat(40), "einde examen", "2026-09-02T07:55:00Z"),
+  commit("f".repeat(40), "fix the vpc", "2026-09-02T07:52:00Z"),
+  commit("2".repeat(40), "einde examen", "2026-09-02T07:50:00Z"),
+  commit("1".repeat(40), "einde examen", "2026-09-02T07:40:00Z"),
+];
+
+test("by default the LAST hand-in before the deadline is the one graded", async () => {
+  // The point of handing in again: a student who spots a mistake, fixes it and
+  // hands in a second time is graded on the fix.
+  const { request } = pager([THREE_HAND_INS]);
+  const res = await findMarkedCommit(request, {
+    repoFullName: "Org/r",
+    branch: "main",
+    marker: MARKER,
+    until: "2026-09-02T08:00:00.000Z",
+  });
+  assert.equal(res.commit.sha, "3".repeat(40));
+  assert.equal(res.complete, true);
+});
+
+test("multiple: false grades the FIRST hand-in, and a later one does not replace it", async () => {
+  const { request } = pager([THREE_HAND_INS]);
+  const res = await findMarkedCommit(request, {
+    repoFullName: "Org/r",
+    branch: "main",
+    marker: { ...MARKER, multiple: false },
+    until: "2026-09-02T08:00:00.000Z",
+  });
+  assert.equal(res.commit.sha, "1".repeat(40));
+});
+
+test("the last hand-in is the last ON-TIME one, not the last one", async () => {
+  const { request } = pager([[
+    commit("9".repeat(40), "einde examen", "2026-09-02T08:40:00Z"),
+    ...THREE_HAND_INS,
+  ]]);
+  const res = await findMarkedCommit(request, {
+    repoFullName: "Org/r",
+    branch: "main",
+    marker: MARKER,
+    until: "2026-09-02T08:00:00.000Z",
+  });
+  assert.equal(res.commit.sha, "3".repeat(40), "the 08:40 hand-in is after the deadline");
+  assert.equal(res.lateCommit.sha, "9".repeat(40));
+});
+
+test("multiple: false must see the whole branch before it can answer", async () => {
+  // The oldest hand-in can always be one page deeper, so a walk that hits its
+  // cap has not found it - `complete: false` is what stops the caller
+  // recording the oldest one it happened to see.
+  const full = Array.from({ length: 100 }, (_, i) => commit(String(i).padStart(40, "0"), `work ${i}`));
+  const { request } = pager([[commit("1".repeat(40), "einde examen"), ...full.slice(1)], full, full, full]);
+  const res = await findMarkedCommit(request, {
+    repoFullName: "Org/r",
+    branch: "main",
+    marker: { ...MARKER, multiple: false },
+  });
+  assert.equal(res.complete, false);
+  assert.equal(res.commit.sha, "1".repeat(40), "what it saw is still returned - it is just not the answer");
 });
 
 test("no marked commit anywhere is a complete answer", async () => {
@@ -194,10 +318,24 @@ test("a marker saved by the Admin Panel validates and round-trips", () => {
     submission_marker_value: " einde examen ",
   });
 
-  assert.deepEqual(doc.submission_marker, { type: "commit_message", value: "einde examen" });
+  // `multiple` is written explicitly, both ways: the reader defaults an absent
+  // field to `true`, so a `false` that is not on the document quietly re-allows
+  // handing in again on the next read.
+  assert.deepEqual(doc.submission_marker, { type: "commit_message", value: "einde examen", multiple: true });
   const { valid, errors } = validateAgainst("assignment", doc);
   assert.equal(valid, true, `the saved document must validate: ${JSON.stringify(errors)}`);
-  assert.deepEqual(readSubmissionMarker(doc), MARKER);
+  assert.deepEqual(readSubmissionMarker(doc), { ...MARKER, multiple: true });
+});
+
+test("only-once survives the save, which is the whole point of writing it down", () => {
+  const doc = buildAssignmentDoc({
+    id: "one-shot",
+    title: "One Shot",
+    submission_marker_value: "einde examen",
+    submission_marker_multiple: false,
+  });
+  assert.equal(doc.submission_marker.multiple, false);
+  assert.equal(readSubmissionMarker(doc).multiple, false);
 });
 
 test("a blank field writes no marker at all", () => {
