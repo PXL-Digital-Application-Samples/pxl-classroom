@@ -1167,6 +1167,29 @@ The commit's own timestamp decides now, with `observed_at` kept as the fallback 
 
 **The column that started it is gone.** Of the three warnings a student row could carry, `accepted-not-provisioned` *was* the acceptance column restated and `late-activity-detected` fired only where the status already said `late`. Only `missing-repo-id` said anything no other column could, and it now renders on the repository cell where the fault is. A fourth entry, `deadline-gap`, had a tooltip in the SPA and could never appear — `report.mjs` emits it as a cohort notification, never as a student warning — which is DESIGN.md §1.5 in miniature.
 
+### A stranger has been a contributor to this repository since August.
+
+Noticed in the GitHub sidebar: an unfamiliar face under **Contributors**, hovercard reading *"shimonenator · Shimon Schwartz · New York, NY · Committed to this repository in the past month"*.
+
+He has never had access to anything. Not a collaborator, not an organization member, no fork, no star, and **no commits**: `git log --all` finds none, and the REST contributors endpoint answers `tomcoolpxl` and `Copilot` — two names, while the sidebar showed six faces. That gap is the whole story, and it is why the first hypothesis was wrong.
+
+**The REST endpoint counts commit AUTHORS. The sidebar counts CO-AUTHORS too**, and GraphQL's `Commit.authors` is what resolves one to an account:
+
+```
+Co-Authored-By: Antigravity <antigravity@google.com>   -> shimonenator
+Co-Authored-By: Antigravity <antigravity@deepmind.com> -> UNLINKED
+Co-Authored-By: AI Assistant <ai@example.com>          -> UNLINKED
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>  -> claude
+```
+
+**A trailer is resolved by its EMAIL, and the name beside it means nothing.** `antigravity@google.com` is a plausible-looking mailbox at a real domain, and somebody has it verified on their account. Seven commits on 2026-08-19 carry it, so GitHub has credited him ever since — in the sidebar, the hovercard and the contributor graph.
+
+**The first hypothesis was wrong, and checking cost five minutes.** The history also carries `ai@example.com`, `user@example.com`, `pxl@example.com` and `user@pxl.be`, which look far more like a mistake — and all four resolve to nobody. Rewriting those five commits would have been a 400-commit history rewrite and a force-push to a protected branch, to remove an attribution that was never there. `Commit.authors` said so in one query.
+
+**It stays.** Removing it means rewriting every commit since 19 August — 400 of them — force-pushing over `enforce_admins: true`, and breaking four `LESSONS.md` citations that name commits by SHA, to take one avatar off a sidebar. The attribution is cosmetic, confers nothing, and the cost is real.
+
+So the rule is forward-only, and `tests/commit-trailers.test.mjs` enforces it: a co-author address must be a vendor's published noreply address or an `@users.noreply.github.com` one, both of which can only ever mean the tool they name. The allowlist holds **addresses, never domains** — `@google.com` would have permitted the exact trailer this exists to stop. It was verified by committing the bad trailer for real and watching it fail, rather than by asserting that a branch exists.
+
 ### A job that never ran was worth zero marks.
 
 A colleague's exam template, running live in `PXL-2TIN-CloudEssentials-2627` on the assignment `proef-pe1`, grades **one commit and no others**:

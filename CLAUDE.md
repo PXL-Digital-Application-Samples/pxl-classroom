@@ -8,6 +8,7 @@ Working conventions for `PXL-Digital-Application-Samples/pxl-classroom`.
 
 - **No pull requests.** Commit and push directly to `main`. Never branch "to be safe".
 - End commit messages with the standard `Co-Authored-By` trailer.
+- **A `Co-Authored-By` address is an identity claim, and GitHub resolves it by EMAIL, not by the name beside it.** Whoever holds that address becomes a contributor to this public repository. `Co-Authored-By: Antigravity <antigravity@google.com>` credited a stranger in New York on seven commits, and still does — removing it means rewriting 400 commits and force-pushing a protected branch. Use a vendor's published noreply address or an `@users.noreply.github.com` one; never a plausible-looking mailbox at a real domain. `tests/commit-trailers.test.mjs`.
 - **Push with `$env:GITHUB_TOKEN=""; git push origin main`** (PowerShell) — a dummy token in the environment otherwise fails the auth.
 - **No backticks in a double-quoted `git commit -m`.** The shell substitutes them before git sees the string and the fragment vanishes silently; `main` blocks force-push so it cannot be amended. Use single quotes for any `-m` containing a backtick, `$` or `!`.
 
