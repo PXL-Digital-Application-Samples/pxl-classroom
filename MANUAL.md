@@ -4,32 +4,45 @@ What each setting does, and what it changes for your students.
 
 ## Who may accept
 
-- Decides who is allowed to use the invitation link.
-- **Roster** — only students you have imported. Anyone else is refused. This is the default.
-- **Claim** — the same, but the student confirms their institutional email address first. Use it when you have email addresses but not GitHub usernames.
-- **Open** — anyone with the link, until the cap is reached. You match them to real students afterwards.
-- **Open** needs a **Max acceptances** number. The form will not save without one.
-- Your roster belongs to the whole organisation, not to one assignment. An assignment can limit itself to certain class groups.
-- After an open assignment you can [add everyone who accepted](#adding-students-who-accepted) to the roster.
+Who is allowed to use the invitation link.
+
+- **Enforced.** Only students you imported, matched by GitHub username. Anyone else is refused. Use this when you have their usernames.
+- **Claim.** Only students you imported, matched by the institutional email address they confirm. Use this when you have addresses but not usernames.
+- **Open.** Anyone with the link, until the cap is reached. You match them to students afterwards. Needs a **Max acceptances** number; the form will not save without one.
+
+Your roster belongs to the whole course, not to one assignment. An assignment can limit itself to certain class groups.
+
+After an open assignment you can [add everyone who accepted](#adding-students-who-accepted) to the roster.
 
 ### Good to know
 
 - The check runs on GitHub after the student clicks Accept, not in their browser. A student cannot get in by editing the page.
-- With **Claim**, the email address is encrypted before it leaves the student's browser. Only PXL Classroom can read it.
-- A student who types an address that is not on your roster is refused. A student whose GitHub account has no institutional address can still type one, and it is recorded as unverified.
+- Under **Claim** the address is encrypted in the student's browser. Only PXL Classroom can read it.
+- Under **Claim**, an address that is not on your roster is refused.
+
+## Confirming an email address
+
+Only under **Open**, where nobody was imported up front.
+
+- Ticked, a student confirms an address before they can accept.
+- The page offers the addresses GitHub already verified for their account. A typed one is accepted and recorded as **unverified**.
+- It does not restrict who may accept. Anyone with the link still can. It records **who** accepted, so you can match accounts to students afterwards.
+- Off, you get their GitHub username and nothing else.
 
 ## Late work
 
-- Decides what happens to work pushed after the deadline.
-- **Counts** — late commits are collected and marked late in the report. Nothing is blocked. This is the default.
-- **Does not count** — the repository is locked at the deadline, and the submission is the last commit made before it.
-- Late or on time is judged by the time on the commit itself, not by when PXL Classroom looked at it.
-- A student with an extension is judged against their own deadline, not the class deadline.
+What happens to work pushed after the deadline.
+
+- **Counts.** Late commits are collected and marked late in the report. Nothing is blocked. This is the default.
+- **Does not count.** Students can no longer push after the deadline. The submission is the last commit dated before it.
+
+A student with an extension is judged against their own deadline.
 
 ### Good to know
 
-- The commit time comes from the student's own computer. It is right in ordinary use, and it is not proof if a student disputes it.
-- With **Does not count**, the lock happens on the next nightly run after the deadline, or at the deadline itself if the deadline sentinel is switched on for your organisation.
+- On time or late is decided by the time on the commit, not by when PXL Classroom looked at it.
+- That time comes from the student's own computer. Good enough for marking, not proof if a student disputes it.
+- The lock can land shortly after the deadline rather than on it. Work pushed in that gap does not count.
 
 ## Deadlines and extensions
 
@@ -49,36 +62,45 @@ What each setting does, and what it changes for your students.
 
 ## Group assignments
 
-- One repository for a team, instead of one for each student.
-- The first team member to accept creates the repository. The others join it.
+Whether each student gets their own repository, or a team shares one.
+
+- **Individual.** One repository per student. This is the default.
+- **Group.** One repository per team. The first member to accept creates it; the others join it.
+
+Choose before you publish. Switching afterwards does not move students who have already accepted.
+
+### Group only
+
+- Set the maximum team size, and the minimum if you want the report to flag teams that are short.
+- **Self-service** lets students form their own teams. **Pre-assigned** means you seed the teams first, and you decide what happens to a student who is in none.
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
 - Using the same teams again on a later assignment is a separate step, not automatic.
 
-## Automated checks
+## Autograding
 
-- Optional tests that run against a student's work. An assignment without them works normally in every other way.
-- Scores are advisory. Nothing is graded for you.
+Optional. Tests that run against a student's work and give you a score per student. Scores are advisory; nothing is marked for you.
 
-### They come with my template
+### Who defines the checks
 
-- The usual answer, and what a template made in GitHub Classroom already does: it contains a workflow that grades, and PXL Classroom leaves it exactly as it is.
-- You do not list the exercises or their points here. The workflow reports them, and the dashboard reads what it reported.
-- The panel tells you what your template grades on. If it has no grading workflow, **Add a starter workflow** writes one for you — with one example check that **fails until you replace it**, so a forgotten placeholder cannot hand out full marks.
-- Adding it to your template does not reach students who already accepted. Use **Sync Starter Code** on the assignment for that.
-- If your template grades on a different message than the assignment says, the panel says so. The workflow's wording is the one that decides, so you can copy it across in one click.
-- **On every push** — the ordinary case. Scores are read from each student's last commit.
-- **Only on a hand-in commit** — for a template whose workflow grades one commit, such as an exam where the tests have to run while the student's cloud account is still open. Type the exact message you asked them for; their score is read from the commit carrying it, not from their last commit.
-- **They may hand in more than once** — on by default. The **last** hand-in on or before that student's deadline counts, so a student who spots a mistake and hands in again is graded on the fix. Turn it off and the **first** one counts instead: once they have handed in, a later one does not replace it.
-- A hand-in **after** the deadline is never graded, either way. A student who only handed in late is listed by name with the time they did it, so you can decide.
+- **They come with my template.** Your template already contains a workflow that grades, and PXL Classroom leaves it alone. Most templates do. You do not list the exercises or their points here.
+- **I define them here.** For a template that does not grade itself, or when you need checks students cannot read, or a score per check instead of one total.
 
-### I define them here
+### If they come with your template
 
-- For when your template does **not** grade itself, or when you need something the first answer cannot give you.
-- You list each check: a command that must succeed, a command whose output is compared, or a Python script. Each carries its own points.
-- **On push** — PXL Classroom writes a workflow into every student's repository built from your checks, and the student sees the result on every push.
-- **When you grade** — nothing is written into student repositories. You run the same checks yourself from the command line after the deadline, against the archived submission.
-- Two things only this answer gives you: checks the student cannot read, and a score per check instead of one total.
-- Tests that run in a student's repository are time-limited, so a test that never finishes cannot keep running.
+- The panel says what your template grades on. If it has none, **Add a starter workflow** writes one. Its example check fails until you replace it, so a forgotten placeholder cannot hand out full marks.
+- Adding it does not reach students who already accepted. Use **Sync Starter Code** for that.
+- If the template grades on different words than the assignment says, the panel says so. The template's wording is the one that decides.
+- **On every push.** Scores come from each student's last commit.
+- **Only on a hand-in commit.** Scores come from the commit carrying the message you name. Type it exactly as you asked students for it.
+- **They may hand in more than once** is on. The last hand-in before the deadline counts, so a student who fixes something and hands in again is graded on the fix. Off, the first one counts.
+- A hand-in after the deadline is never graded. That student is listed by name with the time.
+
+### If you define them here
+
+- List each check: a command that must succeed, a command whose output is compared, or a Python script. Each carries its own points.
+- **In each student's repo** runs them on every push and shows the student the result.
+- **On your machine** writes nothing to student repositories. You run the checks yourself after the deadline against the archived submission.
+- Checks in a student's repository are time-limited, so one that never finishes cannot keep running.
 
 ### Reading the scores
 
@@ -88,10 +110,15 @@ What each setting does, and what it changes for your students.
 
 ## Feedback pull requests
 
-- A draft pull request for each student, where you comment on their code line by line.
-- You have to switch this on when you create the assignment. It cannot be added afterwards.
+A pull request is GitHub's review page: it shows a set of changes, and you can attach a comment to any line of them. Students get an email for each comment and can reply under it. It is the difference between one mark at the end and remarks on the work itself.
+
+Switched on, each student gets one of these on their own repository, kept as a draft so it is never merged.
+
+- Switch it on when you create the assignment. It cannot be added afterwards.
 - A student who has pushed nothing does not get one.
+- You open them when you are ready to mark, not at the start.
 - Safe to run more than once. Students who already have one are skipped, and a pull request you opened by hand is used rather than duplicated.
+- Their work is compared against a frozen copy of the starter code, so the review page shows what the student wrote and not the template.
 
 ## Adding students who accepted
 

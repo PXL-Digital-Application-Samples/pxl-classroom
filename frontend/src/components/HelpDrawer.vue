@@ -93,7 +93,13 @@ watch(topic, async (t) => {
   background: var(--bg-scrim);
   display: flex;
   justify-content: flex-end;
-  z-index: 60;
+  /* ABOVE EVERY MODAL. `.modal-overlay` is 1000 and `SystemHealthModal` 1050,
+     and this was 60 - so a `?` pressed INSIDE a dialog opened the drawer
+     behind it, under a 4px backdrop blur. Nothing looked broken; the help
+     simply did not appear. A drawer opened FROM a dialog has to outrank it,
+     because it is always the newer surface. Only the toast (9999) sits
+     higher, which is right: a toast reports something that already happened. */
+  z-index: 1100;
 }
 
 .help-drawer {

@@ -2,7 +2,7 @@
 
 For lecturers. How to get a score per student, and what to do when there isn't one.
 
-Everything here is behind one field in the assignment editor: **How it's graded** → **Set up**.
+Everything here is behind one field in the assignment editor: **Autograding** → **Set up**.
 
 ---
 
@@ -22,7 +22,7 @@ Everything here is behind one field in the assignment editor: **How it's graded*
 
 The usual case. Your template has a workflow with `classroom-resources/autograding-grading-reporter` in it, and PXL Classroom leaves it alone.
 
-1. **How it's graded → Set up**.
+1. **Autograding → Set up**.
 2. **They come with my template**, then **On every push**.
 3. Save.
 

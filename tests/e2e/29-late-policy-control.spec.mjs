@@ -98,6 +98,6 @@ test.describe('29 - Late work control', () => {
     await counts(page).check();
     await expect(demoteBox(page)).not.toBeChecked();
     await expect(page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) }))
-      .toContainText('they lose their Actions, secrets, environments and runners');
+      .toContainText('Actions, secrets, environments and runners');
   });
 });

@@ -231,8 +231,10 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
 
     await page.locator('select').filter({ hasText: 'only students on the roster' }).selectOption('open');
     await expect(rosterStatus(page)).toHaveCount(0);
-    // It says what open enrolment means instead of going quiet.
-    await expect(page.locator('text=Students need the link')).toBeVisible();
+    // It says what open enrolment means instead of going quiet. The sentence
+    // used to be "Students need the link, and nothing else", which restated
+    // the dropdown; the warning is the half that says something new.
+    await expect(page.locator('text=can claim a repo while the assignment is open')).toBeVisible();
   });
 });
 

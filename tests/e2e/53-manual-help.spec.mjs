@@ -14,6 +14,7 @@
 
 import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { MANUAL_TOPICS } from '../../lib/manual-topics.mjs';
 
 async function openForm(page) {
   await injectAuth(page, LECTURER);
@@ -33,7 +34,7 @@ test.describe('53 - the help drawer', () => {
     const drawer = page.locator('.help-drawer');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('Who may accept');
-    await expect(drawer).toContainText('only students you have imported');
+    await expect(drawer).toContainText('Only students you imported');
   });
 
   test('the drawer is inside the viewport, not scrolled off it', async ({ page }) => {
@@ -88,8 +89,10 @@ test.describe('53 - the manual page', () => {
 
     // Same source as the drawer, so if these disagree one of the two surfaces
     // has stopped rendering the compiled manual.
-    await expect(page.locator('#who-may-accept')).toContainText('only students you have imported');
+    await expect(page.locator('#who-may-accept')).toContainText('Only students you imported');
     await expect(page.locator('#archiving')).toContainText('cannot be changed afterwards');
-    await expect(page.locator('.manual-topic')).toHaveCount(9);
+    // Derived, not counted by hand: the page renders one topic per `## ` in
+    // MANUAL.md, and a hand-kept number goes stale the moment one is added.
+    await expect(page.locator('.manual-topic')).toHaveCount(MANUAL_TOPICS.length);
   });
 });

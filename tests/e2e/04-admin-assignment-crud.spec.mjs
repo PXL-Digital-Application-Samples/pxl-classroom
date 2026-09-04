@@ -94,7 +94,10 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     // No roster status, because no gate to report on - it says what open
     // enrolment means instead.
     await expect(page.locator('.roster-status')).toHaveCount(0);
-    await expect(page.locator('text=Students need the link')).toBeVisible();
+    // "Students need the link, and nothing else" came out on 2026-09-04: it
+    // restated the dropdown a lecturer had just read. The warning below it is
+    // the sentence that says something they did not already know.
+    await expect(page.locator('text=can claim a repo while the assignment is open')).toBeVisible();
 
     // And the gate is one dropdown away, with its own answer to "can anyone
     // accept?" (ARCHITECTURE §10.4, covered in depth by 32-first-run-wall).

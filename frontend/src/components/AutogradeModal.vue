@@ -4,7 +4,7 @@
       <header class="modal-head flex justify-between items-center">
         <h3 id="autograde-title" class="flex items-center gap-sm">
           <Icon name="check-circle" :size="18" />
-          <span>Automated checks</span>
+          <span>Autograding</span>
         </h3>
         <button class="modal-close" type="button" @click="cancel" aria-label="Close">×</button>
       </header>
@@ -14,7 +14,7 @@
              told a lecturer nothing about what they were turning on. -->
         <p class="ag-lede">
           Run the same checks against every submission and record a score per student.
-          Results appear in the assignment's report and in the CSV export.
+          Scores appear in the assignment's report and in the CSV export.
         </p>
 
         <!-- (2) WHO DEFINES THE CHECKS. One question, asked first, because
@@ -31,7 +31,7 @@
         <fieldset class="ag-section">
           <legend>
             Who defines the checks?
-            <HelpButton topic="automated-checks" label="who defines the checks" />
+            <HelpButton topic="autograding" label="who defines the checks" />
           </legend>
           <div class="ag-cards">
             <label
@@ -56,15 +56,14 @@
           <label class="ag-choice">
             <input type="radio" value="every-push" v-model="draft.markerMode" name="ag-marker-mode" />
             <span>
-              <strong>On every push</strong> - the usual GitHub Classroom workflow.
-              Nothing to set here; scores are read from each student's last commit.
+              <strong>On every push.</strong> Nothing to set here. Scores are read from each
+              student's last commit.
             </span>
           </label>
           <label class="ag-choice">
             <input type="radio" value="hand-in" v-model="draft.markerMode" name="ag-marker-mode" />
             <span>
-              <strong>Only on a hand-in commit</strong> - for a job gated on one commit message,
-              such as an exam whose checks read the student's own cloud account.
+              <strong>Only on a hand-in commit.</strong> For a workflow gated on one commit message.
             </span>
           </label>
           <!-- `for`/`id` rather than wrapping the input: a wrapping <label>
@@ -141,11 +140,9 @@
              table, and a lecturer who picked it by accident should be able to
              tell before filling any of it in. -->
         <p v-if="draft.source === 'here'" class="ag-lede">
-          You describe each check below. PXL Classroom then either writes a workflow into every
-          student's repository from them, or runs them itself from the command line against the
-          preserved submission after the deadline - that is the next question. It is also the only
-          way to keep the checks out of the student's repository, and the only one that gives a
-          score per check rather than one total.
+          You list the checks below. They run either in each student's repository or on your
+          machine, which is the next question. Only this answer can keep the checks out of the
+          student's repository, and only it gives a score per check.
         </p>
 
         <!-- (4) Where they run. The trade-off IS the decision, so it is two
@@ -604,18 +601,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-size: 0.82rem;
   color: var(--text-secondary);
 }
+/* ONE grid for the whole list, so every value starts at the same x.
+   It was a flex row per pair with `min-width: 8ch` on the term - which pads
+   "Cost" out to eight characters and does nothing at all for "Students see",
+   so the three values landed at three different offsets and the short label
+   looked like it had a hole punched after it. `display: contents` drops the
+   per-pair wrapper out of the box tree and lets the terms share one column,
+   measured from the longest of them. */
 .ag-card-facts {
   margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 3px;
   font-size: 0.78rem;
   color: var(--text-secondary);
 }
 .ag-card-facts > div {
-  display: flex;
-  gap: 6px;
+  display: contents;
 }
 .ag-card-facts dt {
   font-weight: 600;
-  min-width: 8ch;
 }
 .ag-card-facts dd {
   margin: 0;

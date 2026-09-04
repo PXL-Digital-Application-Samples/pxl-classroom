@@ -667,8 +667,7 @@
                    roster, so roster students show up before they accept and
                    carry their number, name and class group into the report and
                    the CSV export. `open` drops the GATE, not the roster. -->
-              <small v-if="form.roster_mode === 'open'">
-                Students need the link, and nothing else. The cap below is the only limit.
+              <small v-if="form.roster_mode === 'open' && rosterCount > 0">
                 <template v-if="rosterCount > 0">
                   Your roster still names {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} in
                   the report - it just does not decide who may accept.
@@ -733,20 +732,18 @@
                  and under `enforced` none is collected, so the control would
                  mean nothing in either. -->
             <div v-if="form.roster_mode === 'open'" class="field checkbox">
-              <label>
-                <input type="checkbox" v-model="form.require_claim" />
-                {{ REQUIRE_CLAIM_LABEL }}
-              </label>
+              <div class="checkbox-with-help">
+                <label>
+                  <input type="checkbox" v-model="form.require_claim" />
+                  {{ REQUIRE_CLAIM_LABEL }}
+                </label>
+                <HelpButton topic="confirming-an-email-address" label="confirming an email address" />
+              </div>
               <small v-if="form.require_claim">
-                Students must confirm an address before they can accept. The page offers the addresses
-                GitHub has already verified for their account; a typed one is recorded as
-                <strong>unverified</strong> rather than refused. This does not restrict who may accept -
-                anyone with the link still can - it records <em>who</em> accepted, so you can match
-                accounts to students afterwards.
+                Records who accepted. It does not restrict who may accept.
               </small>
               <small v-else>
-                Off. Anyone with the link accepts anonymously, and you will have their GitHub username
-                and nothing else to match against your roster.
+                You will have their GitHub username and nothing else to match against your roster.
               </small>
             </div>
 
@@ -855,21 +852,22 @@
                 Not needed to stop late pushes - the branch lock above already does that, and leaves
                 students their Actions, secrets and runners. Tick this only if they should lose those too.
               </small>
-              <small v-else>
-                Tick this to demote students to read-only on the first nightly run after the
-                deadline - they lose their Actions, secrets, environments and runners with it.
-                Their submission is archived either way.
+              <small v-else class="text-warning">
+                At the deadline they lose write access to the repository, and with it their
+                Actions, secrets, environments and runners. Leave it off unless you need that.
               </small>
             </div>
             <div class="field checkbox">
-              <label>
-                <input type="checkbox" v-model="form.feedback_pr" />
-                Open a draft Feedback PR for each student (pxl-baseline protected branch)
-              </label>
-              <HelpButton topic="feedback-pull-requests" label="feedback pull requests" />
+              <div class="checkbox-with-help">
+                <label>
+                  <input type="checkbox" v-model="form.feedback_pr" />
+                  Open a draft Feedback PR for each student
+                </label>
+                <HelpButton topic="feedback-pull-requests" label="feedback pull requests" />
+              </div>
               <small>
-                Provisioning creates a frozen <code>{{ form.feedback_pr_baseline_branch || 'pxl-baseline' }}</code> branch and protects it.
-                PRs are opened lazily via <code>pxl-classroom feedback open --assignment {{ form.id || 'ID' }}</code> once students push commits.
+                Gives you a page per student where you comment on their code line by line.
+                Switch it on now: it cannot be added later.
               </small>
             </div>
             <!-- One line, never the configuration (ARCHITECTURE §11.6). This was an
@@ -884,7 +882,7 @@
                    nothing about what is off (reported 2026-09-02). The state
                    itself stays in `.autograde-summary-text` so it remains one
                    readable value; the sentence sits beside it. -->
-              <label>How it's graded <HelpButton topic="automated-checks" label="automatic grading" /></label>
+              <label>Autograding <HelpButton topic="autograding" label="autograding" /></label>
               <div class="autograde-summary-row">
                 <span class="autograde-summary-text">{{ autogradeSummary }}</span>
                 <span v-if="!gradingAnswered" class="autograde-summary-note">
@@ -3002,13 +3000,25 @@ legend {
    alongside at a different height, which is what made this section read as
    "all over the place" (reported 2026-09-02). */
 .field.checkbox { flex-direction: column; align-items: stretch; gap: var(--space-xs); }
-.field.checkbox > label {
+/* The `?` goes BESIDE the label. `.field.checkbox` stacks its children, so a
+   HelpButton written as a sibling of the label dropped onto its own line under
+   it (reported 2026-09-04). This row holds the two together; the label keeps
+   the layout the rule below gives it, which is why that rule matches here too
+   rather than only as a direct child. */
+.checkbox-with-help {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+.field.checkbox > label,
+.checkbox-with-help > label {
   display: flex;
   align-items: flex-start;
   gap: var(--space-sm);
   cursor: pointer;
 }
-.field.checkbox > label input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+.field.checkbox > label input[type="checkbox"],
+.checkbox-with-help > label input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
 /* Indented to line up with the label's TEXT rather than with its box, so the
    explanation reads as belonging to the thing above it. */
 .field.checkbox > small { padding-left: calc(var(--space-md) + var(--space-xs)); }

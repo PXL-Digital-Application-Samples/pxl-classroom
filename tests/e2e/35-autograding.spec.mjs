@@ -137,8 +137,8 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
     // question carries a `?` into the manual for the rest.
     await open(page);
     await page.getByRole('radio', { name: /I define them here/ }).check();
-    await expect(modal(page)).toContainText('writes a workflow into every student');
-    await expect(modal(page)).toContainText('preserved submission after the deadline');
+    await expect(modal(page)).toContainText('keep the checks out of the student');
+    await expect(modal(page)).toContainText('a score per check');
     await expect(modal(page)).toContainText('Where do they run?');
     await expect(
       modal(page).getByRole('button', { name: /who defines the checks/i }),

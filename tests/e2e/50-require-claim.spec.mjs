@@ -110,7 +110,7 @@ test.describe('50 - the lecturer side', () => {
 
     await expect(askBox(page)).toBeVisible();
     await expect(askBox(page).locator('input[type="checkbox"]')).not.toBeChecked();
-    await expect(guardrails(page)).toContainText('accepts anonymously');
+    await expect(guardrails(page)).toContainText('GitHub username and nothing else');
   });
 
   test('ticking it says what it does and does not do', async ({ page }) => {
@@ -119,8 +119,17 @@ test.describe('50 - the lecturer side', () => {
     await newAssignment(page);
     await askBox(page).locator('input[type="checkbox"]').check();
 
-    await expect(guardrails(page)).toContainText('must confirm an address before they can accept');
+    // The line beside the control, which is the one a lecturer reads without
+    // asking for help.
     await expect(guardrails(page)).toContainText('does not restrict who may accept');
+
+    // The detail moved into the drawer on 2026-09-04 - four lines under a
+    // checkbox was three too many - so that is where the rest has to be, or it
+    // has simply been deleted.
+    await page.getByRole('button', { name: /What does confirming an email address mean/ }).click();
+    const drawer = page.locator('.help-drawer');
+    await expect(drawer).toContainText('confirms an address before they can accept');
+    await expect(drawer).toContainText('does not restrict who may accept');
   });
 
   test('the option is absent when it would mean nothing', async ({ page }) => {
