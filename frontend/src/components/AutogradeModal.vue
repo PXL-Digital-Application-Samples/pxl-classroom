@@ -17,9 +17,68 @@
           Results appear in the assignment's report and in the CSV export.
         </p>
 
-        <!-- (2) Where they run. The trade-off IS the decision, so it is two
-             cards with the consequences on them, not a <select>. -->
+        <!-- (2) WHO DEFINES THE CHECKS. One question, asked first, because
+             "checks I define here" and "the workflow that came with my
+             template" are two answers to it - and the form used to present
+             them as unrelated features, so a cloud exam read "Off" beside a
+             hand-in commit message.
+             Not stored, and it does not need to be: checks on the assignment
+             mean one, a hand-in message means the other. It is a route to the
+             right controls, so it opens on the branch the assignment is
+             already in. -->
         <fieldset class="ag-section">
+          <legend>Who defines the checks?</legend>
+          <div class="ag-cards">
+            <label
+              v-for="s in SOURCES"
+              :key="s.value"
+              :class="['ag-card', { selected: draft.source === s.value }]"
+            >
+              <span class="ag-card-head">
+                <input type="radio" :value="s.value" v-model="draft.source" name="ag-source" />
+                <span class="ag-card-title">{{ s.title }}</span>
+              </span>
+              <span class="ag-card-what">{{ s.what }}</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- (2b) The template branch. The only thing there is to configure is
+             WHEN that workflow grades, because everything else about it is in
+             the template. -->
+        <fieldset v-if="draft.source === 'template'" class="ag-section">
+          <legend>When does that workflow grade?</legend>
+          <label class="ag-choice">
+            <input type="radio" value="every-push" v-model="draft.markerMode" name="ag-marker-mode" />
+            <span>
+              <strong>On every push</strong> - the usual GitHub Classroom workflow.
+              Nothing to set here; scores are read from each student's last commit.
+            </span>
+          </label>
+          <label class="ag-choice">
+            <input type="radio" value="hand-in" v-model="draft.markerMode" name="ag-marker-mode" />
+            <span>
+              <strong>Only on a hand-in commit</strong> - for a job gated on one commit message,
+              such as an exam whose checks read the student's own cloud account.
+            </span>
+          </label>
+          <!-- `for`/`id` rather than wrapping the input: a wrapping <label>
+               makes the hint part of the field's accessible name, so a screen
+               reader announces two sentences where the name should be two
+               words. -->
+          <div v-if="draft.markerMode === 'hand-in'" class="ag-marker">
+            <label class="ag-marker-label" for="ag-marker-value">Commit message</label>
+            <input id="ag-marker-value" v-model="draft.markerValue" maxlength="200" placeholder="einde examen" />
+            <span class="ag-marker-hint">
+              Matched exactly, as your workflow matches it. Scores are read from the newest commit
+              carrying it, so a student who pushes again afterwards keeps their score.
+            </span>
+          </div>
+        </fieldset>
+
+        <!-- (3) Where they run. The trade-off IS the decision, so it is two
+             cards with the consequences on them, not a <select>. -->
+        <fieldset v-if="draft.source === 'here'" class="ag-section">
           <legend>Where do they run?</legend>
           <div class="ag-cards">
             <label
@@ -41,8 +100,8 @@
           </div>
         </fieldset>
 
-        <!-- (3) Only a question when the checks are in the student's repo. -->
-        <fieldset v-if="draft.execution_environment === 'github_actions'" class="ag-section">
+        <!-- (4) Only a question when the checks are in the student's repo. -->
+        <fieldset v-if="draft.source === 'here' && draft.execution_environment === 'github_actions'" class="ag-section">
           <legend>Can students read the checks?</legend>
           <label class="ag-choice">
             <input type="radio" value="public" v-model="draft.visibility" name="ag-visibility" />
@@ -59,8 +118,8 @@
           </label>
         </fieldset>
 
-        <!-- (4) The checks themselves. -->
-        <fieldset class="ag-section">
+        <!-- (5) The checks themselves. -->
+        <fieldset v-if="draft.source === 'here'" class="ag-section">
           <legend>
             The checks
             <span v-if="draft.tests.length" class="ag-total">{{ total }} points total</span>
@@ -148,7 +207,7 @@
 
       <footer class="modal-foot flex justify-between items-center gap-sm">
         <button
-          v-if="draft.tests.length"
+          v-if="draft.source === 'here' && draft.tests.length"
           class="btn btn-danger-outline btn-sm"
           type="button"
           @click="removeAll"
@@ -157,8 +216,12 @@
         <span class="flex gap-sm">
           <button class="btn" type="button" @click="cancel">Cancel</button>
           <!-- DESIGN.md §1.2: a modal is its own view, so this is its one
-               solid button. -->
-          <button class="btn btn-primary" type="button" :disabled="!canSave" @click="save">Save checks</button>
+               solid button. The label follows the branch: "Save checks" over
+               the template branch would name something this screen did not
+               collect. -->
+          <button class="btn btn-primary" type="button" :disabled="!canSave" @click="save">
+            {{ draft.source === 'here' ? 'Save checks' : 'Save' }}
+          </button>
         </span>
       </footer>
     </div>
@@ -178,8 +241,26 @@ import { CHECK_PRESETS, newCheck, checkProblems, totalPoints } from '../lib/auto
 const props = defineProps({
   // { execution_environment, visibility, tests }
   config: { type: Object, required: true },
+  // The assignment's hand-in commit message, '' for none. A STRING, not the
+  // stored object: `lib/submission-marker.mjs` owns what a marker means and
+  // what matches one, and a dialog that re-derived either would be the second
+  // implementation that module exists to prevent (DESIGN.md §6).
+  submissionMarker: { type: String, default: '' },
 })
 const emit = defineEmits(['save', 'close'])
+
+const SOURCES = [
+  {
+    value: 'here',
+    title: 'I define them here',
+    what: 'Checks you write in this panel, run on your machine or in each student\'s repository.',
+  },
+  {
+    value: 'template',
+    title: 'They come with my template',
+    what: 'Your template ships its own workflow (classroom.yml). PXL Classroom leaves it alone and reads the score it produces.',
+  },
+]
 
 const PLACES = [
   {
@@ -203,6 +284,12 @@ const PLACES = [
 // A copy: Cancel has to leave the assignment exactly as it was, and the rows
 // are edited in place.
 const draft = reactive({
+  // Which branch the assignment is already in. A hand-in message is the only
+  // evidence a template workflow is in charge, and checks outrank it: an
+  // assignment carrying both is one somebody configured here.
+  source: (props.config.tests || []).length ? 'here' : props.submissionMarker ? 'template' : 'here',
+  markerMode: props.submissionMarker ? 'hand-in' : 'every-push',
+  markerValue: props.submissionMarker || '',
   execution_environment: props.config.execution_environment || 'lecturer_local',
   visibility: props.config.visibility || 'private',
   // A whole-object copy, not a field list: `timeout_s` has no control here and
@@ -217,7 +304,17 @@ const hasPython = computed(() => draft.tests.some((t) => t.type === 'python'))
 // Zero checks is not a saveable state - `tests` has minItems: 1, and an
 // enabled-but-empty configuration is a promise the system cannot keep. Turning
 // it off is the other button.
-const canSave = computed(() => draft.tests.length > 0 && problems.value.every((p) => !p))
+//
+// The template branch saves a message or nothing: "on every push" is the
+// absence of a marker, and saving it clears one. An empty hand-in message is
+// refused rather than stored, because a blank marker would match a commit with
+// an empty message.
+const canSave = computed(() => {
+  if (draft.source === 'template') {
+    return draft.markerMode !== 'hand-in' || !!draft.markerValue.trim()
+  }
+  return draft.tests.length > 0 && problems.value.every((p) => !p)
+})
 
 function describe(t) {
   if (t.type === 'io') return 'Input → expected output'
@@ -231,15 +328,36 @@ function add(presetKey) {
 }
 
 function removeAll() {
-  emit('save', { enabled: false, execution_environment: draft.execution_environment, visibility: draft.visibility, tests: [] })
+  emit('save', {
+    enabled: false,
+    execution_environment: draft.execution_environment,
+    visibility: draft.visibility,
+    tests: [],
+    submissionMarker: '',
+  })
 }
 
 function save() {
+  // The two branches are exclusive, and each save says so for BOTH halves.
+  // Leaving the other half alone would keep a hand-in message on an assignment
+  // whose lecturer has just moved the checks in here - a stored value the
+  // summary line no longer mentions, which is how a setting becomes invisible.
+  if (draft.source === 'template') {
+    emit('save', {
+      enabled: false,
+      execution_environment: draft.execution_environment,
+      visibility: draft.visibility,
+      tests: [],
+      submissionMarker: draft.markerMode === 'hand-in' ? draft.markerValue.trim() : '',
+    })
+    return
+  }
   emit('save', {
     enabled: true,
     execution_environment: draft.execution_environment,
     visibility: draft.visibility,
     tests: draft.tests,
+    submissionMarker: '',
   })
 }
 
@@ -343,6 +461,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   padding: 4px 0;
   font-size: 0.85rem;
   cursor: pointer;
+}
+
+/* The hand-in message, indented under the radio that reveals it so it reads as
+   that answer's detail rather than as a third question. No box: `.ag-section`
+   carries none either, and a bordered panel inside the modal's own card would
+   be DESIGN.md §1.1's third box. */
+.ag-marker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 4px 22px;
+  font-size: 0.85rem;
+}
+
+.ag-marker-label {
+  font-weight: 600;
+}
+
+.ag-marker input {
+  max-width: 320px;
+}
+
+.ag-marker-hint {
+  color: var(--text-secondary);
 }
 
 .ag-none {

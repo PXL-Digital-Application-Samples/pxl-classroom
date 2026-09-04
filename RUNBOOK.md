@@ -828,7 +828,7 @@ if: github.event.head_commit.message == 'einde examen'
 That is the shape to use when the checks read the student's **own** cloud account: the sandbox is gone once their lab session ends, so the score has to be taken while they are still working, and it cannot be reproduced afterwards from the archive. `templates/template-cloud-autograding/` is a working starting point.
 
 1. Put the workflow in the template repository. It is preserved during provisioning, exactly as any other template-owned workflow is.
-2. In the Admin Panel, set **Hand-in commit message** (under Automatic grading) to the same words the workflow compares against - `einde examen`. Matched exactly, so tell students the exact words and mind the capitals.
+2. In the Admin Panel, open **How it's graded → Set up**, choose **They come with my template**, then **Only on a hand-in commit**, and type the same words the workflow compares against - `einde examen`. Matched exactly, so tell students the exact words and mind the capitals.
 3. Tell students to commit and push with that message when they are done. They may hand in more than once; the newest one counts.
 4. After the exam, read the scores exactly as in Option B.
 

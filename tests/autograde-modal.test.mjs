@@ -26,6 +26,7 @@ import {
   cleanChecks,
   totalPoints,
   summariseAutograde,
+  summariseGrading,
 } from "../frontend/src/lib/autograde.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -168,6 +169,35 @@ test("the summary line describes the configuration, in one line", () => {
     assert.equal(summariseAutograde(config), expected, JSON.stringify(config));
   }
   assert.equal(summariseAutograde(), "Off", "and no configuration at all is Off");
+});
+
+test("the summary line answers one question, in either of its two shapes", () => {
+  // "Checks I define here" and "the workflow that came with my template" are
+  // two answers to *how is this graded*, and the form treated them as
+  // unrelated: a cloud exam read "Off" with a hand-in commit message beside
+  // it, which is exactly what PXL-2TIN-CloudEssentials-2627's proef-pe1 is.
+  const checks = { enabled: true, execution_environment: "lecturer_local", tests: [1, 2] };
+
+  assert.equal(
+    summariseGrading({ autograde: {}, submissionMarker: "einde examen" }),
+    'From your template · graded on "einde examen"',
+  );
+  assert.equal(summariseGrading({ autograde: checks }), "2 checks · run on your machine");
+
+  // Checks outrank a stray marker: an assignment carrying both is one somebody
+  // configured here, and the modal clears the other half on save anyway.
+  assert.equal(
+    summariseGrading({ autograde: checks, submissionMarker: "einde examen" }),
+    "2 checks · run on your machine",
+  );
+
+  // No checks and no marker: "the template grades every push" and "nothing
+  // grades this" are the SAME document, so the line may not claim to tell them
+  // apart. Blank and whitespace are no marker, the way readSubmissionMarker
+  // reads them.
+  assert.equal(summariseGrading({ autograde: {}, submissionMarker: "" }), "Off");
+  assert.equal(summariseGrading({ autograde: {}, submissionMarker: "   " }), "Off");
+  assert.equal(summariseGrading(), "Off");
 });
 
 test("an enabled configuration with no checks is Off, not an unsaveable state", () => {

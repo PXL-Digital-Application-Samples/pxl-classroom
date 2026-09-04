@@ -884,17 +884,17 @@
                    nothing about what is off (reported 2026-09-02). The state
                    itself stays in `.autograde-summary-text` so it remains one
                    readable value; the sentence sits beside it. -->
-              <label>Automatic grading <HelpButton topic="automated-checks" label="automatic grading" /></label>
+              <label>How it's graded <HelpButton topic="automated-checks" label="automatic grading" /></label>
               <div class="autograde-summary-row">
                 <span class="autograde-summary-text">{{ autogradeSummary }}</span>
-                <span v-if="!autogradeConfigured" class="autograde-summary-note">
-                  · submissions are not scored automatically
+                <span v-if="!gradingAnswered" class="autograde-summary-note">
+                  · no checks are configured here
                 </span>
                 <button class="btn btn-secondary btn-sm" type="button" @click="showAutogradeModal = true">
-                  {{ form.autograde_enabled && (form.autograde_tests || []).length ? 'Edit' : 'Set up' }}
+                  {{ gradingAnswered ? 'Edit' : 'Set up' }}
                 </button>
                 <button
-                  v-if="form.autograde_enabled && (form.autograde_tests || []).length"
+                  v-if="gradingAnswered"
                   class="btn btn-sm"
                   type="button"
                   @click="clearAutograde"
@@ -904,31 +904,6 @@
               <small v-if="form.autograde_enabled && form.autograde_execution_environment === 'lecturer_local'">
                 Run <code>pxl-classroom grade --org {{ org }} --assignment {{ form.id || 'ID' }}</code> after the deadline.
                 Results land in <code>grading/{{ form.id || 'ID' }}/</code>.
-              </small>
-            </div>
-            <!-- For a template whose own workflow grades on the hand-in commit
-                 and on nothing else. Left blank, every push grades and this
-                 changes nothing - which is why it is a blank field rather than
-                 a toggle with a default. -->
-            <div class="field">
-              <!-- `for`/`id`, unlike the fields around it: a <label> that
-                   neither wraps its input nor points at it is decoration, and
-                   nothing announces it to a screen reader. `.field label`
-                   styles it either way, so this costs nothing. -->
-              <label for="submission-marker-value">Hand-in commit message</label>
-              <input
-                id="submission-marker-value"
-                v-model="form.submission_marker_value"
-                maxlength="200"
-                placeholder="e.g. einde examen"
-              />
-              <!-- Precise on purpose (DESIGN.md §1.5): the read still starts at
-                   the student's last commit and only falls back to the hand-in
-                   one, so "scores come from this commit" would describe
-                   behaviour the system does not quite have. -->
-              <small>
-                Leave blank unless the template's own grading workflow runs on one commit message only.
-                Where a student's last commit has no grading run, the score is read from the newest commit carrying this message - matched exactly.
               </small>
             </div>
           </fieldset>
@@ -1097,6 +1072,7 @@
         visibility: form.autograde_visibility,
         tests: form.autograde_tests,
       }"
+      :submission-marker="form.submission_marker_value || ''"
       @save="applyAutograde"
       @close="showAutogradeModal = false"
     />
@@ -1141,7 +1117,7 @@ import { needsBrokerDispatch } from '../lib/publish.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
-import { summariseAutograde } from '../lib/autograde.js'
+import { summariseGrading } from '../lib/autograde.js'
 // One implementation of the document this panel writes, and of the
 // datetime-local <-> UTC conversion around it. See assignment-doc.js for what a
 // second, hand-maintained copy had already quietly dropped.
@@ -2229,12 +2205,31 @@ const showAutogradeModal = ref(false)
 const autogradeConfigured = computed(() =>
   Boolean(form.value.autograde_enabled) && (form.value.autograde_tests || []).length > 0)
 
+// Has the lecturer answered the question at all - in EITHER of its two shapes?
+//
+// `autogradeConfigured` alone is "did they define checks here", which is not
+// the same question and made the panel contradict itself: a cloud exam, whose
+// checks live in the template's own `classroom.yml`, read "Off · submissions
+// are not scored automatically" with a hand-in commit message beside it. Live,
+// `proef-pe1` is exactly that assignment (ARCHITECTURE §11.6).
+const gradingAnswered = computed(
+  () => autogradeConfigured.value || !!String(form.value.submission_marker_value ?? '').trim(),
+)
+
+// The note is what is left when the answer is neither, and it says only what
+// this screen owns. "Submissions are not scored automatically" was a claim
+// about the student's repository that the form cannot evaluate - a template
+// may ship a workflow nobody mentioned here - which DESIGN.md §1.5 names
+// directly.
 const autogradeSummary = computed(() =>
-  summariseAutograde({
-    enabled: form.value.autograde_enabled,
-    execution_environment: form.value.autograde_execution_environment,
-    visibility: form.value.autograde_visibility,
-    tests: form.value.autograde_tests,
+  summariseGrading({
+    autograde: {
+      enabled: form.value.autograde_enabled,
+      execution_environment: form.value.autograde_execution_environment,
+      visibility: form.value.autograde_visibility,
+      tests: form.value.autograde_tests,
+    },
+    submissionMarker: form.value.submission_marker_value,
   }),
 )
 
@@ -2243,6 +2238,11 @@ function applyAutograde(config) {
   form.value.autograde_execution_environment = config.execution_environment
   form.value.autograde_visibility = config.visibility
   form.value.autograde_tests = config.tests
+  // The modal answers ONE question, so it answers both halves of it. `?? ''`
+  // rather than `||`: an explicit empty string is the modal saying "no hand-in
+  // message", and treating it as "leave whatever was there" is how a setting
+  // survives the screen that was meant to clear it.
+  form.value.submission_marker_value = config.submissionMarker ?? ''
   showAutogradeModal.value = false
 }
 
@@ -2252,6 +2252,10 @@ function applyAutograde(config) {
 function clearAutograde() {
   form.value.autograde_enabled = false
   form.value.autograde_tests = []
+  // Remove clears the whole answer, including a hand-in message: leaving one
+  // behind would keep the summary line saying the template grades this while
+  // the button said it had been removed.
+  form.value.submission_marker_value = ''
 }
 
 // ---------------------------------------------------------------- YAML generation + validation

@@ -145,6 +145,29 @@ export function cleanChecks(checks) {
  * The one line the assignment form shows. The configuration's existence is the
  * flag, so there is no separate "enabled" checkbox to disagree with it.
  */
+/**
+ * The one line the assignment form shows about grading, for BOTH shapes.
+ *
+ * Checks defined here and a template that ships its own `classroom.yml` are
+ * two answers to one question - *how is this graded* - and the form used to
+ * treat them as unrelated features: a summary reading "Off" beside a hand-in
+ * commit message field, which is exactly the state a cloud exam is in. "Off"
+ * is about checks configured HERE and says nothing about the template, so with
+ * a marker on record this says what is actually true instead.
+ *
+ * A marker is the only evidence available. Without one, "the template grades
+ * on every push" and "nothing grades this at all" are the same document, so
+ * the line stays `Off` and the note beside it is scoped to what this screen
+ * owns rather than asserting something it cannot know (DESIGN.md §1.5).
+ */
+export function summariseGrading({ autograde, submissionMarker } = {}) {
+  const configured = autograde?.enabled && (autograde?.tests || []).length > 0
+  if (configured) return summariseAutograde(autograde)
+  const marker = String(submissionMarker ?? '').trim()
+  if (marker) return `From your template · graded on "${marker}"`
+  return 'Off'
+}
+
 export function summariseAutograde({ enabled, execution_environment: env, visibility, tests } = {}) {
   const count = Array.isArray(tests) ? tests.length : 0
   if (!enabled || count === 0) return 'Off'

@@ -114,7 +114,11 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
 
   test('Where they run is two cards with the trade-off on them', async ({ page }) => {
     await open(page);
-    const cards = modal(page).locator('.ag-card');
+    // Scoped to its own question: "who defines the checks" is asked with the
+    // same two-card vocabulary one fieldset up, so a bare `.ag-card` now
+    // matches four. No new class for it - `.ag-section` carries no border and
+    // an e2e-only hook would be a class declared nowhere (DESIGN.md §7).
+    const cards = modal(page).locator('fieldset', { hasText: 'Where do they run?' }).locator('.ag-card');
     await expect(cards).toHaveCount(2);
     await expect(cards.first()).toContainText('No Actions minutes');
     await expect(cards.first()).toContainText('Never in the student repo');
@@ -321,15 +325,71 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
     await openNewForm(page, { contentWrites });
     await fillMinimum(page, 'Proef PE1');
 
-    await page.getByLabel('Hand-in commit message').fill('einde examen');
-    await saveDraft(page).click();
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
 
+    // One question, one answer: the summary line says which shape it is in,
+    // where it used to say "Off" beside a hand-in message and contradict
+    // itself.
+    await expect(summaryText(page)).toHaveText('From your template · graded on "einde examen"');
+    await expect(page.locator('.autograde-summary-note')).toHaveCount(0);
+
+    await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'proef-pe1'), { timeout: 10000 }).toBeTruthy();
     const doc = committed(contentWrites, 'proef-pe1');
     expect(doc.submission_marker).toEqual({ type: 'commit_message', value: 'einde examen' });
+    expect(doc).not.toHaveProperty('autograde');
 
     const { valid, errors } = validateAgainst('assignment', doc);
     expect(valid, JSON.stringify(errors)).toBe(true);
+  });
+
+  test('It comes back into the modal on the branch it was saved in', async ({ page }) => {
+    // The two branches are exclusive and neither is stored as a flag, so the
+    // modal has to route off the evidence: checks mean one, a hand-in message
+    // means the other. Landing on the wrong one loses the answer.
+    await openNewForm(page);
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+
+    await openAutogradeModal(page);
+    await expect(page.getByRole('radio', { name: /They come with my template/ })).toBeChecked();
+    await expect(page.getByRole('radio', { name: /Only on a hand-in commit/ })).toBeChecked();
+    await expect(page.getByLabel('Commit message', { exact: true })).toHaveValue('einde examen');
+    // The other branch's controls are not on screen at all - the checks table
+    // belongs to the answer the lecturer did not give.
+    await expect(modal(page).locator('.ag-add')).toHaveCount(0);
+  });
+
+  test('Moving the checks in here clears the hand-in message', async ({ page }) => {
+    // One question, so a save answers both halves of it. A marker left behind
+    // is a stored setting the summary line no longer mentions.
+    const contentWrites = [];
+    await openNewForm(page, { contentWrites });
+    await fillMinimum(page, 'Switched Lab');
+
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /I define them here/ }).check();
+    await addCheck(page, CHECK_RUN);
+    await saveChecks(page).click();
+    await saveDraft(page).click();
+
+    await expect.poll(() => committed(contentWrites, 'switched-lab'), { timeout: 10000 }).toBeTruthy();
+    const doc = committed(contentWrites, 'switched-lab');
+    expect(doc.autograde.tests).toHaveLength(1);
+    expect(doc).not.toHaveProperty('submission_marker');
   });
 
   test('An assignment that never had one saves without the field', async ({ page }) => {
@@ -343,6 +403,31 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
 
     await expect.poll(() => committed(contentWrites, 'plain-lab'), { timeout: 10000 }).toBeTruthy();
     expect(committed(contentWrites, 'plain-lab')).not.toHaveProperty('submission_marker');
+  });
+
+  test('On every push is the absence of a marker, and clears one', async ({ page }) => {
+    const contentWrites = [];
+    await openNewForm(page, { contentWrites });
+    await fillMinimum(page, 'Every Push Lab');
+
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(summaryText(page)).toHaveText('From your template · graded on "einde examen"');
+
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /On every push/ }).check();
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+
+    // Back to Off, because "the template grades every push" and "nothing
+    // grades this" are the same document - the panel may not claim to tell
+    // them apart (DESIGN.md §1.5).
+    await expect(summaryText(page)).toHaveText('Off');
+    await saveDraft(page).click();
+    await expect.poll(() => committed(contentWrites, 'every-push-lab'), { timeout: 10000 }).toBeTruthy();
+    expect(committed(contentWrites, 'every-push-lab')).not.toHaveProperty('submission_marker');
   });
 
   test('Turning it off writes no autograde block at all', async ({ page }) => {

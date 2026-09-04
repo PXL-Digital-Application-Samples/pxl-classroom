@@ -1196,5 +1196,21 @@ So a student who handed in and then pushed one more commit — a typo in the rea
 
 Matching is exact and case-sensitive on the whole message, because the workflow's `==` is. Being more generous would name a commit the workflow never graded and then report "the grading workflow was skipped" about the commit the lecturer believes is the hand-in.
 
+**Then the screen said both things at once.** The first shipped version put "Hand-in commit message" in the assignment form as a field of its own, beside the grading summary. Which rendered, on a cloud exam, as:
+
+```
+Automatic grading
+Off · submissions are not scored automatically          [ Set up ]
+
+Hand-in commit message
+[ einde examen                                        ]
+```
+
+Both halves were true of *something* and the pair was nonsense. "Off" is about checks configured **here**; "submissions are not scored automatically" is a claim about the student's repository that the form cannot evaluate, and is flatly false for the assignment this field exists for. DESIGN.md §1.5 names that shape — a status line asserting a condition it has no way to check — and it had been read as being about `InvitationShare` rather than as a rule.
+
+The wording was not the bug. **Checks defined here and a workflow that came with the template are two answers to one question**, and the form had them as two unrelated features, so no wording could make them agree. The modal now asks *who defines the checks* first and the hand-in message is the template branch's only setting; the form is back to one line, which is what ARCHITECTURE §11.6 said it was for. Neither branch is stored — checks mean one, a marker means the other — so there is no third flag to disagree with either, and saving answers both halves rather than leaving a marker behind that the summary no longer mentions.
+
+What stays unsayable is deliberate: with no checks and no marker, "the template grades every push" and "nothing grades this" are the **same document**. The line says `Off` and the note beside it is scoped to what the screen owns. Storing a `graded_by` flag would let it say more; it would also be a field whose only reader is the sentence describing it.
+
 **And the timeout on the generated workflow was in the wrong unit the whole time.** Every `classroom-resources` grader documents `timeout` as *"Duration (in minutes)"*; the schema field is `timeout_s`, seconds, capped at 600, and both CLI runners honour it as seconds. `provision.mjs` passed the number straight through, so one test definition meant 30 seconds locally and **30 minutes** on Actions — on the side that bills an organisation's minutes, for a runaway loop nobody is watching.
 

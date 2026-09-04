@@ -61,8 +61,8 @@ What each setting does, and what it changes for your students.
 - **When you grade** — you run the same tests yourself from the command line.
 - Scores are advisory. Nothing is graded for you.
 - Tests that run in a student's repository are time-limited, so a test that never finishes cannot keep running.
-- **From the template** — if your template repository already ships its own grading workflow, it is left alone and its scores are read the same way. You do not have to describe the tests here.
-- **Hand-in commit message** — for a template whose workflow only grades one commit, such as an exam where the tests have to run while the student's cloud account is still open. Type the exact message you asked them for. Where a student's last commit has no grading run, their score is read from that commit instead.
+- **They come with my template** — if your template repository already ships its own grading workflow, it is left alone and its scores are read the same way. You do not describe the tests here.
+- **Only on a hand-in commit** — for a template whose workflow grades one commit, such as an exam where the tests have to run while the student's cloud account is still open. Type the exact message you asked them for. Where a student's last commit has no grading run, their score is read from that commit instead.
 - A student who pushes something after their hand-in commit still keeps that score. A student who never pushed the hand-in commit has no score, and is listed by name rather than counted as a zero.
 
 ## Feedback pull requests
