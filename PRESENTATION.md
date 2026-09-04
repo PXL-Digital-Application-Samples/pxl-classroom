@@ -25,8 +25,10 @@ An expanded version of the obsolete github classroom.
   - usability
     - Fast and easy UX for most common flow: create an assignment in a few clicks, share the invite URL, done
     - Monitor dashboard cf. Github Classroom
+      - easy overview of who is late / who has not commited anything
   - features
     - admin rights option for student repo's: students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD, DevOps, Cloud, Automation, ...
+    - self-managing teams
     - common autograding support
     - nice to have: lock students repo's at deadline
   - functional
@@ -43,6 +45,26 @@ An expanded version of the obsolete github classroom.
 **On Screen:** The Mermaid architecture diagram in `README.md`.
 
 ### Core Philosophy
+
+```mermaid
+flowchart LR
+    Create["LECTURER<br/>creates and publishes,<br/>shares one link"] --> Who{"who may<br/>accept?"}
+    Who -->|"roster"| Roster["ROSTER<br/>only students<br/>you imported"]
+    Who -->|"open"| Open["OPEN<br/>anyone with the link,<br/>up to a cap"]
+    Roster --> acc
+    Open --> acc
+
+    subgraph acc [" "]
+        direction TB
+        Accept["STUDENT<br/>opens the link,<br/>signs in"] -.-> Repo["a private repo appears,<br/>from your template,<br/>in under a minute"]
+    end
+
+    acc --> Work["STUDENT<br/>works and pushes"]
+    Work --> Deadline["THE DEADLINE PASSES<br/>work is frozen,<br/>a copy preserved"]
+    Deadline --> Grade["LECTURER<br/>reviews every<br/>submission, and grades"]
+
+    style acc fill:none,stroke:none
+```
 
 At its core, this system is a **repository provisioner and a passive monitor**. It creates a private repository from your template for a student.
 
@@ -71,7 +93,7 @@ At its core, this system is a **repository provisioner and a passive monitor**. 
                                  ▼
 ┌──────────────┐          ┌──────────────┐          ┌────────────────┐
 │ Student SPA  │ ───────► │ Public Broker│ ───────► │ Central Hub    │
-│ (Web browser)│          │ (Doorbell)   │          │ (Actions)      │
+│ (Web browser)│          │ (doorbell)   │          │ (Actions)      │
 └──────────────┘          └──────────────┘          └────────────────┘
                                  ▲
                                  │ (Holds narrow dispatch token only)
@@ -92,7 +114,7 @@ To keep security tight without a server, we split permissions between two GitHub
 - Students have no permissions on our private course control repo.
   - When a student opens the public invitation link, how do we know they are authorized without random internet bots abusing our Actions minutes?
 - When you publish an assignment:
-  - PXL Classroom mints a cryptographic keypair (`P-256`).
+  - PXL Classroom mints a cryptographic keypair (`P-256` elliptic curve).
   - The private key is embedded in the link URL.
   - When the student clicks Accept, their browser signs their GitHub ID with that key.
   - The public broker checks that signature in 5 seconds on a free public runner.
@@ -188,4 +210,13 @@ The runbook is written as an exhaustive disaster-recovery manual (handling GitHu
 - run the 1-click **Setup Organization** workflow.
 - You are ready to publish assignments immediately.
 
-> *If you ever want your own completely isolated institution deployment in the future, the entire repo is open source and configured via a single `deployment.yml` file."*
+> If you want your own completely isolated institution deployment, the entire repo is open source and configured via a single `deployment.yml` file.
+>
+> Find more details in the runbook.
+
+### What's next
+
+- More testing & maintenance
+- Hardening of autograding, teams and groups
+- Preprovisioning combined with open assignments for live PE's/exams
+- Investigate setting up other central hubs

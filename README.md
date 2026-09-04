@@ -16,12 +16,13 @@ Live: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/
 
 ## Why
 
-Classroom50 works well, but two things made me build PXL Classroom anyway.
+Classroom50 works well, but a few things made me build PXL Classroom anyway.
 
 - **Classroom50 cannot do open assignments.** It enrols from a roster, while GitHub Classroom used to hand out a link anyone could accept. Exams and workshops need that, so it is back, with a cap, alongside roster and email-claim enrolment.
 - **Setting up an assignment takes too long.** Here it is one form: fill it in, publish, copy the link.
+- **Admin rights option for student repo's.** Students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD,
 
-The result is GitHub Classroom's feature set with a dashboard on top, running entirely on GitHub Team for Education.
+The result is an expanded GitHub Classroom's feature set with a dashboard on top, running entirely on GitHub Team for Education.
 
 GitHub Enterprise is never used. The CLI handles what scales badly through clicks (roster import, bulk download, local grading) and the web UI is what you use day to day.
 
@@ -265,9 +266,8 @@ Full command list: [cli/README.md](cli/README.md).
 
 ## Further documentation
 
-| If you are | Read |
+| Role | Documentation |
 |---|---|
-| Meeting this for the first time | **[INTRODUCTION.md](INTRODUCTION.md)** - what it is and what using it looks like |
 | A **lecturer** running assignments | **[RUNBOOK.md](RUNBOOK.md)** - publishing, deadlines, grading, a student who is stuck |
 | An **administrator** | **[ADMIN.md](ADMIN.md)** - onboarding an organization, budgets, App permissions, incidents |
 | Standing the system up for an institution | **[INSTALL.md](INSTALL.md)** - the one-time setup |
