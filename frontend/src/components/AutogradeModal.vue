@@ -94,6 +94,45 @@
               A hand-in after the deadline is never graded.
             </span>
           </div>
+
+          <!-- WHETHER THE TEMPLATE ACTUALLY HAS ONE. Last, because the starter
+               this offers to write is gated on the message above it, so the
+               message has to exist before the button means anything.
+               A status line and an inline button, not a panel: the modal is one
+               box and the cards are the second, and a bordered well here would
+               be DESIGN.md §1.1's third. -->
+          <div class="ag-template-state">
+            <span class="status-indicator">
+              <span :class="['status-dot', templateDot]"></span>
+              <span>{{ templateSays }}</span>
+            </span>
+
+            <!-- Only when we have LOOKED and found none. An unread template is
+                 not an empty one (§1.5), so the button does not appear beside
+                 "could not read" or beside "checking". -->
+            <button
+              v-if="template.state === 'absent'"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="template.writing || (draft.markerMode === 'hand-in' && !draft.markerValue.trim())"
+              @click="$emit('add-starter-workflow', { handInMessage: draft.markerMode === 'hand-in' ? draft.markerValue.trim() : '' })"
+            >{{ template.writing ? 'Adding…' : 'Add a starter workflow' }}</button>
+
+            <!-- The template's wording wins by being the one the runner
+                 actually compares. Copying it into the assignment is a change
+                 to THIS form; rewriting the lecturer's workflow is not offered,
+                 because overwriting a file somebody wrote is not a repair. -->
+            <button
+              v-if="gateDisagrees"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="draft.markerValue = template.gate"
+            >Use the template's wording</button>
+          </div>
+          <p v-if="template.added" class="ag-marker-hint">
+            Added to your template repository. Students who accepted before now keep their copy
+            until you run Sync Starter Code on this assignment.
+          </p>
         </fieldset>
 
         <!-- (3) What choosing the less-travelled branch actually commits you
@@ -267,7 +306,7 @@
 // type dropdown, four unlabelled textareas whose meaning changed with the
 // dropdown, and no headers, no totals and no validation until the schema
 // rejected the save three commits later.
-import { computed, onMounted, onUnmounted, reactive } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import Icon from './Icon.vue'
 import HelpButton from './HelpButton.vue'
 import { CHECK_PRESETS, newCheck, checkProblems, totalPoints } from '../lib/autograde.js'
@@ -283,8 +322,22 @@ const props = defineProps({
   /** May a student hand in more than once? The assignment's answer, defaulting
    *  the way `readSubmissionMarker` defaults an absent field. */
   submissionMarkerMultiple: { type: Boolean, default: true },
+  /**
+   * What the parent found in the template repository, and nothing this dialog
+   * worked out for itself. AdminView holds the token and does the reading and
+   * the writing; this collects the decision and shows the answer, the way
+   * `FreezeConfirmModal` takes the archive name rather than composing it
+   * (DESIGN.md §6).
+   *
+   * `{ state: 'unknown'|'checking'|'absent'|'present'|'error', repo, path,
+   *    gate, writing, added, error }`
+   */
+  template: {
+    type: Object,
+    default: () => ({ state: 'unknown' }),
+  },
 })
-const emit = defineEmits(['save', 'close'])
+const emit = defineEmits(['save', 'close', 'check-template', 'add-starter-workflow'])
 
 // The TEMPLATE card is first and is the default, and that is a statement about
 // which one lecturers actually use. Every assignment across every participating
@@ -363,6 +416,59 @@ const canSave = computed(() => {
   return draft.tests.length > 0 && problems.value.every((p) => !p)
 })
 
+// The template's gate and the assignment's message are the SAME FACT in two
+// files, and nothing makes them agree. A disagreement is silent where it
+// matters most - the workflow runs on its own wording, this reads scores from
+// the other, and every student comes back "no grading run" - so it is said out
+// loud rather than left to be discovered on results day.
+const gateDisagrees = computed(
+  () =>
+    props.template.state === 'present' &&
+    !!props.template.gate &&
+    draft.markerMode === 'hand-in' &&
+    !!draft.markerValue.trim() &&
+    props.template.gate !== draft.markerValue.trim(),
+)
+
+const templateDot = computed(() => {
+  if (gateDisagrees.value) return 'dot-warning'
+  switch (props.template.state) {
+    case 'present':
+      return 'dot-success'
+    case 'absent':
+      return 'dot-warning'
+    case 'error':
+      // NOT danger: a template we could not read is unknown, and unknown is
+      // not a failure of the assignment (DESIGN.md §4).
+      return 'dot-neutral'
+    default:
+      return 'dot-neutral'
+  }
+})
+
+/**
+ * One sentence about the template repository, and never more than was read.
+ *
+ * "No grading workflow" is a claim, and a read that failed does not support it
+ * - the same rule that stops a 403 being reported as "no score".
+ */
+const templateSays = computed(() => {
+  const t = props.template
+  if (t.state === 'checking') return 'Looking at your template repository…'
+  if (t.state === 'error') {
+    return `Could not read ${t.repo || 'your template repository'}, so what it grades is unknown.`
+  }
+  if (t.state === 'absent') return `No grading workflow in ${t.repo}.`
+  if (t.state === 'present') {
+    if (gateDisagrees.value) {
+      return `${t.path} grades on "${t.gate}", and this assignment says "${draft.markerValue.trim()}".`
+    }
+    if (t.gate) return `${t.path} grades on "${t.gate}".`
+    return `${t.path} grades on every push.`
+  }
+  return 'Pick a template repository first, and this will say what it grades.'
+})
+
 function describe(t) {
   if (t.type === 'io') return 'Input → expected output'
   if (t.type === 'python') return 'Python script'
@@ -422,6 +528,17 @@ function cancel() {
 function onKeydown(e) {
   if (e.key === 'Escape') cancel()
 }
+// Ask what the template holds as soon as the branch that cares is on screen -
+// including on open, because the modal opens on that branch. The parent decides
+// whether that costs a request.
+watch(
+  () => draft.source,
+  (source) => {
+    if (source === 'template') emit('check-template')
+  },
+  { immediate: true },
+)
+
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
@@ -535,6 +652,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .ag-marker-hint {
   color: var(--text-secondary);
+}
+
+/* A line, not a panel. `.status-indicator` and `.status-dot` are the global
+   vocabulary for a state (DESIGN.md §4), so this only has to place them. */
+.ag-template-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding-top: 8px;
+  font-size: 0.85rem;
 }
 
 .ag-marker-again {

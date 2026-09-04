@@ -421,6 +421,141 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
     });
   });
 
+  // ============================ the starter workflow written into the template
+
+  const TEMPLATE = `${ORG}/starter-template`;
+  const WORKFLOWS_URL = `https://api.github.com/repos/${TEMPLATE}/contents/.github/workflows`;
+  const GRADING_YML = `
+name: Autograding Tests
+on: [push]
+jobs:
+  run-autograding-tests:
+    runs-on: ubuntu-latest
+    if: github.event.head_commit.message == 'einde exam'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        with:
+          runners: t1
+`;
+
+  /** What the template repository answers, registered AFTER the standard mocks so it wins. */
+  async function templateHolds(page, { dir, file = null, repoOk = true }) {
+    await page.route(WORKFLOWS_URL, (route) =>
+      dir === 'error'
+        ? route.fulfill({ status: 500, body: '{}' })
+        : dir === null
+          ? route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' })
+          : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dir) }),
+    );
+    // GET ONLY. `commitFile` reads and then WRITES the same URL, so answering
+    // every method here made the write 404 - and the assertion that caught it
+    // was the toast, not the missing file.
+    await page.route(`${WORKFLOWS_URL}/classroom.yml`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return file === null
+        ? route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' })
+        : route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ content: Buffer.from(file).toString('base64'), encoding: 'base64' }),
+          });
+    });
+    await page.route(`https://api.github.com/repos/${TEMPLATE}`, (route) =>
+      route.fulfill({ status: repoOk ? 200 : 404, contentType: 'application/json', body: '{"name":"starter-template"}' }),
+    );
+  }
+
+  /**
+   * The template's routes are registered AFTER the standard mocks, because
+   * Playwright matches the most recently added route first - registering them
+   * before `openNewForm` means the standard handler answers instead, which is
+   * how the first version of these tests "read" a template it never saw.
+   */
+  async function openTemplateBranch(page, holds, opts = {}) {
+    await openNewForm(page, opts);
+    await fillMinimum(page, 'Proef PE2');
+    await templateHolds(page, holds);
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+  }
+
+  test('A template with no grading workflow is offered one, gated on the message', async ({ page }) => {
+    const contentWrites = [];
+    await openNewForm(page, { contentWrites });
+    await fillMinimum(page, 'Proef PE2');
+    await templateHolds(page, { dir: null });
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+
+    const state = modal(page).locator('.ag-template-state');
+    await expect(state).toContainText(`No grading workflow in ${TEMPLATE}`);
+
+    // Gated on the message, so the message has to exist before the button does
+    // anything - it is written INTO the file.
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    const add = modal(page).getByRole('button', { name: /Add a starter workflow/ });
+    await expect(add).toBeDisabled();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+    await expect(add).toBeEnabled();
+    await add.click();
+
+    await expect.poll(
+      () => contentWrites.find((w) => w.path === '.github/workflows/classroom.yml'),
+      {
+        timeout: 10000,
+        message: () => `wrote: ${contentWrites.map((w) => w.path).join(', ') || '(nothing)'}`,
+      },
+    ).toBeTruthy();
+    const written = contentWrites.find((w) => w.path === '.github/workflows/classroom.yml').content;
+    expect(written).toContain("if: github.event.head_commit.message == 'einde examen'");
+    // A placeholder that passes would report full marks for work nobody
+    // measured, in every student repository (DESIGN.md §1.5).
+    expect(written).toContain('exit 1');
+
+    // And the screen stops offering what it just did.
+    await expect(state).toContainText('.github/workflows/classroom.yml grades on "einde examen"');
+    await expect(modal(page).getByRole('button', { name: /Add a starter workflow/ })).toHaveCount(0);
+    // Writing to the template is not writing to the students who already have one.
+    await expect(modal(page)).toContainText('until you run Sync Starter Code');
+  });
+
+  test('A template that already grades is not offered one, and a wording mismatch is named', async ({ page }) => {
+    await openTemplateBranch(page, {
+      dir: [{ name: 'classroom.yml', path: '.github/workflows/classroom.yml', type: 'file' }],
+      file: GRADING_YML,
+    });
+
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+
+    // The same fact in two files, and nothing makes them agree: the workflow
+    // runs on its wording, the dashboard reads scores by the other, and every
+    // student comes back "no grading run".
+    const state = modal(page).locator('.ag-template-state');
+    await expect(state).toContainText('grades on "einde exam"');
+    await expect(state).toContainText('this assignment says "einde examen"');
+    await expect(modal(page).getByRole('button', { name: /Add a starter workflow/ })).toHaveCount(0);
+
+    // The template's wording wins by being the one the runner compares.
+    await modal(page).getByRole('button', { name: "Use the template's wording" }).click();
+    await expect(page.getByLabel('Commit message', { exact: true })).toHaveValue('einde exam');
+    await expect(state).toContainText('grades on "einde exam"');
+    await expect(state).not.toContainText('this assignment says');
+  });
+
+  test('A template that could not be read is not a template with no grading in it', async ({ page }) => {
+    // Unreadable is not evidence. Offering to write a workflow here could put a
+    // second grading workflow beside one that already exists.
+    await openTemplateBranch(page, { dir: 'error' });
+
+    const state = modal(page).locator('.ag-template-state');
+    await expect(state).toContainText('Could not read');
+    await expect(state).toContainText('unknown');
+    await expect(modal(page).getByRole('button', { name: /Add a starter workflow/ })).toHaveCount(0);
+  });
+
   test('It comes back into the modal on the branch it was saved in', async ({ page }) => {
     // The two branches are exclusive and neither is stored as a flag, so the
     // modal has to route off the evidence: checks mean one, a hand-in message

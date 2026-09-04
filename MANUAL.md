@@ -63,6 +63,9 @@ What each setting does, and what it changes for your students.
 
 - The usual answer, and what a template made in GitHub Classroom already does: it contains a workflow that grades, and PXL Classroom leaves it exactly as it is.
 - You do not list the exercises or their points here. The workflow reports them, and the dashboard reads what it reported.
+- The panel tells you what your template grades on. If it has no grading workflow, **Add a starter workflow** writes one for you — with one example check that **fails until you replace it**, so a forgotten placeholder cannot hand out full marks.
+- Adding it to your template does not reach students who already accepted. Use **Sync Starter Code** on the assignment for that.
+- If your template grades on a different message than the assignment says, the panel says so. The workflow's wording is the one that decides, so you can copy it across in one click.
 - **On every push** — the ordinary case. Scores are read from each student's last commit.
 - **Only on a hand-in commit** — for a template whose workflow grades one commit, such as an exam where the tests have to run while the student's cloud account is still open. Type the exact message you asked them for; their score is read from the commit carrying it, not from their last commit.
 - **They may hand in more than once** — on by default. The **last** hand-in on or before that student's deadline counts, so a student who spots a mistake and hands in again is graded on the fix. Turn it off and the **first** one counts instead: once they have handed in, a later one does not replace it.

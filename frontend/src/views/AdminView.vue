@@ -1074,6 +1074,9 @@
       }"
       :submission-marker="form.submission_marker_value || ''"
       :submission-marker-multiple="form.submission_marker_multiple !== false"
+      :template="templateWorkflow"
+      @check-template="checkTemplateWorkflow"
+      @add-starter-workflow="addStarterWorkflow"
       @save="applyAutograde"
       @close="showAutogradeModal = false"
     />
@@ -1119,6 +1122,12 @@ import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { summariseGrading } from '../lib/autograde.js'
+import {
+  STARTER_PATH,
+  buildStarterWorkflow,
+  isGradingWorkflow,
+  readGateMessage,
+} from '../lib/starter-workflow.js'
 // One implementation of the document this panel writes, and of the
 // datetime-local <-> UTC conversion around it. See assignment-doc.js for what a
 // second, hand-maintained copy had already quietly dropped.
@@ -2239,6 +2248,136 @@ const autogradeSummary = computed(() =>
     submissionMarker: form.value.submission_marker_value,
   }),
 )
+
+// What the template repository actually grades with, read once per repository.
+//
+// The DIALOG does not do this. It holds no token and makes no requests; it
+// shows what this found and emits what the lecturer chose, the way
+// FreezeConfirmModal takes a name rather than composing one (DESIGN.md §6).
+const templateWorkflow = ref({ state: 'unknown' })
+let templateProbedFor = ''
+
+function templateOwnerRepo() {
+  const [owner, repo] = String(form.value.template || '').split('/')
+  return owner && repo ? { owner, repo, full: `${owner}/${repo}` } : null
+}
+
+async function checkTemplateWorkflow({ force = false } = {}) {
+  const target = templateOwnerRepo()
+  if (!target) {
+    templateProbedFor = ''
+    templateWorkflow.value = { state: 'unknown' }
+    return
+  }
+  // One probe per template repository. Switching between the two cards should
+  // not spend a request re-learning what it just read.
+  if (!force && templateProbedFor === target.full && templateWorkflow.value.state !== 'checking') return
+
+  const token = getToken()
+  if (!token) {
+    templateWorkflow.value = { state: 'error', repo: target.full }
+    return
+  }
+
+  templateProbedFor = target.full
+  templateWorkflow.value = { state: 'checking', repo: target.full }
+
+  try {
+    let files = []
+    try {
+      files = await listRepoDir(token, target.owner, target.repo, '.github/workflows')
+    } catch (e) {
+      if (e.status !== 404) throw e
+      // A 404 is "no workflows directory" OR "no such repository", and those
+      // are different answers. Ask which before reporting one of them: a
+      // template nobody can read must not come back as a template with no
+      // grading in it (§1.5).
+      const repoRes = await getRepo(token, target.owner, target.repo)
+      if (!repoRes?.ok) {
+        templateWorkflow.value = { state: 'error', repo: target.full }
+        return
+      }
+    }
+
+    for (const file of files) {
+      if (file.type !== 'file' || !/\.ya?ml$/i.test(file.name)) continue
+      const text = await getRepoContent(token, target.owner, target.repo, file.path)
+      // The reporter is the signal, not the filename - a lecturer may call it
+      // anything, and GitHub Classroom's own is `classroom.yml`.
+      if (text && isGradingWorkflow(text)) {
+        templateWorkflow.value = {
+          state: 'present',
+          repo: target.full,
+          path: file.path,
+          gate: readGateMessage(text),
+        }
+        return
+      }
+    }
+    templateWorkflow.value = { state: 'absent', repo: target.full }
+  } catch {
+    templateWorkflow.value = { state: 'error', repo: target.full }
+  }
+}
+
+async function addStarterWorkflow({ handInMessage } = {}) {
+  const target = templateOwnerRepo()
+  const token = getToken()
+  if (!target || !token) return
+
+  templateWorkflow.value = { ...templateWorkflow.value, writing: true }
+
+  // `commitFile` updates a file that is already there, and "absent" here means
+  // no workflow that GRADES - a `classroom.yml` doing something else entirely
+  // would be at that path and would be overwritten. Overwriting a file a
+  // lecturer wrote is not a repair, so it refuses.
+  try {
+    const existing = await getRepoContent(token, target.owner, target.repo, STARTER_PATH)
+    if (existing !== null) {
+      templateWorkflow.value = { ...templateWorkflow.value, writing: false }
+      toast.error(
+        `${STARTER_PATH} already exists in ${target.full} and does not grade. Open it and add the checks yourself, or rename it first.`,
+      )
+      return
+    }
+  } catch {
+    templateWorkflow.value = { ...templateWorkflow.value, writing: false }
+    toast.error(`Could not read ${target.full}, so nothing was written.`)
+    return
+  }
+
+  const res = await commitFile(
+    token,
+    target.owner,
+    target.repo,
+    STARTER_PATH,
+    buildStarterWorkflow({ handInMessage }),
+    'Add grading workflow (PXL Classroom)',
+  )
+
+  if (!res.ok) {
+    templateWorkflow.value = { ...templateWorkflow.value, writing: false }
+    // A 403 here is one specific thing and it is not transient: writing a file
+    // under .github/workflows needs the App's Workflows permission, and an
+    // owner of the organization has to approve it. Saying "try again" would be
+    // advice that can never come true.
+    toast.error(
+      res.status === 403
+        ? `GitHub refused to write the workflow to ${target.full}. Writing under .github/workflows needs the PXL Classroom App's "Workflows" permission, which an owner of this organization approves.`
+        : `Could not write the workflow to ${target.full} (HTTP ${res.status}). Nothing was changed.`,
+    )
+    return
+  }
+
+  templateWorkflow.value = {
+    state: 'present',
+    repo: target.full,
+    path: STARTER_PATH,
+    gate: String(handInMessage || '').trim() || null,
+    added: true,
+  }
+  toast.success(`Added ${STARTER_PATH} to ${target.full}.`)
+}
 
 function applyAutograde(config) {
   form.value.autograde_enabled = config.enabled
