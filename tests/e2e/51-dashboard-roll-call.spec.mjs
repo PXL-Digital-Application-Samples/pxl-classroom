@@ -61,6 +61,90 @@ async function dashboard(page, { assignments, dashboardJson = staleDashboard } =
   await page.goto(`/dashboard/${ORG}`);
 }
 
+// ============================ the other direction: an entry that has gone wrong
+
+test.describe('51 - changing an assignment repairs what the overview reads', () => {
+  // Reported from live use 2026-09-04: two assignments, one closed and one
+  // archived, both still reading "accepting" on the overview afterwards.
+  //
+  // The roll call above fixed the assignment dashboard.json does not KNOW
+  // about. This is the assignment it knows about and is wrong about, which the
+  // fallback cannot help with: only `publish-assignment.yml` asks for a
+  // regeneration, so a close or an archive changed nothing the overview reads.
+  // For an archived one nothing would ever have corrected it, because the
+  // nightly that regenerates disables itself once no assignment is active.
+  async function adminPanel(page, { assignments, contentWrites }) {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments,
+      reports: { dashboard: staleDashboard },
+      contentWrites,
+    });
+    page.on('dialog', (d) => d.accept());
+    await page.goto(`/dashboard/${ORG}/admin?edit=${REPORTED}`);
+    // The lifecycle row, not the title field: a published assignment opens
+    // with its settings collapsed and the cohort card on top.
+    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible({ timeout: 15000 });
+  }
+
+  /** The dashboard.json body the SPA last wrote, parsed. */
+  function writtenDashboard(contentWrites) {
+    const write = [...contentWrites].reverse().find((w) => w.path === 'reports/dashboard.json');
+    return write ? JSON.parse(write.content) : null;
+  }
+
+  for (const [label, state] of [['Stop accepting', 'closed'], ['Archive', 'archived']]) {
+    test(`${label} writes the new state where the overview reads it`, async ({ page }) => {
+      const contentWrites = [];
+      await adminPanel(page, { assignments: { [REPORTED]: assignment(REPORTED) }, contentWrites });
+
+      await page.getByRole('button', { name: label, exact: true }).click();
+
+      await expect
+        .poll(() => writtenDashboard(contentWrites)?.assignments?.[REPORTED]?.state, { timeout: 10000 })
+        .toBe(state);
+    });
+  }
+
+  test('the counts it did not measure are left alone', async ({ page }) => {
+    // MERGE, NEVER REPLACE. The figures came from a report this never read;
+    // rebuilding the entry from the document would blank every one of them.
+    const contentWrites = [];
+    await adminPanel(page, { assignments: { [REPORTED]: assignment(REPORTED) }, contentWrites });
+
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+
+    await expect
+      .poll(() => writtenDashboard(contentWrites)?.assignments?.[REPORTED]?.state, { timeout: 10000 })
+      .toBe('archived');
+    const entry = writtenDashboard(contentWrites).assignments[REPORTED];
+    expect(entry.accepted, 'the accepted count is not this write to make').toBe(3);
+  });
+
+  test('an assignment the dashboard has never heard of is not invented', async ({ page }) => {
+    // Regeneration owns creating an entry. Writing a half-built one here would
+    // put an assignment on the overview with every figure null, which reads as
+    // a cohort where nobody has accepted.
+    const contentWrites = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [FRESH]: assignment(FRESH) },
+      reports: { dashboard: staleDashboard },
+      contentWrites,
+    });
+    page.on('dialog', (d) => d.accept());
+    await page.goto(`/dashboard/${ORG}/admin?edit=${FRESH}`);
+    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+    await expect(page.locator('.toast')).toContainText(`${FRESH} -> archived`, { timeout: 10000 });
+
+    expect(writtenDashboard(contentWrites)).toBeNull();
+  });
+});
+
 test.describe('51 - a stale dashboard.json does not hide an assignment', () => {
   test('an assignment published since the last regeneration is still listed', async ({ page }) => {
     await dashboard(page, {

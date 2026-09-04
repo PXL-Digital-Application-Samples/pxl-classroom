@@ -1120,6 +1120,7 @@ import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { summariseGrading } from '../lib/autograde.js'
+import { assignmentFacts } from '../../../lib/dashboard-aggregate.mjs'
 import {
   STARTER_PATH,
   buildStarterWorkflow,
@@ -2509,12 +2510,16 @@ async function saveAssignment(stateOverride = null) {
   try {
     const token = getToken()
     const path = assignmentPath(form.value.id)
-    const yaml = stringifyYaml(buildDoc(stateOverride))
+    const doc = buildDoc(stateOverride)
+    const yaml = stringifyYaml(doc)
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, isNew.value ? `Create assignment ${form.value.id}` : `Update assignment ${form.value.id}`)
     if (res.ok) {
       toast.success(`Saved ${form.value.id}`)
       form.value.state = stateOverride || form.value.state
       snapshotForm()
+      // A retitled or rescheduled assignment goes stale on the overview the
+      // same way a closed one does - same file, same reason.
+      await syncDashboardState(doc)
       await loadAssignments()
       // Stay on the edited assignment
       const stillExists = assignments.value.find((a) => a.id === form.value.id)
@@ -2605,13 +2610,17 @@ async function revertAfterFailedPublish(toState = 'draft') {
   try {
     const token = getToken()
     const path = assignmentPath(form.value.id)
-    const yaml = stringifyYaml(buildDoc(toState))
+    const doc = buildDoc(toState)
+    const yaml = stringifyYaml(doc)
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Revert ${form.value.id} to ${toState} (publish dispatch failed)`)
     if (res.ok) {
       form.value.state = toState
       brokerExists.value = null
       pagesLive.value = null
       snapshotForm()
+      // The publish did not happen, so nothing else will correct the overview -
+      // and "published" is exactly the state it must not be left saying.
+      await syncDashboardState(doc)
       await loadAssignments()
       toast.error(`Publish dispatch failed. ${form.value.id} was reverted to ${toState}. Fix hub access and publish again.`)
     } else {
@@ -2735,6 +2744,60 @@ async function deleteDraft() {
   }
 }
 
+/**
+ * Keep `reports/dashboard.json` telling the truth about a document we just wrote.
+ *
+ * The overview reads its state, its title and its dates from that file, and
+ * only `publish-assignment.yml` ever asks for a regeneration. So closing or
+ * archiving an assignment left the overview reading **accepting** - and for an
+ * archived one nothing was ever going to correct it, because the nightly that
+ * regenerates disables itself once no assignment is active (reported
+ * 2026-09-04, two assignments, both still "accepting").
+ *
+ * MERGE, NEVER REPLACE. Only the fields the document owns are overwritten;
+ * the counts came from a report this has not read and are none of its
+ * business. `assignmentFacts` is the one list of which is which.
+ *
+ * Silent about everything else on purpose. It is a repair on the way past, not
+ * an operation the lecturer asked for: no entry yet means the assignment has
+ * never been reported on and regeneration owns creating it, and a failed write
+ * must not turn a successful save into an error message.
+ */
+async function syncDashboardState(doc) {
+  if (!doc?.id) return
+  try {
+    const token = getToken()
+    const path = 'reports/dashboard.json'
+    const existing = await getRepoContent(token, props.org, config.controlRepo, path)
+    if (!existing) return
+    const dashboard = JSON.parse(existing)
+    const entry = dashboard?.assignments?.[doc.id]
+    if (!entry) return
+
+    const patched = { ...entry, ...assignmentFacts(doc) }
+    // Nothing changed that this file records - do not spend a commit saying so.
+    if (JSON.stringify(patched) === JSON.stringify(entry)) return
+
+    dashboard.assignments[doc.id] = patched
+    const res = await commitFile(
+      token,
+      props.org,
+      config.controlRepo,
+      path,
+      JSON.stringify(dashboard, null, 2) + '\n',
+      `Update ${doc.id} on the dashboard`,
+    )
+    // A failed repair is worth one sentence. Staying quiet is what let the
+    // overview go on saying "accepting" about an archived assignment in the
+    // first place, and the lecturer at least needs to know not to trust it.
+    if (!res.ok) {
+      toast.info(`Saved. The assignments overview may still show the old state until it is regenerated.`)
+    }
+  } catch (e) {
+    console.error('Could not update the dashboard entry', e)
+  }
+}
+
 async function setState(newState) {
   const warnings = {
     draft: `Unpublish "${form.value.id}" back to draft? Students can no longer open the accept link.`,
@@ -2746,12 +2809,14 @@ async function setState(newState) {
   try {
     const token = getToken()
     const path = assignmentPath(form.value.id)
-    const yaml = stringifyYaml(buildDoc(newState))
+    const doc = buildDoc(newState)
+    const yaml = stringifyYaml(doc)
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, `Set ${form.value.id} state to ${newState}`)
     if (res.ok) {
       form.value.state = newState
       snapshotForm()
       toast.success(`${form.value.id} -> ${newState}`)
+      await syncDashboardState(doc)
       await loadAssignments()
     } else {
       toast.error(`Update failed: ${res.data?.message || 'unknown error'}`)

@@ -25,7 +25,12 @@ import { verifyAcceptanceTitle } from '../../lib/acceptance-signature.mjs'
  */
 const CONTROL_PATH_SCHEMAS = [
   [/^teams\/[^/]+\/[^/]+\.json$/, 'team', 'json'],
-  [/^reports\/[^/]+\.json$/, 'report', 'json'],
+  // NOT reports/dashboard.json. That file is the cross-assignment roll-up -
+  // `{ assignments: { <id>: entry } }` - and has no schema of its own, so
+  // checking it against `report` rejected every write of it as invalid. The
+  // rejection was a 422 the SPA logged and swallowed, which is a fixture that
+  // refuses a document the backend writes on every regeneration.
+  [/^reports\/(?!dashboard\.json$)[^/]+\.json$/, 'report', 'json'],
   [/^acceptances\/[^/]+\/[^/]+\.json$/, 'acceptance', 'json'],
   [/^repositories\/[^/]+\/[^/]+\.json$/, 'repository-record', 'json'],
   [/^overrides\/[^/]+\/[^/]+\.json$/, 'override', 'json'],

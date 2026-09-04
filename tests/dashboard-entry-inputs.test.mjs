@@ -26,9 +26,18 @@ import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(join(root, rel), "utf8");
 
-/** Fields buildDashboardEntry reads off its `assignment` argument. */
+/**
+ * Fields buildDashboardEntry reads off its `assignment` argument.
+ *
+ * BOTH comment forms are stripped first. Only `//` lines were, and a JSDoc
+ * block naming `publish-assignment.yml` was then read as a field called `yml` -
+ * a guard failing on prose, which teaches the next person to write worse
+ * comments. A comment is never a field read.
+ */
 function fieldsBuilderReads() {
-  const src = read("lib/dashboard-aggregate.mjs").replace(/^\s*\/\/.*$/gm, "");
+  const src = read("lib/dashboard-aggregate.mjs")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
   return [...new Set([...src.matchAll(/\bassignment\.([A-Za-z_][\w]*)/g)].map((m) => m[1]))].sort();
 }
 
