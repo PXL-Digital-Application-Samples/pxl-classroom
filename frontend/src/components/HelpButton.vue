@@ -38,24 +38,38 @@ function open() {
 <style scoped>
 /* Sized and coloured to read as interactive at a glance. The first version was
    1.1rem in --text-muted with a hairline border, and it was reported as not
-   findable at all - it looked like punctuation. */
+   findable at all - it looked like punctuation. What made it findable was the
+   accent colour and the solid ring, not the diameter, which is why this can be
+   small again: 1.35rem read as heavy beside a label. */
 .help-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.35rem;
-  height: 1.35rem;
+  width: 1.1rem;
+  height: 1.1rem;
   padding: 0;
   margin-left: var(--space-2xs);
   border: 1px solid var(--accent-blue);
   border-radius: var(--radius-full);
   background: var(--bg-surface);
   color: var(--accent-blue);
-  font-size: 0.82rem;
+  font-size: 0.7rem;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
   vertical-align: middle;
+}
+
+/* THE TARGET DOES NOT SHRINK WITH THE GLYPH. The ring renders at 16.5px here
+   (the root font size is 15px, so 1.1rem is not 17.6), under the 24px WCAG 2.2
+   SC 2.5.8 asks of a pointer target - and it sits inside a <label>, where a
+   miss does not do nothing, it focuses the field. 4px each way brings the hit
+   area to 24.5px without changing anything you can see. */
+.help-button::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .help-button:hover,
