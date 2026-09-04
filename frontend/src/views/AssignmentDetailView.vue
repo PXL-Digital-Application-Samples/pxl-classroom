@@ -2752,6 +2752,16 @@ async function refreshOne(token, s) {
       }
 
       // Fetch CI status if github actions. s.repo_name is already org/repo.
+      //
+      // GATED ON THE ASSIGNMENT DECLARING `github_actions`, AND DELIBERATELY
+      // NOT ON `ciGradingAvailable`. Widening it to every assignment that has
+      // not declared a local runner would fill this column for a
+      // template-owned setup too - which today shows nothing until scores are
+      // read - and it was considered and declined on cost: this runs once per
+      // student per Refresh, so it is a request per student on every
+      // assignment, including every assignment nobody grades at all. The
+      // column is not worth that. Reading the scores fills it, and that is a
+      // deliberate action a lecturer takes once.
       if (isGitHubActionsAutograde.value) {
         const checkRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
         if (checkRes.ok && checkRes.data?.check_runs) {

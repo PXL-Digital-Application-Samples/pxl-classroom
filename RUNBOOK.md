@@ -749,14 +749,9 @@ pxl-classroom download --org PXLAutomation \
 
 ### 6.12 Autograding
 
-**In the Admin Panel**, the Guardrails section shows one line - **Automated checks** - and a **Set up** button. The modal behind it asks the two questions that are decisions:
+**The procedure is [AUTOGRADING.md](AUTOGRADING.md)** - which case you are in, what to pick in the panel, and what to do when a student comes back with no score. It is the one place that describes it; this section keeps only what that document deliberately leaves out.
 
-* **Where do they run?** *On your machine* costs no Actions minutes, keeps the checks out of the student repository, and you run `pxl-classroom grade` after the deadline. *In each student's repo* runs them on every push, on the organization's Actions minutes, and shows the student a pass/fail each time.
-* **Can students read the checks?** Only asked for the second answer. *Yes* commits them to each student's repository; *No* keeps them in the control repository and runs them from there.
-
-Then add checks from three named starting points - *a command that must succeed*, *compare output for given input*, *a Python script* - each of which arrives pre-filled with a working example to edit. The table totals the points. A check with a missing ID, a duplicate ID, an empty command, an empty points box or (for Python) no script cannot be saved, and says so on its own row. **A blank points box is not zero** - if a check is genuinely worth nothing (a setup step that must succeed), type `0`. Saving with **no** checks is not a state: use **Turn off automated checks**. Escape, the backdrop and **×** all close without saving.
-
-**Or edit the YAML directly** (the shape the panel writes):
+**The YAML the panel writes.** Edit it by hand only for something the panel does not offer:
 
 ```yaml
 autograde:
@@ -780,7 +775,7 @@ autograde:
 
 **A `python` test is its `script`, and nothing else.** Every runner - `--runner host`, `--runner docker`, and the generated Actions workflow - writes `script` to a file and executes it; `command` is ignored, and the schema rejects a `python` test that has no `script`. Write the assertions you want run directly in `script`. If you want pytest, use `type: run` with `command: pytest ...` instead: a `script` is executed by the interpreter, so a file that only *defines* `def test_x()` passes without testing anything. And nothing is installed before it runs - `setup_command` was read by the Actions generator, was never a schema field, and is gone - so keep a python test to the standard library plus whatever the repository itself provides.
 
-#### Option A: Lecturer-side (CLI-only)
+#### Grading from the CLI
 
 When `execution_environment` is `lecturer_local`, run the grader **on your machine** - never on the platform:
 
@@ -797,51 +792,19 @@ Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512
 
 Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the **Autograder** panel on `AssignmentDetailView`.
 
-#### Option B: Student-side (GitHub Actions)
+#### What provisioning does with a template that already grades
 
-When `execution_environment` is `github_actions`, the tests run automatically on GitHub Actions whenever the student pushes code.
+If the template repository already contains `.github/workflows/autograding.yml` or `classroom.yml`, provisioning **preserves it** and injects nothing. That is what makes a GitHub Classroom template work unchanged, and it is why the panel offers to write one only when it finds none.
 
-- **Template Preservation**: If the assignment's template repository already contains a custom autograding workflow (`.github/workflows/autograding.yml` or `classroom.yml`, such as standard GitHub Classroom or Cloud PE workflows), it is preserved during provisioning without overwrite.
-- **No checks, autograding on**: the injected workflow **fails** with a message saying the assignment defines none, rather than guessing at the student's toolchain and reporting the guess as a grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
-- **Workflow Generation**: If no workflow exists in the template, provisioning injects a workflow utilizing `classroom-resources/autograding-*-grader` and `classroom-resources/autograding-grading-reporter`. A `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is the same thing the CLI runners do, which is what makes a test definition mean one thing on both paths.
-- **Guardrails**: The generated workflow automatically enforces `timeout-minutes: 10` (preventing infinite loops from burning runner quotas) and `concurrency: { cancel-in-progress: true }` (cancelling obsolete runs if a student pushes repeatedly).
-- **Visibility `private`**: The injected workflow calls a reusable workflow stored in the control repository (`pxl-classroom-control`), hiding the actual tests and commands from the student's view.
-- **Visibility `public`**: The tests are executed openly in the student's repository, allowing them to see exactly what commands are run.
+Where it does inject: a `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is what the CLI runners do, which is what makes a test definition mean one thing on both paths. The generated workflow carries `timeout-minutes: 10` and `concurrency: { cancel-in-progress: true }`, and under `visibility: private` it calls a reusable workflow in the control repository so the commands stay out of the student's view.
 
-To pull the grades back into the control repository:
-1. Open the SPA and navigate to the `AssignmentDetailView` for the assignment (or run `pxl-classroom grade --assignment <id>`).
-2. Choose **··· More → Read scores from GitHub Actions**. Once there are grades on screen the same action also sits in the Autograder panel.
-3. The system fetches the Checks API at each student's preserved or latest observed SHA, reads the score from the check run's **annotations**, and writes `grading/<id>/summary.json` to the control repository. The Score and CI Status columns fill in immediately, and the CSV export carries them.
+Autograding on with **no** checks makes the injected workflow **fail**, saying so, rather than guessing at the student's toolchain and reporting the guess as a grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
 
-**This works for an assignment whose autograding came with the template.** If the template repository ships its own `classroom.yml` - the ordinary GitHub Classroom setup - the assignment does not need an `autograde` block in the Admin Panel, and you do not need to re-enter the exercises or their points: the reporter's annotation carries the maximum. The action is offered on any assignment that has not explicitly chosen a lecturer-local runner.
+#### Where the number comes from
 
-**Where the number comes from, and what it is not.** A check run created by GitHub Actions has an empty output body; the reporter emits `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` as annotations, and that is what is read. A run that finished with no such annotation is recorded from the run's conclusion instead - full marks or zero - and marked `score_source: "conclusion"` so it can be told apart from a real score. A run that **never ran** - skipped, cancelled, still going - is not scored at all: those students come back in the failure list by name, because a job that did not run measured nothing. There is **no per-test breakdown** on this path: annotations carry the grand total only, so the drill-down links to the run rather than inventing a table. For a per-test breakdown, grade locally with `pxl-classroom grade --runner docker`, which writes `grading/<id>/<login>.json`.
+A check run created by GitHub Actions has an empty output body. The reporter emits `Points <earned>/<total>` and `{"totalPoints":…,"maxPoints":…}` as **annotations**, and that is what is read, from the Checks API at each student's graded commit. Results are written to `grading/<id>/summary.json` in the control repository.
 
-#### Option C: Graded at hand-in (cloud exams)
-
-For a template whose grading workflow runs on **one commit only**, gated on its message:
-
-```yaml
-if: github.event.head_commit.message == 'einde examen'
-```
-
-That is the shape to use when the checks read the student's **own** cloud account: the sandbox is gone once their lab session ends, so the score has to be taken while they are still working, and it cannot be reproduced afterwards from the archive. `templates/template-cloud-autograding/` is a working starting point.
-
-1. Put the workflow in the template repository. It is preserved during provisioning, exactly as any other template-owned workflow is. **If the template has none, the panel offers to write one** - it reads the template, and where it finds no workflow carrying the autograding reporter, **Add a starter workflow** commits `.github/workflows/classroom.yml` gated on the message you typed. Its one example check **fails on purpose** until you replace it; a placeholder that passed would report full marks for work nobody measured. A template it could not read is reported as unknown and offers nothing, and a `classroom.yml` that already exists is never overwritten.
-   - **On an assignment students have already accepted**, writing to the template does not reach them. Run **Sync Starter Code** afterwards: a file absent from both the template's previous commit and the student's repository is a clean add, so it lands on their `main` without a pull request.
-   - The panel also compares the template's gate with the assignment's message and says so when they disagree - the workflow runs on its own wording, the dashboard reads scores by the other, and every student would come back with no grading run. **Use the template's wording** copies the file's literal into the assignment; the file is never rewritten for you.
-2. In the Admin Panel, open **How it's graded → Set up**, choose **They come with my template**, then **Only on a hand-in commit**, and type the same words the workflow compares against - `einde examen`. Matched exactly, so tell students the exact words and mind the capitals.
-3. Decide whether **they may hand in more than once**, in the same place. On by default: the **last** hand-in on or before that student's deadline is the one graded, so a student who spots a mistake and hands in again is graded on the fix. Turned off, the **first** one counts and a later one does not replace it.
-4. Tell students to commit and push with that message when they are done.
-5. After the exam, read the scores exactly as in Option B.
-
-**What the marker changes:** which commit's check run is read. With it set, the hand-in commit *is* the submission for grading - the student's last commit is not consulted, so pushing a fix afterwards neither loses the score nor replaces it.
-
-**A hand-in after the deadline is never graded.** Each candidate is judged on the **commit's own timestamp** against that student's effective deadline, extension included. A student whose only hand-in is late is listed by name with the commit and its time, rather than being scored or silently dropped - the two are different facts and you do different things about them.
-
-**What it does not change:** what is preserved, what counts as late in the report, or what a submission is. Those are still the deadline and the collector's observations.
-
-**A student who never handed in has no score, and is named.** They are not scored zero: nothing ran, so nothing was measured. Chase them or grade them by hand.
+A run that finished with no such annotation is recorded from the run's conclusion instead - full marks or zero - and marked `score_source: "conclusion"`, so it can be told apart from a measured score. A run that **never ran** is not scored at all.
 
 ### 6.13 Correcting an assignment after students have accepted
 

@@ -8,6 +8,58 @@ permissions:
   contents: read
 
 jobs:
+  # Did this push touch anything but the documents at the repository root?
+  #
+  # A `paths` filter is WORKFLOW-level, so it cannot skip one job - and skipping
+  # the whole workflow on a `.md` change would be wrong: `doc-refs` and
+  # `manual-topics` in the unit suite are the only things that catch a `§4.3.2`
+  # pointing at a heading that no longer exists, in the docs and in ~340 source
+  # comments and UI strings. So the unit job always runs, and this decides
+  # whether the expensive half does.
+  #
+  # It fails OPEN. An unreadable range - a new branch, a force-push, an empty
+  # diff - runs the full suite, because "we could not tell" must never be the
+  # cheaper answer.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.scan.outputs.code }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Look at what changed
+        id: scan
+        # Through env:, never composed into the script text.
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "no usable range from ${BEFORE} - running everything"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BEFORE" "$AFTER")
+          if [ -z "$changed" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "empty diff - running everything"
+            exit 0
+          fi
+          echo "$changed"
+          # Anything that is not a top-level .md counts as code. Deliberately
+          # blunt: a README under templates/ or a fixture that happens to end
+          # in .md runs the full suite, which is the harmless direction.
+          if printf '%s\n' "$changed" | grep -qvE '^[^/]+\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "documents only - end-to-end tests skipped"
+          fi
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -29,6 +81,8 @@ jobs:
   # here, and one commit shipped 47 broken navigations across 14 spec files
   # because `node --test` never touches tests/**/*.spec.mjs.
   e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

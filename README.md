@@ -268,7 +268,7 @@ Full command list: [cli/README.md](cli/README.md).
 
 | Role | Documentation |
 |---|---|
-| A **lecturer** running assignments | **[RUNBOOK.md](RUNBOOK.md)** - publishing, deadlines, grading, a student who is stuck |
+| A **lecturer** running assignments | **[RUNBOOK.md](RUNBOOK.md)** - publishing, deadlines, grading, a student who is stuck. Autograding has its own short one: **[AUTOGRADING.md](AUTOGRADING.md)** |
 | An **administrator** | **[ADMIN.md](ADMIN.md)** - onboarding an organization, budgets, App permissions, incidents |
 | Standing the system up for an institution | **[INSTALL.md](INSTALL.md)** - the one-time setup |
 | A **developer** changing the code | **[ARCHITECTURE.md](ARCHITECTURE.md)**, then **[CLAUDE.md](CLAUDE.md)** for the working conventions |

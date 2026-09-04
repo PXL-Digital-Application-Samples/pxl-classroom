@@ -17,6 +17,15 @@ on:
       - 'schemas/**'
       - 'acceptance/claim-keys.json'
       - 'deployment.yml'
+      # The in-app help. `prebuild` runs scripts/build-manual.mjs over MANUAL.md
+      # into frontend/src/generated/manual.json, which the bundle imports - so
+      # this file is a BUILD INPUT, not documentation, and it was missing here
+      # for the same reason claim-keys.json was. A help-text fix landed on main
+      # and never reached a lecturer, with nothing red anywhere; it only looked
+      # deployed because every edit so far happened to travel with a
+      # frontend/** change.
+      - 'MANUAL.md'
+      - 'scripts/build-manual.mjs'
       - '.github/workflows/deploy-frontend.yml'
       # The two scripts this workflow RUNS, which is the same rule one level
       # out: they decide what the published artifact contains, so a change to
