@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/retired-manifest.schema.json",
+  "title": "Retired Assignment Manifest",
+  "description": "What was deleted, when, by whom, and where the code still is. Written to retired/<assignment-id>/manifest.json by the Admin Panel's delete, in the same atomic commit that removes the working data. It is the only record that survives the assignment, so it has to be readable years later by someone with no access to this conversation and no other document to cross-check against: every repository it names is spelled owner/name, and the fields are all required so a future writer cannot quietly stop recording one. lib/retired-manifest.mjs builds it and nothing else does.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "title",
+    "deleted_at",
+    "deleted_by",
+    "broker_repo_deleted",
+    "archive_repo",
+    "removed_paths"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignment_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,99}$",
+      "description": "The deleted assignment's id. Its directory name too, so this is a cross-check rather than the only copy."
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The assignment's title as it stood at deletion. The id is a slug; a year later this is what tells a reader which cohort it was. Null when the document had none."
+    },
+    "deleted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deleted_by": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "GitHub login of whoever confirmed the delete. Null when the session had no user on hand, which is a fact worth recording rather than an empty string that reads like a name."
+    },
+    "broker_repo_deleted": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}/[A-Za-z0-9._-]{1,100}$",
+      "description": "owner/name of the broker that was deleted. Null when there was none left to delete. It is the ONE thing the delete cannot undo - everything else stays in the control repository's history - so it is named here rather than left to be reconstructed from the naming rule."
+    },
+    "archive_repo": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}/[A-Za-z0-9._-]{1,100}$",
+      "description": "owner/name of the archive repository that still holds the preserved submissions - the one thing retired/ does not contain, and the first place a grade dispute goes. Spelled owner/name like every other archive_repo in the system (see report.schema.json); the first manifests written recorded a bare repository name, which left a reader to infer the org from a document whose whole purpose is to need no context. Null when the id could not produce a name."
+    },
+    "removed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Every control-repo path the delete removed, from the one recursive tree read it was chosen by. A delete that refused to run on a truncated tree writes no manifest at all, so this list is complete by construction rather than by promise."
+    }
+  }
+}

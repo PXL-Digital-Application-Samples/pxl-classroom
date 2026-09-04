@@ -1237,3 +1237,29 @@ What stays unsayable is deliberate: with no checks and no marker, "the template 
 
 **And the timeout on the generated workflow was in the wrong unit the whole time.** Every `classroom-resources` grader documents `timeout` as *"Duration (in minutes)"*; the schema field is `timeout_s`, seconds, capped at 600, and both CLI runners honour it as seconds. `provision.mjs` passed the number straight through, so one test definition meant 30 seconds locally and **30 minutes** on Actions — on the side that bills an organisation's minutes, for a runaway loop nobody is watching.
 
+### The write validation had two holes, and each one was written down as a comment.
+
+The e2e fixture refuses a control-repo write whose document fails the schema for its path - the guard that caught a team manifest missing `created_by` and `earned_points` on a report row. Asked on 2026-09-04 whether `reports/dashboard.json` had a schema, the answer was no, and the fixture had been saying so out loud:
+
+```js
+// NOT reports/dashboard.json. That file is the cross-assignment roll-up -
+// `{ assignments: { <id>: entry } }` - and has no schema of its own, so
+// checking it against `report` rejected every write of it as invalid.
+```
+
+**A path with no schema is exempt, silently.** Not refused, not warned about - `CONTROL_PATH_SCHEMAS.find()` returns undefined and the write is stored. So the exemption written as a one-line comment made the file that **three** surfaces write (`report.mjs` regenerates, the Admin Panel's state patch merges, the detail view's live refresh rebuilds) the one generated document no test could reject. What guarded it instead were three tests on the *producers*, `tests/dashboard-entry-inputs.test.mjs` among them, which prove two writers agree with each other and say nothing about whether either produced a readable document.
+
+**The second hole was bigger and nobody had written it down at all.** The validation ran only on `PUT /contents`. Everything committed through the Git Data API - the team seed, and every path a delete writes into `retired/` - went through the blob/tree/commit route and was stored unread. Half the write path had the property the fixture's own comment claims for all of it.
+
+Both are closed: `schemas/dashboard.schema.json`, `schemas/retired-manifest.schema.json`, and validation on the tree POST, where a multi-file commit is refused whole if any document in it fails - the same all-or-nothing the real API gives.
+
+**What it found the same afternoon.** `tests/e2e/51-dashboard-roll-call.spec.mjs` built its stale dashboard by hand: an invented top-level `org` no writer emits, and four of the entry's fourteen fields. The panel then merge-patched *that* and wrote it back, so a spec about repairing a stale entry was operating on a document no regeneration has ever produced. Same family as the two fixtures above, found the only way these are ever found - by making the mock enforce what the backend enforces. The fixture builds its entry with `buildDashboardEntry` now.
+
+**And the manifest a deleted assignment leaves behind named one repository two ways.** `broker_repo_deleted` carried `owner/name`; `archive_repo` beside it carried a bare `pxl-classroom-archive-finalize-drill`, because the panel called `archiveRepoName(id)` - the function for *where a new archive goes* - and CLAUDE.md's rule that `lib/archive-repo.mjs` decides where a preservation **is** versus where a new one **goes** was broken by picking the wrong half of it. Nothing iterates `retired/` and nothing will ever regenerate that file, so the day it is written is the only chance to get it right, and its whole purpose is to be readable years later with no other document beside it. Validated against the live testbed manifest, the new schema rejects exactly that one field and nothing else.
+
+The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an object literal inside a Vue method, so no test could import it and no schema had anything to point at. Its null guard is the interesting line: `resolveArchiveRepo` reads an absent `recorded` as *"preserved before per-assignment archives existed"* and answers with the org's legacy `pxl-classroom-archive`, which is right for an old report row and a straight lie in a manifest.
+
+**Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
+
+**The one deliberate asymmetry is in `report.mjs`.** It validates before writing, and the blame decides how loudly: an invalid entry for *the assignment this run built* exits `fail:dashboard-invalid`, while an invalid **sibling** entry - carried forward from a file this run merely read - is a warning and the write proceeds. `with_warnings` became `with_repo_faults` once already; failing closed on a sibling would have taken the nightly down for every assignment in the org, silently, over a document that run did not produce and could not fix. The match is on the exact entry, not `startsWith`: `test-pe` and `test-pe-1` are both live in PXL-Automation-II.
+

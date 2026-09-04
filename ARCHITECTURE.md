@@ -357,6 +357,7 @@ Whichever applies, it runs through the org-level App installation - which outran
 ├── reports/<id>.json                     # calculated: per-assignment report
 ├── reports/dashboard.json                # calculated: aggregate for the SPA dashboard
 ├── overrides/<id>/<login>.json           # lecturer override (append-only)
+├── retired/<id>/                         # what a deleted assignment left: manifest, report, grades (§11.3)
 └── public/                               # GENERATED public metadata for Pages
 ```
 
@@ -373,6 +374,8 @@ The model explicitly distinguishes:
 
 JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/schemas/` at build time. The SPA fetches them at runtime to validate user input before commit (Admin Panel).
 
+They are also what the e2e fixture enforces: every control-repo write, through `PUT /contents` or the Git Data API, is validated against the schema for its path and refused with a 422 if it fails. A generated document without a schema is therefore a document no test can reject, which is why `reports/dashboard.json` and `retired/<id>/manifest.json` have one.
+
 | Schema | Stores |
 |---|---|
 | `assignment.schema.json` | Assignment definition (see §5.4) |
@@ -383,6 +386,7 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `repository-record.schema.json` | Provisioned repo facts |
 | `observation.schema.json` | A single submission observation - `snapshot` of the submission ref or a `tagged-submission` produced from `refs/tags/submit/*` |
 | `report.schema.json` | Computed per-assignment report |
+| `dashboard.schema.json` | The cross-assignment roll-up at `reports/dashboard.json`, written by report.mjs, the Admin Panel's state patch and the detail view's live refresh |
 | `override.schema.json` | Lecturer overrides (8 types, see schema) |
 | `participating-orgs.schema.json` | Hub-side registry of participating orgs |
 | `limits.schema.json` | Global and per-org weekly usage limits |
@@ -391,6 +395,7 @@ JSON Schemas live in `schemas/` in the hub and are copied into `frontend/public/
 | `grading-summary.schema.json` | Cohort grading roll-up, joined onto the report by login |
 | `sync-record.schema.json` | One starter-code sync run (`syncs/<id>/<sync-id>.json`) |
 | `download-manifest.schema.json` | Preserved submission archive download manifest |
+| `retired-manifest.schema.json` | What a deleted assignment left behind (`retired/<id>/manifest.json`) |
 
 ### 5.4 Assignment definition
 
@@ -1097,7 +1102,7 @@ Order is the safety property, and it is broker-first. The collector finds work b
 
 Enumeration is **one** recursive tree read, not a listing per directory - `observations/<id>/<login>/<file>` is three levels deep and a walk costs a request per student. A `truncated` tree aborts: deleting from a partial listing strands whatever it did not name, unreachable from every surface because the assignment is gone. The paths are matched against `<dir>/<id>/`, so an assignment whose id is a prefix of another's is not swept up with it, and `students/` and `errors/` are org-wide and never in scope.
 
-The control-repo half is a **single atomic commit** (`commitFiles`, which deletes via `content: null`): it writes `retired/<id>/` and removes the working data together, so there is no state where the report is gone and the evidence was never written. `retiredDir()` in `lib/control-layout.mjs` owns that path; it is deliberately outside `CONTROL_SCAFFOLD_DIRS` and **nothing iterates it**, which is what stops a deleted assignment reappearing as a cohort with no students. `manifest.json` records what was removed, when, by whom, and the archive repository that still holds the code - the one thing `retired/` does not.
+The control-repo half is a **single atomic commit** (`commitFiles`, which deletes via `content: null`): it writes `retired/<id>/` and removes the working data together, so there is no state where the report is gone and the evidence was never written. `retiredDir()` in `lib/control-layout.mjs` owns that path; it is deliberately outside `CONTROL_SCAFFOLD_DIRS` and **nothing iterates it**, which is what stops a deleted assignment reappearing as a cohort with no students. `manifest.json` records what was removed, when, by whom, and the archive repository that still holds the code - the one thing `retired/` does not. `lib/retired-manifest.mjs` builds it and `schemas/retired-manifest.schema.json` describes it; every repository it names is `owner/name`, because nothing regenerates this file and it has to be readable years later with no other document beside it.
 
 ### 11.4 Feedback PR (optional)
 

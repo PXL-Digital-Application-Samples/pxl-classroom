@@ -16,6 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { buildDashboardEntry } from '../../lib/dashboard-aggregate.mjs';
 
 const REPORTED = 'reported-assignment';
 const FRESH = 'just-published';
@@ -37,17 +38,34 @@ const assignment = (id, over = {}) => ({
 
 // A dashboard that knows about ONE of the two assignments on disk - exactly the
 // window between publishing and the next regeneration.
+//
+// The ENTRY IS BUILT, not typed out. It used to be four hand-picked fields
+// beside an invented top-level `org`, which is a shape no regeneration has ever
+// produced - and the panel then merge-patched that and wrote it back, so the
+// spec was proving something about a document the backend could not read. Now
+// the same builder report.mjs uses supplies it, and the fixture rejects the
+// write if it ever stops matching schemas/dashboard.schema.json.
 const staleDashboard = {
   schema_version: 1,
-  org: ORG,
-  generated_at: '2026-08-01T00:00:00Z',
+  generated_at: '2026-08-01T00:00:00.000Z',
   assignments: {
-    [REPORTED]: {
-      title: 'Reported assignment',
-      state: 'published',
-      deadline_at: '2026-12-30T20:00:00Z',
-      accepted: 3,
-    },
+    [REPORTED]: buildDashboardEntry(
+      {
+        title: 'Reported assignment',
+        state: 'published',
+        opens_at: '2026-08-01T08:00:00.000Z',
+        deadline_at: '2026-12-30T20:00:00.000Z',
+        timezone: 'Europe/Brussels',
+        max_acceptances: 50,
+      },
+      // Three accepted students, so `accepted: 3` is a count of something
+      // rather than a number written down.
+      [
+        { acceptance_state: 'accepted', repo_id: 1, submission_status: 'on-time', warnings: [] },
+        { acceptance_state: 'accepted', repo_id: 2, submission_status: 'on-time', warnings: [] },
+        { acceptance_state: 'accepted', repo_id: 3, submission_status: 'no-submission', warnings: [] },
+      ],
+    ),
   },
 };
 

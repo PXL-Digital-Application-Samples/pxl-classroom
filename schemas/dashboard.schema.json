@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/dashboard.schema.json",
+  "title": "Dashboard Aggregate",
+  "description": "The cross-assignment roll-up at reports/dashboard.json, and the only file the org overview reads. THREE surfaces write it and until this schema existed none of them validated it: report/report.mjs rebuilds one entry and prunes the dead ones, AdminView's syncDashboardState merge-patches the fields an assignment document owns, and AssignmentDetailView's syncDashboardAggregate rebuilds one entry from a synthesised assignment. The e2e fixture validates every other control-repo write and had to skip this path for want of a schema, so a malformed dashboard was the one document no test could catch. Entries are built by lib/dashboard-aggregate.mjs and nothing else; tests/dashboard-schema.test.mjs derives this property list from that builder's real output rather than keeping a second copy of it.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignments"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "assignments": {
+      "type": "object",
+      "description": "One entry per assignment that has been reported on, keyed by assignment id. An assignment created but never reported on is absent, which is why the dashboard reads assignments/ as well.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]{0,99}$",
+        "description": "The assignment id, spelled exactly as assignment.schema.json constrains it."
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/entry"
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the file was last rewritten by a full regeneration (report.mjs) or a live refresh. NOT set by the two patch paths - closing an assignment and deleting one both rewrite the file and leave this alone - so it is the age of the counts, not of the document. Nothing reads it today; it is declared so the next surface to want it knows which of the two questions it answers."
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "description": "One assignment's card on the overview: the facts the assignment document owns, plus the counts derived from its report.",
+      "required": [
+        "title",
+        "opens_at",
+        "deadline_at",
+        "max_acceptances",
+        "total_students",
+        "accepted",
+        "provisioned",
+        "on_time",
+        "late",
+        "no_submission",
+        "with_repo_faults",
+        "generated_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Copied from the assignment document, which requires it."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "published",
+            "closed",
+            "archived"
+          ],
+          "description": "Optional because assignment.schema.json does not require `state` either, and an entry may not invent one. Its absence used to be invisible: the overview read this file's state and only publish-assignment.yml ever asked for a regeneration, so a closed assignment went on reading 'accepting' until syncDashboardState started patching it (reported 2026-09-04)."
+        },
+        "opens_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deadline_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The class deadline. A student with an override is judged against their own, which lives on the report row, never here."
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone for display. Optional for the same reason as `state`."
+        },
+        "max_acceptances": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The cap, so a surface holding only this entry can tell 'live' from 'cap reached' without re-reading the assignment YAML. Null means no cap, never a substituted number."
+        },
+        "total_students": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The cohort, not the org roster: an assignment naming class_groups counts only those groups' students."
+        },
+        "accepted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Report rows whose acceptance_state is not 'not-accepted'. A row exists for every student on the roster, accepted or not, which is why this is a filter and not total_students."
+        },
+        "provisioned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "on_time": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "late": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_submission": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "with_repo_faults": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows warning `missing-repo-id`, and only those - the one fault the detail view still shows and the only one a lecturer can act on. Named `with_warnings` before 2026-09-02, when it counted two warnings that had left the detail table and sent lecturers to a page with nothing on it."
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When THIS entry's counts were computed. Per entry because entries are regenerated one at a time: a nightly run for one assignment leaves every other entry, and its timestamp, exactly as it was."
+        }
+      }
+    }
+  }
+}

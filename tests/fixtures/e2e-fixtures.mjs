@@ -25,12 +25,19 @@ import { verifyAcceptanceTitle } from '../../lib/acceptance-signature.mjs'
  */
 const CONTROL_PATH_SCHEMAS = [
   [/^teams\/[^/]+\/[^/]+\.json$/, 'team', 'json'],
-  // NOT reports/dashboard.json. That file is the cross-assignment roll-up -
-  // `{ assignments: { <id>: entry } }` - and has no schema of its own, so
-  // checking it against `report` rejected every write of it as invalid. The
-  // rejection was a 422 the SPA logged and swallowed, which is a fixture that
-  // refuses a document the backend writes on every regeneration.
+  // The cross-assignment roll-up, `{ assignments: { <id>: entry } }`, is a
+  // different document from a report and gets its own schema. Checking it
+  // against `report` had rejected every write of it with a 422 the SPA logged
+  // and swallowed, so this line read `NOT dashboard.json` for months and the
+  // one file three surfaces write was the one no test could check.
+  [/^reports\/dashboard\.json$/, 'dashboard', 'json'],
   [/^reports\/(?!dashboard\.json$)[^/]+\.json$/, 'report', 'json'],
+  // What a deleted assignment leaves behind. The report and the grading summary
+  // under `retired/` are byte copies of documents already validated where they
+  // were written; checking them here says the delete copied rather than rebuilt.
+  [/^retired\/[^/]+\/manifest\.json$/, 'retired-manifest', 'json'],
+  [/^retired\/[^/]+\/report\.json$/, 'report', 'json'],
+  [/^retired\/[^/]+\/grading\.json$/, 'grading-summary', 'json'],
   [/^acceptances\/[^/]+\/[^/]+\.json$/, 'acceptance', 'json'],
   [/^repositories\/[^/]+\/[^/]+\.json$/, 'repository-record', 'json'],
   [/^overrides\/[^/]+\/[^/]+\.json$/, 'override', 'json'],
@@ -851,10 +858,32 @@ export async function setupStandardMockRoutes(page, {
         }
         if (method === 'POST' && url.includes('/git/trees')) {
           const body = route.request().postDataJSON();
-          pendingTree = (body.tree || []).map((entry) => ({
+          const tree = (body.tree || []).map((entry) => ({
             path: entry.path,
             content: entry.sha === null ? null : gitBlobs.get(entry.sha) ?? null,
           }));
+
+          // THE OTHER HALF OF THE WRITE PATH. Only PUT /contents was checked, so
+          // every document committed through the Git Data API - the team seed,
+          // and everything a delete writes into retired/ - was stored unread. A
+          // multi-file commit is atomic, so one bad document refuses the whole
+          // tree and nothing is stored: the same all-or-nothing the real API
+          // gives, and the SPA's own failure path fires behind it.
+          const violation = tree
+            .filter((f) => f.content !== null)
+            .map((f) => controlWriteViolation(f.path, f.content))
+            .find(Boolean);
+          if (violation) {
+            pendingTree = [];
+            await route.fulfill({
+              status: 422,
+              contentType: 'application/json',
+              body: JSON.stringify({ message: `[fixture] ${violation}` }),
+            });
+            return;
+          }
+
+          pendingTree = tree;
           for (const f of pendingTree) {
             if (f.content === null) dynamicFiles.delete(f.path);
             else dynamicFiles.set(f.path, f.content);

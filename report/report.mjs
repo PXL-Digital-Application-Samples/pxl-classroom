@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.mjs";
 // GitHub logins are case-insensitive, so every index below is keyed lowercased
 // and the spelling shown is chosen separately. See lib/github-login.mjs for the
@@ -759,6 +760,38 @@ async function main() {
   }
 
   dashboard.generated_at = new Date().toISOString();
+
+  // Validate before writing, and let the blame decide how loudly.
+  //
+  // OUR OWN ENTRY is this run's work: an invalid one is a bug in
+  // buildDashboardEntry or in the assignment document it read, and it must stop
+  // the run rather than land on the overview. A SIBLING entry is not - it was
+  // carried forward from a file this run merely read, so refusing to write would
+  // freeze the dashboard for every assignment in the org over a document this
+  // run did not produce and cannot fix. `with_warnings` became
+  // `with_repo_faults` once already; the next rename would otherwise take the
+  // nightly down org-wide, silently, and be diagnosed as "the cron is broken".
+  const { valid, errors } = validateAgainst("dashboard", dashboard);
+  if (!valid) {
+    // The exact entry, not everything it prefixes. `test-pe` startsWith-matches
+    // `/assignments/test-pe-1`, and both ids are live in PXL-Automation-II - a
+    // plain startsWith would fail this run over a sibling's defect.
+    const mine = `/assignments/${assignmentId}`;
+    const ours = errors.filter((e) => {
+      const at = e.instancePath || "";
+      return at === mine || at.startsWith(`${mine}/`);
+    });
+    if (ours.length > 0) {
+      console.error(`[FAIL] dashboard entry for ${assignmentId} does not match schemas/dashboard.schema.json`);
+      console.error(JSON.stringify(ours, null, 2));
+      await setOutput("outcome", "fail:dashboard-invalid");
+      process.exit(1);
+    }
+    for (const e of errors) {
+      console.error(`[warn] dashboard.json ${e.instancePath || "/"} ${e.message} - carried forward untouched`);
+    }
+  }
+
   await writeFile(dashboardPath, JSON.stringify(dashboard, null, 2) + "\n");
 
   // Set outputs

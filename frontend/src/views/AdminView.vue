@@ -1153,6 +1153,7 @@ import {
   DASHBOARD_PATH,
 } from '../../../lib/control-layout.mjs'
 import { archiveRepoName } from '../../../lib/archive-repo.mjs'
+import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
 
 /**
  * The control-repo directories keyed by assignment id.
@@ -2929,19 +2930,20 @@ async function deleteAssignment() {
     const changes = [
       {
         path: `${retiredDir(id)}/manifest.json`,
+        // The record that outlives the assignment - what went, when, by whom,
+        // and where the code still is. lib/retired-manifest.mjs owns its shape,
+        // so schemas/retired-manifest.schema.json has one document to describe
+        // and the e2e fixture checks every write of it against that schema.
         content: JSON.stringify(
-          {
-            schema_version: 1,
-            assignment_id: id,
-            title: form.value.title || null,
-            deleted_at: new Date().toISOString(),
-            deleted_by: user.value?.login || null,
-            broker_repo_deleted: brokerRes.ok ? `${props.org}/${broker}` : null,
-            // Where the code still is. The one thing a grade dispute needs that
-            // this folder does not hold.
-            archive_repo: archiveRepoName(id),
-            removed_paths: owned,
-          },
+          buildRetiredManifest({
+            org: props.org,
+            assignmentId: id,
+            title: form.value.title,
+            deletedBy: user.value?.login,
+            brokerRepo: broker,
+            brokerDeleted: brokerRes.ok,
+            removedPaths: owned,
+          }),
           null,
           2,
         ) + '\n',
