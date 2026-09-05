@@ -292,3 +292,139 @@ test.describe('49 - picking who an assignment is for', () => {
     expect(rows.map((r) => r.split(',')[at])).toEqual(['3A', '3A', '3B', '3B', '']);
   });
 });
+
+// ===========================================================================
+// A real course, not five students.
+//
+// Everything above runs on a roster small enough to see at once, which is
+// exactly the size at which a picker cannot go wrong. The failures worth having
+// a test for only appear when the list is longer than the box: a "select all"
+// that quietly takes the whole roster instead of the filter, a count that drifts
+// from what is ticked, and a list that pushes the page sideways instead of
+// scrolling inside itself.
+//
+// 200 is a first-year cohort at PXL. Four class groups, two students nobody has
+// grouped yet, and a third of them with no GitHub username - the shape of a
+// roster imported from the registrar before anybody has accepted anything.
+// ===========================================================================
+
+const FIRST = ['Alice', 'Bram', 'Cara', 'Dries', 'Eva', 'Finn', 'Gitte', 'Hanne', 'Ilse', 'Jonas'];
+const LAST = ['Vermeulen', 'Peeters', 'Janssens', 'Maes', 'Willems', 'Claes', 'Goossens', 'Wouters'];
+const GROUPS = ['1TIN-A', '1TIN-B', '1TIN-C', '2TIN-A'];
+
+const BIG = Array.from({ length: 200 }, (_, i) => ({
+  student_number: String(1230000 + i).padStart(7, '0'),
+  full_name: `${FIRST[i % FIRST.length]} ${LAST[i % LAST.length]}${i > 79 ? ` ${Math.floor(i / 80)}` : ''}`,
+  email: `s${i}@student.pxl.be`,
+  ...(i < 198 ? { class_group: GROUPS[i % GROUPS.length] } : {}),
+  ...(i % 3 === 0 ? {} : { github_login: `student-${i}` }),
+  active: true,
+}));
+
+test.describe('49 - the picker at a real course size', () => {
+  async function bigPicker(page) {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: BIG });
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('button', { hasText: 'New assignment' }).first().click();
+    await expect(guardrails(page)).toBeVisible({ timeout: 20000 });
+    await gateOnRoster(page);
+    await expect(page.locator('.cohort-row')).toHaveCount(200, { timeout: 20000 });
+  }
+
+  test('every student is offered, and the chips add up to the roster', async ({ page }) => {
+    await bigPicker(page);
+
+    const chips = await page.locator('.cohort-filters .chip-btn').allInnerTexts();
+    expect(chips[0]).toBe('All 200');
+    // The counts have to partition the roster: a chip that over- or under-counts
+    // sends a lecturer to select a section that is not the section.
+    const counted = chips.slice(1).map((c) => Number(c.split('·')[1].trim()));
+    expect(counted.reduce((a, b) => a + b, 0)).toBe(200);
+    // Four groups plus the two nobody grouped.
+    expect(chips.slice(1, 5).map((c) => c.split('·')[0].trim())).toEqual(GROUPS);
+    expect(chips[5]).toBe('No group · 2');
+  });
+
+  test('select all shown takes the FILTER, not the roster', async ({ page }) => {
+    // The failure this whole describe exists for. With five students on screen
+    // a "select all" that ignored the filter looks identical to one that
+    // honours it; with 200 it is the difference between 50 students and a
+    // course.
+    await bigPicker(page);
+
+    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await expect(page.locator('.cohort-row')).toHaveCount(50);
+    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await expect(guardrails(page)).toContainText('50 of 200 selected');
+
+    // Adding a second section adds to the selection rather than replacing it.
+    await page.locator('.chip-btn', { hasText: '1TIN-B' }).click();
+    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await expect(guardrails(page)).toContainText('100 of 200 selected');
+  });
+
+  test('search narrows the list, and select all respects it', async ({ page }) => {
+    await bigPicker(page);
+    const search = guardrails(page).getByPlaceholder('Search name, number or username');
+
+    await search.fill('Vermeulen');
+    const shown = await page.locator('.cohort-row').count();
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(200);
+
+    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await expect(guardrails(page)).toContainText(`${shown} of 200 selected`);
+
+    // Clearing the search does not clear the selection - the filter is a view.
+    await search.fill('');
+    await expect(page.locator('.cohort-row')).toHaveCount(200);
+    await expect(guardrails(page)).toContainText(`${shown} of 200 selected`);
+  });
+
+  test('the count stays exact when one row is toggled among 200', async ({ page }) => {
+    await bigPicker(page);
+
+    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await expect(guardrails(page)).toContainText('200 of 200 selected');
+
+    await page.locator('.cohort-row').first().locator('input[type=checkbox]').uncheck();
+    await expect(guardrails(page)).toContainText('199 of 200 selected');
+    // And the honest line about who is left out appears only once something is
+    // published, so on a draft it must not - the lecturer is still choosing.
+    await expect(guardrails(page)).not.toContainText('not in this assignment');
+  });
+
+  test('the list scrolls inside itself and never pushes the page sideways', async ({ page }) => {
+    // A 200-row list that grows the form is a page you cannot reach Save on,
+    // and a row that will not ellipsise scrolls the whole document sideways -
+    // the failure DESIGN.md §7 exists for, invisible at five rows.
+    await bigPicker(page);
+
+    const geom = await page.locator('.cohort-list').evaluate((el) => ({
+      clientH: el.clientHeight,
+      scrollH: el.scrollHeight,
+      pageScrollW: document.documentElement.scrollWidth,
+      pageClientW: document.documentElement.clientWidth,
+    }));
+
+    expect(geom.scrollH, '200 rows must overflow the box').toBeGreaterThan(geom.clientH);
+    expect(geom.clientH, 'and the box must stay a box, not grow to fit them').toBeLessThan(600);
+    expect(geom.pageScrollW, 'no sideways scroll').toBeLessThanOrEqual(geom.pageClientW + 1);
+  });
+
+  test('it survives a phone, where the columns fall away', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await bigPicker(page);
+
+    const geom = await page.evaluate(() => ({
+      scrollW: document.documentElement.scrollWidth,
+      clientW: document.documentElement.clientWidth,
+    }));
+    expect(geom.scrollW, 'no sideways scroll at 375px').toBeLessThanOrEqual(geom.clientW + 1);
+
+    // Ticking still works when the number and account columns are hidden.
+    await page.locator('.cohort-row').first().locator('input[type=checkbox]').check();
+    await expect(guardrails(page)).toContainText('1 of 200 selected');
+  });
+});
