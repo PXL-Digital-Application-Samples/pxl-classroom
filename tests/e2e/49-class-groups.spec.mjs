@@ -395,6 +395,19 @@ test.describe('49 - the picker at a real course size', () => {
     await expect(guardrails(page)).not.toContainText('not in this assignment');
   });
 
+  test('a student number is text, not a box that reads as an input', async ({ page }) => {
+    // COMPUTED, NOT EYEBALLED. `.field code` in this view is (0,2,1) once Vue
+    // adds its scope attribute and a bare `.cohort-num` is (0,2,0), so the
+    // plain class lost and every number kept the filled `code` background - a
+    // column of things that look editable, down 200 rows. It survived a
+    // screenshot review because at a glance a faint fill reads as a table
+    // stripe; only asking the browser found it.
+    await bigPicker(page);
+    const bg = await page.locator('.cohort-num').first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bg, 'the number must not carry a fill').toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+  });
+
   test('the list scrolls inside itself and never pushes the page sideways', async ({ page }) => {
     // A 200-row list that grows the form is a page you cannot reach Save on,
     // and a row that will not ellipsise scrolls the whole document sideways -

@@ -3565,7 +3565,12 @@ legend {
 .cohort-row.is-locked:hover { background: none; }
 /* Unfilled: `code`'s default inset background makes a plain identifier read as
    an input, and five of them down a column read as an editable form. */
-.cohort-num {
+/* `.field code` further down this sheet is (0,2,1) once Vue adds the scope
+   attribute, and a bare `.cohort-num` is (0,2,0) - so the plain class lost and
+   every student number kept the filled `code` background, reading as a column
+   of input boxes. It looked fixed in a screenshot; it was not, in either theme.
+   Qualified so the two cannot cancel out. */
+.field code.cohort-num {
   font-size: 0.78rem;
   background: none;
   padding: 0;
