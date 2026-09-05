@@ -1261,6 +1261,18 @@ The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an
 
 **Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
 
+**Then the same question, asked of the columns, found the lists disagreeing.**
+
+"Is `class_group` in the report CSV export?" It was, in both. But the two exports were 35 columns each and not the same 35. `report.mjs` writes the nightly `reports/<id>.csv`; the Assignment detail view writes what is on screen; each kept its own hand-typed list, and nothing had ever seen both.
+
+The SPA's dropped `claimed_email`, `claim_verified`, `claim_domain_allowed`, `archive_repo` and `archive_ref` - all declared report-row fields. ARCHITECTURE said the claim fields *"reach `reports/<id>.json` and the CSV export"*, which was true of the file nobody opens and false of the button lecturers press. On an **open** assignment with email confirmation there is often no roster at all, so that address is the only record of who accepted, and the export a lecturer actually clicks was the one losing it.
+
+**Ten more row fields were in neither list**, and nothing anywhere recorded that as a decision - among them `commit_date`, `author_name` and `author_email`, which `collect.mjs` has gathered on every scheduled run for months and which are exactly what a disputed submission time is settled with. `commit_date` especially: it is the commit's own timestamp, the field deadline classification compares against, as opposed to when the collector happened to look.
+
+**Which is why the guard is exhaustive rather than comparative.** Diffing the two lists finds the five and stops; it has nothing to say about the ten, because neither list mentions them. `lib/report-csv.mjs` splits the schema's student-row fields three ways - exported, join-only, excluded-with-a-reason - and `tests/report-csv-columns.test.mjs` requires every declared field to land in exactly one. A field added to the report schema now fails until somebody decides which it is.
+
+**The test that covered this had copied the thing under test into itself.** `tests/autograding-dual-mode.test.mjs` declared its own `CSV_HEADERS` *and* its own `csvCell` - a fourth copy of the escape, discovered while removing the other three - and asserted against those. Its copy was already stale: no `lockdown_delay_seconds`, no `archive_repo`, no `archive_ref`. It had been green throughout, over an export missing five fields, because it had never looked at the export.
+
 **And the escape had no inverse, in any of the three places it was written.**
 
 Export CSV prefixes an apostrophe onto a cell starting with `= + - @`, so a spreadsheet shows the text instead of running it. Nothing ever took it off. `coerceCell` - the shared importer, CLI and Admin Panel both - had never been told what the exporter does, so export → edit → import silently changed the value.

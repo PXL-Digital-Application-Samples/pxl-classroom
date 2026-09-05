@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { parseCheckRunScore } from '../lib/check-run-score.mjs';
 import { buildAutogradingWorkflow } from '../provisioning/provision.mjs';
 import { validateAgainst } from '../lib/validate.mjs';
+import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../lib/report-csv.mjs';
+import { csvCell } from '../lib/csv-cell.mjs';
 
 test('Autograding Actions Engine: builds full workflow with python grader and reporter', () => {
   const assignment = {
@@ -161,34 +163,15 @@ test('CLI Group Grader Deduplication: caches and propagates result across team m
 });
 
 test('CSV Export Headers: includes autograding and feedback PR fields', () => {
-  const CSV_HEADERS = [
-    'github_login', 'student_number', 'full_name', 'class_group',
-    'team_slug', 'team_name',
-    'acceptance_state', 'submission_status', 'effective_deadline_at',
-    'override_applied', 'override_reason', 'repo_name', 'repo_url',
-    'last_on_time_sha', 'last_on_time_observed_at', 'first_late_sha',
-    'first_late_observed_at', 'latest_observed_sha', 'latest_observed_at',
-    'commit_count',
-    'ci_status', 'earned_points', 'total_points',
-    'feedback_pr_number', 'feedback_pr_url',
-    'uncertainty_interval_seconds', 'tagged_submission_tag',
-    'tagged_submission_sha', 'tagged_submission_observed_at',
-    'tagged_submission_declared_at', 'lock_down_at', 'preservation_status',
-    'preserved_sha', 'warnings',
-  ];
+  // IMPORTED, NOT COPIED. This test used to declare its own CSV_HEADERS and its
+  // own csvCell and then assert against those - so it proved things about a
+  // list it had written itself, and passed for months while the real export
+  // dropped five report-row fields. The copy had drifted too: it was already
+  // missing `lockdown_delay_seconds`, `archive_repo` and `archive_ref`.
+  const CSV_HEADERS = [...REPORT_ROW_COLUMNS, ...RENDER_JOIN_COLUMNS];
 
-  assert.ok(CSV_HEADERS.includes('ci_status'));
-  assert.ok(CSV_HEADERS.includes('earned_points'));
-  assert.ok(CSV_HEADERS.includes('total_points'));
-  assert.ok(CSV_HEADERS.includes('feedback_pr_number'));
-  assert.ok(CSV_HEADERS.includes('feedback_pr_url'));
-
-  // Test cell generation
-  function csvCell(v) {
-    if (v === null || v === undefined) return '';
-    let str = Array.isArray(v) ? v.join('; ') : String(v);
-    if (/^[=+\-@]/.test(str)) str = `'${str}`;
-    return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  for (const c of ['ci_status', 'earned_points', 'total_points', 'feedback_pr_number', 'feedback_pr_url']) {
+    assert.ok(CSV_HEADERS.includes(c), `the export must carry ${c}`);
   }
 
   const studentRow = {

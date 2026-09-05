@@ -22,6 +22,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { csvCell } from "../lib/csv-cell.mjs";
+import { REPORT_ROW_COLUMNS } from "../lib/report-csv.mjs";
 import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.mjs";
 // GitHub logins are case-insensitive, so every index below is keyed lowercased
 // and the spelling shown is chosen separately. See lib/github-login.mjs for the
@@ -658,43 +659,10 @@ async function main() {
   }
 
   if (outputFormat === "csv" || outputFormat === "both") {
-    const csvHeaders = [
-      "github_login",
-      "team_slug",
-      "team_name",
-      "student_number",
-      "full_name",
-      "class_group",
-      "acceptance_state",
-      "claimed_email",
-      "claim_verified",
-      "claim_domain_allowed",
-      "submission_status",
-      "effective_deadline_at",
-      "override_applied",
-      "override_reason",
-      "repo_name",
-      "repo_url",
-      "last_on_time_sha",
-      "last_on_time_observed_at",
-      "first_late_sha",
-      "first_late_observed_at",
-      "latest_observed_sha",
-      "latest_observed_at",
-      "commit_count",
-      "uncertainty_interval_seconds",
-      "tagged_submission_tag",
-      "tagged_submission_sha",
-      "tagged_submission_observed_at",
-      "tagged_submission_declared_at",
-      "lock_down_at",
-      "lockdown_delay_seconds",
-      "preservation_status",
-      "preserved_sha",
-      "archive_repo",
-      "archive_ref",
-      "warnings",
-    ];
+    // lib/report-csv.mjs, not a list of its own. The Assignment detail view
+    // exports the same report and kept a second copy of this; both were 35
+    // columns and they were not the same 35.
+    const csvHeaders = REPORT_ROW_COLUMNS;
 
     const csvRows = [csvHeaders.join(",")];
     for (const s of students) {

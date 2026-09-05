@@ -1097,6 +1097,7 @@ import { config } from '../lib/config.js'
 // One CSV cell, shared. This file held a byte-identical copy of it, as did
 // RosterTab.vue and report.mjs, and none of the three had an inverse.
 import { csvCell } from '../../../lib/csv-cell.mjs'
+import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../../../lib/report-csv.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
@@ -2610,22 +2611,15 @@ function formatRelative(iso) {
 // Same column set as report.mjs's nightly CSV, but generated from the report
 // currently on screen - so an export taken after a Live Status refresh can
 // never contradict the table the lecturer just looked at.
-const CSV_HEADERS = [
-  'github_login', 'student_number', 'full_name', 'class_group',
-  'team_slug', 'team_name',
-  'acceptance_state', 'submission_status', 'effective_deadline_at',
-  'override_applied', 'override_reason', 'repo_name', 'repo_url',
-  'last_on_time_sha', 'last_on_time_observed_at', 'first_late_sha',
-  'first_late_observed_at', 'latest_observed_sha', 'latest_observed_at',
-  'commit_count',
-  'ci_status', 'earned_points', 'total_points',
-  'feedback_pr_number', 'feedback_pr_url',
-  'uncertainty_interval_seconds', 'tagged_submission_tag',
-  'tagged_submission_sha', 'tagged_submission_observed_at',
-  'tagged_submission_declared_at', 'lock_down_at', 'lockdown_delay_seconds',
-  'preservation_status',
-  'preserved_sha', 'warnings',
-]
+// The nightly's columns, then the ones only this surface can fill.
+//
+// This used to be its own list of 35, and the nightly's was a different 35:
+// claimed_email, claim_verified, claim_domain_allowed, archive_repo and
+// archive_ref were declared report-row fields that this export silently
+// dropped. Two hand-maintained lists over one schema, and nothing compared
+// them. lib/report-csv.mjs decides now; tests/report-csv-columns.test.mjs
+// checks both lists against the schema so a new row field cannot go unclaimed.
+const CSV_HEADERS = [...REPORT_ROW_COLUMNS, ...RENDER_JOIN_COLUMNS]
 
 function exportCSV() {
   const students = report.value?.students || []
