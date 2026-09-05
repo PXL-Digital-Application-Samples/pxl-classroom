@@ -249,7 +249,7 @@ test.describe('the name is taken', () => {
     const err = refusal(page);
     await expect(err).toBeVisible();
     await expect(err).toContainText('lab-3-alice, lab-3-bob');
-    await expect(err).toContainText(/locked by last year's deadline/);
+    await expect(err).toContainText(/students would get those back/);
     await expectNoWrite(page, writes);
   });
 
@@ -272,8 +272,7 @@ test.describe('the name is taken', () => {
     });
     await fillNew(page, { title: 'Lab 3 New', slug: 'lab-3-new', pattern: 'lab-3-{github_login}' });
 
-    await expect(refusal(page)).toContainText('"lab-3-old" already uses the repository name pattern');
-    await expect(refusal(page)).toContainText(/hand out each other's repositories/);
+    await expect(refusal(page)).toContainText('"lab-3-old" already uses this repository name pattern');
     await expectNoWrite(page, writes);
   });
 
@@ -298,7 +297,7 @@ test.describe('the name is taken', () => {
     await fillNew(page);
 
     await expect(refusal(page)).toContainText('6 preserved submissions');
-    await expect(refusal(page)).toContainText(/rejected at the new deadline/);
+    await expect(refusal(page)).toContainText(/preservation would fail at the new deadline/);
     await expectNoWrite(page, writes);
   });
 
@@ -307,7 +306,7 @@ test.describe('the name is taken', () => {
     // not proof the run never happened.
     await openAdmin(page, { orgRepos: [], retired: null, archive: true });
     await fillNew(page);
-    await expect(refusal(page)).toContainText('the archive repository still exists');
+    await expect(refusal(page)).toContainText('the archive still exists');
   });
 
   test('the refusal names every blocker at once, so one retry clears them all', async ({ page }) => {
@@ -322,7 +321,7 @@ test.describe('the name is taken', () => {
     const err = refusal(page);
     await expect(err).toContainText('lab-3-alice');
     await expect(err).toContainText('"lab-3-old"');
-    await expect(err).toContainText('the archive repository still exists');
+    await expect(err).toContainText('the archive still exists');
     // Three blockers, and NOT the retired record: the consequence line says
     // "delete what is listed above", and nobody has to delete the evidence.
     await expect(err.locator('.collision-list').first().locator('li')).toHaveCount(3);
@@ -336,7 +335,7 @@ test.describe('the name is taken', () => {
     await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page);
     const err = refusal(page);
-    await expect(err).toContainText('Three ways forward');
+    await expect(err).toContainText('Ways forward:');
     await expect(err.locator('.collision-ways li')).toHaveCount(3);
     await expect(err).toContainText('Recommended');
     await expect(err).toContainText('repository name pattern');
@@ -386,8 +385,7 @@ test.describe('the name is taken', () => {
     await expect(err).not.toContainText('2627-lab-3');
     await expect(err).not.toContainText('lab-3-2627');
     await expect(err).not.toContainText(/never collides?/i);
-    await expect(err).toContainText('a prefix, a suffix, or both');
-    await expect(err).toContainText('checked again when you type it');
+    await expect(err).toContainText('in front or behind');
   });
 
   test('deleting is not offered when there is nothing to delete', async ({ page }) => {
@@ -409,7 +407,6 @@ test.describe('the name is taken', () => {
     await openAdmin(page, { orgRepos: ['lab-3-alice'], archive: true, retired: manifest() });
     await fillNew(page);
     await expect(refusal(page)).toContainText("destroys the students' work");
-    await expect(refusal(page)).toContainText('grades are out of the system');
   });
 
   test('matching is case-insensitive, because GitHub repository names are', async ({ page }) => {
@@ -588,7 +585,7 @@ test.describe('an existing assignment', () => {
     await page.getByPlaceholder('linux-processes-{github_login}').fill('other-{github_login}');
 
     await saveDraft(page).click();
-    await expect(refusal(page)).toContainText('"other" already uses the repository name pattern');
+    await expect(refusal(page)).toContainText('"other" already uses this repository name pattern');
     expect(writes.filter((w) => w.path.startsWith('assignments/'))).toHaveLength(0);
   });
 

@@ -246,15 +246,15 @@ test("an existing repository blocks, and is named", () => {
   const v = assignmentCollisions({ existingRepos: ["lab-3-alice", "lab-3-bob"] });
   assert.equal(v.clear, false);
   assert.match(describeCollisions(v), /lab-3-alice, lab-3-bob/);
-  // What the student would actually meet - last year's work, last year's lock.
-  // Not "nothing can unlock it": `enforcement` is a flag and the Unlock action
-  // flips it. The hazard is that provisioning does not know to.
-  assert.match(describeCollisions(v), /holding last year's work and locked by last year's deadline/);
+  // The one consequence not obvious from the fact itself: repositories
+  // existing says nothing about students being handed them.
+  assert.match(describeCollisions(v), /students would get those back/);
 });
 
 test("one existing repository is not pluralised", () => {
   const v = assignmentCollisions({ existingRepos: ["lab-3-alice"] });
-  assert.match(v.findings[0].detail, /1 repository this pattern would produce already exists/);
+  assert.match(v.findings[0].detail, /^1 repository already exists: lab-3-alice/);
+  assert.match(v.findings[0].detail, /students would get it back/);
 });
 
 test("a long list is truncated with an ellipsis rather than printed whole", () => {
@@ -270,7 +270,7 @@ test("a pattern clash blocks and names the other assignment", () => {
     clashes: [{ id: "lab-3", pattern: "lab-3-{github_login}" }],
   });
   assert.equal(v.clear, false);
-  assert.match(describeCollisions(v), /"lab-3" already uses the repository name pattern/);
+  assert.match(describeCollisions(v), /"lab-3" already uses this repository name pattern/);
 });
 
 test("a surviving archive blocks even when every student repository is gone", () => {
@@ -284,7 +284,8 @@ test("a surviving archive blocks even when every student repository is gone", ()
   });
   assert.equal(v.clear, false);
   assert.match(describeCollisions(v), /6 preserved submissions/);
-  assert.match(describeCollisions(v), /rejected at the new deadline/);
+  // Silent until the deadline, so the consequence is worth its words here.
+  assert.match(describeCollisions(v), /preservation would fail at the new deadline/);
 });
 
 test("one preserved submission is not pluralised", () => {
@@ -296,7 +297,7 @@ test("one preserved submission is not pluralised", () => {
 test("an archive with nothing recorded is still named", () => {
   const v = assignmentCollisions({ manifest: { preserved_submissions: 0 }, archiveExists: true });
   assert.equal(v.clear, false);
-  assert.match(v.findings[0].detail, /^the archive repository still exists -/);
+  assert.match(v.findings[0].detail, /^the archive still exists -/);
 });
 
 test("an archive with no record at all still blocks", () => {
@@ -367,7 +368,7 @@ test("the refusal says how to proceed, not only that it refused", () => {
   const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }), {
     yearLabel: "2627",
   });
-  assert.match(msg, /Three ways forward/);
+  assert.match(msg, /Ways forward:/);
   assert.match(msg, /2627/);
   assert.match(msg, /repository name pattern/);
   assert.match(msg, /Delete what is listed above/);
@@ -409,20 +410,16 @@ test("IT NEVER PROMISES THE NEW NAME IS FREE", () => {
     })[0].label;
     assert.doesNotMatch(label, /never collides?/i);
     assert.doesNotMatch(label, /guarantee|always works|cannot collide/i);
-    // Says the opposite instead: it will be checked.
-    assert.match(label, /checked again when you type it/);
   }
 });
 
 test("both ends are offered, not one", () => {
-  // A prefix sorts a year's repositories together; a suffix keeps the
-  // assignment's own name first. Neither is wrong.
+  // Which end is the lecturer's choice, so the copy must not fix it.
   const label = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["x"] }),
     yearLabel: "2627",
   })[0].label;
-  assert.match(label, /a prefix, a suffix, or both/);
-  assert.match(label, /at either end/);
+  assert.match(label, /in front or behind/);
 });
 
 test("with no date to derive from, the convention is still named - without an empty gap", () => {
@@ -430,8 +427,9 @@ test("with no date to derive from, the convention is still named - without an em
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
     yearLabel: null,
   })[0].label;
-  assert.match(label, /academic year is the usual choice/);
+  assert.match(label, /academic year/);
   assert.doesNotMatch(label, /\(\)/, "no empty parenthesis where the year would be");
+  assert.doesNotMatch(label, / - , /, "no dangling separator where the year would be");
   assert.doesNotMatch(label, /null|undefined/);
 });
 
@@ -457,7 +455,6 @@ test("the delete option says what it costs, in the same breath", () => {
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"], archiveExists: true }),
   }).find((w) => w.key === "delete");
   assert.match(del.label, /destroys the students' work/);
-  assert.match(del.label, /grades are out of the system/);
   assert.equal(del.recommended, false);
 });
 
@@ -472,16 +469,31 @@ test("the pattern option is worded for the problem that was actually found", () 
   const onRepos = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
   }).find((w) => w.key === "pattern");
-  assert.match(onRepos.label, /Keep this name/);
+  assert.match(onRepos.label, /Keep the name/);
 });
 
-test("it says what each end buys, so the choice is the lecturer's", () => {
-  const label = collisionRemedies({
-    verdict: assignmentCollisions({ existingRepos: ["x"] }),
-    yearLabel: "2627",
-  })[0].label;
-  assert.match(label, /in front sorts one year's repositories together/);
-  assert.match(label, /behind keeps the assignment's own name first/);
+test("IT STAYS SHORT - this is red text under a form field", () => {
+  // The first cut ran to about 200 words: three findings each carrying its own
+  // consequence clause, then three remedies of forty. A wall of red is read as
+  // "something went wrong", not as three specific things and what to do. The
+  // long version is RUNBOOK 5.1, and the UI never sends anyone there.
+  const worst = assignmentCollisions({
+    existingRepos: ["lab-3-alice", "lab-3-bob", "lab-3-ella-dev", "lab-3-x"],
+    clashes: [{ id: "lab-3-old", pattern: "lab-3-{github_login}" }],
+    archiveExists: true,
+    manifest: { assignment_id: "lab-3", deleted_at: "2026-09-04T10:00:00Z", preserved_submissions: 6 },
+  });
+  const words = (t) => t.trim().split(/\s+/).length;
+
+  for (const f of worst.findings) {
+    assert.ok(words(f.detail) <= 18, `finding too long (${words(f.detail)} words): ${f.detail}`);
+  }
+  for (const w of collisionRemedies({ verdict: worst, yearLabel: "2627" })) {
+    assert.ok(words(w.label) <= 14, `remedy too long (${words(w.label)} words): ${w.label}`);
+  }
+  // The whole refusal, lead and remedies included.
+  const msg = describeCollisions(worst, { yearLabel: "2627" });
+  assert.ok(words(msg) <= 90, `the refusal is ${words(msg)} words`);
 });
 
 test("describeCollisions tolerates junk rather than throwing into a computed", () => {
