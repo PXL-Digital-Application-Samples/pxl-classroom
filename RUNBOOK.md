@@ -104,7 +104,9 @@ Students should not have to re-form the same teams for every group assignment. S
    - a team is larger than the new assignment's maximum team size (raise the maximum or split the team - members are never dropped silently);
    - the new assignment shares a repository name pattern with the source. **Fix this one before anything else**: both assignments would resolve to the same repository names, and provisioning would hand students the previous assignment's locked-down repository instead of a fresh one;
    - the pattern has no `{team_slug}`.
-5. Warnings do not block. Expect them for students who left the roster, teams below the minimum size, and teams students have already formed in the new assignment (those are kept untouched - seeding never overwrites real membership).
+5. Warnings do not block. Expect them for students who left the roster, students who are on it but not in *this assignment's* cohort (`not-in-cohort` - add them under **Who is this assignment for**), teams below the minimum size, and teams students have already formed in the new assignment (those are kept untouched - seeding never overwrites real membership).
+
+**Under `pre-assigned`, seeding is not optional.** Acceptance reads the team manifests and nothing else - not the roster's `team_slug` column, which carries no assignment and would otherwise pre-assign a student in December because of a September import. A pre-assigned assignment published without seeded teams turns everyone away with `rejected:no-assigned-team`, unless you ticked *Let students with no assigned team form their own*.
 6. Applying writes every team in one commit and dispatches `regenerate-dashboard.yml`, which is what makes the teams visible to students. Nothing is published while the assignment is still a draft, so seed, review in the Teams tab, adjust, and publish.
 
 Afterwards the Teams tab shows a "carried over from …" line, a standing "N students on the roster have no team" line naming who is left to place by hand, and - once the assignment is published - dimmed members with a per-team "N not accepted yet" count.
@@ -524,7 +526,7 @@ The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Adm
 | `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
 | `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
 | `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
-| `team_slug`      | Optional | Only used to **seed** a first group assignment (§1.3). Membership belongs to the assignment, not the roster, so a later re-import does not move anyone between teams. |
+| `team_slug`      | Optional | Only used to **seed** a first group assignment (§1.3), and read at no other time. It carries no assignment — one slug per student for the whole organization — so acceptance never looks at it: membership belongs to the assignment, and a later re-import does not move anyone between teams. **A pre-assigned assignment must be seeded before students accept**, or they are turned away with `rejected:no-assigned-team` (or fall through to self-service, if you allowed that). |
 | `team_name`      | Optional | Display name for `team_slug`. |
 
 Unknown columns are rejected — the list above is `KNOWN_COLUMNS` in `lib/roster-csv.mjs`. Duplicate `student_number` values are rejected.

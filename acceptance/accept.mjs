@@ -682,19 +682,32 @@ async function main() {
       }
     }
 
-    // Pre-assignment resolution: team manifest first, roster columns second.
-    let assignedSlug = oldTeam?.team_slug || null;
-    let assignedName = oldTeam?.team_name || null;
-    if (!assignedSlug && roster) {
-      const rosterStudent = (roster.students || []).find(
-        (s) => s.github_login?.toLowerCase() === login.toLowerCase()
-      );
-      const preassigned = rosterStudent?.teams?.[assignmentId] || rosterStudent?.team_slug;
-      if (preassigned) {
-        assignedSlug = preassigned;
-        assignedName = rosterStudent.team_name || preassigned;
-      }
-    }
+    // THE TEAM MANIFEST IS THE ONLY PRE-ASSIGNMENT. One question, one answer.
+    //
+    // This used to fall back to the roster when no manifest existed, reading
+    // `rosterStudent.teams?.[assignmentId] || rosterStudent.team_slug`. Both
+    // halves were wrong in different ways.
+    //
+    // `teams` was a per-assignment map that NOTHING EVER WROTE: not the CSV
+    // import (it is not in KNOWN_COLUMNS), not quick add, not promotion, not
+    // seeding. It could only appear by hand-editing students/roster.yml, so the
+    // read was dead - a schema field with a reader and no writer, which is the
+    // shape that invites the next person to add a writer in the wrong place.
+    //
+    // `team_slug` was worse, because it works. It carries NO ASSIGNMENT: one
+    // slug per student, applied to every group assignment in the organization.
+    // Seed a student into `team-alpha` in September and December's assignment
+    // silently pre-assigned them to `team-alpha` too - and RUNBOOK said all
+    // along that the column was "only used to seed a first group assignment",
+    // which was true of what it was for and false of what the code did.
+    //
+    // So a pre-assigned assignment must be seeded before students accept. The
+    // "Seed teams from…" button does that and the Teams tab shows the result;
+    // a student with no team is `rejected:no-assigned-team` or falls through to
+    // self-service, per `unassigned_fallback` - which is the lecturer's choice
+    // rather than a stale column's.
+    const assignedSlug = oldTeam?.team_slug || null;
+    const assignedName = oldTeam?.team_name || null;
 
     const formationMode =
       assignment.group_config?.formation_mode === "pre-assigned" ? "pre-assigned" : "self-service";

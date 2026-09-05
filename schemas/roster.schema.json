@@ -72,16 +72,11 @@
           "team_slug": {
             "type": ["string", "null"],
             "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
-            "description": "Pre-assigned team slug for group assignments."
+            "description": "A SEED, not a membership, and never read at acceptance. It carries no assignment - one slug per student, for the whole organization - so `lib/seed-teams.mjs` reads it once to build the team manifests for a chosen assignment and nothing else looks at it again. accept.mjs used to fall back to this column when an assignment had no manifest, which meant a student seeded into `team-alpha` in September was silently pre-assigned to `team-alpha` by December's assignment too; membership belongs to the assignment (`teams/<id>/<slug>.json`), so a pre-assigned assignment must be seeded before students accept. A per-assignment `teams` map lived here as well and was written by nothing at all - not the CSV import, not quick add, not promotion, not seeding - so it was removed rather than given a writer."
           },
           "team_name": {
             "type": ["string", "null"],
-            "description": "Pre-assigned team display name."
-          },
-          "teams": {
-            "type": "object",
-            "additionalProperties": { "type": "string" },
-            "description": "Map of assignment_id to pre-assigned team_slug."
+            "description": "Display name for `team_slug`, used only while seeding."
           },
           "source": {
             "type": "string",

@@ -1261,6 +1261,18 @@ The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an
 
 **Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
 
+### Three homes for one fact, and the dead one was the safer of the two.
+
+Asked where team membership lives, the answer was three places: `teams/<id>/<slug>.json`, a `students[].teams` map on the roster, and a flat `students[].team_slug` beside it. Acceptance read all three.
+
+**`teams` was written by nothing.** Not the CSV import - it was never in `KNOWN_COLUMNS` - not quick add, not promotion, not seeding. It could only appear by hand-editing `students/roster.yml`, which no procedure asks anyone to do. A schema field with a reader and no writer is worse than a plain dead field: it reads as a supported feature, so the next person adds the writer somewhere else and one fact starts living in two places that disagree.
+
+**`team_slug` was the more dangerous one precisely because it worked.** It carries no assignment - one slug per student, for the whole organization - and acceptance read it live whenever an assignment had no manifest for that student. So a student seeded into `team-alpha` in September was silently pre-assigned to `team-alpha` by December's assignment, off a roster nobody had touched in between. RUNBOOK had said all along that the column was *"only used to seed a first group assignment"*: true of what it was for, false of what the code did, and nobody had compared the two.
+
+The manifest is the only pre-assignment now. That is a real behaviour change and it belongs in the runbook rather than in a diff: a `pre-assigned` assignment must be seeded before students accept, or they meet `rejected:no-assigned-team` - which is the lecturer's `unassigned_fallback` decision rather than a stale column's.
+
+The tests that failed were the ones pinning the old behaviour, which is the right way round. They now assert the opposite and say why, and a second one greps the writers so that if a `teams` map ever gains one, it fails *there* rather than quietly restoring the read.
+
 ### The cohort was a rule, and it should always have been a list.
 
 Shipped 2026-09-04: an assignment named `class_groups: ["3A"]`, and the acceptance gate re-evaluated that against each student's own `class_group` every time somebody clicked Accept. It read well. A day of use against the actual question - *"how do I run this for some of my students?"* - took it apart.

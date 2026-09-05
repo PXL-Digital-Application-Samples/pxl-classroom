@@ -705,7 +705,16 @@ template:
   assert.match(out, /previous_repo=asgn-old-team/);
 });
 
-test("group assignment - resolves pre-assigned team from roster", () => {
+test("group assignment - a roster team column is NOT a pre-assignment", () => {
+  // IT CARRIED NO ASSIGNMENT. One `team_slug` per student, for the whole
+  // organization, read live at every acceptance - so a student seeded into
+  // `delta-team` in September was silently pre-assigned to `delta-team` by
+  // December's assignment too, on a roster nobody had touched in between.
+  //
+  // RUNBOOK had said all along that the column was "only used to seed a first
+  // group assignment", which was true of what it is for and false of what the
+  // code did. It is a seed now, and only lib/seed-teams.mjs reads it: membership
+  // belongs to the assignment, in teams/<id>/<slug>.json.
   const yaml = `state: published
 assignment_type: group
 repository_name_pattern: "asgn-{team_slug}"
@@ -717,11 +726,7 @@ template:
   repository: tpl`;
 
   const res = runAccept(
-    {
-      ASSIGNMENT_ID: "test-asgn",
-      GITHUB_LOGIN: "dave",
-      GITHUB_ID: "105",
-    },
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "105" },
     {
       assignmentYaml: yaml,
       roster: {
@@ -729,6 +734,49 @@ template:
         students: [
           { student_number: "SIS-5", full_name: "Dave User", github_login: "dave", team_slug: "delta-team", team_name: "Delta Team" },
         ],
+      },
+    }
+  );
+  // Pre-assigned with no manifest and no fallback: refused, and told why.
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "rejected:no-assigned-team");
+  assert.notEqual(res.outputs.team_slug, "delta-team");
+});
+
+test("group assignment - a seeded team manifest IS the pre-assignment", () => {
+  // The same student, seeded properly. This is the path "Seed teams from…"
+  // writes, and it is now the only one acceptance consults.
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  formation_mode: pre-assigned
+  max_team_size: 3
+template:
+  owner: TestOrg
+  repository: tpl`;
+
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "105" },
+    {
+      assignmentYaml: yaml,
+      roster: {
+        schema_version: 2,
+        students: [{ student_number: "SIS-5", full_name: "Dave User", github_login: "dave" }],
+      },
+      teams: {
+        "test-asgn": {
+          "delta-team": {
+            schema_version: 1,
+            assignment_id: "test-asgn",
+            team_slug: "delta-team",
+            team_name: "Delta Team",
+            members: ["dave"],
+            max_members: 3,
+            created_at: "2026-02-01T00:00:00Z",
+            created_by: "lecturer",
+          },
+        },
       },
     }
   );
@@ -949,7 +997,16 @@ test("self-service - a student may switch away from their seeded team", () => {
   assert.notEqual(alpha.vacant, true);
 });
 
-test("roster pre-assignment still resolves when no team file exists yet", () => {
+test("a per-assignment teams map on the roster is not a pre-assignment either", () => {
+  // A SCHEMA FIELD WITH A READER AND NO WRITER. `students[].teams` was a map of
+  // assignment_id to team_slug, read here at every group acceptance and written
+  // by NOTHING: not the CSV import (it was never in KNOWN_COLUMNS), not quick
+  // add, not promotion, not seeding. It could only appear by hand-editing
+  // students/roster.yml, which no procedure asks anyone to do.
+  //
+  // That shape is worse than a dead field: it reads as a supported feature, so
+  // the next person adds a writer for it somewhere - and now membership lives
+  // in two places that disagree. Removed from the schema and from the read.
   const res = runAccept(
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
     {
@@ -963,7 +1020,30 @@ test("roster pre-assignment still resolves when no team file exists yet", () => 
     }
   );
   assert.equal(res.status, 0);
-  assert.equal(res.outputs.team_slug, "exam-pair-4");
+  assert.equal(res.outputs.outcome, "rejected:no-assigned-team");
+  assert.notEqual(res.outputs.team_slug, "exam-pair-4");
+});
+
+test("nothing writes a teams map onto a roster entry", () => {
+  // The half a runtime test cannot see. If a writer ever appears, the read
+  // above should come back with it - and this fails first, naming where.
+  const sources = [
+    "../lib/roster-csv.mjs",
+    "../lib/roster-entries.mjs",
+    "../lib/promote-roster.mjs",
+    "../lib/seed-teams.mjs",
+    "../frontend/src/components/RosterTab.vue",
+    "../cli/src/commands/roster.mjs",
+  ];
+  for (const rel of sources) {
+    const src = readFileSync(new URL(rel, import.meta.url), "utf8");
+    assert.doesNotMatch(
+      src,
+      /\bteams\s*:\s*\{/,
+      `${rel} looks like it writes a teams map onto a roster entry - membership belongs to ` +
+        `teams/<assignment>/<slug>.json, and lib/cohort.mjs decides who is admitted`,
+    );
+  }
 });
 
 // --- rejection copy may not promise machinery that does not exist ------------
