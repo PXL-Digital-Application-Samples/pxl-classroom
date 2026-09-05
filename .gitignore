@@ -25,3 +25,10 @@ active-*.json
 # anything can read it and cannot go stale against MANUAL.md. Committing it
 # would create exactly that staleness - two sources for one manual.
 frontend/src/generated/
+
+# Scratch output: screenshots taken while reviewing a change, line counts, the
+# occasional dump. Nothing here is read by anything, and it is exactly the kind
+# of directory a `git add -A` sweeps into a PUBLIC repository by accident -
+# same reasoning as .wrangler/ above. Ignore the path rather than remembering
+# to exclude it every time.
+out/
