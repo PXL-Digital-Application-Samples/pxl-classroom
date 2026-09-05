@@ -1,7 +1,5 @@
 # PXL Classroom - Runbook
 
-**Audience: a lecturer running assignments.** Everything here is something you do yourself, in the Admin Panel or the CLI, for your own course.
-
 > [!IMPORTANT]
 > **Not what you are looking for?**
 > - **Adding a course or academic-year organization** (e.g. `PXL-2TIN-DevOps-2627`) → [ADMIN.md §1](ADMIN.md#1-onboarding-a-new-organization-per-org). You do **not** need a new frontend or a new GitHub App: PXL Classroom is multi-tenant, and one hub serves every organization.
@@ -52,9 +50,6 @@ What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists �
 | Download every submission | [§6.11](#611-bulk-submission-download--preservation-status) |
 | Promote the students who accepted onto the roster | [§6.5](#65-promoting-accepted-students-onto-the-roster) |
 | Retire a finished assignment | [§5](#5-retiring-a-finished-assignment) |
-
----
-
 
 ---
 
@@ -521,7 +516,7 @@ The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Adm
 | `student_number` | Yes | Institutional SIS ID; treated as a string (preserves leading zeroes). |
 | `full_name`      | Yes | Display name. |
 | `email`          | Optional | Validated against the `email` format. |
-| `class_group`    | Optional | E.g. `3A`. |
+| `class_group`    | Optional | E.g. `3A`. One group per student. An assignment's **Class groups** narrows the org-wide roster to the sections it names, so this column is how one organization runs two sections without a second roster. Only consulted where the roster is the gate (`enforced`/`claim`); the Admin Panel offers the picker once at least one student has a group. |
 | `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
 | `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
 | `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
