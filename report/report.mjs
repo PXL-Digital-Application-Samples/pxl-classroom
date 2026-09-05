@@ -29,7 +29,7 @@ import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.
 // row-doubling this prevents.
 import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
-import { assignmentAdmitsStudent, restrictsByClassGroup } from "../lib/class-groups.mjs";
+import { assignmentAdmitsStudent, restrictsCohort } from "../lib/cohort.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 async function setOutput(name, value) {
@@ -117,7 +117,7 @@ async function main() {
   // Only the ROSTER-derived half is narrowed. A student who somehow accepted is
   // always reported: the report says what happened, and quietly dropping a row
   // because it should not have happened is how you never find out that it did.
-  if (restrictsByClassGroup(assignment)) {
+  if (restrictsCohort(assignment)) {
     roster = roster.filter((s) => assignmentAdmitsStudent(assignment, s));
   }
 

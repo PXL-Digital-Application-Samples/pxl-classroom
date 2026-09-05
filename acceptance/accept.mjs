@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
-import { assignmentAdmitsStudent, assignmentClassGroups } from "../lib/class-groups.mjs";
+import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
@@ -233,9 +233,9 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   if (!assignmentAdmitsStudent(assignment, entry)) {
     await countFailure();
     await reject(
-      CLAIM_REJECTIONS.CLASS_GROUP,
-      `${opened.email} is registered for this course, but not in a class group this assignment is for. ` +
-        `Ask your lecturer which assignment your group should use.`,
+      CLAIM_REJECTIONS.NOT_IN_COHORT,
+      `${opened.email} is registered for this course, but this assignment is not for them. ` +
+        `Ask your lecturer which assignment you should use.`,
     );
   }
 
@@ -561,19 +561,19 @@ async function main() {
     }
 
     // THE COHORT GATE. The roster is org-wide, so without this a course running
-    // two sections has one gate for both. An assignment may name the class
-    // groups it admits; naming none admits every group, which is what every
+    // two sections has one gate for both. An assignment names the students it is
+    // for; naming none admits everyone on the roster, which is what every
     // assignment written before this field existed means.
     //
-    // Fails closed on purpose: once a list is given, a student with no
-    // class_group is not admitted. The admin form warns about exactly those
-    // students before the assignment is saved, because being right here is no
-    // use if the surprise arrives at the accept button.
+    // The cohort is a list, not a rule - the lecturer picked these people, so
+    // there is no ambiguity to fail closed about. What replaced the old
+    // class-group rule is not a relaxation: a student is admitted when they are
+    // on the list and refused when they are not, whatever their class_group is.
     if (!assignmentAdmitsStudent(assignment, rosterEntry)) {
       await reject(
-        "rejected:not-in-class-group",
-        `student @${login} is on the roster but not in a class group this assignment admits ` +
-          `(${assignmentClassGroups(assignment).join(", ")})`,
+        "rejected:not-in-cohort",
+        `student @${login} is on the roster but not in this assignment's cohort ` +
+          `(${assignmentCohort(assignment).size} student(s) selected)`,
       );
     }
 

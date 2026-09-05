@@ -1261,6 +1261,22 @@ The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an
 
 **Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
 
+### The cohort was a rule, and it should always have been a list.
+
+Shipped 2026-09-04: an assignment named `class_groups: ["3A"]`, and the acceptance gate re-evaluated that against each student's own `class_group` every time somebody clicked Accept. It read well. A day of use against the actual question - *"how do I run this for some of my students?"* - took it apart.
+
+**A rule is never written down.** The cohort existed only as a computation, so it could change under a lecturer when the roster changed, and no screen could state it: the dashboard showed 22 out of a roster of 40 and nothing said why.
+
+**A rule slices one way.** `class_group` is a scalar, so an assignment could target one section or all of them and nothing in between. A mid-semester remediation for *"3A plus these four"* had no expression at all: move those four into a `remediation` group and they leave 3A, which refuses them from the 3A lab that is still open. The only escape was `open` with a cap, which gives up the roster gate and the names with it.
+
+**And the control had never rendered.** It appeared only once a roster already had class groups - and measured across every live organization on 2026-09-05, not one student carried one. The feature was visible exclusively to people who had already used it. The obvious fix was an empty state explaining the missing column, and that was the wrong fix: it makes a lecturer go and prepare data before the control does anything. **The question was the wrong shape.** What a lecturer wants is to choose students; groups are how they find them quickly.
+
+So the assignment stores the students now (`lib/cohort.mjs`), picked from the roster through a list with the group chips as filters. Three things fell out of it rather than being designed in. The fails-closed rule - *a student with no `class_group` is refused* - became **obsolete**: it existed to resolve the ambiguity of a rule that had not been told about them, and a list has no ambiguity, so the ungrouped are now a filter chip you can tick. The remediation case became a selection. And the precondition disappeared: nothing has to exist before the picker works.
+
+**Migration was free because the feature had never been used.** `class_groups` was deleted outright rather than deprecated - no compatibility branch, no read-back path - and that is only knowable by measuring the live orgs rather than assuming.
+
+**The one hazard is identity.** A cohort names a roster row, and a row can be named two ways: `num:` where there is a student number, `login:` for a row promoted from an acceptance. `rosterKey` in `lib/roster-entries.mjs` answers "which single string identifies this row" for a diff - and using that here would have been a silent lockout: a promoted row that later gains a student number through a CSV import changes its canonical key, so a cohort listing `login:ella-dev` would stop matching the row it was chosen from. `rosterIdentities` returns **every** identity a row carries and the gate matches any of them. The test demonstrates the import rather than asserting about it.
+
 **And a confident comment sent the archive lookup to the wrong function.**
 
 The manifest fix above resolved `archive_repo` with `archiveRepoName(id)` - *where a NEW archive goes* - under a comment that began "WHERE A NEW ARCHIVE WOULD GO IS THE RIGHT QUESTION HERE, unusually". It is not, and CLAUDE.md already said so: `lib/archive-repo.mjs` decides where a preservation **is** versus where a new one **goes**. A cohort preserved before per-assignment archives existed is in the org's single legacy `pxl-classroom-archive`; today's naming rule would have written `pxl-classroom-archive-<id>` - a repository that never held a line of their work - into the one document written to be read years later with nothing beside it. The reasoning in the comment was the whole defect: it noticed the authoritative value was on the report rows and then argued its way past using it.

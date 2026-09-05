@@ -10,15 +10,7 @@ Who is allowed to use the invitation link.
 - **Claim.** Only students you imported, matched by the institutional email address they confirm. Use this when you have addresses but not usernames.
 - **Open.** Anyone with the link, until the cap is reached. You match them to students afterwards. Needs a **Max acceptances** number; the form will not save without one.
 
-Your roster belongs to the whole course, not to one assignment. An assignment can limit itself to certain class groups.
-
-### Running two sections off one roster
-
-- Put a **class group** on each student - a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
-- The assignment form then offers those groups under **Class groups**, on any assignment where the roster decides who may accept. Tick one and only that section can accept.
-- Tick nothing and every group can. That is what an assignment made before you had groups does.
-- A student with no group is turned away from an assignment that names groups. The form counts them for you before you save.
-- To add groups to a roster you already imported: **Roster** tab, **Export CSV**, fill the column in, import it back.
+Your roster belongs to the whole course, not to one assignment. Each assignment picks who it is for.
 
 After an open assignment you can [add everyone who accepted](#adding-students-who-accepted) to the roster.
 
@@ -27,6 +19,29 @@ After an open assignment you can [add everyone who accepted](#adding-students-wh
 - The check runs on GitHub after the student clicks Accept, not in their browser. A student cannot get in by editing the page.
 - Under **Claim** the address is encrypted in the student's browser. Only PXL Classroom can read it.
 - Under **Claim**, an address that is not on your roster is refused.
+
+## Who is this assignment for
+
+Under **Enforced** and **Claim**, the form shows your roster and you tick the students this assignment is for.
+
+- **Tick nobody and everyone on the roster can accept.** The form says so on screen. That is the right answer for work the whole course does.
+- The chips above the list are **filters**, not the answer. `3A · 20` shows you that section; **Select all shown** ticks what you are looking at. The search box finds a name, a student number or a username.
+- **No group** is a filter too, so students you never put in a section are visible and tick like anyone else.
+- Mixing is the point. Tick 3A, then tick four more people - that is a remediation or resit cohort, and it needs nothing set up in advance.
+- The list is a **snapshot**. A student you import next week is not in an assignment you made today; use **Add students** on the assignment to bring them in.
+
+### Class groups
+
+A class group is a label on a student, and it exists to make that list quick to filter.
+
+- Put one on each student: a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
+- To add groups to a roster you already imported: **Roster** tab, **Export CSV**, fill the column in, and import it back.
+- Nothing is decided by a group. It narrows the list you pick from, and the assignment remembers which groups you picked from so the overview can say **3A**.
+
+### Good to know
+
+- Under **Open** the roster does not decide who may accept, so there is nothing to pick and the list is not shown.
+- Picking more students than **Max acceptances** allows means the ones past the cap are refused. The form warns you before you save.
 
 ## Confirming an email address
 

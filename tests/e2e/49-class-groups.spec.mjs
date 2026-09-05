@@ -1,27 +1,28 @@
-// 49 - One organization, two sections.
+// 49 - Who an assignment is for.
 //
 // The roster is org-wide: one `students/roster.yml`, and every assignment gated
-// on it sees the same list. A course running two class groups in a year had one
-// gate for both - change the roster for one section's assignment and you have
-// changed it for the other's.
+// on it sees the same list. An assignment used to narrow that with a RULE -
+// `class_groups: ["3A"]`, re-evaluated at every acceptance against each
+// student's own `class_group`. Two things were wrong with it. The answer was
+// never written down, so it could change under a lecturer when the roster
+// changed; and it could only slice one way, so a resit for "3A plus these four"
+// had no expression at all.
 //
-// An assignment names the class groups it admits now. `class_group` was already
-// on every roster entry, already imported from CSV, already shown in the roster
-// tab and already carried into reports; only the predicate was missing. It is
-// deliberately the same idea as a GitHub Classroom "classroom" - a roster
-// belongs to a section - stored as a column instead of a folder, so a student
-// exists once and there is no second file to keep in step.
+// The assignment stores the students now, picked from the roster when it was
+// created. Class groups stay on the roster as what they were always described
+// as: a filter for finding people. They gate nothing.
 //
-// What this file holds is the part a unit test cannot see: that the control
-// appears only where it MEANS something, and that it states the consequence of
-// a restriction before the lecturer saves rather than at the accept button.
+// What this file holds is the part a unit test cannot see - that the control
+// appears only where it MEANS something, that the empty state cannot be
+// mistaken for "nobody", and that the consequences are stated before the save
+// rather than at the accept button.
 
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
-// Two sections and one student nobody grouped - the shape that makes the
-// warning worth printing.
+// Two sections and one student nobody grouped - who used to be refused by the
+// rule and is now just another row you can tick.
 const ROSTER = [
   { student_number: '0001', full_name: 'Alice Example', github_login: 'alice', class_group: '3A', active: true },
   { student_number: '0002', full_name: 'Bram Example', github_login: 'bram', class_group: '3A', active: true },
@@ -30,8 +31,7 @@ const ROSTER = [
   { student_number: '0005', full_name: 'Eva Example', github_login: 'eva', active: true },
 ];
 
-// The same five students with the column stripped, for the org that has never
-// used class groups at all.
+// The same five with the column stripped, for an org that has never used groups.
 const UNGROUPED = ROSTER.map((s) => {
   const copy = { ...s };
   delete copy.class_group;
@@ -40,6 +40,8 @@ const UNGROUPED = ROSTER.map((s) => {
 
 const guardrails = (page) =>
   page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+
+const row = (page, name) => page.locator('.cohort-row', { hasText: name });
 
 async function newAssignment(page, { roster = ROSTER } = {}) {
   await injectAuth(page, LECTURER);
@@ -54,101 +56,148 @@ async function gateOnRoster(page) {
   await guardrails(page).locator('select').first().selectOption('enforced');
 }
 
-test.describe('49 - choosing which section an assignment is for', () => {
-  test('the picker offers this org\'s real groups, once each', async ({ page }) => {
+test.describe('49 - picking who an assignment is for', () => {
+  test('the roster is the list, and the chips are filters over it', async ({ page }) => {
     await newAssignment(page);
     await gateOnRoster(page);
 
-    await expect(page.locator('.group-picker')).toBeVisible();
-    // Two groups across five students - not five chips, and not one per row.
-    expect(await page.locator('.group-chip').allInnerTexts()).toEqual(['3A', '3B']);
+    // Every student, not every group: the list is what you pick from.
+    await expect(page.locator('.cohort-row')).toHaveCount(5);
+
+    // Chips carry counts, because a bare "3A" never answered the question being
+    // asked at that moment - how many people am I about to admit.
+    const chips = await page.locator('.cohort-filters .chip-btn').allInnerTexts();
+    expect(chips).toEqual(['All 5', '3A · 2', '3B · 2', 'No group · 1']);
   });
 
-  test('nothing ticked means every group, and says so', async ({ page }) => {
-    // The default has to be legible as a decision rather than as an empty
-    // control - a lecturer who ticks nothing must not wonder whether they have
-    // just excluded everybody.
+  test('filtering narrows the list without deciding anything', async ({ page }) => {
     await newAssignment(page);
     await gateOnRoster(page);
 
-    await expect(guardrails(page)).toContainText('All class groups');
-    await expect(guardrails(page)).toContainText('Everyone on the roster may accept');
+    await page.locator('.chip-btn', { hasText: '3A · 2' }).click();
+    await expect(page.locator('.cohort-row')).toHaveCount(2);
+    // Filtering is not selecting. Nothing has been chosen yet.
+    await expect(guardrails(page)).toContainText('Every student on the roster may accept');
+
+    // "No group" is a filter of its own, so the student the old rule refused
+    // outright is visible and tickable like anybody else.
+    await page.locator('.chip-btn', { hasText: 'No group · 1' }).click();
+    await expect(page.locator('.cohort-row')).toHaveCount(1);
+    await expect(page.locator('.cohort-row')).toContainText('Eva Example');
   });
 
-  test('restricting says who it turns away, before the assignment is saved', async ({ page }) => {
-    // THE POINT OF THE WHOLE CONTROL. The gate fails closed on an ungrouped
-    // student, so restricting to 3A silently costs Cara, Dries and Eva their
-    // way in. Being right at the accept button is no use if that is where the
-    // lecturer finds out.
+  test('search finds a student by name, number or username', async ({ page }) => {
     await newAssignment(page);
     await gateOnRoster(page);
 
-    await page.locator('.group-chip', { hasText: '3A' }).click();
+    await guardrails(page).getByPlaceholder('Search name, number or username').fill('dries');
+    await expect(page.locator('.cohort-row')).toHaveCount(1);
 
-    const text = guardrails(page);
-    await expect(text).toContainText('Only');
-    await expect(text).toContainText('3A');
-    // 2 in 3B plus 1 with no group at all, out of 5.
-    await expect(text).toContainText('3 of 5 roster students');
-    await expect(text).toContainText('turned away');
+    await guardrails(page).getByPlaceholder('Search name, number or username').fill('0003');
+    await expect(page.locator('.cohort-row')).toContainText('Cara Example');
+  });
+
+  test('nothing ticked means everyone, and says so', async ({ page }) => {
+    // THE EMPTY STATE IS A TRAP UNLESS IT SAYS SO. Nothing ticked stores
+    // nothing, and nothing stored means every student on the roster - so a
+    // lecturer who unticks their way to zero must be told, not left to find out
+    // when the whole course accepts.
+    await newAssignment(page);
+    await gateOnRoster(page);
+
+    await expect(guardrails(page)).toContainText('Nobody selected');
+    await expect(guardrails(page)).toContainText('Every student on the roster may accept');
+  });
+
+  test('select all shown takes the filter, and the count is the truth', async ({ page }) => {
+    await newAssignment(page);
+    await gateOnRoster(page);
+
+    await page.locator('.chip-btn', { hasText: '3A · 2' }).click();
+    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+
+    await expect(guardrails(page)).toContainText('2 of 5 selected');
+    await expect(guardrails(page)).toContainText('Only these 2 may accept');
+
+    // And a mixed cohort is just more ticking - the case that had no expression
+    // under a group rule, because a student is in one group at most.
+    await page.locator('.chip-btn', { hasText: 'No group · 1' }).click();
+    await row(page, 'Eva Example').locator('input[type=checkbox]').check();
+    await expect(guardrails(page)).toContainText('3 of 5 selected');
+  });
+
+  test('clearing the selection returns to everyone, not to nobody', async ({ page }) => {
+    await newAssignment(page);
+    await gateOnRoster(page);
+
+    await row(page, 'Alice Example').locator('input[type=checkbox]').check();
+    await expect(guardrails(page)).toContainText('1 of 5 selected');
+
+    await guardrails(page).getByRole('button', { name: 'Clear selection' }).click();
+    await expect(guardrails(page)).toContainText('Every student on the roster may accept');
+  });
+
+  test('picking more students than the cap warns before the save', async ({ page }) => {
+    // Under a group rule the cohort size was never known at save time, so this
+    // could not be checked at all; the refusals arrived at the accept button.
+    await newAssignment(page);
+    await gateOnRoster(page);
+    await guardrails(page).locator('input[type=number]').fill('2');
+
+    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await expect(guardrails(page)).toContainText('more than the cap of 2');
+    await expect(guardrails(page)).toContainText('Raise');
+  });
+
+  test('an org with no class groups still gets the picker', async ({ page }) => {
+    // THE FEATURE ONLY APPEARED TO SOMEONE WHO HAD ALREADY USED IT. Its
+    // predecessor was hidden until the roster had groups, and measured on
+    // 2026-09-05 not one student in any live organization carried one - so the
+    // control had never rendered anywhere, and a lecturer asking how to split
+    // their classes had nothing on screen to find. Groups are only the filter
+    // now, so their absence costs the picker nothing.
+    await newAssignment(page, { roster: UNGROUPED });
+    await gateOnRoster(page);
+
+    await expect(page.locator('.cohort-row')).toHaveCount(5);
+    // No group chips to offer, so only "All" - and nothing invites the lecturer
+    // to look for sections this organization has never made.
+    const chips = await page.locator('.cohort-filters .chip-btn').allInnerTexts();
+    expect(chips).toEqual(['All 5']);
   });
 
   test('the picker is absent under open enrolment', async ({ page }) => {
-    // Under `open` the roster does not decide who may accept, so a cohort
-    // filter there would be a control that changes nothing - DESIGN.md §1.5.
-    // A new assignment defaults to open, so this is the state it opens in.
+    // Under `open` the roster does not decide who may accept, so a cohort there
+    // would be a control that decides nothing - DESIGN.md §1.5. A new
+    // assignment defaults to open, so this is the state it opens in.
     await newAssignment(page);
 
     // Positive first: the fieldset really is on screen, so a count of zero
     // below is an absence rather than a page that had not rendered.
     await expect(guardrails(page)).toContainText('Who may accept');
-    await expect(page.locator('.group-picker')).toHaveCount(0);
+    await expect(page.locator('.cohort-list')).toHaveCount(0);
   });
 
-  test('the picker is absent when the roster has no class groups', async ({ page }) => {
-    // Offering a distinction this organization has never made is worse than
-    // offering none: it invites a lecturer to look for groups that do not
-    // exist. Same roster, every class_group removed. Still true - what appears
-    // in its place is the line below, and it has nothing to tick.
-    await newAssignment(page, { roster: UNGROUPED });
+  test('an empty roster is not offered a list to pick from', async ({ page }) => {
+    // `enforced` with nobody imported already says "nobody can accept" on the
+    // mode itself. An empty picker underneath buries the line that matters.
+    await newAssignment(page, { roster: [] });
     await gateOnRoster(page);
 
-    await expect(guardrails(page)).toContainText('on the roster');
-    await expect(page.locator('.group-picker')).toHaveCount(0);
+    await expect(guardrails(page)).toContainText('nobody can accept');
+    await expect(page.locator('.cohort-list')).toHaveCount(0);
   });
 
-  test('an org with no groups is told the field exists and where the column goes', async ({ page }) => {
-    // THE FEATURE ONLY APPEARED TO SOMEONE WHO HAD ALREADY USED IT. Hiding the
-    // whole field when the roster has no groups meant a lecturer had to know
-    // about `class_group` before anything would mention it - and measured on
-    // 2026-09-05, not one student in any live organization carries one, so this
-    // control had never rendered anywhere. Asked how to split classes across
-    // assignments, there was nothing on screen to find.
-    await newAssignment(page, { roster: UNGROUPED });
-    await gateOnRoster(page);
+  // The wire format is NOT tested here. `buildAssignmentDoc` is importable, so
+  // driving a whole form to observe what it emits would be the wrong level and
+  // a slower way to learn less - tests/assignment-doc-cohort.test.mjs calls it
+  // directly. What belongs in this file is what only a browser can show: that
+  // ticking a row changes the count on screen, which the tests above assert.
 
-    await expect(guardrails(page)).toContainText('No class groups on your roster');
-    // The route it names has to be the one that works: Export CSV is on the
-    // Roster tab, it writes a `class_group` column, and the importer reads it.
-    await expect(guardrails(page)).toContainText('class_group');
-    await expect(guardrails(page)).toContainText('import it back');
-
-    // ONE STATE AT A TIME. Both lines rendered at first, so the empty state was
-    // followed by "Tick a group to limit this assignment" with nothing to tick.
-    await expect(guardrails(page)).not.toContainText('All class groups');
-    await expect(guardrails(page)).not.toContainText('may accept.');
-
-    // And it goes away the moment there is something to tick.
-    await newAssignment(page);
-    await gateOnRoster(page);
-    await expect(page.locator('.group-picker')).toHaveCount(1);
-    await expect(guardrails(page)).not.toContainText('No class groups on your roster');
-  });
-
-  test('the round trip the empty state names actually carries the column', async ({ page }) => {
-    // The empty state tells a lecturer to export the roster, fill the column in
-    // and import it back. That is a promise about two features neither of which
-    // had a test over `class_group`: Export CSV had no test over its CONTENT at
+  test('the round trip the class-group help names actually carries the column', async ({ page }) => {
+    // The manual tells a lecturer to export the roster, fill `class_group` in
+    // and import it back, so the filter has something to filter by. That is a
+    // promise about two features: Export CSV had no test over its CONTENT at
     // all, and quick add typed a group and asserted only the name. If the
     // export dropped the column, the instruction would send someone to build a
     // file that silently un-groups their whole roster on the way back in.
@@ -169,23 +218,11 @@ test.describe('49 - choosing which section an assignment is for', () => {
     // invisible in a diff and an eslint error (no-irregular-whitespace).
     const [header, ...rows] = csv.trim().split('\n');
     const columns = header.split(',');
-    expect(columns, 'the header must offer the column the message names').toContain('class_group');
+    expect(columns, 'the header must offer the column the help names').toContain('class_group');
 
-    // Every group on the roster survives the trip, in the lecturer's spelling -
-    // and the student who has none comes back with none rather than a guess.
+    // Every group survives the trip in the lecturer's own spelling - and the
+    // student who has none comes back with none rather than a guess.
     const at = columns.indexOf('class_group');
-    const groups = rows.map((r) => r.split(',')[at]);
-    expect(groups).toEqual(['3A', '3A', '3B', '3B', '']);
-  });
-
-  test('an empty roster is not told about class groups', async ({ page }) => {
-    // `enforced` with nobody imported already says "nobody can accept" on the
-    // mode itself. A second line underneath about a column they have no rows to
-    // put it in buries the one that matters.
-    await newAssignment(page, { roster: [] });
-    await gateOnRoster(page);
-
-    await expect(guardrails(page)).toContainText('nobody can accept');
-    await expect(guardrails(page)).not.toContainText('No class groups on your roster');
+    expect(rows.map((r) => r.split(',')[at])).toEqual(['3A', '3A', '3B', '3B', '']);
   });
 });

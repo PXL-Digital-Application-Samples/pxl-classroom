@@ -563,6 +563,29 @@ a:hover {
   border: 1px solid var(--border-muted);
 }
 
+/* A filter chip. Shared vocabulary: the Roster tab filters students by linked
+   state, the cohort picker filters them by class group, and a class used by two
+   components cannot live scoped inside one of them (DESIGN.md §7). */
+.chip-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  border-radius: 16px;
+  padding: 3px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chip-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.chip-btn.active {
+  background: var(--accent-blue);
+  color: var(--text-on-emphasis);
+  border-color: var(--accent-blue);
+}
+
 /* ==========================================================================
    Containers, Cards & Modals
    ========================================================================== */

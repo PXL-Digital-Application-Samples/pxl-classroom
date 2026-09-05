@@ -223,21 +223,33 @@
       "default": false,
       "description": "Under roster_mode 'open' only: ask each student to confirm an institutional email address, and REFUSE acceptance without one. Default false, so an open assignment stays anonymous unless the lecturer opts in - that is what 'open' is for, and an exam cohort should not be made to identify itself by accident. Under 'claim' an address is inherently required and this flag is not read; under 'enforced' the roster gates by GitHub username and no address is collected. What is required is an ADDRESS, not a roster match: 'open' means anyone with the link may accept, and requiring the address to be on the roster would just be 'claim' by another name. The domain is recorded (`domain_allowed`) rather than enforced, as it already is under open - refusing on domain would lock out a student whose GitHub account carries no institutional address, which is a gate nobody asked for. See lib/claim.mjs."
     },
-    "class_groups": {
+    "cohort": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(num:[A-Za-z0-9._-]{1,64}|login:[A-Za-z0-9](-?[A-Za-z0-9]){0,38})$"
+      },
+      "uniqueItems": true,
+      "description": "The students this assignment is for, chosen from the org-wide roster when it was created. Each entry names a roster row: `num:<student_number>` where there is one, `login:<github_login>` for a row promoted from an acceptance, which has no number. Matching accepts EITHER identity a row carries, so a promoted row that later gains a student number through a CSV import still resolves - see lib/cohort.mjs. ABSENT OR EMPTY MEANS EVERY STUDENT ON THE ROSTER, which is what every assignment written before this field means and what an untouched picker means; the form says so on screen, because unticking everything must not silently open an assignment to the whole course. It is a SNAPSHOT: a student added to the roster afterwards is not in it until someone adds them, so the cohort is a record of who the assignment was for rather than a rule that re-evaluates. Only consulted where the roster is the gate (roster_mode 'enforced' or 'claim'); under 'open' the roster does not decide who may accept, so a cohort there would be a control that decides nothing.",
+      "examples": [
+        [
+          "num:0123456",
+          "num:0123457",
+          "login:ella-dev"
+        ]
+      ]
+    },
+    "cohort_groups": {
       "type": "array",
       "items": {
         "type": "string",
         "minLength": 1
       },
       "uniqueItems": true,
-      "description": "Which class groups on the org-wide roster may accept this assignment, matched against each student's `class_group` (case-insensitively, trimmed). ABSENT OR EMPTY MEANS EVERY GROUP - that is what every assignment written before this field existed means, and reading absence as 'nobody' would lock every cohort out of all of them. Once a list is given the gate fails closed: a student whose `class_group` is absent is NOT admitted, because 'I did not say' is not 'any'. Only consulted when the roster is the gate (roster_mode 'enforced' or 'claim'); under 'open' the roster does not decide who may accept, so a cohort filter there would be a control that does nothing. Exists so one organization can run two sections of a course without a second roster - the same idea as a GitHub Classroom 'classroom', stored as a column rather than a folder. See lib/class-groups.mjs.",
+      "description": "The class groups the cohort was selected from. A LABEL, NEVER A GATE - no code path reads this to decide an acceptance, and lib/cohort.mjs does not look at it. It exists so the dashboard card and the detail header can say '3A' instead of leaving a cohort of 22 out of a roster of 40 unexplained. It can go stale: a student who moves to another group afterwards does not change it, which is why the copy beside it names it as how the list was made and not as who is in it.",
       "examples": [
         [
           "3A"
-        ],
-        [
-          "3A",
-          "3B"
         ]
       ]
     },

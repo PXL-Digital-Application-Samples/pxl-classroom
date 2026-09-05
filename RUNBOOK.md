@@ -455,7 +455,8 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 | I want to… | Go to |
 |---|---|
 | Import a roster from a CSV | §6.4 |
-| Divide a course into sections, so one assignment runs for one class group | §6.4, `class_group` in the CSV table |
+| Run an assignment for some of the course, not all of it | §1, **Who is this assignment for** |
+| Divide a course into sections, so that list is quick to filter | §6.4, `class_group` in the CSV table |
 | Run an assignment from email addresses, or with no roster at all | §6.4, the two sub-sections after the import |
 | Turn the students who actually accepted into a roster | §6.5 |
 | See or undo a claim binding | §6.6, §6.7 |
@@ -519,7 +520,7 @@ The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Adm
 | `student_number` | Yes | Institutional SIS ID; treated as a string (preserves leading zeroes). |
 | `full_name`      | Yes | Display name. |
 | `email`          | Optional | Validated against the `email` format. |
-| `class_group`    | Optional | E.g. `3A`. One group per student. An assignment's **Class groups** narrows the org-wide roster to the sections it names, so this column is how one organization runs two sections without a second roster. Only consulted where the roster is the gate (`enforced`/`claim`); the Admin Panel offers the picker once at least one student has a group. |
+| `class_group`    | Optional | E.g. `3A`. One group per student. **A filter, not a gate** — it decides nothing on its own. The assignment form shows your roster and you tick who the assignment is for; this column turns the chips above that list into `3A · 20`, so taking a whole section is one click instead of twenty. Fill it in when a course runs sections; leave it empty and the picker still works, you just scroll or search instead. |
 | `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
 | `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
 | `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |

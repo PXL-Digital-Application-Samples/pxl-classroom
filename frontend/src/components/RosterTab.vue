@@ -1140,25 +1140,8 @@ defineExpose({
 .loading-inline { display: flex; align-items: center; gap: var(--space-sm); color: var(--text-secondary); padding: var(--space-sm); }
 .spinner.sm { width: 14px; height: 14px; border-width: 2px; }
 
-.chip-btn {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
-  color: var(--text-secondary);
-  border-radius: 16px;
-  padding: 3px 10px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.chip-btn:hover {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-.chip-btn.active {
-  background: var(--accent-blue);
-  color: var(--text-on-emphasis);
-  border-color: var(--accent-blue);
-}
+/* `.chip-btn` moved to style.css when the cohort picker started using it too -
+   DESIGN.md §7, a class more than one component uses is shared vocabulary. */
 
 .modal-overlay {
   position: fixed;

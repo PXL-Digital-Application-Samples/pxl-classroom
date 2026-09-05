@@ -755,56 +755,93 @@
                  Only rendered when the roster is actually the gate - a filter
                  under `open` decides nothing.
 
-                 THE CHIPS AND THE SECTION ARE TWO QUESTIONS. Offering a
-                 distinction nobody has made is worse than none at all, so the
-                 picker still appears only where there are groups to tick. But
-                 hiding the whole thing meant the feature only ever appeared to
-                 someone who had already used it: measured 2026-09-05, not one
-                 student in any live org carries a `class_group`, so this
-                 control has never rendered anywhere, and a lecturer asking how
-                 to split their classes had nothing to find. The empty state
-                 says what the field is for and where the column goes. -->
-            <div v-if="showClassGroups" class="field">
-              <label>Class groups</label>
-              <!-- ONE STATE AT A TIME. The two status lines belong to the
-                   picker, not to the field: "Tick a group to limit this
-                   assignment" is nonsense with nothing to tick, and it rendered
-                   under the empty state the first time this was written. They
-                   are nested rather than chained because a `v-else` on the
-                   first of them would attach to the wrong condition and print
-                   "Only  may accept." -->
-              <small v-if="!rosterGroups.length">
-                <strong>No class groups on your roster.</strong> Give students a <code>class_group</code> and an assignment can be limited to one section. Export the roster to CSV, fill the column in, and import it back.
-                <button type="button" class="btn-link" @click="setTab('roster')">Roster →</button>
+                 IT SHOWS WHENEVER THERE IS A ROSTER TO PICK FROM. Its
+                 predecessor was hidden until the org already had class groups,
+                 which meant the only people who ever saw it were the ones who
+                 did not need telling: measured 2026-09-05, not one student in
+                 any live org carried a `class_group`, so the control had never
+                 rendered anywhere and a lecturer asking how to split their
+                 classes had nothing on screen to find. Groups are only the
+                 filter now, so their absence costs the picker nothing - the
+                 list is still the list. -->
+            <div v-if="showCohortPicker" class="field">
+              <label>Who is this assignment for <HelpButton topic="who-is-this-assignment-for" label="who this assignment is for" /></label>
+              <!-- FILTER, THEN TICK. The chips narrow the list; they are not
+                   the answer. A chip carries its count because a bare "3A"
+                   never answered the question being asked at that moment -
+                   how many people am I about to admit - and "No group" is a
+                   filter of its own, so the students who used to be silently
+                   refused are visible and tickable. -->
+              <div class="cohort-filters">
+                <button
+                  type="button"
+                  class="chip-btn"
+                  :class="{ active: cohortFilter === null }"
+                  @click="cohortFilter = null"
+                >All {{ rosterStudents.length }}</button>
+                <button
+                  v-for="c in cohortGroupCounts"
+                  :key="c.group || '__none__'"
+                  type="button"
+                  class="chip-btn"
+                  :class="{ active: cohortFilter === c.group }"
+                  @click="cohortFilter = c.group"
+                >{{ c.group || 'No group' }} · {{ c.count }}</button>
+                <input
+                  v-model="cohortSearch"
+                  type="search"
+                  class="cohort-search"
+                  placeholder="Search name, number or username"
+                  aria-label="Search the roster"
+                />
+              </div>
+
+              <div class="cohort-list">
+                <label v-for="s in cohortVisible" :key="cohortKey(s)" class="cohort-row">
+                  <input
+                    type="checkbox"
+                    :checked="cohortSelected.has(cohortKey(s))"
+                    @change="toggleCohortStudent(s)"
+                  />
+                  <code class="cohort-num">{{ s.student_number || '—' }}</code>
+                  <span class="cohort-name">{{ s.full_name || 'Not yet identified' }}</span>
+                  <span class="cohort-group text-muted">{{ s.class_group || '—' }}</span>
+                  <span class="cohort-acct text-muted">{{ s.github_login ? '@' + s.github_login : 'pending linking' }}</span>
+                </label>
+                <p v-if="!cohortVisible.length" class="text-muted text-center cohort-empty">
+                  No students match this filter.
+                </p>
+              </div>
+
+              <div class="cohort-foot">
+                <button type="button" class="btn-link" @click="selectAllShown">
+                  Select all shown ({{ cohortVisible.length }})
+                </button>
+                <button v-if="cohortSelected.size" type="button" class="btn-link" @click="clearCohort">
+                  Clear selection
+                </button>
+                <span class="cohort-count" :class="cohortSelected.size ? 'is-narrowed' : null">
+                  {{ cohortSelected.size ? `${cohortSelected.size} of ${rosterStudents.length} selected` : 'Nobody selected' }}
+                </span>
+              </div>
+
+              <!-- THE EMPTY STATE IS A TRAP UNLESS IT SAYS SO. Nothing ticked
+                   stores nothing, and nothing stored means EVERYONE - so a
+                   lecturer who unticks their way to zero must be told, not left
+                   to discover it when the whole course accepts. -->
+              <small v-if="!cohortSelected.size">
+                <strong>Every student on the roster may accept.</strong> Tick students to limit this
+                assignment to them; the chips above filter the list.
               </small>
-              <template v-else>
-                <div class="group-picker">
-                  <label
-                    v-for="g in rosterGroups"
-                    :key="g"
-                    class="group-chip"
-                    :class="{ selected: form.class_groups.includes(g) }"
-                  >
-                    <input
-                      type="checkbox"
-                      :checked="form.class_groups.includes(g)"
-                      @change="toggleClassGroup(g)"
-                    />
-                    <span>{{ g }}</span>
-                  </label>
-                </div>
-                <small v-if="!form.class_groups.length">
-                  <strong>All class groups.</strong> Everyone on the roster may accept. Tick a group to
-                  limit this assignment to one section.
-                </small>
-                <small v-else :class="classGroupExcluded.length ? 'text-warning' : null">
-                  Only <strong>{{ form.class_groups.join(', ') }}</strong> may accept.
-                  <template v-if="classGroupExcluded.length">
-                    {{ classGroupExcluded.length }} of {{ rosterStudents.length }} roster students are
-                    in another group or have none, and will be turned away.
-                  </template>
-                </small>
-              </template>
+              <small v-else>
+                Only these <strong>{{ cohortSelected.size }}</strong> may accept.
+                <template v-if="cohortOverCap">
+                  <span class="text-warning">
+                    That is more than the cap of {{ form.max_acceptances }} - students past it are
+                    rejected. Raise <strong>Max acceptances</strong> or select fewer.
+                  </span>
+                </template>
+              </small>
             </div>
 
             <div class="field">
@@ -1237,7 +1274,8 @@ import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
 // disagree about which mode an assignment is actually in.
 import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
-import { rosterClassGroups, studentsExcludedByClassGroup } from '../lib/class-groups.js'
+import { classGroupCounts, studentInClassGroup } from '../lib/class-groups.js'
+import { cohortIdentity, normalizeCohortEntry } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -1393,26 +1431,95 @@ function rosterDirty() {
 // groups (offering a distinction this org has not made is worse than offering
 // none).
 const rosterStudents = computed(() => rosterTab.value?.rosterStudents ?? [])
-const rosterGroups = computed(() => rosterClassGroups(rosterStudents.value))
-// The SECTION, not the chips. It needs a roster that gates and a roster that
-// has somebody in it; whether there are groups to tick decides what goes inside
-// (`rosterGroups`). An empty roster under `enforced` already has a louder
-// warning on the mode itself - nobody can accept at all - and a second line
-// about class groups underneath it would bury it.
-const showClassGroups = computed(() =>
+// It needs a roster that gates and a roster with somebody in it. An empty roster
+// under `enforced` already has a louder warning on the mode itself - nobody can
+// accept at all - and an empty picker underneath it would bury it.
+const showCohortPicker = computed(() =>
   rosterGatesAcceptance(form.value.roster_mode) && rosterStudents.value.length > 0)
 
-// Named before the save, not discovered at the accept button. The gate fails
-// closed on an ungrouped student, so a lecturer restricting to "3A" needs to
-// know that four people with no group just lost their way in.
-const classGroupExcluded = computed(() =>
-  studentsExcludedByClassGroup({ class_groups: form.value.class_groups }, rosterStudents.value))
+// --- the cohort picker ---------------------------------------------------
+//
+// `form.cohort` is the stored answer, in the same identity strings lib/cohort.mjs
+// reads. Everything below is the way to build it: filter chips, a search box,
+// and a checkbox per roster row.
 
-function toggleClassGroup(group) {
-  const list = form.value.class_groups || []
-  form.value.class_groups = list.includes(group)
-    ? list.filter((g) => g !== group)
-    : [...list, group]
+/** null = every group; "" = the ungrouped; otherwise the lecturer's spelling. */
+const cohortFilter = ref(null)
+const cohortSearch = ref('')
+
+const cohortGroupCounts = computed(() => {
+  const counts = classGroupCounts(rosterStudents.value)
+  const named = counts.filter((c) => c.group !== '')
+  // No groups at all means no chips at all. An org that has never used them
+  // would otherwise get a lone "No group · 40" beside "All 40" - two controls
+  // filtering to the same set, which is worse than neither.
+  if (named.length === 0) return []
+  // And the ungrouped chip only when somebody is in it.
+  const ungrouped = counts.find((c) => c.group === '')
+  return ungrouped && ungrouped.count > 0 ? [...named, ungrouped] : named
+})
+
+/** The identity this row is stored as. Never re-spelled here - lib/cohort.mjs owns it. */
+const cohortKey = (student) => cohortIdentity(student)
+
+// A Set of what is ticked, so a 200-row list does not run `includes` per row per
+// keystroke. Derived from the form rather than held beside it: one source of
+// truth, and an assignment loaded for edit populates it for free.
+const cohortSelected = computed(() => new Set(
+  (form.value.cohort || []).map((e) => normalizeCohortEntry(e)).filter(Boolean),
+))
+
+const cohortVisible = computed(() => {
+  const q = cohortSearch.value.trim().toLowerCase()
+  return rosterStudents.value.filter((s) => {
+    if (cohortFilter.value !== null && !studentInClassGroup(s, cohortFilter.value)) return false
+    if (!q) return true
+    return [s.full_name, s.student_number, s.github_login, s.email]
+      .some((v) => typeof v === 'string' && v.toLowerCase().includes(q))
+  })
+})
+
+/** Picking more students than the cap means refusals - say so before publishing. */
+const cohortOverCap = computed(() => {
+  const cap = Number(form.value.max_acceptances) || 0
+  return cap > 0 && cohortSelected.value.size > cap
+})
+
+function writeCohort(keys) {
+  form.value.cohort = [...keys]
+  // The groups the selection was made from, for the badge. A LABEL - nothing
+  // gates on it - so it is derived from who is actually ticked rather than from
+  // which chip was last clicked, which would name a group after the lecturer
+  // unticked half of it.
+  const groups = new Set()
+  for (const s of rosterStudents.value) {
+    if (!keys.has(cohortKey(s))) continue
+    const g = typeof s.class_group === 'string' ? s.class_group.trim() : ''
+    if (g) groups.add(g)
+  }
+  form.value.cohort_groups = [...groups].sort((a, b) => a.localeCompare(b))
+}
+
+function toggleCohortStudent(student) {
+  const key = cohortKey(student)
+  if (!key) return
+  const next = new Set(cohortSelected.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  writeCohort(next)
+}
+
+function selectAllShown() {
+  const next = new Set(cohortSelected.value)
+  for (const s of cohortVisible.value) {
+    const key = cohortKey(s)
+    if (key) next.add(key)
+  }
+  writeCohort(next)
+}
+
+function clearCohort() {
+  writeCohort(new Set())
 }
 
 const rosterCount = computed(() => rosterTab.value?.studentCount ?? null)
@@ -1908,7 +2015,8 @@ function emptyForm() {
     // Empty means EVERY class group, which is what a new assignment should
     // mean - restricting a cohort is a decision a lecturer makes, never a
     // default they inherit.
-    class_groups: [],
+    cohort: [],
+    cohort_groups: [],
     // `block` discards work. Now that it actually does something, defaulting to
     // it would silently start throwing away students' late commits on every new
     // assignment - so a lecturer opts in.
@@ -2191,7 +2299,8 @@ function editAssignment(a) {
     // Read, never re-derived: an absent list means every group, and turning
     // that into anything else on load would let a save write a restriction the
     // lecturer never chose.
-    class_groups: Array.isArray(a.class_groups) ? [...a.class_groups] : [],
+    cohort: Array.isArray(a.cohort) ? [...a.cohort] : [],
+    cohort_groups: Array.isArray(a.cohort_groups) ? [...a.cohort_groups] : [],
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
     // 50 is the default for a NEW assignment (emptyForm), not a value to
@@ -3329,28 +3438,74 @@ legend {
 
 /* Class-group chips. Tonal like the late-work options rather than bordered
    cards: this fieldset is already a box (DESIGN.md §1.1). */
-.group-picker {
+/* The cohort picker: filter chips, a scrolling list, a footer that counts.
+   Tonal steps rather than nested boxes - the fieldset already draws one edge
+   and DESIGN.md §1.1 forbids the third. */
+.cohort-filters {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-xs);
   margin: var(--space-2xs) 0 var(--space-xs);
 }
-.group-chip {
-  display: inline-flex;
+.cohort-search {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+.cohort-list {
+  max-height: 20rem;
+  overflow-y: auto;
+  background: var(--bg-inset);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2xs);
+}
+.cohort-row {
+  display: grid;
+  grid-template-columns: auto 6.5rem minmax(0, 1fr) 5rem minmax(0, 9rem);
   align-items: center;
   gap: var(--space-xs);
-  padding: 4px 10px 4px 8px;
+  padding: 4px var(--space-xs);
   border-radius: var(--radius-sm);
-  background: var(--bg-inset);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   user-select: none;
-  box-shadow: inset 0 0 0 1px transparent;
 }
-.group-chip:hover { box-shadow: inset 0 0 0 1px var(--border-default); }
-.group-chip.selected {
-  box-shadow: inset 0 0 0 1px var(--accent-blue);
-  color: var(--text-primary);
+/* `--bg-surface-hover` is the token DESIGN.md §2 names for list item hover.
+   `--bg-surface` would have worked in light and read as a raised card in dark. */
+.cohort-row:hover { background: var(--bg-surface-hover); }
+/* Unfilled: `code`'s default inset background makes a plain identifier read as
+   an input, and five of them down a column read as an editable form. */
+.cohort-num {
+  font-size: 0.78rem;
+  background: none;
+  padding: 0;
+  color: var(--text-secondary);
+}
+.cohort-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cohort-group, .cohort-acct {
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cohort-empty { padding: var(--space-sm); margin: 0; font-size: 0.85rem; }
+.cohort-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+}
+.cohort-count { margin-left: auto; font-size: 0.85rem; color: var(--text-secondary); }
+.cohort-count.is-narrowed { color: var(--text-primary); font-weight: 600; }
+
+@media (max-width: 720px) {
+  /* The number and the account fall away first: the name is what a lecturer
+     scans, and a row that wraps is a row that cannot be scanned at all. */
+  .cohort-row { grid-template-columns: auto minmax(0, 1fr) 4.5rem; }
+  .cohort-num, .cohort-acct { display: none; }
 }
 
 /* Late-work alternatives. Tonal, not bordered - see the template note. */
