@@ -38,15 +38,6 @@ export const INSTITUTION_SHORT = config.institution_short || config.institution_
 /** The timezone assignment dates are displayed in when one is not set. */
 export const TIMEZONE = config.timezone
 
-/**
- * The date an academic year begins, as `"MM-DD"`.
- *
- * Not parsed and not defaulted here - lib/academic-year.mjs owns what it means
- * and answers null for a value it cannot use, so a typo costs the refusal its
- * year rather than giving it a wrong one.
- */
-export const ACADEMIC_YEAR_START = config.academic_year_start ?? null
-
 /** The account and repository holding the hub. */
 export const HUB_OWNER = config.hub_owner
 export const HUB_REPO_NAME = config.hub_repo

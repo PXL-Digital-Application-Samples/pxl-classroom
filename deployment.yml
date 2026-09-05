@@ -53,25 +53,6 @@ institution_short: PXL
 # screen, which for a deadline is worth getting right.
 timezone: Europe/Brussels
 
-# The DATE an academic year begins, as "MM-DD".
-#
-# An academic year spans two calendar years, so "2026" names neither: the label
-# is 2627 - the year beginning in 2026. It is what distinguishes one year's run
-# of a lab from the next one's, and it is what the Admin Panel offers when a
-# name is already taken (RUNBOOK §5.1).
-#
-# A date rather than a month, because the first fortnight of September belongs
-# to the OLD year here: PXL teaches from the 15th, so an assignment opening on
-# the 8th is the 2526 resit, not the 2627 course - and a resit is exactly the
-# assignment most likely to reuse a name and meet that refusal.
-#
-# One field, not a month and a day that can be edited apart: "02-31" is a
-# boundary that is nothing, and two fields is how you get there.
-#
-# Display and suggestion only. Nothing schedules, grades or gates on it. An
-# unparseable value simply produces no year in the refusal, which still reads.
-academic_year_start: "09-15"
-
 # The GitHub account and repository holding the hub. Every workflow lives there;
 # each course organization holds only data.
 hub_owner: PXL-Digital-Application-Samples
