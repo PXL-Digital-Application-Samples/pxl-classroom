@@ -414,11 +414,37 @@
               <input
                 v-model="form.id"
                 :disabled="!isNew"
-                @input="manualSlug = true; touchedFields.id = true"
+                @input="manualSlug = true; touchedFields.id = true; clearCollision()"
+                @blur="onSlugBlur"
                 placeholder="linux-processes-2026"
               />
               <div v-if="(touchedFields.id || !isNew) && fieldErrors.id" class="field-error-msg">{{ fieldErrors.id }}</div>
-              <small v-if="isNew">Auto-derived from title. Edit to override.</small>
+              <!-- Rendered here rather than beside the repository name pattern
+                   even though the pattern is the collision key: this is the
+                   field a lecturer is looking at when they choose a name, and
+                   splitting one verdict across two fields would show half of
+                   it in each. The consequence line names the pattern.
+
+                   A list, not a paragraph: as prose the same four findings were
+                   five wrapped lines of red, which is a wall, not a message. -->
+              <div v-else-if="collisionBlockers.length" class="field-error-msg">
+                {{ COLLISION_LEAD }}
+                <ul class="collision-list">
+                  <li v-for="(f, i) in collisionBlockers" :key="`${f.kind}-${i}`">{{ f.detail }}</li>
+                </ul>
+                {{ COLLISION_CONSEQUENCE }}
+              </div>
+              <div v-else-if="collisionError" class="field-error-msg">{{ collisionError }}</div>
+              <!-- Nothing blocks. Said in the muted voice, because it is
+                   information, not a refusal - the assignment saves. -->
+              <div v-else-if="collisionNotes.length" class="collision-note text-muted">
+                {{ COLLISION_WARNING_LEAD }}
+                <ul class="collision-list">
+                  <li v-for="(f, i) in collisionNotes" :key="`${f.kind}-${i}`">{{ f.detail }}</li>
+                </ul>
+              </div>
+              <small v-if="collisionChecking">Checking whether this name is free…</small>
+              <small v-else-if="isNew">Auto-derived from title. Edit to override.</small>
               <small v-else>Locked. Changing the slug would orphan the YAML file.</small>
             </div>
             <div class="field">
@@ -549,7 +575,15 @@
             </div>
             <div class="field">
               <label>Repository name pattern <span class="req">*</span></label>
-              <input v-model="form.repository_name_pattern" @input="manualRepositoryNamePattern = true; touchedFields.repository_name_pattern = true" placeholder="linux-processes-{github_login}" />
+              <!-- This field IS the collision key (lib/seed-teams.mjs), so
+                   editing it invalidates the verdict exactly as editing the
+                   slug does, and leaving it re-runs the check. -->
+              <input
+                v-model="form.repository_name_pattern"
+                @input="manualRepositoryNamePattern = true; touchedFields.repository_name_pattern = true; clearCollision()"
+                @blur="onSlugBlur"
+                placeholder="linux-processes-{github_login}"
+              />
               <div v-if="(touchedFields.repository_name_pattern || !isNew) && fieldErrors.repository_name_pattern" class="field-error-msg">{{ fieldErrors.repository_name_pattern }}</div>
               <small>Must contain <code>{{ form.assignment_type === 'group' ? '{team_slug}' : '{github_login}' }}</code>. The repository will be named per this pattern.</small>
             </div>
@@ -1322,7 +1356,7 @@ import { config } from '../lib/config.js'
 import { TIMEZONE, INSTITUTION_SHORT } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
-import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
+import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { needsBrokerDispatch } from '../lib/publish.js'
@@ -1337,6 +1371,16 @@ import {
 } from '../../../lib/control-layout.mjs'
 import { archiveRepoName } from '../../../lib/archive-repo.mjs'
 import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
+import {
+  collidingRepoNames,
+  clashingAssignments,
+  assignmentCollisions,
+  blockingFindings,
+  noteFindings,
+  COLLISION_LEAD,
+  COLLISION_CONSEQUENCE,
+  COLLISION_WARNING_LEAD,
+} from '../lib/assignment-collision.js'
 
 /**
  * The control-repo directories keyed by assignment id.
@@ -2417,6 +2461,9 @@ function utcHint(localStr) {
 function autoSyncSlug() {
   if (isNew.value && !manualSlug.value) {
     form.value.id = toSlug(form.value.title)
+    // The slug just changed without an @input on its own field, so a refusal
+    // decided for the previous one is now about a different id.
+    clearCollision()
     // Also keep repository_name_pattern in sync with slug if it has not been manually edited
     if (!manualRepositoryNamePattern.value) {
       form.value.repository_name_pattern = form.value.assignment_type === 'group'
@@ -2570,6 +2617,7 @@ function newAssignment() {
   manualSlug.value = false
   manualRepositoryNamePattern.value = false
   templateSearchText.value = ''
+  clearCollision()
   touchedFields.value = {
     id: false,
     title: false,
@@ -2992,6 +3040,160 @@ const canSave = computed(() => {
  * workflow even when the commit had failed, so the run went out against a YAML
  * that was never written.
  */
+// Whether this assignment would land on top of an existing one.
+//
+// Not a computed: answering needs live reads of the organization.
+// `collisionCheckedFor` holds the id+pattern the verdict was decided for, so
+// editing either stops showing it immediately rather than re-justifying it for
+// a form it was never about.
+//
+// `collisionError` is the one case with no list behind it: the check could not
+// RUN. Everything else is `collisionVerdict`, whose findings say for themselves
+// whether they block.
+const collisionError = ref('')
+const collisionVerdict = ref(null)
+const collisionCheckedFor = ref('')
+const collisionChecking = ref(false)
+
+// A refusal lists only what stops the save: the consequence line says "delete
+// what is listed above", and the retired record is not something anyone has to
+// delete. Notes are their own block, in the muted voice, and only when nothing
+// blocks - a refusal is not the moment to also mention a bookkeeping detail.
+const collisionBlockers = computed(() => blockingFindings(collisionVerdict.value))
+const collisionNotes = computed(() =>
+  collisionVerdict.value?.clear ? noteFindings(collisionVerdict.value) : [])
+
+/** The identity of a check: re-run when either half changes, not just the id. */
+const collisionKey = () => `${form.value.id} ${form.value.repository_name_pattern}`
+
+function clearCollision() {
+  collisionError.value = ''
+  collisionVerdict.value = null
+  collisionCheckedFor.value = ''
+}
+
+/**
+ * Would this assignment land on top of an existing one?
+ *
+ * The question is about what EXISTS, never about what once happened. An
+ * assignment opened by mistake and deleted before anybody joined leaves a
+ * `retired/<id>/` record of nothing, and refusing the name for that would
+ * refuse an ordinary "changed my mind, starting over". A lecturer who has
+ * deleted the archive and the repositories has genuinely freed the name and is
+ * believed.
+ *
+ * The collision key is `repository_name_pattern`, not the id - lib/
+ * seed-teams.mjs has said so since it was written, and nothing enforced it. So
+ * the authoritative question is put to the ORGANIZATION: list every repository
+ * and ask which ones this pattern would produce. One request per 100
+ * repositories, at creation time only, and it is the only answer that survives
+ * a lecturer deleting the record by hand.
+ *
+ * `listOrgRepos` with a prefix would be one bounded Search API query instead -
+ * and is not used here, because Search is eventually consistent: a repository
+ * deleted a minute ago is still in the index, which is exactly the moment a
+ * lecturer retries. The paginated org walk is authoritative.
+ *
+ * Fails CLOSED on an unreadable answer: what it prevents fails weeks later, at
+ * the deadline, on a student who did nothing wrong.
+ *
+ * An EXISTING assignment is checked for one thing only: another live assignment
+ * sharing its pattern. Its own repositories match its own pattern, its own
+ * archive is meant to be there, and its own `retired/` record would be from a
+ * previous life of the id - so those three questions have no meaning here, and
+ * asking them would refuse every save. That check costs no requests at all.
+ *
+ * @param {string} slug
+ * @param {string} pattern
+ * @param {{fresh?: boolean}} [opts] `fresh` - this is a new assignment
+ * @returns {Promise<{message: string, verdict: object|null}>}
+ */
+async function checkCollisions(slug, pattern, { fresh = true } = {}) {
+  const token = getToken()
+  const refuse = (message) => ({ message, verdict: null })
+  let manifest = null
+  let archiveExists = false
+
+  if (!fresh) {
+    return {
+      message: '',
+      verdict: assignmentCollisions({ clashes: clashingAssignments(pattern, assignments.value, slug) }),
+    }
+  }
+
+  try {
+    const raw = await getRepoContent(token, props.org, config.controlRepo, `${retiredDir(slug)}/manifest.json`)
+    if (raw) {
+      try {
+        manifest = JSON.parse(raw)
+      } catch {
+        // A record that will not parse is still a record that is there.
+        manifest = { assignment_id: slug }
+      }
+    }
+  } catch (e) {
+    return refuse(`Could not check whether "${slug}" was used before (${e.message}). Refusing rather than guessing.`)
+  }
+
+  const archive = archiveRepoName(slug)
+  if (archive) {
+    const res = await getRepo(token, props.org, archive)
+    if (res.ok) archiveExists = true
+    else if (res.status !== 404) {
+      return refuse(`Could not check whether ${props.org}/${archive} still exists (HTTP ${res.status}). Refusing rather than guessing - a kept archive makes preservation fail at the deadline.`)
+    }
+  }
+
+  // failFast: a short list would read as "nothing is in the way", which is the
+  // one answer an unanswered request must never produce.
+  let orgRepos
+  try {
+    orgRepos = await listOrgRepos(token, props.org, '', { failFast: true })
+  } catch (e) {
+    return refuse(`Could not list the repositories in ${props.org} (${e.message}). Refusing rather than guessing - a returning student would be handed their old locked repository.`)
+  }
+
+  const others = assignments.value.filter((a) => a.id !== slug)
+  const existingRepos = collidingRepoNames(pattern, orgRepos.map((r) => r.name), others)
+  const clashes = clashingAssignments(pattern, assignments.value, slug)
+
+  return { message: '', verdict: assignmentCollisions({ existingRepos, clashes, archiveExists, manifest }) }
+}
+
+/**
+ * Check on the way out of the slug or the pattern field, so the answer arrives
+ * while the lecturer is still choosing a name rather than after they have
+ * filled in the whole form.
+ *
+ * saveAssignment re-runs it regardless. This one is a courtesy; that one is the
+ * gate. Bound to both fields because either one changes the answer.
+ *
+ * Runs for an existing assignment too - the pattern is editable there, and
+ * checkCollisions() narrows what it asks about accordingly.
+ */
+async function onSlugBlur() {
+  const slug = form.value.id
+  const pattern = form.value.repository_name_pattern
+  if (!slug || !pattern || fieldErrors.value.id || fieldErrors.value.repository_name_pattern) {
+    clearCollision()
+    return
+  }
+  const key = collisionKey()
+  if (collisionCheckedFor.value === key) return
+  collisionChecking.value = true
+  try {
+    const { message, verdict } = await checkCollisions(slug, pattern, { fresh: isNew.value })
+    // The lecturer may have kept typing while this was in flight. A verdict
+    // about a form that no longer exists is worse than no verdict.
+    if (collisionKey() !== key) return
+    collisionError.value = message
+    collisionVerdict.value = verdict
+    collisionCheckedFor.value = key
+  } finally {
+    collisionChecking.value = false
+  }
+}
+
 async function saveAssignment(stateOverride = null) {
   // Touch all fields to show error styling
   for (const k of Object.keys(touchedFields.value)) {
@@ -3020,6 +3222,29 @@ async function saveAssignment(stateOverride = null) {
         return false
       }
     } catch { /* ignore and let commitFile handle any errors */ }
+  }
+
+  // The collision gate. Runs for an existing assignment too, because
+  // `repository_name_pattern` is editable and pointing it at another live
+  // assignment's namespace is exactly how two assignments come to hand out
+  // each other's repositories (lib/seed-teams.mjs, invariant 2).
+  //
+  // Re-run here even when the blur check already passed: the blur check is a
+  // courtesy, this one is the gate, and the org can have changed in between.
+  {
+    const slug = form.value.id
+    const pattern = form.value.repository_name_pattern
+    const key = collisionKey()
+    const { message, verdict } = await checkCollisions(slug, pattern, { fresh: isNew.value })
+    collisionError.value = message
+    collisionVerdict.value = verdict
+    collisionCheckedFor.value = key
+    if (message || (verdict && !verdict.clear)) {
+      touchedFields.value.id = true
+      touchedFields.value.repository_name_pattern = true
+      toast.error(`"${slug}" would collide with something that already exists. See the form.`)
+      return false
+    }
   }
   saving.value = true
   try {
@@ -3740,6 +3965,19 @@ legend {
   margin-bottom: var(--space-md);
 }
 .field:last-child { margin-bottom: 0; }
+/* What a name would land on top of. Scoped, because this is the only place
+   they are listed - style.css is for classes more than one component reaches.
+   No colour of its own: it inherits from whichever block wraps it, which is
+   .field-error-msg for a refusal and .text-muted for a warning. */
+.collision-list {
+  margin: 4px 0;
+  padding-left: var(--space-md);
+  list-style: disc;
+}
+.collision-list li { margin: 2px 0; }
+/* Matches the <small> the field already renders beneath it, so a warning and
+   the field's own help text read as one voice. */
+.collision-note { font-size: 0.82rem; }
 /* A checkbox field is a LABEL ROW with its explanation UNDER it.
    As `flex-direction: row` the field's own <small> became a second COLUMN: the
    label was squeezed to about 40% of the width and its help text floated

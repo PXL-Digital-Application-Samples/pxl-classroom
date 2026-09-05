@@ -447,6 +447,31 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 
 **The manifest goes on naming the archive after you delete it, and that is correct.** `retired/<id>/manifest.json` is a record of the deletion, not a live index - nothing regenerates it and nothing is watching the archive. Read `archive_repo` together with `preserved_submissions` beside it: that number is how many submissions were in there on the day the assignment was deleted, so `0` means removing the repository cost nothing, and `12` means twelve are gone. Without it, a reader meeting a 404 years later cannot tell your end-of-year cleanup from a repository name recorded wrongly.
 
+### 5.1 Running the same lab again, or reusing a name
+
+Creating an assignment checks whether it would land on top of an existing one, and refuses if it would. The check is on `repository_name_pattern`, not on the assignment id: two ids can point at one namespace, and provisioning is idempotent on repository *existence*, so the second assignment hands students the first one's repository - already locked down, already preserved - instead of a fresh one.
+
+Three things are refused, and two of them would otherwise fail weeks later, at the deadline:
+
+| What is in the way | What would happen |
+|---|---|
+| A repository the pattern would produce already exists | A returning student is handed the old one, still carrying the previous deadline's lockdown ruleset. Nothing can unlock it. |
+| Another assignment already uses that pattern | The same thing, from the first acceptance. |
+| `<org>/pxl-classroom-archive-<id>` still exists | It still holds `refs/heads/preserved/<id>/<login>`, and preservation pushes without `--force` on purpose - so the snapshot is rejected at the new deadline, for every returning student. |
+
+Each is named individually, so one pass of cleanup clears all of them.
+
+**What is *not* refused:** an assignment you opened, changed your mind about and deleted before anybody joined. The delete writes `retired/<id>/` unconditionally, so a record exists for a run that never had a repository - you get a note saying a later delete would overwrite it, and the assignment saves.
+
+The same applies once you have cleaned up: the check asks what **exists**, not what once happened. Delete the archive and the student repositories (the two steps above) and the name is free again.
+
+**The cheap way is a different name.** `lab-3-resit`, `lab-3-2027`. It costs nothing, keeps last year's evidence readable, and skips the cleanup entirely.
+
+The check reads the organization's repository list, not the deletion record - so deleting `retired/<id>/` by hand does not make a name look free, and repositories from a run whose record is long gone are still found.
+
+Editing an existing assignment is checked for one thing only: repointing its pattern at **another** live assignment. Its own repositories and its own archive are its own.
+
+
 ---
 
 
