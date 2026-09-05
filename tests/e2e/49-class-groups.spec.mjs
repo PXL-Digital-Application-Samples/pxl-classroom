@@ -107,11 +107,51 @@ test.describe('49 - choosing which section an assignment is for', () => {
   test('the picker is absent when the roster has no class groups', async ({ page }) => {
     // Offering a distinction this organization has never made is worse than
     // offering none: it invites a lecturer to look for groups that do not
-    // exist. Same roster, every class_group removed.
+    // exist. Same roster, every class_group removed. Still true - what appears
+    // in its place is the line below, and it has nothing to tick.
     await newAssignment(page, { roster: UNGROUPED });
     await gateOnRoster(page);
 
     await expect(guardrails(page)).toContainText('on the roster');
     await expect(page.locator('.group-picker')).toHaveCount(0);
+  });
+
+  test('an org with no groups is told the field exists and where the column goes', async ({ page }) => {
+    // THE FEATURE ONLY APPEARED TO SOMEONE WHO HAD ALREADY USED IT. Hiding the
+    // whole field when the roster has no groups meant a lecturer had to know
+    // about `class_group` before anything would mention it - and measured on
+    // 2026-09-05, not one student in any live organization carries one, so this
+    // control had never rendered anywhere. Asked how to split classes across
+    // assignments, there was nothing on screen to find.
+    await newAssignment(page, { roster: UNGROUPED });
+    await gateOnRoster(page);
+
+    await expect(guardrails(page)).toContainText('No class groups on your roster');
+    // The route it names has to be the one that works: Export CSV is on the
+    // Roster tab, it writes a `class_group` column, and the importer reads it.
+    await expect(guardrails(page)).toContainText('class_group');
+    await expect(guardrails(page)).toContainText('import it back');
+
+    // ONE STATE AT A TIME. Both lines rendered at first, so the empty state was
+    // followed by "Tick a group to limit this assignment" with nothing to tick.
+    await expect(guardrails(page)).not.toContainText('All class groups');
+    await expect(guardrails(page)).not.toContainText('may accept.');
+
+    // And it goes away the moment there is something to tick.
+    await newAssignment(page);
+    await gateOnRoster(page);
+    await expect(page.locator('.group-picker')).toHaveCount(1);
+    await expect(guardrails(page)).not.toContainText('No class groups on your roster');
+  });
+
+  test('an empty roster is not told about class groups', async ({ page }) => {
+    // `enforced` with nobody imported already says "nobody can accept" on the
+    // mode itself. A second line underneath about a column they have no rows to
+    // put it in buries the one that matters.
+    await newAssignment(page, { roster: [] });
+    await gateOnRoster(page);
+
+    await expect(guardrails(page)).toContainText('nobody can accept');
+    await expect(guardrails(page)).not.toContainText('No class groups on your roster');
   });
 });

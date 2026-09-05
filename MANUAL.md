@@ -12,6 +12,14 @@ Who is allowed to use the invitation link.
 
 Your roster belongs to the whole course, not to one assignment. An assignment can limit itself to certain class groups.
 
+### Running two sections off one roster
+
+- Put a **class group** on each student - a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
+- The assignment form then offers those groups under **Class groups**, on any assignment where the roster decides who may accept. Tick one and only that section can accept.
+- Tick nothing and every group can. That is what an assignment made before you had groups does.
+- A student with no group is turned away from an assignment that names groups. The form counts them for you before you save.
+- To add groups to a roster you already imported: **Roster** tab, **Export CSV**, fill the column in, import it back.
+
 After an open assignment you can [add everyone who accepted](#adding-students-who-accepted) to the roster.
 
 ### Good to know

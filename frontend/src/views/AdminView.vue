@@ -752,37 +752,59 @@
                  gate for both unless an assignment narrows it. Nothing ticked
                  means every group, which is what every assignment written
                  before this existed means.
-                 Only rendered when the roster is actually the gate AND this org
-                 has groups - a filter under `open` decides nothing, and a
-                 distinction nobody has made is worse than none at all. -->
-            <div v-if="showClassGroupPicker" class="field">
+                 Only rendered when the roster is actually the gate - a filter
+                 under `open` decides nothing.
+
+                 THE CHIPS AND THE SECTION ARE TWO QUESTIONS. Offering a
+                 distinction nobody has made is worse than none at all, so the
+                 picker still appears only where there are groups to tick. But
+                 hiding the whole thing meant the feature only ever appeared to
+                 someone who had already used it: measured 2026-09-05, not one
+                 student in any live org carries a `class_group`, so this
+                 control has never rendered anywhere, and a lecturer asking how
+                 to split their classes had nothing to find. The empty state
+                 says what the field is for and where the column goes. -->
+            <div v-if="showClassGroups" class="field">
               <label>Class groups</label>
-              <div class="group-picker">
-                <label
-                  v-for="g in rosterGroups"
-                  :key="g"
-                  class="group-chip"
-                  :class="{ selected: form.class_groups.includes(g) }"
-                >
-                  <input
-                    type="checkbox"
-                    :checked="form.class_groups.includes(g)"
-                    @change="toggleClassGroup(g)"
-                  />
-                  <span>{{ g }}</span>
-                </label>
-              </div>
-              <small v-if="!form.class_groups.length">
-                <strong>All class groups.</strong> Everyone on the roster may accept. Tick a group to
-                limit this assignment to one section.
+              <!-- ONE STATE AT A TIME. The two status lines belong to the
+                   picker, not to the field: "Tick a group to limit this
+                   assignment" is nonsense with nothing to tick, and it rendered
+                   under the empty state the first time this was written. They
+                   are nested rather than chained because a `v-else` on the
+                   first of them would attach to the wrong condition and print
+                   "Only  may accept." -->
+              <small v-if="!rosterGroups.length">
+                <strong>No class groups on your roster.</strong> Give students a <code>class_group</code> and an assignment can be limited to one section. Export the roster to CSV, fill the column in, and import it back.
+                <button type="button" class="btn-link" @click="setTab('roster')">Roster →</button>
               </small>
-              <small v-else :class="classGroupExcluded.length ? 'text-warning' : null">
-                Only <strong>{{ form.class_groups.join(', ') }}</strong> may accept.
-                <template v-if="classGroupExcluded.length">
-                  {{ classGroupExcluded.length }} of {{ rosterStudents.length }} roster students are
-                  in another group or have none, and will be turned away.
-                </template>
-              </small>
+              <template v-else>
+                <div class="group-picker">
+                  <label
+                    v-for="g in rosterGroups"
+                    :key="g"
+                    class="group-chip"
+                    :class="{ selected: form.class_groups.includes(g) }"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="form.class_groups.includes(g)"
+                      @change="toggleClassGroup(g)"
+                    />
+                    <span>{{ g }}</span>
+                  </label>
+                </div>
+                <small v-if="!form.class_groups.length">
+                  <strong>All class groups.</strong> Everyone on the roster may accept. Tick a group to
+                  limit this assignment to one section.
+                </small>
+                <small v-else :class="classGroupExcluded.length ? 'text-warning' : null">
+                  Only <strong>{{ form.class_groups.join(', ') }}</strong> may accept.
+                  <template v-if="classGroupExcluded.length">
+                    {{ classGroupExcluded.length }} of {{ rosterStudents.length }} roster students are
+                    in another group or have none, and will be turned away.
+                  </template>
+                </small>
+              </template>
             </div>
 
             <div class="field">
@@ -1372,8 +1394,13 @@ function rosterDirty() {
 // none).
 const rosterStudents = computed(() => rosterTab.value?.rosterStudents ?? [])
 const rosterGroups = computed(() => rosterClassGroups(rosterStudents.value))
-const showClassGroupPicker = computed(() =>
-  rosterGatesAcceptance(form.value.roster_mode) && rosterGroups.value.length > 0)
+// The SECTION, not the chips. It needs a roster that gates and a roster that
+// has somebody in it; whether there are groups to tick decides what goes inside
+// (`rosterGroups`). An empty roster under `enforced` already has a louder
+// warning on the mode itself - nobody can accept at all - and a second line
+// about class groups underneath it would bury it.
+const showClassGroups = computed(() =>
+  rosterGatesAcceptance(form.value.roster_mode) && rosterStudents.value.length > 0)
 
 // Named before the save, not discovered at the accept button. The gate fails
 // closed on an ungrouped student, so a lecturer restricting to "3A" needs to
