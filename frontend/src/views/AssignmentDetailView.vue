@@ -913,6 +913,55 @@
           Generated {{ fmt(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ fmt(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota (resets hourly)`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
         </p>
 
+        <!-- WHO TRIED AND WAS TURNED AWAY.
+             An INLINE banner, not a drawer: the help drawer is `position:
+             fixed` and owns the overlay layer, and a second panel competing for
+             it is the bug tests/e2e/47 exists for. This is a block in the page,
+             with no stacking context of its own.
+             A refusal is an OUTCOME, not a failure - most of these are the
+             system doing exactly what the assignment says. So `.dot-warning`,
+             which DESIGN.md §4 defines as "needs a look, not an alarm", and
+             never `.dot-danger`. -->
+        <section v-if="rejectionsUnreadable || rejections.length" class="rejections diag-banner">
+          <span class="status-dot dot-warning"></span>
+          <div class="rejections-body">
+            <template v-if="rejectionsUnreadable">
+              <strong>Couldn't check for refused acceptances.</strong>
+              <p class="text-muted text-sm">
+                The read failed, so this is not "nobody was turned away" - it is unknown.
+                <a v-if="rejectionsIssueUrl" :href="rejectionsIssueUrl" target="_blank" rel="noopener">
+                  Open the notifications issue
+                </a>
+              </p>
+            </template>
+            <template v-else>
+              <strong>
+                {{ rejectedStudents }} {{ rejectedStudents === 1 ? 'student was' : 'students were' }}
+                turned away
+              </strong>
+              <ul class="rejections-list">
+                <li v-for="r in rejections" :key="r.outcome">
+                  <span class="rejections-count">{{ r.logins.length }}</span>
+                  <!-- No class: the grid places it and nothing styles it, and a
+                       class that declares nothing renders unstyled with no
+                       build error (DESIGN.md §7). The raw outcome is the title,
+                       because that is what the workflow log and the control repo
+                       record say and a lecturer chasing one student matches them
+                       up by it. -->
+                  <span :title="r.outcome">{{ r.reason }}</span>
+                  <span class="rejections-who text-muted">{{ r.logins.map((l) => '@' + l).join(', ') }}</span>
+                </li>
+              </ul>
+              <p class="text-muted text-sm">
+                Most refusals are this assignment working as configured.
+                <a v-if="rejectionsIssueUrl" :href="rejectionsIssueUrl" target="_blank" rel="noopener">
+                  Full history
+                </a>
+              </p>
+            </template>
+          </div>
+        </section>
+
         <!-- Autograde results (read-only) -->
         <section v-if="autogradeEnabled" class="autograde-section">
           <header class="autograde-head">
@@ -1097,6 +1146,11 @@ import { config } from '../lib/config.js'
 // One CSV cell, shared. This file held a byte-identical copy of it, as did
 // RosterTab.vue and report.mjs, and none of the three had an inverse.
 import { csvCell } from '../../../lib/csv-cell.mjs'
+import {
+  TRACKING_LABEL,
+  rejectionsForAssignment,
+  rejectionCount,
+} from '../../../lib/rejection-notice.mjs'
 import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../../../lib/report-csv.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
@@ -2337,6 +2391,67 @@ function emptyReport() {
 // prevent, and it must not be able to overwrite a good load.
 let loadGeneration = 0
 
+// --- who was turned away ------------------------------------------------
+//
+// A rejection is an outcome, not a failure - `accept.mjs` exits 0 for every
+// `rejected:*` so a correct refusal does not paint the hub red. The lecturer
+// was told on a tracking issue in the private control repo and NOWHERE ELSE, so
+// an assignment refusing exactly the students it was configured to refuse
+// looked identical, on this page, to a broken invitation link.
+const rejections = ref([])
+const rejectionsIssueUrl = ref(null)
+// UNREADABLE IS NOT ZERO. A failed read here must never render as "nobody was
+// turned away", which is the same mistake as a green check over a grading run
+// nobody could read.
+const rejectionsUnreadable = ref(false)
+
+const rejectedStudents = computed(() => rejectionCount(rejections.value))
+
+async function loadRejections(token) {
+  rejections.value = []
+  rejectionsUnreadable.value = false
+  try {
+    const found = await ghApi(
+      token,
+      'GET',
+      `/repos/${props.org}/${config.controlRepo}/issues?labels=${TRACKING_LABEL}&state=open&per_page=1`,
+    )
+    // A 404 on the issues endpoint means no control repo we can read, which the
+    // rest of the page has already reported. Anything else that is not ok is a
+    // read we could not make, and we say so rather than showing a clean slate.
+    if (!found.ok) {
+      if (found.status !== 404) rejectionsUnreadable.value = true
+      return
+    }
+    const issue = Array.isArray(found.data) ? found.data[0] : null
+    // No tracking issue is a real answer: nothing has ever been notified in this
+    // organization, so nobody has been turned away.
+    if (!issue) return
+    rejectionsIssueUrl.value = issue.html_url || null
+
+    // ONE PAGE IS NOT THE LIST, and GitHub returns issue comments OLDEST first,
+    // so the first page of a long-lived tracking issue is the oldest hundred -
+    // exactly the ones least likely to be about this assignment. Walk it, and
+    // treat a capped walk as unreadable rather than complete.
+    const comments = []
+    for (let page = 1; page <= 10; page++) {
+      const res = await ghApi(
+        token,
+        'GET',
+        `/repos/${props.org}/${config.controlRepo}/issues/${issue.number}/comments?per_page=100&page=${page}`,
+      )
+      if (!res.ok) { rejectionsUnreadable.value = true; return }
+      const batch = Array.isArray(res.data) ? res.data : []
+      comments.push(...batch)
+      if (batch.length < 100) break
+      if (page === 10) { rejectionsUnreadable.value = true; return }
+    }
+    rejections.value = rejectionsForAssignment(comments, props.assignmentId)
+  } catch {
+    rejectionsUnreadable.value = true
+  }
+}
+
 async function loadAll() {
   const generation = ++loadGeneration
   const superseded = () => generation !== loadGeneration
@@ -2410,6 +2525,10 @@ async function loadAll() {
     if (!report.value && assignment.value) {
       report.value = emptyReport()
     }
+    // Separate from the page's own load on purpose: whether anybody was turned
+    // away is worth knowing and is worth nothing at the cost of the cohort
+    // table. Its failures stay inside it.
+    loadRejections(token).catch(() => {})
     if (rosterContent) {
       try {
         const parsed = parseYaml(rosterContent)
@@ -3669,6 +3788,31 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
   gap: 2px;
   font-size: 0.75rem;
   color: var(--text-secondary);
+}
+
+/* A tonal well, not a bordered box: this sits inside the report card and
+   DESIGN.md §1.1 wants the inner level to step in tone instead of drawing a
+   third edge. `.diag-banner` supplies the padding, radius and the dot row. */
+.rejections {
+  margin-top: var(--space-lg);
+  background: var(--tint-attention-subtle);
+}
+.rejections-body { display: flex; flex-direction: column; gap: var(--space-2xs); min-width: 0; }
+.rejections-body p { margin: 0; }
+.rejections-list { list-style: none; margin: var(--space-2xs) 0; padding: 0; display: grid; gap: 2px; }
+.rejections-list li {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 14rem) minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: baseline;
+  font-size: 0.85rem;
+}
+.rejections-count { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.rejections-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) {
+  /* The names wrap under the reason rather than pushing the card sideways. */
+  .rejections-list li { grid-template-columns: 2rem minmax(0, 1fr); }
+  .rejections-who { grid-column: 2; white-space: normal; }
 }
 
 .autograde-section {

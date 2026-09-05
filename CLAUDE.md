@@ -97,7 +97,7 @@ Breaking one of these has cost this project a real incident. They are not style.
 - **Every deadline comparison is the deadline for *that student*** — `lib/effective-deadline.mjs` decides, nothing else.
 - **`observed_at` is when the collector looked, never when the student acted.** Deadline classification compares the **commit's own** timestamp; the observation time is a fallback for records that predate `commit_date`. Comparing observation time to the deadline marked two students late on a finished exam for committing 6h50m and 54m *before* it — it can only ever err in that direction, and only against students who work up to the deadline. `lock_down_at` was moved off the observation for this same reason; the rule is the field, not the one call site.
 - **`max_acceptances` can overshoot, and that is a decision.** Do not "fix" it by serialising every acceptance.
-- **A rejection is an outcome, not a failure.** `rejected:*` exits 0; only `fail:*` goes red.
+- **A rejection is an outcome, not a failure.** `rejected:*` exits 0; only `fail:*` goes red. **And it has to be visible where the lecturer is** — for years the only surface was a comment on the control repo's tracking issue, so an assignment refusing exactly the people it was configured to refuse looked, on screen, like a broken invitation link. The detail view reads it (`lib/rejection-notice.mjs`), from the **dedup key** rather than the prose beside it — that key is what the notifier already matches byte for byte, so it cannot drift without dedup breaking first, and `tests/rejection-notice.test.mjs` checks the workflow's literal against the builder. A new `rejected:*` with no human label fails that test rather than showing a lecturer a slug.
 
 ## Frontend
 

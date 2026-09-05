@@ -411,6 +411,14 @@ export async function setupStandardMockRoutes(page, {
   // single-issue read makes `res.data.labels` undefined and the channel
   // silently carries nothing.
   brokerIssueLabels = [],
+  // The control repo's instructor tracking issue and its comments - how a
+  // lecturer learns that somebody was turned away. Null means the organization
+  // has never had one, which is a real answer (nothing has been notified) and
+  // must not read as a failed lookup. The string 'UNREADABLE' on either makes
+  // that read fail, because "we could not check" and "nobody was refused" are
+  // different facts and the panel has to be able to tell them apart.
+  trackingIssue = null,
+  trackingComments = [],
   // Put a non-lecturer persona's org into /user/installations, which is what a
   // student who has accepted an assignment actually looks like. Off by default
   // so no existing spec changes shape.
@@ -760,7 +768,17 @@ export async function setupStandardMockRoutes(page, {
         body: JSON.stringify({ id: 201, body: 'Comment posted' }),
       });
     } else if (url.includes('/issues') && url.includes('/comments') && method === 'GET') {
-      await route.fulfill({ status: 200, body: JSON.stringify([]) });
+      if (trackingComments === 'UNREADABLE') {
+        await route.fulfill({ status: 500, body: JSON.stringify({ message: 'boom' }) });
+        return;
+      }
+      // Page 2 of a walk is empty unless a spec says otherwise: the reader stops
+      // at a short page, so one page of comments is the whole list.
+      const page = Number(new URL(url).searchParams.get('page') || '1');
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify(page === 1 ? trackingComments : []),
+      });
     } else if (/\/issues\/\d+(\?.*)?$/.test(url) && method === 'GET') {
       // ONE issue, as an object. The list route below would answer an array,
       // and `outcomeFromLabels(undefined)` is null - a channel that carries
@@ -776,6 +794,20 @@ export async function setupStandardMockRoutes(page, {
         }),
       });
     } else if (url.includes('/issues') && method === 'GET') {
+      // The tracking issue is found by its label, and it lives in the CONTROL
+      // repo - a different question from the broker's issue list, which this
+      // same route answers. Matched on the label so the two cannot be confused.
+      if (url.includes('labels=pxl-tracking')) {
+        if (trackingIssue === 'UNREADABLE') {
+          await route.fulfill({ status: 500, body: JSON.stringify({ message: 'boom' }) });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          body: JSON.stringify(trackingIssue ? [trackingIssue] : []),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         body: JSON.stringify(brokerIssues),

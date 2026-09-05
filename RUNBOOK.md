@@ -174,7 +174,7 @@ Each org's control repo has an open issue titled **PXL Classroom - Instructor No
 | Event | Meaning |
 |---|---|
 | `provisioning-failed` | A student accepted but the repo wasn't created. Most often: GitHub rate limit during a burst. The student retries by opening their invitation link again. |
-| `acceptance-rejected` | A student was turned away - not on the roster, outside the window, or the cap is full. The reason is in the comment. Deduped per assignment+login+reason, so a student retrying the same closed door updates one comment rather than adding another. |
+| `acceptance-rejected` | A student was turned away - not on the roster, not in this assignment, outside the window, or the cap is full. **You do not have to come here to see these:** the assignment's own page counts them and names the reasons in plain language, which is where to look first. Deduped per assignment+login+reason, so a student retrying the same closed door updates one comment rather than adding another. |
 | `collection-failed` | The nightly collect step couldn't reach a student's repo. Usually transient. |
 | `deadline-gap` | An observation gap straddles a deadline. Reduces evidence quality; mention in grading. |
 | `missing-access` | The reconcile step found a repo where the student's admin grant has been revoked. |
