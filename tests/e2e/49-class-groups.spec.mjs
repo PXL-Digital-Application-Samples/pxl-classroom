@@ -446,6 +446,23 @@ test.describe('49 - setting a class group without a CSV', () => {
     await expect(page.locator('.group-edit')).toHaveAttribute('list', 'roster-class-groups');
   });
 
+  test('the editable cell reads editable, and the unreadable one does not', async ({ page }) => {
+    // THE ROW READ BACKWARDS. `.diff-pane code` fills every <code> in the pane,
+    // so the student number - which nothing can edit - carried an input-shaped
+    // fill while the group cell, the one editable thing in the row, was plain
+    // text. Computed rather than eyeballed: a faint fill reads as a table
+    // stripe at a glance, which is how it survived the first review.
+    await rosterTab(page, []);
+
+    const num = await page.locator('.roster-table code').first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(num, 'a student number must not look like a field').toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+
+    const affordance = await cell(page, 'Alice Example')
+      .evaluate((el) => getComputedStyle(el).borderBottomStyle);
+    expect(affordance, 'the editable cell needs a resting affordance, not just hover').toBe('dotted');
+  });
+
   test('the cell is a real control, reachable by keyboard', async ({ page }) => {
     // A span with a click handler is invisible to a keyboard and announced as
     // nothing. This is a button because that is what it is.

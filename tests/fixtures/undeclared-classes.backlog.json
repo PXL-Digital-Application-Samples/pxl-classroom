@@ -88,9 +88,6 @@
     "roster-overview-header": [
       "RosterTab.vue"
     ],
-    "roster-table": [
-      "RosterTab.vue"
-    ],
     "sandbox-page": [
       "SandboxView.vue"
     ],

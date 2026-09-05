@@ -1418,6 +1418,16 @@ defineExpose({
    handler, so it is reachable by keyboard and announced as something you can
    operate - which is what it is. Muted until hovered, because 200 of these
    should not read as 200 controls. */
+/* THE ROW READ BACKWARDS. `.diff-pane code` fills every <code> in this pane,
+   so the student number - which nothing can edit - looked like an input, while
+   the group cell, which is now the one editable thing in the row, was plain
+   text. Qualified rather than relying on source order, the way `.field code`
+   beat a bare class in AdminView. */
+.diff-pane .roster-table code {
+  background: none;
+  padding: 0;
+}
+
 .group-cell {
   background: none;
   border: 0;
@@ -1428,6 +1438,10 @@ defineExpose({
   font: inherit;
   cursor: pointer;
   text-align: left;
+  /* A resting affordance, because hover is not discoverable and a title
+     attribute is not either. Dotted rather than a box: 200 of these should read
+     as a column of text you can touch, not as 200 controls. */
+  border-bottom: 1px dotted var(--border-default);
 }
 .group-cell:hover,
 .group-cell:focus-visible {
