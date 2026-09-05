@@ -21,6 +21,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+import { csvCell } from "../lib/csv-cell.mjs";
 import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.mjs";
 // GitHub logins are case-insensitive, so every index below is keyed lowercased
 // and the spelling shown is chosen separately. See lib/github-login.mjs for the
@@ -697,16 +698,7 @@ async function main() {
 
     const csvRows = [csvHeaders.join(",")];
     for (const s of students) {
-      const row = csvHeaders.map((h) => {
-        const v = s[h];
-        if (v === null || v === undefined) return "";
-        let str = Array.isArray(v) ? v.join("; ") : String(v);
-        if (/^[=+\-@]/.test(str)) {
-          str = `'${str}`;
-        }
-        return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-      });
-      csvRows.push(row.join(","));
+      csvRows.push(csvHeaders.map((h) => csvCell(s[h])).join(","));
     }
 
     await writeFile(

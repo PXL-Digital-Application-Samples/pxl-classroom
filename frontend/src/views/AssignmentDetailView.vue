@@ -1094,6 +1094,9 @@ const SortIcon = (props) => props.dir
   : null
 SortIcon.props = ['dir']
 import { config } from '../lib/config.js'
+// One CSV cell, shared. This file held a byte-identical copy of it, as did
+// RosterTab.vue and report.mjs, and none of the three had an inverse.
+import { csvCell } from '../../../lib/csv-cell.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
@@ -2623,15 +2626,6 @@ const CSV_HEADERS = [
   'preservation_status',
   'preserved_sha', 'warnings',
 ]
-
-function csvCell(v) {
-  if (v === null || v === undefined) return ''
-  let str = Array.isArray(v) ? v.join('; ') : String(v)
-  if (/^[=+\-@]/.test(str)) {
-    str = `'${str}`
-  }
-  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
-}
 
 function exportCSV() {
   const students = report.value?.students || []

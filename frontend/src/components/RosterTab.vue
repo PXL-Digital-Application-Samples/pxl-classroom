@@ -441,6 +441,9 @@ import { normalizeEmail } from '../lib/claim.js'
 // list computed a second way could show a lecturer something different from
 // what was actually held back, which is worse than showing nothing.
 import { planClaimPromotion } from '../../../lib/promote-roster.mjs'
+// The exporter's half of the pair whose other half is coerceCell's
+// stripFormulaGuard. Shared so export -> edit -> import cannot become lossy again.
+import { csvCell } from '../../../lib/csv-cell.mjs'
 import PromoteRosterModal from './PromoteRosterModal.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
@@ -901,14 +904,6 @@ function onCsvInput() {
 
 const CSV_COLUMNS = ['student_number', 'full_name', 'email', 'class_group', 'github_login', 'github_id', 'active', 'team_slug', 'team_name']
 
-function csvEscape(v) {
-  let str = Array.isArray(v) ? v.join('; ') : String(v ?? '')
-  if (/^[=+\-@]/.test(str)) {
-    str = `'${str}`
-  }
-  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
-}
-
 function downloadBlob(text, filename, type) {
   // UTF-8 BOM on CSVs so Excel decodes accented names correctly.
   const payload = type.startsWith('text/csv') ? '﻿' + text : text
@@ -935,7 +930,7 @@ function exportRosterCsv() {
   if (students.length === 0) return
   const lines = [CSV_COLUMNS.join(',')]
   for (const s of students) {
-    lines.push(CSV_COLUMNS.map((c) => csvEscape(s[c])).join(','))
+    lines.push(CSV_COLUMNS.map((c) => csvCell(s[c])).join(','))
   }
   downloadBlob(lines.join('\n') + '\n', `roster-${props.org}.csv`, 'text/csv')
 }

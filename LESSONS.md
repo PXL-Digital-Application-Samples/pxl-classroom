@@ -1261,6 +1261,16 @@ The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an
 
 **Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
 
+**And the escape had no inverse, in any of the three places it was written.**
+
+Export CSV prefixes an apostrophe onto a cell starting with `= + - @`, so a spreadsheet shows the text instead of running it. Nothing ever took it off. `coerceCell` - the shared importer, CLI and Admin Panel both - had never been told what the exporter does, so export → edit → import silently changed the value.
+
+Narrow in practice: nothing on a real roster starts with those characters, since student numbers are digits and groups look like `3A`. It stopped being theoretical the moment the empty state shipped, because that message *tells a lecturer to use that exact round trip* to add class groups. A guard is allowed to be unreachable; a guard that is unreachable until the UI starts routing people through it is a bug with a date on it.
+
+**Why nobody noticed is the interesting half.** The escape existed three times, byte for byte - `csvEscape` in `RosterTab.vue`, `csvCell` in `AssignmentDetailView.vue`, an inline lambda in `report.mjs` - and not one of the three owned the other direction. A rule copied three times is three places to notice it is only half a rule, and three places for the thought "where is the inverse?" to be somebody else's. `lib/csv-cell.mjs` holds the pair now, all three import it, and the test asserts they are inverses over a table rather than describing them.
+
+**The naive fix renames people.** Stripping every leading apostrophe is the obvious inverse and it is wrong in this country: `'t Hooft`, `'s Jongers` and `'t Seyen` are ordinary Flemish surnames, and this runs over `full_name` on rosters of Belgian students. The exporter never guards those - `t` and `s` are not formula leads - so the importer must not either. `stripFormulaGuard` inverts the exact rule and no more, which is the difference between a pair and a pair of nearly-opposite functions.
+
 **The one deliberate asymmetry is in `report.mjs`.** It validates before writing, and the blame decides how loudly: an invalid entry for *the assignment this run built* exits `fail:dashboard-invalid`, while an invalid **sibling** entry - carried forward from a file this run merely read - is a warning and the write proceeds. `with_warnings` became `with_repo_faults` once already; failing closed on a sibling would have taken the nightly down for every assignment in the org, silently, over a document that run did not produce and could not fix. The match is on the exact entry, not `startsWith`: `test-pe` and `test-pe-1` are both live in PXL-Automation-II.
 
 ### A finished feature nobody could find, because its control only appears once you have used it.
