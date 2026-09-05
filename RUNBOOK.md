@@ -455,7 +455,7 @@ Three things are refused, and two of them would otherwise fail weeks later, at t
 
 | What is in the way | What would happen |
 |---|---|
-| A repository the pattern would produce already exists | A returning student is handed the old one, holding last year's work and locked by last year's deadline. You can reopen it by hand, but nothing in provisioning knows to, so they meet a repository they cannot push to. |
+| A repository the pattern would produce already exists | A returning student is handed the old one, holding last year's work and locked by last year's deadline. You can reopen it (§6.15), but nothing in provisioning knows to, so they meet a repository they cannot push to. |
 | Another assignment already uses that pattern | The same thing, from the first acceptance. |
 | `<org>/pxl-classroom-archive-<id>` still exists | It still holds `refs/heads/preserved/<id>/<login>`, and preservation pushes without `--force` on purpose - so the snapshot is rejected at the new deadline, for every returning student. |
 
@@ -931,3 +931,28 @@ Exit codes:
 - `0` = Clean (all checks OK/Info).
 - `1` = Warnings (non-blocking issues or in-flight deployments).
 - `2` = Failures (action required before student acceptance).
+
+### 6.15 Reopening one student's repository after the deadline
+
+The deadline stops writes to every repository in the cohort. Sometimes one of them should not stay stopped: a medical certificate that arrives after the freeze, an appeal upheld, a resit taken in the same repository, or a repository frozen by a run that should not have included it.
+
+**Roster & progress → the student's row → Actions → Reopen the repository.**
+
+It appears only once the deadline has actually frozen something, and only for a student the deadline run saw — a student who accepted after the freeze has nothing to reopen.
+
+**A reason is required and is recorded.** Doing this by hand on GitHub records nothing at all, and the question a grade dispute asks months later — *could this student have pushed after the deadline?* — needs a document, not a memory. The record lands at `lockdowns/<assignment-id>/unlocked/<github-login>.json` and carries who did it, when, why, and the preserved commit that was already in the archive at the time.
+
+**It refuses while the deadline snapshot is not preserved.** Reopening then would let the work being graded move before it is safely in the archive. If preservation is still pending, wait for the nightly and try again; if it *failed*, fix that first — waiting will not help, and there would be nothing to grade against.
+
+**What it does to the repository:**
+
+| How it was frozen | What reopening does |
+|---|---|
+| Ruleset (the normal case) | Switches the ruleset off. It is not deleted, so the deadline can be re-applied later without rebuilding it. |
+| Reduced access (the fallback, per repository) | Puts the student back to the assignment's **Student permission**. |
+
+**What it does not do:** it does not change the deadline, the report, or the grade. The preserved snapshot is immutable and stays exactly as it was, so anything the student pushes afterwards is *after* what you graded. If you mean to give them more time rather than access, grant a deadline extension instead (§6.13) — that changes what the report says; this does not.
+
+**On a group assignment there is one repository and one lock on it,** so reopening for one member reopens it for the team. The record notes the team slug.
+
+**If it fails with "your account cannot change that repository's settings":** editing a repository ruleset needs admin on that repository. An organization owner has it; a lecturer with write access to the control repo does not necessarily. Ask an owner to run it — from this same screen, so the record still gets written.

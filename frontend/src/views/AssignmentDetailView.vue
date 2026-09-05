@@ -1056,9 +1056,12 @@
         :archive-url="studentArchiveUrl(actionStudent)"
         :extending="actionExtending"
         :retrying="actionRetrying"
+        :unlock="actionUnlock"
+        :unlocking="actionUnlocking"
         @close="closeActions"
         @grant="grantExtensionFor(actionStudent, $event)"
         @retry="retryAcceptanceFor(actionStudent)"
+        @unlock="unlockRepositoryFor(actionStudent, $event)"
       />
 
       <!-- Open a draft Feedback PR per eligible student repository. -->
@@ -1124,7 +1127,10 @@ import HelpButton from '../components/HelpButton.vue'
 import {
   assignmentPath, reportPath, teamsDir,
   repositoriesDir, repositoryPath, overridesDir, overridePath,
+  lockdownRecordPath, unlockRecordPath,
 } from '../../../lib/control-layout.mjs'
+import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from '../lib/repo-unlock.js'
+import { releaseSubmissionLock } from '../../../lib/submission-lock.mjs'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
 import InvitationShare from '../components/InvitationShare.vue'
@@ -1260,6 +1266,16 @@ const rateLimit = ref({ remaining: null, limit: null })
 const actionStudent = ref(null)
 const actionExtending = ref(false)
 const actionRetrying = ref(false)
+
+// The lockdown record, read once when a dialog is opened rather than with the
+// report: it is only ever needed by this dialog, and loading it with the page
+// would be a request per visit for a control most visits never touch.
+//
+// `null` while nothing has been read, so the dialog can tell "not asked yet"
+// from "asked, and there is no record" - the second is a real answer that
+// changes what the dialog says.
+const actionLockdown = ref(null)
+const actionUnlocking = ref(false)
 
 // "Run daily activity now" - dispatch + watch for the first report to land.
 const dailyTriggering = ref(false)
@@ -3467,11 +3483,137 @@ async function syncDashboardAggregate(token) {
 // to live here, ~1,700 lines from the markup they belong to.
 function openActions(student) {
   actionStudent.value = student
+  actionLockdown.value = null
+  loadLockdownRecord()
 }
 
 function closeActions() {
-  if (actionExtending.value || actionRetrying.value) return
+  if (actionExtending.value || actionRetrying.value || actionUnlocking.value) return
   actionStudent.value = null
+  actionLockdown.value = null
+}
+
+/**
+ * What the deadline run did, per repository - the only place `lock_method` is
+ * recorded, and therefore the only way to know which inverse an unlock is.
+ *
+ * A failed read leaves it null, which the verdict reports as "nothing has been
+ * locked". That is the one wrong answer available here, and it is the safe one:
+ * it withholds a control rather than offering one that would fail.
+ */
+async function loadLockdownRecord() {
+  const id = props.assignmentId
+  const opened = actionStudent.value
+  try {
+    const raw = await getRepoContent(getToken(), props.org, config.controlRepo, lockdownRecordPath(id))
+    // A slow read must not land on a dialog the lecturer has since reopened
+    // for somebody else.
+    if (actionStudent.value !== opened) return
+    actionLockdown.value = raw ? JSON.parse(raw) : null
+  } catch (e) {
+    if (actionStudent.value !== opened) return
+    console.error('Failed to read the lockdown record:', e)
+    actionLockdown.value = null
+  }
+}
+
+/**
+ * Whether this student's repository can be reopened.
+ *
+ * Null - the section does not render at all - until the deadline has actually
+ * frozen something. A heading over "nothing has been locked" on every student
+ * in a live cohort is noise, and the control is for after the deadline.
+ */
+const actionUnlock = computed(() => {
+  const student = actionStudent.value
+  if (!student || !actionLockdown.value) return null
+  const lockdownRow = lockdownRowFor(actionLockdown.value, student.github_login)
+  if (!lockdownRow) return null
+  return unlockability({ row: student, lockdownRow, assignment: assignment.value })
+})
+
+/**
+ * Reopen one student's repository, and write down that it happened.
+ *
+ * The record is written FIRST-CLASS, not as a nicety: doing this by hand in the
+ * GitHub UI records nothing at all, and a grade dispute months later asks
+ * whether this student could have pushed after the deadline. It is written
+ * AFTER the unlock succeeds, so the control repo never claims something the
+ * organization did not do.
+ */
+async function unlockRepositoryFor(student, { reason }) {
+  const verdict = actionUnlock.value
+  if (!verdict?.can || !reason?.trim()) return
+  const token = getToken()
+  const [owner, name] = String(verdict.repo).split('/')
+  const lockdownRow = lockdownRowFor(actionLockdown.value, student.github_login)
+
+  actionUnlocking.value = true
+  try {
+    const res = await applyUnlock({
+      // lib/submission-lock.mjs takes a `gh(method, path, body)` because it is
+      // driven from the CLI, a script and a workflow as well. This is that
+      // shape over the SPA's own client - not a second implementation of it.
+      request: (method, path, body) => ghApi(token, method, path, body),
+      releaseLock: releaseSubmissionLock,
+      setPermission: async ({ org, repo, login, permission }) => {
+        const r = await ghApi(token, 'PUT', `/repos/${org}/${repo}/collaborators/${login}`, { permission })
+        return { ok: r.ok, reason: r.ok ? null : `HTTP ${r.status} ${r.data?.message ?? ''}`.trim() }
+      },
+      org: owner,
+      repo: name,
+      login: student.github_login,
+      method: verdict.method,
+      permission: verdict.permission,
+    })
+
+    if (!res.ok) {
+      // 403 is the ordinary failure, not an exotic one: editing a repository
+      // ruleset needs admin on it, and a lecturer can be hub-writable without
+      // owning the organization. Say who can, rather than "unlock failed".
+      const forbidden = /\b403\b/.test(res.reason || '')
+      toast.error(
+        forbidden
+          ? `Could not reopen ${verdict.repo}: your account cannot change that repository's settings. An organization owner can.`
+          : `Could not reopen ${verdict.repo}: ${res.reason}`,
+      )
+      return
+    }
+
+    const doc = unlockRecord({
+      assignmentId: props.assignmentId,
+      login: student.github_login,
+      repo: verdict.repo,
+      method: verdict.method,
+      by: getUser()?.login || 'unknown',
+      reason: reason.trim(),
+      snapshotSha: student.preserved_sha ?? lockdownRow?.snapshot_sha ?? null,
+      teamSlug: student.team_slug || null,
+      permission: verdict.permission,
+    })
+    const wrote = await commitFile(
+      token, props.org, config.controlRepo,
+      unlockRecordPath(props.assignmentId, student.github_login),
+      JSON.stringify(doc, null, 2) + '\n',
+      `Reopen ${verdict.repo} after the deadline`,
+    )
+    if (!wrote.ok) {
+      // The repository IS open. Saying so is the honest report, and the
+      // lecturer needs to know the record did not land - otherwise the one
+      // document a dispute would rest on is missing and nobody knows.
+      toast.error(
+        `${verdict.repo} is reopened, but recording it failed (${wrote.data?.message || 'unknown error'}). ` +
+        `Note it somewhere: nothing else will write it down.`,
+      )
+      return
+    }
+    toast.success(`${verdict.repo} is reopened. ${student.github_login} can push again.`)
+    closeActions()
+  } catch (e) {
+    toast.error(`Could not reopen the repository: ${e.message || String(e)}`)
+  } finally {
+    actionUnlocking.value = false
+  }
 }
 
 function localToUtc(localStr) {

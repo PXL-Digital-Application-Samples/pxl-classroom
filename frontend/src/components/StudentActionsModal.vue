@@ -45,6 +45,45 @@
         </button>
       </section>
 
+      <section v-if="unlock" class="modal-section">
+        <h4>Reopen the repository</h4>
+        <!-- The verdict arrives decided. lib/repo-unlock.mjs owns "may this be
+             reopened", the same way lib/effective-deadline.mjs owns the
+             extension rule above - a dialog that re-derived either would be the
+             second implementation DESIGN.md §6 exists to prevent. -->
+        <p v-if="!unlock.can" class="text-secondary">{{ unlock.reason }}</p>
+        <template v-else>
+          <p class="text-secondary">
+            Lets this student push again. The deadline snapshot is already in the archive and does not
+            move, so what you grade is unaffected.
+            <template v-if="unlock.method === 'demotion'">
+              They were frozen by having their access reduced, so this restores it to
+              <code>{{ unlock.permission }}</code>.
+            </template>
+            <template v-else>
+              Their repository was frozen with a ruleset, which is switched off rather than deleted -
+              so the deadline can be re-applied later without rebuilding it.
+            </template>
+          </p>
+          <div class="field">
+            <label>Reason (recorded beside the lockdown)</label>
+            <textarea
+              v-model="unlockReason"
+              rows="2"
+              placeholder="Medical certificate / appeal upheld / resit agreed with the program coordinator"
+            ></textarea>
+          </div>
+          <button
+            class="btn"
+            type="button"
+            @click="emit('unlock', { reason: unlockReason.trim() })"
+            :disabled="busy || !unlockReason.trim()"
+          >
+            {{ unlocking ? 'Reopening…' : 'Reopen repository' }}
+          </button>
+        </template>
+      </section>
+
       <section
         v-if="student.preservation_status === 'preserved' && student.preserved_sha && archiveUrl"
         class="modal-section"
@@ -78,7 +117,7 @@
 // assignment's, and lib/effective-deadline.mjs is the one thing allowed to
 // decide that (CLAUDE.md). A dialog that re-derived it would be the second
 // implementation that rule exists to prevent.
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import Icon from './Icon.vue'
 import { formatDate } from '../lib/format.js'
 import { utcToLocalInput } from '../lib/assignment-doc.js'
@@ -92,9 +131,22 @@ const props = defineProps({
   archiveUrl: { type: String, default: null },
   extending: { type: Boolean, default: false },
   retrying: { type: Boolean, default: false },
+  /**
+   * Whether the repository can be reopened, already decided:
+   * `{ can, method, permission, reason }` from lib/repo-unlock.mjs. Null when
+   * the section should not appear at all - an assignment whose deadline has not
+   * run has nothing to say here, and a heading over "nothing has been locked"
+   * is noise on every student in a live cohort.
+   */
+  unlock: { type: Object, default: null },
+  unlocking: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'grant', 'retry'])
+const emit = defineEmits(['close', 'grant', 'retry', 'unlock'])
+
+// The dialog's own state, not the view's: it is created when the dialog opens
+// and meaningless when it is closed (DESIGN.md §6).
+const unlockReason = ref('')
 
 const { el, onKeydown } = useFocusTrap()
 
@@ -110,7 +162,7 @@ const ext = reactive({
 // A computed, not a function: the template binds `:disabled="busy"`, and a bare
 // function reference there is an object - always truthy, so every control would
 // render permanently disabled.
-const busy = computed(() => props.extending || props.retrying)
+const busy = computed(() => props.extending || props.retrying || props.unlocking)
 
 function requestClose() {
   // Never close over work in flight: the run has been dispatched and the result

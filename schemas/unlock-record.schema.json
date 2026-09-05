@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/PXL-Digital-Application-Samples/pxl-classroom/schemas/unlock-record.schema.json",
+  "title": "Repository unlock record",
+  "description": "lockdowns/<assignment-id>/unlocked/<github-login>.json - one student repository reopened after the deadline. Written by the Admin Panel at the moment of the unlock and never regenerated, so it states what was true then and carries everything a reader needs without going elsewhere: doing this by hand in the GitHub UI records nothing at all, and a grade dispute months later asks whether this student could have pushed after the deadline.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "github_login",
+    "repo_name",
+    "unlocked_at",
+    "unlocked_by",
+    "reason",
+    "lock_method"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "assignment_id": {
+      "type": "string",
+      "description": "The assignment whose deadline had locked this repository."
+    },
+    "github_login": {
+      "type": "string",
+      "description": "The student the unlock was requested for. On a group assignment the repository is shared, so this is who it was done FOR, not the only person it affects."
+    },
+    "team_slug": {
+      "type": "string",
+      "description": "Present when the repository is a team's, so a reader knows the unlock reopened it for every member."
+    },
+    "repo_name": {
+      "type": "string",
+      "description": "owner/name. Spelled in full because this record is read on its own, years later, when the assignment that would supply the organization is gone."
+    },
+    "unlocked_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the repository was reopened."
+    },
+    "unlocked_by": {
+      "type": "string",
+      "description": "The GitHub login of the person who did it. Not derivable from anything else: the API call is made with their token and GitHub's audit log is not readable from here."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why, in the lecturer's own words. Required and never defaulted - a record whose reason field says 'unlocked' answers nothing, and this document exists to be read by somebody who was not there."
+    },
+    "lock_method": {
+      "type": "string",
+      "enum": ["ruleset", "demotion"],
+      "description": "How the deadline had locked it, and therefore what was undone. lockdown.mjs prefers a ruleset and degrades to demoting the student per repository, so one assignment can hold both - a reader must not have to find the lockdown record to know which."
+    },
+    "permission_restored": {
+      "type": "string",
+      "enum": ["pull", "triage", "push", "maintain", "admin"],
+      "description": "For a demotion, the level the student was put back to - the assignment's student_permission, because the lockdown record stores permission_after alone and never says what they had before."
+    },
+    "snapshot_sha": {
+      "type": ["string", "null"],
+      "description": "The preserved deadline snapshot at the moment of the unlock. Copied in deliberately: it is what was graded, and it is what makes the rest of this record mean something. A reader has to be able to see, in one place, that the work was already safely in the archive when the repository was reopened."
+    }
+  }
+}

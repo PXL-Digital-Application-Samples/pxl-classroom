@@ -41,6 +41,10 @@ const CONTROL_PATH_SCHEMAS = [
   [/^acceptances\/[^/]+\/[^/]+\.json$/, 'acceptance', 'json'],
   [/^repositories\/[^/]+\/[^/]+\.json$/, 'repository-record', 'json'],
   [/^overrides\/[^/]+\/[^/]+\.json$/, 'override', 'json'],
+  // One repository reopened after the deadline. Nothing regenerates it and no
+  // later run corrects it, so the only moment it can be checked is the one it
+  // is written in.
+  [/^lockdowns\/[^/]+\/unlocked\/[^/]+\.json$/, 'unlock-record', 'json'],
   [/^grading\/[^/]+\/summary\.json$/, 'grading-summary', 'json'],
   [/^students\/roster\.yml$/, 'roster', 'yaml'],
   [/^assignments\/[^/]+\.yml$/, 'assignment', 'yaml'],
