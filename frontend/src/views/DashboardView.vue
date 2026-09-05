@@ -370,14 +370,25 @@
           </p>
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
         </template>
+        <!-- The state the page cannot explain.
+             "Assignments in this organization are closed or archived" was
+             asserted here whenever the list was empty and nothing had set a
+             dashState - and it was a GUESS: nothing on this branch has read an
+             assignment's state. It was shown over six published assignments on
+             PXL-Automation-II (2026-09-05), which is the one thing it must not
+             be able to say. Closed and archived assignments are IN this list
+             anyway, so an empty list never means "they are all closed".
+             Unreadable is not evidence, and neither is unexplained. -->
         <template v-else>
-          <h2>No active assignments right now</h2>
+          <h2>Nothing to show for {{ selectedOrg }}</h2>
           <p class="text-secondary">
             <span v-if="draftCount > 0">
               You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel.
             </span>
             <span v-else>
-              Assignments in this organization are closed or archived.
+              No assignments came back for this organization. If you know there are some,
+              this is a failed load rather than an empty course - reload, and tell whoever
+              maintains this deployment if it keeps happening.
             </span>
           </p>
           <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
@@ -839,21 +850,41 @@ async function loadDashboard(orgArg) {
   // argument, and runSetupOrg, which passes nothing. Anything that is not a
   // non-empty string means "whichever org is selected".
   const org = typeof orgArg === 'string' && orgArg ? orgArg : selectedOrg.value
-  if (!org) { loadingData.value = false; return }
 
   const generation = ++dashGeneration
   const superseded = () => generation !== dashGeneration
 
+  // NOTHING IS CLEARED BEFORE THERE IS A REPLACEMENT.
+  //
+  // This used to empty `assignments` and `dashState` here, at the top, and then
+  // return early on two paths that ALSO turned the spinner off without asking
+  // whether they still owned it. So a run that superseded another, wiped the
+  // list and then bailed on `!org` or `!token` left the page with no
+  // assignments, no dashState and no spinner - which renders "No active
+  // assignments right now - assignments in this organization are closed or
+  // archived" over six published ones. The superseded run then finished,
+  // correctly declined to write, and nothing ever refilled the list; a reload
+  // fixed it, which is the signature of overlapping loads rather than of stale
+  // data. Guarding only the `finally` (2026-09-04) fixed one of the three
+  // exits and left these two.
+  //
+  // The spinner branch renders ahead of the list, so holding the previous
+  // org's assignments in memory while a new one loads shows nobody anything
+  // stale - and it means no early return, present or future, can leave the
+  // page asserting that an organization has nothing in it.
+  if (!org) { if (!superseded()) loadingData.value = false; return }
+
+  const token = getToken()
+  if (!token) { if (!superseded()) loadingData.value = false; return }
+
   loadingData.value = true
-  assignments.value = []
+  dashError.value = null
+  // Scalars, not the list: these describe the run and every authoritative exit
+  // sets them. `assignments` stays until a replacement exists.
   dashState.value = ''
   draftCount.value = 0
   hubWritable.value = false
 
-  const token = getToken()
-  if (!token) { loadingData.value = false; return }
-
-  dashError.value = null
   try {
     // 1 single API call: Fetch aggregated dashboard report directly
     let reportData = null
@@ -973,6 +1004,10 @@ async function loadDashboard(orgArg) {
         // administration is not a half-configured organization - it is an
         // account with nothing to do here.
         const staff = hubWritable.value || orgAdmin
+        // The new org's answer replaces the old org's list. Without this the
+        // cards from the organization you just switched away from stay on
+        // screen under the new one's name.
+        assignments.value = []
         dashState.value = staff ? 'no-control-repo' : 'no-access'
         orgStatusMap.value.set(org.toLowerCase(), staff ? 'empty' : 'no-access')
         return
@@ -992,6 +1027,7 @@ async function loadDashboard(orgArg) {
       // Zero assignments created in this organization!
       // This is the beginning lecturer state - show the onboarding readiness card!
       if (superseded()) return
+      assignments.value = []
       dashState.value = 'onboarding'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return
@@ -1005,6 +1041,7 @@ async function loadDashboard(orgArg) {
       const drafts = await countDraftAssignments(token, org, ymls)
       if (superseded()) return
       draftCount.value = drafts
+      assignments.value = []
       dashState.value = 'no-dashboard'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return

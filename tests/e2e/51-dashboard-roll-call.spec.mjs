@@ -163,6 +163,115 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
   });
 });
 
+test.describe('51 - overlapping loads never empty the page', () => {
+  // REPORTED TWICE. "No active assignments right now - assignments in this
+  // organization are closed or archived", over six published ones, on
+  // PXL-Automation-II where every assignment YAML and every dashboard.json
+  // entry said `published`. A reload fixed it, which is the signature of two
+  // overlapping loads rather than of stale data.
+  //
+  // `loadDashboard` used to empty `assignments` at the top and then return
+  // early on two paths - no org, no token - that turned the spinner off
+  // WITHOUT asking whether they still owned it. A run that superseded another,
+  // wiped the list and bailed left no assignments, no dashState and no
+  // spinner: exactly that sentence. The first fix (2026-09-04) guarded the
+  // `finally` and left both early exits, which is why it came back.
+  //
+  // Entering the dashboard really does start more than one run: the
+  // `selectedOrg` watcher is `immediate` and `router.replace` re-triggers it.
+
+  const SIX = Object.fromEntries(
+    ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => [`asg-${k}`, assignment(`asg-${k}`)]),
+  );
+  const sixDashboard = {
+    schema_version: 1,
+    generated_at: '2026-09-01T00:00:00.000Z',
+    assignments: Object.fromEntries(
+      Object.keys(SIX).map((id) => [
+        id,
+        buildDashboardEntry(
+          {
+            title: id, state: 'published',
+            opens_at: '2026-08-01T08:00:00.000Z',
+            deadline_at: '2026-12-30T20:00:00.000Z',
+            timezone: 'Europe/Brussels', max_acceptances: 50,
+          },
+          [{ acceptance_state: 'accepted', repo_id: 1, submission_status: 'on-time', warnings: [] }],
+        ),
+      ]),
+    ),
+  };
+
+  test('a published org never renders "closed or archived"', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: SIX,
+      reports: { dashboard: sixDashboard },
+    });
+    await page.goto(`/dashboard/${ORG}`);
+
+    await expect(page.locator('.assignment-card, .dashboard-card').first())
+      .toBeVisible({ timeout: 15000 });
+    await expect(page.locator("body")).not.toContainText("Nothing to show");
+    await expect(page.locator("body")).not.toContainText("failed load rather than an empty course");
+  });
+
+  test('a slow dashboard read cannot be emptied by a second load', async ({ page }) => {
+    // The interleaving itself: hold the first read open, let a second run
+    // start and finish, then release the first. Neither may leave the page
+    // claiming the organization is empty.
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let seen = 0;
+
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: SIX,
+      reports: { dashboard: sixDashboard },
+    });
+    await page.route('**/contents/reports%2Fdashboard.json*', async (route) => {
+      if (++seen === 1) await held;
+      await route.fallback();
+    });
+
+    await page.goto(`/dashboard/${ORG}`);
+    // Second run, while the first is still blocked on its read.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(400);
+    release();
+
+    await expect(page.locator('.assignment-card, .dashboard-card').first())
+      .toBeVisible({ timeout: 20000 });
+    await expect(page.locator("body")).not.toContainText("Nothing to show");
+  });
+
+  test('switching to an org with nothing does not show the previous one\'s cards', async ({ page }) => {
+    // The other half. The list is no longer wiped at the top, so a branch that
+    // decides "this org has no assignments" has to say so - otherwise the org
+    // you just left stays on screen under the new one's name.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: SIX,
+      reports: { dashboard: sixDashboard },
+    });
+    await page.goto(`/dashboard/${ORG}`);
+    await expect(page.locator('.assignment-card, .dashboard-card').first())
+      .toBeVisible({ timeout: 15000 });
+
+    // An org whose control repo has no assignments at all.
+    await page.route('**/contents/assignments*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+    await page.route('**/contents/reports%2Fdashboard.json*', (route) =>
+      route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+    await page.reload();
+
+    await expect(page.locator('.assignment-card, .dashboard-card')).toHaveCount(0, { timeout: 15000 });
+  });
+});
+
 test.describe('51 - a stale dashboard.json does not hide an assignment', () => {
   test('an assignment published since the last regeneration is still listed', async ({ page }) => {
     await dashboard(page, {
@@ -186,7 +295,7 @@ test.describe('51 - a stale dashboard.json does not hide an assignment', () => {
     });
 
     await expect(page.getByText('Reported assignment')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('text=No active assignments right now')).toHaveCount(0);
+    await expect(page.locator("text=Nothing to show")).toHaveCount(0);
   });
 
   test('a draft is still kept out of the list', async ({ page }) => {

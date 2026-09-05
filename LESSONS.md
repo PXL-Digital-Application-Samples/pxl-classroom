@@ -1261,6 +1261,16 @@ The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an
 
 **Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
 
+### "Assignments in this organization are closed or archived" was never computed.
+
+Reported 2026-09-05 on `PXL-Automation-II`: the overview said *"No active assignments right now - assignments in this organization are closed or archived"* while all six assignment YAMLs and all six `dashboard.json` entries said `published`. A reload showed all six. It had been reported once before, on 2026-09-04, and the fix then guarded `loadDashboard`'s `finally` so a superseded run could not turn the spinner off.
+
+**That sentence is a guess, and it always was.** Nothing on that branch has read an assignment's state - it is the fallback for "the list is empty and no `dashState` was set". Worse, closed and archived assignments are *in* that list, so an empty list can never mean "they are all closed". It is a claim about the organization made by code that only knows its own array is empty. It now says what it actually knows: nothing came back, and if you know there are some, this is a failed load rather than an empty course.
+
+**Two more ways to reach that state were still open**, both in the same function: it emptied `assignments` at the top and then returned early on `!org` and `!token` *without* asking whether it still owned the spinner. A run that superseded another, wiped the list and bailed left no assignments, no dashState and no spinner. Nothing is cleared before there is a replacement now, and the branches that decide an organization is empty say so explicitly, so switching orgs cannot leave the previous one's cards behind either.
+
+**But I could not reproduce it, and said so rather than claiming a third fix.** Three attempts - the bare `/dashboard` route the code comment names, a slow first read overtaken by a second, and the token vanishing mid-flight - all rendered correctly *against the pre-fix code*. Tests that pass before the fix prove nothing about the fix. What is committed is a real hazard removed and a false sentence corrected; the root cause is still unknown, and the thing that would settle it is the browser console at the moment it happens, because `loadDashboard`'s catch logs `Failed to load dashboard:` and that would say whether a read failed at all.
+
 ### Reviewing my own work found the direction I had left open.
 
 Asked to review the cohort work critically, five things came out, and the worst was the mirror image of a protection I had just built.
