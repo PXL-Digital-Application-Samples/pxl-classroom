@@ -115,7 +115,7 @@ test.describe('49 - picking who an assignment is for', () => {
     await gateOnRoster(page);
 
     await page.locator('.chip-btn', { hasText: '3A · 2' }).click();
-    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await page.locator(".cohort-all input").check();
 
     await expect(guardrails(page)).toContainText('2 of 5 selected');
     await expect(guardrails(page)).toContainText('Only these 2 may accept');
@@ -145,7 +145,7 @@ test.describe('49 - picking who an assignment is for', () => {
     await gateOnRoster(page);
     await guardrails(page).locator('input[type=number]').fill('2');
 
-    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await page.locator(".cohort-all input").check();
     await expect(guardrails(page)).toContainText('more than the cap of 2');
     await expect(guardrails(page)).toContainText('Raise');
   });
@@ -527,6 +527,90 @@ test.describe('49 - the picker at a real course size', () => {
     expect(chips[5]).toBe('No group · 2');
   });
 
+  test('a whole class is ONE click, and the box says which class', async ({ page }) => {
+    // "I do not want to select every student individually." Filtering to a
+    // class and ticking twenty boxes is not a flow anyone should have - and the
+    // control that avoided it was a small generic link in the footer, beside a
+    // chip that fills blue and reads as though it had already taken the class.
+    await bigPicker(page);
+
+    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    // It NAMES what it will take. "Select all" never says all of what.
+    await expect(page.locator('.cohort-all')).toContainText('Select all 50 in 1TIN-A');
+
+    await page.locator('.cohort-all input').check();
+    await expect(guardrails(page)).toContainText('50 of 200 selected');
+  });
+
+  test('a filter that has selected nothing says so', async ({ page }) => {
+    // THE TRAP. Clicking a class leaves exactly that class on screen with every
+    // box unticked, which reads as "this assignment is for 1TIN-A" while it is
+    // still open to all 200. The count in the corner is not enough.
+    await bigPicker(page);
+    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+
+    await expect(guardrails(page)).toContainText('nothing is selected yet');
+    await expect(guardrails(page)).toContainText('every student on the roster may accept');
+
+    // And it goes the moment something is taken.
+    await page.locator('.cohort-all input').check();
+    await expect(guardrails(page)).not.toContainText('nothing is selected yet');
+  });
+
+  test('a whole class plus two others, and a way to read it back', async ({ page }) => {
+    // The case the cohort design exists for, end to end.
+    await bigPicker(page);
+
+    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await page.locator('.cohort-all input').check();
+    await expect(guardrails(page)).toContainText('50 of 200 selected');
+
+    // Two more from elsewhere, found by name rather than by scrolling 200 rows.
+    const search = guardrails(page).getByPlaceholder('Search name, number or username');
+    await search.fill('1230001');
+    await page.locator('.cohort-row').first().locator('input[type=checkbox]').check();
+    await search.fill('1230002');
+    await page.locator('.cohort-row').first().locator('input[type=checkbox]').check();
+    await search.fill('');
+    await expect(guardrails(page)).toContainText('52 of 200 selected');
+
+    // READ IT BACK. Assembling a cohort means moving between filters, so there
+    // has to be a way to see the result rather than trust the number.
+    await page.locator('.chip-btn', { hasText: 'Selected · 52' }).click();
+    await expect(page.locator('.cohort-row')).toHaveCount(52);
+    await expect(page.locator('.cohort-all')).toContainText('All 52 selected');
+  });
+
+  test('unticking the header gives back only what is shown', async ({ page }) => {
+    // Narrowing to one class and clearing it must not empty a selection built
+    // somewhere else - that would lose work with no warning.
+    await bigPicker(page);
+
+    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await page.locator('.cohort-all input').check();
+    await page.locator('.chip-btn', { hasText: '1TIN-B' }).click();
+    await page.locator('.cohort-all input').check();
+    await expect(guardrails(page)).toContainText('100 of 200 selected');
+
+    // Still on 1TIN-B: unticking gives back that class only.
+    await page.locator('.cohort-all input').uncheck();
+    await expect(guardrails(page)).toContainText('50 of 200 selected');
+  });
+
+  test('the list is sorted by class, so a section reads as a block', async ({ page }) => {
+    // Roster order is IMPORT order, so unfiltered the sections interleave and
+    // there is no way to read down a class - which is the thing a lecturer is
+    // most often trying to do here.
+    await bigPicker(page);
+
+    const groups = await page.locator('.cohort-row .cohort-group').allInnerTexts();
+    const seen = [];
+    for (const g of groups) if (seen[seen.length - 1] !== g) seen.push(g);
+    // Each class appears as exactly one contiguous run, in order, with the
+    // ungrouped last where a leftover reads as a leftover.
+    expect(seen).toEqual([...GROUPS, '—']);
+  });
+
   test('select all shown takes the FILTER, not the roster', async ({ page }) => {
     // The failure this whole describe exists for. With five students on screen
     // a "select all" that ignored the filter looks identical to one that
@@ -536,12 +620,12 @@ test.describe('49 - the picker at a real course size', () => {
 
     await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
     await expect(page.locator('.cohort-row')).toHaveCount(50);
-    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await page.locator(".cohort-all input").check();
     await expect(guardrails(page)).toContainText('50 of 200 selected');
 
     // Adding a second section adds to the selection rather than replacing it.
     await page.locator('.chip-btn', { hasText: '1TIN-B' }).click();
-    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await page.locator(".cohort-all input").check();
     await expect(guardrails(page)).toContainText('100 of 200 selected');
   });
 
@@ -554,7 +638,7 @@ test.describe('49 - the picker at a real course size', () => {
     expect(shown).toBeGreaterThan(0);
     expect(shown).toBeLessThan(200);
 
-    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await page.locator(".cohort-all input").check();
     await expect(guardrails(page)).toContainText(`${shown} of 200 selected`);
 
     // Clearing the search does not clear the selection - the filter is a view.
@@ -566,7 +650,7 @@ test.describe('49 - the picker at a real course size', () => {
   test('the count stays exact when one row is toggled among 200', async ({ page }) => {
     await bigPicker(page);
 
-    await guardrails(page).getByRole('button', { name: /Select all shown/ }).click();
+    await page.locator(".cohort-all input").check();
     await expect(guardrails(page)).toContainText('200 of 200 selected');
 
     await page.locator('.cohort-row').first().locator('input[type=checkbox]').uncheck();

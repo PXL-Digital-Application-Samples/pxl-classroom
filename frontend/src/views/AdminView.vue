@@ -811,17 +811,28 @@
                 <button
                   type="button"
                   class="chip-btn"
-                  :class="{ active: cohortFilter === null }"
-                  @click="cohortFilter = null"
+                  :class="{ active: cohortFilter === null && !cohortShowSelected }"
+                  @click="showGroup(null)"
                 >All {{ rosterStudents.length }}</button>
                 <button
                   v-for="c in cohortGroupCounts"
                   :key="c.group || '__none__'"
                   type="button"
                   class="chip-btn"
-                  :class="{ active: cohortFilter === c.group }"
-                  @click="cohortFilter = c.group"
+                  :class="{ active: cohortFilter === c.group && !cohortShowSelected }"
+                  @click="showGroup(c.group)"
                 >{{ c.group || 'No group' }} · {{ c.count }}</button>
+                <!-- READ BACK WHAT YOU BUILT. "A whole class plus these two" is
+                     what this picker is for, and assembling it means moving
+                     between filters - so there has to be a way to see the
+                     result without trusting a number in the corner. -->
+                <button
+                  v-if="cohortSelected.size"
+                  type="button"
+                  class="chip-btn"
+                  :class="{ active: cohortShowSelected }"
+                  @click="showSelectedOnly"
+                >Selected · {{ cohortSelected.size }}</button>
                 <input
                   v-model="cohortSearch"
                   type="search"
@@ -832,6 +843,27 @@
               </div>
 
               <div class="cohort-list">
+                <!-- ONE CLICK FOR A WHOLE CLASS. Filtering to a class and then
+                     ticking twenty boxes is not a flow anyone should have; the
+                     footer link that did this was small, generic and easy to
+                     miss beside a chip that fills blue and reads as though it
+                     had already selected the class. A header checkbox is the
+                     pattern every table uses, it names what it will take, and
+                     its indeterminate state says "some of these" without a
+                     sentence. -->
+                <!-- NOT a `.cohort-row`: that class means "a student" to every
+                     count on this screen and to the tests, and a header that
+                     answers `.cohort-row` makes a list of five report six. -->
+                <label v-if="cohortVisible.length" class="cohort-all">
+                  <input
+                    type="checkbox"
+                    :checked="allShownSelected"
+                    :indeterminate.prop="someShownSelected && !allShownSelected"
+                    :aria-label="selectAllLabel"
+                    @change="toggleAllShown"
+                  />
+                  <span class="cohort-all-label">{{ selectAllLabel }}</span>
+                </label>
                 <label
                   v-for="s in cohortVisible"
                   :key="cohortKey(s)"
@@ -855,10 +887,20 @@
                 </p>
               </div>
 
+              <!-- A FILTER THAT LOOKS LIKE A SELECTION. Clicking a class fills
+                   the chip blue and leaves exactly that class on screen with
+                   every box unticked, which reads as "this assignment is for
+                   1TIN-A" while it is still open to the whole roster. Said
+                   where it is true, not left to a count in the corner. -->
+              <p v-if="cohortFilteredButEmpty" class="cohort-hint text-warning">
+                Showing <strong>{{ cohortFilterLabel }}</strong> — but nothing is selected yet, so
+                every student on the roster may accept. Tick the box above to take this class.
+              </p>
+
+              <!-- No "Select all shown" here any more: the header checkbox
+                   does that job, and two controls for one action is how a
+                   lecturer ends up trusting neither. -->
               <div class="cohort-foot">
-                <button type="button" class="btn-link" @click="selectAllShown">
-                  Select all shown ({{ cohortVisible.length }})
-                </button>
                 <button v-if="cohortSelected.size" type="button" class="btn-link" @click="clearCohort">
                   Clear selection
                 </button>
@@ -1334,7 +1376,7 @@ import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
 // disagree about which mode an assignment is actually in.
 import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
-import { classGroupCounts, studentInClassGroup } from '../lib/class-groups.js'
+import { classGroupCounts, studentInClassGroup, normalizeClassGroup } from '../lib/class-groups.js'
 import { cohortIdentity, normalizeCohortEntry } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 
@@ -1550,14 +1592,85 @@ const cohortSelected = computed(() => new Set(
   (form.value.cohort || []).map((e) => normalizeCohortEntry(e)).filter(Boolean),
 ))
 
+/**
+ * Show only what is ticked.
+ *
+ * "A whole class plus these two" is the case this picker exists for, and
+ * building it means moving between filters - so there has to be a way to read
+ * back what you actually assembled without trusting a count. Separate from the
+ * group filter rather than a value inside it: it answers a different question
+ * and it survives switching between classes.
+ */
+const cohortShowSelected = ref(false)
+
 const cohortVisible = computed(() => {
   const q = cohortSearch.value.trim().toLowerCase()
-  return rosterStudents.value.filter((s) => {
-    if (cohortFilter.value !== null && !studentInClassGroup(s, cohortFilter.value)) return false
+  const rows = rosterStudents.value.filter((s) => {
+    if (cohortShowSelected.value && !cohortSelected.value.has(cohortKey(s))) return false
+    if (!cohortShowSelected.value && cohortFilter.value !== null && !studentInClassGroup(s, cohortFilter.value)) return false
     if (!q) return true
     return [s.full_name, s.student_number, s.github_login, s.email]
       .some((v) => typeof v === 'string' && v.toLowerCase().includes(q))
   })
+  // BY GROUP, THEN BY NAME. Roster order is import order, so on an unfiltered
+  // list the sections interleave and there is no way to read down a class -
+  // which is the thing a lecturer is most often trying to do here. The
+  // ungrouped sort last, where a leftover reads as a leftover rather than as
+  // the top of the list.
+  return [...rows].sort((a, b) => {
+    const ga = normalizeClassGroup(a.class_group)
+    const gb = normalizeClassGroup(b.class_group)
+    if (ga !== gb) {
+      if (!ga) return 1
+      if (!gb) return -1
+      return ga.localeCompare(gb)
+    }
+    return String(a.full_name || a.student_number || a.github_login || '')
+      .localeCompare(String(b.full_name || b.student_number || b.github_login || ''))
+  })
+})
+
+/** The group being filtered by, in the lecturer's own spelling. */
+const cohortFilterLabel = computed(() => {
+  if (cohortFilter.value === null) return null
+  return cohortFilter.value === '' ? 'No group' : cohortFilter.value
+})
+
+/**
+ * A filter that has selected nothing, while looking like it has.
+ *
+ * Clicking a class chip fills it blue and leaves exactly that class on screen,
+ * every box unticked - so it reads as "this assignment is for 1TIN-A" when the
+ * assignment is still open to the whole roster. Said out loud at the moment it
+ * is true, rather than left to a count in the corner.
+ */
+const cohortFilteredButEmpty = computed(() =>
+  !cohortShowSelected.value && cohortFilter.value !== null && cohortSelected.value.size === 0)
+
+function showSelectedOnly() {
+  cohortShowSelected.value = true
+  cohortSearch.value = ''
+}
+
+function showGroup(group) {
+  cohortShowSelected.value = false
+  cohortSearch.value = ''
+  cohortFilter.value = group
+}
+
+/**
+ * SEARCHING LOOKS ACROSS EVERYONE, so the chip stands down.
+ *
+ * The two used to compose, which made the flow this picker exists for a dead
+ * end: take 1TIN-A, then search for the two students from another class you
+ * also want - and find nothing, because the class filter was still on. Someone
+ * typing a name knows who they are looking for. Clearing the chip rather than
+ * silently ignoring it, so the screen says which list is being searched.
+ */
+watch(cohortSearch, (q) => {
+  if (!q.trim()) return
+  cohortFilter.value = null
+  cohortShowSelected.value = false
 })
 
 /**
@@ -1620,14 +1733,35 @@ function toggleCohortStudent(student) {
   writeCohort(next)
 }
 
-function selectAllShown() {
+/** Rows on screen that this lecturer can still change - locked ones are not theirs. */
+const shownTogglable = computed(() =>
+  cohortVisible.value.map((s) => cohortKey(s)).filter((k) => k && !cohortLocked.value.has(k)))
+
+const allShownSelected = computed(() =>
+  shownTogglable.value.length > 0 && shownTogglable.value.every((k) => cohortSelected.value.has(k)))
+
+const someShownSelected = computed(() =>
+  shownTogglable.value.some((k) => cohortSelected.value.has(k)))
+
+/** Names what the box will take, because "Select all" never says all of what. */
+const selectAllLabel = computed(() => {
+  const n = cohortVisible.value.length
+  if (cohortShowSelected.value) return `All ${n} selected`
+  if (cohortSearch.value.trim()) return `Select these ${n}`
+  if (cohortFilter.value === null) return `Select all ${n} on the roster`
+  return `Select all ${n} in ${cohortFilterLabel.value}`
+})
+
+function toggleAllShown() {
   const next = new Set(cohortSelected.value)
-  for (const s of cohortVisible.value) {
-    const key = cohortKey(s)
-    if (key) next.add(key)
-  }
+  // Ticking takes everything shown; unticking gives back only what is shown,
+  // so narrowing to a class and unticking cannot empty a selection built
+  // elsewhere.
+  if (allShownSelected.value) for (const k of shownTogglable.value) next.delete(k)
+  else for (const k of shownTogglable.value) next.add(k)
   writeCohort(next)
 }
+
 
 function clearCohort() {
   // A published cohort survives Clear: those students keep their place, and
@@ -3622,6 +3756,29 @@ legend {
   white-space: nowrap;
 }
 .cohort-empty { padding: var(--space-sm); margin: 0; font-size: 0.85rem; }
+
+/* The select-all row. A divider, not a box - it is the head of the list, and
+   DESIGN.md §1.1 reserves borders for structural dividers exactly like this. */
+.cohort-all {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px var(--space-xs);
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border-muted);
+  margin-bottom: 2px;
+  /* Stays reachable while scrolling 200 rows - taking a class should not mean
+     scrolling back to the top to find the control that does it. */
+  position: sticky;
+  top: calc(var(--space-2xs) * -1);
+  background: var(--bg-inset);
+  z-index: 1;
+}
+.cohort-all-label { font-weight: 600; }
+.cohort-hint { margin: var(--space-2xs) 0 0; font-size: 0.85rem; }
 .cohort-foot {
   display: flex;
   flex-wrap: wrap;

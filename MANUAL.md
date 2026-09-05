@@ -25,9 +25,12 @@ After an open assignment you can [add everyone who accepted](#adding-students-wh
 Under **Enforced** and **Claim**, the form shows your roster and you tick the students this assignment is for.
 
 - **Tick nobody and everyone on the roster can accept.** The form says so on screen. That is the right answer for work the whole course does.
-- The chips above the list are **filters**, not the answer. `3A · 20` shows you that section; **Select all shown** ticks what you are looking at. The search box finds a name, a student number or a username.
+- **A whole class is one click.** Click the class chip to show it, then tick the box at the top of the list - it reads *Select all 20 in 3A*. You never tick students one at a time to take a class.
+- The chips are **filters**, not the answer. Showing a class does not select it, and the form says so in orange while that is true.
+- **Mixing is the point.** Take 3A, then search for the two students from another class you also want and tick them. Searching looks across everyone, so the class filter stands down while you type. That is a remediation or resit cohort, and it needs nothing set up in advance.
+- **Selected · 22** shows you what you have built, so you can read it back instead of trusting the count.
 - **No group** is a filter too, so students you never put in a section are visible and tick like anyone else.
-- Mixing is the point. Tick 3A, then tick four more people - that is a remediation or resit cohort, and it needs nothing set up in advance.
+- The list is sorted by class, so a section reads as one block.
 - The list is a **snapshot**. A student you import next week is not in an assignment you made today. Open that assignment and press **Add students** - it shows the same list with the current cohort already ticked. You can only add: taking a student out would not delete their repository or their work, so it is not offered.
 
 ### Class groups
