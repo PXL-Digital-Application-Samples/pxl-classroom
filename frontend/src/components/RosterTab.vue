@@ -185,6 +185,14 @@
             </button>
           </div>
 
+          <!-- The groups this org already uses, offered as completions so a
+               lecturer does not invent "3a" beside an existing "3A" and split a
+               section in two. A datalist SUGGESTS - a new group is still typed
+               freely, which is how the first one ever gets created. -->
+          <datalist id="roster-class-groups">
+            <option v-for="g in existingClassGroups" :key="g" :value="g"></option>
+          </datalist>
+
           <!-- Student List Table -->
           <div class="roster-table-wrapper w-full">
             <table class="roster-table w-full text-left text-sm" style="border-collapse: collapse;">
@@ -210,7 +218,32 @@
                     <span v-else class="text-muted">Not yet identified</span>
                   </td>
                   <td style="padding: 6px 8px; color: var(--text-secondary);">{{ s.email || '-' }}</td>
-                  <td style="padding: 6px 8px; color: var(--text-muted);">{{ s.class_group || '-' }}</td>
+                  <!-- Editable in place. The group is what an assignment's
+                       picker filters by, and moving one student between
+                       sections used to mean a whole CSV round trip. -->
+                  <td style="padding: 6px 8px;">
+                    <template v-if="editingGroupKey === rosterKey(s)">
+                      <input
+                        v-model="groupDraft"
+                        class="group-edit"
+                        type="text"
+                        list="roster-class-groups"
+                        :disabled="savingGroup"
+                        placeholder="e.g. 3A"
+                        :aria-label="`Class group for ${s.full_name || s.student_number}`"
+                        @keyup.enter="saveGroupEdit(s)"
+                        @keyup.escape="cancelGroupEdit"
+                        @blur="saveGroupEdit(s)"
+                      />
+                    </template>
+                    <button
+                      v-else
+                      type="button"
+                      class="group-cell"
+                      :title="`Set the class group for ${s.full_name || s.student_number}`"
+                      @click="startGroupEdit(s)"
+                    >{{ s.class_group || '—' }}</button>
+                  </td>
                   <!-- The account this student can actually accept with.
                        `github_login` alone was the whole answer under
                        `enforced`; under `claim` the binding lives in
@@ -431,6 +464,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { ROSTER_PATH } from '../lib/roster.js'
+import { rosterClassGroups } from '../lib/class-groups.js'
 import { getToken, getUser } from '../lib/auth.js'
 import HelpButton from './HelpButton.vue'
 import { commitFile, getRepoContent, listClaims, deleteFile } from '../lib/api.js'
@@ -590,6 +624,91 @@ async function submitQuickAddStudent() {
     quickAddError.value = `Error saving student: ${e.message}`
   } finally {
     quickAddSaving.value = false
+  }
+}
+
+// --- editing one student's class group ------------------------------------
+//
+// It took a full CSV round trip to move one student between sections: export,
+// open a spreadsheet, edit a cell, import, confirm a diff. Fine once a year for
+// a whole cohort, absurd for the late enroller who turns up in week three - and
+// the group is what the assignment picker filters by, so getting it wrong keeps
+// somebody out of the list a lecturer picks from.
+const editingGroupKey = ref(null)
+const groupDraft = ref('')
+const savingGroup = ref(false)
+
+/** The spellings already in use, so a lecturer completes rather than invents. */
+const existingClassGroups = computed(() => rosterClassGroups(existingRoster.value))
+
+function startGroupEdit(student) {
+  editingGroupKey.value = rosterKey(student)
+  groupDraft.value = typeof student.class_group === 'string' ? student.class_group : ''
+}
+
+function cancelGroupEdit() {
+  editingGroupKey.value = null
+  groupDraft.value = ''
+}
+
+/**
+ * MERGE, NEVER REPLACE. The stored document is read, spread, and only this one
+ * student's class_group changed - a roster rebuilt field by field from what a
+ * table renders drops whatever nobody thought to list, and this table shows
+ * five of the nine columns an entry can carry.
+ *
+ * An emptied box REMOVES the field rather than storing "", because the roster
+ * schema distinguishes the two and an empty string is a group whose name is
+ * nothing - it would show as a section in the picker's chips.
+ */
+async function saveGroupEdit(student) {
+  const key = rosterKey(student)
+  // ESCAPE MUST NOT COMMIT. Cancelling unmounts the input, which fires its own
+  // blur - and blur saves. So Escape cleared the draft and the blur that
+  // followed wrote the cleared value, removing the group the lecturer had just
+  // decided not to touch. The cancel is what sets this to null, so an edit that
+  // is no longer open is an edit that was abandoned.
+  if (editingGroupKey.value !== key) return
+  const next = groupDraft.value.trim()
+  const current = typeof student.class_group === 'string' ? student.class_group.trim() : ''
+  if (next === current) { cancelGroupEdit(); return }
+
+  const doc = existingRoster.value
+  const students = (doc?.students || []).map((s) => {
+    if (rosterKey(s) !== key) return s
+    // Destructured off so an emptied box REMOVES the field rather than storing
+    // "" - the roster schema distinguishes absent from empty, and an empty
+    // string is a group whose name is nothing, which would show as a section in
+    // the picker's chips.
+    const { class_group: _dropped, ...rest } = s
+    return next ? { ...rest, class_group: next } : rest
+  })
+  const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
+
+  const { valid, errors } = await validateAgainst('roster', updatedDoc)
+  if (!valid) {
+    toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
+    return
+  }
+
+  savingGroup.value = true
+  try {
+    const who = student.full_name || student.student_number || student.github_login
+    const res = await commitFile(
+      getToken(), props.org, controlRepo, ROSTER_PATH,
+      stringifyYaml(updatedDoc),
+      next ? `Set ${who}'s class group to ${next}` : `Clear ${who}'s class group`,
+    )
+    if (!res.ok) {
+      toast.error(`Could not save: ${res.data?.message || `HTTP ${res.status}`}`)
+      return
+    }
+    cancelGroupEdit()
+    await loadExisting()
+  } catch (e) {
+    toast.error(`Could not save: ${e.message}`)
+  } finally {
+    savingGroup.value = false
   }
 }
 
@@ -1293,5 +1412,32 @@ defineExpose({
   margin-top: var(--space-sm);
   max-height: 380px;
   overflow-y: auto;
+}
+
+/* The group cell, editable in place. A button rather than a span with a click
+   handler, so it is reachable by keyboard and announced as something you can
+   operate - which is what it is. Muted until hovered, because 200 of these
+   should not read as 200 controls. */
+.group-cell {
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.group-cell:hover,
+.group-cell:focus-visible {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+.group-edit {
+  width: 7rem;
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 0.85em;
 }
 </style>

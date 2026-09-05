@@ -520,7 +520,7 @@ The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Adm
 | `student_number` | Yes | Institutional SIS ID; treated as a string (preserves leading zeroes). |
 | `full_name`      | Yes | Display name. |
 | `email`          | Optional | Validated against the `email` format. |
-| `class_group`    | Optional | E.g. `3A`. One group per student. **A filter, not a gate** — it decides nothing on its own. The assignment form shows your roster and you tick who the assignment is for; this column turns the chips above that list into `3A · 20`, so taking a whole section is one click instead of twenty. Fill it in when a course runs sections; leave it empty and the picker still works, you just scroll or search instead. |
+| `class_group`    | Optional | E.g. `3A`. One group per student. **A filter, not a gate** — it decides nothing on its own. The assignment form shows your roster and you tick who the assignment is for; this column turns the chips above that list into `3A · 20`, so taking a whole section is one click instead of twenty. Fill it in when a course runs sections; leave it empty and the picker still works, you just scroll or search instead. For one student, click the **Group** cell on the Roster tab rather than re-importing. |
 | `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
 | `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
 | `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |

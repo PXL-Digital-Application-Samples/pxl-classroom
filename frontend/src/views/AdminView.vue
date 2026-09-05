@@ -345,13 +345,30 @@
                 <span class="cohort-label" :title="formatDate(shareAssignment.deadline_at, form.timezone)">{{ deadlineSummary.label }}</span>
               </div>
             </div>
-            <router-link
-              :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }"
-              class="btn btn-secondary btn-with-icon"
-            >
-              <span>Track roster &amp; progress</span>
-              <Icon name="arrow-right" :size="14" />
-            </router-link>
+            <div class="cohort-actions">
+              <!-- THE COHORT IS A SNAPSHOT, so a student imported next week is
+                   not in an assignment made today. The picker that fixes that
+                   sits inside a disclosure which is SHUT on a published
+                   assignment, so the capability existed and nothing pointed at
+                   it - the same shape as the class-groups control that had
+                   never rendered. A named action, where the cohort already is. -->
+              <button
+                v-if="showAddStudents"
+                type="button"
+                class="btn btn-secondary btn-with-icon"
+                @click="openAddStudents"
+              >
+                <Icon name="users" :size="13" />
+                <span>Add students</span>
+              </button>
+              <router-link
+                :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }"
+                class="btn btn-secondary btn-with-icon"
+              >
+                <span>Track roster &amp; progress</span>
+                <Icon name="arrow-right" :size="14" />
+              </router-link>
+            </div>
           </section>
 
           <!-- The six fieldsets, collapsed once the assignment is out. The
@@ -1479,6 +1496,27 @@ const rosterStudents = computed(() => rosterTab.value?.rosterStudents ?? [])
 // accept at all - and an empty picker underneath it would bury it.
 const showCohortPicker = computed(() =>
   rosterGatesAcceptance(form.value.roster_mode) && rosterStudents.value.length > 0)
+
+/**
+ * Offered only where it would do something.
+ *
+ * A published assignment that admits everyone has nothing to add TO - the
+ * picker's own empty state already says so - and offering the action there
+ * would send a lecturer to a control that cannot change anything.
+ */
+const showAddStudents = computed(() =>
+  cohortFirst.value && showCohortPicker.value && (form.value.cohort || []).length > 0)
+
+/** Open the settings, put the picker on screen, and land in the search box. */
+async function openAddStudents() {
+  settingsOpen.value = true
+  await nextTick()
+  const list = document.querySelector('.cohort-list')
+  // Scroll the LIST, not the field: the field's label is what a browser lands
+  // on and it leaves the rows below the fold on a short window.
+  list?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  document.querySelector('.cohort-search')?.focus({ preventScroll: true })
+}
 
 // --- the cohort picker ---------------------------------------------------
 //
@@ -3891,6 +3929,15 @@ details .field { padding: 0 var(--space-sm); }
 /* Tonal step, no border: the editor pane already draws one and the fieldsets
    below draw another (DESIGN.md §1.1 - never nest three boxes). --bg-inset is
    the recessed step that differs from --bg-surface in BOTH themes. */
+/* Both card actions travel together when the card wraps on a narrow window;
+   without this the button and the link separate and the second one orphans. */
+.cohort-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
 .cohort-card {
   background: var(--bg-inset);
   border-radius: 8px;

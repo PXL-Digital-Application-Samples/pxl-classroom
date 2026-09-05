@@ -19,6 +19,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { parse as yamlParse } from 'yaml';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
 // Two sections and one student nobody grouped - who used to be refused by the
@@ -241,6 +242,69 @@ test.describe('49 - picking who an assignment is for', () => {
     await expect(guardrails(page)).not.toContainText('Every student on the roster may accept');
   });
 
+  test('Add students opens the picker from the cohort card', async ({ page }) => {
+    // THE CAPABILITY EXISTED AND NOTHING POINTED AT IT. A published assignment
+    // leads with its cohort card and keeps the settings shut, so adding a late
+    // enroller meant knowing to open "Edit settings" first - and MANUAL.md told
+    // lecturers to use an "Add students" action that did not exist.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      roster: ROSTER,
+      assignments: {
+        'lab-3': {
+          schema_version: 1, id: 'lab-3', title: 'Lab 3', organization: ORG,
+          template: { owner: ORG, repository: 'starter-template' },
+          repository_name_pattern: 'lab-3-{github_login}',
+          opens_at: '2026-09-01T08:00:00Z', deadline_at: '2026-12-30T20:00:00Z',
+          state: 'published', assignment_type: 'individual', roster_mode: 'enforced',
+          cohort: ['num:0001', 'num:0002'],
+        },
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
+
+    const add = page.getByRole('button', { name: 'Add students' });
+    await expect(add).toBeVisible({ timeout: 15000 });
+    // Reachable without opening anything first: the picker is shut behind the
+    // disclosure until this is pressed. Not COUNT - a closed <details> keeps its
+    // contents in the DOM and merely hides them, so the question is visibility.
+    await expect(page.locator('.cohort-list')).not.toBeVisible();
+
+    await add.click();
+    await expect(page.locator('.cohort-list')).toBeVisible();
+    await expect(guardrails(page)).toContainText('2 of 5 selected');
+    // It lands where you type, because the reason to open it is to find someone.
+    await expect(guardrails(page).getByPlaceholder('Search name, number or username')).toBeFocused();
+
+    await row(page, 'Eva Example').locator('input[type=checkbox]').check();
+    await expect(guardrails(page)).toContainText('3 of 5 selected');
+  });
+
+  test('Add students is not offered where it would do nothing', async ({ page }) => {
+    // An assignment that admits everyone has nothing to add to, and its own
+    // empty state already says so. A control that cannot change anything is
+    // worse than no control (DESIGN.md §1.5).
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      roster: ROSTER,
+      assignments: {
+        'lab-3': {
+          schema_version: 1, id: 'lab-3', title: 'Lab 3', organization: ORG,
+          template: { owner: ORG, repository: 'starter-template' },
+          repository_name_pattern: 'lab-3-{github_login}',
+          opens_at: '2026-09-01T08:00:00Z', deadline_at: '2026-12-30T20:00:00Z',
+          state: 'published', assignment_type: 'individual', roster_mode: 'enforced',
+        },
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
+    // Positive first, so a count of zero is an absence and not an unrendered page.
+    await expect(page.getByRole('link', { name: /Track roster/ })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: 'Add students' })).toHaveCount(0);
+  });
+
   test('a draft has nothing locked - the selection is still the lecturer\'s', async ({ page }) => {
     await newAssignment(page);
     await gateOnRoster(page);
@@ -290,6 +354,106 @@ test.describe('49 - picking who an assignment is for', () => {
     // student who has none comes back with none rather than a guess.
     const at = columns.indexOf('class_group');
     expect(rows.map((r) => r.split(',')[at])).toEqual(['3A', '3A', '3B', '3B', '']);
+  });
+});
+
+test.describe('49 - setting a class group without a CSV', () => {
+  // It took a full round trip - export, spreadsheet, import, confirm a diff -
+  // to move one student between sections. Fine once a year for a cohort,
+  // absurd for the late enroller who turns up in week three, and the group is
+  // what the assignment picker filters by.
+  async function rosterTab(page, contentWrites) {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: ROSTER, contentWrites });
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
+  }
+
+  const cell = (page, name) =>
+    page.locator('.roster-table tr', { hasText: name }).locator('.group-cell');
+
+  test('a group is set in place, and only that student changes', async ({ page }) => {
+    // MERGE, NEVER REPLACE. This table shows five of the nine columns an entry
+    // can carry, so a roster rebuilt from what it renders would drop the rest.
+    const contentWrites = [];
+    await rosterTab(page, contentWrites);
+
+    await cell(page, 'Eva Example').click();
+    await page.locator('.group-edit').fill('3B');
+    await page.locator('.group-edit').press('Enter');
+
+    await expect
+      .poll(() => contentWrites.find((w) => w.path === 'students/roster.yml'), { timeout: 10000 })
+      .toBeTruthy();
+    const doc = yamlParse(contentWrites.find((w) => w.path === 'students/roster.yml').content);
+
+    const eva = doc.students.find((s) => s.student_number === '0005');
+    expect(eva.class_group).toBe('3B');
+    // Everything else about her survives.
+    expect(eva.github_login).toBe('eva');
+    expect(eva.full_name).toBe('Eva Example');
+    // And nobody else moved.
+    expect(doc.students.find((s) => s.student_number === '0001').class_group).toBe('3A');
+    expect(doc.students).toHaveLength(5);
+  });
+
+  test('emptying it removes the field rather than storing an empty group', async ({ page }) => {
+    // The roster schema distinguishes absent from empty, and "" is a group
+    // whose name is nothing - it would show up as a section in the picker.
+    const contentWrites = [];
+    await rosterTab(page, contentWrites);
+
+    await cell(page, 'Alice Example').click();
+    await page.locator('.group-edit').fill('');
+    await page.locator('.group-edit').press('Enter');
+
+    await expect
+      .poll(() => contentWrites.find((w) => w.path === 'students/roster.yml'), { timeout: 10000 })
+      .toBeTruthy();
+    const doc = yamlParse(contentWrites.find((w) => w.path === 'students/roster.yml').content);
+    const alice = doc.students.find((s) => s.student_number === '0001');
+    expect('class_group' in alice).toBe(false);
+  });
+
+  test('Escape abandons the edit, and an unchanged value writes nothing', async ({ page }) => {
+    const contentWrites = [];
+    await rosterTab(page, contentWrites);
+
+    await cell(page, 'Alice Example').click();
+    await page.locator('.group-edit').fill('9Z');
+    await page.locator('.group-edit').press('Escape');
+    await expect(cell(page, 'Alice Example')).toHaveText('3A');
+
+    // Opening and closing on the same value is not a commit - a roster history
+    // full of no-op commits is a history nobody reads.
+    await cell(page, 'Alice Example').click();
+    await page.locator('.group-edit').press('Enter');
+    await page.waitForTimeout(300);
+    expect(contentWrites.filter((w) => w.path === 'students/roster.yml')).toHaveLength(0);
+  });
+
+  test('the groups already in use are offered, so a section is not split in two', async ({ page }) => {
+    // "3a" typed beside an existing "3A" is one section rendered as two chips
+    // in the picker. A datalist suggests without preventing a new group.
+    await rosterTab(page, []);
+    await cell(page, 'Eva Example').click();
+
+    const options = await page.locator('#roster-class-groups option').evaluateAll(
+      (els) => els.map((e) => e.value),
+    );
+    expect(options).toEqual(['3A', '3B']);
+    await expect(page.locator('.group-edit')).toHaveAttribute('list', 'roster-class-groups');
+  });
+
+  test('the cell is a real control, reachable by keyboard', async ({ page }) => {
+    // A span with a click handler is invisible to a keyboard and announced as
+    // nothing. This is a button because that is what it is.
+    await rosterTab(page, []);
+    expect(await cell(page, 'Alice Example').evaluate((el) => el.tagName)).toBe('BUTTON');
+    await cell(page, 'Alice Example').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.group-edit')).toBeVisible();
   });
 });
 

@@ -28,14 +28,15 @@ Under **Enforced** and **Claim**, the form shows your roster and you tick the st
 - The chips above the list are **filters**, not the answer. `3A · 20` shows you that section; **Select all shown** ticks what you are looking at. The search box finds a name, a student number or a username.
 - **No group** is a filter too, so students you never put in a section are visible and tick like anyone else.
 - Mixing is the point. Tick 3A, then tick four more people - that is a remediation or resit cohort, and it needs nothing set up in advance.
-- The list is a **snapshot**. A student you import next week is not in an assignment you made today; use **Add students** on the assignment to bring them in.
+- The list is a **snapshot**. A student you import next week is not in an assignment you made today. Open that assignment and press **Add students** - it shows the same list with the current cohort already ticked. You can only add: taking a student out would not delete their repository or their work, so it is not offered.
 
 ### Class groups
 
 A class group is a label on a student, and it exists to make that list quick to filter.
 
-- Put one on each student: a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
-- To add groups to a roster you already imported: **Roster** tab, **Export CSV**, fill the column in, and import it back.
+- Put one on each student: click the **Group** cell on the **Roster** tab and type it, a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
+- The cell offers the groups your roster already uses, so you complete an existing one rather than typing `3a` beside `3A` and splitting a section in two. A new name is still typed freely.
+- For a whole cohort at once: **Roster** tab, **Export CSV**, fill the column in, and import it back.
 - Nothing is decided by a group. It narrows the list you pick from, and the assignment remembers which groups you picked from so the overview can say **3A**.
 
 ### Good to know
