@@ -1365,7 +1365,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { config } from '../lib/config.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
-import { TIMEZONE, INSTITUTION_SHORT, ACADEMIC_YEAR_START } from '../lib/deployment.js'
+import { TIMEZONE, INSTITUTION_SHORT } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
@@ -1394,7 +1394,6 @@ import {
   COLLISION_REMEDY_LEAD,
   COLLISION_WARNING_LEAD,
 } from '../lib/assignment-collision.js'
-import { academicYearLabel } from '../../../lib/academic-year.mjs'
 
 /**
  * The control-repo directories keyed by assignment id.
@@ -3077,29 +3076,11 @@ const collisionBlockers = computed(() => blockingFindings(collisionVerdict.value
 const collisionNotes = computed(() =>
   collisionVerdict.value?.clear ? noteFindings(collisionVerdict.value) : [])
 
-/**
- * The academic year of this assignment's own opening date, not of today: a lab
- * being set up in June for September belongs to next year, and the form already
- * knows when it opens.
- *
- * A LABEL, never a composed name. Suggesting "2627-lab-3" would be a claim
- * about the organization's repository listing that nothing checked - and that
- * name can be taken too. The remedy names the technique; whatever the lecturer
- * types is checked again when they type it.
- *
- * Read off the same instant that gets stored, so the suggestion agrees with the
- * document rather than with the field.
- *
- * Falls back to now when the date has not been filled in yet, and the remedy
- * degrades to naming the convention without a year if even that fails.
- */
-const collisionYearLabel = computed(() =>
-  academicYearLabel(
-    form.value.opens_at_local ? new Date(form.value.opens_at_local) : new Date(),
-    ACADEMIC_YEAR_START,
-  ))
-const collisionWays = computed(() =>
-  collisionRemedies({ verdict: collisionVerdict.value, yearLabel: collisionYearLabel.value }))
+// The remedy names no year and composes no name: nothing here knows whether
+// any particular replacement is free, so it states the requirement - the name
+// has to be different - and leaves the choice to the lecturer, over a listing
+// they can see and this code cannot.
+const collisionWays = computed(() => collisionRemedies({ verdict: collisionVerdict.value }))
 
 /** The identity of a check: re-run when either half changes, not just the id. */
 const collisionKey = () => `${form.value.id} ${form.value.repository_name_pattern}`

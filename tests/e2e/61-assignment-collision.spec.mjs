@@ -343,49 +343,21 @@ test.describe('the name is taken', () => {
     await expect(err).not.toContainText(/RUNBOOK|ARCHITECTURE|LESSONS|DESIGN\.md/);
   });
 
-  test('the academic year offered is the OPENING date\'s, not today\'s', async ({ page }) => {
-    // An academic year spans two calendar years, so the label is 2627 -
-    // September 2026 to August 2027. A lab set up in June for September
-    // belongs to next year, and the form already knows when it opens.
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
-    await fillNew(page, { opensAt: '2026-09-21T06:00' });
-    await expect(refusal(page)).toContainText('2627');
-
-    await page.locator('input[type="datetime-local"]').first().fill('2026-06-01T06:00');
-    const slug = page.getByPlaceholder('linux-processes-2026');
-    await slug.focus();
-    await slug.blur();
-    await expect(refusal(page)).toContainText('2526');
-  });
-
-  test('the year turns on the configured DAY, not on the first of the month', async ({ page }) => {
-    // deployment.yml says "09-15": PXL teaches from the 15th, so an assignment
-    // opening on the 8th is the 2526 resit and not the 2627 course - and a
-    // resit is exactly the assignment most likely to reuse a name and land
-    // here. Midday, so no timezone can carry it over the boundary.
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
-    await fillNew(page, { opensAt: '2026-09-08T12:00' });
-    await expect(refusal(page)).toContainText('2526');
-
-    await page.locator('input[type="datetime-local"]').first().fill('2026-09-15T12:00');
-    const slug = page.getByPlaceholder('linux-processes-2026');
-    await slug.focus();
-    await slug.blur();
-    await expect(refusal(page)).toContainText('2627');
-  });
-
-  test('it never hands over a composed name, and never promises one is free', async ({ page }) => {
-    // "2627-lab-3" is a name nothing checked - it can be taken too - and
-    // "it never collides" is a promise no wording can keep. The technique is
-    // named; whatever gets typed is checked again when it is typed.
+  test('it names no replacement at all - not a composed name, not a year', async ({ page }) => {
+    // Two goes at this, both wrong in the same direction. "2627-lab-3" is a
+    // name nothing checked - it can be taken too - and "Add the academic year
+    // - 2627" is the same defect one step back: nothing here knows THAT name
+    // is free either, nor that the organization does not already encode the
+    // year some other way. The requirement is stated instead.
     await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page, { opensAt: '2026-09-21T06:00' });
 
-    const err = refusal(page);
-    await expect(err).not.toContainText('2627-lab-3');
-    await expect(err).not.toContainText('lab-3-2627');
-    await expect(err).not.toContainText(/never collides?/i);
-    await expect(err).toContainText('in front or behind');
+    const ways = refusal(page).locator('.collision-ways li').first();
+    await expect(ways).not.toContainText(/\d/);
+    await expect(ways).not.toContainText(/academic/i);
+    await expect(ways).not.toContainText(/never collides?/i);
+    await expect(ways).toContainText('The name has to be different');
+    await expect(ways).toContainText('a prefix or suffix is enough');
   });
 
   test('deleting is not offered when there is nothing to delete', async ({ page }) => {

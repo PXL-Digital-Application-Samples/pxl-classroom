@@ -365,11 +365,9 @@ test("the refusal never points a lecturer at the repository's own documentation"
 
 test("the refusal says how to proceed, not only that it refused", () => {
   // A refusal that only says no gets routed around.
-  const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }), {
-    yearLabel: "2627",
-  });
+  const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }));
   assert.match(msg, /Ways forward:/);
-  assert.match(msg, /2627/);
+  assert.match(msg, /has to be different/);
   assert.match(msg, /repository name pattern/);
   assert.match(msg, /Delete what is listed above/);
 });
@@ -386,51 +384,38 @@ test("distinguishing the name is offered first and is the recommended one", () =
   assert.equal(ways.filter((w) => w.recommended).length, 1, "exactly one recommendation");
 });
 
-test("IT NEVER HANDS OVER A COMPOSED NAME - that name is one nothing checked", () => {
-  // `2627-lab-3` can be taken too, and offering it as the way out would be a
-  // claim about the organization's repository listing that no call made.
-  // The technique is named; the year is an example of it.
-  const ways = collisionRemedies({
+test("IT NAMES NO REPLACEMENT AT ALL - not a composed one, not a year", () => {
+  // Two goes at this, both wrong in the same direction. "2627-lab-3" is a name
+  // nothing checked. "Add the academic year - 2627" is the same defect one step
+  // back: nothing here knows THAT name is free either, and nothing here knows
+  // the organization does not already encode the year some other way.
+  const label = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
-    yearLabel: "2627",
-  });
-  const label = ways[0].label;
-  assert.doesNotMatch(label, /2627-/, "no composed prefix form");
-  assert.doesNotMatch(label, /-2627/, "no composed suffix form");
-  assert.match(label, /\b2627\b/, "the year itself is still offered");
+  })[0].label;
+  assert.doesNotMatch(label, /\d/, "no year, no number, nothing to copy blindly");
+  assert.doesNotMatch(label, /academic/i);
+  // What is actually true, and all of it.
+  assert.match(label, /has to be different/);
+  assert.match(label, /prefix or suffix/);
 });
 
 test("IT NEVER PROMISES THE NEW NAME IS FREE", () => {
   // "It never collides" is not something any wording can promise. A message
   // no branch computed is a guess, and it will eventually be a lie.
-  for (const yearLabel of ["2627", null]) {
-    const label = collisionRemedies({
-      verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
-      yearLabel,
-    })[0].label;
-    assert.doesNotMatch(label, /never collides?/i);
-    assert.doesNotMatch(label, /guarantee|always works|cannot collide/i);
-  }
+  const label = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+  })[0].label;
+  assert.doesNotMatch(label, /never collides?/i);
+  assert.doesNotMatch(label, /guarantee|always works|cannot collide/i);
 });
 
 test("both ends are offered, not one", () => {
-  // Which end is the lecturer's choice, so the copy must not fix it.
+  // Which end, and what it says, is the lecturer's call over a listing they
+  // can see and this module cannot.
   const label = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["x"] }),
-    yearLabel: "2627",
   })[0].label;
-  assert.match(label, /in front or behind/);
-});
-
-test("with no date to derive from, the convention is still named - without an empty gap", () => {
-  const label = collisionRemedies({
-    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
-    yearLabel: null,
-  })[0].label;
-  assert.match(label, /academic year/);
-  assert.doesNotMatch(label, /\(\)/, "no empty parenthesis where the year would be");
-  assert.doesNotMatch(label, / - , /, "no dangling separator where the year would be");
-  assert.doesNotMatch(label, /null|undefined/);
+  assert.match(label, /a prefix or suffix/);
 });
 
 test("deleting is offered ONLY when there is something to delete", () => {
@@ -488,11 +473,11 @@ test("IT STAYS SHORT - this is red text under a form field", () => {
   for (const f of worst.findings) {
     assert.ok(words(f.detail) <= 18, `finding too long (${words(f.detail)} words): ${f.detail}`);
   }
-  for (const w of collisionRemedies({ verdict: worst, yearLabel: "2627" })) {
+  for (const w of collisionRemedies({ verdict: worst })) {
     assert.ok(words(w.label) <= 14, `remedy too long (${words(w.label)} words): ${w.label}`);
   }
   // The whole refusal, lead and remedies included.
-  const msg = describeCollisions(worst, { yearLabel: "2627" });
+  const msg = describeCollisions(worst);
   assert.ok(words(msg) <= 90, `the refusal is ${words(msg)} words`);
 });
 
