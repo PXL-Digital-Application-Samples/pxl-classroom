@@ -17,6 +17,7 @@
 // a restriction before the lecturer saves rather than at the accept button.
 
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
 // Two sections and one student nobody grouped - the shape that makes the
@@ -142,6 +143,39 @@ test.describe('49 - choosing which section an assignment is for', () => {
     await gateOnRoster(page);
     await expect(page.locator('.group-picker')).toHaveCount(1);
     await expect(guardrails(page)).not.toContainText('No class groups on your roster');
+  });
+
+  test('the round trip the empty state names actually carries the column', async ({ page }) => {
+    // The empty state tells a lecturer to export the roster, fill the column in
+    // and import it back. That is a promise about two features neither of which
+    // had a test over `class_group`: Export CSV had no test over its CONTENT at
+    // all, and quick add typed a group and asserted only the name. If the
+    // export dropped the column, the instruction would send someone to build a
+    // file that silently un-groups their whole roster on the way back in.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: ROSTER });
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export CSV' }).click(),
+    ]);
+    const csv = readFileSync(await download.path(), 'utf8');
+
+    // `trim()` strips the BOM as well as the whitespace: downloadBlob prefixes
+    // a UTF-8 one so Excel decodes accented names, and U+FEFF is WhiteSpace, so
+    // it goes with the newline. Spelling it as a literal in a regex is both
+    // invisible in a diff and an eslint error (no-irregular-whitespace).
+    const [header, ...rows] = csv.trim().split('\n');
+    const columns = header.split(',');
+    expect(columns, 'the header must offer the column the message names').toContain('class_group');
+
+    // Every group on the roster survives the trip, in the lecturer's spelling -
+    // and the student who has none comes back with none rather than a guess.
+    const at = columns.indexOf('class_group');
+    const groups = rows.map((r) => r.split(',')[at]);
+    expect(groups).toEqual(['3A', '3A', '3B', '3B', '']);
   });
 
   test('an empty roster is not told about class groups', async ({ page }) => {

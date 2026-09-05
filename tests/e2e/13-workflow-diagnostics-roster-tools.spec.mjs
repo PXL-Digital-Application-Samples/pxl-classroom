@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { setupStandardMockRoutes, injectAuth, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
+import { parse as yamlParse } from 'yaml';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 const LECTURER = { login: 'prof-cloud', name: 'Professor Cloud', token: 'mock_lecturer_token' };
@@ -106,10 +107,12 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
       { student_number: '0123456', full_name: 'Alice Linked', email: 'alice@student.pxl.be', class_group: '1TIN-A', github_login: 'alice-dev' },
     ];
 
+    const contentWrites = [];
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
       roster: sampleRoster,
+      contentWrites,
     });
 
     await page.goto(`/dashboard/${ORG}/admin`);
@@ -135,6 +138,23 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
     await expect(page.locator('.toast', { hasText: /Student Diana Prince added to roster/i })).toBeVisible();
     await expect(modal).not.toBeVisible();
     await expect(page.locator('.roster-table')).toContainText('Diana Prince');
+
+    // THE OPTIONAL FIELDS WERE TYPED AND NEVER CHECKED. This test filled the
+    // class group and the GitHub login and then asserted only the name, so
+    // quick add could have dropped either on the floor and stayed green - and
+    // `class_group` is what an assignment's cohort gate reads
+    // (lib/class-groups.mjs), so losing it here is a student who cannot accept.
+    const write = [...contentWrites].reverse().find((w) => w.path === 'students/roster.yml');
+    expect(write, 'quick add must commit the roster').toBeTruthy();
+    const added = yamlParse(write.content).students.find((s) => String(s.student_number) === '0123499');
+    expect(added).toMatchObject({
+      full_name: 'Diana Prince',
+      class_group: '1TIN-C',
+      github_login: 'diana-gh',
+    });
+
+    // And it comes back out on the row, which is the only place a lecturer sees it.
+    await expect(page.locator('.roster-table')).toContainText('1TIN-C');
   });
 
   test('Scenario 4 (Template Pre-Flight Live Validator): Evaluates template repository existence and template flags in real-time', async ({ page }) => {
