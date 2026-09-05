@@ -12,6 +12,7 @@
     "deleted_by",
     "broker_repo_deleted",
     "archive_repo",
+    "preserved_submissions",
     "removed_paths"
   ],
   "additionalProperties": false,
@@ -58,7 +59,12 @@
         "null"
       ],
       "pattern": "^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}/[A-Za-z0-9._-]{1,100}$",
-      "description": "owner/name of the archive repository that still holds the preserved submissions - the one thing retired/ does not contain, and the first place a grade dispute goes. Spelled owner/name like every other archive_repo in the system (see report.schema.json); the first manifests written recorded a bare repository name, which left a reader to infer the org from a document whose whole purpose is to need no context. Null when the id could not produce a name."
+      "description": "owner/name of the archive repository the preserved submissions were pushed to, AS AT THE DELETION. Read off the report's preserved rows (lib/archive-repo.mjs `reportArchiveRepo`), never composed: a cohort preserved before per-assignment archives existed is in the org's legacy pxl-classroom-archive, and today's naming rule would name a repository that never held their work. It is a record, not a live index - the archive deliberately outlives the assignment and the lecturer deletes it by hand when they retire the year, which nothing tells this file. Read it with `preserved_submissions` beside it: that is what says whether a repository which has since gone took anything with it. Falls back to this assignment's archive name when nothing was preserved, and is null only when the id could not produce one. Spelled owner/name like every other archive_repo in the system (see report.schema.json); the first manifests recorded a bare repository name, leaving a reader to infer the org from a document whose whole purpose is to need no context."
+    },
+    "preserved_submissions": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many submissions were preserved in that archive when the assignment was deleted - report rows with `preservation_status: preserved`. Exists so a later 404 on the archive is interpretable: 0 means it never held a submission and removing it cost nothing, N means N are gone. Without it a reader finding no repository cannot tell a deliberate end-of-year cleanup from a name that was recorded wrong."
     },
     "removed_paths": {
       "type": "array",

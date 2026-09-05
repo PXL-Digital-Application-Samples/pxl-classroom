@@ -2872,6 +2872,24 @@ async function syncDashboardState(doc) {
 }
 
 /**
+ * The report's student rows, for the manifest - or none, if it cannot be read.
+ *
+ * A report that will not parse must not take the delete down with it: the
+ * evidence copy is written verbatim either way, and the manifest simply records
+ * nothing about the archive rather than guessing. An unreadable report is not
+ * evidence of an empty cohort.
+ */
+function retiredStudents(reportJson) {
+  if (!reportJson) return []
+  try {
+    const parsed = JSON.parse(reportJson)
+    return Array.isArray(parsed?.students) ? parsed.students : []
+  } catch {
+    return []
+  }
+}
+
+/**
  * Delete an assignment: everything PXL Classroom made, except the evidence.
  *
  * GitHub Classroom's delete takes the student repositories with it, which is
@@ -2970,6 +2988,10 @@ async function deleteAssignment() {
             brokerRepo: broker,
             brokerDeleted: brokerRes.ok,
             removedPaths: owned,
+            // The report this delete already read as evidence, so the manifest
+            // can say where the submissions actually went and how many there
+            // were - rather than composing an archive name and hoping.
+            students: retiredStudents(reportJson),
           }),
           null,
           2,

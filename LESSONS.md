@@ -1261,6 +1261,16 @@ The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an
 
 **Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
 
+**And a confident comment sent the archive lookup to the wrong function.**
+
+The manifest fix above resolved `archive_repo` with `archiveRepoName(id)` - *where a NEW archive goes* - under a comment that began "WHERE A NEW ARCHIVE WOULD GO IS THE RIGHT QUESTION HERE, unusually". It is not, and CLAUDE.md already said so: `lib/archive-repo.mjs` decides where a preservation **is** versus where a new one **goes**. A cohort preserved before per-assignment archives existed is in the org's single legacy `pxl-classroom-archive`; today's naming rule would have written `pxl-classroom-archive-<id>` - a repository that never held a line of their work - into the one document written to be read years later with nothing beside it. The reasoning in the comment was the whole defect: it noticed the authoritative value was on the report rows and then argued its way past using it.
+
+It surfaced only because the archive for a finished drill was deleted and the question "so what does the manifest say now?" got asked out loud. `reportArchiveRepo({ org, students })` reads it off the first preserved row, which is what `preserve.mjs` recorded when it pushed, and the delete already has the report in hand - it reads it as evidence before removing anything, so this costs no extra call.
+
+**The dangling pointer underneath it needed a different shape of answer.** The archive outlives the assignment deliberately, and the lecturer deletes it by hand when they retire the year. Nothing tells the manifest that happened and nothing can - so `archive_deleted_at` would have been permanently absent, which is the "control that promises behaviour nobody implemented" this file already warns about. What the writer *can* establish is how much was in there on the day: `preserved_submissions`, counted from the report rows it is already reading. A reader meeting a 404 years later then knows whether it mattered - `0` is a cleanup that cost nothing, `12` is twelve submissions gone. Prefer a fact the writer can measure over a field a future human is trusted to maintain.
+
+**Two invented fixture values were caught by guards written the same afternoon.** `preservation_status: "not-preserved"` is not one of the five the report schema declares (`preserved`, `pending`, `failed`, `not-required`, null), and the e2e refused the write - the copied `retired/<id>/report.json` is validated against `report.schema.json` now, which is a rule that did not exist a day earlier. A fixture must be the shape the app actually writes, and this is what that costs when it is not.
+
 **Then the same question, asked of the columns, found the lists disagreeing.**
 
 "Is `class_group` in the report CSV export?" It was, in both. But the two exports were 35 columns each and not the same 35. `report.mjs` writes the nightly `reports/<id>.csv`; the Assignment detail view writes what is on screen; each kept its own hand-typed list, and nothing had ever seen both.

@@ -56,6 +56,64 @@ test("a broker that was not deleted is null, not a name that still exists", () =
   assert.equal(none.broker_repo_deleted, null);
 });
 
+test("the archive comes from the rows, not from today's naming rule", () => {
+  // THE COHORT THIS GOT WRONG. Preserved before per-assignment archives
+  // existed, so the work is in the org's single legacy `pxl-classroom-archive`.
+  // Composing `pxl-classroom-archive-<id>` names a repository that never held a
+  // line of it - in the one document written to be read without context.
+  const legacy = buildRetiredManifest({
+    ...ARGS,
+    students: [
+      { github_login: "alice", preservation_status: "preserved", archive_repo: `${ORG}/${LEGACY_ARCHIVE_REPO}` },
+      { github_login: "bram", preservation_status: "preserved", archive_repo: `${ORG}/${LEGACY_ARCHIVE_REPO}` },
+    ],
+  });
+  assert.equal(legacy.archive_repo, `${ORG}/${LEGACY_ARCHIVE_REPO}`);
+  assert.notEqual(
+    legacy.archive_repo,
+    `${ORG}/${ARCHIVE_REPO_PREFIX}linux-processes-2026`,
+    "today's naming rule must not override where the submissions actually are",
+  );
+  assert.equal(legacy.preserved_submissions, 2);
+  assert.equal(check(legacy).valid, true);
+});
+
+test("preserved_submissions counts only rows that were actually preserved", () => {
+  const doc = buildRetiredManifest({
+    ...ARGS,
+    students: [
+      { github_login: "alice", preservation_status: "preserved", archive_repo: `${ORG}/${ARCHIVE_REPO_PREFIX}linux-processes-2026` },
+      // The other three states report.schema.json actually declares, so this
+      // counts real values rather than ones the test invented.
+      { github_login: "bram", preservation_status: "failed" },
+      { github_login: "cara", preservation_status: "not-required" },
+      { github_login: "dries", preservation_status: null },
+    ],
+  });
+  assert.equal(doc.preserved_submissions, 1);
+  assert.equal(doc.archive_repo, `${ORG}/${ARCHIVE_REPO_PREFIX}linux-processes-2026`);
+});
+
+test("nothing preserved is zero, and the archive falls back to the name", () => {
+  // The finalize-drill case, measured live on 2026-09-05: an archive repository
+  // that existed and held one generated README and no `preserved/*` branch. The
+  // count is what tells a reader that deleting it cost nothing - and that a 404
+  // here is an end-of-year cleanup rather than a name recorded wrong.
+  const doc = buildRetiredManifest({ ...ARGS, students: [] });
+  assert.equal(doc.preserved_submissions, 0);
+  assert.equal(doc.archive_repo, `${ORG}/${ARCHIVE_REPO_PREFIX}linux-processes-2026`);
+  assert.equal(check(doc).valid, true);
+});
+
+test("an unreadable report is not evidence of an empty cohort", () => {
+  // It still yields 0, because there is nothing else it could say - but the
+  // delete must not fail over it, and the archive name must still be recorded.
+  const doc = buildRetiredManifest({ ...ARGS, students: null });
+  assert.equal(doc.preserved_submissions, 0);
+  assert.ok(doc.archive_repo, "the archive is still named");
+  assert.equal(check(doc).valid, true);
+});
+
 test("an unusable id yields null, never the org's legacy archive", () => {
   // THE MECHANISM, demonstrated rather than asserted about. resolveArchiveRepo
   // reads an absent `recorded` as "preserved before per-assignment archives

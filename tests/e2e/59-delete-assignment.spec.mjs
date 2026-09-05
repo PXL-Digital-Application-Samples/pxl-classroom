@@ -47,14 +47,17 @@ const TREE = [
   `acceptances/${ID}-2/bob.json`,
 ];
 
-async function openClosedAssignment(page, { gitCommits, treeTruncated = false, brokerStatus = 200 } = {}) {
+async function openClosedAssignment(
+  page,
+  { gitCommits, treeTruncated = false, brokerStatus = 200, reportStudents = [] } = {},
+) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
     assignments: { [ID]: assignment() },
     // The evidence has to exist to be kept: without a report on record the
     // delete correctly copies nothing, which is not what this is testing.
-    reports: { [ID]: { schema_version: 1, assignment_id: ID, students: [] } },
+    reports: { [ID]: { schema_version: 1, assignment_id: ID, students: reportStudents } },
     gitCommits,
   });
 
@@ -143,8 +146,12 @@ test.describe('59 - what it writes and what it removes', () => {
     const manifest = JSON.parse(writes.find((w) => w.path === `retired/${ID}/manifest.json`).content);
     expect(manifest.assignment_id).toBe(ID);
     expect(manifest.deleted_by).toBeTruthy();
-    // Where the code still is - the one thing retired/ does not hold.
+    // Where the code still is - the one thing retired/ does not hold. Nothing
+    // was preserved here, so there is no row to read it off and the name falls
+    // back to this assignment's own archive, with the count saying not to
+    // expect anything in it.
     expect(manifest.archive_repo).toContain(ID);
+    expect(manifest.preserved_submissions).toBe(0);
     expect(manifest.removed_paths).toContain(`assignments/${ID}.yml`);
 
     // An assignment whose id merely starts the same way is NOT this one.
@@ -153,6 +160,31 @@ test.describe('59 - what it writes and what it removes', () => {
     // Org-wide data is nobody's assignment to delete.
     expect(manifest.removed_paths).not.toContain('students/roster.yml');
     expect(manifest.removed_paths).not.toContain('reports/dashboard.json');
+  });
+
+  test('the archive it names is where the submissions actually went', async ({ page }) => {
+    // THE WIRING, which no unit test can reach: the panel has to hand the
+    // report it already read to the manifest builder. Without that, the builder
+    // composes today's archive name - and a cohort preserved before
+    // per-assignment archives is in the org's single legacy repository, so the
+    // one document written to be read years later would name a repository that
+    // never held a line of their work.
+    const legacy = `${ORG}/pxl-classroom-archive`;
+    const commits = await del(page, {
+      reportStudents: [
+        { github_login: 'alice', preservation_status: 'preserved', archive_repo: legacy },
+        { github_login: 'bram', preservation_status: 'preserved', archive_repo: legacy },
+        { github_login: 'cara', preservation_status: 'not-required' },
+      ],
+    });
+    await expect.poll(() => commits.length, { timeout: 10000 }).toBe(1);
+
+    const manifest = JSON.parse(
+      commits[0].files.find((w) => w.path === `retired/${ID}/manifest.json`).content,
+    );
+    expect(manifest.archive_repo, 'read off the preserved rows, not composed').toBe(legacy);
+    expect(manifest.archive_repo).not.toContain(ID);
+    expect(manifest.preserved_submissions, 'only the rows actually preserved').toBe(2);
   });
 
   test('a truncated tree deletes nothing', async ({ page }) => {

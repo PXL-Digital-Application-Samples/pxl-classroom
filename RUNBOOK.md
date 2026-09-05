@@ -443,6 +443,8 @@ What it does, in this order, because the order is the safety property:
 
 Do **not** delete an archive for an assignment whose deadline has passed but whose finalize has not completed - `find-finalizable.mjs` re-queues an assignment while any student with a `snapshot_sha` lacks a verified `preservation.json` (ARCHITECTURE §6.2.1), and it would push the branches back.
 
+**The manifest goes on naming the archive after you delete it, and that is correct.** `retired/<id>/manifest.json` is a record of the deletion, not a live index - nothing regenerates it and nothing is watching the archive. Read `archive_repo` together with `preserved_submissions` beside it: that number is how many submissions were in there on the day the assignment was deleted, so `0` means removing the repository cost nothing, and `12` means twelve are gone. Without it, a reader meeting a 404 years later cannot tell your end-of-year cleanup from a repository name recorded wrongly.
+
 ---
 
 
