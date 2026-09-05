@@ -16,8 +16,10 @@
 // Three things block, and two are silent until the deadline:
 //
 //   - provision.mjs hands a returning student their OLD repository back
-//     (`alreadyExists ? existing.data`), still carrying the previous deadline's
-//     lockdown ruleset, which nothing can remove.
+//     (`alreadyExists ? existing.data`) - last year's work, under last year's
+//     lockdown ruleset, `active` from the moment they get it. Not permanent
+//     (`enforcement` is a flag the Unlock action flips), but nothing in
+//     provisioning knows to, so they meet a repository they cannot push to.
 //   - two assignments sharing a pattern do that to each other, from the first
 //     acceptance.
 //   - preserve.mjs pushes `refs/heads/preserved/<id>/<login>` WITHOUT --force
@@ -127,10 +129,15 @@ async function openAdmin(page, {
 }
 
 /** Start a new assignment and fill it to where Save as draft is enabled. */
-async function fillNew(page, { title = 'Lab 3', slug = ID, pattern = null } = {}) {
+async function fillNew(page, { title = 'Lab 3', slug = ID, pattern = null, opensAt = null } = {}) {
   await page.locator('.new-btn').click();
   await page.getByPlaceholder('e.g. Linux Processes 2026').fill(title);
   await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
+  if (opensAt) {
+    // The suggested name is derived from the OPENING date, so a test that
+    // asserts one must fix it rather than inherit the wall clock.
+    await page.locator('input[type="datetime-local"]').first().fill(opensAt);
+  }
   const slugInput = page.getByPlaceholder('linux-processes-2026');
   await slugInput.fill(slug);
   if (pattern !== null) {
@@ -242,7 +249,7 @@ test.describe('the name is taken', () => {
     const err = refusal(page);
     await expect(err).toBeVisible();
     await expect(err).toContainText('lab-3-alice, lab-3-bob');
-    await expect(err).toContainText(/still locked down/);
+    await expect(err).toContainText(/locked by last year's deadline/);
     await expectNoWrite(page, writes);
   });
 
@@ -318,19 +325,61 @@ test.describe('the name is taken', () => {
     await expect(err).toContainText('the archive repository still exists');
     // Three blockers, and NOT the retired record: the consequence line says
     // "delete what is listed above", and nobody has to delete the evidence.
-    await expect(err.locator('li')).toHaveCount(3);
+    await expect(err.locator('.collision-list').first().locator('li')).toHaveCount(3);
     await expect(err).not.toContainText(`retired/${ID}/`);
     await expectNoWrite(page, writes);
   });
 
-  test('the refusal says how to proceed, and never points at the repo docs', async ({ page }) => {
-    // DESIGN.md 1.6 - a lecturer is not the operator of this deployment.
+  test('the refusal names real options, and never points at the repo docs', async ({ page }) => {
+    // A refusal that only says no gets routed around. DESIGN.md 1.6 - and a
+    // lecturer is not the operator of this deployment.
     await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page);
     const err = refusal(page);
-    await expect(err).toContainText('Change the repository name pattern');
-    await expect(err).toContainText('delete what is listed above');
+    await expect(err).toContainText('Three ways forward');
+    await expect(err.locator('.collision-ways li')).toHaveCount(3);
+    await expect(err).toContainText('Recommended');
+    await expect(err).toContainText('repository name pattern');
+    await expect(err).toContainText('Delete what is listed above');
     await expect(err).not.toContainText(/RUNBOOK|ARCHITECTURE|LESSONS|DESIGN\.md/);
+  });
+
+  test('the recommendation is the academic year, PREFIXED, and derived from the opening date', async ({ page }) => {
+    // An academic year spans two calendar years, so the label is 2627 -
+    // September 2026 to August 2027 - and it goes on the front so a year's
+    // repositories sort together in the organization listing.
+    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page, { opensAt: '2026-09-21T06:00' });
+    await expect(refusal(page)).toContainText('"2627-lab-3"');
+  });
+
+  test('a name that already carries a year is not given a second one', async ({ page }) => {
+    await openAdmin(page, { orgRepos: ['2526-lab-3-alice'] });
+    await fillNew(page, { title: '2526 Lab 3', slug: '2526-lab-3', pattern: '2526-lab-3-{github_login}', opensAt: '2026-09-21T06:00' });
+    await expect(refusal(page)).toContainText('"2627-lab-3"');
+    await expect(refusal(page)).not.toContainText('2627-2526');
+  });
+
+  test('deleting is not offered when there is nothing to delete', async ({ page }) => {
+    // Only a pattern clash: nothing exists to remove, and offering it would
+    // read as an invitation to remove something.
+    await openAdmin(page, {
+      orgRepos: [],
+      assignments: { 'lab-3-old': liveAssignment('lab-3-old', 'lab-3-{github_login}') },
+    });
+    await fillNew(page, { title: 'Lab 3 New', slug: 'lab-3-new', pattern: 'lab-3-{github_login}' });
+
+    const err = refusal(page);
+    await expect(err.locator('.collision-ways li')).toHaveCount(2);
+    await expect(err).not.toContainText('Delete what is listed above');
+    await expect(err).toContainText('no other assignment uses');
+  });
+
+  test('the delete option says what it costs, in the same breath', async ({ page }) => {
+    await openAdmin(page, { orgRepos: ['lab-3-alice'], archive: true, retired: manifest() });
+    await fillNew(page);
+    await expect(refusal(page)).toContainText("destroys the students' work");
+    await expect(refusal(page)).toContainText('grades are out of the system');
   });
 
   test('matching is case-insensitive, because GitHub repository names are', async ({ page }) => {

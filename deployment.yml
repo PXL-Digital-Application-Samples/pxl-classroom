@@ -53,6 +53,17 @@ institution_short: PXL
 # screen, which for a deadline is worth getting right.
 timezone: Europe/Brussels
 
+# The month an academic year begins, 1-12.
+#
+# An academic year spans two calendar years, so "2026" names neither: the label
+# is 2627 - September 2026 to August 2027. It is what distinguishes one year's
+# run of a lab from the next one's, and the only thing the Admin Panel suggests
+# when a name is already taken (RUNBOOK §5.1), so a deployment whose year turns
+# in January or August has to be able to say so.
+#
+# Display and suggestion only. Nothing schedules, grades or gates on it.
+academic_year_start_month: 9
+
 # The GitHub account and repository holding the hub. Every workflow lives there;
 # each course organization holds only data.
 hub_owner: PXL-Digital-Application-Samples

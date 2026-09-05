@@ -455,7 +455,7 @@ Three things are refused, and two of them would otherwise fail weeks later, at t
 
 | What is in the way | What would happen |
 |---|---|
-| A repository the pattern would produce already exists | A returning student is handed the old one, still carrying the previous deadline's lockdown ruleset. Nothing can unlock it. |
+| A repository the pattern would produce already exists | A returning student is handed the old one, holding last year's work and locked by last year's deadline. You can reopen it by hand, but nothing in provisioning knows to, so they meet a repository they cannot push to. |
 | Another assignment already uses that pattern | The same thing, from the first acceptance. |
 | `<org>/pxl-classroom-archive-<id>` still exists | It still holds `refs/heads/preserved/<id>/<login>`, and preservation pushes without `--force` on purpose - so the snapshot is rejected at the new deadline, for every returning student. |
 

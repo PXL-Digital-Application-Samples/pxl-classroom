@@ -10,6 +10,7 @@ import {
   describeCollisions,
   blockingFindings,
   noteFindings,
+  collisionRemedies,
   reposInRetiredReport,
   COLLISION_LEAD,
   COLLISION_WARNING_LEAD,
@@ -245,7 +246,10 @@ test("an existing repository blocks, and is named", () => {
   const v = assignmentCollisions({ existingRepos: ["lab-3-alice", "lab-3-bob"] });
   assert.equal(v.clear, false);
   assert.match(describeCollisions(v), /lab-3-alice, lab-3-bob/);
-  assert.match(describeCollisions(v), /still locked down/);
+  // What the student would actually meet - last year's work, last year's lock.
+  // Not "nothing can unlock it": `enforcement` is a flag and the Unlock action
+  // flips it. The hazard is that provisioning does not know to.
+  assert.match(describeCollisions(v), /holding last year's work and locked by last year's deadline/);
 });
 
 test("one existing repository is not pluralised", () => {
@@ -359,9 +363,87 @@ test("the refusal never points a lecturer at the repository's own documentation"
 });
 
 test("the refusal says how to proceed, not only that it refused", () => {
-  const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }));
-  assert.match(msg, /Change the repository name pattern/);
-  assert.match(msg, /delete what is listed above/);
+  // A refusal that only says no gets routed around.
+  const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }), {
+    suggestedId: "2627-lab-3",
+  });
+  assert.match(msg, /Three ways forward/);
+  assert.match(msg, /2627-lab-3/);
+  assert.match(msg, /repository name pattern/);
+  assert.match(msg, /Delete what is listed above/);
+});
+
+// ---------------------------------------------------------------- remedies
+
+test("the year prefix is offered first and is the recommended one", () => {
+  const ways = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+    suggestedId: "2627-lab-3",
+  });
+  assert.equal(ways[0].key, "year-prefix");
+  assert.equal(ways[0].recommended, true);
+  assert.match(ways[0].label, /"2627-lab-3"/);
+  assert.equal(ways.filter((w) => w.recommended).length, 1, "exactly one recommendation");
+});
+
+test("with no date to derive from, the convention is still named - without a wrong example", () => {
+  const ways = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+    suggestedId: null,
+  });
+  assert.match(ways[0].label, /2627 means September 2026 to August 2027/);
+  assert.doesNotMatch(ways[0].label, /""/, "no empty quoted name");
+});
+
+test("deleting is offered ONLY when there is something to delete", () => {
+  // Nothing to delete must not read as an invitation to delete something, and
+  // deleting repositories is not a remedy for a shared pattern.
+  const clashOnly = collisionRemedies({
+    verdict: assignmentCollisions({ clashes: [{ id: "other", pattern: "p-{github_login}" }] }),
+  });
+  assert.deepEqual(clashOnly.map((w) => w.key), ["year-prefix", "pattern"]);
+
+  const withRepos = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+  });
+  assert.deepEqual(withRepos.map((w) => w.key), ["year-prefix", "pattern", "delete"]);
+
+  const withArchive = collisionRemedies({ verdict: assignmentCollisions({ archiveExists: true }) });
+  assert.ok(withArchive.some((w) => w.key === "delete"));
+});
+
+test("the delete option says what it costs, in the same breath", () => {
+  const del = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"], archiveExists: true }),
+  }).find((w) => w.key === "delete");
+  assert.match(del.label, /destroys the students' work/);
+  assert.match(del.label, /grades are out of the system/);
+  assert.equal(del.recommended, false);
+});
+
+test("the pattern option is worded for the problem that was actually found", () => {
+  // "Keep this name and change only the pattern" is wrong advice when the
+  // pattern is what clashes.
+  const onClash = collisionRemedies({
+    verdict: assignmentCollisions({ clashes: [{ id: "other", pattern: "p-{github_login}" }] }),
+  }).find((w) => w.key === "pattern");
+  assert.match(onClash.label, /no other assignment uses/);
+
+  const onRepos = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+  }).find((w) => w.key === "pattern");
+  assert.match(onRepos.label, /Keep this name/);
+});
+
+test("the year prefix is recommended as a PREFIX, and says why", () => {
+  // A suffix does not sort. The whole point is that one year's repositories
+  // sit together in the organization's listing.
+  const way = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["x"] }),
+    suggestedId: "2627-lab-3",
+  })[0];
+  assert.match(way.label, /^Prefix/);
+  assert.match(way.label, /sorts a year's repositories together/);
 });
 
 test("describeCollisions tolerates junk rather than throwing into a computed", () => {

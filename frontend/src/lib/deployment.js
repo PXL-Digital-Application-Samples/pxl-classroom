@@ -38,6 +38,9 @@ export const INSTITUTION_SHORT = config.institution_short || config.institution_
 /** The timezone assignment dates are displayed in when one is not set. */
 export const TIMEZONE = config.timezone
 
+/** The month an academic year begins, 1-12. Defaults to September. */
+export const ACADEMIC_YEAR_START_MONTH = Number(config.academic_year_start_month ?? 9)
+
 /** The account and repository holding the hub. */
 export const HUB_OWNER = config.hub_owner
 export const HUB_REPO_NAME = config.hub_repo

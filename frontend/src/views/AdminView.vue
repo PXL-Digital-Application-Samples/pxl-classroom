@@ -432,7 +432,19 @@
                 <ul class="collision-list">
                   <li v-for="(f, i) in collisionBlockers" :key="`${f.kind}-${i}`">{{ f.detail }}</li>
                 </ul>
-                {{ COLLISION_CONSEQUENCE }}
+                <!-- A refusal that only says no gets routed around. These are
+                     the real options, and the cheap one is marked. -->
+                <div class="collision-ways">
+                  {{ COLLISION_REMEDY_LEAD }}
+                  <ol class="collision-list">
+                    <li v-for="w in collisionWays" :key="w.key">
+                      <!-- Spaced by CSS, not by a text node: Vue trims
+                           whitespace between elements, so a literal space
+                           here rendered as "readable.Recommended." -->
+                      {{ w.label }}<strong v-if="w.recommended" class="collision-rec">Recommended.</strong>
+                    </li>
+                  </ol>
+                </div>
               </div>
               <div v-else-if="collisionError" class="field-error-msg">{{ collisionError }}</div>
               <!-- Nothing blocks. Said in the muted voice, because it is
@@ -1353,7 +1365,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { config } from '../lib/config.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
-import { TIMEZONE, INSTITUTION_SHORT } from '../lib/deployment.js'
+import { TIMEZONE, INSTITUTION_SHORT, ACADEMIC_YEAR_START_MONTH } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
@@ -1377,10 +1389,12 @@ import {
   assignmentCollisions,
   blockingFindings,
   noteFindings,
+  collisionRemedies,
   COLLISION_LEAD,
-  COLLISION_CONSEQUENCE,
+  COLLISION_REMEDY_LEAD,
   COLLISION_WARNING_LEAD,
 } from '../lib/assignment-collision.js'
+import { academicYearLabel, withAcademicYear } from '../../../lib/academic-year.mjs'
 
 /**
  * The control-repo directories keyed by assignment id.
@@ -3063,6 +3077,22 @@ const collisionBlockers = computed(() => blockingFindings(collisionVerdict.value
 const collisionNotes = computed(() =>
   collisionVerdict.value?.clear ? noteFindings(collisionVerdict.value) : [])
 
+/**
+ * The name to recommend instead: this id prefixed with the academic year of
+ * its own opening date, not of today. A lab being set up in June for
+ * September belongs to next year, and the form already knows when it opens.
+ *
+ * Falls back to now when the date has not been filled in yet, and the remedy
+ * degrades to naming the convention without an example if even that fails.
+ */
+const suggestedYearId = computed(() => {
+  const when = form.value.opens_at_local ? new Date(form.value.opens_at_local) : new Date()
+  const label = academicYearLabel(when, ACADEMIC_YEAR_START_MONTH)
+  return label ? withAcademicYear(form.value.id, label) : null
+})
+const collisionWays = computed(() =>
+  collisionRemedies({ verdict: collisionVerdict.value, suggestedId: suggestedYearId.value }))
+
 /** The identity of a check: re-run when either half changes, not just the id. */
 const collisionKey = () => `${form.value.id} ${form.value.repository_name_pattern}`
 
@@ -3975,6 +4005,13 @@ legend {
   list-style: disc;
 }
 .collision-list li { margin: 2px 0; }
+/* The remedies sit under the findings with air between them: what is wrong and
+   what to do about it are two thoughts, and run together they read as one
+   paragraph of red. `ol` keeps its numbers - they are how a lecturer says
+   "I did the first one". */
+.collision-ways { margin-top: var(--space-sm); }
+.collision-ways .collision-list { list-style: decimal; }
+.collision-rec { margin-left: 0.35em; }
 /* Matches the <small> the field already renders beneath it, so a warning and
    the field's own help text read as one voice. */
 .collision-note { font-size: 0.82rem; }

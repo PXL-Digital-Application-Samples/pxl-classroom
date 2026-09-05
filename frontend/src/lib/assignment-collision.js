@@ -14,6 +14,7 @@ export {
   noteFindings,
   reposInRetiredReport,
   COLLISION_LEAD,
-  COLLISION_CONSEQUENCE,
+  COLLISION_REMEDY_LEAD,
+  collisionRemedies,
   COLLISION_WARNING_LEAD,
 } from '../../../lib/assignment-collision.mjs'
