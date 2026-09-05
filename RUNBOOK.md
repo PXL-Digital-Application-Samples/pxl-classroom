@@ -453,6 +453,7 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 | I want to… | Go to |
 |---|---|
 | Import a roster from a CSV | §6.4 |
+| Divide a course into sections, so one assignment runs for one class group | §6.4, `class_group` in the CSV table |
 | Run an assignment from email addresses, or with no roster at all | §6.4, the two sub-sections after the import |
 | Turn the students who actually accepted into a roster | §6.5 |
 | See or undo a claim binding | §6.6, §6.7 |
@@ -524,6 +525,8 @@ The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Adm
 | `team_name`      | Optional | Display name for `team_slug`. |
 
 Unknown columns are rejected — the list above is `KNOWN_COLUMNS` in `lib/roster-csv.mjs`. Duplicate `student_number` values are rejected.
+
+**Exporting it again.** The Roster tab's **Export CSV** writes the current roster in exactly the format above, so export → edit → import is the way to change a column across a cohort you have already imported — adding `class_group` to divide a course into sections is the usual reason. The file carries a UTF-8 BOM so Excel decodes accented names, and any value beginning `=`, `+`, `-` or `@` is written with a leading apostrophe so a spreadsheet shows it instead of running it. The importer strips that apostrophe back off, and only where the exporter would have added it — a name like `'t Hooft` is left alone (`lib/csv-cell.mjs`).
 
 **CLI flow:**
 
