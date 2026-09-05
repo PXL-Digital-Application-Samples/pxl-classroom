@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { academicYearLabel, withAcademicYear } from "../lib/academic-year.mjs";
+import { academicYearLabel } from "../lib/academic-year.mjs";
 import { ACADEMIC_YEAR_START_MONTH } from "../lib/deployment.mjs";
 
 const SEP = 9;
@@ -63,47 +63,4 @@ test("the deployment's configured month is a usable month", () => {
   assert.ok(Number.isInteger(ACADEMIC_YEAR_START_MONTH));
   assert.ok(ACADEMIC_YEAR_START_MONTH >= 1 && ACADEMIC_YEAR_START_MONTH <= 12);
   assert.equal(academicYearLabel("2026-09-21T06:00:00Z", ACADEMIC_YEAR_START_MONTH), "2627");
-});
-
-// ------------------------------------------------------------ the prefixing
-
-test("the year goes on the front", () => {
-  assert.equal(withAcademicYear("lab-3", "2627"), "2627-lab-3");
-});
-
-test("reaching for it twice does not stack years", () => {
-  // A lecturer refused once, who prefixes, is refused again for another
-  // reason and prefixes again, must not end up with 2627-2526-lab-3.
-  assert.equal(withAcademicYear("2526-lab-3", "2627"), "2627-lab-3");
-  assert.equal(withAcademicYear("2627-lab-3", "2627"), "2627-lab-3");
-});
-
-test("a four-digit calendar year at the front is NOT a year label and stays", () => {
-  // `2026-report` is somebody's assignment name. Stripping it would rename
-  // their assignment behind their back. Only a consecutive pair counts.
-  assert.equal(withAcademicYear("2026-report", "2627"), "2627-2026-report");
-  assert.equal(withAcademicYear("1999-retro", "2627"), "2627-1999-retro");
-});
-
-test("a leading label with nothing after it is left alone", () => {
-  // `2526-` is not `<year>-<id>`, it is an id. There is no id to keep.
-  assert.equal(withAcademicYear("2526-", "2627"), "2627-2526-");
-});
-
-test("junk yields null rather than a broken name", () => {
-  assert.equal(withAcademicYear("", "2627"), null);
-  assert.equal(withAcademicYear("   ", "2627"), null);
-  assert.equal(withAcademicYear(null, "2627"), null);
-  assert.equal(withAcademicYear("lab-3", "26"), null);
-  assert.equal(withAcademicYear("lab-3", "twenty"), null);
-  assert.equal(withAcademicYear("lab-3", null), null);
-});
-
-test("the suggestion is a valid assignment slug", () => {
-  // The form refuses anything that is not /^[a-z0-9][a-z0-9-]{0,99}$/, so a
-  // recommendation it would then reject is worse than no recommendation.
-  const slug = /^[a-z0-9][a-z0-9-]{0,99}$/;
-  for (const id of ["lab-3", "linux-processes", "exam2026", "2526-lab-3"]) {
-    assert.match(withAcademicYear(id, "2627"), slug, id);
-  }
 });

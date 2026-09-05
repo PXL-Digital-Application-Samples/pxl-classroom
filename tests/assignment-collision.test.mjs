@@ -365,34 +365,74 @@ test("the refusal never points a lecturer at the repository's own documentation"
 test("the refusal says how to proceed, not only that it refused", () => {
   // A refusal that only says no gets routed around.
   const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }), {
-    suggestedId: "2627-lab-3",
+    yearLabel: "2627",
   });
   assert.match(msg, /Three ways forward/);
-  assert.match(msg, /2627-lab-3/);
+  assert.match(msg, /2627/);
   assert.match(msg, /repository name pattern/);
   assert.match(msg, /Delete what is listed above/);
 });
 
 // ---------------------------------------------------------------- remedies
 
-test("the year prefix is offered first and is the recommended one", () => {
+test("distinguishing the name is offered first and is the recommended one", () => {
   const ways = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
-    suggestedId: "2627-lab-3",
+    yearLabel: "2627",
   });
-  assert.equal(ways[0].key, "year-prefix");
+  assert.equal(ways[0].key, "distinguish");
   assert.equal(ways[0].recommended, true);
-  assert.match(ways[0].label, /"2627-lab-3"/);
   assert.equal(ways.filter((w) => w.recommended).length, 1, "exactly one recommendation");
 });
 
-test("with no date to derive from, the convention is still named - without a wrong example", () => {
+test("IT NEVER HANDS OVER A COMPOSED NAME - that name is one nothing checked", () => {
+  // `2627-lab-3` can be taken too, and offering it as the way out would be a
+  // claim about the organization's repository listing that no call made.
+  // The technique is named; the year is an example of it.
   const ways = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
-    suggestedId: null,
+    yearLabel: "2627",
   });
-  assert.match(ways[0].label, /2627 means September 2026 to August 2027/);
-  assert.doesNotMatch(ways[0].label, /""/, "no empty quoted name");
+  const label = ways[0].label;
+  assert.doesNotMatch(label, /2627-/, "no composed prefix form");
+  assert.doesNotMatch(label, /-2627/, "no composed suffix form");
+  assert.match(label, /\b2627\b/, "the year itself is still offered");
+});
+
+test("IT NEVER PROMISES THE NEW NAME IS FREE", () => {
+  // "It never collides" is not something any wording can promise. A message
+  // no branch computed is a guess, and it will eventually be a lie.
+  for (const yearLabel of ["2627", null]) {
+    const label = collisionRemedies({
+      verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+      yearLabel,
+    })[0].label;
+    assert.doesNotMatch(label, /never collides?/i);
+    assert.doesNotMatch(label, /guarantee|always works|cannot collide/i);
+    // Says the opposite instead: it will be checked.
+    assert.match(label, /checked again when you type it/);
+  }
+});
+
+test("both ends are offered, not one", () => {
+  // A prefix sorts a year's repositories together; a suffix keeps the
+  // assignment's own name first. Neither is wrong.
+  const label = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["x"] }),
+    yearLabel: "2627",
+  })[0].label;
+  assert.match(label, /a prefix, a suffix, or both/);
+  assert.match(label, /at either end/);
+});
+
+test("with no date to derive from, the convention is still named - without an empty gap", () => {
+  const label = collisionRemedies({
+    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+    yearLabel: null,
+  })[0].label;
+  assert.match(label, /academic year is the usual choice/);
+  assert.doesNotMatch(label, /\(\)/, "no empty parenthesis where the year would be");
+  assert.doesNotMatch(label, /null|undefined/);
 });
 
 test("deleting is offered ONLY when there is something to delete", () => {
@@ -401,12 +441,12 @@ test("deleting is offered ONLY when there is something to delete", () => {
   const clashOnly = collisionRemedies({
     verdict: assignmentCollisions({ clashes: [{ id: "other", pattern: "p-{github_login}" }] }),
   });
-  assert.deepEqual(clashOnly.map((w) => w.key), ["year-prefix", "pattern"]);
+  assert.deepEqual(clashOnly.map((w) => w.key), ["distinguish", "pattern"]);
 
   const withRepos = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
   });
-  assert.deepEqual(withRepos.map((w) => w.key), ["year-prefix", "pattern", "delete"]);
+  assert.deepEqual(withRepos.map((w) => w.key), ["distinguish", "pattern", "delete"]);
 
   const withArchive = collisionRemedies({ verdict: assignmentCollisions({ archiveExists: true }) });
   assert.ok(withArchive.some((w) => w.key === "delete"));
@@ -435,15 +475,13 @@ test("the pattern option is worded for the problem that was actually found", () 
   assert.match(onRepos.label, /Keep this name/);
 });
 
-test("the year prefix is recommended as a PREFIX, and says why", () => {
-  // A suffix does not sort. The whole point is that one year's repositories
-  // sit together in the organization's listing.
-  const way = collisionRemedies({
+test("it says what each end buys, so the choice is the lecturer's", () => {
+  const label = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["x"] }),
-    suggestedId: "2627-lab-3",
-  })[0];
-  assert.match(way.label, /^Prefix/);
-  assert.match(way.label, /sorts a year's repositories together/);
+    yearLabel: "2627",
+  })[0].label;
+  assert.match(label, /in front sorts one year's repositories together/);
+  assert.match(label, /behind keeps the assignment's own name first/);
 });
 
 test("describeCollisions tolerates junk rather than throwing into a computed", () => {

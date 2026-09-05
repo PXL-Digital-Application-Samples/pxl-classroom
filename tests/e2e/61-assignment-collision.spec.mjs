@@ -344,20 +344,34 @@ test.describe('the name is taken', () => {
     await expect(err).not.toContainText(/RUNBOOK|ARCHITECTURE|LESSONS|DESIGN\.md/);
   });
 
-  test('the recommendation is the academic year, PREFIXED, and derived from the opening date', async ({ page }) => {
+  test('the academic year offered is the OPENING date\'s, not today\'s', async ({ page }) => {
     // An academic year spans two calendar years, so the label is 2627 -
-    // September 2026 to August 2027 - and it goes on the front so a year's
-    // repositories sort together in the organization listing.
+    // September 2026 to August 2027. A lab set up in June for September
+    // belongs to next year, and the form already knows when it opens.
     await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page, { opensAt: '2026-09-21T06:00' });
-    await expect(refusal(page)).toContainText('"2627-lab-3"');
+    await expect(refusal(page)).toContainText('2627');
+
+    await page.locator('input[type="datetime-local"]').first().fill('2026-06-01T06:00');
+    const slug = page.getByPlaceholder('linux-processes-2026');
+    await slug.focus();
+    await slug.blur();
+    await expect(refusal(page)).toContainText('2526');
   });
 
-  test('a name that already carries a year is not given a second one', async ({ page }) => {
-    await openAdmin(page, { orgRepos: ['2526-lab-3-alice'] });
-    await fillNew(page, { title: '2526 Lab 3', slug: '2526-lab-3', pattern: '2526-lab-3-{github_login}', opensAt: '2026-09-21T06:00' });
-    await expect(refusal(page)).toContainText('"2627-lab-3"');
-    await expect(refusal(page)).not.toContainText('2627-2526');
+  test('it never hands over a composed name, and never promises one is free', async ({ page }) => {
+    // "2627-lab-3" is a name nothing checked - it can be taken too - and
+    // "it never collides" is a promise no wording can keep. The technique is
+    // named; whatever gets typed is checked again when it is typed.
+    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page, { opensAt: '2026-09-21T06:00' });
+
+    const err = refusal(page);
+    await expect(err).not.toContainText('2627-lab-3');
+    await expect(err).not.toContainText('lab-3-2627');
+    await expect(err).not.toContainText(/never collides?/i);
+    await expect(err).toContainText('a prefix, a suffix, or both');
+    await expect(err).toContainText('checked again when you type it');
   });
 
   test('deleting is not offered when there is nothing to delete', async ({ page }) => {

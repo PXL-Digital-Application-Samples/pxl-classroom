@@ -1394,7 +1394,7 @@ import {
   COLLISION_REMEDY_LEAD,
   COLLISION_WARNING_LEAD,
 } from '../lib/assignment-collision.js'
-import { academicYearLabel, withAcademicYear } from '../../../lib/academic-year.mjs'
+import { academicYearLabel } from '../../../lib/academic-year.mjs'
 
 /**
  * The control-repo directories keyed by assignment id.
@@ -3078,20 +3078,25 @@ const collisionNotes = computed(() =>
   collisionVerdict.value?.clear ? noteFindings(collisionVerdict.value) : [])
 
 /**
- * The name to recommend instead: this id prefixed with the academic year of
- * its own opening date, not of today. A lab being set up in June for
- * September belongs to next year, and the form already knows when it opens.
+ * The academic year of this assignment's own opening date, not of today: a lab
+ * being set up in June for September belongs to next year, and the form already
+ * knows when it opens.
+ *
+ * A LABEL, never a composed name. Suggesting "2627-lab-3" would be a claim
+ * about the organization's repository listing that nothing checked - and that
+ * name can be taken too. The remedy names the technique; whatever the lecturer
+ * types is checked again when they type it.
  *
  * Falls back to now when the date has not been filled in yet, and the remedy
- * degrades to naming the convention without an example if even that fails.
+ * degrades to naming the convention without a year if even that fails.
  */
-const suggestedYearId = computed(() => {
-  const when = form.value.opens_at_local ? new Date(form.value.opens_at_local) : new Date()
-  const label = academicYearLabel(when, ACADEMIC_YEAR_START_MONTH)
-  return label ? withAcademicYear(form.value.id, label) : null
-})
+const collisionYearLabel = computed(() =>
+  academicYearLabel(
+    form.value.opens_at_local ? new Date(form.value.opens_at_local) : new Date(),
+    ACADEMIC_YEAR_START_MONTH,
+  ))
 const collisionWays = computed(() =>
-  collisionRemedies({ verdict: collisionVerdict.value, suggestedId: suggestedYearId.value }))
+  collisionRemedies({ verdict: collisionVerdict.value, yearLabel: collisionYearLabel.value }))
 
 /** The identity of a check: re-run when either half changes, not just the id. */
 const collisionKey = () => `${form.value.id} ${form.value.repository_name_pattern}`
