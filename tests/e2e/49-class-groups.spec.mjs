@@ -474,6 +474,152 @@ test.describe('49 - setting a class group without a CSV', () => {
   });
 });
 
+test.describe('49 - edges the happy path hides', () => {
+  const published = (over = {}) => ({
+    schema_version: 1, id: 'lab-3', title: 'Lab 3', organization: ORG,
+    template: { owner: ORG, repository: 'starter-template' },
+    repository_name_pattern: 'lab-3-{github_login}',
+    opens_at: '2026-09-01T08:00:00Z', deadline_at: '2026-12-30T20:00:00Z',
+    state: 'published', assignment_type: 'individual', roster_mode: 'enforced',
+    ...over,
+  });
+
+  async function editing(page, assignment, roster = ROSTER) {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, roster, assignments: { 'lab-3': assignment } });
+    await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
+    if (assignment.state !== 'draft') await page.locator('.settings-disclosure > summary').click();
+    await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
+  }
+
+  test('a LIVE assignment that admits everyone cannot be narrowed', async ({ page }) => {
+    // THE WORST DIRECTION, and the one the add-only lock left open: the lock
+    // only engaged once a cohort existed, which is the case that was already
+    // narrow. Ticking one student here would refuse everyone else - including
+    // students who have already accepted and hold a repository.
+    await editing(page, published());
+
+    await expect(page.locator('.cohort-row input:enabled')).toHaveCount(0);
+    await expect(guardrails(page)).toContainText('cannot be narrowed now');
+    await expect(guardrails(page)).toContainText('Close the assignment first');
+
+    // And the select-all cannot do it either - the box is the same act at scale.
+    await expect(page.locator('.cohort-all input')).toBeDisabled();
+  });
+
+  test('a CLOSED assignment is editable again - nobody can accept any more', async ({ page }) => {
+    // The way back for a lecturer who published too wide. Narrowing a closed
+    // assignment changes a record rather than shutting a door.
+    await editing(page, published({ state: 'closed' }));
+
+    await expect(page.locator('.cohort-row input:enabled').first()).toBeEnabled();
+    await expect(guardrails(page)).not.toContainText('cannot be narrowed now');
+  });
+
+  test('a DRAFT is fully editable, however wide it is', async ({ page }) => {
+    await editing(page, published({ state: 'draft' }));
+    await expect(page.locator('.cohort-row input:enabled').first()).toBeEnabled();
+  });
+
+  test('a cohort naming somebody who left the roster says so', async ({ page }) => {
+    // The count stops matching the rows, and without this the reader assumes
+    // they miscounted. The entry is KEPT - the cohort is a record of who the
+    // assignment was for - so the explanation has to be on screen instead.
+    await editing(page, published({ cohort: ['num:0001', 'num:9999999', 'login:ghost'] }));
+
+    await expect(guardrails(page)).toContainText('3 of 5 selected');
+    await expect(guardrails(page)).toContainText('2 of them are no longer on the roster');
+    await expect(guardrails(page)).toContainText('num:9999999');
+    await expect(guardrails(page)).toContainText('login:ghost');
+  });
+
+  test('a promoted student, named by login, survives gaining a student number', async ({ page }) => {
+    // THE IDENTITY HAZARD, end to end. A row promoted from an acceptance has
+    // only a login; a later CSV import gives them the registrar's number, which
+    // changes their canonical key. Matching on either identity is what keeps
+    // them in a cohort they were deliberately put in.
+    const roster = [
+      ...ROSTER,
+      { student_number: '0006', full_name: 'Ella Maes', github_login: 'ella-dev', source: 'accepted', active: true },
+    ];
+    await editing(page, published({ cohort: ['login:ella-dev'] }), roster);
+
+    await expect(guardrails(page)).toContainText('1 of 6 selected');
+    // Not reported as missing from the roster: she is on it, under a number now.
+    await expect(guardrails(page)).not.toContainText('no longer on the roster');
+    await expect(row(page, 'Ella Maes').locator('input[type=checkbox]')).toBeChecked();
+  });
+
+  test('switching to open hides the picker without discarding the cohort', async ({ page }) => {
+    // Under `open` the roster decides nothing, so a cohort there would be a
+    // control that does nothing - but a lecturer who flips the mode to look and
+    // flips back must not find their selection gone.
+    await editing(page, published({ state: 'draft', cohort: ['num:0001', 'num:0002'] }));
+    await expect(guardrails(page)).toContainText('2 of 5 selected');
+
+    await guardrails(page).locator('select').first().selectOption('open');
+    await expect(page.locator('.cohort-list')).toHaveCount(0);
+
+    await guardrails(page).locator('select').first().selectOption('enforced');
+    await expect(guardrails(page)).toContainText('2 of 5 selected');
+  });
+
+  test('claim is enforced with a way in, so it gets the picker too', async ({ page }) => {
+    await editing(page, published({ state: 'draft', roster_mode: 'claim', claim_domains: ['student.pxl.be'] }));
+    await expect(page.locator('.cohort-list')).toBeVisible();
+  });
+
+  test('a student with neither number nor login cannot be picked, and does not break the list', async ({ page }) => {
+    // rosterKey returns null for such a row, so it has no identity to store.
+    // It must not throw, and it must not silently appear selected.
+    const roster = [...ROSTER, { full_name: 'Nameless Row', active: true }];
+    await editing(page, published({ state: 'draft' }), roster);
+
+    await expect(page.locator('.cohort-row')).toHaveCount(6);
+    await page.locator('.cohort-all input').check();
+    // Five identities, not six: the row with nothing to name it is not stored.
+    await expect(guardrails(page)).toContainText('5 of 6 selected');
+  });
+
+  test('two students in one class group spelled differently are one chip', async ({ page }) => {
+    // "3a" beside "3A" is one section a lecturer typed twice. Splitting it into
+    // two chips would offer a distinction that does not exist.
+    const roster = [
+      { student_number: '0001', full_name: 'Alice', github_login: 'alice', class_group: '3A', active: true },
+      { student_number: '0002', full_name: 'Bram', github_login: 'bram', class_group: ' 3a ', active: true },
+    ];
+    await editing(page, published({ state: 'draft' }), roster);
+
+    const chips = await page.locator('.cohort-filters .chip-btn').allInnerTexts();
+    expect(chips).toEqual(['All 2', '3A · 2']);
+    await page.locator('.chip-btn', { hasText: '3A · 2' }).click();
+    await expect(page.locator('.cohort-row')).toHaveCount(2);
+  });
+
+  test('emptying the selection while viewing it does not strand the filter', async ({ page }) => {
+    await editing(page, published({ state: 'draft', cohort: ['num:0001'] }));
+    await page.locator('.chip-btn', { hasText: 'Selected' }).click();
+    await expect(page.locator('.cohort-row')).toHaveCount(1);
+
+    await page.locator('.cohort-row').first().locator('input[type=checkbox]').uncheck();
+    // The chip it was showing no longer exists; falling back beats an empty
+    // list under a filter with nothing active.
+    await expect(page.locator('.cohort-row')).toHaveCount(5);
+    await expect(guardrails(page)).toContainText('Every student on the roster may accept');
+  });
+
+  test('a search matching nobody says so, and does not read as an empty roster', async ({ page }) => {
+    await editing(page, published({ state: 'draft' }));
+    await guardrails(page).getByPlaceholder('Search name, number or username').fill('zzzz');
+
+    await expect(page.locator('.cohort-row')).toHaveCount(0);
+    await expect(guardrails(page)).toContainText('No students match this filter');
+    // The select-all goes with the rows: "Select these 0" is a control that
+    // would do nothing.
+    await expect(page.locator('.cohort-all')).toHaveCount(0);
+  });
+});
+
 // ===========================================================================
 // A real course, not five students.
 //

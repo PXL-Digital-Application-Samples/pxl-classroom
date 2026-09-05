@@ -2407,9 +2407,32 @@ const rejectionsUnreadable = ref(false)
 
 const rejectedStudents = computed(() => rejectionCount(rejections.value))
 
-async function loadRejections(token) {
+/**
+ * Which assignment the refusals on screen belong to.
+ *
+ * A SUPERSEDE GUARD, for the same reason `loadAll` has one - this read is fired
+ * and forgotten, so switching assignments quickly could land the first one's
+ * refusals under the second's heading. `loadAll` had exactly this race and it
+ * was fixed there; firing an unguarded read from inside it put it straight
+ * back.
+ *
+ * Doubles as the cache key: the tracking issue is one document per ORG and the
+ * walk costs up to eleven requests, so re-reading it on every refresh of the
+ * same page is a rate limit spent on an answer that has not changed.
+ */
+const rejectionsFor = ref(null)
+
+// Its OWN counter. Sharing `loadGeneration` would make this read supersede the
+// page load it is fired from, which is the opposite of the point.
+let rejectionsGeneration = 0
+
+async function loadRejections(token, { force = false } = {}) {
+  if (!force && rejectionsFor.value === props.assignmentId) return
+  const generation = ++rejectionsGeneration
+  const superseded = () => generation !== rejectionsGeneration
   rejections.value = []
   rejectionsUnreadable.value = false
+  rejectionsFor.value = props.assignmentId
   try {
     const found = await ghApi(
       token,
@@ -2419,6 +2442,7 @@ async function loadRejections(token) {
     // A 404 on the issues endpoint means no control repo we can read, which the
     // rest of the page has already reported. Anything else that is not ok is a
     // read we could not make, and we say so rather than showing a clean slate.
+    if (superseded()) return
     if (!found.ok) {
       if (found.status !== 404) rejectionsUnreadable.value = true
       return
@@ -2440,15 +2464,17 @@ async function loadRejections(token) {
         'GET',
         `/repos/${props.org}/${config.controlRepo}/issues/${issue.number}/comments?per_page=100&page=${page}`,
       )
+      if (superseded()) return
       if (!res.ok) { rejectionsUnreadable.value = true; return }
       const batch = Array.isArray(res.data) ? res.data : []
       comments.push(...batch)
       if (batch.length < 100) break
       if (page === 10) { rejectionsUnreadable.value = true; return }
     }
+    if (superseded()) return
     rejections.value = rejectionsForAssignment(comments, props.assignmentId)
   } catch {
-    rejectionsUnreadable.value = true
+    if (!superseded()) rejectionsUnreadable.value = true
   }
 }
 

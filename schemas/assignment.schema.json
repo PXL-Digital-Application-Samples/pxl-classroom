@@ -239,20 +239,6 @@
         ]
       ]
     },
-    "cohort_groups": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "uniqueItems": true,
-      "description": "The class groups the cohort was selected from. A LABEL, NEVER A GATE - no code path reads this to decide an acceptance, and lib/cohort.mjs does not look at it. It exists so the dashboard card and the detail header can say '3A' instead of leaving a cohort of 22 out of a roster of 40 unexplained. It can go stale: a student who moves to another group afterwards does not change it, which is why the copy beside it names it as how the list was made and not as who is in it.",
-      "examples": [
-        [
-          "3A"
-        ]
-      ]
-    },
     "roster_mode": {
       "type": "string",
       "enum": [

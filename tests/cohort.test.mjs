@@ -127,6 +127,37 @@ test("duplicate and differently-spelled entries collapse", () => {
   assert.equal(assignmentCohort(a).size, 2);
 });
 
+test("removing a student takes every identity, not just the canonical one", () => {
+  // THE HALF THAT WAS OUT OF STEP. The gate matched on any identity from the
+  // start, but the picker's checkbox asked about ONE - `cohortIdentity`, which
+  // prefers the number. So a row stored as `login:ella-dev` that later gained a
+  // student number rendered unticked on an assignment it was admitted to, and
+  // unticking it would have deleted `num:` (absent) and left the login behind:
+  // a student the screen said was out and the gate still let in.
+  //
+  // Demonstrated on the data rather than the component: whatever removes a
+  // student has to clear every identity `rosterIdentities` would match.
+  const entry = { student_number: "0123461", github_login: "ella-dev" };
+  // Somebody else in it too, because an EMPTIED cohort means everyone - remove
+  // the last student and she is admitted again, which would make the final
+  // assertion pass for entirely the wrong reason.
+  const stored = new Set(["num:0123456", "login:ella-dev"]);
+
+  assert.equal(cohortIdentity(entry), "num:0123461", "the canonical key is the number");
+  assert.equal(stored.has(cohortIdentity(entry)), false, "which is not what was stored");
+  assert.equal(assignmentAdmitsStudent({ cohort: [...stored] }, entry), true, "yet she is admitted");
+
+  // Removing by the canonical key alone leaves her in.
+  const naive = new Set(stored);
+  naive.delete(cohortIdentity(entry));
+  assert.equal(assignmentAdmitsStudent({ cohort: [...naive] }, entry), true, "still admitted - the bug");
+
+  // Removing every identity actually removes her.
+  const correct = new Set(stored);
+  for (const id of rosterIdentities(entry)) correct.delete(id);
+  assert.equal(assignmentAdmitsStudent({ cohort: [...correct] }, entry), false);
+});
+
 test("a malformed roster row is refused, never admitted by accident", () => {
   const a = { cohort: ["num:0123456"] };
   for (const row of [null, undefined, {}, { student_number: "" }, { github_login: null }, "alice"]) {

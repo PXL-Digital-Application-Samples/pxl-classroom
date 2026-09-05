@@ -507,6 +507,7 @@ const parseError = ref('')
 const validationErrors = ref([])
 
 const existingRoster = ref(null)
+const rosterRaw = ref(null)
 const loadingExisting = ref(false)
 const committing = ref(false)
 
@@ -693,9 +694,22 @@ async function saveGroupEdit(student) {
 
   savingGroup.value = true
   try {
+    const token = getToken()
+    // REFUSE, DO NOT OVERWRITE. This edit is built by spreading the roster as it
+    // was when the page loaded, and `commitFile` fetches a fresh sha before it
+    // PUTs - so a change made in between is not a conflict, it is silently
+    // replaced by our older copy. The CSV import shows a diff and asks before
+    // it commits; a one-cell edit should be at least as honest.
+    const current = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
+    if (current !== null && current !== rosterRaw.value) {
+      toast.error('The roster changed since this page loaded. Reload before editing, so your change is not built on a stale copy.')
+      cancelGroupEdit()
+      return
+    }
+
     const who = student.full_name || student.student_number || student.github_login
     const res = await commitFile(
-      getToken(), props.org, controlRepo, ROSTER_PATH,
+      token, props.org, controlRepo, ROSTER_PATH,
       stringifyYaml(updatedDoc),
       next ? `Set ${who}'s class group to ${next}` : `Clear ${who}'s class group`,
     )
@@ -957,9 +971,15 @@ async function loadExisting() {
     // a falsy body here is a genuine absence.
     const text = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
     existingRoster.value = text ? parseYaml(text) : null
+    // The bytes as loaded, so an in-place edit can tell "nothing changed under
+    // me" from "somebody else committed while this page was open". Comparing
+    // the parsed document would not do: key order and formatting survive a
+    // round trip through the API but not through parse-and-restringify.
+    rosterRaw.value = text ?? null
   } catch (e) {
     rosterReadFailed.value = true
     existingRoster.value = null
+    rosterRaw.value = null
     if (e?.status === 401) {
       toast.error('Session expired. Sign in again.')
       return

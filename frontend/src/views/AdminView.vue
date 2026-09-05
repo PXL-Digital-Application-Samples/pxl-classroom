@@ -858,6 +858,7 @@
                   <input
                     type="checkbox"
                     :checked="allShownSelected"
+                    :disabled="cohortReadOnly"
                     :indeterminate.prop="someShownSelected && !allShownSelected"
                     :aria-label="selectAllLabel"
                     @change="toggleAllShown"
@@ -868,13 +869,13 @@
                   v-for="s in cohortVisible"
                   :key="cohortKey(s)"
                   class="cohort-row"
-                  :class="{ 'is-locked': cohortLocked.has(cohortKey(s)) }"
+                  :class="{ 'is-locked': isLocked(s) }"
                 >
                   <input
                     type="checkbox"
-                    :checked="cohortSelected.has(cohortKey(s))"
-                    :disabled="cohortLocked.has(cohortKey(s))"
-                    :title="cohortLocked.has(cohortKey(s)) ? 'Already in this assignment. Removing a student does not delete their repository or their work, so this only adds.' : null"
+                    :checked="isPicked(s)"
+                    :disabled="cohortReadOnly || isLocked(s)"
+                    :title="isLocked(s) ? 'Already in this assignment. Removing a student does not delete their repository or their work, so this only adds.' : null"
                     @change="toggleCohortStudent(s)"
                   />
                   <code class="cohort-num">{{ s.student_number || '—' }}</code>
@@ -913,7 +914,17 @@
                    stores nothing, and nothing stored means EVERYONE - so a
                    lecturer who unticks their way to zero must be told, not left
                    to discover it when the whole course accepts. -->
-              <small v-if="!cohortSelected.size">
+              <!-- A LIVE ASSIGNMENT THAT ADMITS EVERYONE KEEPS ADMITTING THEM.
+                   Narrowing it would refuse students who can accept today, some
+                   of whom already have - the same act the add-only lock exists
+                   to prevent, in its worst form, and the one direction that was
+                   left open. -->
+              <small v-if="cohortReadOnly" class="text-muted">
+                <strong>Every student on the roster may accept, and this cannot be narrowed now.</strong>
+                Taking students out of a published assignment would refuse people who can accept
+                today. Close the assignment first if you need to change who it is for.
+              </small>
+              <small v-else-if="!cohortSelected.size">
                 <strong>Every student on the roster may accept.</strong> Tick students to limit this
                 assignment to them; the chips above filter the list.
               </small>
@@ -942,6 +953,17 @@
                 <small v-if="cohortLocked.size && cohortMissing > 0" class="text-warning">
                   {{ cohortMissing }} student(s) on the roster are not in this assignment - imported
                   since, or never picked.
+                </small>
+                <!-- WHY THE COUNT DOES NOT MATCH THE ROWS. A student removed
+                     from the roster stays named in every assignment that picked
+                     them, deliberately - the cohort is a record. But then "22
+                     selected" sits over twenty rows and the reader assumes they
+                     miscounted. -->
+                <small v-if="cohortDangling.length" class="text-warning">
+                  {{ cohortDangling.length }} of them
+                  {{ cohortDangling.length === 1 ? 'is' : 'are' }} no longer on the roster
+                  (<code>{{ cohortDangling.join(', ') }}</code>) - kept, because this assignment was
+                  for them.
                 </small>
               </template>
             </div>
@@ -1377,7 +1399,7 @@ import Icon from '../components/Icon.vue'
 // disagree about which mode an assignment is actually in.
 import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
 import { classGroupCounts, studentInClassGroup, normalizeClassGroup } from '../lib/class-groups.js'
-import { cohortIdentity, normalizeCohortEntry } from '../lib/cohort.js'
+import { cohortIdentity, rosterIdentities, normalizeCohortEntry, danglingCohortEntries } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -1582,8 +1604,26 @@ const cohortGroupCounts = computed(() => {
   return ungrouped && ungrouped.count > 0 ? [...named, ungrouped] : named
 })
 
-/** The identity this row is stored as. Never re-spelled here - lib/cohort.mjs owns it. */
+/** The identity a NEW pick is stored as. Never re-spelled here - lib/cohort.mjs owns it. */
 const cohortKey = (student) => cohortIdentity(student)
+
+/**
+ * Is this student in the cohort? ANY identity they carry, exactly as the gate asks.
+ *
+ * The checkbox used to ask `cohortSelected.has(cohortKey(s))` - one canonical
+ * key - while `assignmentAdmitsStudent` matched on either. So a row promoted
+ * from an acceptance and stored as `login:ella-dev`, who later gained a student
+ * number through a CSV import, rendered UNTICKED on an assignment she was
+ * admitted to: the screen said one thing and the gate did another, which is the
+ * exact failure `rosterIdentities` was written to prevent. Applying it to the
+ * gate and not to the picker got the halves out of step again.
+ */
+const isPicked = (student) =>
+  rosterIdentities(student).some((k) => cohortSelected.value.has(k))
+
+/** Already in the published cohort - same any-identity rule, same reason. */
+const isLocked = (student) =>
+  rosterIdentities(student).some((k) => cohortLocked.value.has(k))
 
 // A Set of what is ticked, so a 200-row list does not run `includes` per row per
 // keystroke. Derived from the form rather than held beside it: one source of
@@ -1606,7 +1646,7 @@ const cohortShowSelected = ref(false)
 const cohortVisible = computed(() => {
   const q = cohortSearch.value.trim().toLowerCase()
   const rows = rosterStudents.value.filter((s) => {
-    if (cohortShowSelected.value && !cohortSelected.value.has(cohortKey(s))) return false
+    if (cohortShowSelected.value && !isPicked(s)) return false
     if (!cohortShowSelected.value && cohortFilter.value !== null && !studentInClassGroup(s, cohortFilter.value)) return false
     if (!q) return true
     return [s.full_name, s.student_number, s.github_login, s.email]
@@ -1681,6 +1721,17 @@ watch(cohortSearch, (q) => {
  * what is TICKED rather than what is published, so ticking someone clears them
  * from the count as you go.
  */
+/**
+ * Cohort entries that match nobody on the roster any more.
+ *
+ * A student removed from the roster leaves their identity behind in every
+ * assignment that named them - deliberately, because the cohort is a record of
+ * who the assignment was for. But then "22 selected" sits over twenty rows, and
+ * without this the difference is invisible: the reader assumes they miscounted.
+ */
+const cohortDangling = computed(() =>
+  danglingCohortEntries({ cohort: form.value.cohort }, rosterStudents.value))
+
 const cohortMissing = computed(() => {
   if (!cohortSelected.value.size) return 0
   return rosterStudents.value.filter((s) => {
@@ -1697,17 +1748,16 @@ const cohortOverCap = computed(() => {
 
 function writeCohort(keys) {
   form.value.cohort = [...keys]
-  // The groups the selection was made from, for the badge. A LABEL - nothing
-  // gates on it - so it is derived from who is actually ticked rather than from
-  // which chip was last clicked, which would name a group after the lecturer
-  // unticked half of it.
-  const groups = new Set()
-  for (const s of rosterStudents.value) {
-    if (!keys.has(cohortKey(s))) continue
-    const g = typeof s.class_group === 'string' ? s.class_group.trim() : ''
-    if (g) groups.add(g)
-  }
-  form.value.cohort_groups = [...groups].sort((a, b) => a.localeCompare(b))
+  // NO `cohort_groups`. It recorded the groups REPRESENTED in the selection,
+  // which is not the question anyone asks: tick three students who happen to be
+  // in 3A and the card read "3A" for an assignment that is for three people out
+  // of twenty. A label that over-claims is the status line DESIGN.md §1.5
+  // forbids, and the honest version - "only when the whole class is taken" -
+  // goes stale the moment somebody joins that class. The count is the truth.
+
+  // Viewing the selection and emptying it leaves a filter with no chip and a
+  // list with nothing in it. Fall back rather than strand.
+  if (cohortShowSelected.value && keys.size === 0) cohortShowSelected.value = false
 }
 
 /**
@@ -1724,24 +1774,47 @@ const cohortLocked = computed(() => new Set(
   (form.value._cohort_published || []).map((e) => normalizeCohortEntry(e)).filter(Boolean),
 ))
 
+/**
+ * A PUBLISHED ASSIGNMENT THAT ADMITS EVERYONE KEEPS ADMITTING EVERYONE.
+ *
+ * The add-only lock only engages once a cohort exists, which is the case that
+ * was already narrow - so the picker happily narrowed a live assignment from
+ * the whole roster down to whoever was ticked, and every other student, some of
+ * whom had already accepted, met `rejected:not-in-cohort` on their next visit.
+ * That is the same act the lock exists to prevent, in its most destructive
+ * form, and it was the one direction left open.
+ *
+ * Closed and archived are editable: nobody can accept any more, so narrowing
+ * changes a record rather than shutting a door. That is also the way back for a
+ * lecturer who published too wide - close it, narrow it, reopen.
+ */
+const cohortReadOnly = computed(() =>
+  form.value.state === 'published' && (form.value._cohort_published || []).length === 0 && !isNew.value)
+
 function toggleCohortStudent(student) {
   const key = cohortKey(student)
-  if (!key || cohortLocked.value.has(key)) return
+  if (!key || cohortReadOnly.value) return
+  const ids = rosterIdentities(student)
+  if (ids.some((k) => cohortLocked.value.has(k))) return
   const next = new Set(cohortSelected.value)
-  if (next.has(key)) next.delete(key)
+  // Untick removes EVERY identity this row carries, not just the canonical one:
+  // a cohort written before a CSV import gave the student a number holds their
+  // login, and removing only `num:` would leave them silently admitted.
+  if (isPicked(student)) for (const k of ids) next.delete(k)
   else next.add(key)
   writeCohort(next)
 }
 
-/** Rows on screen that this lecturer can still change - locked ones are not theirs. */
-const shownTogglable = computed(() =>
-  cohortVisible.value.map((s) => cohortKey(s)).filter((k) => k && !cohortLocked.value.has(k)))
+/** Rows on screen this lecturer can still change - locked ones are not theirs. */
+const shownTogglable = computed(() => cohortVisible.value.filter((s) => {
+  const ids = rosterIdentities(s)
+  return ids.length > 0 && !ids.some((k) => cohortLocked.value.has(k))
+}))
 
 const allShownSelected = computed(() =>
-  shownTogglable.value.length > 0 && shownTogglable.value.every((k) => cohortSelected.value.has(k)))
+  shownTogglable.value.length > 0 && shownTogglable.value.every((s) => isPicked(s)))
 
-const someShownSelected = computed(() =>
-  shownTogglable.value.some((k) => cohortSelected.value.has(k)))
+const someShownSelected = computed(() => shownTogglable.value.some((s) => isPicked(s)))
 
 /** Names what the box will take, because "Select all" never says all of what. */
 const selectAllLabel = computed(() => {
@@ -1753,17 +1826,22 @@ const selectAllLabel = computed(() => {
 })
 
 function toggleAllShown() {
+  if (cohortReadOnly.value) return
   const next = new Set(cohortSelected.value)
   // Ticking takes everything shown; unticking gives back only what is shown,
   // so narrowing to a class and unticking cannot empty a selection built
   // elsewhere.
-  if (allShownSelected.value) for (const k of shownTogglable.value) next.delete(k)
-  else for (const k of shownTogglable.value) next.add(k)
+  if (allShownSelected.value) {
+    for (const s of shownTogglable.value) for (const k of rosterIdentities(s)) next.delete(k)
+  } else {
+    for (const s of shownTogglable.value) next.add(cohortKey(s))
+  }
   writeCohort(next)
 }
 
 
 function clearCohort() {
+  if (cohortReadOnly.value) return
   // A published cohort survives Clear: those students keep their place, and
   // clearing to nothing would mean "everyone", which is not a thing this button
   // is allowed to do to a live assignment.
@@ -2264,7 +2342,6 @@ function emptyForm() {
     // mean - restricting a cohort is a decision a lecturer makes, never a
     // default they inherit.
     cohort: [],
-    cohort_groups: [],
     // Nothing is published yet, so nothing in the picker is locked.
     _cohort_published: [],
     // `block` discards work. Now that it actually does something, defaulting to
@@ -2550,7 +2627,7 @@ function editAssignment(a) {
     // that into anything else on load would let a save write a restriction the
     // lecturer never chose.
     cohort: Array.isArray(a.cohort) ? [...a.cohort] : [],
-    cohort_groups: Array.isArray(a.cohort_groups) ? [...a.cohort_groups] : [],
+
     // THE COHORT AS PUBLISHED, kept beside the editable one so the picker can
     // add without removing. Once students can accept, taking one out of the
     // cohort does not un-provision their repository, un-invite them or delete

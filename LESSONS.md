@@ -1261,6 +1261,20 @@ The builder moved to `lib/retired-manifest.mjs` for the usual reason - it was an
 
 **Both guards were seen to fail before they were trusted.** Reintroducing the bare name broke `tests/e2e/59-delete-assignment.spec.mjs`; the schemas were run against the live `dashboard.json` of two real orgs (valid, 1 and 6 entries) and the live manifest (invalid, one field). A test written after a fix that has never been seen to fail is a guess.
 
+### Reviewing my own work found the direction I had left open.
+
+Asked to review the cohort work critically, five things came out, and the worst was the mirror image of a protection I had just built.
+
+**Add-only locked the wrong case.** A published assignment gets its cohort ticked and disabled so a lecturer cannot remove a student who already holds a repository. But `_cohort_published` is empty when the assignment has *no* cohort, so nothing was locked at all — and one tick took a live assignment from *the whole roster* to *one student*, refusing everyone else including people who had already accepted. The lock engaged only where a cohort existed, which is the case that was already narrow. Measured, not reasoned: `LOCKED ROWS ON A LIVE ASSIGNMENT WITH NO COHORT: 0`. Published now means read-only when it admits everyone; closed is editable, because nobody can accept any more and that is the way back for someone who published too wide.
+
+**`cohort_groups` answered a question nobody asked.** It recorded the class groups *represented* in a selection, so three students who happened to share a group made a card read "3A" for an assignment that was for three people out of twenty. The honest version — record a group only when the whole class is taken — goes stale the moment somebody joins that class. Dropped: the count is the truth, and DESIGN.md §1.5 would rather have no label than one that over-claims.
+
+**The rejections read reintroduced a race I had fixed the same day.** It was fired from `loadAll` and forgotten, with no `superseded()` check, while the function it was fired from has a whole generation mechanism for exactly that — so switching assignments quickly could land the first one's refusals under the second's heading. It also cost up to eleven requests on *every* refresh, not the "one extra API call" I had described when the option was chosen. Its own counter now, and read once per assignment rather than per refresh.
+
+**And a function with a test and no caller.** `danglingCohortEntries` — for "2 of these are no longer on the roster" — was exported, unit-tested, re-exported to the SPA, and called by nothing. The inverse of the rule about readers with no writers, written into this repository the same afternoon. Wired up: the cohort is a record, so a removed student stays named, and the count stops matching the rows unless something says why.
+
+**Then the edge-case tests found the real one.** Asked for edges, one asserted that a promoted student stored as `login:ella-dev`, who later gained a student number, still shows as picked. She did not. The **gate** matched on any identity from the start; the **picker's checkbox** asked about one — `cohortIdentity`, which prefers the number — so the screen said she was out while the gate let her in, and unticking her would have deleted an identity that was not there and left the login behind. `rosterIdentities` existed precisely to stop this and I had applied it to the gate and not to the UI reading the same data. Every selection read goes through it now.
+
 ### Three homes for one fact, and the dead one was the safer of the two.
 
 Asked where team membership lives, the answer was three places: `teams/<id>/<slug>.json`, a `students[].teams` map on the roster, and a flat `students[].team_slug` beside it. Acceptance read all three.

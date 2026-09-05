@@ -36,12 +36,22 @@ const FORM = {
 const build = (over = {}) => buildAssignmentDoc({ ...FORM, ...over });
 
 test("a cohort is written, and the document it produces is valid", () => {
-  const doc = build({ cohort: ["num:0123456", "login:ella-dev"], cohort_groups: ["3A"] });
+  const doc = build({ cohort: ["num:0123456", "login:ella-dev"] });
   assert.deepEqual(doc.cohort, ["num:0123456", "login:ella-dev"]);
-  assert.deepEqual(doc.cohort_groups, ["3A"]);
 
   const { valid, errors } = validateAgainst("assignment", doc);
   assert.equal(valid, true, JSON.stringify(errors, null, 2));
+});
+
+test("no group label is stored, at all", () => {
+  // `cohort_groups` recorded the class groups REPRESENTED in a selection, so
+  // three students who happened to share a group made a card read "3A" for an
+  // assignment that was for three people out of twenty. The schema refuses the
+  // field now, so a form that still carried it would fail its own save rather
+  // than quietly writing a claim nothing supports.
+  const doc = build({ cohort: ["num:0123456"], cohort_groups: ["3A"] });
+  assert.equal("cohort_groups" in doc, false);
+  assert.equal(validateAgainst("assignment", { ...doc, cohort_groups: ["3A"] }).valid, false);
 });
 
 test("an empty selection writes NO field, because absent already means everyone", () => {
@@ -49,29 +59,23 @@ test("an empty selection writes NO field, because absent already means everyone"
   // absent and `[]` mean the same thing to the gate, and a stored empty list
   // invites a reader to think a decision was made.
   for (const cohort of [[], undefined, null]) {
-    const doc = build({ cohort, cohort_groups: ["3A"] });
+    const doc = build({ cohort });
     assert.equal("cohort" in doc, false, JSON.stringify(cohort));
-    assert.equal("cohort_groups" in doc, false, "and no label over a cohort that does not exist");
+    
     assert.equal(assignmentAdmitsStudent(doc, { student_number: "9999999" }), true);
   }
 });
 
-test("under open enrolment neither field is stored", () => {
+test("under open enrolment the cohort is not stored", () => {
   // The roster does not decide who may accept there, so a cohort would be a
   // value nothing reads - and a label over it would describe a restriction the
   // assignment does not have.
-  const doc = build({ roster_mode: "open", max_acceptances: 50, cohort: ["num:0123456"], cohort_groups: ["3A"] });
+  const doc = build({ roster_mode: "open", max_acceptances: 50, cohort: ["num:0123456"] });
   assert.equal("cohort" in doc, false);
   assert.equal("cohort_groups" in doc, false);
   assert.equal(validateAgainst("assignment", doc).valid, true);
 });
 
-test("the label never appears without the cohort it describes", () => {
-  // A card reading "3A" over an assignment open to the whole roster is exactly
-  // the kind of status line DESIGN.md 1.5 forbids: true of nothing on screen.
-  const doc = build({ cohort: [], cohort_groups: ["3A", "3B"] });
-  assert.equal("cohort_groups" in doc, false);
-});
 
 test("claim stores a cohort too - it is enforced with a way in", () => {
   const doc = build({ roster_mode: "claim", claim_domains: ["student.pxl.be"], cohort: ["num:0123456"] });
