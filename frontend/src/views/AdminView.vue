@@ -1365,7 +1365,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { config } from '../lib/config.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
-import { TIMEZONE, INSTITUTION_SHORT, ACADEMIC_YEAR_START_MONTH } from '../lib/deployment.js'
+import { TIMEZONE, INSTITUTION_SHORT, ACADEMIC_YEAR_START } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
@@ -3087,13 +3087,16 @@ const collisionNotes = computed(() =>
  * name can be taken too. The remedy names the technique; whatever the lecturer
  * types is checked again when they type it.
  *
+ * Read off the same instant that gets stored, so the suggestion agrees with the
+ * document rather than with the field.
+ *
  * Falls back to now when the date has not been filled in yet, and the remedy
  * degrades to naming the convention without a year if even that fails.
  */
 const collisionYearLabel = computed(() =>
   academicYearLabel(
     form.value.opens_at_local ? new Date(form.value.opens_at_local) : new Date(),
-    ACADEMIC_YEAR_START_MONTH,
+    ACADEMIC_YEAR_START,
   ))
 const collisionWays = computed(() =>
   collisionRemedies({ verdict: collisionVerdict.value, yearLabel: collisionYearLabel.value }))

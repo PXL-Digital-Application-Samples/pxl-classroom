@@ -359,6 +359,22 @@ test.describe('the name is taken', () => {
     await expect(refusal(page)).toContainText('2526');
   });
 
+  test('the year turns on the configured DAY, not on the first of the month', async ({ page }) => {
+    // deployment.yml says "09-15": PXL teaches from the 15th, so an assignment
+    // opening on the 8th is the 2526 resit and not the 2627 course - and a
+    // resit is exactly the assignment most likely to reuse a name and land
+    // here. Midday, so no timezone can carry it over the boundary.
+    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page, { opensAt: '2026-09-08T12:00' });
+    await expect(refusal(page)).toContainText('2526');
+
+    await page.locator('input[type="datetime-local"]').first().fill('2026-09-15T12:00');
+    const slug = page.getByPlaceholder('linux-processes-2026');
+    await slug.focus();
+    await slug.blur();
+    await expect(refusal(page)).toContainText('2627');
+  });
+
   test('it never hands over a composed name, and never promises one is free', async ({ page }) => {
     // "2627-lab-3" is a name nothing checked - it can be taken too - and
     // "it never collides" is a promise no wording can keep. The technique is

@@ -465,7 +465,7 @@ Each is named individually, so one pass of cleanup clears all of them.
 
 The same applies once you have cleaned up: the check asks what **exists**, not what once happened. Delete the archive and the student repositories (the two steps above) and the name is free again.
 
-**The cheap way is a name that sets this run apart** — a prefix, a suffix, or both. The academic year is the usual choice and works at either end: in front (`2627-lab-3`) sorts one year's repositories together in the organization's listing, behind (`lab-3-2627`) keeps the assignment's own name first. Whichever you pick costs nothing, keeps last year's evidence readable, and skips the cleanup entirely.
+**The cheap way is a name that sets this run apart** — a prefix, a suffix, or both. The academic year is the usual choice and works at either end: in front (`2627-lab-3`) sorts one year's repositories together in the organization's listing, behind (`lab-3-2627`) keeps the assignment's own name first. The year offered is the one the assignment's **opening date** falls in, and this deployment's teaching year starts on **15 September** (`academic_year_start` in `deployment.yml`) - so a resit opening on the 8th is offered `2526`, not `2627`. Whichever you pick costs nothing, keeps last year's evidence readable, and skips the cleanup entirely.
 
 The refusal names the convention rather than handing you a name, deliberately: a name it composed would be one it never checked, and it can be taken too. What you type is checked when you type it.
 

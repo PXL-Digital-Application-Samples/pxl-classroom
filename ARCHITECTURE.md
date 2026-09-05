@@ -65,6 +65,7 @@ Everything specific to *one institution's installation* lives in **`deployment.y
 |---|---|
 | `claim_domains` | Default email domains `roster_mode: claim` accepts, when an assignment declares none |
 | `timezone` | Default IANA zone for assignment dates |
+| `academic_year_start` | The date a teaching year begins, `"MM-DD"`. A **date**, not a month, because the first fortnight of September belongs to the old year here — and one field rather than two, so a month and a day cannot be edited into disagreeing. Names the year the collision refusal offers (§5.4); nothing schedules or gates on it, and an unparseable value simply produces no year |
 | `hub_owner` / `hub_repo` | The organization and repository this hub runs from |
 | `app_slug` | The GitHub App's slug, used to read its live declaration |
 | `app_client_id` | The App's public `Iv23…` client id. Not a secret — the device flow puts it in the bundle. It is here because it was spelled out in both `lib/audit.mjs` and `frontend/src/lib/config.js`, and "which App is this deployment" needs one home |
