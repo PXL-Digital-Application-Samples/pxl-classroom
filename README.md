@@ -47,6 +47,11 @@ I built it for my own courses at first.
 
 ![Group Assignments & Team Management](assets/images/group-assignment.png)
 
+### Choosing who an assignment is for
+*Pick students from the org-wide roster. Class groups are filters over that list, not a rule the gate re-evaluates - so "3A plus these four" is just a selection.*
+
+![Choosing who an assignment is for](assets/images/group-assignment-2.png)
+
 ---
 
 ## Highlights
