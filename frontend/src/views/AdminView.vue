@@ -542,6 +542,14 @@
           <fieldset>
             <legend>Assignment Type</legend>
             <div class="field">
+              <!-- "TEAM", NOT "GROUP". This was the one place in the whole flow
+                   that said Group, and it collided with the class groups on the
+                   roster - two unrelated concepts, one word. Everything
+                   downstream of this radio already said team: Formation Mode,
+                   maximum and minimum team size, the Teams tab, Seed teams,
+                   team_slug and team_name. Canvas draws the same distinction and
+                   names them the same way round: sections segment the class,
+                   groups collaborate on one submission. -->
               <label>Collaboration Model <HelpButton topic="group-assignments" label="group assignments" /></label>
               <div class="radio-group">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
@@ -550,7 +558,7 @@
                 </label>
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                   <input type="radio" v-model="form.assignment_type" value="group" @change="onAssignmentTypeChange" />
-                  <span><strong>Group</strong> (team collaboration on 1 repository)</span>
+                  <span><strong>Team</strong> (2 or more students share 1 repository)</span>
                 </label>
               </div>
             </div>
@@ -562,7 +570,17 @@
                   <option value="self-service">Self-Service: students create or join open teams</option>
                   <option value="pre-assigned">Pre-Assigned: teams pre-mapped in roster / instructor created</option>
                 </select>
-                <small>Under pre-assigned mode, students only see and accept their assigned team repository.</small>
+                <!-- IT DESCRIBED THE OPTION YOU DID NOT PICK. With Self-Service
+                     selected it read "Under pre-assigned mode, students only
+                     see and accept their assigned team repository" - true of
+                     something, and not of what was on screen. -->
+                <small v-if="form.group_config.formation_mode === 'pre-assigned'">
+                  Each student sees only the team you put them in, and accepts into that repository.
+                  Seed the teams before you publish, or nobody has one.
+                </small>
+                <small v-else>
+                  Students form their own teams: the first to accept creates one, the rest join it.
+                </small>
               </div>
 
               <div class="field">
@@ -797,10 +815,17 @@
               </div>
 
               <div class="cohort-list">
-                <label v-for="s in cohortVisible" :key="cohortKey(s)" class="cohort-row">
+                <label
+                  v-for="s in cohortVisible"
+                  :key="cohortKey(s)"
+                  class="cohort-row"
+                  :class="{ 'is-locked': cohortLocked.has(cohortKey(s)) }"
+                >
                   <input
                     type="checkbox"
                     :checked="cohortSelected.has(cohortKey(s))"
+                    :disabled="cohortLocked.has(cohortKey(s))"
+                    :title="cohortLocked.has(cohortKey(s)) ? 'Already in this assignment. Removing a student does not delete their repository or their work, so this only adds.' : null"
                     @change="toggleCohortStudent(s)"
                   />
                   <code class="cohort-num">{{ s.student_number || '—' }}</code>
@@ -833,15 +858,33 @@
                 <strong>Every student on the roster may accept.</strong> Tick students to limit this
                 assignment to them; the chips above filter the list.
               </small>
-              <small v-else>
-                Only these <strong>{{ cohortSelected.size }}</strong> may accept.
-                <template v-if="cohortOverCap">
-                  <span class="text-warning">
+              <!-- THREE FACTS, THREE LINES. Run together they were a paragraph
+                   nobody finishes: who may accept, why some ticks will not come
+                   off, and who is missing are separate answers and only the
+                   first is always true. -->
+              <template v-else>
+                <small>
+                  Only these <strong>{{ cohortSelected.size }}</strong> may accept.
+                  <span v-if="cohortOverCap" class="text-warning">
                     That is more than the cap of {{ form.max_acceptances }} - students past it are
                     rejected. Raise <strong>Max acceptances</strong> or select fewer.
                   </span>
-                </template>
-              </small>
+                </small>
+                <!-- WHY A TICK WILL NOT COME OFF. Said where the disabled boxes
+                     are, rather than left to a tooltip nobody hovers. -->
+                <small v-if="cohortLocked.size" class="text-muted">
+                  The {{ cohortLocked.size }} already in this assignment cannot be removed - taking a
+                  student out would not delete their repository or their work. Ticking adds.
+                </small>
+                <!-- THE SILENT OMISSION, named. A late enroller is simply absent
+                     from a snapshot, and nothing would say so until they could
+                     not accept. Only once live: on a draft the lecturer is still
+                     choosing and a running count would be nagging. -->
+                <small v-if="cohortLocked.size && cohortMissing > 0" class="text-warning">
+                  {{ cohortMissing }} student(s) on the roster are not in this assignment - imported
+                  since, or never picked.
+                </small>
+              </template>
             </div>
 
             <div class="field">
@@ -1479,6 +1522,22 @@ const cohortVisible = computed(() => {
   })
 })
 
+/**
+ * Roster students this assignment is not for.
+ *
+ * The snapshot's one real cost: a student imported next week is simply absent,
+ * and without this nothing says so until they cannot accept. It counts against
+ * what is TICKED rather than what is published, so ticking someone clears them
+ * from the count as you go.
+ */
+const cohortMissing = computed(() => {
+  if (!cohortSelected.value.size) return 0
+  return rosterStudents.value.filter((s) => {
+    const key = cohortKey(s)
+    return key && !cohortSelected.value.has(key)
+  }).length
+})
+
 /** Picking more students than the cap means refusals - say so before publishing. */
 const cohortOverCap = computed(() => {
   const cap = Number(form.value.max_acceptances) || 0
@@ -1500,9 +1559,23 @@ function writeCohort(keys) {
   form.value.cohort_groups = [...groups].sort((a, b) => a.localeCompare(b))
 }
 
+/**
+ * The cohort as it stands on a published assignment - locked, and add-only.
+ *
+ * ADD ONLY, and the reason is not caution. Removing a student who has already
+ * accepted does not un-provision their repository, un-invite them or delete
+ * their work, so a control that appeared to take them out of the assignment
+ * would describe behaviour the system does not have (DESIGN.md §1.5). Empty on
+ * a draft, where nobody can have accepted anything yet and the whole selection
+ * is still the lecturer's to change.
+ */
+const cohortLocked = computed(() => new Set(
+  (form.value._cohort_published || []).map((e) => normalizeCohortEntry(e)).filter(Boolean),
+))
+
 function toggleCohortStudent(student) {
   const key = cohortKey(student)
-  if (!key) return
+  if (!key || cohortLocked.value.has(key)) return
   const next = new Set(cohortSelected.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
@@ -1519,7 +1592,10 @@ function selectAllShown() {
 }
 
 function clearCohort() {
-  writeCohort(new Set())
+  // A published cohort survives Clear: those students keep their place, and
+  // clearing to nothing would mean "everyone", which is not a thing this button
+  // is allowed to do to a live assignment.
+  writeCohort(new Set(cohortLocked.value))
 }
 
 const rosterCount = computed(() => rosterTab.value?.studentCount ?? null)
@@ -2017,6 +2093,8 @@ function emptyForm() {
     // default they inherit.
     cohort: [],
     cohort_groups: [],
+    // Nothing is published yet, so nothing in the picker is locked.
+    _cohort_published: [],
     // `block` discards work. Now that it actually does something, defaulting to
     // it would silently start throwing away students' late commits on every new
     // assignment - so a lecturer opts in.
@@ -2301,6 +2379,12 @@ function editAssignment(a) {
     // lecturer never chose.
     cohort: Array.isArray(a.cohort) ? [...a.cohort] : [],
     cohort_groups: Array.isArray(a.cohort_groups) ? [...a.cohort_groups] : [],
+    // THE COHORT AS PUBLISHED, kept beside the editable one so the picker can
+    // add without removing. Once students can accept, taking one out of the
+    // cohort does not un-provision their repository, un-invite them or delete
+    // their work - so a control that appeared to remove them would describe
+    // behaviour the system does not have (DESIGN.md §1.5).
+    _cohort_published: a.state && a.state !== 'draft' && Array.isArray(a.cohort) ? [...a.cohort] : [],
     late_policy: a.late_policy || 'report',
     state: a.state || 'draft',
     // 50 is the default for a NEW assignment (emptyForm), not a value to
@@ -3475,6 +3559,10 @@ legend {
 /* `--bg-surface-hover` is the token DESIGN.md §2 names for list item hover.
    `--bg-surface` would have worked in light and read as a raised card in dark. */
 .cohort-row:hover { background: var(--bg-surface-hover); }
+/* Already in a published assignment: readable, and plainly not yours to untick.
+   No hover response, because the row does not respond. */
+.cohort-row.is-locked { cursor: default; color: var(--text-secondary); }
+.cohort-row.is-locked:hover { background: none; }
 /* Unfilled: `code`'s default inset background makes a plain identifier read as
    an input, and five of them down a column read as an editable form. */
 .cohort-num {
@@ -3987,12 +4075,14 @@ details .field { padding: 0 var(--space-sm); }
   flex-wrap: wrap;
 }
 
+/* NO THIRD BOX. The card draws one edge and the fieldset another; a bordered
+   panel inside those is DESIGN.md §1.1's prison. It already had the tonal step
+   the rule asks for, so the border was doing nothing but adding a line. */
 .group-config-box {
   margin-top: var(--space-md);
   padding: var(--space-md);
-  background: var(--bg-secondary);
+  background: var(--bg-inset);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   gap: var(--space-md);

@@ -8,7 +8,7 @@
       </p>
     </div>
 
-    <div class="roster-grid">
+    <div class="roster-grid" :class="{ 'has-roster': existingRoster && !parsedRoster }">
       <!-- INPUT -->
       <div
         :class="['input-pane', { dragging }]"
@@ -1053,13 +1053,25 @@ defineExpose({
 .roster-header h3 { margin: 0 0 var(--space-xs) 0; }
 .roster-header p { margin: 0; }
 
+/* IMPORT IS A ONCE-A-SEMESTER ACTION; THE ROSTER IS THE EVERYDAY VIEW. An even
+   split gave the CSV box half the screen for ever, squeezing the table nobody
+   stops looking at. Once a roster is committed the import pane steps back to a
+   column, and takes the full half again the moment a CSV is staged and there is
+   a diff to read.
+
+   `minmax(0, 1fr)`, never a bare `1fr` (DESIGN.md §7): a bare track's minimum is
+   its content's min-content width, and the roster table does not wrap. */
 .roster-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-lg);
   align-items: start;
 }
-@media (max-width: 900px) { .roster-grid { grid-template-columns: 1fr; } }
+.roster-grid.has-roster { grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); }
+@media (max-width: 900px) {
+  .roster-grid,
+  .roster-grid.has-roster { grid-template-columns: minmax(0, 1fr); }
+}
 
 .input-pane, .diff-pane {
   background: var(--bg-secondary);
@@ -1091,7 +1103,16 @@ defineExpose({
 .empty-state { text-align: center; padding: var(--space-2xl) 0; color: var(--text-secondary); }
 .empty-state h4 { margin: 0 0 var(--space-xs) 0; }
 
-.existing-summary { text-align: center; padding: var(--space-xl) 0; display: flex; flex-direction: column; gap: var(--space-md); align-items: center; }
+/* LEFT, like everything under it. It was centred from when this pane held two
+   lines and an empty state; with a table below, a centred heading over
+   left-aligned rows reads as a different component. */
+.existing-summary {
+  padding: var(--space-md) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  align-items: stretch;
+}
 .existing-summary p { margin: 0; }
 .text-secondary { color: var(--text-secondary); }
 

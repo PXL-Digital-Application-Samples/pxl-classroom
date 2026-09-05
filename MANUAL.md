@@ -88,16 +88,18 @@ A student with an extension is judged against their own deadline.
 Whether each student gets their own repository, or a team shares one.
 
 - **Individual.** One repository per student. This is the default.
-- **Group.** One repository per team. The first member to accept creates it; the others join it.
+- **Team.** One repository shared by two or more students. The first member to accept creates it; the others join it.
 
 Choose before you publish. Switching afterwards does not move students who have already accepted.
 
-### Group only
+A **team** is not a **class group**. A team shares one repository for one assignment. A class group is a label on a student that helps you filter the roster when you pick who an assignment is for. Nothing links them.
+
+### Teams only
 
 - Set the maximum team size, and the minimum if you want the report to flag teams that are short.
 - **Self-service** lets students form their own teams. **Pre-assigned** means you seed the teams first, and you decide what happens to a student who is in none.
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
-- Using the same teams again on a later assignment is a separate step, not automatic.
+- Using the same teams again on a later assignment is a separate step, not automatic. **Seed teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
 
 ## Autograding
 

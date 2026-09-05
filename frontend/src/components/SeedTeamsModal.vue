@@ -161,10 +161,12 @@ import {
   commitFiles,
   getRepoContent,
   listRepoDir,
+  listClaims,
   triggerWorkflow,
   explainDispatchFailure,
 } from '../lib/api.js'
 import { config } from '../lib/config.js'
+import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { toast } from '../lib/toast.js'
 import { planSeed, teamsFromRoster, seedCommitMessage } from '../../../lib/seed-teams.mjs'
@@ -328,6 +330,25 @@ async function computePlan() {
       // No roster is a warning-level fact, not a reason to refuse to plan.
     }
 
+    // WHERE A CLAIM STUDENT'S LOGIN ACTUALLY LIVES. Under `claim` the roster's
+    // github_login column is empty until the nightly folds the claim in, so a
+    // seed planned from the roster alone reported properly enrolled students as
+    // about to be rejected - the direction of error that makes a lecturer undo
+    // correct work. Best-effort: unreadable claims plan a little less precisely,
+    // they do not stop the seed.
+    let extraLogins = null
+    try {
+      const claims = await listClaims(token, props.org, config.controlRepo)
+      const index = indexClaims(claims)
+      extraLogins = new Map()
+      for (const s of roster?.students || []) {
+        const login = bindingForEntry(s, index)?.login
+        if (login) extraLogins.set(String(login).toLowerCase(), s)
+      }
+    } catch {
+      // No claims readable - fall back to the roster's own column.
+    }
+
     if (sourceKey.value === 'roster') {
       sourceTeams = teamsFromRoster(roster?.students || [], { assignmentId: props.assignment.id })
     } else if (sourceAssignment.value) {
@@ -340,6 +361,7 @@ async function computePlan() {
       targetAssignment: props.assignment,
       sourceAssignment: sourceKey.value === 'roster' ? null : sourceAssignment.value,
       roster,
+      extraLogins,
       now: new Date().toISOString(),
       actor: getUser()?.login || 'lecturer',
       source: sourceKey.value === 'roster' ? 'roster' : 'assignment',

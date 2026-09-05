@@ -188,6 +188,72 @@ test.describe('49 - picking who an assignment is for', () => {
     await expect(page.locator('.cohort-list')).toHaveCount(0);
   });
 
+  test('a published assignment adds students, and cannot drop them', async ({ page }) => {
+    // ADD ONLY, and not out of caution. Taking a student out of a live cohort
+    // does not un-provision their repository, un-invite them or delete their
+    // work - so a control that looked like it removed them would describe
+    // behaviour the system does not have (DESIGN.md §1.5).
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      roster: ROSTER,
+      assignments: {
+        'lab-3': {
+          schema_version: 1,
+          id: 'lab-3',
+          title: 'Lab 3',
+          organization: ORG,
+          template: { owner: ORG, repository: 'starter-template' },
+          repository_name_pattern: 'lab-3-{github_login}',
+          opens_at: '2026-09-01T08:00:00Z',
+          deadline_at: '2026-12-30T20:00:00Z',
+          state: 'published',
+          assignment_type: 'individual',
+          roster_mode: 'enforced',
+          cohort: ['num:0001', 'num:0002'],
+          cohort_groups: ['3A'],
+        },
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
+    // A published assignment leads with its cohort card and keeps the settings
+    // behind a disclosure - the picker is inside it.
+    await page.locator(".settings-disclosure > summary").click();
+    await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
+
+    // The two already in it are ticked and not yours to untick.
+    await expect(row(page, 'Alice Example').locator('input[type=checkbox]')).toBeChecked();
+    await expect(row(page, 'Alice Example').locator('input[type=checkbox]')).toBeDisabled();
+    await expect(guardrails(page)).toContainText("cannot be removed");
+
+    // THE SILENT OMISSION, NAMED. A snapshot leaves a late enroller simply
+    // absent, and without this nothing says so until they cannot accept.
+    await expect(guardrails(page)).toContainText("3 student(s) on the roster are not in this assignment");
+
+    // Adding works, and the count moves.
+    await row(page, 'Eva Example').locator('input[type=checkbox]').check();
+    await expect(guardrails(page)).toContainText('3 of 5 selected');
+
+    // Clear returns to the published cohort, never to "everyone" - which is
+    // what an empty cohort would mean on a live assignment.
+    await guardrails(page).getByRole('button', { name: 'Clear selection' }).click();
+    await expect(guardrails(page)).toContainText('2 of 5 selected');
+    await expect(guardrails(page)).not.toContainText('Every student on the roster may accept');
+  });
+
+  test('a draft has nothing locked - the selection is still the lecturer\'s', async ({ page }) => {
+    await newAssignment(page);
+    await gateOnRoster(page);
+
+    await row(page, 'Alice Example').locator('input[type=checkbox]').check();
+    await expect(row(page, 'Alice Example').locator('input[type=checkbox]')).toBeEnabled();
+    await expect(guardrails(page)).not.toContainText("cannot be removed");
+
+    // And unticking really does untick, back to "everyone".
+    await row(page, 'Alice Example').locator('input[type=checkbox]').uncheck();
+    await expect(guardrails(page)).toContainText('Every student on the roster may accept');
+  });
+
   // The wire format is NOT tested here. `buildAssignmentDoc` is importable, so
   // driving a whole form to observe what it emits would be the wrong level and
   // a slower way to learn less - tests/assignment-doc-cohort.test.mjs calls it

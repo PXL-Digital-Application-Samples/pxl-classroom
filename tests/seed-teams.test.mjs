@@ -292,6 +292,111 @@ test("suppresses the roster warning when the target is roster_mode: open", () =>
   assert.equal(p.warnings.some((w) => w.code === "not-on-roster"), false);
 });
 
+test("on the roster but outside the cohort is its own warning", () => {
+  // THE CASE THE ROSTER-ONLY CHECK WAS BLIND TO. Carol is enrolled, so "not on
+  // the roster" is false and nothing warned - but the assignment is not for her
+  // and she is refused at the accept button. It did not exist while a cohort was
+  // a rule over class groups; it does now.
+  //
+  // Two warnings rather than one, because they send a lecturer to do different
+  // things: import a student, or add them to this assignment.
+  const p = plan({
+    targetAssignment: target({ roster_mode: "enforced", cohort: ["num:1", "num:2"] }),
+    roster: {
+      students: [
+        { student_number: "1", full_name: "Alice", github_login: "alice" },
+        { student_number: "2", full_name: "Bob", github_login: "bob" },
+        { student_number: "3", full_name: "Carol", github_login: "carol" },
+      ],
+    },
+  });
+
+  assert.equal(p.warnings.some((w) => w.code === "not-on-roster"), false, "everyone IS on the roster");
+  const warn = p.warnings.find((w) => w.code === "not-in-cohort");
+  assert.ok(warn, "a rostered student outside the cohort has to be named");
+  assert.deepEqual(warn.logins, ["carol"]);
+  assert.match(warn.message, /Who is this assignment for/);
+});
+
+test("an assignment that names no cohort warns about nobody", () => {
+  // Absent cohort means every roster student, so a carried-over team is fine.
+  const p = plan({
+    targetAssignment: target({ roster_mode: "enforced" }),
+    roster: {
+      students: [
+        { student_number: "1", github_login: "alice" },
+        { student_number: "2", github_login: "bob" },
+        { student_number: "3", github_login: "carol" },
+      ],
+    },
+  });
+  assert.equal(p.warnings.some((w) => w.code === "not-in-cohort"), false);
+  assert.equal(p.warnings.some((w) => w.code === "not-on-roster"), false);
+});
+
+test("a claim student's login is resolved, not reported as a stranger", () => {
+  // THE PRE-EXISTING DEFECT. Under `claim` a properly enrolled student has no
+  // `github_login` on their roster row until the nightly folds their claim in -
+  // and the check read only that column, so seeding told the lecturer these
+  // students "are not on the roster and will be rejected when they accept",
+  // about people who will be admitted. It errs in the direction that makes a
+  // lecturer undo correct work.
+  const roster = {
+    students: [
+      { student_number: "1", full_name: "Alice", email: "alice@student.pxl.be" },
+      { student_number: "2", full_name: "Bob", email: "bob@student.pxl.be" },
+      { student_number: "3", full_name: "Carol", email: "carol@student.pxl.be" },
+    ],
+  };
+  const targetAssignment = target({ roster_mode: "claim" });
+
+  // Without the bindings there is nothing to resolve against, and the old
+  // behaviour is what you get - which is what makes this a real fix and not a
+  // preference.
+  const blind = plan({ targetAssignment, roster });
+  assert.deepEqual(
+    blind.warnings.find((w) => w.code === "not-on-roster")?.logins.sort(),
+    ["alice", "bob", "carol"],
+    "the roster column alone cannot see a claim binding",
+  );
+
+  const extraLogins = new Map([
+    ["alice", roster.students[0]],
+    ["bob", roster.students[1]],
+    ["carol", roster.students[2]],
+  ]);
+  const resolved = plan({ targetAssignment, roster, extraLogins });
+  assert.equal(resolved.warnings.some((w) => w.code === "not-on-roster"), false);
+  assert.equal(resolved.warnings.some((w) => w.code === "not-in-cohort"), false);
+});
+
+test("unplaced counts the cohort, not the organization", () => {
+  // Seeding a 22-person cohort in a 200-student org used to report 178 unplaced
+  // students, none of whom the assignment was for. This file said why: unplaced
+  // "means nothing unless the roster IS the cohort". An explicit cohort makes
+  // it correct.
+  const students = [
+    { student_number: "1", full_name: "Alice", github_login: "alice" },
+    { student_number: "2", full_name: "Bob", github_login: "bob" },
+    { student_number: "3", full_name: "Carol", github_login: "carol" },
+    { student_number: "4", full_name: "Dave", github_login: "dave" },
+    { student_number: "9", full_name: "Zoe (another section)", github_login: "zoe" },
+  ];
+
+  const scoped = plan({
+    targetAssignment: target({ roster_mode: "enforced", cohort: ["num:1", "num:2", "num:3", "num:4"] }),
+    roster: { students },
+  });
+  assert.deepEqual(scoped.unplaced.map((u) => u.github_login), ["dave"], "Zoe is not this assignment's problem");
+
+  const unscoped = plan({ targetAssignment: target({ roster_mode: "enforced" }), roster: { students } });
+  assert.deepEqual(
+    unscoped.unplaced.map((u) => u.github_login).sort(),
+    ["dave", "zoe"],
+    "with no cohort the whole roster is the cohort, and Zoe is unplaced",
+  );
+});
+
 test("warns about teams below the minimum team size", () => {
   const p = plan({ targetAssignment: target({ group_config: { max_team_size: 3, min_team_size: 2 } }) });
   const warn = p.warnings.find((w) => w.code === "under-capacity");
