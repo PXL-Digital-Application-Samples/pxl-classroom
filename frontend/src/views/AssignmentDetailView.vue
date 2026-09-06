@@ -216,7 +216,7 @@
           </div>
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'on-time'" title="Filter on-time submissions">
             <span class="summary-value stat-green">{{ onTimeCount }}</span>
-            <span class="summary-label">On-time</span>
+            <span class="summary-label">On time</span>
           </div>
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'late'" title="Filter late submissions">
             <span class="summary-value stat-yellow">{{ lateCount }}</span>
@@ -254,7 +254,7 @@
                 :class="{ active: statusFilter === 'on-time' }"
                 @click="statusFilter = 'on-time'"
               >
-                On-time ({{ onTimeCount }})
+                On time ({{ onTimeCount }})
               </button>
               <button
                 type="button"
@@ -270,7 +270,7 @@
                 :class="{ active: statusFilter === 'no-submission' }"
                 @click="statusFilter = 'no-submission'"
               >
-                No sub ({{ noSubCount }})
+                No submission ({{ noSubCount }})
               </button>
               <button
                 v-if="deadlinePassed && preservedCount > 0"
@@ -593,7 +593,7 @@
                      already says "a lecturer who cannot see it might as well
                      not have it". -->
                 <th v-if="hasClaimedEmails" @click="sortBy('claimed_email')" @keydown.enter="sortBy('claimed_email')" @keydown.space.prevent="sortBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSort('claimed_email')">
-                  <span class="th-label">Claimed address<SortIcon :dir="sortDir('claimed_email')" /></span>
+                  <span class="th-label">Confirmed address<SortIcon :dir="sortDir('claimed_email')" /></span>
                 </th>
                 <th @click="sortBy('acceptance_state')" @keydown.enter="sortBy('acceptance_state')" @keydown.space.prevent="sortBy('acceptance_state')" tabindex="0" class="sortable" :aria-sort="ariaSort('acceptance_state')">
                   <span class="th-label">Acceptance<SortIcon :dir="sortDir('acceptance_state')" /></span>
@@ -645,7 +645,7 @@
                      lecturer has to act on. -->
                 <td v-if="hasClaimedEmails">
                   <template v-if="s.claimed_email">
-                    <span class="text-sm">{{ s.claimed_email }}</span>
+                    <span class="text-sm claimed-address">{{ s.claimed_email }}</span>
                     <div class="status-indicator" :title="claimNote(s).title">
                       <span class="status-dot" :class="claimNote(s).dot"></span>
                       <span class="text-xs">{{ claimNote(s).label }}</span>
@@ -656,7 +656,7 @@
                 <td>
                   <span class="status-indicator">
                     <span class="status-dot" :class="s.acceptance_state === 'accepted' || s.acceptance_state === 'provisioned' ? 'dot-success' : (s.acceptance_state === 'declined' ? 'dot-danger' : 'dot-neutral')"></span>
-                    <span class="text-sm">{{ s.acceptance_state || '-' }}</span>
+                    <span class="text-sm">{{ acceptanceLabel(s.acceptance_state) || '-' }}</span>
                   </span>
                 </td>
                 <td>
@@ -666,7 +666,7 @@
                        caught the day it shipped rather than after an exam. -->
                   <span class="status-indicator" :title="statusDetail(s)">
                     <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? 'dot-neutral' : 'dot-info'))"></span>
-                    <span class="text-sm">{{ s.submission_status }}</span>
+                    <span class="text-sm">{{ submissionLabel(s.submission_status) }}</span>
                   </span>
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
                     ext -> {{ fmt(extensionFor(s.github_login).value) }}
@@ -848,8 +848,8 @@
               </button>
             </header>
             <div class="student-card-badges">
-              <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ s.acceptance_state }}</span>
-              <span :class="['badge', statusBadge(s.submission_status)]">{{ s.submission_status }}</span>
+              <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ acceptanceLabel(s.acceptance_state) }}</span>
+              <span :class="['badge', statusBadge(s.submission_status)]">{{ submissionLabel(s.submission_status) }}</span>
               <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
               <span v-if="s.tagged_submission_tag" class="badge badge-info badge-with-icon" :title="`Tagged ${fmt(s.tagged_submission_observed_at)}`">
                 <Icon name="tag" :size="11" />
@@ -1176,6 +1176,7 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
+import { acceptanceLabel, submissionLabel } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
@@ -1934,20 +1935,22 @@ function claimNote(s) {
     return {
       dot: 'dot-warning',
       label: 'Outside allowed domains',
-      title: 'This address is not in the assignment\'s claim_domains. Recorded rather than refused - under roster_mode open the domain is not a gate.',
+      title: 'Not one of the email domains this course accepts. It was recorded rather than refused, because open enrolment does not use the address to decide who may accept.',
     }
   }
   if (s.claim_verified === true) {
     return {
       dot: 'dot-success',
       label: 'GitHub-verified',
-      title: 'The student picked this from the addresses GitHub has verified on their account. Reported by their browser, so corroboration rather than proof.',
+      title: 'The student picked this from the addresses GitHub has already verified on their account, so the mailbox is theirs.',
     }
   }
   return {
     dot: 'dot-neutral',
-    label: 'Not corroborated',
-    title: 'Typed rather than picked from a GitHub-verified address - the ordinary state for an account without an institutional address on GitHub. Not a finding.',
+    // "Not corroborated" was precise and not a phrase anybody reaches for. This
+    // says what happened, which is what the tooltip spent a sentence on anyway.
+    label: 'Typed by the student',
+    title: 'Typed rather than picked from an address GitHub had already verified. The ordinary state for an account with no institutional address on GitHub, and not a problem in itself.',
   }
 }
 
@@ -3862,6 +3865,13 @@ main { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
   line-height: 1.2;
   padding: 4px 0;
 }
+/* The address ran flush into the marker beside it - "tom@pxl.beTyped by the
+   student" - because the marker is an inline-flex indicator with no margin of
+   its own. */
+.claimed-address {
+  margin-right: var(--space-xs);
+}
+
 .summary-label {
   font-size: 0.72rem;
   text-transform: uppercase;

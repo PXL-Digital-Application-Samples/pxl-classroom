@@ -205,7 +205,7 @@
             <td>
               <span class="status-indicator">
                 <span class="status-dot" :class="team.submission_status === 'on-time' ? 'dot-success' : (team.submission_status === 'late' ? 'dot-warning' : 'dot-neutral')"></span>
-                <span class="text-sm">{{ team.submission_status || 'unknown' }}</span>
+                <span class="text-sm">{{ submissionLabel(team.submission_status || 'unknown') }}</span>
               </span>
             </td>
 
@@ -463,6 +463,7 @@ import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { teamPath } from '../../../lib/control-layout.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
+import { submissionLabel } from '../lib/status-labels.js'
 import { commitFile, commitFiles, deleteFile, getRepoContent, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
 import { validateAgainst } from '../lib/validate.js'
 import { config } from '../lib/config.js'

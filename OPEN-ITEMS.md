@@ -1,6 +1,6 @@
 # Open items
 
-Known gaps in the deployed system that are **not** defects and have no home in a procedure: infrastructure that works today and would fail in a way nobody would be told about, plus one designed control that is deliberately weaker than it could be.
+Known gaps in the deployed system that are **not** defects and have no home in a procedure: infrastructure that works today and would fail in a way nobody would be told about, one designed control that is deliberately weaker than it could be, and one question about how the app is arranged that it has not answered.
 
 This is a standing register, not a plan: nothing here is scheduled, and an entry earns its place by being something a reader of [RUNBOOK.md](RUNBOOK.md), [INSTALL.md](INSTALL.md) or [ADMIN.md](ADMIN.md) would otherwise have to rediscover. Every entry says how to tell whether it is still open, so it can be closed from evidence rather than from memory.
 
@@ -146,6 +146,42 @@ done
 ```
 
 printing nothing is this item still open. It reads only organizations whose control repository you can see, so run it as an owner of each.
+
+---
+
+## 6. The roster is organization-wide and lives inside one assignment's editor
+
+**Status: open.** Raised 2026-09-06. Not a defect: everything works, and the Roster tab already says which organization it belongs to. It is a question about where things sit, which no procedure can answer.
+
+Where the app puts things today:
+
+| Route | What it is | Scope |
+|---|---|---|
+| `/dashboard/:org` | the organization's assignments | organization |
+| `/dashboard/:org/:assignmentId` | one assignment, in detail | assignment |
+| `/dashboard/:org/admin` | the assignment **editor**, with a list of assignments down the left | assignment |
+| `/dashboard/:org/admin` → **Roster** tab | every student the organization teaches | **organization** |
+
+The last row is the mismatch. The roster is org-wide, and it is reached by opening a view whose other tab edits a single assignment. Going from the dashboard to an assignment, then to Admin, gives you a second detailed view of that same assignment - which is fine, and **New assignment** on the dashboard reaching the same place is fine too. The roster arriving there as a tab is the part that does not follow.
+
+Two arrangements were sketched when this was raised, and neither is chosen:
+
+- **Two tabs at the organization.** The dashboard becomes the organization view proper and carries the org-wide things side by side: **Assignments** and **Roster**. The assignment editor stays where it is, reached from an assignment or from **New assignment**.
+- **Three tabs, and you cycle through those for everything.** **Assignments** as the default, the editor as a second, and **Roster** as a third.
+
+**What is unresolved, and is the reason this is a register entry rather than a change:**
+
+- **The second tab has no good name.** It is called *Admin* today, which describes a mode rather than a thing, and reads as administration of the organization when it edits one assignment. A single word is wanted and none has been found.
+- **Whether the editor belongs in that strip at all**, given it is per assignment and the other two are per organization. Three tabs where one changes scope is arguably the same mismatch rearranged.
+- **What happens to `/dashboard/:org/admin`.** It is a bookmarkable URL, it carries `?edit=<id>`, and `tests/vue-route-safety.test.mjs` requires every route to be linked to from somewhere or not ship.
+
+**How to tell it is closed:** the roster is no longer rendered by the assignment editor, so
+
+```bash
+grep -c "RosterTab" frontend/src/views/AdminView.vue
+```
+
+returns `0` - or the arrangement was considered and kept, and this entry says so instead.
 
 ---
 

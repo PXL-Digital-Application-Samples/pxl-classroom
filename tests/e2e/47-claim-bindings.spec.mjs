@@ -42,6 +42,13 @@ async function openRoster(page, opts) {
 
 const row = (page, name) => page.locator('tr', { hasText: name });
 
+// Unlink moved into the row's actions menu and is called "Forget this account"
+// there - "Remove GitHub account" was rejected as reading like the deletion of
+// the student's actual account. These two helpers are what every test below
+// used to do with `getByRole('button', { name: 'Unlink' })`.
+const openRowMenu = (page, who) => row(page, who).locator('.row-menu-anchor button').click();
+const forgetItem = (page) => page.getByRole('menuitem', { name: /Forget this account/ });
+
 test.describe('47 - The lecturer sees who is bound', () => {
 
   test('a claimed student shows the account they bound, not "Pending linking"', async ({ page }) => {
@@ -52,7 +59,8 @@ test.describe('47 - The lecturer sees who is bound', () => {
 
     const alice = row(page, 'Alice Claimed');
     await expect(alice.locator('.badge-success')).toContainText('@alice-gh');
-    await expect(alice.getByRole('button', { name: 'Unlink' })).toBeVisible();
+    await openRowMenu(page, 'Alice Claimed');
+    await expect(forgetItem(page)).toBeVisible();
   });
 
   test('an unverified claim is marked, because that is the whole point of the flag', async ({ page }) => {
@@ -70,17 +78,35 @@ test.describe('47 - The lecturer sees who is bound', () => {
     // One mode-neutral label. This tab is org-scoped and an org can hold
     // `enforced` and `claim` assignments at once, so it cannot know which
     // mechanism this student is waiting on and must not assert one.
+    // A DASH, not "Pending linking". The column is headed GitHub Account and an
+    // empty one is the answer; naming the state invented a word that read as
+    // something in progress when nothing is.
     const bob = row(page, 'Bob Waiting');
-    await expect(bob).toContainText('Pending linking');
-    await expect(bob.getByRole('button', { name: 'Unlink' })).toHaveCount(0);
+    await expect(bob.locator('.cell-email, td')).toBeTruthy();
+    await expect(bob).not.toContainText('Pending linking');
+    await openRowMenu(page, 'Bob Waiting');
+    await expect(forgetItem(page)).toHaveCount(0);
   });
 
-  test('a roster entry with no address says it can never be claimed, not that it is waiting', async ({ page }) => {
-    // Different state, different fix: re-import with an address rather than
-    // wait. `rosterEntryForEmail` matches on email and nothing else.
+  test('a roster entry with no address is still visibly a DIFFERENT problem', async ({ page }) => {
+    // Different state, different fix: an entry with no address can never be
+    // claimed at all, because `rosterEntryForEmail` matches on email and
+    // nothing else - so the remedy is an address, not patience.
+    //
+    // THE ACCOUNT COLUMN NO LONGER SAYS THIS, and that is a deliberate change
+    // rather than a loss. It used to render a "No address" badge one column to
+    // the right of the Email column that already showed the address missing:
+    // two columns answering one question in different words. The fact now lives
+    // where it belongs - an empty Email cell - and the tab summarises it with
+    // the action attached, which the badge never did.
     await openRoster(page, { claims: [claim('alice-gh', 111, 'alice@student.pxl.be')] });
 
-    await expect(row(page, 'Carol NoAddress')).toContainText('No address');
+    const carol = row(page, 'Carol NoAddress');
+    await expect(carol.locator('.cell-email')).toHaveText('-');
+    await expect(carol).not.toContainText('No address');
+    // And the tab says how many are in that state, and what to do about it.
+    await expect(page.locator('.roster-ask-hint')).toContainText('no email address');
+    await expect(page.locator('.roster-ask-hint')).toContainText('Confirm-email link');
   });
 
   test('a claim disagreeing with the roster is flagged rather than shown as healthy', async ({ page }) => {
@@ -93,7 +119,8 @@ test.describe('47 - The lecturer sees who is bound', () => {
 
     const dave = row(page, 'Dave Mismatch');
     await expect(dave.locator('.badge-warning')).toContainText('@someone-else');
-    await expect(dave.getByRole('button', { name: 'Unlink' })).toBeVisible();
+    await openRowMenu(page, 'Dave Mismatch');
+    await expect(forgetItem(page)).toBeVisible();
   });
 
   test('with no claims at all, the column falls back to the roster linkage', async ({ page }) => {
@@ -102,7 +129,8 @@ test.describe('47 - The lecturer sees who is bound', () => {
     await openRoster(page, {});
 
     await expect(row(page, 'Dave Mismatch').locator('.badge-success')).toContainText('@dave-pxl');
-    await expect(row(page, 'Bob Waiting')).toContainText('Pending linking');
+    await expect(row(page, 'Bob Waiting')).not.toContainText('Pending linking');
+    await expect(row(page, 'Bob Waiting').locator('.badge-success')).toHaveCount(0);
   });
 });
 
@@ -112,18 +140,21 @@ test.describe('47 - Unlink', () => {
     await openRoster(page, { claims: [claim('alice-gh', 111, 'alice@student.pxl.be')] });
 
     page.once('dialog', (d) => d.accept());
-    await row(page, 'Alice Claimed').getByRole('button', { name: 'Unlink' }).click();
+    await openRowMenu(page, 'Alice Claimed');
+    await forgetItem(page).click();
 
     // The list is re-read after the delete, so the row falls back to unbound.
-    await expect(row(page, 'Alice Claimed')).toContainText('Pending linking');
-    await expect(row(page, 'Alice Claimed').getByRole('button', { name: 'Unlink' })).toHaveCount(0);
+    await expect(row(page, 'Alice Claimed').locator('.badge-success')).toHaveCount(0);
+    await openRowMenu(page, 'Alice Claimed');
+    await expect(forgetItem(page)).toHaveCount(0);
   });
 
   test('declining the confirmation changes nothing', async ({ page }) => {
     await openRoster(page, { claims: [claim('alice-gh', 111, 'alice@student.pxl.be')] });
 
     page.once('dialog', (d) => d.dismiss());
-    await row(page, 'Alice Claimed').getByRole('button', { name: 'Unlink' }).click();
+    await openRowMenu(page, 'Alice Claimed');
+    await forgetItem(page).click();
 
     await expect(row(page, 'Alice Claimed').locator('.badge-success')).toContainText('@alice-gh');
   });
@@ -138,7 +169,8 @@ test.describe('47 - Unlink', () => {
 
     let dialogShown = false;
     page.once('dialog', (d) => { dialogShown = true; d.accept(); });
-    await row(page, 'Alice Claimed').getByRole('button', { name: 'Unlink' }).click();
+    await openRowMenu(page, 'Alice Claimed');
+    await forgetItem(page).click();
 
     await expect(page.locator('[role="alert"]')).toContainText(/could not be read/i);
     expect(dialogShown, 'it must refuse before asking, not ask and then fail').toBe(false);

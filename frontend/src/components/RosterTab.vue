@@ -803,15 +803,20 @@ function harvestFor(student) {
 }
 
 /**
- * Roster rows that carry a GitHub account and no address.
+ * Roster rows with no email address.
  *
- * Exactly the population a confirmation fixes, and NOT the same question as
- * `wantsHints` below - that one also counts a row missing only a name, which a
- * student confirming an address does nothing about.
+ * NOT narrowed to rows that already have a GitHub account, which is where this
+ * started. A confirmation supplies both facts at once, so it helps a row that
+ * has neither exactly as much - and the sentence beside the count is about the
+ * address, which is missing either way. Narrowing it left a student who has
+ * nothing on their row out of the one count that would have found them.
+ *
+ * Not the same question as `wantsHints` below, which also counts a row missing
+ * only a name - something confirming an address does nothing about.
  */
 const awaitingAddress = computed(() =>
   (existingRoster.value?.students || []).filter(
-    (s) => s?.github_login && !String(s.email ?? '').trim(),
+    (s) => !String(s?.email ?? '').trim(),
   ).length)
 
 /**

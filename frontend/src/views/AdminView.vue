@@ -739,9 +739,9 @@
             <div class="field">
               <label>Who may accept <HelpButton topic="who-may-accept" label="who may accept" /></label>
               <select v-model="form.roster_mode">
-                <option value="open">open: anyone with the invitation link</option>
-                <option value="enforced">enforced: only students on the roster (matched by GitHub username)</option>
-                <option value="claim">claim: students confirm their {{ INSTITUTION_SHORT }} email address, matched to the roster</option>
+                <option value="open">Open: anyone with the invitation link</option>
+                <option value="enforced">Enforced: only students on the roster (matched by GitHub username)</option>
+                <option value="claim">Claim: students confirm their {{ INSTITUTION_SHORT }} email address, matched to the roster</option>
               </select>
               <!-- A roster is still worth importing under `open`: report.mjs
                    builds the population from the union of acceptances and the
