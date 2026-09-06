@@ -661,6 +661,8 @@ A promoted row carries a GitHub login and nothing else, and **nothing fills it i
 
 **Type it.** Every cell in the roster table — number, name, email, group — is editable in place: click, type, Enter. Escape abandons. This is what closes the gap the check leaves: an address like `rayane.waddah@student.pxl` is shown and flagged rather than hidden, because it names the student unmistakably even though the domain is a typo, and correcting it is two characters.
 
+An **empty** cell opens holding whatever the hint below it says, tinted to show that nobody has vouched for it — including addresses the fill button refuses, which is the point: the typo arrives in the box ready to fix. A cell that already has a value is never overwritten by a suggestion. **Enter accepts it; clicking away does not** — a value you never touched must not be written by the act of looking at it. Accepting one clears the *from commits* marker, because unlike the bulk fill button it went past a person first.
+
 **Or ask them.** The most reliable identity is one the student confirms themselves — an address GitHub has verified on their account. That is what `roster_mode: claim`, and `require_claim` under `open`, collect at acceptance (§6.6), and the nightly folds a verified one straight into the matching row.
 
 For a promoted row this now works in the direction you need. A claim carries the student's GitHub id and login as well as the address, so it is matched to a row that has a login and no address, and the address is written in. Three cases are held for you instead, and each is a decision rather than a failure — they appear on the Roster tab as *N need your decision*:

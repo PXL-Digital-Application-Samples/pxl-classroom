@@ -1493,3 +1493,19 @@ Checked the session's UI against DESIGN.md. Every guard passed — theme tokens,
 
 Both were found by looking at one screenshot of a mixed roster and one measurement at 375px, after four green test suites. A guard that passes tells you what it checks, not that the screen is right.
 
+### The cell nobody could type in, and the two bugs that were hiding behind it.
+
+Pre-filling an empty roster cell with the address already displayed underneath it is a five-line change. It uncovered three defects, and only the first was mine.
+
+**The box was never focused.** `RosterCell` swaps a `<button>` for an `<input>` with `v-if`, so the click that opened the cell left focus on an element that had just been removed. You had to click the cell *twice* to type in it. Eight e2e tests drove that input and every one of them passed, because Playwright's `fill()` focuses on your behalf — the helper that makes a test convenient is the helper that makes it blind. Shipped, unnoticed, since the cell editor was written.
+
+Focusing it broke two things that had been safe only because focus never moved.
+
+**One keystroke opened the cell and accepted the suggestion.** A `<button>` activates on Enter's **keydown**. So Enter on the resting cell fired click → mounted the input → focused it, all while the same key was still down — and the **keyup** then landed in the new input, where `@keyup.enter` committed a value the lecturer had not read yet. `@keydown` on the input fixes it: the opening key is spent before this element exists.
+
+**And clicking from one open cell to another opened nothing.** Focus leaving the first input closes it on **mousedown** — so the layout settles before the mouseup, and whatever the open cell was doing to the table is undone underneath the pointer. Row height was the obvious suspect and was innocent. The culprit was the *column*: `.cell-edit` had `min-width: 7rem`, which widened its column and pushed everything to its right along. Removing it was not enough — an `<input>` carries an intrinsic width from `size` (default ~20 characters), and an auto-layout table sizes columns from intrinsic contributions, where a percentage counts as auto. So the column grew to fit a box CSS had already told to be `width: 100%`. `size="1"` is the half that actually matters.
+
+The distances were **44px sideways, 0px vertically**, and I would have spent the afternoon on padding arithmetic: two borders, two paddings and a negative margin, all in the wrong dimension. The test measures the bounding box of a cell in *another row and another column* before and after opening, both axes, because the failure was never in the row being edited.
+
+The rule that came out of the feature itself is smaller and older: **a suggestion is not an answer until a person accepts it.** The draft is seeded from a git-config address nobody checked, so Enter commits it — a keystroke aimed at that cell, over a value tinted to say it is not yours yet — and blur does not. Same shape as the escape-must-not-commit guard beside it: clicking a cell and clicking away has to leave the row exactly as it was.
+

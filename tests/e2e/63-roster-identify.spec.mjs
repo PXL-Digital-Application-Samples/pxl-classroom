@@ -325,6 +325,152 @@ test.describe('editing a row in place', () => {
     await expect(page.locator('.cell-edit')).toBeVisible();
   });
 
+  test('the box opens FOCUSED, so one click is enough to type', async ({ page }) => {
+    // The button is replaced by the input, so the click that opened it left
+    // focus on an element that no longer existed. Every test above drives the
+    // input with `fill()`, which focuses for you - which is exactly why eight
+    // of them passed over a cell a person had to click twice.
+    await openRoster(page);
+    await cell(page, 'afx42', 'student_number').click();
+    await expect(page.locator('.cell-edit')).toBeFocused();
+  });
+
+  // ------------------------------------------------------------ suggestions
+  //
+  // The hint sits directly under the cell, so the lecturer was reading an
+  // address off the screen and typing it back in one line higher. The box now
+  // opens holding it. Which makes the question "when does that become the
+  // roster's answer", and the answer is: when a person says so.
+
+  test('an empty cell opens holding what the reports know', async ({ page }) => {
+    await openRoster(page);
+    await cell(page, 'rayaneW', 'email').click();
+    await expect(page.locator('.cell-edit')).toHaveValue('rayane.waddah@student.pxl');
+    // Flagged, because nobody has vouched for it yet.
+    await expect(page.locator('.cell-edit')).toHaveClass(/suggested/);
+  });
+
+  test('...the name column too, from the same hint', async ({ page }) => {
+    await openRoster(page);
+    await cell(page, 'afx42', 'full_name').click();
+    await expect(page.locator('.cell-edit')).toHaveValue('maarten');
+  });
+
+  test('THE FLOW: the typo opens in the box, two characters fix it', async ({ page }) => {
+    // `rayane.waddah@student.pxl` is unwritable and is still the string that
+    // names the person. The whole point of showing it is this edit.
+    const { contentWrites } = await openRoster(page);
+    await cell(page, 'rayaneW', 'email').click();
+    await page.locator('.cell-edit').press('End');
+    await page.locator('.cell-edit').type('.be');
+    await page.locator('.cell-edit').press('Enter');
+
+    await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    expect(rosterWrite(contentWrites).content).toContain('rayane.waddah@student.pxl.be');
+  });
+
+  test('typing over the suggestion drops the flag - the value is yours now', async ({ page }) => {
+    await openRoster(page);
+    await cell(page, 'rayaneW', 'email').click();
+    await expect(page.locator('.cell-edit')).toHaveClass(/suggested/);
+    await page.locator('.cell-edit').fill('someone@student.pxl.be');
+    await expect(page.locator('.cell-edit')).not.toHaveClass(/suggested/);
+  });
+
+  test('ENTER accepts a suggestion untouched, and it stops being a suggestion', async ({ page }) => {
+    // A person opened this cell, read the address, and pressed a key at it.
+    // That is the accept gesture, and afterwards the row carries no
+    // `email_source` - the marker records whether anybody looked, and somebody
+    // just did. "Fill in N emails" is the unread path and marks them `commit`.
+    const { contentWrites } = await openRoster(page);
+    await cell(page, 'LowieSerneelsPXL', 'email').click();
+    await page.locator('.cell-edit').press('Enter');
+
+    await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    const yaml = rosterWrite(contentWrites).content;
+    expect(yaml).toContain('lowie.serneels@student.pxl.be');
+    expect(yaml).not.toContain('email_source');
+  });
+
+  test('BLUR does not: clicking a cell and clicking away changes nothing', async ({ page }) => {
+    // The dangerous half. A suggestion the lecturer never touched must not be
+    // written by the act of looking at it - and blur is what an accidental
+    // click produces, on a value that came off a git config nobody checked.
+    const { contentWrites } = await openRoster(page);
+    await cell(page, 'LowieSerneelsPXL', 'email').click();
+    await expect(page.locator('.cell-edit')).toBeFocused();
+    await page.locator('h3, h4').first().click();
+    await page.waitForTimeout(400);
+    expect(rosterWrite(contentWrites)).toBeUndefined();
+  });
+
+  test('Escape does not either, over a suggestion', async ({ page }) => {
+    const { contentWrites } = await openRoster(page);
+    await cell(page, 'LowieSerneelsPXL', 'email').click();
+    await page.locator('.cell-edit').press('Escape');
+    await page.waitForTimeout(400);
+    expect(rosterWrite(contentWrites)).toBeUndefined();
+  });
+
+  test('a stored value is NEVER replaced by a suggestion', async ({ page }) => {
+    // The reports know `lowie.serneels@student.pxl.be` for this login. The
+    // roster says otherwise, and the roster is the answer somebody gave.
+    await openRoster(page, {
+      roster: [{ github_login: 'LowieSerneelsPXL', email: 'l.serneels@student.pxl.be', source: PROMOTED_SOURCE }],
+    });
+    await cell(page, 'LowieSerneelsPXL', 'email').click();
+    await expect(page.locator('.cell-edit')).toHaveValue('l.serneels@student.pxl.be');
+    await expect(page.locator('.cell-edit')).not.toHaveClass(/suggested/);
+  });
+
+  test('a cell with nothing behind it opens empty', async ({ page }) => {
+    // No hint reaches student_number or class_group, and afx42 has no address.
+    await openRoster(page);
+    for (const field of ['student_number', 'class_group', 'email']) {
+      await cell(page, 'afx42', field).click();
+      await expect(page.locator('.cell-edit')).toHaveValue('');
+      await expect(page.locator('.cell-edit')).not.toHaveClass(/suggested/);
+      await page.locator('.cell-edit').press('Escape');
+    }
+  });
+
+  test('a login-echo is not offered, in the box any more than on the page', async ({ page }) => {
+    // `IlkayDuranPXL@github.com` is the login twice over and not a mailbox.
+    // ONE judge decides that - the box reads harvestPlan's answer rather than
+    // filtering again, so it cannot come to a different conclusion. The NAME on
+    // that row (`ilkay`) is not an echo and is offered, which is the same rule
+    // reaching the opposite answer rather than a second rule.
+    await openRoster(page);
+    await cell(page, 'IlkayDuranPXL', 'email').click();
+    await expect(page.locator('.cell-edit')).toHaveValue('');
+    await page.locator('.cell-edit').press('Escape');
+    await cell(page, 'IlkayDuranPXL', 'full_name').click();
+    await expect(page.locator('.cell-edit')).toHaveValue('ilkay');
+  });
+
+  test('opening a cell moves NOTHING, so the next click lands where you aimed', async ({ page }) => {
+    // Moving from one open cell to another closes the first on MOUSEDOWN, so
+    // anything the open cell was doing to the layout is undone before the
+    // mouseup arrives. Height was the obvious suspect and was innocent: the
+    // editor's `min-width: 7rem` widened its COLUMN, and the cell two columns
+    // over sat 42px to the right while the first was open. The click aimed at
+    // it landed on bare table and no cell opened at all.
+    //
+    // Both dimensions, on a cell in another row AND another column, because the
+    // failure was never in the row being edited.
+    await openRoster(page);
+    const before = await row(page, 'afx42').boundingBox();
+    const targetBefore = await cell(page, 'tomccargo', 'email').boundingBox();
+    await cell(page, 'afx42', 'full_name').click();
+    await expect(page.locator('.cell-edit')).toBeVisible();
+    const after = await row(page, 'afx42').boundingBox();
+    const targetAfter = await cell(page, 'tomccargo', 'email').boundingBox();
+
+    expect(Math.abs(after.height - before.height), 'the row keeps its height').toBeLessThanOrEqual(1);
+    expect(Math.abs(targetAfter.x - targetBefore.x), 'and other columns do not slide').toBeLessThanOrEqual(1);
+    expect(Math.abs(targetAfter.y - targetBefore.y), 'nor other rows').toBeLessThanOrEqual(1);
+  });
+
   test('the email placeholder comes from the deployment, not a literal', async ({ page }) => {
     // A fork that shows a PXL address in its own placeholder is the defect
     // tests/institution-name.test.mjs exists to catch.

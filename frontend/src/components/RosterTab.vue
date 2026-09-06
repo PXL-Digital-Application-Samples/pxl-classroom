@@ -290,7 +290,7 @@
                       <span
                         v-if="!harvestFor(s).emailAllowed"
                         class="text-warning"
-                        :title="`Not one of the allowed domains (${claimDomainList}), so it is not written into the roster. Often a typo - click the cell above to correct it.`"
+                        :title="`Not one of the allowed domains (${claimDomainList}), so it is not written into the roster. Often a typo - click the cell above and it opens with this in it, ready to fix.`"
                       >domain not allowed</span>
                     </div>
                   </td>
@@ -854,7 +854,7 @@ const EDITABLE_FIELDS = Object.freeze({
 // as a single prop and `v-model="editor.draft"` works - a ref nested inside a
 // plain prop object does not auto-unwrap in a template, and `.value` in markup
 // is the kind of detail that is wrong once and then wrong everywhere.
-const cellEdit = reactive({ key: null, field: null, draft: '', saving: false })
+const cellEdit = reactive({ key: null, field: null, draft: '', suggestion: '', saving: false })
 
 /** The spellings already in use, so a lecturer completes rather than invents. */
 const existingClassGroups = computed(() => rosterClassGroups(existingRoster.value))
@@ -862,21 +862,44 @@ const existingClassGroups = computed(() => rosterClassGroups(existingRoster.valu
 const isEditing = (student, field) =>
   cellEdit.key === rosterKey(student) && cellEdit.field === field
 
+/**
+ * What the reports would put in this cell, or '' if they know nothing useful.
+ *
+ * The same two hints already rendered under the cell - so the box opens holding
+ * the string the lecturer can read directly beneath it, rather than asking them
+ * to copy it across by hand. `harvestPlan` has already dropped anything that
+ * merely repeats the login and anything that is not an address, so there is no
+ * second filter here: one judge, and this reads its answer.
+ */
+function suggestionFor(student, field) {
+  const h = harvestFor(student)
+  if (!h) return ''
+  if (field === 'full_name') return h.name || ''
+  if (field === 'email') return h.email || ''
+  return ''
+}
+
 function startCellEdit(student, field) {
   // A save in flight owns the state until it finishes. Without this, opening
   // another cell during the write (schema validation and a lost-update read are
   // both awaited) let the in-flight save's closing cancel shut the NEW cell -
   // your second edit vanished with nothing said.
   if (cellEdit.saving) return
+  const stored = typeof student[field] === 'string' ? student[field] : ''
+  // NEVER over a stored value. A suggestion fills a blank; it does not argue
+  // with an answer somebody already gave, and a lecturer opening a filled cell
+  // has to see what is actually in the roster.
+  cellEdit.suggestion = stored.trim() ? '' : suggestionFor(student, field)
   cellEdit.key = rosterKey(student)
   cellEdit.field = field
-  cellEdit.draft = typeof student[field] === 'string' ? student[field] : ''
+  cellEdit.draft = stored || cellEdit.suggestion
 }
 
 function cancelCellEdit() {
   cellEdit.key = null
   cellEdit.field = null
   cellEdit.draft = ''
+  cellEdit.suggestion = ''
 }
 
 /** Everything <RosterCell> needs, as one prop. */
@@ -894,7 +917,7 @@ const cellEditor = { fields: EDITABLE_FIELDS, state: cellEdit, isEditing, start:
  * `class_group` is a section whose name is nothing, which would render as a
  * chip in the assignment picker.
  */
-async function saveCellEdit(student, field) {
+async function saveCellEdit(student, field, via) {
   const key = rosterKey(student)
   // ESCAPE MUST NOT COMMIT. Cancelling unmounts the input, which fires its own
   // blur - and blur saves. So Escape cleared the draft and the blur that
@@ -906,6 +929,16 @@ async function saveCellEdit(student, field) {
   const current = typeof student[field] === 'string' ? student[field].trim() : ''
   if (next === current) { cancelCellEdit(); return }
 
+  // A SUGGESTION IS NOT AN ANSWER until a person accepts it. The box was seeded
+  // from a git-config address nobody checked, so ENTER commits it - a keystroke
+  // aimed at this cell, over a value tinted to say it is not yours yet - and
+  // BLUR does not: clicking a cell and clicking away has to leave the row
+  // exactly as it was. Same shape as the escape guard above; a value the
+  // lecturer never touched must not be written by the act of looking at it.
+  // `via` is missing only if some future caller forgets it, and the safe
+  // reading of "I don't know how this was triggered" is "do not write".
+  if (via !== 'enter' && next && next === cellEdit.suggestion) { cancelCellEdit(); return }
+
   const doc = existingRoster.value
   const students = (doc?.students || []).map((s) => {
     // Matched on the key as it was BEFORE the edit: setting a student number on
@@ -914,6 +947,11 @@ async function saveCellEdit(student, field) {
     // `email_source` describes the address BESIDE it. A person typing here is
     // the third writer of that column and the most trusted one, so the marker
     // goes rather than staying to describe a value that is no longer there.
+    // It goes for an ACCEPTED suggestion too, even though the string came off a
+    // commit: "Fill in 3 emails" writes the same addresses unread and marks
+    // them `commit`, while this path took one cell, one person and one Enter
+    // over a value flagged as unvouched. That asymmetry is the marker doing its
+    // job - it records whether anybody looked, not where the bytes came from.
     const { [field]: _dropped, ...rest } = s
     if (field === 'email') delete rest.email_source
     return next ? { ...rest, [field]: next } : rest
