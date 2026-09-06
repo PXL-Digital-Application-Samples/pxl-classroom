@@ -170,6 +170,82 @@ test.describe('25 - Responsive layout', () => {
     }
   });
 
+  // The Roster tab was in NO sweep at any width. `/dashboard/:org/admin` is
+  // measured above, but only ever with the Assignments tab showing - and the
+  // Roster tab is the denser of the two: a five-column table with an email in
+  // it, a CSV textarea, filter chips, a toolbar of four buttons, and a hint
+  // line under every unidentified row.
+  //
+  // What that cost: the hint took the TABLE's own horizontal scroll from 71px
+  // to 219px at 375px and pushed Email, Group and GitHub Account out of view.
+  // The page never scrolled sideways, so `scrollsSideways` here would not have
+  // caught it - `tests/e2e/63` measures the table's own scroller, which is the
+  // right question for content inside a sanctioned overflow container. This
+  // test asks the other one, which nothing was asking: does the PAGE hold.
+  test('No sideways scroll on the Roster tab, at every width', async ({ page }) => {
+    const EXAM = 'exam-2526';
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64');
+    // Long on purpose. A roster of `alice`/`bob` proves nothing about a column
+    // whose intrinsic width is set by its longest unbreakable token.
+    const students = [
+      { github_login: 'LowieSerneelsPXL', source: 'accepted' },
+      { github_login: 'rayaneW', source: 'accepted' },
+      {
+        student_number: '0123456',
+        full_name: 'Alexandra-Josephine Vandenbrouckehoven',
+        email: 'alexandra.josephine.vandenbrouckehoven@student.pxl.be',
+        email_source: 'claim',
+        class_group: '3TIN-A',
+        github_login: 'alexandra-josephine-vandenbrouckehoven',
+      },
+    ];
+
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: students });
+
+    await page.route('**/contents/reports', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ name: `${EXAM}.json`, type: 'file' }]) }));
+    await page.route(`**/contents/reports/${EXAM}.json*`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          content: b64({
+            schema_version: 1,
+            assignment_id: EXAM,
+            students: [
+              // The hint that caused it, verbatim from the live org.
+              { github_login: 'LowieSerneelsPXL', commit_count: 49, author_name: 'LowieSerneelsPXL', author_email: 'lowie.serneels@student.pxl.be' },
+              { github_login: 'rayaneW', commit_count: 48, author_name: 'rayaneW', author_email: 'rayane.waddah@student.pxl' },
+            ],
+          }),
+          encoding: 'base64',
+        }),
+      }));
+
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/dashboard/${ORG}/admin`);
+      await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+      await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
+      // The hints arrive after the roster, so waiting on the table alone would
+      // measure the tab without the content this test exists for.
+      await expect(page.locator('.harvest-hint').first()).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(300);
+
+      const m = await page.evaluate(MEASURE);
+      expect(
+        m.scrollsSideways,
+        `roster tab @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,
+      ).toBe(false);
+      // No gutter assertion, deliberately, and for the same reason the two
+      // tests above make none: MEASURE reads `main.container`, and AdminView's
+      // <main> is `.editor-pane` inside a grid - the number it returns for this
+      // route is the pane's offset, not the page's gutter. Asserting on it
+      // would be asserting on a measurement of the wrong thing.
+    }
+  });
+
   // `/usage`, the cross-org aggregate, was removed in 2026-09 - the per-org
   // report below is the one that remains. Leaving it in this list would have
   // gone on passing against the not-found page, which measures nothing.

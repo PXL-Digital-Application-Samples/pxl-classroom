@@ -1680,6 +1680,14 @@ defineExpose({
   margin-top: var(--space-sm);
   max-height: 380px;
   overflow-y: auto;
+  /* DECLARED, not inherited from a quirk. This table is wider than a phone -
+     five columns, one of them an email address - and what kept the PAGE from
+     scrolling sideways was the CSS rule that `overflow-x: visible` computes to
+     `auto` when the other axis is not visible. Correct, and entirely implicit:
+     drop the max-height above and horizontal scrolling disappears with it,
+     taking the page sideways at 375px. DESIGN.md's rule is that wide content
+     scrolls in its own container, so the container says so. */
+  overflow-x: auto;
 }
 
 /* The group cell, editable in place. A button rather than a span with a click

@@ -540,6 +540,23 @@ a two-line empty state — so the pane holding the entire assignment form was
 never measured at any width. It now opens an assignment, collapsed and
 expanded, at all seven widths.
 
+**And it only ever measured that route on the Assignments tab.** The Roster tab
+is the denser of the two — a five-column table with an email address in it, a
+CSV textarea, filter chips, a four-button toolbar and a hint line under every
+unidentified row — and nothing had measured it at any width. It is swept now,
+with long values on purpose: a roster of `alice`/`bob` proves nothing about a
+column whose intrinsic width is set by its longest unbreakable token.
+
+**A table inside its own scroller needs the other measurement too.** The page
+not scrolling sideways is what this spec asks, and a table in an `overflow-x`
+container satisfies it however wide the table gets — so a hint that took the
+roster table's own scroll from 71px to 219px at 375px, pushing three columns out
+of view, passed here and had to be caught by measuring *the scroller* in
+`tests/e2e/63`. Both questions are real; neither answers the other. And declare
+the axis: `.roster-table-wrapper` scrolled horizontally only because
+`overflow-x: visible` computes to `auto` when the other axis is not visible, so
+removing the `max-height` would have taken the page sideways with it.
+
 ## 8. Visual Sandbox & Interactive Testing
 
 > **`/sandbox` is a development-only route.** It is registered behind
