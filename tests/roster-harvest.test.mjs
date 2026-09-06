@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   addsInformation,
   emailLocalPart,
+  looksLikeEmail,
   harvestFromReports,
   harvestPlan,
   applyHarvest,
@@ -69,6 +70,41 @@ test("the local part is what an address is compared on", () => {
   assert.equal(emailLocalPart("no-at-sign"), "no-at-sign");
   assert.equal(emailLocalPart("@leading"), "@leading");
   assert.equal(emailLocalPart(null), "");
+});
+
+test("an author_email that is not an address never reaches the Email column", () => {
+  // `author_email` is a free-text git config field. It holds a name, a
+  // hostname or nothing as readily as an address, and the column it is shown
+  // in is a column of addresses.
+  for (const bad of ["Tom Cool", "", "   ", "no-at-sign", "a@b", "two@at@signs", null, undefined, 42]) {
+    assert.equal(looksLikeEmail(bad), false, JSON.stringify(bad));
+  }
+});
+
+test("GitHub's own domain is not a mailbox", () => {
+  // collect.mjs already discards noreply.github.com; `IlkayDuranPXL@github.com`
+  // is the shape that gets past it - a real-looking address at a domain that
+  // does not take mail.
+  assert.equal(looksLikeEmail("IlkayDuranPXL@github.com"), false);
+  assert.equal(looksLikeEmail("x@users.noreply.github.com"), false);
+  assert.equal(looksLikeEmail("x@notgithub.com"), true, "a lookalike domain is somebody's real host");
+});
+
+test("a typo'd domain still looks like an address, deliberately", () => {
+  // This check asks whether it IS an address, not whether it is a GOOD one.
+  // `rayane.waddah@student.pxl` does not resolve and is still the string that
+  // names the student - domainAllowed decides storage, this decides shape.
+  assert.equal(looksLikeEmail("rayane.waddah@student.pxl"), true);
+  assert.equal(looksLikeEmail("lowie.serneels@student.pxl.be"), true);
+});
+
+test("a non-address author_email yields no email hint at all", () => {
+  const reports = [{ assignment_id: "a", students: [
+    { github_login: "bob", commit_count: 5, author_name: "Bob Smith", author_email: "Bob Smith" },
+  ] }];
+  const { hints } = harvestPlan({ roster: { students: [{ github_login: "bob" }] }, reports, emailAllowed: allowed });
+  assert.equal(hints[0].email, null, "not an address, so not shown as one");
+  assert.equal(hints[0].name, "Bob Smith", "the name half still stands");
 });
 
 // ----------------------------------------------------------- gathering them

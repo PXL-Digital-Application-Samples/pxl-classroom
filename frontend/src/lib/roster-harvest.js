@@ -6,6 +6,7 @@
 export {
   addsInformation,
   emailLocalPart,
+  looksLikeEmail,
   harvestFromReports,
   harvestPlan,
   applyHarvest,

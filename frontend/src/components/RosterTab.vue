@@ -251,17 +251,13 @@
                       v-model:draft="cellEdit.draft"
                       :empty-text="String(s.email ?? '').trim() ? 'Name unknown' : 'Not yet identified'"
                     />
-                    <!-- What the reports know, when the row itself knows
-                         nothing. Shown, never stored: a git author is whatever
-                         the student typed into `git config`. -->
-                    <div v-if="harvestFor(s)" class="harvest-hint">
+                    <!-- The NAME the reports know, and only that. An address
+                         goes in the Email column, where addresses live: the
+                         hint used to render both here, so the single most
+                         useful string on the row sat under the wrong heading. -->
+                    <div v-if="harvestFor(s)?.name" class="harvest-hint">
                       <span class="text-muted">commits as</span>
-                      <code>{{ harvestFor(s).email || harvestFor(s).name }}</code>
-                      <span
-                        v-if="harvestFor(s).email && !harvestFor(s).emailAllowed"
-                        class="text-warning"
-                        :title="`Not one of the allowed domains (${claimDomainList}), so it is not written into the roster. Often a typo - you can correct it in the Email column.`"
-                      >domain not allowed</span>
+                      <code>{{ harvestFor(s).name }}</code>
                     </div>
                   </td>
                   <td style="padding: 6px 8px; color: var(--text-secondary);">
@@ -278,6 +274,25 @@
                         ? 'The student supplied this address themselves when they accepted an assignment'
                         : 'Read off their own commits - self-declared, and not confirmed by anyone'"
                     >{{ s.email_source === 'claim' ? 'claimed' : 'from commits' }}</span>
+                    <!-- An address the reports know, on a row that has none.
+                         SHOWN here regardless of whether it may be written: it
+                         is an address, so it belongs in the address column, and
+                         the domain check decides storage rather than
+                         visibility. `looksLikeEmail` is what keeps a git config
+                         field holding "Tom Cool" - or an @github.com address,
+                         which is not a mailbox - out of a column of mailboxes. -->
+                    <div v-if="harvestFor(s)?.email" class="harvest-hint">
+                      <code>{{ harvestFor(s).email }}</code>
+                      <span
+                        class="text-muted"
+                        title="Read off their own commits - self-declared, and not confirmed by anyone"
+                      >from commits</span>
+                      <span
+                        v-if="!harvestFor(s).emailAllowed"
+                        class="text-warning"
+                        :title="`Not one of the allowed domains (${claimDomainList}), so it is not written into the roster. Often a typo - click the cell above to correct it.`"
+                      >domain not allowed</span>
+                    </div>
                   </td>
                   <td style="padding: 6px 8px;">
                     <RosterCell :student="s" field="class_group" :editor="cellEditor" v-model:draft="cellEdit.draft" empty-text="—" />

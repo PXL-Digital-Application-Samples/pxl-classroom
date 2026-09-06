@@ -649,7 +649,7 @@ Afterwards, fill in the real identities — see §6.5.1. The `source: accepted` 
 
 A promoted row carries a GitHub login and nothing else, and **nothing fills it in later on its own**: promotion skips a login it has already seen (that is the "only adds" rule above), and a claim is matched to a roster entry *by email* — which such a row does not have. Three routes, and they compose:
 
-**What the reports already know.** Under each unidentified row, the Roster tab shows what the collector recorded as the author of that student's commits — falling back to their public GitHub profile, with the provisioning bot and `noreply.github.com` addresses stripped. Anything that merely repeats the login is left out, since it says nothing you cannot already see.
+**What the reports already know.** Under each unidentified row, the Roster tab shows what the collector recorded as the author of that student's commits — falling back to their public GitHub profile, with the provisioning bot and `noreply.github.com` addresses stripped. An address appears under the **Email** column and a name under **Name**, so each sits with the column it is about. Anything that merely repeats the login is left out, since it says nothing you cannot already see, and anything that is not an address — a git `user.email` holding a name, or one at `github.com`, which is not a mailbox — is kept out of the address column.
 
 **Fill in the addresses.** When one or more of those addresses is on an allowed domain (`claim_domains` in `deployment.yml`), a **Fill in N emails from assignments** button appears and writes exactly those, into empty fields only, after showing you which. It is deliberately narrow:
 
