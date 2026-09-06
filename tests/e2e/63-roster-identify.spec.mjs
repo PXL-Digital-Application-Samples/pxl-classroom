@@ -686,8 +686,17 @@ test.describe('what the table says, and how wide it gets saying it', () => {
         table: t.scrollWidth - t.parentElement.clientWidth,
       };
     });
+    // THE PAGE is the assertion that matters and it stays exact: the body must
+    // never scroll sideways, whatever the table does inside its own scroller.
     expect(over.page, 'the page body must never scroll sideways').toBe(0);
-    expect(over.table, 'the hint must not widen the table beyond its own scroller').toBeLessThan(110);
+    // The table's internal scroll has a budget rather than a limit of zero - a
+    // six-column table does not fit a phone and is not meant to. 110 was
+    // measured when the actions column was usually EMPTY: its button only
+    // appeared for a row with a claim to unlink. Every row now carries a
+    // 28px menu trigger, so the floor moved by about that much and no more.
+    // The number this guards against is 219, which is where the harvest hint
+    // put it before `overflow-wrap` was added.
+    expect(over.table, 'the hint must not widen the table beyond its own scroller').toBeLessThan(150);
   });
 });
 

@@ -76,9 +76,9 @@
                 type="button"
                 :disabled="unlinkedStudents.length === 0"
                 @click="copyUnlinkedEmails"
-                :title="unlinkedStudents.length === 0 ? 'All students are linked' : `Copy ${unlinkedStudents.length} unlinked email(s)`"
+                :title="unlinkedStudents.length === 0 ? 'Every student already has a GitHub account on their row' : `Copy the ${unlinkedStudents.length} address(es) whose student has no GitHub account yet`"
               >
-                Copy unlinked emails ({{ unlinkedStudents.length }})
+                Copy emails with no account ({{ unlinkedStudents.length }})
               </button>
               <button class="btn btn-sm btn-secondary" type="button" @click="exportRosterCsv">Export CSV</button>
 
@@ -192,14 +192,14 @@
               type="button"
               @click="rosterFilter = 'linked'"
             >
-              Linked ({{ linkedStudents.length }})
+              Has account ({{ linkedStudents.length }})
             </button>
             <button
               :class="['chip-btn', { active: rosterFilter === 'unlinked' }]"
               type="button"
               @click="rosterFilter = 'unlinked'"
             >
-              Unlinked / Pending ({{ unlinkedStudents.length }})
+              No account yet ({{ unlinkedStudents.length }})
             </button>
           </div>
 
@@ -319,19 +319,25 @@
                       :title="`Claimed by @${bindingFor(s).login}, but the roster names @${bindingFor(s).rosterLogin}. One of the two is wrong.`"
                     >@{{ bindingFor(s).login }} &ne; roster</span>
                     <span v-else-if="bindingFor(s).state === 'roster'" class="badge badge-success mono">@{{ bindingFor(s).login }}</span>
+                    <!-- `unclaimable` used to render "No address" HERE, one
+                         column to the right of the Email column that already
+                         says so. Two columns answering one question, in
+                         different words. It falls through to the line below,
+                         which is true of it as well. -->
+                    <!-- A DASH, not "Pending linking". The column is headed
+                         GitHub Account; an empty one means we do not have one,
+                         and naming that state invented a word - it read as
+                         something in progress when nothing is. The tooltip
+                         carries the rest.
+                         Deliberately mode-neutral: this tab is ORG-scoped and
+                         an org can hold `enforced` and `claim` assignments at
+                         once, so it cannot know which route a given student
+                         will arrive by. -->
                     <span
-                      v-else-if="bindingFor(s).state === 'unclaimable'"
-                      class="badge badge-neutral text-xs"
-                      title="No email on this roster entry, so it can never be claimed. Re-import with an address."
-                    >No address</span>
-                    <!-- One label, deliberately mode-neutral. This tab is
-                         ORG-scoped and an org can hold `enforced` and `claim`
-                         assignments at once, so it cannot know which mechanism
-                         a given student is waiting on. An earlier version chose
-                         the wording from whether the org had any claims at all,
-                         which meant unlinking the last student silently
-                         relabelled every other row. -->
-                    <span v-else class="badge badge-neutral text-xs">Pending linking</span>
+                      v-else
+                      class="text-muted"
+                      title="No GitHub account on this row yet. It arrives when they accept an assignment, or when they use a confirm-email link."
+                    >&mdash;</span>
                     <span
                       v-if="bindingFor(s).state === 'claimed' && !bindingFor(s).verified"
                       class="text-xs text-muted"
@@ -339,18 +345,65 @@
                       title="The student typed this address rather than confirming one GitHub had already verified."
                     >unverified</span>
                   </td>
+                  <!-- THE ROW'S ACTIONS, in one menu.
+                       Editing used to be discoverable only by clicking a "-" in
+                       an empty cell, which was reported as "really, really
+                       confusing" - a dash does not read as a control. Clicking a
+                       cell still works and is still the fast way to fix one
+                       value; this is the way you find out that you can.
+                       Unlink lived here as a bare red button, and only appeared
+                       when there was a claim - so a row with nothing to unlink
+                       had an empty column and no actions at all. -->
                   <td style="padding: 6px 8px; text-align: right;">
-                    <!-- Unlink ships WITH the feature, deliberately: a wrong
-                         binding a lecturer cannot undo is the mistake GitHub
-                         Classroom made. -->
-                    <button
-                      v-if="bindingFor(s).claim"
-                      class="btn btn-sm btn-danger-outline"
-                      type="button"
-                      :disabled="unlinking"
-                      :title="`Remove the binding so this student can claim again`"
-                      @click="confirmUnlink(s, bindingFor(s))"
-                    >Unlink</button>
+                    <div class="row-menu-anchor" :ref="(el) => setRowMenuRef(s, el)">
+                      <button
+                        class="btn btn-ghost btn-icon btn-xs"
+                        type="button"
+                        :aria-expanded="rowMenuFor === rosterKey(s)"
+                        aria-haspopup="true"
+                        :aria-label="`Actions for ${whoIs(s)}`"
+                        title="Actions"
+                        @click.stop="toggleRowMenu(s, $event)"
+                      >&hellip;</button>
+
+                      <div v-if="rowMenuFor === rosterKey(s)" class="row-menu" role="menu" :style="rowMenuStyle">
+                        <button class="row-menu-item" type="button" role="menuitem" @click="openStudentEditor(s)">
+                          <span class="row-menu-title">Edit details&hellip;</span>
+                          <span class="row-menu-note">Number, name, email and group, saved in one go.</span>
+                        </button>
+
+                        <!-- "Forget", never "Remove GitHub account": the second
+                             reads as deleting the student's actual account.
+                             This deletes OUR record of which account they are,
+                             and nothing else. -->
+                        <button
+                          v-if="bindingFor(s).claim"
+                          class="row-menu-item"
+                          type="button"
+                          role="menuitem"
+                          :disabled="unlinking"
+                          @click="fromRowMenu(() => confirmUnlink(s, bindingFor(s)))"
+                        >
+                          <span class="row-menu-title">Forget this account</span>
+                          <span class="row-menu-note">
+                            Removes the link on this row. Nothing on GitHub changes, and they can confirm again.
+                          </span>
+                        </button>
+
+                        <button
+                          class="row-menu-item row-menu-item-danger"
+                          type="button"
+                          role="menuitem"
+                          :disabled="removingStudent"
+                          @click="fromRowMenu(() => confirmRemoveStudent(s))"
+                        >
+                          <span class="row-menu-title">Remove from roster&hellip;</span>
+                          <span class="row-menu-note">
+                            Takes them off this list. Their repository and their work are untouched.
+                          </span>
+                        </button>
+                      </div>
+                    </div>
                   </td>
                 </tr>
                 <tr v-if="filteredRosterStudents.length === 0">
@@ -525,6 +578,14 @@
       @close="promoteFrom = null"
       @promoted="onPromoted"
     />
+
+    <RosterStudentModal
+      v-if="editingStudent"
+      :student="editingStudent"
+      :saving="studentSaving"
+      @save="onStudentSave"
+      @close="editingStudent = null"
+    />
   </section>
 </template>
 
@@ -551,6 +612,7 @@ import { planClaimPromotion } from '../../../lib/promote-roster.mjs'
 // stripFormulaGuard. Shared so export -> edit -> import cannot become lossy again.
 import { csvCell } from '../../../lib/csv-cell.mjs'
 import PromoteRosterModal from './PromoteRosterModal.vue'
+import RosterStudentModal from './RosterStudentModal.vue'
 import RosterCell from './RosterCell.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
@@ -855,6 +917,144 @@ async function fillFromReports() {
     toast.error(`Could not save: ${e.message}`)
   } finally {
     harvesting.value = false
+  }
+}
+
+// --- one student, one dialog ------------------------------------------------
+//
+// The same four fields the cells edit, saved together. That is not only
+// convenience: identifying a promoted row means a number, a name and an address,
+// and doing it cell by cell is three commits to roster.yml in a few seconds -
+// which is exactly what produced a refused save on PXL-Automation-II when the
+// Contents API answered the second one with a stale sha.
+const editingStudent = ref(null)
+const studentSaving = ref(false)
+const removingStudent = ref(false)
+
+/** The dialog emits its values; the write and its reporting live here. */
+async function onStudentSave(values) {
+  studentSaving.value = true
+  try {
+    await saveStudentDetails(values)
+  } catch (e) {
+    toast.error(`Could not save: ${e.message}`)
+  } finally {
+    studentSaving.value = false
+  }
+}
+
+function openStudentEditor(student) {
+  rowMenuFor.value = null
+  // Cancel any open cell edit: two editors over one row, both spreading the
+  // roster as it was when they opened, is a lost update waiting to happen.
+  cancelCellEdit()
+  editingStudent.value = student
+}
+
+/**
+ * Write the dialog's fields onto the stored roster.
+ *
+ * MERGE, NEVER REPLACE, exactly as the cell editor does - the row is spread and
+ * only the four fields are overridden, because this table shows five of the nine
+ * columns an entry can carry.
+ */
+async function saveStudentDetails(values) {
+  const key = rosterKey(editingStudent.value)
+  const doc = existingRoster.value
+  const students = (doc?.students || []).map((entry) => {
+    if (rosterKey(entry) !== key) return entry
+    const next = { ...entry }
+    for (const [field, raw] of Object.entries(values)) {
+      const trimmed = typeof raw === 'string' ? raw.trim() : ''
+      if (trimmed) next[field] = trimmed
+      else delete next[field]
+    }
+    // `email_source` describes the address beside it. A person typing here
+    // outranks a claim and a commit, so the marker goes rather than staying to
+    // describe a value that is no longer theirs.
+    if ((values.email ?? '').trim() !== (entry.email ?? '')) delete next.email_source
+    return next
+  })
+  const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
+
+  const { valid, errors } = await validateAgainst('roster', updatedDoc)
+  if (!valid) {
+    toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
+    return false
+  }
+
+  const res = await commitFile(
+    getToken(), props.org, controlRepo, ROSTER_PATH,
+    stringifyYaml(updatedDoc),
+    `Update ${whoIs(editingStudent.value)} on the roster`,
+    { baseContent: rosterRaw.value },
+  )
+  if (!res.ok) {
+    toast.error(writeFailure(res))
+    return false
+  }
+  toast.success(`Saved ${whoIs(editingStudent.value)}`)
+  editingStudent.value = null
+  await loadExisting()
+  return true
+}
+
+/**
+ * Take one student off the roster.
+ *
+ * Only possible before this by exporting a CSV, deleting a line and importing
+ * it back - and that path removes anyone the CSV does not name, so it is a far
+ * blunter instrument than it looks.
+ *
+ * What it does NOT do is said in the prompt, because it is the thing a lecturer
+ * will assume: their repository, their acceptance and their work all survive.
+ * The roster is a list of who the course is about, not the store of their work.
+ */
+async function confirmRemoveStudent(student) {
+  const who = whoIs(student)
+  const ok = window.confirm(
+    `Remove ${who} from the roster?
+
+` +
+    `They come off this list only. Their repository, their submitted work and ` +
+    `any assignment they accepted are untouched.
+
+` +
+    `If they accept another assignment, or use a confirm-email link, they come back.`,
+  )
+  if (!ok) return
+
+  removingStudent.value = true
+  try {
+    const key = rosterKey(student)
+    const doc = existingRoster.value
+    const students = (doc?.students || []).filter((entry) => rosterKey(entry) !== key)
+    if (students.length === (doc?.students || []).length) {
+      toast.error('That student is no longer on the roster. Reload the page.')
+      return
+    }
+    const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
+    const { valid, errors } = await validateAgainst('roster', updatedDoc)
+    if (!valid) {
+      toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
+      return
+    }
+    const res = await commitFile(
+      getToken(), props.org, controlRepo, ROSTER_PATH,
+      stringifyYaml(updatedDoc),
+      `Remove ${who} from the roster`,
+      { baseContent: rosterRaw.value },
+    )
+    if (!res.ok) {
+      toast.error(writeFailure(res))
+      return
+    }
+    toast.success(`${who} removed from the roster`)
+    await loadExisting()
+  } catch (e) {
+    toast.error(`Could not remove: ${e.message}`)
+  } finally {
+    removingStudent.value = false
   }
 }
 
@@ -1478,14 +1678,84 @@ watch(csvText, () => parseAndValidate())
 
 const promotePickerRef = ref(null)
 
+// --- the row's actions menu -------------------------------------------------
+//
+// One menu per row, holding the three things you can do to one student. It
+// exists because editing was discoverable only by clicking a "-" in an empty
+// cell, which a lecturer reported as "really, really confusing" - a dash is not
+// a control, and hover is not discoverable either (the same lesson the resting
+// dotted underline was written for).
+//
+// Keyed by rosterKey, not by index: a filter change reorders the list, and an
+// index would leave the menu open over a different student.
+const rowMenuFor = ref(null)
+const rowMenuRefs = new Map()
+
+function setRowMenuRef(student, el) {
+  const key = rosterKey(student)
+  if (el) rowMenuRefs.set(key, el)
+  else rowMenuRefs.delete(key)
+}
+
+// FIXED, not absolute, and positioned from the trigger's own rectangle.
+//
+// The table sits in `.roster-table-wrapper`, which is `overflow-x: auto` - and
+// a box that is not `visible` on one axis computes to `auto` on the other, so
+// the wrapper clips vertically as well. An absolutely positioned panel inside
+// it was cut off after its first item.
+//
+// Fixed escapes the scroller. It is safe here because nothing between this and
+// the viewport carries a `transform`, `filter`, `perspective`, `will-change` or
+// `contain` - any of those would become the containing block and put the panel
+// somewhere else entirely (DESIGN.md, and the failure tests/e2e/47 exists for).
+const rowMenuStyle = ref(null)
+
+function toggleRowMenu(student, event) {
+  const key = rosterKey(student)
+  if (rowMenuFor.value === key) {
+    rowMenuFor.value = null
+    return
+  }
+  const r = event?.currentTarget?.getBoundingClientRect?.()
+  if (r) {
+    const WIDTH = 280
+    const ESTIMATED_HEIGHT = 210
+    // Flip up when there is no room below, so the last rows of a long roster
+    // are not the ones whose menu you cannot read.
+    const below = window.innerHeight - r.bottom
+    rowMenuStyle.value = {
+      left: `${Math.max(8, Math.min(r.right - WIDTH, window.innerWidth - WIDTH - 8))}px`,
+      ...(below < ESTIMATED_HEIGHT
+        ? { bottom: `${window.innerHeight - r.top + 4}px` }
+        : { top: `${r.bottom + 4}px` }),
+    }
+  }
+  rowMenuFor.value = key
+}
+
+/** Run a menu action and close the menu, so the answer is not behind it. */
+function fromRowMenu(action) {
+  rowMenuFor.value = null
+  action()
+}
+
+/** Whatever this row can be called, for a label a person reads. */
+function whoIs(s) {
+  return s.full_name || s.student_number || (s.github_login ? `@${s.github_login}` : 'this student')
+}
+
 // Closes on an outside click and on Escape, like every other menu in the app.
 function onDocumentClick(e) {
   if (promotePickerRef.value && !promotePickerRef.value.contains(e.target)) {
     promotePickerOpen.value = false
   }
+  const openRow = rowMenuFor.value && rowMenuRefs.get(rowMenuFor.value)
+  if (openRow && !openRow.contains(e.target)) rowMenuFor.value = null
 }
 function onEscape(e) {
-  if (e.key === 'Escape') promotePickerOpen.value = false
+  if (e.key !== 'Escape') return
+  promotePickerOpen.value = false
+  rowMenuFor.value = null
 }
 
 onMounted(() => {
@@ -1701,6 +1971,75 @@ defineExpose({
 
 /* Anchor for the "which assignment?" picker. */
 .promote-picker-anchor { position: relative; display: inline-flex; }
+/* The row's actions menu. Same shape as .promote-picker above - an absolutely
+   positioned panel under its trigger - kept scoped because only this component
+   has one. If a second table grows one, both move to style.css (DESIGN.md 7).
+
+   NO TRANSFORM anywhere on the anchor or the panel: this table sits inside
+   .roster-table-wrapper, which scrolls, and a transform on an ancestor becomes
+   the containing block for anything fixed inside it. The panel is absolute
+   rather than fixed for the same reason - it has to travel with its row. */
+.row-menu-anchor {
+  position: relative;
+  display: inline-block;
+}
+
+.row-menu {
+  position: fixed;
+  z-index: 100;
+  width: 280px;
+  padding: var(--space-xs);
+  /* DESIGN.md 2 names --bg-surface-elevated for dropdown menus. In light both
+     resolve to #ffffff and the panel separates by shadow; in dark it is a real
+     step up, which is what a panel floating over a table wants. */
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  text-align: left;
+}
+
+.row-menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-sm);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.row-menu-item:hover:not(:disabled),
+.row-menu-item:focus-visible {
+  background: var(--bg-surface-hover);
+}
+.row-menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.row-menu-title {
+  display: block;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* What the action does, under its name. A destructive action a lecturer has to
+   guess at is how somebody removes the wrong thing. */
+.row-menu-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.row-menu-item-danger .row-menu-title {
+  color: var(--accent-red);
+}
+
 .promote-picker {
   position: absolute;
   top: calc(100% + 4px);
@@ -1710,7 +2049,7 @@ defineExpose({
   max-height: 320px;
   overflow-y: auto;
   padding: var(--space-xs);
-  background: var(--bg-surface);
+  background: var(--bg-surface-elevated);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);

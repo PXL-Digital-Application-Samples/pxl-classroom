@@ -88,6 +88,33 @@ test.describe('47 - a dialog opens inside the viewport', () => {
     ).toBeLessThan(20);
   });
 
+  test('the roster student dialog is on screen too', async ({ page }) => {
+    // A SECOND dialog, in a different view, opened from inside a table that
+    // scrolls. The generic guard below reads whatever `.modal-overlay` happens
+    // to be mounted at the time, so it only ever checked the one dialog the
+    // test above opens - and this one is mounted by a different component.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {},
+      roster: [{ student_number: '0123456', full_name: 'Alice Example', email: 'alice@student.pxl.be' }],
+    });
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('.row-menu-anchor button').first().click();
+    await page.getByRole('menuitem', { name: /Edit details/ }).click();
+
+    const modal = page.locator('.modal-overlay .modal');
+    await expect(modal).toBeVisible();
+    const box = await modal.boundingBox();
+    const viewport = page.viewportSize();
+    expect(box, 'the dialog must have a rendered box').not.toBeNull();
+    expect(box.y, 'the dialog is scrolled off the top of the viewport').toBeGreaterThanOrEqual(-1);
+    expect(box.y).toBeLessThan(viewport.height);
+  });
+
   test('no page wrapper carries a class that traps fixed positioning', async ({ page }) => {
     // Generic, and the reason this catches the NEXT one rather than only this
     // one: whatever holds a modal must not establish a containing block.
