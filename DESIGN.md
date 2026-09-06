@@ -22,7 +22,7 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * **A pane-level CTA yields to the pane that has focus.** `New assignment` is solid while nothing is being edited and plain once an assignment is open, so the count is exactly one in both states rather than one per pane.
 
 3. **Status Dots over Bulky Pill Capsules:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
-   * In data tables, student cards, and metric rows, prefer `.status-indicator` with a glowing `.status-dot` and clean mixed-case text (`● On-time`, `● Provisioned`, `● Accepting`).
+   * In data tables, student cards, and metric rows, prefer `.status-indicator` with a glowing `.status-dot` and clean mixed-case text (`● On time`, `● Repository ready`, `● Accepting`).
    * Avoid uppercase heavy 9999px pill badges (`[ NO-SUBMISSION ]`) which add visual noise when repeated hundreds of times.
 
 4. **GitHub Primer Navigation:**
@@ -46,6 +46,13 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * Section numbers are a maintainer's index and they move; three documents' worth were renumbered in one afternoon, silently breaking four links the UI had composed by hand.
    * **Developer comments are exempt, deliberately.** `// ARCHITECTURE §4.3.2` beside the code it constrains is how the reasoning stays attached to the code, and the guard strips comments before it looks.
 
+7. **A stored value is not a label, and a column heading is not repeated in its cells.** *(enforced by `tests/status-labels.test.mjs`)*
+   * `{{ s.submission_status }}` put `no-submission` on screen; `{{ s.acceptance_state }}` put `provisioned` there, a word only this codebase uses. Both read as machine output because they are. Every field with an enum gets a label map in `frontend/src/lib/status-labels.js`, its values are checked against the schema by a test, and an unknown value **falls back to itself** — an unlovely word beats a blank cell, which reads as "nothing to report" about a student the system has plenty to say about.
+   * **Display only.** `lib/report-csv.mjs` exports the raw values and that column list is a contract with its own guard. The data keeps its words; the screen gets ours.
+   * **The heading already asks the question, so the cell answers it.** A GitHub Account column whose empty cell said `Pending linking` invented a noun for a state, and read as something in progress when nothing was; a dash says the same thing and needs no glossary. An account column that also said `No address` was answering the Email column's question one column to its left — two columns, one fact, two vocabularies.
+   * **Name what happens to the reader, not the record that was written.** `Unlink` describes our data; a lecturer read `Remove GitHub account` as deleting the student's actual account. **Forget this account** says we stop knowing, which is what it does.
+   * Nuance a reader only needs when deciding whether to trust something belongs in the `title`, not in the cell.
+   * Two exemptions, and they are narrow. A surface whose *subject* is the machinery may name it — `SystemHealthModal` diagnoses brokers and workflow dispatches and cannot report on what it may not name. `/setup` is read by whoever operates a deployment, per rule 6 above. Neither licenses a lecturer-facing table.
 ---
 
 ## 2. Design Tokens
@@ -173,7 +180,7 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 <!-- Active / Success -->
 <span class="status-indicator">
   <span class="status-dot dot-success"></span>
-  <span>On-time</span>
+  <span>On time</span>
 </span>
 
 <!-- Warning / Pending -->
@@ -193,7 +200,7 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 
 | Dot | Meaning |
 | :--- | :--- |
-| `.dot-success` | On-time, provisioned, accepting — the state you wanted. |
+| `.dot-success` | On time, repository ready, accepting — the state you wanted. |
 | `.dot-warning` | Late, pending, below minimum team size — needs a look, not an alarm. |
 | `.dot-danger` | Failed, refused, unfreezable — something did not happen. |
 | `.dot-neutral` | Not started, no submission, unknown. **Not** an error: an empty population is not a failure. |

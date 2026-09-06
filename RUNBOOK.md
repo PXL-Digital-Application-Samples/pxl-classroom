@@ -659,9 +659,11 @@ A promoted row carries a GitHub login and nothing else, and **nothing fills it i
 
 **Where an address came from is recorded.** An address the system filled in carries a marker beside it: *claimed* for one the student supplied themselves when accepting an assignment, *from commits* for one harvested off their own commits, which is self-declared and only ever plausible. The marker deliberately does not say *verified*: a claim is folded whether the student picked a GitHub-verified address or typed one, and the roster row does not record which — so the word would be asserting something nothing established. Nothing beside it means a person typed or imported it, which outranks both — and editing the cell clears the marker, because you are now the source.
 
-**Type it.** Every cell in the roster table — number, name, email, group — is editable in place: click, type, Enter. Escape abandons. This is what closes the gap the check leaves: an address like `rayane.waddah@student.pxl` is shown and flagged rather than hidden, because it names the student unmistakably even though the domain is a typo, and correcting it is two characters.
+**Type it.** Every cell in the roster table — number, name, email, group — is editable in place: click, type, Enter. Escape abandons. Each row also has an actions menu at its right-hand end, and **Edit details** there opens all four fields in one dialog. Use a cell for a one-character fix and the dialog when a row needs several: the dialog is one commit rather than one per field. This is what closes the gap the check leaves: an address like `rayane.waddah@student.pxl` is shown and flagged rather than hidden, because it names the student unmistakably even though the domain is a typo, and correcting it is two characters.
 
 An **empty** cell opens holding whatever the hint below it says, tinted to show that nobody has vouched for it — including addresses the fill button refuses, which is the point: the typo arrives in the box ready to fix. A cell that already has a value is never overwritten by a suggestion. **Enter accepts it; clicking away does not** — a value you never touched must not be written by the act of looking at it. Accepting one clears the *from commits* marker, because unlike the bulk fill button it went past a person first.
+
+**Taking one student off.** The same row menu has **Remove from roster**. It removes that one line and nothing else: their repository, their acceptance and their submitted work are untouched, and they come back on the roster if they accept another assignment or use a confirm-email link. Before this the only route was Export CSV, delete the line, import it back — which also removes everyone the CSV does not name, so it was a far blunter instrument than it looked.
 
 **Or ask them.** The most reliable identity is one the student confirms themselves — an address GitHub has verified on their account. That is what `roster_mode: claim`, and `require_claim` under `open`, collect at acceptance (§6.6), and the nightly folds a verified one straight into the matching row.
 
@@ -691,16 +693,17 @@ Under `roster_mode: claim` the student binds themselves: they confirm one of the
 
 | Shown | Means | What to do |
 |---|---|---|
-| `@account` (green) | Claimed, and GitHub had verified the address | Nothing |
-| `@account` + *unverified* | Claimed with an address the student **typed** | Nothing, unless the cohort review says otherwise |
-| `@account` (green, no claim) | Pre-linked by you in the roster CSV | Nothing - this works too |
-| `@account ≠ roster` (amber) | Claimed by an account that differs from the `github_login` on their roster row | **Unlink** the wrong one |
-| `Pending linking` | Nobody is bound yet | Wait, or chase the student |
-| `No address` | The roster entry has no email, so it can **never** be claimed | Re-import the roster with an address column |
+| `@account` (green) | Confirmed, and GitHub had verified the address | Nothing |
+| `@account` + *unverified* | Confirmed with an address the student **typed** | Nothing, unless the cohort review says otherwise |
+| `@account` (green, no claim) | Set by you in the roster CSV | Nothing, this works too |
+| `@account ≠ roster` (amber) | An account that differs from the `github_login` on their roster row | **Forget this account** on the wrong one |
+| `—` | We do not know their account yet | Wait, chase them, or send them the confirm-email link ([§6.5.1](#651-identifying-a-promoted-row)) |
+
+A row whose **Email** cell is also empty can never be matched by an address, because that is what the match is on. The tab counts those under the table and offers the confirm-email link, which supplies both facts at once.
 
 **CLI equivalent:** `pxl-classroom roster list` prints the same binding column plus a summary line, and names any orphan claims (an address on no roster entry - usually a student removed from the roster, or an address corrected after they claimed). Orphans are reported, never deleted automatically.
 
-**Unlinking**, from the Roster tab's **Unlink** button or:
+**Undoing one**, from the row's actions menu on the Roster tab - **Forget this account**, which removes our record of which account they are and nothing on GitHub - or:
 
 ```bash
 pxl-classroom roster unlink --org <org> --login <account> --dry-run   # preview
@@ -717,7 +720,7 @@ When a student **deletes and recreates their GitHub account**, their new `github
 
 **Folding claims into the roster happens by itself.** The nightly `collect` job folds every claim that needs no judgement, so a roster row's `github_login` fills in overnight with nobody running anything. What that buys is a self-contained roster: the *next* assignment can run `enforced` against a cohort whose usernames are now known, and an exported CSV carries them.
 
-**Three cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, and one address claimed by two accounts. Those are listed at the top of the **Roster** tab as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way unlinked first (above), so that row says so instead of offering a button that would refuse.
+**Three cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, and one address claimed by two accounts. Those are listed at the top of the **Roster** tab as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way removed first — **Forget this account**, in that row's actions menu (above) — so the row says so instead of offering a button that would refuse.
 
 The CLI folds the same claims but treats **you** as the review step, so it also folds a typed address - you are looking at the plan when you run it:
 

@@ -83,7 +83,7 @@ Every published assignment has a **Confirm-email link** beside its invitation li
 
 ### If a student confirms the wrong address
 
-They cannot change it themselves. Unlink the binding on the **Roster** tab and ask them to confirm again.
+They cannot change it themselves. On the **Roster** tab, open that student's actions menu and choose **Forget this account**, then ask them to confirm again. That removes only the link on their row. Nothing on GitHub changes, and their repository and work are untouched.
 
 ## Late work
 
