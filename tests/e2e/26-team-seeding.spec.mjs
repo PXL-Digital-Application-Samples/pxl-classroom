@@ -392,7 +392,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await expect(page.locator('.data-table tbody tr')).toHaveCount(2);
     await expect(page.locator('.data-table')).toContainText('Gamma Team');
     // The report's own row keeps its computed status; the merged one is neutral.
-    await expect(page.locator('tr', { hasText: 'Gamma Team' })).toContainText('no-submission');
+    await expect(page.locator('tr', { hasText: 'Gamma Team' })).toContainText('No submission');
   });
 
   test('An assignment with no teams offers seeding from its empty state', async ({ page }) => {

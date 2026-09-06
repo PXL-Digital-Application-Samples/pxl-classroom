@@ -107,8 +107,11 @@
             />
             <div>
               <div class="text-sm font-semibold">
-                Assignment Lifecycle:
-                <span>{{ assignment?.state || 'unknown' }}</span>
+                <!-- "Lifecycle" is the schema's word for this field, and the
+                     value was printed raw - so a student read "Assignment
+                     Lifecycle: archived". -->
+                This assignment is:
+                <span>{{ assignmentStateLabel(assignment?.state) || 'unknown' }}</span>
               </div>
               <div v-if="assignment?.state === 'draft'" class="text-xs text-warning">
                 This assignment is currently in draft mode. Your lecturer hasn't published it yet.
@@ -207,6 +210,7 @@
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { clearAuth, getUser } from '../lib/auth.js'
+import { assignmentStateLabel } from '../lib/status-labels.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { rosterMatchesLogin } from '../../../lib/roster-mode.mjs'

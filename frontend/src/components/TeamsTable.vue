@@ -30,7 +30,7 @@
             :class="{ active: teamStatusFilter === 'on-time' }"
             @click="teamStatusFilter = 'on-time'"
           >
-            On-time ({{ onTimeTeamsCount }})
+            On time ({{ onTimeTeamsCount }})
           </button>
           <button
             type="button"

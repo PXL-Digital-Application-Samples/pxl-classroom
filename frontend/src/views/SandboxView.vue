@@ -290,7 +290,7 @@
                 <td>
                   <span class="status-indicator">
                     <span class="status-dot dot-success"></span>
-                    <span class="text-sm">on-time</span>
+                    <span class="text-sm">{{ submissionLabel('on-time') }}</span>
                   </span>
                 </td>
                 <td><button class="btn btn-xs btn-ghost">View</button></td>
@@ -393,6 +393,7 @@ import StarterSyncModal from '../components/StarterSyncModal.vue'
 import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import { toast } from '../lib/toast.js'
+import { submissionLabel } from '../lib/status-labels.js'
 import { TIMEZONE } from '../lib/deployment.js'
 import { resolvedTheme } from '../lib/theme.js'
 

@@ -316,10 +316,10 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
 
     const titanRow = page.locator('tr', { hasText: 'Team Titan' });
     await expect(titanRow).toBeVisible();
-    await expect(titanRow.locator('.status-indicator', { hasText: /on-time/i })).toBeVisible();
+    await expect(titanRow.locator('.status-indicator', { hasText: /on time/i })).toBeVisible();
 
     // Verify filter tab counts
-    await expect(page.locator('.team-quick-filters button', { hasText: /On-time \(1\)/i })).toBeVisible();
+    await expect(page.locator('.team-quick-filters button', { hasText: /On time \(1\)/i })).toBeVisible();
     await expect(page.locator('.team-quick-filters button', { hasText: /Late \(0\)/i })).toBeVisible();
   });
 

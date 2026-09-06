@@ -45,6 +45,26 @@ export const ACCEPTANCE_LABELS = Object.freeze({
 });
 
 /**
+ * An assignment's `state`, enumerated in schemas/assignment.schema.json.
+ *
+ * Four surfaces rendered this with a two-branch ternary - published and closed
+ * named, everything else falling through to the stored value - so a lecturer
+ * read `draft` and `archived`, and the assignment editor printed all four raw.
+ * The student acceptance page and the student diagnostics dialog did it too,
+ * which put a schema value in front of somebody who has never seen a schema.
+ *
+ * `published` is "Accepting" because that is the fact a reader wants: whether a
+ * student can join right now. It is also what three of those four surfaces
+ * already said, so this is the shared spelling rather than a new one.
+ */
+export const ASSIGNMENT_STATE_LABELS = Object.freeze({
+  draft: "Draft",
+  published: "Accepting",
+  closed: "Closed",
+  archived: "Archived",
+});
+
+/**
  * The label for a value, or the value itself when there is none.
  *
  * FALLING BACK TO THE RAW STRING IS DELIBERATE. A new state added upstream
@@ -66,4 +86,9 @@ export function submissionLabel(value) {
 /** @param {string|null|undefined} value */
 export function acceptanceLabel(value) {
   return label(ACCEPTANCE_LABELS, value);
+}
+
+/** @param {string|null|undefined} value */
+export function assignmentStateLabel(value) {
+  return label(ASSIGNMENT_STATE_LABELS, value);
 }

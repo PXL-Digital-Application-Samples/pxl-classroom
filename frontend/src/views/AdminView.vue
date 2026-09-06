@@ -170,7 +170,7 @@
           <div class="editor-header-bar">
             <div class="editor-title">
               <h3 v-if="isNew">New assignment</h3>
-              <h3 v-else>Edit: <code>{{ form.id }}</code> <span class="badge" :class="`badge-${form.state}`">{{ form.state }}</span></h3>
+              <h3 v-else>Edit: <code>{{ form.id }}</code> <span class="badge" :class="`badge-${form.state}`">{{ assignmentStateLabel(form.state) }}</span></h3>
             </div>
             <div class="editor-header-actions">
               <button
@@ -927,7 +927,7 @@
                   <code class="cohort-num">{{ s.student_number || '—' }}</code>
                   <span class="cohort-name">{{ s.full_name || 'Not yet identified' }}</span>
                   <span class="cohort-group text-muted">{{ s.class_group || '—' }}</span>
-                  <span class="cohort-acct text-muted">{{ s.github_login ? '@' + s.github_login : 'pending linking' }}</span>
+                  <span class="cohort-acct text-muted">{{ s.github_login ? '@' + s.github_login : 'no account yet' }}</span>
                 </label>
                 <p v-if="!cohortVisible.length" class="text-muted text-center cohort-empty">
                   No students match this filter.
@@ -1363,6 +1363,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { config } from '../lib/config.js'
+import { assignmentStateLabel } from '../lib/status-labels.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
 import { TIMEZONE, INSTITUTION_SHORT } from '../lib/deployment.js'

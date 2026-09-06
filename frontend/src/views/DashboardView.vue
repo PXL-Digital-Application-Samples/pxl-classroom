@@ -431,7 +431,7 @@
             <div class="card-header flex items-center justify-between">
               <span class="status-indicator">
                 <span class="status-dot" :class="a.state === 'published' ? 'dot-success' : (a.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
-                <span class="status-text">{{ a.state === 'published' ? 'Accepting' : (a.state === 'closed' ? 'Closed' : a.state) }}</span>
+                <span class="status-text">{{ assignmentStateLabel(a.state) }}</span>
               </span>
               <span class="flex items-center gap-xs">
                 <span class="text-muted text-xs mono">{{ a.id }}</span>
@@ -456,7 +456,7 @@
               </div>
               <div class="stat">
                 <span class="stat-value stat-green">{{ a.on_time ?? '-' }}</span>
-                <span class="stat-label">On-time</span>
+                <span class="stat-label">On time</span>
               </div>
               <div class="stat">
                 <span class="stat-value stat-yellow">{{ a.late ?? '-' }}</span>
@@ -464,7 +464,7 @@
               </div>
               <div class="stat">
                 <span class="stat-value stat-red">{{ a.no_submission ?? '-' }}</span>
-                <span class="stat-label">No sub</span>
+                <span class="stat-label">No submission</span>
               </div>
               <!-- Named for what it is. "Warnings" counted three things, two of
                    which merely restated other columns and no longer render
@@ -503,6 +503,7 @@ import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
+import { assignmentStateLabel } from '../lib/status-labels.js'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
 import { toast } from '../lib/toast.js'

@@ -82,7 +82,7 @@
           <div class="assignment-meta flex items-center gap-sm">
             <span class="status-indicator">
               <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
-              <span class="text-sm font-medium">{{ assignment.state === 'published' ? 'Accepting Submissions' : (assignment.state === 'closed' ? 'Acceptance Closed' : assignment.state) }}</span>
+              <span class="text-sm font-medium">{{ assignmentStateLabel(assignment.state) }}</span>
             </span>
             <span v-if="assignment.acceptance_mode && assignment.acceptance_mode !== 'self-service'" class="text-xs text-muted">({{ assignment.acceptance_mode }})</span>
           </div>
@@ -295,7 +295,7 @@
                 <div class="flex items-center gap-xs">
                   <span class="text-xs font-semibold text-secondary">Submission Status:</span>
                   <span :class="['badge', studentSubmissionStatus === 'on-time' ? 'badge-success' : studentSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']">
-                    {{ studentSubmissionStatus === 'on-time' ? 'Submitted on-time' : studentSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
+                    {{ studentSubmissionStatus === 'on-time' ? 'Submitted on time' : studentSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
                   </span>
                 </div>
 
@@ -518,6 +518,7 @@ import StudentDiagnosticsModal from '../components/StudentDiagnosticsModal.vue'
 import ClaimAddressCard from '../components/ClaimAddressCard.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
+import { assignmentStateLabel } from '../lib/status-labels.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'

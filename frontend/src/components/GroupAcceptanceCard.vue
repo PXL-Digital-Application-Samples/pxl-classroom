@@ -47,7 +47,7 @@
           <div class="flex items-center gap-xs">
             <span class="text-xs font-semibold text-secondary">Team Submission:</span>
             <span :class="['badge', teamSubmissionStatus === 'on-time' ? 'badge-success' : teamSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']">
-              {{ teamSubmissionStatus === 'on-time' ? 'Submitted on-time' : teamSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
+              {{ teamSubmissionStatus === 'on-time' ? 'Submitted on time' : teamSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
             </span>
           </div>
 

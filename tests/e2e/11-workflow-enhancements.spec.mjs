@@ -67,7 +67,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(page.locator('tr', { hasText: 'student-nosub' })).toBeVisible();
 
     // 1. Click 'On-time' quick-filter pill
-    await page.locator('.quick-filter-pills .tab-pill', { hasText: /On-time/i }).click();
+    await page.locator('.quick-filter-pills .tab-pill', { hasText: /On time/i }).click();
     await expect(page.locator('tr', { hasText: 'student-ontime' })).toBeVisible();
     await expect(page.locator('tr', { hasText: 'student-late' })).not.toBeVisible();
     await expect(page.locator('tr', { hasText: 'student-nosub' })).not.toBeVisible();
@@ -78,7 +78,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(page.locator('tr', { hasText: 'student-ontime' })).not.toBeVisible();
 
     // 3. Click 'No sub' quick-filter pill
-    await page.locator('.quick-filter-pills .tab-pill', { hasText: /No sub/i }).click();
+    await page.locator('.quick-filter-pills .tab-pill', { hasText: /No submission/i }).click();
     await expect(page.locator('tr', { hasText: 'student-nosub' })).toBeVisible();
     await expect(page.locator('tr', { hasText: 'student-ontime' })).not.toBeVisible();
 
@@ -170,7 +170,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(page.locator('tr', { hasText: 'team-alpha' })).not.toBeVisible();
 
     // 3. Filter On-time teams
-    await page.locator('.team-quick-filters .tab-pill', { hasText: /On-time/i }).click();
+    await page.locator('.team-quick-filters .tab-pill', { hasText: /On time/i }).click();
     await expect(page.locator('tr', { hasText: 'team-alpha' })).toBeVisible();
     await expect(page.locator('tr', { hasText: 'team-gamma' })).toBeVisible();
     await expect(page.locator('tr', { hasText: 'team-beta' })).not.toBeVisible();
@@ -215,7 +215,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(statusCard.locator('.override-alert-banner')).toContainText('Approved medical extension');
 
     // Verify on-time status badge (because commit was before extended deadline)
-    await expect(statusCard.locator('.badge-success')).toContainText('Submitted on-time');
+    await expect(statusCard.locator('.badge-success')).toContainText('Submitted on time');
 
     // Verify countdown timer indicates time remaining under extension
     await expect(statusCard.locator('.deadline-countdown')).toContainText(/Closes in \d+d/i);
@@ -420,7 +420,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(page.locator('.table-footer')).toContainText('1 of 3 students shown');
 
     // 2. Click 'On-time' summary card
-    const ontimeCard = page.locator('.summary-card', { hasText: 'On-time' });
+    const ontimeCard = page.locator('.summary-card', { hasText: 'On time' });
     await ontimeCard.click();
     await expect(page.locator('tr', { hasText: 'student-ontime' })).toBeVisible();
     await expect(page.locator('tr', { hasText: 'student-late' })).not.toBeVisible();
@@ -580,7 +580,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(teamStatusCard).toBeVisible();
 
     // Verify on-time badge
-    await expect(teamStatusCard.locator('.badge-success')).toContainText('Submitted on-time');
+    await expect(teamStatusCard.locator('.badge-success')).toContainText('Submitted on time');
 
     // Verify countdown timer
     await expect(teamStatusCard.locator('.deadline-countdown')).toContainText(/Closes in \d+d|Closes in \d+h/i);

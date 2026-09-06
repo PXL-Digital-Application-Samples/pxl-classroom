@@ -687,7 +687,7 @@ function copyUnlinkedEmails() {
   // the document is not focused, and lib/clipboard.js carries the execCommand
   // fallback that exists because of it.
   copyText(formatted).then((ok) => {
-    if (ok) toast.success(`Copied ${emails.length} unlinked email(s) to clipboard`)
+    if (ok) toast.success(`Copied ${emails.length} address(es) to the clipboard`)
     else toast.error('Failed to copy emails to clipboard')
   })
 }

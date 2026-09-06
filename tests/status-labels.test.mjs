@@ -18,8 +18,10 @@ import { dirname, join } from "node:path";
 
 import {
   ACCEPTANCE_LABELS,
+  ASSIGNMENT_STATE_LABELS,
   SUBMISSION_LABELS,
   acceptanceLabel,
+  assignmentStateLabel,
   submissionLabel,
 } from "../frontend/src/lib/status-labels.js";
 
@@ -55,10 +57,25 @@ test("every acceptance status the schema declares has a label", () => {
   assert.ok(ACCEPTANCE_LABELS["not-accepted"], "report.mjs writes this one itself");
 });
 
+test("every assignment state the schema declares has a label", () => {
+  // Four surfaces rendered this with a two-branch ternary and let draft and
+  // archived fall through to the stored value; the editor printed all four raw,
+  // and the student diagnostics dialog printed it to a student.
+  const values = enumFor(schema("assignment.schema.json"), "state");
+  assert.ok(values?.length, "the enum was not found - this guard would pass vacuously");
+  const missing = values.filter((v) => !ASSIGNMENT_STATE_LABELS[v]);
+  assert.deepEqual(missing, [], "assignment states with no label");
+});
+
 test("no label is left as the raw value by accident", () => {
   // A label identical to its key means somebody added the key and never wrote
   // the word - which reads exactly like the defect this file exists to stop.
-  for (const [map, name] of [[SUBMISSION_LABELS, "submission"], [ACCEPTANCE_LABELS, "acceptance"]]) {
+  const maps = [
+    [SUBMISSION_LABELS, "submission"],
+    [ACCEPTANCE_LABELS, "acceptance"],
+    [ASSIGNMENT_STATE_LABELS, "assignment state"],
+  ];
+  for (const [map, name] of maps) {
     for (const [value, text] of Object.entries(map)) {
       assert.notEqual(text, value, `${name} label for ${value} is still the raw value`);
       assert.match(text, /^[A-Z]/, `${name} label for ${value} should read as a sentence`);
@@ -73,12 +90,14 @@ test("AN UNKNOWN VALUE FALLS BACK TO ITSELF, never to a blank", () => {
   // has something to say about. An unlovely word is the better failure.
   assert.equal(acceptanceLabel("some-new-state"), "some-new-state");
   assert.equal(submissionLabel("some-new-state"), "some-new-state");
+  assert.equal(assignmentStateLabel("some-new-state"), "some-new-state");
 });
 
 test("an absent value is empty, because there is nothing to say", () => {
   for (const empty of [null, undefined, "", 0, false]) {
     assert.equal(acceptanceLabel(empty), "");
     assert.equal(submissionLabel(empty), "");
+    assert.equal(assignmentStateLabel(empty), "");
   }
 });
 
@@ -87,4 +106,13 @@ test("the labels a lecturer reported are gone", () => {
   assert.equal(acceptanceLabel("provisioned"), "Repository ready");
   assert.equal(submissionLabel("no-submission"), "No submission");
   assert.equal(submissionLabel("on-time"), "On time");
+});
+
+test("published reads as what a reader wants to know, not as the stored word", () => {
+  // "Accepting" is the fact somebody is after - whether a student can join now.
+  // It is also what three of the four surfaces already said, so this is the
+  // shared spelling rather than a fifth one.
+  assert.equal(assignmentStateLabel("published"), "Accepting");
+  assert.equal(assignmentStateLabel("draft"), "Draft");
+  assert.equal(assignmentStateLabel("archived"), "Archived");
 });

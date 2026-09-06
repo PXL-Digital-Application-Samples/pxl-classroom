@@ -86,20 +86,20 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
 
     // Verify filter chips
     await expect(page.getByRole('button', { name: 'All (3)' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Linked (1)' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Unlinked / Pending (2)' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Has account (1)' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'No account yet (2)' })).toBeVisible();
 
     // Filter to Unlinked / Pending
-    await page.getByRole('button', { name: 'Unlinked / Pending (2)' }).click();
+    await page.getByRole('button', { name: 'No account yet (2)' }).click();
     await expect(page.locator('.roster-table')).toContainText('Bob Pending');
     await expect(page.locator('.roster-table')).toContainText('Charlie Pending');
     await expect(page.locator('.roster-table')).not.toContainText('Alice Linked');
 
     // Copy Unlinked Emails
-    const copyBtn = page.getByRole('button', { name: /Copy unlinked emails/i });
+    const copyBtn = page.getByRole('button', { name: /Copy emails with no account/i });
     await expect(copyBtn).toBeEnabled();
     await copyBtn.click();
-    await expect(page.locator('.toast', { hasText: /Copied 2 unlinked email/i })).toBeVisible();
+    await expect(page.locator('.toast', { hasText: /Copied 2 address/i })).toBeVisible();
   });
 
   test('Scenario 3 (Quick Add Single Student): Appends individual student to roster without full CSV re-import', async ({ page }) => {

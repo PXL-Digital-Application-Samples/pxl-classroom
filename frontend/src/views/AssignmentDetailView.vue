@@ -16,7 +16,7 @@
           <h1 class="app-header-heading" :title="assignmentId">{{ assignmentId }}</h1>
           <span v-if="assignment" class="status-indicator">
             <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
-            <span class="text-xs text-secondary">{{ assignment.state === 'published' ? 'Accepting' : (assignment.state === 'closed' ? 'Closed' : assignment.state) }}</span>
+            <span class="text-xs text-secondary">{{ assignmentStateLabel(assignment.state) }}</span>
           </span>
 
           <!-- THE TWO VIEWS OF THIS ASSIGNMENT, in the trail that names it.
@@ -1176,7 +1176,7 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
-import { acceptanceLabel, submissionLabel } from '../lib/status-labels.js'
+import { acceptanceLabel, assignmentStateLabel, submissionLabel } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
