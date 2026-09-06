@@ -335,10 +335,10 @@ test.describe('the name is taken', () => {
     await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page);
     const err = refusal(page);
-    await expect(err).toContainText('Ways forward:');
-    await expect(err.locator('.collision-ways li')).toHaveCount(3);
+    await expect(err).toContainText('What to do:');
+    await expect(err.locator('.collision-ways li')).toHaveCount(2);
     await expect(err).toContainText('Recommended');
-    await expect(err).toContainText('repository name pattern');
+    await expect(err).toContainText('The name has to be different');
     await expect(err).toContainText('Delete what is listed above');
     await expect(err).not.toContainText(/RUNBOOK|ARCHITECTURE|LESSONS|DESIGN\.md/);
   });
@@ -370,9 +370,14 @@ test.describe('the name is taken', () => {
     await fillNew(page, { title: 'Lab 3 New', slug: 'lab-3-new', pattern: 'lab-3-{github_login}' });
 
     const err = refusal(page);
-    await expect(err.locator('.collision-ways li')).toHaveCount(2);
+    // One way forward, and it is not "delete": there is nothing to delete.
+    await expect(err.locator('.collision-ways li')).toHaveCount(1);
     await expect(err).not.toContainText('Delete what is listed above');
-    await expect(err).toContainText('no other assignment uses');
+    // Nor "Recommended" - there is nothing to recommend it over.
+    await expect(err).not.toContainText('Recommended');
+    // The finding names the pattern, so the field to change is identified
+    // without a second remedy saying the same thing as the first.
+    await expect(err).toContainText('already uses this repository name pattern');
   });
 
   test('the delete option says what it costs, in the same breath', async ({ page }) => {

@@ -366,9 +366,8 @@ test("the refusal never points a lecturer at the repository's own documentation"
 test("the refusal says how to proceed, not only that it refused", () => {
   // A refusal that only says no gets routed around.
   const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }));
-  assert.match(msg, /Ways forward:/);
+  assert.match(msg, /What to do:/);
   assert.match(msg, /has to be different/);
-  assert.match(msg, /repository name pattern/);
   assert.match(msg, /Delete what is listed above/);
 });
 
@@ -381,7 +380,8 @@ test("distinguishing the name is offered first and is the recommended one", () =
   });
   assert.equal(ways[0].key, "distinguish");
   assert.equal(ways[0].recommended, true);
-  assert.equal(ways.filter((w) => w.recommended).length, 1, "exactly one recommendation");
+  assert.equal(ways.filter((w) => w.recommended).length, 1, "at most one recommendation");
+  assert.ok(ways.length > 1, "and only when there is a choice to make");
 });
 
 test("IT NAMES NO REPLACEMENT AT ALL - not a composed one, not a year", () => {
@@ -424,12 +424,15 @@ test("deleting is offered ONLY when there is something to delete", () => {
   const clashOnly = collisionRemedies({
     verdict: assignmentCollisions({ clashes: [{ id: "other", pattern: "p-{github_login}" }] }),
   });
-  assert.deepEqual(clashOnly.map((w) => w.key), ["distinguish", "pattern"]);
+  assert.deepEqual(clashOnly.map((w) => w.key), ["distinguish"]);
+  // And it is not marked Recommended: a label that exists to distinguish has
+  // nothing to distinguish it from when it is the only one.
+  assert.equal(clashOnly[0].recommended, false);
 
   const withRepos = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
   });
-  assert.deepEqual(withRepos.map((w) => w.key), ["distinguish", "pattern", "delete"]);
+  assert.deepEqual(withRepos.map((w) => w.key), ["distinguish", "delete"]);
 
   const withArchive = collisionRemedies({ verdict: assignmentCollisions({ archiveExists: true }) });
   assert.ok(withArchive.some((w) => w.key === "delete"));
@@ -441,20 +444,6 @@ test("the delete option says what it costs, in the same breath", () => {
   }).find((w) => w.key === "delete");
   assert.match(del.label, /destroys the students' work/);
   assert.equal(del.recommended, false);
-});
-
-test("the pattern option is worded for the problem that was actually found", () => {
-  // "Keep this name and change only the pattern" is wrong advice when the
-  // pattern is what clashes.
-  const onClash = collisionRemedies({
-    verdict: assignmentCollisions({ clashes: [{ id: "other", pattern: "p-{github_login}" }] }),
-  }).find((w) => w.key === "pattern");
-  assert.match(onClash.label, /no other assignment uses/);
-
-  const onRepos = collisionRemedies({
-    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
-  }).find((w) => w.key === "pattern");
-  assert.match(onRepos.label, /Keep the name/);
 });
 
 test("IT STAYS SHORT - this is red text under a form field", () => {
