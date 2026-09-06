@@ -71,6 +71,7 @@
          block. -->
     <div v-if="(variant === 'banner' || variant === 'popover') && link" class="invitation-share-confirm">
       <span class="invitation-share-confirm-label">Confirm-email link</span>
+      <HelpButton topic="confirming-an-email-address" label="the confirm-email link" />
       <button
         type="button"
         class="btn-link"
@@ -96,6 +97,7 @@
 // slotted into a parent.
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
+import HelpButton from './HelpButton.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { assignmentPath } from '../../../lib/control-layout.mjs'

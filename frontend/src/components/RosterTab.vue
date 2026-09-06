@@ -1,7 +1,10 @@
 <template>
   <section class="roster-tab">
     <div class="roster-header">
-      <h3>Roster - {{ org }}</h3>
+      <!-- The one place a lecturer meets the roster, class groups and cohorts
+           at once, and has to hold all three apart. The topic is the four-line
+           orientation, not this tab's own instructions. -->
+      <h3>Roster - {{ org }} <HelpButton topic="how-the-pieces-fit" label="how the roster, groups and teams fit together" /></h3>
       <p class="text-secondary">
         Import or update <code>students/roster.yml</code> in <code>{{ org }}/{{ controlRepo }}</code>.
         Drop a CSV (header row required) or paste below. The diff is previewed before commit.

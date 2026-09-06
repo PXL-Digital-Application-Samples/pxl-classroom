@@ -2,6 +2,17 @@
 
 What each setting does, and what it changes for your students.
 
+## How the pieces fit
+
+Four things, and three of them sound like "a group of students".
+
+- **Roster** - every student you teach, listed once. One per organisation, and the only list of people. Everything else points at it.
+- **Class group** - a label on a student, like `3A`. It filters the roster while you pick. It decides nothing.
+- **Cohort** - the students one assignment is for. Picked from the roster and kept as a list, so it records who, not a rule.
+- **Team** - students who share one repository, for one assignment. Carry them to the next one with **Seed teams from...**; nothing is automatic.
+
+A team is not a class group. A class group helps you find people; a team gives them a shared repository.
+
 ## Who may accept
 
 Who is allowed to use the invitation link.
@@ -49,12 +60,26 @@ A class group is a label on a student, and it exists to make that list quick to 
 
 ## Confirming an email address
 
-Only under **Open**, where nobody was imported up front.
+How a student tells you which account is theirs.
 
-- Ticked, a student confirms an address before they can accept.
-- The page offers the addresses GitHub already verified for their account. A typed one is accepted and recorded as **unverified**.
-- It does not restrict who may accept. Anyone with the link still can. It records **who** accepted, so you can match accounts to students afterwards.
+They sign in and pick an address GitHub has already verified for their account, so the mailbox is proven rather than typed. If GitHub has none that matches, they can type one and it is recorded as **unverified**. One confirmation covers every assignment in the organisation.
+
+### At acceptance
+
+The **Ask students to confirm...** box, offered under **Open** only.
+
+- Ticked, a student confirms before they can accept.
+- It does not restrict who may accept. Anyone with the link still can. It records **who** did.
 - Off, you get their GitHub username and nothing else.
+
+### Any time, with a link
+
+Beside every published assignment's invitation there is a second link: **Confirm-email link**. Send it to anyone whose roster row shows only a GitHub username.
+
+- It gives out no repository and checks no deadline, so it still works after one has passed.
+- It works whatever **Who may accept** is set to.
+- It stops when that assignment finishes, and **Regenerate link** retires it.
+- No live assignment to carry one? Publish one for the purpose. It hands out nothing.
 
 ## Late work
 

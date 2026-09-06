@@ -21,7 +21,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { MANUAL_TOPICS, isManualTopic } from "../lib/manual-topics.mjs";
+import { MANUAL_TOPICS, TOPIC_SUMMARIES, isManualTopic, topicSummary } from "../lib/manual-topics.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(join(ROOT, "MANUAL.md"), "utf8");
@@ -141,4 +141,52 @@ test("every HelpButton names a topic that exists", () => {
     [],
     "help buttons naming topics that do not exist",
   );
+});
+
+// --------------------------------------------------------------- the tooltips
+//
+// The summary is the `?` button's hover text, and it is HAND-WRITTEN beside the
+// topic id rather than lifted from the topic's first line - a deliberate second
+// copy, because a tooltip has to work alone in one short sentence and a
+// section's opening line is written with the section under it.
+//
+// A second copy of a fact is the shape this repo keeps being bitten by, so
+// everything that CAN be checked is. What cannot is whether the sentence is
+// still true, and no test will ever tell you that.
+
+test("every topic has a tooltip, and every tooltip has a topic", () => {
+  // Both directions, like the ids above: a summary for an id nobody declares is
+  // a line nothing renders, and an id with no summary is a `?` that reveals
+  // nothing on hover while its neighbours do.
+  const missing = MANUAL_TOPICS.filter((id) => !TOPIC_SUMMARIES[id]);
+  assert.deepEqual(missing, [], "topics with no summary - their `?` shows no tooltip");
+
+  const orphaned = Object.keys(TOPIC_SUMMARIES).filter((id) => !MANUAL_TOPICS.includes(id));
+  assert.deepEqual(orphaned, [], "summaries for topics that do not exist");
+});
+
+test("a tooltip is ONE short sentence, because that is all a hover can carry", () => {
+  const problems = [];
+  for (const [id, summary] of Object.entries(TOPIC_SUMMARIES)) {
+    if (summary !== summary.trim()) problems.push(`${id}: leading or trailing space`);
+    if (/[\r\n]/.test(summary)) problems.push(`${id}: spans lines`);
+    // A title attribute is not a paragraph. 90 characters is about what reads
+    // in one glance beside a control.
+    if (summary.length > 90) problems.push(`${id}: ${summary.length} chars, over 90`);
+    if (summary.length < 15) problems.push(`${id}: ${summary.length} chars - too short to say anything`);
+    // Two sentences means the second one is the part nobody reads.
+    if (/[.!?]\s+\S/.test(summary)) problems.push(`${id}: more than one sentence`);
+    if (!summary.endsWith(".")) problems.push(`${id}: does not end in a full stop`);
+    // Markdown does not render in a title attribute - it renders as asterisks.
+    if (/[*_`]/.test(summary)) problems.push(`${id}: carries markdown, which a tooltip shows literally`);
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("topicSummary returns empty for an unknown id, never a guess", () => {
+  // A `title` built from the id would render "how-the-pieces-fit" at a
+  // lecturer, which is worse than no tooltip at all.
+  assert.equal(topicSummary("no-such-topic"), "");
+  assert.equal(topicSummary(undefined), "");
+  assert.equal(topicSummary("how-the-pieces-fit").length > 0, true);
 });

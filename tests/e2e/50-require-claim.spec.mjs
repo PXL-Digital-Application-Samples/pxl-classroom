@@ -128,8 +128,12 @@ test.describe('50 - the lecturer side', () => {
     // has simply been deleted.
     await page.getByRole('button', { name: /What does confirming an email address mean/ }).click();
     const drawer = page.locator('.help-drawer');
-    await expect(drawer).toContainText('confirms an address before they can accept');
+    await expect(drawer).toContainText('confirms before they can accept');
     await expect(drawer).toContainText('does not restrict who may accept');
+    // The topic covers BOTH ways an address is collected now. This checkbox is
+    // the acceptance-time one; the standalone link is the other, and a lecturer
+    // opening this drawer should meet it rather than discover it by accident.
+    await expect(drawer).toContainText('Confirm-email link');
   });
 
   test('the option is absent when it would mean nothing', async ({ page }) => {

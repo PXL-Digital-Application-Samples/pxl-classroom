@@ -1,8 +1,14 @@
 <template>
+  <!-- The tooltip answers the question the button asks, in one sentence, so
+       hovering is often enough and the drawer is for when it is not. It is NOT
+       the accessible name: a screen reader already gets `aria-label`, and
+       repeating a summary there would read the whole sentence before the user
+       knows there is a button. -->
   <button
     type="button"
     class="help-button"
     :aria-label="`What does ${label} mean?`"
+    :title="summary || null"
     @click="open"
   >
     <span aria-hidden="true">?</span>
@@ -17,7 +23,8 @@
 // lecturer presses it. tests/manual-topics.test.mjs catches the same mistake
 // before it ships.
 
-import { openHelp, MANUAL_TOPICS } from '../lib/help.js'
+import { computed } from 'vue'
+import { openHelp, MANUAL_TOPICS, topicSummary } from '../lib/help.js'
 
 const props = defineProps({
   /** A topic id declared in MANUAL.md and listed in lib/manual-topics.mjs. */
@@ -29,6 +36,8 @@ const props = defineProps({
   /** What the button is explaining, for the accessible name. */
   label: { type: String, required: true },
 })
+
+const summary = computed(() => topicSummary(props.topic))
 
 function open() {
   openHelp(props.topic)

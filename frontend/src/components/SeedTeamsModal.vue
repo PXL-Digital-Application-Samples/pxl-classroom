@@ -2,7 +2,11 @@
   <div class="modal-overlay" @click.self="close">
     <div class="modal seed-modal" role="dialog" aria-modal="true" aria-labelledby="seed-modal-title">
       <header class="modal-head">
-        <h3 id="seed-modal-title">Seed teams — {{ assignment.id }}</h3>
+        <!-- Teams belong to ONE assignment, so carrying them forward is a
+             deliberate step rather than something that happens. That is the
+             sentence the topic opens with, and this modal is where somebody
+             first wonders about it. -->
+        <h3 id="seed-modal-title">Seed teams — {{ assignment.id }} <HelpButton topic="group-assignments" label="how teams work" /></h3>
         <button class="modal-close" type="button" @click="close" aria-label="Close">×</button>
       </header>
 
@@ -169,6 +173,7 @@ import { config } from '../lib/config.js'
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { toast } from '../lib/toast.js'
+import HelpButton from './HelpButton.vue'
 import { planSeed, teamsFromRoster, seedCommitMessage } from '../../../lib/seed-teams.mjs'
 import { parse as parseYaml } from 'yaml'
 

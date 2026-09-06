@@ -14,7 +14,7 @@
 
 import { ref, readonly } from 'vue'
 import manual from '../generated/manual.json'
-import { MANUAL_TOPICS } from '../../../lib/manual-topics.mjs'
+import { MANUAL_TOPICS, topicSummary } from '../../../lib/manual-topics.mjs'
 
 const current = ref(null)
 
@@ -56,4 +56,4 @@ export function topicById(id) {
 export const SHIPPED_TOPICS = manual.topics.map((t) => t.id)
 
 /** Re-exported so a component can assert against the registry without a deep path. */
-export { MANUAL_TOPICS }
+export { MANUAL_TOPICS, topicSummary }
