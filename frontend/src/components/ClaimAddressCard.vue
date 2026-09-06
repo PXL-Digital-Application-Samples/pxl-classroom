@@ -218,6 +218,18 @@ onMounted(async () => {
   gap: var(--space-xs);
 }
 
+/* An ORG LOGIN IS ONE UNBREAKABLE TOKEN, and it sets this card's min-content
+   width - `PXL-2TIN-CloudEssentials-2627` in a mono `<code>` is wider than a
+   560px viewport allows once the card's padding is counted, so the card pushed
+   `main.container` past the viewport and the whole page scrolled sideways.
+   Same shape as the Roster tab's harvest hint, and the same fix.
+   Pre-existing on the acceptance page too: this card renders there as well, and
+   neither page was in the responsive sweep until now. The address beside it is
+   safe already - it ellipsises rather than wrapping. */
+.claim-intro code {
+  overflow-wrap: anywhere;
+}
+
 .claim-intro,
 .claim-line,
 .claim-note {
@@ -228,11 +240,27 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
+  /* A flex item's automatic minimum size is its CONTENT, and that floor is
+     reimposed at every level of a flex chain - `min-width: 0` on the address
+     alone is undone by any ancestor that still has the default. The address
+     ellipsises and could shrink; this row could not let it. */
+  min-width: 0;
 }
 
 .claim-option {
   display: flex;
   align-items: center;
+  /* WRAP, or this row sets the page's minimum width. The address ellipsises and
+     can shrink, but the radio and the "Verified by GitHub" badge are both
+     unbreakable, so on one line the row's floor is their combined width - 535px
+     measured at a 560px viewport, which made the card 567 and pushed
+     `main.container` to 591. The page scrolled sideways from 560px down.
+     Pre-existing and not specific to this page: the acceptance page renders
+     this same card, and neither was in the responsive sweep until now. Found by
+     hiding elements one at a time and re-reading scrollWidth - the min-content
+     readings pointed at the header, which was innocent. */
+  flex-wrap: wrap;
+  min-width: 0;
   gap: var(--space-sm);
   padding: var(--space-sm);
   background: var(--bg-surface);
@@ -248,6 +276,13 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* `width: 0` WITH `flex: 1`, not `min-width: 0` alone. min-width lifts the
+     automatic minimum, but the item's flex BASE size is still its content, and
+     an item never shrinks below the basis by more than the container is short -
+     so a 49-character address stopped at 281px and held the row at 447px inside
+     424px of space. Starting from zero and growing into whatever is left is
+     what makes the ellipsis actually reachable. */
+  width: 0;
   min-width: 0;
   flex: 1;
 }

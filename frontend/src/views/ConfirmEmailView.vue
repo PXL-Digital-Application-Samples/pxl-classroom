@@ -93,8 +93,13 @@
 
           <p v-if="submitError" class="auth-error">{{ submitError }}</p>
 
+          <!-- `btn-lg` because DESIGN.md §3 reserves it for "a card's single
+               decisive action", which this is - the accept page's own button
+               is sized the same way. NOT `btn-success`: §3 gives that exactly
+               one use, the student's accepted state, and this page accepts
+               nothing. -->
           <button
-            class="btn btn-primary btn-with-icon confirm-submit"
+            class="btn btn-primary btn-lg btn-with-icon confirm-submit"
             :disabled="submitting || !claim || !claimKeyReady"
             @click="submit"
           >

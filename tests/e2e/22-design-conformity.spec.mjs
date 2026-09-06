@@ -77,6 +77,49 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
     }
   });
 
+  test('The confirm-email page, signed out and signed in', async ({ page }) => {
+    // A STUDENT-FACING route entered from outside the app, which is exactly the
+    // shape that stays out of a sweep: nothing links to it, so nothing walks
+    // into it. Both states, because the signed-out one is an AuthCard whose
+    // GitHub button is the single CTA and the signed-in one adds the confirm
+    // button - a page that got that wrong would show two solid buttons at once.
+    const ID = 'conformity-confirm';
+    const assignment = {
+      schema_version: 1,
+      id: ID,
+      title: 'Conformity Confirm',
+      organization: ORG,
+      state: 'published',
+      assignment_type: 'individual',
+      roster_mode: 'enforced',
+      repository_name_pattern: `${ID}-{github_login}`,
+      broker_repo: `broker-${ID}`,
+      invite_key: inviteToken(ORG, ID),
+      opens_at: new Date(Date.now() - 3600_000).toISOString(),
+      deadline_at: new Date(Date.now() + 7 * 86400_000).toISOString(),
+    };
+    const url = `/${ORG}/c/${inviteToken(ORG, ID)}`;
+
+    await setupStandardMockRoutes(page, { assignments: { [ID]: assignment } });
+    await page.goto(url);
+    await page.waitForTimeout(900);
+    await conforms(page, `signed-out ${url}`);
+
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1,
+      assignments: { [ID]: assignment },
+    });
+    await page.route('**/api.github.com/user/emails*', (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify([{ email: 'student1@student.pxl.be', verified: true, primary: true }]),
+      }));
+    await page.goto(url);
+    await page.waitForTimeout(1100);
+    await conforms(page, `signed-in ${url}`);
+  });
+
   // The group views were the blind spot: this suite only ever visited the
   // dashboard, admin and usage routes, so the assignment detail page shipped
   // with two competing primaries and the student page rendered one per team row

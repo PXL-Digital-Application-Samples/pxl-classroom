@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, injectAuth, setupStandardMockRoutes, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
 
 // Reported live: narrowing the window pushed the heading and cards flush to the
 // left edge with no gutter, and the page scrolled sideways. Two causes:
@@ -276,6 +276,55 @@ test.describe('25 - Responsive layout', () => {
       }
     });
   }
+
+  test('No sideways scroll on the confirm-email page, at every width', async ({ page }) => {
+    // The route list above is lecturer routes; this one is a STUDENT page
+    // entered from outside the app, which is exactly the shape a sweep misses -
+    // nothing links to it, so nothing walks into it. It renders an email
+    // address, which is one unbreakable token and therefore the thing that sets
+    // a column's intrinsic width: the same shape that took the Roster tab's
+    // horizontal scroll from 71px to 219px at 375px.
+    const ID = 'responsive-confirm';
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1,
+      assignments: {
+        [ID]: {
+          schema_version: 1,
+          id: ID,
+          title: 'A deliberately long assignment title that will not wrap politely',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'individual',
+          roster_mode: 'enforced',
+          repository_name_pattern: `${ID}-{github_login}`,
+          broker_repo: `broker-${ID}`,
+          invite_key: inviteToken(ORG, ID),
+          opens_at: new Date(Date.now() - 3600_000).toISOString(),
+          deadline_at: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        },
+      },
+    });
+    await page.route('**/api.github.com/user/emails*', (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify([
+          { email: 'a.very.long.student.address.indeed@student.pxl.be', verified: true, primary: true },
+        ]),
+      }));
+
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/${ORG}/c/${inviteToken(ORG, ID)}`);
+      await page.waitForTimeout(900);
+
+      const m = await page.evaluate(MEASURE);
+      expect(
+        m.scrollsSideways,
+        `confirm @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,
+      ).toBe(false);
+    }
+  });
 
   test('The gutter scales with the window instead of sitting at the desktop value', async ({ page }) => {
     // Reported live: a fixed 24px gutter is fine full-screen but reads as wasted
