@@ -190,19 +190,37 @@ jobs:
             [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           dedup-key: prov-fail-${{ steps.accept.outputs.assignment_id }}-${{ steps.accept.outputs.github_login }}
           
-      # A REJECTED claim still wrote something that has to survive: the
-      # failed-attempt counter. The only commit step in this workflow is gated
-      # on an ACCEPTED outcome, so every failure was written into the runner's
-      # checkout and discarded - which makes MAX_CLAIM_ATTEMPTS unenforceable
-      # and leaves the guessing oracle unbounded - the rate limit has to ship
-      # WITH the gate rather than after it, because an unbounded guessing oracle
-      # over enumerable addresses is not a follow-up.
+      # EVERY OUTCOME THAT WRITES UNDER students/ AND PROVISIONS NOTHING.
+      #
+      # The only other commit step is gated on an ACCEPTED outcome, so anything
+      # written by a run that does not provision is left in the runner's
+      # checkout and discarded. That has now cost two features:
+      #
+      #   `rejected:*` wrote the failed-attempt counter, which made
+      #   MAX_CLAIM_ATTEMPTS unenforceable and left the guessing oracle
+      #   unbounded - a rate limit has to ship WITH its gate, because an
+      #   unbounded oracle over enumerable addresses is not a follow-up.
+      #
+      #   `confirmed` wrote the claim binding. The run went green, the log said
+      #   "@tomcoolpxl confirmed …", and the record 404'd - measured live on
+      #   2026-09-06 against pxl-classroom-testbed. The whole feature did
+      #   nothing, silently, and no unit or e2e test could see it: accept.mjs
+      #   writes the file correctly and the browser posts correctly, and the
+      #   discard happens in the seam between them.
+      #
+      # So this step is written as a CLASS rather than a list of two, and
+      # tests/acceptance-outcome-persisted.test.mjs fails when accept.mjs grows
+      # an outcome no step here handles.
       #
       # continue-on-error, for the same reason the notify steps carry it: a
       # rejection is an outcome and exits 0 on purpose, and a failed push about
       # one must not turn it into a red run.
-      - name: Persist a failed claim attempt
-        if: always() && startsWith(steps.accept.outputs.outcome, 'rejected:')
+      - name: Persist records written without provisioning
+        if: >-
+          always()
+          && (startsWith(steps.accept.outputs.outcome, 'rejected:')
+              || steps.accept.outputs.outcome == 'confirmed'
+              || steps.accept.outputs.outcome == 'already-confirmed')
         continue-on-error: true
         env:
           LOGIN: ${{ github.event.client_payload.github_login }}
@@ -214,13 +232,16 @@ jobs:
           # directory is absent - see that step for the whole story.
           mkdir -p control/students
           git -C control add "students/"
+          # `already-confirmed` is idempotent and writes nothing, which lands
+          # here rather than in a branch: nothing staged, nothing committed,
+          # exit 0.
           if git -C control diff --cached --quiet; then
             echo "nothing to persist for $OUTCOME"
             exit 0
           fi
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control commit -m "Record failed claim attempt for ${LOGIN} (${OUTCOME})"
+          git -C control commit -m "Record ${OUTCOME} for ${LOGIN}"
           scripts/git-push-with-retry.sh control
 
       - name: Write repository record into control checkout, push
