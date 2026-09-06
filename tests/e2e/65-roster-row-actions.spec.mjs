@@ -38,10 +38,10 @@ const ROSTER = [
   { student_number: '0123456', full_name: 'Alice Example', email: 'alice@student.pxl.be', class_group: '3A' },
 ];
 
-async function openRoster(page, { roster = ROSTER, claims = undefined } = {}) {
+async function openRoster(page, { roster = ROSTER, claims = undefined, assignments = {} } = {}) {
   const contentWrites = [];
   await injectAuth(page, LECTURER);
-  await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster, contentWrites, claims });
+  await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments, roster, contentWrites, claims });
   await page.goto(`/dashboard/${ORG}/admin`);
   await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
   await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
@@ -228,6 +228,60 @@ test.describe('65 - editing a student in one go', () => {
     expect(rosterWrites(contentWrites)[0].content).not.toContain('email_source');
   });
 
+  test('THE DIALOG OFFERS THE SAME SUGGESTION THE CELL DOES', async ({ page }) => {
+    // The cell has opened pre-filled since the harvest shipped: click the Email
+    // cell for a student whose commits carry a typo'd address and it is there,
+    // two characters from correct. The dialog was added BECAUSE clicking a dash
+    // was not discoverable - so the route somebody finds offering less than the
+    // route nobody could find was exactly the wrong way round.
+    const REPORT = {
+      schema_version: 1,
+      assignment_id: 'exam',
+      students: [
+        { github_login: 'afx42', commit_count: 1, author_name: 'maarten', author_email: null },
+        { github_login: 'rayaneW', commit_count: 4, author_name: 'rayaneW', author_email: 'rayane.waddah@student.pxl' },
+      ],
+    };
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64');
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {},
+      roster: [
+        { github_login: 'afx42', source: PROMOTED_SOURCE },
+        { github_login: 'rayaneW', source: PROMOTED_SOURCE },
+      ],
+    });
+    await page.route('**/contents/reports', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ name: 'exam.json', type: 'file' }]) }));
+    await page.route('**/contents/reports/exam.json*', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: b64(REPORT), encoding: 'base64' }) }));
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await expect(page.locator('.harvest-hint').first()).toBeVisible({ timeout: 15000 });
+
+    await menuFor(page, 'rayaneW').click();
+    await item(page, /Edit details/).click();
+    await expect(page.getByLabel('Email address')).toHaveValue('rayane.waddah@student.pxl');
+    // Flagged, because nobody has vouched for it - the same treatment the cell
+    // gives it, so the two routes do not disagree about what it is.
+    await expect(page.getByLabel('Email address')).toHaveClass(/suggested/);
+    await expect(page.locator('.modal')).toContainText('Nobody has confirmed it');
+
+    // A NAME, on the row whose commits carry one and no address.
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await menuFor(page, 'afx42').click();
+    await item(page, /Edit details/).click();
+    await expect(page.getByLabel('Name')).toHaveValue('maarten');
+    await expect(page.getByLabel('Email address')).toHaveValue('');
+  });
+
+  test('...but a stored value is never replaced by one', async ({ page }) => {
+    await openDialog(page, 'LowieSerneelsPXL');
+    await expect(page.getByLabel('Email address')).toHaveValue('lowie.serneels@student.pxl.be');
+    await expect(page.getByLabel('Email address')).not.toHaveClass(/suggested/);
+  });
+
   test('it says the account is not typed here, rather than hiding it', async ({ page }) => {
     // Leaving the field out silently sends a lecturer hunting for it.
     await openDialog(page);
@@ -259,5 +313,38 @@ test.describe('65 - what this tab calls things', () => {
     await openRoster(page);
     await expect(page.getByRole('button', { name: /Copy emails with no account/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Copy unlinked emails/ })).toHaveCount(0);
+  });
+});
+
+test.describe('65 - the hint under the table tells the truth', () => {
+  test('with an assignment published, it points at the link', async ({ page }) => {
+    await openRoster(page, {
+      assignments: {
+        live: { id: 'live', title: 'Live', organization: ORG, state: 'published', assignment_type: 'individual' },
+      },
+    });
+    await expect(page.locator('.roster-ask-hint')).toContainText('every published assignment has a');
+  });
+
+  test('WITH NOTHING PUBLISHED IT DOES NOT NAME A CONTROL THAT IS NOT THERE', async ({ page }) => {
+    // The confirm-email link is minted per assignment, so an organization with
+    // nothing published has none to copy - and "every published assignment has
+    // a Confirm-email link" then sends a lecturer hunting for a control that
+    // does not exist. DESIGN.md 1.5, from the direction where the sentence is
+    // true of the system in general and false of the screen in front of them.
+    await openRoster(page, { assignments: {} });
+    const hint = page.locator('.roster-ask-hint');
+    await expect(hint).toBeVisible();
+    await expect(hint).toContainText('publish an assignment');
+    await expect(hint).not.toContainText('every published assignment has a');
+  });
+
+  test('a draft does not count as published', async ({ page }) => {
+    await openRoster(page, {
+      assignments: {
+        d: { id: 'd', title: 'Draft', organization: ORG, state: 'draft', assignment_type: 'individual' },
+      },
+    });
+    await expect(page.locator('.roster-ask-hint')).toContainText('publish an assignment');
   });
 });

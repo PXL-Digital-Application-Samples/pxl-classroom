@@ -56,11 +56,17 @@ export function classesUsed(markup) {
     // POSITION. `:class="{ active: filter === 'on-time' }"` compares against a
     // filter value; reading 'on-time' as a class reported four components as
     // using a class nobody ever intended to style.
+    //
+    // AN ARGUMENT IS NOT A CLASS EITHER, and that is the same rule one step
+    // further out. `.includes('x')` and `.startsWith('x')` were stripped by
+    // name, which held only for the two calls anybody had written so far -
+    // `:class="{ suggested: isSuggested('email') }"` then reported `.email` as
+    // an undeclared class. What a call RETURNS can be a class; what it is
+    // handed is a value, so the whole call goes.
     const expr = m[1]
       .replace(/[=!]==?\s*'[^']*'/g, "")   // filter === 'on-time'
       .replace(/'[^']*'\s*[=!]==?/g, "")   // 'on-time' === filter
-      .replace(/\.includes\('[^']*'\)/g, "")
-      .replace(/\.startsWith\('[^']*'\)/g, "");
+      .replace(/\b[A-Za-z_$][\w$]*\s*\([^()]*\)/g, "");   // isSuggested('email')
     for (const lit of expr.matchAll(/'([^']*)'/g)) {
       for (const name of lit[1].split(/\s+/)) add(name);
     }

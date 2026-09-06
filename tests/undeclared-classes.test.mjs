@@ -170,6 +170,22 @@ test("a quoted literal in a comparison is not a class name", () => {
   assert.deepEqual([...reversed].sort(), ["active"]);
 });
 
+test("an ARGUMENT to a call is not a class name", () => {
+  // `:class="{ suggested: isSuggested('email') }"` hands a field name to a
+  // predicate. Reading it as a class reported `.email` and `.full_name` as
+  // undeclared - the same shape as the comparison above, one step further out.
+  const used = classesUsed(`<div :class="{ suggested: isSuggested('email') }">`);
+  assert.deepEqual([...used].sort(), ["suggested"]);
+
+  // The two that used to be stripped by name, now covered by the general rule.
+  const includes = classesUsed(`<div :class="{ active: list.includes('on-time') }">`);
+  assert.deepEqual([...includes].sort(), ["active"]);
+
+  // What a call RETURNS is still a class - only what it is handed is not.
+  const returned = classesUsed(`<div :class="['badge', statusBadge(s.submission_status)]">`);
+  assert.deepEqual([...returned].sort(), ["badge"]);
+});
+
 test("literals in class position ARE class names", () => {
   const array = classesUsed(`<div :class="['badge', ok ? 'badge-success' : 'badge-error']">`);
   assert.deepEqual([...array].sort(), ["badge", "badge-error", "badge-success"]);

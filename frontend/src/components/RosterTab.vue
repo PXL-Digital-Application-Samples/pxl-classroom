@@ -424,8 +424,21 @@
                a thing you do not need is noise. -->
           <p v-if="awaitingAddress > 0" class="text-sm text-muted roster-ask-hint">
             {{ awaitingAddress }} {{ awaitingAddress === 1 ? 'student has' : 'students have' }}
-            no email address. You can ask them for one: every published assignment has a
-            <strong>Confirm-email link</strong> beside its invitation link.
+            no email address. You can ask them for one:
+            <!-- WHICH SENTENCE IS TRUE DEPENDS ON THE ORG. The link rides a
+                 published assignment, so with none published there is nothing
+                 to copy - and pointing a lecturer at a control that is not
+                 there is DESIGN.md 1.5. The second branch says what to do
+                 instead, which is what RUNBOOK says too. -->
+            <template v-if="hasPublishedAssignment">
+              every published assignment has a <strong>Confirm-email link</strong>
+              beside its invitation link.
+            </template>
+            <template v-else>
+              publish an assignment and it gets a <strong>Confirm-email link</strong> beside its
+              invitation link. Confirming hands out no repository, so one published for the
+              purpose costs nothing.
+            </template>
             <HelpButton topic="confirming-an-email-address" label="the confirm-email link" />
           </p>
         </div>
@@ -582,6 +595,7 @@
     <RosterStudentModal
       v-if="editingStudent"
       :student="editingStudent"
+      :suggestion="harvestFor(editingStudent)"
       :saving="studentSaving"
       @save="onStudentSave"
       @close="editingStudent = null"
@@ -1370,6 +1384,19 @@ const linkingEmail = ref('')
 // nobody to add.
 const promoteFrom = ref(null)
 const promotePickerOpen = ref(false)
+
+/**
+ * Is there an assignment that could carry a confirm-email link?
+ *
+ * The link is minted per assignment and dies when that assignment finishes, so
+ * an organization with nothing published has no link to copy - and the hint
+ * under the table would be naming a control the lecturer cannot find.
+ *
+ * `published` only. A draft has no link at all, and a closed one's is refused
+ * by the page that opens it.
+ */
+const hasPublishedAssignment = computed(() =>
+  (props.assignments || []).some((a) => a?.state === 'published'))
 
 const promotableAssignments = computed(() =>
   (props.assignments || []).filter((a) => a?.roster_mode === 'open' && a?.state !== 'draft'))
