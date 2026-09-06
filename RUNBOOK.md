@@ -659,7 +659,17 @@ A promoted row carries a GitHub login and nothing else, and **nothing fills it i
 
 **Type it.** Every cell in the roster table — number, name, email, group — is editable in place: click, type, Enter. Escape abandons. This is what closes the gap the check leaves: an address like `rayane.waddah@student.pxl` is shown and flagged rather than hidden, because it names the student unmistakably even though the domain is a typo, and correcting it is two characters.
 
-**Or ask them.** The most reliable identity is one the student confirms themselves — an address GitHub has verified on their account. That is what `roster_mode: claim`, and `require_claim` under `open`, collect at acceptance (§6.6).
+**Or ask them.** The most reliable identity is one the student confirms themselves — an address GitHub has verified on their account. That is what `roster_mode: claim`, and `require_claim` under `open`, collect at acceptance (§6.6), and the nightly folds a verified one straight into the matching row.
+
+For a promoted row this now works in the direction you need. A claim carries the student's GitHub id and login as well as the address, so it is matched to a row that has a login and no address, and the address is written in. Three cases are held for you instead, and each is a decision rather than a failure — they appear on the Roster tab as *N need your decision*:
+
+| Held | Why |
+|---|---|
+| The student **typed** the address rather than picking a GitHub-verified one | Unattended automation may fold evidence, not assertions. Link it yourself, or run `pxl-classroom roster promote --claims`, where you are the review step. |
+| The address is **outside the allowed domains** | GitHub verified the account owns it; it is simply not an institutional address. Set one in the Email cell if you want it. |
+| **Another row already holds that address** | `email` is what a claim is matched against, so two rows sharing one would break that join permanently. |
+
+This does not reach a cohort that has already finished — they would have to accept something again. For those, the harvest and the editable cells above are the route.
 
 ### 6.6 Seeing and undoing a claim binding
 

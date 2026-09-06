@@ -71,11 +71,12 @@ async function openRoster(page, {
   ],
   report = examReport(),
   reportsStatus = 200,
+  claims = undefined,
 } = {}) {
   const contentWrites = [];
   const reads = [];
   await injectAuth(page, LECTURER);
-  await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster, contentWrites });
+  await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster, contentWrites, claims });
 
   await page.route('**/contents/reports', (route) => {
     reads.push('reports/');
@@ -418,6 +419,66 @@ test.describe('importing a CSV over a promoted row', () => {
       ['0999999', 'Alice Two', 'b@student.pxl.be', 'Alice-Dev'],
     ]));
     await expect(page.locator('.validation-errors')).toContainText(/duplicate github_login/i);
+  });
+});
+
+test.describe('a claim identifying a promoted row', () => {
+  // planClaimPromotion joined a claim to an entry BY EMAIL, so a promoted row -
+  // which has none - could never receive one, even though the claim carried the
+  // github_id and the login that row is keyed by. The Roster tab reads the same
+  // planner the nightly does, so what it shows is what the nightly will fold.
+  const claimFor = (over = {}) => ({
+    schema_version: 1,
+    github_login: 'rayaneW',
+    github_id: 4711,
+    email: 'rayane.waddah@student.pxl.be',
+    domain_allowed: true,
+    claim_verified: true,
+    student_number: null,
+    claimed_at: '2026-09-01T10:00:00.000Z',
+    claimed_via: EXAM,
+    ...over,
+  });
+
+  const openWithClaim = (page, claims) => openRoster(page, {
+    roster: [{ github_login: 'rayaneW', source: PROMOTED_SOURCE }],
+    reportFiles: [],
+    claims,
+  });
+
+  test('a verified, institutional address is not held - it is ready to fold', async ({ page }) => {
+    await openWithClaim(page, [claimFor()]);
+    await expect(page.locator('.claim-review')).toHaveCount(0);
+  });
+
+  test('an address outside the allowed domains is held, and says why', async ({ page }) => {
+    // GitHub verified the account owns it. That does not make it the
+    // institutional address the roster's email column is for.
+    await openWithClaim(page, [claimFor({ email: 'rayane@gmail.com', domain_allowed: false })]);
+    const review = page.locator('.claim-review');
+    await expect(review).toBeVisible();
+    await expect(review).toContainText('rayane@gmail.com');
+    await expect(review).toContainText('outside the allowed domains');
+    await expect(review).toContainText(/needs? your decision/i);
+  });
+
+  test('a typed address is held as unverified, as it always was', async ({ page }) => {
+    await openWithClaim(page, [claimFor({ claim_verified: false })]);
+    await expect(page.locator('.claim-review')).toContainText('not verified by GitHub');
+  });
+
+  test('an address another row already holds is held as a conflict, not written twice', async ({ page }) => {
+    // `email` is what a claim is matched against. Two rows holding one address
+    // would make that join ambiguous for good.
+    await openRoster(page, {
+      roster: [
+        { student_number: '0123456', full_name: 'Someone Else', email: 'rayane.waddah@student.pxl.be' },
+        { github_login: 'rayaneW', source: PROMOTED_SOURCE },
+      ],
+      reportFiles: [],
+      claims: [claimFor()],
+    });
+    await expect(page.locator('.claim-review')).toContainText('already holds this address');
   });
 });
 

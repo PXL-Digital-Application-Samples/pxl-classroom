@@ -963,9 +963,25 @@ const heldClaims = computed(() => {
       email: c.email,
       full_name: c.full_name,
       login: c.claim_login,
-      reason: `the roster already names @${c.roster_login}`,
+      // Two shapes of conflict now: a claim naming a different account than
+      // the row already holds, and a claim whose address another row already
+      // holds. `reason` is carried on the finding for the second, because a
+      // sentence about @roster_login would be wrong for it.
+      reason: c.reason || `the roster already names @${c.roster_login}`,
       // Not a one-click fix: something has to give first, and choosing which
       // account is the lecturer's call. Unlink below is that action.
+      canLink: false,
+    })),
+    // Verified by GitHub, and simply not an institutional address. Held rather
+    // than written, because the roster's `email` column is what a claim is
+    // matched against and what a mail merge reads. Not one-click either: the
+    // decision is what the address SHOULD be, and the Email cell takes it.
+    ...(p.outsideDomains ?? []).map((o) => ({
+      key: `d:${o.email}`,
+      email: o.email,
+      full_name: o.full_name,
+      login: o.claim_login,
+      reason: 'verified by GitHub, but outside the allowed domains',
       canLink: false,
     })),
     ...p.ambiguous.map((a) => ({

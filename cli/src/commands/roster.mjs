@@ -375,12 +375,24 @@ export function registerRosterCommand(program) {
         }
 
         process.stdout.write(
-          `\n${plan.stats.claims} claim(s): ${plan.stats.updated} to write onto the roster, ` +
+          `\n${plan.stats.claims} claim(s): ${plan.stats.updated} login(s) and ` +
+          `${plan.stats.identified} address(es) to write onto the roster, ` +
           `${plan.stats.unchanged} already matching, ${plan.stats.conflicts} in conflict.\n`,
         );
         for (const s of plan.updated) process.stdout.write(`    + ${describeRosterEntry(s)} -> @${s.github_login}\n`);
+        // The other direction: a row that had a login and no address. Printed
+        // separately because "linked an account" and "learned an address" are
+        // different events, and one count for both says neither.
+        for (const s of plan.identified) process.stdout.write(`    + ${describeRosterEntry(s)} -> ${s.email}\n`);
         for (const c of plan.conflicts) {
-          process.stdout.write(`    ! ${c.full_name || c.email}: roster says @${c.roster_login}, claim says @${c.claim_login}\n`);
+          process.stdout.write(
+            c.reason
+              ? `    ! ${c.full_name || c.claim_login}: ${c.reason} (${c.email})\n`
+              : `    ! ${c.full_name || c.email}: roster says @${c.roster_login}, claim says @${c.claim_login}\n`,
+          );
+        }
+        for (const o of plan.outsideDomains) {
+          process.stdout.write(`    ! @${o.claim_login}: ${o.email} is outside the allowed domains - not written\n`);
         }
 
         const { valid, errors } = validateAgainst("roster", structuredClone(plan.nextRoster));

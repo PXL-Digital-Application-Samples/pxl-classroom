@@ -1457,3 +1457,15 @@ CLAUDE.md already had the rule, about a different surface: *"When a rule says 'm
 
 **And one guard had to be added because of the fix.** A login is identity-bearing on the import path now, so two CSV rows sharing one are two students claiming to be one person — only the first would match a stored row, and the second would be written holding a login that already belongs to somebody else. `rowsToRoster` refuses it the way it already refused a duplicate student number.
 
+### The join that ran one way, and the rows that needed the other.
+
+Having established that a self-identify link cannot produce a **verified** address without a channel to the hub — and that every available channel is either a permanent public repo holding a key, or one that dies with the assignment — the question became what was actually broken. It was the claim join.
+
+`planClaimPromotion` matches a claim to a roster entry with `byEmail.get(entry.email)`. That is the roster supplying an address and the system learning a **login**, which is exactly right for `roster_mode: claim`, where a lecturer holds addresses and not usernames. A row promoted from an acceptance has no address at all, so the lookup missed every one of them — while the claim sitting right there carried the `github_id` **and** the `github_login` that row is keyed by. The only rows that could not be identified any other way were the only rows a claim could not reach.
+
+It is one `if` and an index. The scale of the thing it was blocking is worth noticing: a whole standalone identification page, a public route, and — on the option that "always works" — a permanent per-organization broker holding the Broker App's private key, which is the exact shape [LESSONS: *"Whatever `publish` switches on, something has to switch off"*] was written about. Three days of infrastructure to work around a lookup on the wrong side of a join.
+
+**Two new holds, and both are about the field being a key.** An address **another row already holds** cannot be written, because `email` is what this join reads — two rows sharing one would make it ambiguous for good, including for the very claim being folded. And the guard has to see the current run's own writes, or a run folding two claims creates the duplicate it just refused to create one row earlier. An address **outside `claim_domains`** is held too: GitHub verifying that the account owns it is a strong fact, and it is not the fact the roster's `email` column carries. Both are held, counted and named on the Roster tab, like the three that were already there — a decision with nobody present to make it is not a failure, but it must not be silent either.
+
+**And a count that meant "changed" measured only half of it.** `claimPromotionChangesAnything` read `plan.updated.length`, which is logins linked. A run that only filled in addresses would have planned the write and then committed nothing — on precisely the cohort the change exists for. The two events are reported separately rather than summed, because "linked an account" and "learned an address" are different things and one number for both says neither.
+
