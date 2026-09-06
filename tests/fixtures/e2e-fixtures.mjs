@@ -7,6 +7,7 @@ import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
 import { generateKeyPairSync } from 'node:crypto'
 import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
 import { linkSecretFrom } from '../../lib/invite-token-format.mjs'
+import { ROSTER_SCHEMA_VERSION } from '../../lib/roster-entries.mjs'
 import { verifyAcceptanceTitle } from '../../lib/acceptance-signature.mjs'
 
 /**
@@ -553,7 +554,14 @@ export async function setupStandardMockRoutes(page, {
     }
   }
   if (roster) {
-    const yamlContent = typeof roster === 'string' ? roster : yamlStringify({ students: roster });
+    // WITH the schema_version, because every real roster has one - the
+    // scaffold writes it, promotion writes it, and the schema REQUIRES it. A
+    // fixture without it is not the shape the app writes, and it made an
+    // in-place edit look broken: the save validated the merged document, which
+    // inherited the missing key and was correctly refused.
+    const yamlContent = typeof roster === 'string'
+      ? roster
+      : yamlStringify({ schema_version: ROSTER_SCHEMA_VERSION, students: roster });
     dynamicFiles.set('students/roster.yml', yamlContent);
   }
 

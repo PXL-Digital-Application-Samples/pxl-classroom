@@ -371,7 +371,7 @@ test.describe('49 - setting a class group without a CSV', () => {
   }
 
   const cell = (page, name) =>
-    page.locator('.roster-table tr', { hasText: name }).locator('.group-cell');
+    page.locator('.roster-table tr', { hasText: name }).locator('.cell-class_group');
 
   test('a group is set in place, and only that student changes', async ({ page }) => {
     // MERGE, NEVER REPLACE. This table shows five of the nine columns an entry
@@ -380,8 +380,8 @@ test.describe('49 - setting a class group without a CSV', () => {
     await rosterTab(page, contentWrites);
 
     await cell(page, 'Eva Example').click();
-    await page.locator('.group-edit').fill('3B');
-    await page.locator('.group-edit').press('Enter');
+    await page.locator('.cell-edit').fill('3B');
+    await page.locator('.cell-edit').press('Enter');
 
     await expect
       .poll(() => contentWrites.find((w) => w.path === 'students/roster.yml'), { timeout: 10000 })
@@ -405,8 +405,8 @@ test.describe('49 - setting a class group without a CSV', () => {
     await rosterTab(page, contentWrites);
 
     await cell(page, 'Alice Example').click();
-    await page.locator('.group-edit').fill('');
-    await page.locator('.group-edit').press('Enter');
+    await page.locator('.cell-edit').fill('');
+    await page.locator('.cell-edit').press('Enter');
 
     await expect
       .poll(() => contentWrites.find((w) => w.path === 'students/roster.yml'), { timeout: 10000 })
@@ -421,14 +421,14 @@ test.describe('49 - setting a class group without a CSV', () => {
     await rosterTab(page, contentWrites);
 
     await cell(page, 'Alice Example').click();
-    await page.locator('.group-edit').fill('9Z');
-    await page.locator('.group-edit').press('Escape');
+    await page.locator('.cell-edit').fill('9Z');
+    await page.locator('.cell-edit').press('Escape');
     await expect(cell(page, 'Alice Example')).toHaveText('3A');
 
     // Opening and closing on the same value is not a commit - a roster history
     // full of no-op commits is a history nobody reads.
     await cell(page, 'Alice Example').click();
-    await page.locator('.group-edit').press('Enter');
+    await page.locator('.cell-edit').press('Enter');
     await page.waitForTimeout(300);
     expect(contentWrites.filter((w) => w.path === 'students/roster.yml')).toHaveLength(0);
   });
@@ -443,24 +443,37 @@ test.describe('49 - setting a class group without a CSV', () => {
       (els) => els.map((e) => e.value),
     );
     expect(options).toEqual(['3A', '3B']);
-    await expect(page.locator('.group-edit')).toHaveAttribute('list', 'roster-class-groups');
+    await expect(page.locator('.cell-edit')).toHaveAttribute('list', 'roster-class-groups');
   });
 
-  test('the editable cell reads editable, and the unreadable one does not', async ({ page }) => {
+  test('every editable cell reads editable, and the one that is not does not', async ({ page }) => {
     // THE ROW READ BACKWARDS. `.diff-pane code` fills every <code> in the pane,
-    // so the student number - which nothing can edit - carried an input-shaped
-    // fill while the group cell, the one editable thing in the row, was plain
-    // text. Computed rather than eyeballed: a faint fill reads as a table
-    // stripe at a glance, which is how it survived the first review.
+    // so the student number carried an input-shaped fill while the group cell -
+    // then the only editable thing in the row - was plain text. Computed rather
+    // than eyeballed: a faint fill reads as a table stripe at a glance, which is
+    // how it survived the first review.
+    //
+    // The student number is editable now, so it is on the other side of this
+    // assertion. What remains uneditable is the GitHub account: that is the one
+    // column a lecturer must not type into, because the account a student can
+    // accept with is established by a claim or by provisioning, never by a
+    // person deciding it in a table.
     await rosterTab(page, []);
 
-    const num = await page.locator('.roster-table code').first()
-      .evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(num, 'a student number must not look like a field').toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+    for (const field of ['student_number', 'full_name', 'email', 'class_group']) {
+      const style = await page.locator('.roster-table tr', { hasText: 'Alice Example' })
+        .locator(`.cell-${field}`)
+        .evaluate((el) => getComputedStyle(el).borderBottomStyle);
+      expect(style, `${field} needs a resting affordance, not just hover`).toBe('dotted');
+    }
 
-    const affordance = await cell(page, 'Alice Example')
-      .evaluate((el) => getComputedStyle(el).borderBottomStyle);
-    expect(affordance, 'the editable cell needs a resting affordance, not just hover').toBe('dotted');
+    const badge = page.locator('.roster-table tr', { hasText: 'Alice Example' }).locator('.badge').first();
+    if (await badge.count()) {
+      expect(
+        await badge.evaluate((el) => getComputedStyle(el).borderBottomStyle),
+        'the GitHub account is not editable and must not look it',
+      ).not.toBe('dotted');
+    }
   });
 
   test('the cell is a real control, reachable by keyboard', async ({ page }) => {
@@ -470,7 +483,7 @@ test.describe('49 - setting a class group without a CSV', () => {
     expect(await cell(page, 'Alice Example').evaluate((el) => el.tagName)).toBe('BUTTON');
     await cell(page, 'Alice Example').focus();
     await page.keyboard.press('Enter');
-    await expect(page.locator('.group-edit')).toBeVisible();
+    await expect(page.locator('.cell-edit')).toBeVisible();
   });
 });
 

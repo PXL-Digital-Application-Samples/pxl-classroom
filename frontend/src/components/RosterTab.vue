@@ -79,6 +79,21 @@
               </button>
               <button class="btn btn-sm btn-secondary" type="button" @click="exportRosterCsv">Export CSV</button>
 
+              <!-- Absent when there is nothing to fill in, rather than present
+                   and disabled: a control for a thing this organization has
+                   never needed invites a hunt for it (DESIGN.md §1.5, the
+                   class-group picker's lesson). The hints under the rows appear
+                   whether or not anything is writable, which is the half that
+                   is useful either way. -->
+              <button
+                v-if="harvest.fillable.length > 0"
+                class="btn btn-sm btn-secondary"
+                type="button"
+                :disabled="harvesting"
+                :title="`Write in ${harvest.fillable.length} address(es) the students' own commits carry, where the domain is one of ${claimDomainList}`"
+                @click="fillFromReports"
+              >{{ harvesting ? 'Filling in…' : `Fill in ${harvest.fillable.length} email${harvest.fillable.length === 1 ? '' : 's'} from assignments` }}</button>
+
               <!-- Adding the students who accepted an assignment writes THIS
                    file, so the action lives here as well as on the assignment
                    that prompts it. It is per-assignment and the roster is
@@ -212,37 +227,36 @@
                   :key="rosterKey(s)"
                   style="border-bottom: 1px solid var(--border-default);"
                 >
-                  <td style="padding: 6px 8px;"><code>{{ s.student_number || '-' }}</code></td>
-                  <td style="padding: 6px 8px; font-weight: 500;">
-                    <span v-if="s.full_name">{{ s.full_name }}</span>
-                    <span v-else class="text-muted">Not yet identified</span>
-                  </td>
-                  <td style="padding: 6px 8px; color: var(--text-secondary);">{{ s.email || '-' }}</td>
-                  <!-- Editable in place. The group is what an assignment's
-                       picker filters by, and moving one student between
-                       sections used to mean a whole CSV round trip. -->
+                  <!-- Every one of these is editable in place, through ONE
+                       editor over a field descriptor. A row promoted from an
+                       acceptance arrives with a login and nothing else, and
+                       nothing fills it in afterwards - promotion skips rows it
+                       has seen, and a claim joins on email, which such a row
+                       does not have. Before this, the only route was a CSV
+                       round trip for one cell. -->
                   <td style="padding: 6px 8px;">
-                    <template v-if="editingGroupKey === rosterKey(s)">
-                      <input
-                        v-model="groupDraft"
-                        class="group-edit"
-                        type="text"
-                        list="roster-class-groups"
-                        :disabled="savingGroup"
-                        placeholder="e.g. 3A"
-                        :aria-label="`Class group for ${s.full_name || s.student_number}`"
-                        @keyup.enter="saveGroupEdit(s)"
-                        @keyup.escape="cancelGroupEdit"
-                        @blur="saveGroupEdit(s)"
-                      />
-                    </template>
-                    <button
-                      v-else
-                      type="button"
-                      class="group-cell"
-                      :title="`Set the class group for ${s.full_name || s.student_number}`"
-                      @click="startGroupEdit(s)"
-                    >{{ s.class_group || '—' }}</button>
+                    <RosterCell :student="s" field="student_number" :editor="cellEditor" v-model:draft="cellEdit.draft" mono />
+                  </td>
+                  <td style="padding: 6px 8px; font-weight: 500;">
+                    <RosterCell :student="s" field="full_name" :editor="cellEditor" v-model:draft="cellEdit.draft" empty-text="Not yet identified" />
+                    <!-- What the reports know, when the row itself knows
+                         nothing. Shown, never stored: a git author is whatever
+                         the student typed into `git config`. -->
+                    <div v-if="harvestFor(s)" class="harvest-hint">
+                      <span class="text-muted">commits as</span>
+                      <code>{{ harvestFor(s).email || harvestFor(s).name }}</code>
+                      <span
+                        v-if="harvestFor(s).email && !harvestFor(s).emailAllowed"
+                        class="text-warning"
+                        :title="`Not one of the allowed domains (${claimDomainList}), so it is not written into the roster. Often a typo - you can correct it in the Email column.`"
+                      >domain not allowed</span>
+                    </div>
+                  </td>
+                  <td style="padding: 6px 8px; color: var(--text-secondary);">
+                    <RosterCell :student="s" field="email" :editor="cellEditor" v-model:draft="cellEdit.draft" />
+                  </td>
+                  <td style="padding: 6px 8px;">
+                    <RosterCell :student="s" field="class_group" :editor="cellEditor" v-model:draft="cellEdit.draft" empty-text="—" />
                   </td>
                   <!-- The account this student can actually accept with.
                        `github_login` alone was the whole answer under
@@ -459,18 +473,20 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { ROSTER_PATH } from '../lib/roster.js'
+import { REPORTS_DIR } from '../../../lib/control-layout.mjs'
 import { rosterClassGroups } from '../lib/class-groups.js'
 import { getToken, getUser } from '../lib/auth.js'
 import HelpButton from './HelpButton.vue'
-import { commitFile, getRepoContent, listClaims, deleteFile } from '../lib/api.js'
+import { commitFile, getRepoContent, listRepoDir, listClaims, deleteFile } from '../lib/api.js'
 // The one join between a claim and a roster entry. See lib/claim-bindings.mjs.
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
-import { normalizeEmail } from '../lib/claim.js'
+import { normalizeEmail, domainAllowed } from '../lib/claim.js'
+import { harvestPlan, applyHarvest } from '../lib/roster-harvest.js'
 // The SAME planner the nightly runs. Imported, never re-implemented: a review
 // list computed a second way could show a lecturer something different from
 // what was actually held back, which is worse than showing nothing.
@@ -479,6 +495,7 @@ import { planClaimPromotion } from '../../../lib/promote-roster.mjs'
 // stripFormulaGuard. Shared so export -> edit -> import cannot become lossy again.
 import { csvCell } from '../../../lib/csv-cell.mjs'
 import PromoteRosterModal from './PromoteRosterModal.vue'
+import RosterCell from './RosterCell.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -628,61 +645,208 @@ async function submitQuickAddStudent() {
   }
 }
 
-// --- editing one student's class group ------------------------------------
+// --- what the reports already know ------------------------------------------
 //
-// It took a full CSV round trip to move one student between sections: export,
-// open a spreadsheet, edit a cell, import, confirm a diff. Fine once a year for
-// a whole cohort, absurd for the late enroller who turns up in week three - and
-// the group is what the assignment picker filters by, so getting it wrong keeps
-// somebody out of the list a lecturer picks from.
-const editingGroupKey = ref(null)
-const groupDraft = ref('')
-const savingGroup = ref(false)
+// A row promoted from an acceptance carries a login and nothing else, and
+// NOTHING fills it in afterwards: promotion skips rows it has seen
+// (planPromotion Rule 1) and a claim joins to an entry by email, which such a
+// row does not have. So the lecturer read "Not yet identified" with no route
+// that did not begin with typing.
+//
+// The collector already knows more. It records the author of each student's
+// latest commit, discards the provisioning bot and any noreply address, and
+// falls back to the account's public GitHub profile - so every report carries
+// the best guess available for every student in it, gathered for free.
+//
+// Loaded beside the roster and NOT awaited with it: a failed report read must
+// not take the roster down, the rule the acceptance card learned when one
+// rejected lookup replaced a loaded assignment with an error.
+const reports = ref([])
+const harvesting = ref(false)
+
+const claimDomainList = CLAIM_DOMAINS.join(', ')
+
+const harvest = computed(() => harvestPlan({
+  roster: existingRoster.value,
+  reports: reports.value,
+  emailAllowed: (email) => domainAllowed(email, CLAIM_DOMAINS),
+}))
+
+const harvestByLogin = computed(() => {
+  const m = new Map()
+  for (const h of harvest.value.hints) m.set(h.login.toLowerCase(), h)
+  return m
+})
+
+/** The hint for one row, or null. Null is the common case and renders nothing. */
+function harvestFor(student) {
+  const login = String(student?.github_login ?? '').trim().toLowerCase()
+  return login ? harvestByLogin.value.get(login) ?? null : null
+}
+
+async function loadReports() {
+  try {
+    const token = getToken()
+    const files = await listRepoDir(token, props.org, controlRepo, REPORTS_DIR)
+    // `dashboard.json` is an aggregate with no student rows and `usage-*` are
+    // billing counters - reading them would cost a request each to find nothing.
+    const wanted = files.filter((f) =>
+      f.name?.endsWith('.json') && f.name !== 'dashboard.json' && !f.name.startsWith('usage-'))
+    const loaded = []
+    for (const f of wanted) {
+      try {
+        const text = await getRepoContent(token, props.org, controlRepo, `${REPORTS_DIR}/${f.name}`)
+        if (text) loaded.push(JSON.parse(text))
+      } catch { /* one unreadable report is not worth losing the others over */ }
+    }
+    reports.value = loaded
+  } catch {
+    // An org with no reports directory yet, or a token that cannot read it.
+    // The hints simply do not appear; nothing else on this tab depends on them.
+    reports.value = []
+  }
+}
+
+/**
+ * Write in the addresses that passed the domain check.
+ *
+ * ONLY the addresses, and only into empty fields. A name harvested from a
+ * commit is `rayaneW` or `LowieSerneelsPXL` as often as it is a name, and
+ * unlike a blank it LOOKS filled in - so nothing later flags the row and an
+ * exported grading list carries it. The names are shown as hints and stay
+ * there; the Name column is one click away for anyone who wants to keep one.
+ */
+async function fillFromReports() {
+  const fillable = harvest.value.fillable
+  if (fillable.length === 0) return
+  const lines = fillable.map((f) => `  @${f.login} → ${f.email}`).join('\n')
+  if (!window.confirm(
+    `Fill in ${fillable.length} email address${fillable.length === 1 ? '' : 'es'} from the students' own commits?\n\n${lines}\n\n` +
+    `These come from git config and are not verified - they are written because their domain is one of ${claimDomainList}.`,
+  )) return
+
+  harvesting.value = true
+  try {
+    const token = getToken()
+    // REFUSE, DO NOT OVERWRITE - the same guard the in-place edit uses. This
+    // plan was built against the roster as it loaded, and commitFile fetches a
+    // fresh sha before it PUTs, so a change made in between would be silently
+    // replaced by our older copy.
+    const onDisk = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
+    if (onDisk !== null && onDisk !== rosterRaw.value) {
+      toast.error('The roster changed since this page loaded. Reload before filling in, so your change is not built on a stale copy.')
+      return
+    }
+
+    const updatedDoc = applyHarvest(existingRoster.value, fillable)
+    const { valid, errors } = await validateAgainst('roster', updatedDoc)
+    if (!valid) {
+      toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
+      return
+    }
+
+    const res = await commitFile(
+      token, props.org, controlRepo, ROSTER_PATH,
+      stringifyYaml(updatedDoc),
+      `Fill in ${fillable.length} email address(es) from assignment reports`,
+    )
+    if (!res.ok) {
+      toast.error(`Could not save: ${res.data?.message || `HTTP ${res.status}`}`)
+      return
+    }
+    toast.success(`Filled in ${fillable.length} email address${fillable.length === 1 ? '' : 'es'}.`)
+    await loadExisting()
+  } catch (e) {
+    toast.error(`Could not save: ${e.message}`)
+  } finally {
+    harvesting.value = false
+  }
+}
+
+// --- editing one student's details, in place -------------------------------
+//
+// It took a full CSV round trip to change one cell: export, open a
+// spreadsheet, edit, import, confirm a diff. Fine once a year for a whole
+// cohort, absurd for the late enroller who turns up in week three - and worse
+// for a row promoted from an acceptance, which arrives carrying a login and
+// nothing else and which NOTHING fills in afterwards: promotion skips rows it
+// has already seen, and a claim is joined to an entry by email, so a row with
+// no email can never receive one.
+//
+// ONE editor over a field descriptor, rather than four copies of the same
+// guarded save. The guards are the reason: escape-must-not-commit, merge-never-
+// replace, refuse-a-stale-write. Four copies is four places for one of those to
+// go missing.
+const EDITABLE_FIELDS = Object.freeze({
+  student_number: { label: 'student number', placeholder: 'e.g. 0123456' },
+  full_name: { label: 'name', placeholder: 'e.g. Lowie Serneels' },
+  // type="email" so a browser rejects the obvious mistakes before the schema
+  // has to; `format: email` on the roster schema is the one that decides.
+  // The domain comes from CLAIM_DOMAINS, never a literal: a fork that shows a
+  // PXL address in its own placeholder is the defect tests/institution-name
+  // exists to catch, and it caught this one.
+  email: { label: 'email address', placeholder: `e.g. name@${CLAIM_DOMAINS[0] || 'example.edu'}`, type: 'email' },
+  class_group: { label: 'class group', placeholder: 'e.g. 3A', list: 'roster-class-groups' },
+})
+
+// ONE object rather than three refs, so the whole editor passes to <RosterCell>
+// as a single prop and `v-model="editor.draft"` works - a ref nested inside a
+// plain prop object does not auto-unwrap in a template, and `.value` in markup
+// is the kind of detail that is wrong once and then wrong everywhere.
+const cellEdit = reactive({ key: null, field: null, draft: '', saving: false })
 
 /** The spellings already in use, so a lecturer completes rather than invents. */
 const existingClassGroups = computed(() => rosterClassGroups(existingRoster.value))
 
-function startGroupEdit(student) {
-  editingGroupKey.value = rosterKey(student)
-  groupDraft.value = typeof student.class_group === 'string' ? student.class_group : ''
+const isEditing = (student, field) =>
+  cellEdit.key === rosterKey(student) && cellEdit.field === field
+
+function startCellEdit(student, field) {
+  cellEdit.key = rosterKey(student)
+  cellEdit.field = field
+  cellEdit.draft = typeof student[field] === 'string' ? student[field] : ''
 }
 
-function cancelGroupEdit() {
-  editingGroupKey.value = null
-  groupDraft.value = ''
+function cancelCellEdit() {
+  cellEdit.key = null
+  cellEdit.field = null
+  cellEdit.draft = ''
 }
+
+/** Everything <RosterCell> needs, as one prop. */
+const cellEditor = { fields: EDITABLE_FIELDS, state: cellEdit, isEditing, start: startCellEdit, save: saveCellEdit, cancel: cancelCellEdit }
 
 /**
  * MERGE, NEVER REPLACE. The stored document is read, spread, and only this one
- * student's class_group changed - a roster rebuilt field by field from what a
- * table renders drops whatever nobody thought to list, and this table shows
- * five of the nine columns an entry can carry.
+ * field changed - a roster rebuilt field by field from what a table renders
+ * drops whatever nobody thought to list, and this table shows five of the nine
+ * columns an entry can carry.
  *
  * An emptied box REMOVES the field rather than storing "", because the roster
- * schema distinguishes the two and an empty string is a group whose name is
- * nothing - it would show as a section in the picker's chips.
+ * schema distinguishes the two: `student_number` and `full_name` declare
+ * `minLength: 1`, so "" is not merely odd, it is invalid - and an empty
+ * `class_group` is a section whose name is nothing, which would render as a
+ * chip in the assignment picker.
  */
-async function saveGroupEdit(student) {
+async function saveCellEdit(student, field) {
   const key = rosterKey(student)
   // ESCAPE MUST NOT COMMIT. Cancelling unmounts the input, which fires its own
   // blur - and blur saves. So Escape cleared the draft and the blur that
-  // followed wrote the cleared value, removing the group the lecturer had just
+  // followed wrote the cleared value, removing what the lecturer had just
   // decided not to touch. The cancel is what sets this to null, so an edit that
   // is no longer open is an edit that was abandoned.
-  if (editingGroupKey.value !== key) return
-  const next = groupDraft.value.trim()
-  const current = typeof student.class_group === 'string' ? student.class_group.trim() : ''
-  if (next === current) { cancelGroupEdit(); return }
+  if (!isEditing(student, field)) return
+  const next = cellEdit.draft.trim()
+  const current = typeof student[field] === 'string' ? student[field].trim() : ''
+  if (next === current) { cancelCellEdit(); return }
 
   const doc = existingRoster.value
   const students = (doc?.students || []).map((s) => {
+    // Matched on the key as it was BEFORE the edit: setting a student number on
+    // a promoted row changes that row's own key from `login:` to `num:`.
     if (rosterKey(s) !== key) return s
-    // Destructured off so an emptied box REMOVES the field rather than storing
-    // "" - the roster schema distinguishes absent from empty, and an empty
-    // string is a group whose name is nothing, which would show as a section in
-    // the picker's chips.
-    const { class_group: _dropped, ...rest } = s
-    return next ? { ...rest, class_group: next } : rest
+    const { [field]: _dropped, ...rest } = s
+    return next ? { ...rest, [field]: next } : rest
   })
   const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
 
@@ -692,7 +856,7 @@ async function saveGroupEdit(student) {
     return
   }
 
-  savingGroup.value = true
+  cellEdit.saving = true
   try {
     const token = getToken()
     // REFUSE, DO NOT OVERWRITE. This edit is built by spreading the roster as it
@@ -700,29 +864,30 @@ async function saveGroupEdit(student) {
     // PUTs - so a change made in between is not a conflict, it is silently
     // replaced by our older copy. The CSV import shows a diff and asks before
     // it commits; a one-cell edit should be at least as honest.
-    const current = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
-    if (current !== null && current !== rosterRaw.value) {
+    const onDisk = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
+    if (onDisk !== null && onDisk !== rosterRaw.value) {
       toast.error('The roster changed since this page loaded. Reload before editing, so your change is not built on a stale copy.')
-      cancelGroupEdit()
+      cancelCellEdit()
       return
     }
 
     const who = student.full_name || student.student_number || student.github_login
+    const what = EDITABLE_FIELDS[field].label
     const res = await commitFile(
       token, props.org, controlRepo, ROSTER_PATH,
       stringifyYaml(updatedDoc),
-      next ? `Set ${who}'s class group to ${next}` : `Clear ${who}'s class group`,
+      next ? `Set ${who}'s ${what} to ${next}` : `Clear ${who}'s ${what}`,
     )
     if (!res.ok) {
       toast.error(`Could not save: ${res.data?.message || `HTTP ${res.status}`}`)
       return
     }
-    cancelGroupEdit()
+    cancelCellEdit()
     await loadExisting()
   } catch (e) {
     toast.error(`Could not save: ${e.message}`)
   } finally {
-    savingGroup.value = false
+    cellEdit.saving = false
   }
 }
 
@@ -1122,7 +1287,7 @@ async function commitRoster() {
 // somebody else's cohort. Deliberately NOT awaited together - a failed claim
 // read must not take the roster down with it, the rule the acceptance card
 // learned when one rejected lookup replaced a loaded assignment with an error.
-watch(() => props.org, () => { loadExisting(); loadClaims() })
+watch(() => props.org, () => { loadExisting(); loadClaims(); loadReports() })
 watch(csvText, () => parseAndValidate())
 
 const promotePickerRef = ref(null)
@@ -1140,6 +1305,7 @@ function onEscape(e) {
 onMounted(() => {
   loadExisting()
   loadClaims()
+  loadReports()
   document.addEventListener('click', onDocumentClick)
   window.addEventListener('keydown', onEscape)
 })
@@ -1448,30 +1614,16 @@ defineExpose({
   padding: 0;
 }
 
-.group-cell {
-  background: none;
-  border: 0;
-  padding: 2px 6px;
-  margin: -2px -6px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-  /* A resting affordance, because hover is not discoverable and a title
-     attribute is not either. Dotted rather than a box: 200 of these should read
-     as a column of text you can touch, not as 200 controls. */
-  border-bottom: 1px dotted var(--border-default);
+/* What the reports know, under the name that is not yet known. Muted and
+   small: it is evidence to read, not a value the roster holds. */
+.harvest-hint {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 400;
 }
-.group-cell:hover,
-.group-cell:focus-visible {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
-}
-.group-edit {
-  width: 7rem;
-  padding: 1px 6px;
-  font: inherit;
-  font-size: 0.85em;
-}
+.harvest-hint code { font-size: inherit; }
 </style>

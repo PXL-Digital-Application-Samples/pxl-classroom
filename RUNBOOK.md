@@ -639,7 +639,23 @@ Rules worth knowing before you run it:
 - **It refuses rather than guesses.** A roster that is a bare list of students (no `students:` key) is rejected with an explanation, not rewritten - that shape already lets nobody accept, and you need to know.
 - **Promoting an `enforced` assignment** is normally a no-op. If it does add somebody, they accepted and were removed from the roster afterwards; the command says so and names them.
 
-Afterwards, fill in the real identities by exporting the roster, adding `student_number`/`full_name` columns, and re-importing - the `source: accepted` marker is how you spot which rows still need it.
+Afterwards, fill in the real identities — see §6.5.1. The `source: accepted` marker is how you spot which rows still need it.
+
+#### 6.5.1 Identifying a promoted row
+
+A promoted row carries a GitHub login and nothing else, and **nothing fills it in later on its own**: promotion skips a login it has already seen (that is the "only adds" rule above), and a claim is matched to a roster entry *by email* — which such a row does not have. Three routes, and they compose:
+
+**What the reports already know.** Under each unidentified row, the Roster tab shows what the collector recorded as the author of that student's commits — falling back to their public GitHub profile, with the provisioning bot and `noreply.github.com` addresses stripped. Anything that merely repeats the login is left out, since it says nothing you cannot already see.
+
+**Fill in the addresses.** When one or more of those addresses is on an allowed domain (`claim_domains` in `deployment.yml`), a **Fill in N emails from assignments** button appears and writes exactly those, into empty fields only, after showing you which. It is deliberately narrow:
+
+- **Only addresses, never names.** A commit author name is `rayaneW` or `LowieSerneelsPXL` as often as it is a name, and unlike a blank it *looks* filled in — nothing would flag the row again and an exported grading list would carry it. The names stay on screen as hints.
+- **Only allowed domains.** `email` is what a claim is matched against, so a wrong address there means a real claim never matches and that student is **rejected** at acceptance. A wrong address is worse than none.
+- **Not verified.** A git author email is whatever the student typed into `git config`. The domain check makes it plausible, not proven.
+
+**Type it.** Every cell in the roster table — number, name, email, group — is editable in place: click, type, Enter. Escape abandons. This is what closes the gap the check leaves: an address like `rayane.waddah@student.pxl` is shown and flagged rather than hidden, because it names the student unmistakably even though the domain is a typo, and correcting it is two characters.
+
+**Or ask them.** The most reliable identity is one the student confirms themselves — an address GitHub has verified on their account. That is what `roster_mode: claim`, and `require_claim` under `open`, collect at acceptance (§6.6).
 
 ### 6.6 Seeing and undoing a claim binding
 
