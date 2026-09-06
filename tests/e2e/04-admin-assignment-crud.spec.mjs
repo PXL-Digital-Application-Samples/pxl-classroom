@@ -23,8 +23,9 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await expect(titleInput).toBeVisible();
     await titleInput.fill('Security Lab Assignment 1');
 
-    const slugInput = page.getByPlaceholder('linux-processes-2026');
-    await expect(slugInput).toHaveValue('security-lab-assignment-1');
+    // The slug is derived and SHOWN rather than asked for, so this reads the
+    // line the lecturer sees. Same assertion as before: the title reached it.
+    await expect(page.locator('.derived-line')).toContainText('security-lab-assignment-1');
 
     // Toggle to Group Assignment
     const groupRadio = page.locator('input[value="group"]');
@@ -72,10 +73,14 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     });
 
     await page.goto(`/dashboard/${ORG}/admin?edit=existing-asgn`);
-    const slugInput = page.getByPlaceholder('linux-processes-2026');
-    if (await slugInput.isVisible()) {
-      await expect(slugInput).toBeDisabled();
-    }
+    // NOT GUARDED ON `isVisible()` ANY MORE. There is no input here at all now,
+    // so `if (visible)` skipped the only assertion in the test and it passed
+    // over nothing. Changing the slug orphans assignments/<id>.yml, so on an
+    // existing assignment it is a reading with no way in - which is what this
+    // test is for, stated so that it can fail.
+    await expect(page.locator('.derived-line')).toContainText('existing-asgn');
+    await expect(page.getByPlaceholder('linux-processes-2026')).toHaveCount(0);
+    await expect(page.locator('.derived-line').getByRole('button', { name: 'Edit' })).toHaveCount(0);
   });
 
   // ARCHITECTURE §5.4, on the rendered form rather than the source.

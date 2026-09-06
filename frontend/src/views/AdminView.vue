@@ -401,83 +401,37 @@
                Reachable: nothing validates an assignment YAML on the way in,
                so `roster_mode: open` with no cap, or `deadline_at: soon`,
                arrives here and disables Save silently. -->
-          <!-- BASICS -->
+          <!-- BASICS
+               ONE BLOCK, IN THE ORDER THE DATA ALREADY FLOWED. Basics and
+               Template were two fieldsets, and the split put Title ABOVE the
+               template picker while `selectTemplate` fills the title only when
+               it is EMPTY - so a lecturer working down the form typed a title
+               first and the prefill never fired. Nothing about the chain
+               changed here: the template fills the title, `autoSyncSlug` fills
+               the slug, and the `form.id` watcher fills the repository name
+               pattern. The layout was what disagreed with it.
+
+               The two became one because both answered "what is this assignment
+               and what is it called", and a border around each half of one
+               question is the box prison DESIGN.md 1.1 names. -->
           <fieldset>
             <legend>Basics</legend>
-            <div class="field">
-              <label>Title <span class="req">*</span></label>
-              <input v-model="form.title" @input="autoSyncSlug(); touchedFields.title = true" placeholder="e.g. Linux Processes 2026" />
-              <div v-if="(touchedFields.title || !isNew) && fieldErrors.title" class="field-error-msg">{{ fieldErrors.title }}</div>
-            </div>
-            <div class="field">
-              <label>Slug (URL identifier) <span class="req">*</span></label>
-              <input
-                v-model="form.id"
-                :disabled="!isNew"
-                @input="manualSlug = true; touchedFields.id = true; clearCollision()"
-                @blur="onSlugBlur"
-                placeholder="linux-processes-2026"
-              />
-              <div v-if="(touchedFields.id || !isNew) && fieldErrors.id" class="field-error-msg">{{ fieldErrors.id }}</div>
-              <!-- Rendered here rather than beside the repository name pattern
-                   even though the pattern is the collision key: this is the
-                   field a lecturer is looking at when they choose a name, and
-                   splitting one verdict across two fields would show half of
-                   it in each. The consequence line names the pattern.
 
-                   A list, not a paragraph: as prose the same four findings were
-                   five wrapped lines of red, which is a wall, not a message. -->
-              <div v-else-if="collisionBlockers.length" class="field-error-msg">
-                {{ COLLISION_LEAD }}
-                <ul class="collision-list">
-                  <li v-for="(f, i) in collisionBlockers" :key="`${f.kind}-${i}`">{{ f.detail }}</li>
-                </ul>
-                <!-- A refusal that only says no gets routed around. These are
-                     the real options, and the cheap one is marked. -->
-                <div class="collision-ways">
-                  {{ COLLISION_REMEDY_LEAD }}
-                  <ol class="collision-list">
-                    <li v-for="w in collisionWays" :key="w.key">
-                      <!-- Spaced by CSS, not by a text node: Vue trims
-                           whitespace between elements, so a literal space
-                           here rendered as "readable.Recommended." -->
-                      {{ w.label }}<strong v-if="w.recommended" class="collision-rec">Recommended.</strong>
-                    </li>
-                  </ol>
-                </div>
-              </div>
-              <div v-else-if="collisionError" class="field-error-msg">{{ collisionError }}</div>
-              <!-- Nothing blocks. Said in the muted voice, because it is
-                   information, not a refusal - the assignment saves. -->
-              <div v-else-if="collisionNotes.length" class="collision-note text-muted">
-                {{ COLLISION_WARNING_LEAD }}
-                <ul class="collision-list">
-                  <li v-for="(f, i) in collisionNotes" :key="`${f.kind}-${i}`">{{ f.detail }}</li>
-                </ul>
-              </div>
-              <small v-if="collisionChecking">Checking whether this name is free…</small>
-              <small v-else-if="isNew">Auto-derived from title. Edit to override.</small>
-              <small v-else>Locked. Changing the slug would orphan the YAML file.</small>
-            </div>
-            <div class="field">
-              <label>Description</label>
-              <textarea
-                v-model="form.description"
-                rows="2"
-                placeholder="Optional"
-              ></textarea>
-              <!-- Not gated on `touched`, unlike the required-field errors: this
-                   one only fires when there IS content, so it can never nag an
-                   empty form - and an assignment loaded from the control repo
-                   with a bad description must explain why Save is disabled. -->
-              <div v-if="fieldErrors.description" class="field-error-msg">{{ fieldErrors.description }}</div>
-              <small>Published on the public assignment page, so students can read it before they accept.</small>
-            </div>
-          </fieldset>
+            <!-- SLUG, KEPT OUT OF THE WAY. It is derived, it is locked after
+                 creation, and it is not in the student's invitation link
+                 (/:org/i/:token) - so it is shown as what it is, a consequence
+                 of the title, rather than as a box asking a question. It is
+                 still real: it names assignments/<id>.yml, the public
+                 broker-<id> repository a student lands on to accept, and the
+                 lecturer's own /dashboard/<org>/<id>. Rare reasons to override
+                 it survive behind Edit: a collision, or a broker repository
+                 name that would be absurdly long.
 
-          <!-- TEMPLATE -->
-          <fieldset>
-            <legend>Template</legend>
+                 Rendered below the repository name pattern, which is where the
+                 collision verdict now lives too - the pattern IS the collision
+                 key (lib/assignment-collision.mjs), and with the slug demoted
+                 the pattern is the field a lecturer is looking at when they
+                 choose a name. -->
             <div class="field">
               <label>Template repository <span class="req">*</span></label>
               <div v-if="loadingTemplates" class="loading-inline"><div class="spinner sm"></div> Loading templates from {{ org }}…</div>
@@ -585,6 +539,19 @@
                 Found {{ templates.length }} template repositories.
               </small>
             </div>
+
+            <!-- SECOND, BECAUSE PICKING THE TEMPLATE FILLS IT IN. -->
+            <div class="field">
+              <label>Title <span class="req">*</span></label>
+              <input
+                v-model="form.title"
+                @input="autoSyncSlug(); touchedFields.title = true"
+                @blur="onSlugBlur"
+                placeholder="e.g. Linux Processes 2026"
+              />
+              <div v-if="(touchedFields.title || !isNew) && fieldErrors.title" class="field-error-msg">{{ fieldErrors.title }}</div>
+            </div>
+
             <div class="field">
               <label>Repository name pattern <span class="req">*</span></label>
               <!-- This field IS the collision key (lib/seed-teams.mjs), so
@@ -597,7 +564,105 @@
                 placeholder="linux-processes-{github_login}"
               />
               <div v-if="(touchedFields.repository_name_pattern || !isNew) && fieldErrors.repository_name_pattern" class="field-error-msg">{{ fieldErrors.repository_name_pattern }}</div>
-              <small>Must contain <code>{{ form.assignment_type === 'group' ? '{team_slug}' : '{github_login}' }}</code>. The repository will be named per this pattern.</small>
+
+              <!-- THE COLLISION VERDICT LIVES HERE NOW. It used to sit under
+                   the slug, on the reasoning that the slug was the field a
+                   lecturer was looking at while choosing a name. Demoting the
+                   slug inverts that, and this field was always the actual
+                   collision key (lib/assignment-collision.mjs): provisioning is
+                   idempotent on repository existence, so a pattern producing a
+                   name that already exists hands the student the OLD repository
+                   with the old deadline's lockdown on it.
+
+                   A list, not a paragraph: as prose the same four findings were
+                   five wrapped lines of red, which is a wall, not a message. -->
+              <div v-else-if="collisionBlockers.length" class="field-error-msg">
+                {{ COLLISION_LEAD }}
+                <ul class="collision-list">
+                  <li v-for="(f, i) in collisionBlockers" :key="`${f.kind}-${i}`">{{ f.detail }}</li>
+                </ul>
+                <!-- A refusal that only says no gets routed around. These are
+                     the real options, and the cheap one is marked. -->
+                <div class="collision-ways">
+                  {{ COLLISION_REMEDY_LEAD }}
+                  <ol class="collision-list">
+                    <li v-for="w in collisionWays" :key="w.key">
+                      <!-- Spaced by CSS, not by a text node: Vue trims
+                           whitespace between elements, so a literal space
+                           here rendered as "readable.Recommended." -->
+                      {{ w.label }}<strong v-if="w.recommended" class="collision-rec">Recommended.</strong>
+                    </li>
+                  </ol>
+                </div>
+              </div>
+              <div v-else-if="collisionError" class="field-error-msg">{{ collisionError }}</div>
+              <!-- Nothing blocks. Said in the muted voice, because it is
+                   information, not a refusal - the assignment saves. -->
+              <div v-else-if="collisionNotes.length" class="collision-note text-muted">
+                {{ COLLISION_WARNING_LEAD }}
+                <ul class="collision-list">
+                  <li v-for="(f, i) in collisionNotes" :key="`${f.kind}-${i}`">{{ f.detail }}</li>
+                </ul>
+              </div>
+
+              <small v-if="collisionChecking">Checking whether this name is free…</small>
+              <small v-else>
+                Students see this name. Must contain
+                <code>{{ form.assignment_type === 'group' ? '{team_slug}' : '{github_login}' }}</code>.
+              </small>
+
+            </div>
+
+            <!-- The slug, as a consequence rather than a question. `.btn-link`
+                 and not a re-implementation of it (DESIGN.md 7).
+                 ITS OWN `.field`, though it renders as one line: the pattern
+                 above already shows an error or the collision verdict, and two
+                 `.field-error-msg` inside one field is two refusals about
+                 different things reading as one. -->
+            <div class="field">
+              <div class="derived-line">
+                <template v-if="slugEditing && isNew">
+                  <label for="assignment-slug">Slug</label>
+                  <input
+                    id="assignment-slug"
+                    v-model="form.id"
+                    @input="manualSlug = true; touchedFields.id = true; clearCollision()"
+                    @blur="onSlugBlur"
+                    placeholder="linux-processes-2026"
+                  />
+                </template>
+                <template v-else>
+                  <span class="text-muted">Slug</span>
+                  <code>{{ form.id || '—' }}</code>
+                  <button
+                    v-if="isNew"
+                    type="button"
+                    class="btn-link"
+                    @click="slugEditing = true"
+                  >Edit</button>
+                </template>
+              </div>
+              <div v-if="(touchedFields.id || !isNew) && fieldErrors.id" class="field-error-msg">{{ fieldErrors.id }}</div>
+              <small class="text-muted">
+                Names the acceptance repository students open and your own link to this
+                assignment.<template v-if="!isNew"> Fixed once the assignment exists.</template>
+              </small>
+            </div>
+
+            <!-- LAST. It is the only field here nothing else derives from. -->
+            <div class="field">
+              <label>Description</label>
+              <textarea
+                v-model="form.description"
+                rows="2"
+                placeholder="Optional"
+              ></textarea>
+              <!-- Not gated on `touched`, unlike the required-field errors: this
+                   one only fires when there IS content, so it can never nag an
+                   empty form - and an assignment loaded from the control repo
+                   with a bad description must explain why Save is disabled. -->
+              <div v-if="fieldErrors.description" class="field-error-msg">{{ fieldErrors.description }}</div>
+              <small>Published on the public assignment page, so students can read it before they accept.</small>
             </div>
           </fieldset>
 
@@ -1520,6 +1585,11 @@ const loadingTemplates = ref(false)
 const templatesError = ref(null)
 const editing = ref(null) // current assignment being edited (null = none)
 const manualSlug = ref(false)
+// The slug is shown as a derived value, not asked for. This opens the input for
+// the two reasons a lecturer would ever override it: a collision, or a broker
+// repository name that would be absurdly long. It stays open once opened -
+// somebody who went looking for it is editing it.
+const slugEditing = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
 const showRepublishModal = ref(false)
@@ -2165,6 +2235,16 @@ function selectTemplate(t) {
       touchedFields.value.id = true
     }
   }
+
+  // THE FAST PATH NEVER BLURS ANYTHING. Pick a template, watch the title, slug
+  // and repository name pattern fill themselves, press Save - and the blur that
+  // normally triggers the collision check never happens. The gate on save still
+  // holds and still refuses, but finding out at Save is finding out after the
+  // point where changing the title was free.
+  //
+  // After nextTick, because `repository_name_pattern` is written by the
+  // `form.id` watcher rather than here, and the check needs both.
+  nextTick(onSlugBlur)
 }
 
 function onTemplateInput() {
@@ -2630,6 +2710,7 @@ function newAssignment() {
   editing.value = { __new: true, id: '' }
   manualSlug.value = false
   manualRepositoryNamePattern.value = false
+  slugEditing.value = false
   templateSearchText.value = ''
   clearCollision()
   touchedFields.value = {
@@ -2664,6 +2745,9 @@ function editAssignment(a) {
   editing.value = { id: a.id }
   manualSlug.value = true // existing assignments - never auto-rewrite the slug
   manualRepositoryNamePattern.value = true
+  // Never editable on an existing assignment - changing it orphans the YAML -
+  // so the derived line stays a reading, and the input is not offered.
+  slugEditing.value = false
   form.value = {
     schema_version: a.schema_version || 1,
     id: a.id,
@@ -3985,6 +4069,24 @@ legend {
   margin-bottom: var(--space-md);
 }
 .field:last-child { margin-bottom: 0; }
+/* A TEXT BOX IS NOT WIDER THAN THE LONGEST THING IT WILL HOLD.
+   Measured before this: the fieldsets are 958px and every input spanned the
+   full 880px, so `linux-processes-2026` sat in a box eight times its own
+   length. Width reads as "how much do you want from me", and the widest field
+   here is a repository name pattern.
+   A max, not a width - the flex column still shrinks it on a phone - and on
+   the inputs rather than on `.field`, so a field's error list, its <small> and
+   the collision findings keep the full column to wrap in. */
+.field > input,
+.field > select,
+.field > textarea {
+  max-width: 46ch;
+}
+/* The one field that earns more: it holds `owner/repository`, and
+   `PXL-2TIN-CloudEssentials-2627/linux-processes-starter` is 52 characters -
+   at 46ch the picker showed `…/linux-processes-sta` and a lecturer could not
+   read which template they had chosen. Still well short of the 880px it had. */
+.field > .combobox-wrapper { max-width: 64ch; }
 /* What a name would land on top of. Scoped, because this is the only place
    they are listed - style.css is for classes more than one component reaches.
    No colour of its own: it inherits from whichever block wraps it, which is
@@ -4005,6 +4107,21 @@ legend {
 /* Matches the <small> the field already renders beneath it, so a warning and
    the field's own help text read as one voice. */
 .collision-note { font-size: 0.82rem; }
+/* A VALUE THIS FORM WORKED OUT, not a question it is asking. One row so the
+   label, the value and the way to change it read as a single statement rather
+   than as another field - which is the whole point of demoting the slug.
+   `align-items: baseline` because the <code> and the <button> have different
+   line boxes and a centred row makes the text look dropped. */
+.derived-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+.derived-line code { font-size: 0.82rem; }
+/* Once opened it is an ordinary field again, so it takes the field width. */
+.derived-line input { max-width: 46ch; flex: 1 1 24ch; }
 /* A checkbox field is a LABEL ROW with its explanation UNDER it.
    As `flex-direction: row` the field's own <small> became a second COLUMN: the
    label was squeezed to about 40% of the width and its help text floated

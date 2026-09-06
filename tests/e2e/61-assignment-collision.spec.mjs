@@ -138,7 +138,12 @@ async function fillNew(page, { title = 'Lab 3', slug = ID, pattern = null, opens
     // asserts one must fix it rather than inherit the wall clock.
     await page.locator('input[type="datetime-local"]').first().fill(opensAt);
   }
-  const slugInput = page.getByPlaceholder('linux-processes-2026');
+  // The slug is a DERIVED LINE now, not a box: it is filled in from the title,
+  // it is locked after creation and it is not in the student's invitation link,
+  // so the form states it rather than asking for it. Overriding one is still
+  // possible and is what these tests do, so they take the same route a lecturer
+  // would - press Edit first.
+  const slugInput = await openSlug(page);
   await slugInput.fill(slug);
   if (pattern !== null) {
     await page.getByPlaceholder('linux-processes-{github_login}').fill(pattern);
@@ -148,10 +153,19 @@ async function fillNew(page, { title = 'Lab 3', slug = ID, pattern = null, opens
   return slugInput;
 }
 
+/** Reveal the slug input, whether or not it is already open. */
+async function openSlug(page) {
+  const input = page.getByPlaceholder('linux-processes-2026');
+  if (await input.count() === 0) await slugField(page).getByRole('button', { name: 'Edit' }).click();
+  return input;
+}
+
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
-const slugField = (page) => page.locator('.field:has(label:text-matches("^Slug"))');
-const refusal = (page) => slugField(page).locator('.field-error-msg');
-const note = (page) => slugField(page).locator('.collision-note');
+const slugField = (page) => page.locator('.field:has(.derived-line)');
+/** Where the verdict is rendered: the pattern IS the collision key. */
+const patternField = (page) => page.locator('.field:has(label:text-matches("^Repository name pattern"))');
+const refusal = (page) => patternField(page).locator('.field-error-msg');
+const note = (page) => patternField(page).locator('.collision-note');
 
 async function expectNoWrite(page, writes) {
   await saveDraft(page).click();
@@ -491,7 +505,7 @@ test.describe('the verdict follows the form it was about', () => {
     const title = page.getByPlaceholder('e.g. Linux Processes 2026');
     await title.fill('Lab 3');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
-    const slug = page.getByPlaceholder('linux-processes-2026');
+    const slug = await openSlug(page);
     await slug.focus();
     await slug.blur();
     await expect(refusal(page)).toBeVisible();
@@ -504,11 +518,17 @@ test.describe('the verdict follows the form it was about', () => {
   test('save re-checks even when neither field was ever left', async ({ page }) => {
     // The blur check is a courtesy. Filling in the form and hitting Save
     // without leaving a field must still be refused.
+    //
+    // What proves it is the WRITE COUNT, not the message on screen. The title
+    // carries an @blur of its own now, so moving from it to the template box
+    // can raise the same refusal by the courtesy route - which is the point of
+    // that handler, and would make an assertion about visible text pass
+    // without the gate ever running.
     const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await page.locator('.new-btn').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab 3');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
-    await page.getByPlaceholder('linux-processes-2026').fill(ID);
+    await (await openSlug(page)).fill(ID);
 
     await saveDraft(page).click();
     await expect(refusal(page)).toBeVisible();
@@ -517,19 +537,27 @@ test.describe('the verdict follows the form it was about', () => {
 
   test('an invalid slug is reported as invalid, not as a collision', async ({ page }) => {
     // The format error owns the field; probing for `Lab 3!` would be nonsense.
+    // It is reported on the SLUG's own field - the collision verdict moved to
+    // the pattern, but a malformed slug is a fact about the slug.
     await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page, { slug: 'Lab 3!' });
-    await expect(refusal(page)).toContainText(/lowercase/i);
-    await expect(refusal(page)).not.toContainText(/land on top of/i);
+    const slugError = slugField(page).locator('.field-error-msg');
+    await expect(slugError).toContainText(/lowercase/i);
+    // Nothing under the pattern at all - `not.toContainText` would pass
+    // vacuously here anyway, since it FAILS on a locator matching nothing.
+    await expect(refusal(page)).toHaveCount(0);
   });
 
   test('a pattern with no placeholder is reported as invalid, not probed', async ({ page }) => {
     await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page, { pattern: 'lab-3-everyone' });
     await expect(page.locator('.field-error-msg', { hasText: '{github_login}' })).toBeVisible();
-    // Nothing at all under the slug: the pattern is invalid, so the collision
-    // check never ran, and a probe for `lab-3-everyone` would be nonsense.
-    await expect(refusal(page)).toHaveCount(0);
+    // The format error and the collision verdict now share one field, as
+    // v-if/v-else-if - so "the check never ran" is proved by the field saying
+    // the FORMAT is wrong and never mentioning a collision, rather than by the
+    // field being empty. A probe for `lab-3-everyone` would be nonsense.
+    await expect(refusal(page)).not.toContainText(/land on top of/i);
+    await expect(note(page)).toHaveCount(0);
   });
 });
 
@@ -546,7 +574,13 @@ test.describe('an existing assignment', () => {
     // Asking the new-assignment questions here would refuse every save.
     const writes = await open(page, { archive: true, retired: manifest() });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    await expect(page.getByPlaceholder('linux-processes-2026')).toBeDisabled();
+    // Not a disabled box any more. Changing the slug of an existing assignment
+    // orphans its YAML, so on an existing one it is only ever a reading: the
+    // value is shown and there is no way in. A disabled input said the same
+    // thing while still looking like somewhere a value goes.
+    await expect(slugField(page)).toContainText(ID);
+    await expect(page.getByPlaceholder('linux-processes-2026')).toHaveCount(0);
+    await expect(slugField(page).getByRole('button', { name: 'Edit' })).toHaveCount(0);
 
     await saveDraft(page).click();
     await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);

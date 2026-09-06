@@ -74,12 +74,14 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 3. Click **Admin Panel**.
 4. Click **New assignment** and fill the form:
 
+**Pick the template first and most of the form fills itself.** The fields are in the order the values derive: the template's repository name becomes the Title, the Title becomes the slug, and the slug becomes the Repository name pattern. Each is only filled while still empty, so anything you type yourself is left alone.
+
 | Field | Note |
 |---|---|
-| Title | shown to students |
-| Slug (URL identifier) | URL-safe, auto-derived from the title, e.g. `linux-processes-2026`. The Admin Panel checks for duplicate slugs in the local list and queries the control repo's Contents API to block silent overwrites. |
-| Template repository | pick from template repositories in your org (repositories marked as templates on GitHub) |
-| Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}` |
+| Template repository | pick from template repositories in your org (repositories marked as templates on GitHub). **Fill this first** - it prefills the three fields below it |
+| Title | shown to students. Prefilled from the template's repository name |
+| Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}`. This is the name students see, and it is the key the collision check uses (§5.1) |
+| Slug | not a field you fill in: shown under the pattern as a derived value, with **Edit** beside it. It names `assignments/<id>.yml`, the public `broker-<id>` repository students open to accept, and your own link to this assignment - so it is worth reading, and almost never worth changing. Fixed once the assignment exists, because changing it would orphan the YAML file. It is **not** in the student's invitation link, which is a token |
 | Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
 | Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** tab: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |

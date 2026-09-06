@@ -74,7 +74,10 @@ test.describe('54 - the + Assignment shortcut', () => {
 
     await page.locator('.new-btn').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Brand New Thing');
-    await expect(page.getByPlaceholder('linux-processes-2026')).toHaveValue('brand-new-thing');
+    // The slug is derived and shown as a line rather than asked for in a box,
+    // so this reads what is on screen - which is what the assertion was always
+    // about: the title reached the slug.
+    await expect(page.locator('.derived-line')).toContainText('brand-new-thing');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
 
     await page.getByRole('button', { name: /Save & publish/i }).first().click();
