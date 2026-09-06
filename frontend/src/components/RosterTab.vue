@@ -275,9 +275,9 @@
                       v-if="s.email_source"
                       :class="['email-source', `email-source-${s.email_source}`]"
                       :title="s.email_source === 'claim'
-                        ? 'Confirmed by the student from an address GitHub had verified on their account'
-                        : 'Read off their own commits - self-declared, and not verified by anyone'"
-                    >{{ s.email_source === 'claim' ? 'verified' : 'from commits' }}</span>
+                        ? 'The student supplied this address themselves when they accepted an assignment'
+                        : 'Read off their own commits - self-declared, and not confirmed by anyone'"
+                    >{{ s.email_source === 'claim' ? 'claimed' : 'from commits' }}</span>
                   </td>
                   <td style="padding: 6px 8px;">
                     <RosterCell :student="s" field="class_group" :editor="cellEditor" v-model:draft="cellEdit.draft" empty-text="—" />

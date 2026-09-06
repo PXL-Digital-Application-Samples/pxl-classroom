@@ -512,7 +512,13 @@ test.describe('what the table says, and how wide it gets saying it', () => {
         { student_number: '3', full_name: 'From Commits', email: 'c@student.pxl.be', email_source: 'commit' },
       ],
     });
-    await expect(row(page, 'From A Claim')).toContainText('verified');
+    // "claimed", NOT "verified". planClaimPromotion's verifiedOnly is FALSE by
+    // default - the lecturer-run path and the Link button - so a claim the
+    // student TYPED is folded too, and the roster row does not carry
+    // claim_verified, so this marker can never know which it was. Saying
+    // "verified" over a typed address is DESIGN.md 1.5.
+    await expect(row(page, 'From A Claim')).toContainText('claimed');
+    await expect(row(page, 'From A Claim')).not.toContainText('verified');
     await expect(row(page, 'From Commits')).toContainText('from commits');
     await expect(row(page, 'Typed By Hand').locator('.email-source')).toHaveCount(0);
   });
