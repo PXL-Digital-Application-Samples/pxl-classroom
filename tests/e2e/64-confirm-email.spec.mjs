@@ -252,6 +252,34 @@ test.describe('64 - the edges', () => {
     await expect(submit(page)).toHaveCount(0);
   });
 
+  test('A CLOSED ASSIGNMENT DOES NOT OFFER TO CONFIRM - its broker is switched off', async ({ page }) => {
+    // The link outlives the assignment on Pages: pages/generate.mjs publishes a
+    // card for `closed` as well as `published`, and sets `broker_repo: null` on
+    // the ones that are not published. Without this the page composed
+    // `broker-<id>` from the fallback, posted to a broker whose INVITE_ENABLED
+    // is false, got its 201 and told the student "that's all we needed" - while
+    // no workflow ran and nothing was recorded. The manual promises the link
+    // stops working when the assignment finishes; the page has to agree.
+    await openConfirm(page, { over: { state: 'closed' } });
+    await expect(page.locator('main')).toContainText(/no longer open|closed/i, { timeout: 15000 });
+    await expect(submit(page)).toHaveCount(0);
+  });
+
+  test('...nor a draft, which was never open', async ({ page }) => {
+    await openConfirm(page, { over: { state: 'draft' } });
+    await expect(submit(page)).toHaveCount(0, { timeout: 15000 });
+  });
+
+  test('a PAST DEADLINE still confirms - that is the whole point of the link', async ({ page }) => {
+    // The state gate must not become a deadline gate by accident. The weeks
+    // after a deadline are exactly when a lecturer reads the roster and finds
+    // rows with a login and nothing else.
+    await openConfirm(page, {
+      over: { deadline_at: new Date(Date.now() - 86400_000).toISOString() },
+    });
+    await expect(submit(page)).toBeVisible({ timeout: 15000 });
+  });
+
   test('a link for an assignment that does not exist says so, and offers nothing', async ({ page }) => {
     await openConfirm(page, { url: `/${ORG}/c/${'A'.repeat(184)}` });
     await expect(page.locator('main')).toContainText(/can't find this link/i, { timeout: 15000 });

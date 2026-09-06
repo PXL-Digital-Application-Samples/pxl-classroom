@@ -361,6 +361,20 @@
               </tbody>
             </table>
           </div>
+          <!-- THE NEED IS DISCOVERED HERE AND THE CONTROL LIVES ELSEWHERE.
+               A row with a login and no address is the case the confirm-email
+               link exists for, but that link is per assignment, so this tab
+               cannot render one - it can only say where to find it. Without
+               this line a lecturer reading "Not yet identified" six times had
+               no route to the feature at all unless they already knew.
+               Only when there is somebody it would help: a permanent pointer to
+               a thing you do not need is noise. -->
+          <p v-if="awaitingAddress > 0" class="text-sm text-muted roster-ask-hint">
+            {{ awaitingAddress }} {{ awaitingAddress === 1 ? 'student has' : 'students have' }}
+            no email address. You can ask them for one: every published assignment has a
+            <strong>Confirm-email link</strong> beside its invitation link.
+            <HelpButton topic="confirming-an-email-address" label="the confirm-email link" />
+          </p>
         </div>
         <div v-else>
           <h4>Diff vs. committed roster</h4>
@@ -725,6 +739,18 @@ function harvestFor(student) {
   const login = String(student?.github_login ?? '').trim().toLowerCase()
   return login ? harvestByLogin.value.get(login) ?? null : null
 }
+
+/**
+ * Roster rows that carry a GitHub account and no address.
+ *
+ * Exactly the population a confirmation fixes, and NOT the same question as
+ * `wantsHints` below - that one also counts a row missing only a name, which a
+ * student confirming an address does nothing about.
+ */
+const awaitingAddress = computed(() =>
+  (existingRoster.value?.students || []).filter(
+    (s) => s?.github_login && !String(s.email ?? '').trim(),
+  ).length)
 
 /**
  * Is there any row a hint could help?
@@ -1762,6 +1788,16 @@ defineExpose({
 
 /* What the reports know, under the name that is not yet known. Muted and
    small: it is evidence to read, not a value the roster holds. */
+/* Under the table, with the rows it is about, rather than up in the toolbar
+   where it would read as another action. */
+.roster-ask-hint {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: var(--space-sm) 0 0;
+}
+
 .harvest-hint {
   display: flex;
   align-items: baseline;

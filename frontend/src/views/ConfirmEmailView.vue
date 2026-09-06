@@ -34,6 +34,24 @@
         </p>
       </div>
 
+      <!-- THE LINK OUTLIVES THE ASSIGNMENT ON PAGES. `pages/generate.mjs`
+           publishes a card for `closed` as well as `published`, so the card is
+           still there after an assignment finishes - while the broker behind it
+           has `INVITE_ENABLED=false` and runs nothing. Without this branch the
+           page took the POST's 201 and said "that's all we needed" over a
+           confirmation that never happened.
+           The DEADLINE is deliberately not consulted: a confirmation hands out
+           nothing, and the weeks after a deadline are exactly when this link is
+           wanted. Only the assignment being open at all decides. -->
+      <div v-else-if="assignment.state !== 'published'" class="center-card fade-in">
+        <Icon name="lock" :size="48" class="status-icon status-icon-warn" />
+        <h2>This link is no longer open</h2>
+        <p class="text-secondary">
+          The assignment it belongs to has finished, so it cannot record an address any more.
+          Ask your lecturer for a current link.
+        </p>
+      </div>
+
       <template v-else>
         <div class="card confirm-intro">
           <!-- NOT "Confirm your PXL email" - ClaimAddressCard's own heading

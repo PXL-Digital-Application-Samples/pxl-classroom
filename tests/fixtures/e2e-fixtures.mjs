@@ -668,7 +668,22 @@ export async function setupStandardMockRoutes(page, {
     } else if (isTeams) {
       body = { schema_version: 1, assignment_id: asgnId, teams: teams[asgnId] || [] };
     } else {
-      body = { schema_version: 1, assignment: { id: asgnId, ...orgAssignmentMap[asgnId] } };
+      // THE SHAPE THE GENERATOR ACTUALLY WRITES, not the raw assignment.
+      // `pages/generate.mjs` publishes a card for `closed` as well as
+      // `published` and nulls `broker_repo` on anything not published - so a
+      // finished assignment's link resolves to a card with nowhere to post.
+      // Serving the raw document instead made a closed assignment look live,
+      // which is how the confirm page shipped offering to confirm through a
+      // broker that had been switched off.
+      const def = orgAssignmentMap[asgnId] || {};
+      body = {
+        schema_version: 1,
+        assignment: {
+          id: asgnId,
+          ...def,
+          broker_repo: def.state === 'published' ? (def.broker_repo || `broker-${asgnId}`) : null,
+        },
+      };
     }
     await route.fulfill({
       status: 200,

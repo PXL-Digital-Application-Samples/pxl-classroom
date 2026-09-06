@@ -81,6 +81,10 @@ Every published assignment has a **Confirm-email link** beside its invitation li
 - It stops working when the assignment finishes. **Regenerate link** also retires it.
 - If you have no open assignment to carry the link, publish one for the purpose. Confirming creates no repositories.
 
+### If a student confirms the wrong address
+
+They cannot change it themselves. Unlink the binding on the **Roster** tab and ask them to confirm again.
+
 ## Late work
 
 What happens to work pushed after the deadline.
