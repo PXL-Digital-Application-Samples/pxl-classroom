@@ -4,14 +4,12 @@ What each setting does, and what it changes for your students.
 
 ## How the pieces fit
 
-Four things, and three of them sound like "a group of students".
+- **Roster** - every student you teach. There is one roster per organisation, and everything else refers to it.
+- **Class group** - a label on a student, such as `3A`. Use it to filter the roster when you are picking students.
+- **Cohort** - the students one assignment is for, picked from the roster.
+- **Team** - students who share a repository on one assignment. Use **Seed teams from...** to reuse teams on a later assignment.
 
-- **Roster** - every student you teach, listed once. One per organisation, and the only list of people. Everything else points at it.
-- **Class group** - a label on a student, like `3A`. It filters the roster while you pick. It decides nothing.
-- **Cohort** - the students one assignment is for. Picked from the roster and kept as a list, so it records who, not a rule.
-- **Team** - students who share one repository, for one assignment. Carry them to the next one with **Seed teams from...**; nothing is automatic.
-
-A team is not a class group. A class group helps you find people; a team gives them a shared repository.
+A class group helps you find students on the roster. A team gives students a shared repository. They are not related.
 
 ## Who may accept
 
@@ -60,26 +58,28 @@ A class group is a label on a student, and it exists to make that list quick to 
 
 ## Confirming an email address
 
-How a student tells you which account is theirs.
+Linking a student's GitHub account to their institutional email address.
 
-They sign in and pick an address GitHub has already verified for their account, so the mailbox is proven rather than typed. If GitHub has none that matches, they can type one and it is recorded as **unverified**. One confirmation covers every assignment in the organisation.
+The student signs in and chooses one of the addresses GitHub has already verified for their account. If none of them match your allowed domains, they can type an address instead, which is recorded as **unverified**. One confirmation applies to every assignment in the organisation.
+
+There are two ways to ask for it.
 
 ### At acceptance
 
-The **Ask students to confirm...** box, offered under **Open** only.
+Tick **Ask students to confirm...** on the assignment. This is available under **Open** only.
 
-- Ticked, a student confirms before they can accept.
-- It does not restrict who may accept. Anyone with the link still can. It records **who** did.
-- Off, you get their GitHub username and nothing else.
+- The student confirms an address before they can accept.
+- It does not restrict who may accept. Anyone with the link still can.
+- Left unticked, you get their GitHub username and nothing else.
 
-### Any time, with a link
+### With a link, at any time
 
-Beside every published assignment's invitation there is a second link: **Confirm-email link**. Send it to anyone whose roster row shows only a GitHub username.
+Every published assignment has a **Confirm-email link** beside its invitation link. Send it to students whose roster row shows only a GitHub username.
 
-- It gives out no repository and checks no deadline, so it still works after one has passed.
-- It works whatever **Who may accept** is set to.
-- It stops when that assignment finishes, and **Regenerate link** retires it.
-- No live assignment to carry one? Publish one for the purpose. It hands out nothing.
+- No repository is created, and the deadline is not checked, so it still works after the deadline has passed.
+- It works under any **Who may accept** setting.
+- It stops working when the assignment finishes. **Regenerate link** also retires it.
+- If you have no open assignment to carry the link, publish one for the purpose. Confirming creates no repositories.
 
 ## Late work
 

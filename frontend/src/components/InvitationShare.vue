@@ -80,7 +80,7 @@
       >{{ confirmCopied ? 'Copied' : 'Copy' }}</button>
       <span class="invitation-share-note">
         Asks a student to link their {{ INSTITUTION_SHORT }} address to their GitHub account.
-        Gives out no repository, and stops working when this assignment does.
+        No repository is created, and it stops working when this assignment finishes.
       </span>
     </div>
   </div>
