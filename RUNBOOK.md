@@ -611,6 +611,18 @@ The student opens the invitation link, and the page shows them **their own GitHu
 
 Any GitHub account can then claim a repo while the assignment is open, so the deadline window and **Max acceptances** become your only limits. The cap is therefore **required** with open enrollment - the form will not save without it, and `accept.mjs` rejects a hand-edited uncapped open assignment with `fail:config`. Keep it close to the real headcount. Accepted students appear on the dashboard immediately, with an empty name/student number until you import a roster or add overrides; importing a roster later backfills those columns on the next report run.
 
+### 6.4.1 Correcting an email address that assignments identify a student by
+
+Editing a student's details on the **Roster** tab sometimes opens a second dialog: *"Change the email address for … ?"*, listing one or more assignments. It appears for one situation only, and it is safe to say yes to.
+
+A roster row is identified by whichever of these it carries: a student number, a GitHub account, or an email address. Most rows have a number, and their address is just a contact detail — editing it changes nothing else, and no dialog appears. A row that has **only** an address is identified *by* that address, so correcting a typo in it makes it a different row as far as anything referring to it is concerned. Assignments that were set to run for a chosen group of students refer to exactly that.
+
+**Saying yes updates those assignments in the same breath, so the same students stay in them.** Repositories, acceptances and submitted work are not touched — only the list of who the assignment is for. Saying no writes nothing at all, including the address change itself.
+
+If the address is saved but an assignment cannot be updated, the message names the assignment. Open it and add the student again through **Who is this assignment for**; they will be listed under their corrected address.
+
+To avoid the dialog entirely, give such students a student number or link their GitHub account first (§6.6) — then their address is no longer what identifies them.
+
 ### 6.5 Promoting accepted students onto the roster
 
 After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.

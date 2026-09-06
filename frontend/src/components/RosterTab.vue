@@ -615,6 +615,54 @@
       @save="onStudentSave"
       @close="editingStudent = null"
     />
+
+    <!-- THE EDIT THAT WOULD HAVE REMOVED SOMEBODY QUIETLY.
+         A row carrying only an address is identified by it, so correcting a
+         typo re-identifies the row and every cohort holding the old spelling
+         stops matching. The picker is add-only once an assignment is published
+         precisely so a student cannot be dropped from one; this edit walked
+         past that without either half knowing. Nothing is written until this
+         is answered.
+
+         LAST IN THE TEMPLATE ON PURPOSE. It is raised over Edit details, which
+         is still open behind it - the edit is not committed until this is
+         answered, so cancelling has to leave that form exactly as it was rather
+         than throw away what the lecturer typed. Two overlays at one z-index
+         stack by document order, so this one has to come after. -->
+    <div v-if="reidentify" class="modal-overlay" @click.self="decideReidentify(false)">
+      <div class="modal card" style="max-width: 520px;">
+        <header class="modal-head flex justify-between items-center">
+          <h3 style="margin: 0;">Change {{ reidentifyWhat }} for {{ reidentify.who }}?</h3>
+          <button class="modal-close" type="button" @click="decideReidentify(false)" aria-label="Close">×</button>
+        </header>
+        <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
+          <p style="margin: 0;">
+            This is how {{ reidentify.plan.affected.length }}
+            {{ reidentify.plan.affected.length === 1 ? 'assignment identifies' : 'assignments identify' }}
+            them:
+          </p>
+          <ul style="margin: 0;">
+            <li v-for="a in reidentify.plan.affected" :key="a.id">
+              {{ a.title }} <span class="text-muted">({{ assignmentStateLabel(a.state) }})</span>
+            </li>
+          </ul>
+          <p class="mono" style="margin: 0;">
+            {{ identityLabel(reidentify.plan.lost[0]) }} &rarr; {{ identityLabel(reidentify.plan.replacement) }}
+          </p>
+          <p class="text-muted text-sm" style="margin: 0;">
+            Changing it here updates {{ reidentify.plan.affected.length === 1 ? 'that assignment' : 'those assignments' }}
+            too, so they keep the same students. Their repositories and work are not touched.
+          </p>
+          <div class="flex gap-sm justify-end">
+            <button class="btn btn-secondary" type="button" @click="decideReidentify(false)">Cancel</button>
+            <button class="btn btn-primary" type="button" @click="decideReidentify(true)">
+              Change it and update
+              {{ reidentify.plan.affected.length === 1 ? 'the assignment' : `all ${reidentify.plan.affected.length}` }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -624,8 +672,14 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { ROSTER_PATH } from '../lib/roster.js'
-import { REPORTS_DIR } from '../../../lib/control-layout.mjs'
+import { REPORTS_DIR, assignmentPath } from '../../../lib/control-layout.mjs'
+// An address is the only identity a person TYPES, so it is the only one that can
+// change under a row. This says which assignments would stop matching if it did.
+import { planCohortRename } from '../../../lib/cohort-reidentify.mjs'
 import { rosterClassGroups } from '../lib/class-groups.js'
+// The screen says "Published", not `published`. The helper owns the fallback so
+// a state with no label renders as itself rather than as a blank.
+import { assignmentStateLabel } from '../lib/status-labels.js'
 import { getToken, getUser } from '../lib/auth.js'
 import HelpButton from './HelpButton.vue'
 import { commitFile, getRepoContent, listRepoDir, listClaims, deleteFile } from '../lib/api.js'
@@ -1016,9 +1070,160 @@ function openStudentEditor(student) {
  * only the four fields are overridden, because this table shows five of the nine
  * columns an entry can carry.
  */
+/**
+ * The dialog that stands between an address edit and a silent removal.
+ *
+ * Held as one object rather than a spread of refs so there is no state where
+ * the plan is showing and the promise it belongs to has already settled.
+ */
+const reidentify = ref(null)
+let reidentifyDecide = null
+
+/** Answer the dialog. The only thing that settles the promise it is holding. */
+function decideReidentify(proceed) {
+  if (reidentifyDecide) reidentifyDecide(proceed)
+}
+
+/**
+ * An identity as a person would say it, not as it is stored.
+ *
+ * `email:nina@student.pxl.be` is the roster's spelling and nobody else's, and
+ * a dialog asking a lecturer to approve a change printed in prefixed form is
+ * the same defect as a table printing `provisioned` in a cell.
+ */
+function identityLabel(id) {
+  if (typeof id !== 'string') return ''
+  const at = id.indexOf(':')
+  const value = at === -1 ? id : id.slice(at + 1)
+  return id.startsWith('login:') ? `@${value}` : value
+}
+
+/**
+ * What is actually being changed, taken from the identity that is going.
+ *
+ * An address is the usual one, but it is not the only identity a person types:
+ * correcting the login on a row promoted from an acceptance re-identifies it
+ * exactly the same way, and a dialog headed "Change address" over a username
+ * would be describing something that is not happening.
+ */
+const reidentifyWhat = computed(() => {
+  const lost = reidentify.value?.plan?.lost?.[0] || ''
+  if (lost.startsWith('email:')) return 'the email address'
+  if (lost.startsWith('login:')) return 'the GitHub account'
+  if (lost.startsWith('num:')) return 'the student number'
+  return 'the details'
+})
+
+/**
+ * Ask before an edit re-identifies a row, and say exactly what it would cost.
+ *
+ * Returns the plan to apply, or null when there is nothing to do OR the
+ * lecturer cancelled - the caller distinguishes them by whether it got here,
+ * since `plan.affected` being empty is the ordinary answer and needs no dialog.
+ *
+ * @returns {Promise<{proceed: boolean, plan: object|null}>}
+ */
+async function askBeforeReidentifying(before, after) {
+  const plan = planCohortRename({ before, after, assignments: props.assignments })
+  if (plan.affected.length === 0) return { proceed: true, plan: null }
+
+  // UNNAMEABLE IS REFUSED, NOT CONFIRMED. The roster schema will not store such
+  // a row, so this is unreachable - and offering a dialog whose "yes" writes a
+  // cohort entry we could not compute would be offering a broken choice.
+  if (plan.affected.some((a) => a.cohort === null)) {
+    toast.error(
+      'That change would leave this student with no way to be identified, ' +
+      'while assignments still name them. Give them a student number or a ' +
+      'GitHub account first.',
+    )
+    return { proceed: false, plan: null }
+  }
+
+  reidentify.value = { plan, before, after, who: whoIs(before) }
+  const proceed = await new Promise((resolve) => { reidentifyDecide = resolve })
+  reidentify.value = null
+  reidentifyDecide = null
+  return { proceed, plan: proceed ? plan : null }
+}
+
+/**
+ * Carry the cohorts over, after the roster write has actually landed.
+ *
+ * ROSTER FIRST, ASSIGNMENTS AFTER, and deliberately: the address fix is what
+ * the lecturer asked for, so nothing else happens if it fails. A failure on
+ * this side leaves a cohort naming an address no row carries any more - which
+ * `danglingCohortEntries` reports on the assignment itself - and the toast
+ * below names the assignments so nobody has to go looking.
+ *
+ * @returns {Promise<string[]>} the titles that could NOT be updated
+ */
+async function applyCohortRename({ before, after, plan }) {
+  const token = getToken()
+  const failed = []
+
+  for (const target of plan.affected) {
+    const path = assignmentPath(target.id)
+    // RE-READ AND RE-PLAN, never write the cohort computed from the copy this
+    // page loaded. Merge, never replace: the stored document is spread and only
+    // `cohort` is overridden, so a field nobody here knows about survives.
+    let stored = null
+    try {
+      stored = await getRepoContent(token, props.org, controlRepo, path)
+    } catch {
+      stored = null
+    }
+    if (stored === null) { failed.push(target.title); continue }
+
+    let doc = null
+    try {
+      doc = parseYaml(stored)
+    } catch {
+      failed.push(target.title); continue
+    }
+
+    const fresh = planCohortRename({ before, after, assignments: [doc] })
+    // Already carried, by another session or a previous attempt at this one.
+    if (fresh.affected.length === 0) continue
+    if (fresh.affected[0].cohort === null) { failed.push(target.title); continue }
+
+    const next = { ...doc, cohort: fresh.affected[0].cohort }
+    const { valid } = await validateAgainst('assignment', next)
+    if (!valid) { failed.push(target.title); continue }
+
+    const res = await commitFile(
+      token, props.org, controlRepo, path, stringifyYaml(next),
+      `Keep ${whoIs(after)} in ${target.id} after an address correction`,
+      { baseContent: stored },
+    )
+    // `.ok`, not `.catch` - everything in api.js resolves.
+    if (!res.ok) failed.push(target.title)
+  }
+  return failed
+}
+
+/** Say what happened to the cohorts, in the same breath as the save. */
+function reportCohortRename(failed, plan) {
+  if (!plan) return
+  const carried = plan.affected.length - failed.length
+  if (failed.length === 0) {
+    toast.success(`Kept in ${carried} assignment${carried === 1 ? '' : 's'}`)
+    return
+  }
+  // NAMES THEM. "Some assignments could not be updated" sends a lecturer
+  // through every assignment they have to find out which.
+  toast.error(
+    `The address was saved, but ${failed.join(', ')} still names the old one - ` +
+    `add this student again there.`,
+  )
+}
+
 async function saveStudentDetails(values) {
   const key = rosterKey(editingStudent.value)
   const doc = existingRoster.value
+  // The row as it is and as it would be, so the cohort check can compare the
+  // identities each carries rather than guess from which fields the form shows.
+  let before = null
+  let after = null
   const students = (doc?.students || []).map((entry) => {
     if (rosterKey(entry) !== key) return entry
     const next = { ...entry }
@@ -1031,6 +1236,8 @@ async function saveStudentDetails(values) {
     // outranks a claim and a commit, so the marker goes rather than staying to
     // describe a value that is no longer theirs.
     if ((values.email ?? '').trim() !== (entry.email ?? '')) delete next.email_source
+    before = entry
+    after = next
     return next
   })
   const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
@@ -1040,6 +1247,13 @@ async function saveStudentDetails(values) {
     toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
     return false
   }
+
+  // ASKED BEFORE THE WRITE, because the answer can be "don't". An edit that
+  // re-identifies the row takes the student out of every cohort naming the old
+  // spelling, and the add-only rule exists to stop exactly that happening to a
+  // published assignment - it just cannot see an edit made over here.
+  const { proceed, plan } = await askBeforeReidentifying(before, after)
+  if (!proceed) return false
 
   const res = await commitFile(
     getToken(), props.org, controlRepo, ROSTER_PATH,
@@ -1053,6 +1267,7 @@ async function saveStudentDetails(values) {
   }
   toast.success(`Saved ${whoIs(editingStudent.value)}`)
   editingStudent.value = null
+  if (plan) reportCohortRename(await applyCohortRename({ before, after, plan }), plan)
   await loadExisting()
   return true
 }
@@ -1247,6 +1462,9 @@ async function saveCellEdit(student, field, via) {
   if (via !== 'enter' && next && next === cellEdit.suggestion) { cancelCellEdit(); return }
 
   const doc = existingRoster.value
+  // The row on both sides of the edit, for the cohort check below.
+  let before = null
+  let after = null
   const students = (doc?.students || []).map((s) => {
     // Matched on the key as it was BEFORE the edit: setting a student number on
     // a promoted row changes that row's own key from `login:` to `num:`.
@@ -1261,7 +1479,9 @@ async function saveCellEdit(student, field, via) {
     // job - it records whether anybody looked, not where the bytes came from.
     const { [field]: _dropped, ...rest } = s
     if (field === 'email') delete rest.email_source
-    return next ? { ...rest, [field]: next } : rest
+    before = s
+    after = next ? { ...rest, [field]: next } : rest
+    return after
   })
   const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
 
@@ -1287,6 +1507,12 @@ async function saveCellEdit(student, field, via) {
       return
     }
 
+    // Asked here rather than earlier, so the stale-copy refusal above has
+    // already run: a dialog about assignments, over a roster this page can no
+    // longer safely write, would be a question with no useful answer.
+    const { proceed, plan } = await askBeforeReidentifying(before, after)
+    if (!proceed) { cancelCellEdit(); return }
+
     const who = student.full_name || student.student_number || student.github_login
     const what = EDITABLE_FIELDS[field].label
     const res = await commitFile(
@@ -1300,6 +1526,7 @@ async function saveCellEdit(student, field, via) {
       return
     }
     cancelCellEdit()
+    if (plan) reportCohortRename(await applyCohortRename({ before, after, plan }), plan)
     await loadExisting()
   } catch (e) {
     toast.error(`Could not save: ${e.message}`)
