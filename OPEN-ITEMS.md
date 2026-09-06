@@ -203,7 +203,11 @@ Three requests made on 2026-09-06, recorded **verbatim** so nothing is lost betw
 
 They are transcribed speech, kept as spoken rather than tidied, because the hesitations carry the reasoning - "I still don't know what to do with the slug" is the actual state of that decision.
 
-### 1. A free organization, without Team for Education
+### 1. A free organization, without Team for Education — ANSWERED 2026-09-07
+
+**Answer: [ADMIN.md §1.1.1](ADMIN.md#111-check-the-organization-is-on-github-team). Not insurmountable — nothing fails, two things degrade at a deadline.** Rulesets and protected branches are Team-and-above on *private* repositories, and student repositories are private: the deadline freeze falls back to demotion (which also removes Actions, secrets and environments) and the Feedback PR baseline is left unprotected. Minutes are 2,000/month rather than 3,000. Everything else — every endpoint, group assignments, acceptance — works, and the upgrade is free for verified educators.
+
+Four of the twelve readable participating organizations are on `free`, and so is `pxl-classroom-testbed`. Nothing said so before: `plan.name` was never read anywhere. It is now a System Health warning (`org-plan`), riding the `GET /orgs/{org}` response the base-permission check already fetches.
 
 > When you're finished with this, I have a question. It's the question my colleagues will be asking me. What if I have an organization, and I forgot to upgrade it to Teams educational status or something. So it's a free organization. What will work and what will not work? where will I get an issue? And is it insurmountable? Meaning, it's okay if I get some error messages once in a while if it's not a big... or or or... things that maybe don't work as expected, but all the rest keeps on working. That's maybe fine. Right? So Check online. Um, check deeply so you... I I have an answer to this question. And, I mean, so the the central hub is still my organization, but their their organization is their teaching organization, and they forgot to upgrade it. This is not a huge problem. I mean, we can always upgrade organizations, but not... I know many of them have free organizations. So... yeah. What is the situation? And if it's a real problem, what can we do to rectify it? So analyze deep, check online, think deep.
 

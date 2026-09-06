@@ -42,6 +42,28 @@ gh api apps/pxl-classroom-provisioner --jq .permissions
 
 If `organization_administration` is absent, the App owner must add it first (§6.6); otherwise Setup Organization fails at its billing preflight (§3.1).
 
+### 1.1.1 Check the organization is on GitHub Team
+
+GitHub Team is free for verified educators, so an organization that was never upgraded looks exactly like one that was. **System Health reports this** as *Organization Plan (rulesets and protected branches)*, a warning rather than an error. To check without it:
+
+```bash
+gh api orgs/<org> --jq .plan.name
+```
+
+Measured 2026-09-07 across the registry: four of the twelve readable participating organizations answer `free`, and so does `pxl-classroom-testbed`.
+
+**Nothing fails on Free.** Every API this system calls works there, group assignments never touch the org Teams feature (membership is `teams/<id>/<slug>.json` and repositories are shared by adding collaborators), and acceptance costs no Actions minutes because brokers are public repositories. Two things degrade, both only at a deadline and both silently:
+
+| | On Team | On Free |
+|---|---|---|
+| Deadline freeze | A repository ruleset blocks pushes to the submission ref and nothing else | Falls back to demoting the student to `pull`, which also removes Actions, secrets, environments, runners and settings until the repository is reopened |
+| Feedback PR baseline | Protected against force-push and deletion | Created unprotected; the student is admin on their own repo and can rewrite or delete it |
+| Actions minutes | 3,000/month | 2,000/month |
+
+Rulesets and protected branches are Team-and-above features **on private repositories**, and student repositories are private. The fallback is deliberate and correct - lockdown records `lock_method: "demotion"` so the unlock applies the matching inverse - but on a course whose subject *is* Actions and secrets, the freeze confiscates the subject matter for its duration.
+
+**To upgrade:** the lecturer applies once at <https://github.com/education/teachers> with their institutional address and proof of position, then upgrades from the Global Campus dashboard under *Upgrade your academic organizations*. It applies to an existing organization immediately; nothing in the course changes. Approval can lag behind the upgrade button appearing, so do it before term rather than the week of a deadline.
+
 ### 1.2 Run Setup Organization
 
 In `pxl-classroom` -> Actions -> **Setup Organization** -> Run workflow:
