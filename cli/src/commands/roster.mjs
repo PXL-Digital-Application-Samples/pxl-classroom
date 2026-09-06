@@ -173,7 +173,11 @@ export function registerRosterCommand(program) {
         }
       }
 
-      const yamlText = yamlStringify(rosterDoc);
+      // The MERGED document, not the parsed CSV: diffRosters matches on either
+      // identity a row carries and spreads the stored entry under the incoming
+      // one, so a promoted row keeps its login. Writing rosterDoc would commit
+      // a document the diff just printed something else about.
+      const yamlText = yamlStringify(diff.merged);
       const message = `Update ${ROSTER_PATH} via CLI (+${diff.added.length} ~${diff.updated.length} -${diff.removed.length})`;
 
       const result = await commitWithRebase(octokit, {

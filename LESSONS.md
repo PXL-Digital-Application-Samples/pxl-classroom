@@ -1443,3 +1443,17 @@ Six students on PXL-Automation-II's roster read *"Not yet identified"* — promo
 
 **And the fixture was not the shape the app writes — twice in one file.** The first draft invented `source: 'promoted'`; the constant is `accepted`, so every row fell into the roster schema's `else` branch and required a student number and a full name it does not have. Then the shared e2e fixture turned out to write a roster with **no `schema_version`**, which every real roster has and the schema requires — so an in-place edit looked broken while the code was right, because the merged document inherited the missing key. Both were found by a save that refused for a reason the screen stated plainly. `PROMOTED_SOURCE` and `ROSTER_SCHEMA_VERSION` are imported now rather than spelled.
 
+### The import that added one row and removed another, for the same student.
+
+Asked whether re-importing a CSV would merge new information into rows that already existed. It would not, and the way it failed was worse than "no".
+
+`rosterKey` prefers `num:<student_number>` and falls back to `login:<github_login>` — one canonical key per row. `rowsToRoster` **requires** a student number on every CSV row. So a CSV row always keyed `num:`, a promoted row always keyed `login:`, and the two could never meet: `diffRosters` reported the CSV row as **added** and the stored row as **removed**. Two rows for one student — and where the CSV carried no `github_login` column, the login was simply gone, which is the one fact a promoted row exists to hold.
+
+CLAUDE.md already had the rule, about a different surface: *"When a rule says 'match on ANY of these', every surface reading that data obeys it — not just the gate."* That entry was written when the cohort picker's checkbox used one canonical key while the acceptance gate matched on either identity. This is the same defect on the import path, and the fix is the same import: `rosterIdentities`, not a second opinion.
+
+**Merging is safe here for a reason worth stating.** A CSV cannot express a deletion — `coerceCell` omits an empty cell, so an absent column and a blank cell are the same thing. There is nothing a lecturer can put in a spreadsheet that means "clear this field", so spreading the stored row under the incoming one cannot discard an intention. Removing a whole student is the `removed` list, which both surfaces confirm before committing.
+
+**The preview and the write were two documents.** `diffRosters` described one thing and each caller then committed its own `rosterDoc` — the parsed CSV. Even with matching fixed, the diff would have said "updated" while the write replaced. `merged` is returned by the same call that produces the diff, and both importers commit that, so the two cannot disagree by construction. Same shape as the `submission_status` bug two entries up: two conditions that must agree are one named thing.
+
+**And one guard had to be added because of the fix.** A login is identity-bearing on the import path now, so two CSV rows sharing one are two students claiming to be one person — only the first would match a stored row, and the second would be written holding a login that already belongs to somebody else. `rowsToRoster` refuses it the way it already refused a duplicate student number.
+

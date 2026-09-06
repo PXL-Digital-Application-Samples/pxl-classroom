@@ -891,9 +891,12 @@ async function saveCellEdit(student, field) {
   }
 }
 
+// `merged` in the empty shape too: `canCommit` is false without a parsed CSV so
+// nothing reads it, but a fallback missing a field the real one has is how a
+// guard that was true everywhere ends up throwing on the one path that changed.
 const diff = computed(() => parsedRoster.value
   ? diffRosters(existingRoster.value, parsedRoster.value)
-  : { added: [], updated: [], removed: [] })
+  : { added: [], updated: [], removed: [], unkeyed: { current: [], next: [] }, merged: null })
 
 const canCommit = computed(() =>
   parsedRoster.value
@@ -1268,11 +1271,16 @@ async function commitRoster() {
   committing.value = true
   try {
     const token = getToken()
-    const yaml = stringifyYaml(parsedRoster.value)
+    // The MERGED document, not the parsed CSV. diffRosters matches a row on
+    // either identity it carries and spreads the stored entry under the
+    // incoming one, so a promoted row keeps its login and its provenance when
+    // a CSV names the same student by number. Committing parsedRoster instead
+    // would write exactly the document the preview did not describe.
+    const yaml = stringifyYaml(diff.value.merged)
     const message = `Update ${ROSTER_PATH} via Admin Panel (+${diff.value.added.length} ~${diff.value.updated.length} -${diff.value.removed.length})`
     const res = await commitFile(token, props.org, controlRepo, ROSTER_PATH, yaml, message)
     if (res.ok) {
-      toast.success(`Roster committed (${parsedRoster.value.students.length} students)`)
+      toast.success(`Roster committed (${diff.value.merged.students.length} students)`)
       await loadExisting()
     } else {
       toast.error(`Commit failed: ${res.data?.message || 'unknown error'}`)

@@ -332,3 +332,92 @@ test.describe('editing a row in place', () => {
     await expect(page.locator('.cell-edit')).toHaveAttribute('placeholder', /@student\.pxl\.be$/);
   });
 });
+
+test.describe('importing a CSV over a promoted row', () => {
+  const NL = String.fromCharCode(10);
+  const csv = (rows) =>
+    ['student_number,full_name,email,github_login', ...rows.map((r) => r.join(','))].join(NL);
+
+  async function paste(page, text) {
+    await page.locator('textarea').first().fill(text);
+    await expect(page.locator('.diff-pane')).toBeVisible();
+  }
+
+  test('THE DEFECT: it merges onto the row instead of adding and removing', async ({ page }) => {
+    // rosterKey prefers `num:`, so a CSV row keyed num:0123456 could never meet
+    // the promoted row keyed login:lowieserneelspxl. The import added one and
+    // removed the other: two rows for one student.
+    const { contentWrites } = await openRoster(page);
+    await paste(page, csv([
+      ['0123456', 'Lowie Serneels', 'lowie.serneels@student.pxl.be', 'LowieSerneelsPXL'],
+    ]));
+
+    // Nothing added, one UPDATED, and five removed - the students the CSV does
+    // not name. Before this the counts were +1 / -6.
+    const pane = page.locator('.diff-pane');
+    await expect(pane).toContainText('0 added', { timeout: 10000 });
+    await expect(pane).toContainText('1 updated');
+    await expect(pane).toContainText('5 removed');
+    // The changed fields are exactly the columns the CSV carried - the login
+    // is not among them, because it was already there and was kept.
+    await expect(pane).toContainText('[student_number, full_name, email]');
+    await expect(pane.locator('text=Removed (5)').locator('..'))
+      .not.toContainText('LowieSerneelsPXL');
+
+    page.on('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: /Commit/i }).first().click();
+    await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+
+    const yaml = rosterWrite(contentWrites).content;
+    expect((yaml.match(/LowieSerneelsPXL/gi) || []).length, 'one row, not two').toBe(1);
+    expect(yaml).toContain('0123456');
+    expect(yaml).toContain('Lowie Serneels');
+  });
+
+  test('the login survives a CSV that has no github_login column', async ({ page }) => {
+    // The worst version: the CSV names the student by number alone, so the
+    // login - the one fact the promoted row held - was simply gone.
+    const { contentWrites } = await openRoster(page, {
+      roster: [{ github_login: 'alice-dev', student_number: '0123456', source: PROMOTED_SOURCE }],
+    });
+    await paste(page, ['student_number,full_name', '0123456,Alice Example'].join(NL));
+
+    page.on('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: /Commit/i }).first().click();
+    await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+
+    const yaml = rosterWrite(contentWrites).content;
+    expect(yaml, 'the login must not be dropped').toContain('alice-dev');
+    expect(yaml).toContain('Alice Example');
+  });
+
+  test('what the preview describes is what gets written', async ({ page }) => {
+    // The previous shape was: preview here, build your own document there,
+    // which is exactly how a diff and a write come to disagree.
+    const { contentWrites } = await openRoster(page, {
+      roster: [{ github_login: 'alice-dev', source: PROMOTED_SOURCE, class_group: '3A' }],
+    });
+    await paste(page, csv([['0123456', 'Alice Example', 'a@student.pxl.be', 'alice-dev']]));
+
+    page.on('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: /Commit/i }).first().click();
+    await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+
+    const yaml = rosterWrite(contentWrites).content;
+    // Everything the CSV carried, plus everything it did not mention.
+    expect(yaml).toContain('0123456');
+    expect(yaml).toContain('alice-dev');
+    expect(yaml, 'a group set in the table survives an import').toContain('3A');
+    expect(yaml, 'and so does the provenance').toContain('source: accepted');
+  });
+
+  test('a CSV naming one student twice by login is refused outright', async ({ page }) => {
+    await openRoster(page);
+    await paste(page, csv([
+      ['0123456', 'Alice One', 'a@student.pxl.be', 'alice-dev'],
+      ['0999999', 'Alice Two', 'b@student.pxl.be', 'Alice-Dev'],
+    ]));
+    await expect(page.locator('.validation-errors')).toContainText(/duplicate github_login/i);
+  });
+});
+
