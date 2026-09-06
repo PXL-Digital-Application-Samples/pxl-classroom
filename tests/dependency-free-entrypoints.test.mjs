@@ -38,14 +38,39 @@ const ENTRY_POINTS = [
   [".github/workflows/setup-org.yml", "scripts/register-participating-org.mjs"],
 ];
 
-function specifiersOf(file) {
-  const src = readFileSync(file, "utf8");
+/**
+ * Source with its comments removed.
+ *
+ * WITHOUT THIS THE GUARD READS PROSE. `lib/claim.mjs` explains that decryption
+ * "must never report 'no key matched' separately from 'the ciphertext is bad'",
+ * and `from "the ciphertext is bad"` matches the `from '...'` pattern below
+ * exactly. The file's only real import is `./base64url.mjs`, so the guard was
+ * reporting a bare specifier that does not exist - and the remedy it implies,
+ * dropping a correct import, is worse than the thing it was guarding against.
+ *
+ * Strings are left alone deliberately: a specifier only ever appears in one, so
+ * stripping them would blind the guard completely. Only comments go.
+ */
+function withoutComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, "$1");
+}
+
+function scan(src) {
   const out = [];
   for (const m of src.matchAll(/from\s+['"]([^'"]+)['"]/g)) out.push(m[1]);
   for (const m of src.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) out.push(m[1]);
   for (const m of src.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) out.push(m[1]);
   return out;
 }
+
+function specifiersOf(file) {
+  return scan(withoutComments(readFileSync(file, "utf8")));
+}
+
+/** The pure half, so the test below drives this scanner and not a copy of it. */
+specifiersOf.__test = (src) => scan(withoutComments(src));
 
 function resolveLocal(from, spec) {
   const base = resolve(dirname(from), spec);
@@ -112,4 +137,21 @@ test("the invitation verifier's graph is the security path, and is named here", 
   for (const must of ["lib/invite-token.mjs", "lib/invite-token-format.mjs"]) {
     assert.ok(files.includes(must), `${must} must be part of the verifier graph`);
   }
+});
+
+test("the scanner reads code, not the prose about it", () => {
+  // The false positive that produced `withoutComments`: lib/claim.mjs argues
+  // that decryption must never report one failure "separately from 'the
+  // ciphertext is bad'", and that sentence contains `from "..."`. A guard that
+  // cannot tell a comment from an import tells you to delete a correct one.
+  const withProse = [
+    '// never report "no key matched" separately from "the ciphertext is bad"',
+    '/* see the note about from "a block comment" above */',
+    'import { toBase64Url } from "./base64url.mjs";',
+  ].join("\n");
+  assert.deepEqual(specifiersOf.__test(withProse), ["./base64url.mjs"]);
+
+  // And a real import is still found next to a comment that mentions one.
+  const mixed = 'import x from "yaml"; // was from "node:fs" before';
+  assert.deepEqual(specifiersOf.__test(mixed), ["yaml"]);
 });

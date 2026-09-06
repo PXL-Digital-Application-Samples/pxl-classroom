@@ -71,19 +71,59 @@ test("the filename appears only when the caller has one", () => {
 });
 
 test("required columns and required values are both enforced, by line", () => {
-  assert.throws(() => rowsToRoster(rows(), ["full_name"]), /required CSV column missing: student_number/);
+  // `student_number` is no longer a required COLUMN. It was, and that made the
+  // round trip the Roster tab recommends impossible for a roster of promoted
+  // rows: Export CSV writes them with an empty number, and the import refused
+  // its own export.
+  assert.deepEqual(
+    rowsToRoster([{ full_name: "A", email: "a@student.pxl.be" }], ["full_name", "email"]).students,
+    [{ full_name: "A", email: "a@student.pxl.be" }],
+  );
+  assert.throws(() => rowsToRoster(rows(), ["student_number"]), /required CSV column missing: full_name/);
 
   // Line numbers are what the lecturer sees in their spreadsheet: header is 1.
   assert.throws(
     () => rowsToRoster(rows({ student_number: "1", full_name: "" }), HEADERS),
     /line 2: full_name is required/,
   );
+});
+
+test("A ROW STILL HAS TO BE FINDABLE AGAIN, by one identity or another", () => {
+  // `rosterKey` returns null for a row with none of the three, so it would
+  // import once and then be unreachable - the import diff could not match it,
+  // and neither could the cell editor, Edit details or Remove.
   assert.throws(
     () => rowsToRoster(
       rows({ student_number: "1", full_name: "A" }, { student_number: "", full_name: "B" }),
       HEADERS,
     ),
-    /line 3: student_number is required/,
+    /line 3: a student needs a student_number, an email or a github_login/,
+  );
+
+  // Any one of them is enough, and a file may use different ones per row.
+  const mixed = rowsToRoster(
+    [
+      { full_name: "By number", student_number: "0123456" },
+      { full_name: "By address", email: "b@student.pxl.be" },
+      { full_name: "By account", github_login: "c-dev" },
+    ],
+    ["full_name", "student_number", "email", "github_login"],
+  );
+  assert.equal(mixed.students.length, 3);
+});
+
+test("two rows sharing an ADDRESS are refused, like two sharing a number", () => {
+  // An address keys a row that has no number, so this is the same defect as a
+  // duplicate student_number: two students claiming to be one person.
+  assert.throws(
+    () => rowsToRoster(
+      [
+        { full_name: "A", email: "same@student.pxl.be" },
+        { full_name: "B", email: "SAME@Student.PXL.be" },
+      ],
+      ["full_name", "email"],
+    ),
+    /line 3: email "SAME@Student.PXL.be" is already used on line 2/,
   );
 });
 

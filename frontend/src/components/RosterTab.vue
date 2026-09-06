@@ -23,7 +23,10 @@
           <label>Upload CSV</label>
           <input type="file" accept=".csv,text/csv" @change="onFileChange" />
           <small>
-            Required columns: <code>student_number</code>, <code>full_name</code>. Optional: <code>email</code>, <code>class_group</code>, <code>github_login</code>, <code>github_id</code>, <code>active</code>, <code>team_slug</code>, <code>team_name</code>.
+            Required: <code>full_name</code>, plus one of <code>email</code>, <code>github_login</code>
+            or <code>student_number</code> so the row can be found again.
+            Also accepted: <code>class_group</code>, <code>github_id</code>, <code>active</code>,
+            <code>team_slug</code>, <code>team_name</code>.
             <button class="btn-link" type="button" @click="downloadSampleCsv">Download sample CSV</button>
           </small>
         </div>
@@ -518,20 +521,17 @@
             <p style="margin: 0;">{{ quickAddError }}</p>
           </div>
 
+          <!-- THE NUMBER IS NO LONGER ASKED FOR FIRST, OR AT ALL.
+               It was required so the row would have a key, back when a roster
+               entry could only be keyed by number or GitHub login - and most
+               institutions hand a lecturer addresses, not SIS numbers, so the
+               form demanded a value they could only invent. A row now needs a
+               name and ONE of number, address or account; the address is the
+               one a lecturer actually has, so it leads. -->
           <div class="field" style="margin-bottom: 0;">
-            <label>Student Number <span class="req" style="color: var(--accent-red);">*</span></label>
+            <label for="qa-name">Full Name <span class="req" style="color: var(--accent-red);">*</span></label>
             <input
-              v-model="quickAddForm.student_number"
-              type="text"
-              class="form-control"
-              placeholder="e.g. 0123456"
-              required
-            />
-          </div>
-
-          <div class="field" style="margin-bottom: 0;">
-            <label>Full Name <span class="req" style="color: var(--accent-red);">*</span></label>
-            <input
+              id="qa-name"
               v-model="quickAddForm.full_name"
               type="text"
               class="form-control"
@@ -541,20 +541,34 @@
           </div>
 
           <div class="field" style="margin-bottom: 0;">
-            <label>Email Address <span class="req" style="color: var(--accent-red);">*</span></label>
+            <label for="qa-email">Email Address</label>
             <input
+              id="qa-email"
               v-model="quickAddForm.email"
               type="email"
               class="form-control"
               :placeholder="`e.g. alice.example@${exampleDomain}`"
-              required
             />
+            <small>Assignments match students to accounts on this address.</small>
+          </div>
+
+          <div class="field" style="margin-bottom: 0;">
+            <label for="qa-number">Student Number</label>
+            <input
+              id="qa-number"
+              v-model="quickAddForm.student_number"
+              type="text"
+              class="form-control"
+              placeholder="e.g. 0123456"
+            />
+            <small>Your institution's own number, if you have one. Nothing here needs it.</small>
           </div>
 
           <div class="flex gap-sm">
             <div class="field" style="flex: 1; margin-bottom: 0;">
-              <label>Class Group (Optional)</label>
+              <label for="qa-group">Class Group (Optional)</label>
               <input
+                id="qa-group"
                 v-model="quickAddForm.class_group"
                 type="text"
                 class="form-control"
@@ -562,8 +576,9 @@
               />
             </div>
             <div class="field" style="flex: 1; margin-bottom: 0;">
-              <label>GitHub Login (Optional)</label>
+              <label for="qa-login">GitHub Login (Optional)</label>
               <input
+                id="qa-login"
                 v-model="quickAddForm.github_login"
                 type="text"
                 class="form-control"
@@ -726,21 +741,45 @@ async function submitQuickAddStudent() {
   const group = quickAddForm.value.class_group?.trim()
   const login = quickAddForm.value.github_login?.trim()
 
-  if (!num || !name || !email) {
-    quickAddError.value = 'Student number, full name, and email are required.'
+  // A NAME AND ONE IDENTITY, the same rule the CSV import and the schema apply.
+  // Without one of the three `rosterKey` returns null, and the row would be
+  // added once and then be unreachable - no import diff could match it, and
+  // neither could the cell editor, Edit details or Remove.
+  if (!name) {
+    quickAddError.value = 'A full name is required.'
+    return
+  }
+  if (!email && !num && !login) {
+    quickAddError.value =
+      'Add an email address, a GitHub account or a student number, so this student can be found again.'
     return
   }
 
   const currentStudents = [...(existingRoster.value?.students || [])]
-  if (currentStudents.some((s) => String(s.student_number).toLowerCase() === num.toLowerCase())) {
-    quickAddError.value = `Student number "${num}" already exists in the roster.`
+
+  // DUPLICATES ON WHICHEVER IDENTITY WAS GIVEN, not on the number alone. Any of
+  // the three keys a row, so two rows sharing any one of them are two students
+  // claiming to be the same person - and the second would be unreachable,
+  // because `rosterKey` would resolve both to the same key.
+  const clash = [
+    ['student number', num, (s) => s.student_number, (a, b) => a.toLowerCase() === b.toLowerCase()],
+    ['email address', email, (s) => s.email, (a, b) => a.toLowerCase() === b.toLowerCase()],
+    ['GitHub account', login, (s) => s.github_login, (a, b) => a.toLowerCase() === b.toLowerCase()],
+  ].find(([, value, read, eq]) =>
+    value && currentStudents.some((s) => read(s) && eq(String(read(s)), value)))
+  if (clash) {
+    quickAddError.value = `That ${clash[0]} is already on the roster.`
     return
   }
 
+  // ONLY WHAT WAS FILLED IN. `student_number`, `full_name` and `email` all
+  // declare `minLength: 1`, so writing "" is not merely untidy - it is a
+  // document the schema rejects, and the empty field would then be a value
+  // rather than an absence to everything that reads it.
   const newStudent = {
-    student_number: num,
     full_name: name,
-    email,
+    ...(num ? { student_number: num } : {}),
+    ...(email ? { email } : {}),
     ...(group ? { class_group: group } : {}),
     ...(login ? { github_login: login } : {}),
   }

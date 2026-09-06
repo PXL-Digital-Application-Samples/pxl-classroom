@@ -348,3 +348,73 @@ test.describe('65 - the hint under the table tells the truth', () => {
     await expect(page.locator('.roster-ask-hint')).toContainText('publish an assignment');
   });
 });
+
+// ====================================================== adding by hand
+
+test.describe('65 - Add student, without a student number', () => {
+  const open = async (page) => {
+    await openRoster(page);
+    await page.getByRole('button', { name: /Add student/i }).click();
+    await expect(page.locator('.modal')).toBeVisible({ timeout: 10000 });
+  };
+
+  test('THE NUMBER IS NOT ASKED FOR', async ({ page }) => {
+    // It was required so the row would have a key, back when a roster entry
+    // could only be keyed by number or GitHub login. Most institutions hand a
+    // lecturer addresses, not SIS numbers, so the form demanded a value they
+    // could only invent - and inventing one collides with real SIS numbering.
+    await open(page);
+    const numberField = page.locator('.modal .field', { hasText: 'Student Number' });
+    await expect(numberField).toBeVisible();
+    await expect(numberField.locator('.req')).toHaveCount(0);
+    await expect(numberField.locator('input')).not.toHaveAttribute('required', /.*/);
+    // The name still is: nothing else supplies a human-readable label.
+    await expect(page.locator('.modal .field', { hasText: 'Full Name' }).locator('.req')).toHaveCount(1);
+  });
+
+  test('a name and an address is enough, and writes no empty fields', async ({ page }) => {
+    const { contentWrites } = await openRoster(page);
+    await page.getByRole('button', { name: /Add student/i }).click();
+    await expect(page.locator('.modal')).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole('textbox', { name: /Full Name/i }).fill('Nina Nieuw');
+    await page.getByRole('textbox', { name: /Email Address/i }).fill('nina@student.pxl.be');
+    await page.locator('.modal').getByRole('button', { name: 'Add Student' }).click();
+
+    await expect.poll(() => rosterWrites(contentWrites).length, { timeout: 10000 }).toBe(1);
+    const yaml = rosterWrites(contentWrites)[0].content;
+    expect(yaml).toContain('Nina Nieuw');
+    expect(yaml).toContain('nina@student.pxl.be');
+    // student_number and full_name declare minLength: 1, so an empty string is
+    // a document the schema rejects - the row must simply not carry the field.
+    expect(yaml).not.toContain("student_number: ''");
+    expect(yaml).not.toContain('student_number: ""');
+  });
+
+  test('but a name ALONE is refused, because the row could never be found again', async ({ page }) => {
+    // `rosterKey` returns null for a row with no number, address or account, so
+    // it would be added once and then be unreachable: no import diff could
+    // match it, and neither could Edit details or Remove.
+    await open(page);
+    await page.getByRole('textbox', { name: /Full Name/i }).fill('Nobody');
+    await page.locator('.modal').getByRole('button', { name: 'Add Student' }).click();
+    await expect(page.locator('.modal')).toContainText(/email address, a GitHub account or a student number/i);
+  });
+
+  test('a duplicate ADDRESS is refused, not just a duplicate number', async ({ page }) => {
+    // Any of the three keys a row, so two rows sharing any one of them resolve
+    // to the same key and the second becomes unreachable.
+    await open(page);
+    await page.getByRole('textbox', { name: /Full Name/i }).fill('Someone Else');
+    await page.getByRole('textbox', { name: /Email Address/i }).fill('alice@student.pxl.be');
+    await page.locator('.modal').getByRole('button', { name: 'Add Student' }).click();
+    await expect(page.locator('.modal')).toContainText(/email address is already on the roster/i);
+  });
+
+  test('the CSV panel no longer says a number is required', async ({ page }) => {
+    await openRoster(page);
+    const panel = page.locator('.roster-grid');
+    await expect(panel).toContainText('plus one of');
+    await expect(panel).not.toContainText('Required columns: student_number');
+  });
+});

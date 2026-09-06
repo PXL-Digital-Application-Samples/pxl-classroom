@@ -23,7 +23,7 @@
         "additionalProperties": false,
         "allOf": [
           {
-            "description": "An imported entry must carry an institutional identity; a promoted one need not. Under roster_mode 'open' with no address collected, the system only ever learns a GitHub login - deriving a full_name from it would put a guess in a graded field, and a synthesised student_number would collide with real SIS numbering, so `github_login` is all that is required. It MAY carry more when more was genuinely learned: an open assignment with `require_claim` collects an address the student confirmed, and promotion writes that `email` (and the `student_number` the claim matched, if any) rather than dropping it. Only what was confirmed - never a value derived from a login.",
+            "description": "An imported entry must be FINDABLE AGAIN; a promoted one need not carry a name. Under roster_mode 'open' with no address collected, the system only ever learns a GitHub login - deriving a full_name from it would put a guess in a graded field, and a synthesised student_number would collide with real SIS numbering, so `github_login` is all that is required. It MAY carry more when more was genuinely learned: an open assignment with `require_claim` collects an address the student confirmed, and promotion writes that `email` (and the `student_number` the claim matched, if any) rather than dropping it. Only what was confirmed - never a value derived from a login. AN IMPORTED ENTRY NEEDS A NAME AND ONE IDENTITY, and `student_number` is no longer the only one that counts. It was required so the row would have a key at all - `rosterKey` is `rosterIdentities(entry)[0]` - and most institutions hand a lecturer addresses rather than SIS numbers, so the requirement asked for a value they do not have and could only invent. Number, email or GitHub login all key a row; any one of them is enough.",
             "if": {
               "properties": {
                 "source": {
@@ -47,8 +47,24 @@
             },
             "else": {
               "required": [
-                "student_number",
                 "full_name"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "student_number"
+                  ]
+                },
+                {
+                  "required": [
+                    "email"
+                  ]
+                },
+                {
+                  "required": [
+                    "github_login"
+                  ]
+                }
               ]
             }
           }
