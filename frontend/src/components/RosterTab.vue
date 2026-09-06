@@ -839,9 +839,14 @@ async function fillFromReports() {
       token, props.org, controlRepo, ROSTER_PATH,
       stringifyYaml(updatedDoc),
       `Fill in ${fillable.length} email address(es) from assignment reports`,
+      // What this document was built from. A sha conflict on a roster write is
+      // usually GitHub's Contents API answering with a stale sha rather than a
+      // real concurrent edit; passing the baseline is what lets commitFile tell
+      // the two apart instead of retrying blind over somebody else's write.
+      { baseContent: rosterRaw.value },
     )
     if (!res.ok) {
-      toast.error(`Could not save: ${res.data?.message || `HTTP ${res.status}`}`)
+      toast.error(writeFailure(res))
       return
     }
     toast.success(`Filled in ${fillable.length} email address${fillable.length === 1 ? '' : 'es'}.`)
@@ -935,6 +940,21 @@ function cancelCellEdit() {
 const cellEditor = { fields: EDITABLE_FIELDS, state: cellEdit, isEditing, start: startCellEdit, save: saveCellEdit, cancel: cancelCellEdit }
 
 /**
+ * What to say when a roster write did not land.
+ *
+ * GitHub's own words for a sha conflict are "is at 7575ba... but expected
+ * f7a2cd...", which was shown to a lecturer verbatim - two hashes, no subject,
+ * and nothing to do about it. `commitFile` marks the case it could not retry
+ * safely, and that case has exactly one remedy.
+ */
+function writeFailure(res) {
+  if (res.conflict) {
+    return 'The roster changed while you were editing, so this was not saved. Reload the page and try again.'
+  }
+  return `Could not save: ${res.data?.message || `HTTP ${res.status}`}`
+}
+
+/**
  * MERGE, NEVER REPLACE. The stored document is read, spread, and only this one
  * field changed - a roster rebuilt field by field from what a table renders
  * drops whatever nobody thought to list, and this table shows five of the nine
@@ -1015,9 +1035,10 @@ async function saveCellEdit(student, field, via) {
       token, props.org, controlRepo, ROSTER_PATH,
       stringifyYaml(updatedDoc),
       next ? `Set ${who}'s ${what} to ${next}` : `Clear ${who}'s ${what}`,
+      { baseContent: rosterRaw.value },
     )
     if (!res.ok) {
-      toast.error(`Could not save: ${res.data?.message || `HTTP ${res.status}`}`)
+      toast.error(writeFailure(res))
       return
     }
     cancelCellEdit()

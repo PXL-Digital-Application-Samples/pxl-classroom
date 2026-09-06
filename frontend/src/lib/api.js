@@ -8,6 +8,7 @@ import { READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 import { toast } from './toast.js'
 import { teamsDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { commitWithRebase } from '../../../lib/gittree.mjs'
+import { conflictAction, isShaConflict, REFUSE } from '../../../lib/write-conflict.mjs'
 
 const API_BASE = 'https://api.github.com'
 
@@ -428,20 +429,55 @@ export async function listRepoDir(token, owner, repo, path) {
 /**
  * Create or update a file in a repository.
  */
-export async function commitFile(token, owner, repo, path, contentStr, message) {
-  const getRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)
-  let sha = undefined
-  if (getRes.ok && getRes.data?.sha) {
-    sha = getRes.data.sha
-  }
-
+export async function commitFile(token, owner, repo, path, contentStr, message, { baseContent } = {}) {
   // Base64 encode unicode properly
   const base64Content = btoa(unescape(encodeURIComponent(contentStr)))
 
-  const body = { message, content: base64Content }
-  if (sha) body.sha = sha
+  const put = async (sha) => {
+    const body = { message, content: base64Content }
+    if (sha) body.sha = sha
+    return ghApi(token, 'PUT', `/repos/${owner}/${repo}/contents/${path}`, body)
+  }
+  const head = async () => {
+    const res = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)
+    return res.ok && res.data?.sha ? res.data : null
+  }
 
-  return ghApi(token, 'PUT', `/repos/${owner}/${repo}/contents/${path}`, body)
+  const first = await put((await head())?.sha)
+  if (first.ok || !isShaConflict(first)) return first
+
+  // A SHA CONFLICT IS NOT ALWAYS A CONCURRENT EDIT. GitHub's Contents API is
+  // eventually consistent: a GET moments after a write can still answer with
+  // the previous sha, so the read above hands us a stale one and the PUT is
+  // refused with "is at <x> but expected <y>". Measured on PXL-Automation-II,
+  // pressing "Fill in 1 email" and then editing a cell.
+  //
+  // RETRYING BLIND WOULD BE DATA LOSS, and that is why this is not a loop. If
+  // the read really was stale, the CONTENT it returned was stale too - so the
+  // document the caller built is one commit behind, and writing it over the
+  // fresh sha silently drops whatever the caller never saw. In the measured
+  // case that is the address the harvest had just written.
+  //
+  // So the retry is conditional on the caller telling us what it built from.
+  // Same content: nobody else wrote, the sha was simply stale, retry is safe.
+  // Different content: somebody did write, and this is the lost update the
+  // conflict exists to prevent - refuse and say so.
+  const fresh = await head()
+  if (!fresh) return first
+  const action = conflictAction({ baseContent, freshContent: decodeContentsPayload(fresh) })
+  if (action === REFUSE) return { ...first, conflict: true }
+  return put(fresh.sha)
+}
+
+/** The decoded text of a `GET /contents` payload, or null when it carries none. */
+function decodeContentsPayload(data) {
+  if (!data?.content) return null
+  try {
+    const bin = atob(String(data.content).replace(/\n/g, ''))
+    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+  } catch {
+    return null
+  }
 }
 
 /**
