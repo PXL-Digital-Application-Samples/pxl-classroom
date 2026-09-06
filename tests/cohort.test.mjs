@@ -165,3 +165,65 @@ test("a malformed roster row is refused, never admitted by accident", () => {
   }
   assert.deepEqual(rosterIdentities("alice"), []);
 });
+
+// EVERY IDENTITY THE PICKER CAN MINT HAS TO SURVIVE THE ROUND TRIP, and the
+// list is DERIVED from rosterIdentities rather than written out here - a
+// hand-written list is what let this break in the first place. `email:` was
+// added to rosterIdentities and to nothing else: the picker stored it,
+// normalizeCohortEntry did not recognise the prefix and returned "", and the
+// assignment schema's pattern refused it outright. So a student picked by
+// address was refused by the gate that had just been told to admit her, and a
+// cohort of only such students normalised to the EMPTY SET - which means every
+// student on the roster. A fail-open, produced by a spelling one file knew and
+// two did not.
+//
+// Any future identity form fails this test until all three agree.
+const IDENTITY_ROWS = [
+  { what: "a student number", row: { student_number: "0123456" } },
+  { what: "a GitHub login", row: { github_login: "ella-dev" } },
+  { what: "an email address", row: { email: "nina@student.pxl.be" } },
+];
+
+test("every identity rosterIdentities can mint survives normalizeCohortEntry", () => {
+  const minted = IDENTITY_ROWS.flatMap(({ row }) => rosterIdentities(row));
+  assert.equal(minted.length, IDENTITY_ROWS.length, "each row keys exactly one way");
+
+  for (const id of minted) {
+    assert.equal(normalizeCohortEntry(id), id, `${id} must round-trip unchanged`);
+  }
+
+  // And the gate must then admit the row it was minted from. Round-tripping the
+  // string is not enough on its own: the set is built through
+  // assignmentCohort, which is where the dropped entry actually vanished.
+  for (const { what, row } of IDENTITY_ROWS) {
+    const a = { cohort: [cohortIdentity(row)] };
+    assert.equal(assignmentAdmitsStudent(a, row), true, `picked by ${what}, admitted by ${what}`);
+    assert.equal(assignmentCohort(a).size, 1, `a cohort of one is not an empty cohort (${what})`);
+    assert.equal(
+      assignmentAdmitsStudent(a, { student_number: "9999999" }), false,
+      `an unnamed student is not admitted by a cohort of one (${what})`,
+    );
+  }
+});
+
+test("the assignment schema accepts every identity the picker can store", async () => {
+  const { readFileSync } = await import("node:fs");
+  const schema = JSON.parse(
+    readFileSync(new URL("../schemas/assignment.schema.json", import.meta.url), "utf8"),
+  );
+  const pattern = new RegExp(schema.properties.cohort.items.pattern);
+
+  // The picker writes cohortIdentity(row); the schema is what refuses the
+  // write. They are spelled in two files, so one is derived from the other -
+  // the schema pattern silently refused `email:` while the picker happily
+  // produced it, and the lecturer got a raw pattern error on save.
+  for (const { what, row } of IDENTITY_ROWS) {
+    const id = cohortIdentity(row);
+    assert.ok(pattern.test(id), `the schema must accept ${id}, minted from ${what}`);
+  }
+
+  // And it still refuses what it always refused.
+  for (const bad of ["0123456", "alice-dev", "email:", "email:garbage", "num:"]) {
+    assert.equal(pattern.test(bad), false, `${JSON.stringify(bad)} must stay refused`);
+  }
+});

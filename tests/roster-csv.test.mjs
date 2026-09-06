@@ -20,9 +20,13 @@ import { fileURLToPath } from "node:url";
 import {
   KNOWN_COLUMNS,
   REQUIRED_COLUMNS,
+  IDENTITY_COLUMNS,
   coerceCell,
   rowsToRoster,
 } from "../lib/roster-csv.mjs";
+// The judge of whether a row can be named again. Imported, never re-implemented:
+// a test that spelled the rule itself would agree with a broken import.
+import { rosterKey } from "../lib/roster-entries.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -110,6 +114,52 @@ test("A ROW STILL HAS TO BE FINDABLE AGAIN, by one identity or another", () => {
     ["full_name", "student_number", "email", "github_login"],
   );
   assert.equal(mixed.students.length, 3);
+
+  // AND EVERY ROW IT ACCEPTED IS ACTUALLY KEYED. The check asks the judge that
+  // decides - it used to test the identity columns for truthiness instead, and
+  // a non-empty cell is not the same question: `email: "garbage"` filled the
+  // column, `rosterIdentities` discarded it as unnormalisable, and the row
+  // imported with no key at all. Exactly the row the check exists to refuse.
+  for (const s of mixed.students) {
+    assert.ok(rosterKey(s), `${s.full_name} imported without a key`);
+  }
+});
+
+test("an identity column filled with something unusable is not an identity", () => {
+  assert.throws(
+    () => rowsToRoster(
+      [{ full_name: "Nina", email: "garbage" }],
+      ["full_name", "email"],
+    ),
+    /line 2: a student needs a student_number, an email or a github_login.*not a usable email address/s,
+    "a cell that cannot be normalised into an address does not key the row",
+  );
+
+  // The address is still what keys the row when it IS one, however spelled.
+  const ok = rowsToRoster(
+    [{ full_name: "Nina", email: "  Nina@Student.PXL.be " }],
+    ["full_name", "email"],
+  );
+  assert.equal(rosterKey(ok.students[0]), "email:nina@student.pxl.be");
+});
+
+test("the message names every column that could have fixed the row", () => {
+  // Written out in English rather than assembled from IDENTITY_COLUMNS - a
+  // lecturer reads it, and "a student needs student_number, email or
+  // github_login" is not a sentence. The derivation belongs here instead: a
+  // fourth identity column has to appear in the text that tells someone how to
+  // supply one, or the error names two ways out of three and the lecturer
+  // never learns about the one they actually have.
+  let message = "";
+  try {
+    rowsToRoster([{ full_name: "Nameless" }], ["full_name"]);
+    assert.fail("a row with no identity must be refused");
+  } catch (err) {
+    message = err.message;
+  }
+  for (const column of IDENTITY_COLUMNS) {
+    assert.match(message, new RegExp(column), `the error must name ${column}`);
+  }
 });
 
 test("two rows sharing an ADDRESS are refused, like two sharing a number", () => {
