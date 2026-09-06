@@ -657,6 +657,8 @@ A promoted row carries a GitHub login and nothing else, and **nothing fills it i
 - **Only allowed domains.** `email` is what a claim is matched against, so a wrong address there means a real claim never matches and that student is **rejected** at acceptance. A wrong address is worse than none.
 - **Not verified.** A git author email is whatever the student typed into `git config`. The domain check makes it plausible, not proven.
 
+**Where an address came from is recorded.** An address the system filled in carries a marker beside it: *verified* for one the student confirmed from their GitHub-verified list, *from commits* for one harvested off their own commits, which is self-declared and only ever plausible. Nothing beside it means a person typed or imported it, which outranks both — and editing the cell clears the marker, because you are now the source.
+
 **Type it.** Every cell in the roster table — number, name, email, group — is editable in place: click, type, Enter. Escape abandons. This is what closes the gap the check leaves: an address like `rayane.waddah@student.pxl` is shown and flagged rather than hidden, because it names the student unmistakably even though the domain is a typo, and correcting it is two characters.
 
 **Or ask them.** The most reliable identity is one the student confirms themselves — an address GitHub has verified on their account. That is what `roster_mode: claim`, and `require_claim` under `open`, collect at acceptance (§6.6), and the nightly folds a verified one straight into the matching row.
@@ -980,6 +982,8 @@ It appears only once the deadline has actually frozen something, and only for a 
 |---|---|
 | Ruleset (the normal case) | Switches the ruleset off. It is not deleted, so the deadline can be re-applied later without rebuilding it. |
 | Reduced access (the fallback, per repository) | Puts the student back to the assignment's **Student permission**. |
+
+**A reopened repository stays open.** A finalize run is not once — the nightly re-runs one when preservation is still incomplete, and again when *any other* student's extension expires. It used to re-lock the whole cohort, so reopening one student's repository was undone by granting somebody else more time. It now skips a repository with a reopen record on it, says so in the run, and counts it (`reopened_count`). To close it again, re-run the freeze.
 
 **What it does not do:** it does not change the deadline, the report, or the grade. The preserved snapshot is immutable and stays exactly as it was, so anything the student pushes afterwards is *after* what you graded. If you mean to give them more time rather than access, grant a deadline extension instead (§6.13) — that changes what the report says; this does not.
 

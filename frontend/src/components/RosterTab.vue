@@ -254,6 +254,18 @@
                   </td>
                   <td style="padding: 6px 8px; color: var(--text-secondary);">
                     <RosterCell :student="s" field="email" :editor="cellEditor" v-model:draft="cellEdit.draft" />
+                    <!-- Where it came from, when a person did not put it there.
+                         A claim is an address GitHub verified on the student's
+                         own account; a commit is whatever they typed into `git
+                         config`. One column, two writers of very different
+                         trust - the marker is what tells them apart. -->
+                    <span
+                      v-if="s.email_source"
+                      :class="['email-source', `email-source-${s.email_source}`]"
+                      :title="s.email_source === 'claim'
+                        ? 'Confirmed by the student from an address GitHub had verified on their account'
+                        : 'Read off their own commits - self-declared, and not verified by anyone'"
+                    >{{ s.email_source === 'claim' ? 'verified' : 'from commits' }}</span>
                   </td>
                   <td style="padding: 6px 8px;">
                     <RosterCell :student="s" field="class_group" :editor="cellEditor" v-model:draft="cellEdit.draft" empty-text="—" />
@@ -684,7 +696,20 @@ function harvestFor(student) {
   return login ? harvestByLogin.value.get(login) ?? null : null
 }
 
+/**
+ * Is there any row a hint could help?
+ *
+ * Computed from the roster alone, for free, BEFORE any request. The reports
+ * cost one read each and an organization accumulates them for as long as it
+ * runs a course - paying that on every visit to identify nobody is a cost with
+ * no benefit attached, which is what the first cut did.
+ */
+const wantsHints = computed(() =>
+  (existingRoster.value?.students || []).some((s) =>
+    s?.github_login && (!String(s.full_name ?? '').trim() || !String(s.email ?? '').trim())))
+
 async function loadReports() {
+  if (!wantsHints.value) { reports.value = []; return }
   try {
     const token = getToken()
     const files = await listRepoDir(token, props.org, controlRepo, REPORTS_DIR)
@@ -692,13 +717,22 @@ async function loadReports() {
     // billing counters - reading them would cost a request each to find nothing.
     const wanted = files.filter((f) =>
       f.name?.endsWith('.json') && f.name !== 'dashboard.json' && !f.name.startsWith('usage-'))
+    // Four at a time rather than one after another: a course that has run for
+    // a few years has a report per assignment, and sequentially that is a
+    // visible stall on a tab whose main job is elsewhere. Four is what
+    // StarterSyncModal uses for the same reason.
     const loaded = []
-    for (const f of wanted) {
-      try {
-        const text = await getRepoContent(token, props.org, controlRepo, `${REPORTS_DIR}/${f.name}`)
-        if (text) loaded.push(JSON.parse(text))
-      } catch { /* one unreadable report is not worth losing the others over */ }
+    const queue = [...wanted]
+    const readOne = async () => {
+      while (queue.length) {
+        const f = queue.shift()
+        try {
+          const text = await getRepoContent(token, props.org, controlRepo, `${REPORTS_DIR}/${f.name}`)
+          if (text) loaded.push(JSON.parse(text))
+        } catch { /* one unreadable report is not worth losing the others over */ }
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(4, wanted.length) }, readOne))
     reports.value = loaded
   } catch {
     // An org with no reports directory yet, or a token that cannot read it.
@@ -802,6 +836,11 @@ const isEditing = (student, field) =>
   cellEdit.key === rosterKey(student) && cellEdit.field === field
 
 function startCellEdit(student, field) {
+  // A save in flight owns the state until it finishes. Without this, opening
+  // another cell during the write (schema validation and a lost-update read are
+  // both awaited) let the in-flight save's closing cancel shut the NEW cell -
+  // your second edit vanished with nothing said.
+  if (cellEdit.saving) return
   cellEdit.key = rosterKey(student)
   cellEdit.field = field
   cellEdit.draft = typeof student[field] === 'string' ? student[field] : ''
@@ -845,19 +884,24 @@ async function saveCellEdit(student, field) {
     // Matched on the key as it was BEFORE the edit: setting a student number on
     // a promoted row changes that row's own key from `login:` to `num:`.
     if (rosterKey(s) !== key) return s
+    // `email_source` describes the address BESIDE it. A person typing here is
+    // the third writer of that column and the most trusted one, so the marker
+    // goes rather than staying to describe a value that is no longer there.
     const { [field]: _dropped, ...rest } = s
+    if (field === 'email') delete rest.email_source
     return next ? { ...rest, [field]: next } : rest
   })
   const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
 
-  const { valid, errors } = await validateAgainst('roster', updatedDoc)
-  if (!valid) {
-    toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
-    return
-  }
-
+  // Claimed BEFORE the first await, not after: validation is asynchronous, and
+  // the window between here and the write is long enough to click another cell.
   cellEdit.saving = true
   try {
+    const { valid, errors } = await validateAgainst('roster', updatedDoc)
+    if (!valid) {
+      toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
+      return
+    }
     const token = getToken()
     // REFUSE, DO NOT OVERWRITE. This edit is built by spreading the roster as it
     // was when the page loaded, and `commitFile` fetches a fresh sha before it
@@ -1311,7 +1355,10 @@ async function commitRoster() {
 // somebody else's cohort. Deliberately NOT awaited together - a failed claim
 // read must not take the roster down with it, the rule the acceptance card
 // learned when one rejected lookup replaced a loaded assignment with an error.
-watch(() => props.org, () => { loadExisting(); loadClaims(); loadReports() })
+// The hints are loaded AFTER the roster, not beside it: whether to read the
+// reports at all is decided from the roster, so racing them means deciding with
+// nothing to decide from - and `wantsHints` would be false every time.
+watch(() => props.org, () => { loadExisting().then(loadReports); loadClaims() })
 watch(csvText, () => parseAndValidate())
 
 const promotePickerRef = ref(null)
@@ -1327,9 +1374,8 @@ function onEscape(e) {
 }
 
 onMounted(() => {
-  loadExisting()
+  loadExisting().then(loadReports)
   loadClaims()
-  loadReports()
   document.addEventListener('click', onDocumentClick)
   window.addEventListener('keydown', onEscape)
 })
@@ -1650,4 +1696,15 @@ defineExpose({
   font-weight: 400;
 }
 .harvest-hint code { font-size: inherit; }
+
+/* Where an address came from, when a person did not type it. Small and quiet:
+   it qualifies the value beside it rather than competing with it. */
+.email-source {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.7rem;
+  text-transform: lowercase;
+}
+.email-source-claim { color: var(--accent-green); }
+.email-source-commit { color: var(--text-muted); }
 </style>

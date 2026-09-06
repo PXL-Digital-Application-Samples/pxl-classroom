@@ -4,7 +4,10 @@
   "title": "Roster",
   "description": "Student roster stored in students/roster.yml within a PXL Classroom control repository.",
   "type": "object",
-  "required": ["schema_version", "students"],
+  "required": [
+    "schema_version",
+    "students"
+  ],
   "additionalProperties": false,
   "properties": {
     "schema_version": {
@@ -22,17 +25,31 @@
           {
             "description": "An imported entry must carry an institutional identity; a promoted one need not. Under roster_mode 'open' with no address collected, the system only ever learns a GitHub login - deriving a full_name from it would put a guess in a graded field, and a synthesised student_number would collide with real SIS numbering, so `github_login` is all that is required. It MAY carry more when more was genuinely learned: an open assignment with `require_claim` collects an address the student confirmed, and promotion writes that `email` (and the `student_number` the claim matched, if any) rather than dropping it. Only what was confirmed - never a value derived from a login.",
             "if": {
-              "properties": { "source": { "const": "accepted" } },
-              "required": ["source"]
+              "properties": {
+                "source": {
+                  "const": "accepted"
+                }
+              },
+              "required": [
+                "source"
+              ]
             },
             "then": {
-              "required": ["github_login"],
+              "required": [
+                "github_login"
+              ],
               "properties": {
-                "github_login": { "type": "string", "minLength": 1 }
+                "github_login": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             },
             "else": {
-              "required": ["student_number", "full_name"]
+              "required": [
+                "student_number",
+                "full_name"
+              ]
             }
           }
         ],
@@ -52,16 +69,30 @@
             "format": "email",
             "description": "Institutional email; optional but recommended for notifications."
           },
+          "email_source": {
+            "type": "string",
+            "enum": [
+              "commit",
+              "claim"
+            ],
+            "description": "Where `email` came from, when it was not put there by a person. ABSENT is the default and means typed or imported - the same convention `source` uses. 'claim' is an address GitHub had verified on the student's own account, folded by scripts/link-claims.mjs; 'commit' is the author address off their own commits, harvested from the reports by the Roster tab, which is self-declared and only ever plausible. Two writers of very different trust were filling one column with nothing recording which, so a reader six months later could not tell them apart."
+          },
           "class_group": {
             "type": "string",
             "description": "Optional class group or section the student belongs to."
           },
           "github_login": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "GitHub username. Null if not yet linked."
           },
           "github_id": {
-            "type": ["integer", "null"],
+            "type": [
+              "integer",
+              "null"
+            ],
             "description": "Immutable GitHub user ID. Null if not yet linked."
           },
           "active": {
@@ -70,22 +101,34 @@
             "description": "Whether the student is actively enrolled."
           },
           "team_slug": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
             "description": "A SEED, not a membership, and never read at acceptance. It carries no assignment - one slug per student, for the whole organization - so `lib/seed-teams.mjs` reads it once to build the team manifests for a chosen assignment and nothing else looks at it again. accept.mjs used to fall back to this column when an assignment had no manifest, which meant a student seeded into `team-alpha` in September was silently pre-assigned to `team-alpha` by December's assignment too; membership belongs to the assignment (`teams/<id>/<slug>.json`), so a pre-assigned assignment must be seeded before students accept. A per-assignment `teams` map lived here as well and was written by nothing at all - not the CSV import, not quick add, not promotion, not seeding - so it was removed rather than given a writer."
           },
           "team_name": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Display name for `team_slug`, used only while seeding."
           },
           "source": {
             "type": "string",
-            "enum": ["import", "accepted"],
+            "enum": [
+              "import",
+              "accepted"
+            ],
             "description": "How the entry reached the roster. 'import' (the default when absent) came from a CSV or the Admin Panel and carries an institutional identity. 'accepted' was promoted from an acceptance record under roster_mode: open, where the system learns a GitHub login and nothing else."
           },
           "promoted_from": {
             "type": "object",
-            "required": ["assignment_id", "promoted_at"],
+            "required": [
+              "assignment_id",
+              "promoted_at"
+            ],
             "additionalProperties": false,
             "description": "Provenance of a promoted entry, so a later CSV import can reconcile it against a real student.",
             "properties": {

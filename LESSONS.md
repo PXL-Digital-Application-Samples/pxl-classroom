@@ -1469,3 +1469,17 @@ It is one `if` and an index. The scale of the thing it was blocking is worth not
 
 **And a count that meant "changed" measured only half of it.** `claimPromotionChangesAnything` read `plan.updated.length`, which is logins linked. A run that only filled in addresses would have planned the write and then committed nothing — on precisely the cohort the change exists for. The two events are reported separately rather than summed, because "linked an account" and "learned an address" are different things and one number for both says neither.
 
+### Reviewing my own work found the thing I had shipped as finished.
+
+Asked to review the session's work critically. Six findings; one of them produced a wrong outcome for a student, and it was in the feature I had declared done two commits earlier.
+
+**A finalize run is not once.** The unlock (§11.2.4) reopens one repository. `find-finalizable.mjs` re-queues an assignment while preservation is incomplete **and whenever any student's deferred extension expires**, and `planTargets` builds its target list from every repository record — so the next pass re-locked the cohort, the reopened repository with it. The trigger is granting a *different* student an extension, which is the control two sections above the unlock in the same dialog. Nothing said so, and `unlocked/<login>.json` went on describing something that was no longer true.
+
+I had read `preserve.mjs` and `provision.mjs` closely enough to write three paragraphs about them, and had not asked the one question that mattered about my own feature: what puts the lock back? Building the inverse of an operation is not the same as knowing when the forward operation runs again.
+
+**The guard that passed by coincidence.** `tests/report-row-fields.test.mjs` sweeps `frontend/src` for `s.<field> === '…'` and checks the field against `report.schema.json`, on the stated premise that "`s` is the row variable throughout these files". That was true only by luck: every roster field it had ever met — `student_number`, `full_name`, `class_group`, `email` — also exists on a report row, so a roster surface passed a report-shaped check by accident. `email_source` was the first roster-only field and it tripped, and the guard was telling on itself rather than on the code. Scoped by the schema each file actually deals in, with a test that the file list has not rotted, because excluding the file would have been the weaker fix.
+
+**Cost unconditional, benefit conditional.** The harvest read every report in the organization on every visit to the Roster tab — measured at 5 for one live org, sequentially — when the question "is there any row a hint could help?" is answerable from the roster alone, for free, before any request. A fully identified roster paid the whole cost for nothing.
+
+**And the state a save owns, it must own before its first await.** `saveCellEdit` checked `isEditing` once and then awaited schema validation *and* a network read before claiming `saving`. Opening another cell in that window let the in-flight save's closing cancel shut it — the second edit vanished with nothing said. Claim the state before the first await, not after the last one.
+

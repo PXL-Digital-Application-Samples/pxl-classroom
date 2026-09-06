@@ -184,6 +184,44 @@ async function readOverrides() {
   return docs;
 }
 
+// --- Repositories a lecturer deliberately reopened ----------------------------
+//
+// A finalize run is not once. `find-finalizable.mjs` re-queues an assignment
+// while preservation is incomplete, and again when a DEFERRED EXTENSION EXPIRES
+// - and `planTargets` builds its list from every record, so a second pass
+// re-locks the whole cohort. Without this, reopening one student's repository
+// (RUNBOOK §6.15) was undone by granting some OTHER student an extension: the
+// nightly locked it again, said nothing, and left `unlocked/<login>.json`
+// describing something that was no longer true. The two controls sit two
+// sections apart in the same dialog.
+//
+// A reopen is a deliberate, reasoned, recorded act by a lecturer. It outranks a
+// re-run of a deadline that has already passed, so the repository is skipped and
+// counted rather than quietly re-frozen. Re-locking is possible - it is one
+// flip - but it has to be asked for, not arrive as a side effect of somebody
+// else's extension.
+//
+// An unreadable file here is treated as a reopen. That is the safe direction:
+// failing to skip re-locks a student a lecturer deliberately let back in.
+async function readReopened() {
+  const dir = join(cfg.dataDir, "lockdowns", cfg.assignmentId, "unlocked");
+  let files;
+  try { files = await readdir(dir); } catch { return new Map(); }
+  const byLogin = new Map();
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    const login = normalizeLogin(f.slice(0, -".json".length));
+    if (!login) continue;
+    try {
+      byLogin.set(login, JSON.parse(await readFile(join(dir, f), "utf8")));
+    } catch (e) {
+      log(`reopened ${f}`, { ok: false, note: `${e.message} - treating as reopened anyway` });
+      byLogin.set(login, { reason: null });
+    }
+  }
+  return byLogin;
+}
+
 // --- Read a previous lockdown record (retry path) ----------------------------
 //
 // A finalize run can be retried - e.g. preservation failed and find-finalizable
@@ -282,9 +320,10 @@ async function readSentinelStop() {
  *                 deadline is computed over this, because a repository is one
  *                 object and the most generous extension on it governs.
  */
-function planTargets(assignment, records, overrides, priorByLogin = new Map(), now = new Date(), teamsBySlug = new Map()) {
+function planTargets(assignment, records, overrides, priorByLogin = new Map(), now = new Date(), teamsBySlug = new Map(), reopened = new Map()) {
   const targets = [];
   const deferrals = [];
+  const reopenedTargets = [];
 
   for (const rec of records) {
     const login = rec.github_login;
@@ -311,11 +350,23 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
     // still-running extension defers.
     if (!alreadyRecorded && effective.extended && effective.deadline > now) {
       deferrals.push({ ...target, effective });
-    } else {
-      targets.push(target);
+      continue;
     }
+
+    // A repository a lecturer deliberately reopened is not re-locked by a
+    // later pass. Matched over teamMembers, not the record's login: a group
+    // repository is ONE object with one lock on it, so reopening it for any
+    // member reopened it for the team, and re-locking it would shut out
+    // everybody on the strength of somebody else's expired extension.
+    const reopenedFor = teamMembers.map((m) => normalizeLogin(m)).find((m) => reopened.has(m));
+    if (reopenedFor) {
+      reopenedTargets.push({ ...target, reopenedFor, record: reopened.get(reopenedFor) });
+      continue;
+    }
+
+    targets.push(target);
   }
-  return { targets, deferrals };
+  return { targets, deferrals, reopenedTargets };
 }
 
 // --- Phase 1: STOP -----------------------------------------------------------
@@ -651,8 +702,25 @@ async function main() {
     log("teams", { ok: true, note: `${teamsBySlug.size} team manifest(s) - extensions apply per repository` });
   }
 
+  // Repositories a lecturer deliberately reopened. Read before planning,
+  // because "excluded from the target list" has to mean the same thing here as
+  // it does for a deferral: never stopped, never demoted, never touched.
+  const reopened = await readReopened();
+  if (reopened.size) {
+    log("reopened", { ok: true, note: `${reopened.size} repositor(y|ies) reopened by a lecturer - not re-locked` });
+  }
+
   // --- Phase 0: plan ---------------------------------------------------------
-  const { targets, deferrals } = planTargets(assignment, records, overrides, priorByLogin, new Date(), teamsBySlug);
+  const { targets, deferrals, reopenedTargets } = planTargets(
+    assignment, records, overrides, priorByLogin, new Date(), teamsBySlug, reopened,
+  );
+  for (const r of reopenedTargets) {
+    log(`lockdown ${r.displayKey}`, {
+      ok: true,
+      note: `left open - reopened by ${r.record?.unlocked_by || "a lecturer"}` +
+        (r.record?.reason ? ` (${r.record.reason})` : ""),
+    });
+  }
   for (const d of deferrals) {
     log(`lockdown ${d.displayKey}`, {
       ok: true,
@@ -964,6 +1032,11 @@ async function main() {
     // carry `deferred_until` in `results`; find-finalizable.mjs re-queues the
     // assignment once that instant passes.
     deferred_count: deferrals.length,
+    // Deliberately reopened by a lecturer and therefore not re-locked. Counted
+    // apart from deferrals and errors because it is neither: nothing failed,
+    // and nobody was granted more time - a decision was already made and this
+    // run honoured it.
+    reopened_count: reopenedTargets.length,
     // Accounts that own the organization, and therefore keep admin whatever
     // this run does. Counted separately from errors because they are not one -
     // nothing can freeze them - and separately from locks because they were NOT
@@ -997,6 +1070,7 @@ async function main() {
     `. Max uncertainty: **${maxUncertainty}s**.\n`
   );
   await setOutput("unfreezable_count", unfreezableCount);
+  await setOutput("reopened_count", reopenedTargets.length);
   log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${noSubmissionCount} no-submission, ${unfreezableCount} unfreezable, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }

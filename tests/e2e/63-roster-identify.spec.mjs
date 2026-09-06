@@ -418,7 +418,7 @@ test.describe('importing a CSV over a promoted row', () => {
       ['0123456', 'Alice One', 'a@student.pxl.be', 'alice-dev'],
       ['0999999', 'Alice Two', 'b@student.pxl.be', 'Alice-Dev'],
     ]));
-    await expect(page.locator('.validation-errors')).toContainText(/duplicate github_login/i);
+    await expect(page.locator('.validation-errors')).toContainText(/already used on line 2/i);
   });
 });
 

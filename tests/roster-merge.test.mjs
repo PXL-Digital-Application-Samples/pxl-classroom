@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { diffRosters, PROMOTED_SOURCE, ROSTER_SCHEMA_VERSION } from "../lib/roster-entries.mjs";
 import { rowsToRoster } from "../lib/roster-csv.mjs";
+import { readFileSync } from "node:fs";
 
 const promoted = (login, over = {}) => ({ github_login: login, source: PROMOTED_SOURCE, ...over });
 const imported = (num, name, over = {}) => ({ student_number: num, full_name: name, ...over });
@@ -151,7 +152,7 @@ test("…and rowsToRoster refuses that CSV in the first place", () => {
       ],
       ["student_number", "full_name", "github_login"],
     ),
-    /line 3: duplicate github_login "Alice-Dev"/,
+    /line 3: github_login "Alice-Dev" is already used on line 2/,
   );
 });
 
@@ -187,3 +188,16 @@ test("the merged order follows the incoming document", () => {
     ["1", "2"],
   );
 });
+
+test("the modules stay acyclic: cohort.mjs must not import roster-entries.mjs", () => {
+  // roster-entries.mjs imports rosterIdentities FROM cohort.mjs so the import
+  // path and the acceptance gate cannot disagree about who a row is. An import
+  // back the other way makes that a cycle, which in ESM is not an error - it is
+  // a module that silently sees `undefined` where a function should be.
+  const src = readFileSync(new URL("../lib/cohort.mjs", import.meta.url), "utf8");
+  assert.ok(
+    !/from\s+["']\.\/roster-entries\.mjs["']/.test(src),
+    "lib/cohort.mjs must not import lib/roster-entries.mjs - roster-entries imports IT",
+  );
+});
+

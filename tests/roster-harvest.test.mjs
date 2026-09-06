@@ -208,6 +208,8 @@ test("applying MERGES - it never rebuilds the row", () => {
     class_group: "3A",
     team_slug: "alpha",
     email: "lowie.serneels@student.pxl.be",
+    // Marked as self-declared, because that is what a git author address is.
+    email_source: "commit",
   });
   assert.equal(next.extra_key, "kept");
   assert.equal(roster.students[0].email, undefined, "the input is not mutated");

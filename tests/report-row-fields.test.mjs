@@ -21,7 +21,7 @@
 // both would be argued with until it was switched off.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,6 +46,23 @@ const FEEDBACK_PR = [
 
 const ALLOWED = new Set([...ROW_PROPS, ...DISPLAY_ONLY, ...FEEDBACK_PR]);
 
+/**
+ * Files whose `s` is a ROSTER entry, not a report row.
+ *
+ * The sweep's premise - "`s` is the row variable throughout these files" - was
+ * true only by luck: every roster field it had met (student_number, full_name,
+ * class_group, email) also exists on a report row, so a roster surface passed a
+ * report-shaped check by coincidence. `email_source` is the first roster-only
+ * field and it tripped, which is the guard telling on itself rather than on the
+ * code. Checked against the schema the file actually deals in, so both halves
+ * stay strong - excluding the file would have been the weaker fix.
+ */
+const rosterSchema = JSON.parse(readFileSync(join(root, "schemas", "roster.schema.json"), "utf8"));
+const ROSTER_PROPS = new Set(Object.keys(rosterSchema.properties.students.items.properties));
+const ROSTER_ROW_FILES = new Map([
+  ["frontend/src/components/RosterTab.vue", ROSTER_PROPS],
+]);
+
 function walk(dir, out = []) {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
@@ -69,6 +86,14 @@ test("the schema still declares the fields this sweep rests on", () => {
   assert.ok(!ROW_PROPS.has("status"), "`status` is not a row field - that is the whole point");
 });
 
+test("the roster-row file list still names files that exist", () => {
+  // A path that has been renamed silently reverts that file to the report
+  // schema, which is the coincidence this map exists to end.
+  for (const rel of ROSTER_ROW_FILES.keys()) {
+    assert.ok(existsSync(join(root, rel)), `${rel} is listed as a roster-row surface but does not exist`);
+  }
+});
+
 test("no report row is compared on a field the schema does not declare", () => {
   const offenders = [];
   // `s.<field> === '…'` / `!== '…'`, either way round. `s` is the row variable
@@ -78,13 +103,16 @@ test("no report row is compared on a field the schema does not declare", () => {
 
   for (const file of walk(SRC)) {
     const rel = relative(root, file).replace(/\\/g, "/");
+    // Checked against the schema the file actually deals in.
+    const allowed = ROSTER_ROW_FILES.get(rel) ?? ALLOWED;
+    const schemaName = ROSTER_ROW_FILES.has(rel) ? "roster" : "report";
     const src = readFileSync(file, "utf8");
     src.split("\n").forEach((line, i) => {
       if (/^\s*(\/\/|\*|<!--)/.test(line.trim())) return; // a comment quoting the bug
       for (const m of line.matchAll(re)) {
         const field = m[1] ?? m[2];
-        if (ALLOWED.has(field)) continue;
-        offenders.push(`${rel}:${i + 1} compares s.${field}, which report.schema.json does not declare`);
+        if (allowed.has(field)) continue;
+        offenders.push(`${rel}:${i + 1} compares s.${field}, which ${schemaName}.schema.json does not declare`);
       }
     });
   }

@@ -49,6 +49,10 @@ test("…and the row keeps everything else it had", () => {
     class_group: "3A",
     student_number: "0123456",
     email: "rayane.waddah@student.pxl.be",
+    // WHERE IT CAME FROM, beside the value: a claim is an address GitHub
+    // verified on the student's own account, and the harvest writes `commit`
+    // into the same column for something worth far less.
+    email_source: "claim",
     github_id: 4711,
   });
 });
