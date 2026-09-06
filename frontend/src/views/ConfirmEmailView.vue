@@ -292,6 +292,28 @@ async function submit() {
     // ONLY after the POST resolved. A success flag set beside an un-awaited
     // promise is a UI that lies, and this one would tell a student they were
     // identified when nothing had been recorded.
+    //
+    // THE POST IS AS FAR AS THIS PAGE CAN HONESTLY WAIT, and that is a decision
+    // rather than an omission - do not "fix" it by adding a poll.
+    //
+    // The acceptance page polls because success is OBSERVABLE to a student: a
+    // repository appears. A confirmation writes `students/claims/<id>.json` in
+    // the PRIVATE control repo, so there is nothing for the browser to see, and
+    // the hub labels the broker issue only on a rejection. A poll could
+    // therefore report failure but never success - it would have to infer
+    // success from the absence of a rejection after some timeout, which is a
+    // guess dressed as a check, and a slow one on a page whose whole job is to
+    // take ten seconds.
+    //
+    // What the failures actually are, once the `state !== 'published'` branch
+    // above has run:
+    //   - link retired by a regenerate: the Pages card is pruned with the old
+    //     digest, so this page says "we can't find this link" before sign-in.
+    //   - broker gone or unreachable: the POST itself fails and is reported.
+    //   - hub key missing, payload unreadable: deployment faults a student
+    //     cannot cause and cannot act on.
+    // The case that motivated the branch above - a finished assignment - is the
+    // one a student could really hit, and it is now refused before they type.
     doneEmail.value = claim.value.email
     done.value = true
   } catch (e) {
