@@ -482,3 +482,60 @@ test.describe('a claim identifying a promoted row', () => {
   });
 });
 
+test.describe('what the table says, and how wide it gets saying it', () => {
+  test('a row with an address is NOT "Not yet identified" - the NAME is what is missing', async ({ page }) => {
+    // DESIGN.md 1.5: a line asserting more than it can evaluate. The column is
+    // Name; an address on the row means the person IS identified, and saying
+    // otherwise beside lowie.serneels@student.pxl.be is simply false. This case
+    // is one the harvest itself creates by filling the address in.
+    await openRoster(page, {
+      reportFiles: [],
+      roster: [
+        { github_login: 'LowieSerneelsPXL', email: 'lowie.serneels@student.pxl.be', source: PROMOTED_SOURCE },
+        { github_login: 'rayaneW', source: PROMOTED_SOURCE },
+      ],
+    });
+    await expect(row(page, 'LowieSerneelsPXL')).toContainText('Name unknown');
+    await expect(row(page, 'LowieSerneelsPXL')).not.toContainText('Not yet identified');
+    // And the row that genuinely knows nothing still says so.
+    await expect(row(page, 'rayaneW')).toContainText('Not yet identified');
+  });
+
+  test('the provenance marker distinguishes a claim from a commit', async ({ page }) => {
+    // One column, two writers of very different trust. Absent means a person
+    // put it there, which outranks both.
+    await openRoster(page, {
+      reportFiles: [],
+      roster: [
+        { student_number: '1', full_name: 'Typed By Hand', email: 'a@student.pxl.be' },
+        { student_number: '2', full_name: 'From A Claim', email: 'b@student.pxl.be', email_source: 'claim' },
+        { student_number: '3', full_name: 'From Commits', email: 'c@student.pxl.be', email_source: 'commit' },
+      ],
+    });
+    await expect(row(page, 'From A Claim')).toContainText('verified');
+    await expect(row(page, 'From Commits')).toContainText('from commits');
+    await expect(row(page, 'Typed By Hand').locator('.email-source')).toHaveCount(0);
+  });
+
+  test('THE HINT DOES NOT PUSH THE TABLE SIDEWAYS ON A PHONE', async ({ page }) => {
+    // An address is one unbreakable token and it sets the column's intrinsic
+    // width: measured at 375px, this hint alone took the table's horizontal
+    // scroll from 71px to 219px and pushed Email, Group and GitHub Account
+    // off-screen. Measured rather than eyeballed - it is invisible at desktop
+    // width, which is where it was written.
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openRoster(page);
+    await page.locator('.harvest-hint').first().waitFor();
+
+    const over = await page.evaluate(() => {
+      const t = document.querySelector('.roster-table');
+      return {
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        table: t.scrollWidth - t.parentElement.clientWidth,
+      };
+    });
+    expect(over.page, 'the page body must never scroll sideways').toBe(0);
+    expect(over.table, 'the hint must not widen the table beyond its own scroller').toBeLessThan(110);
+  });
+});
+

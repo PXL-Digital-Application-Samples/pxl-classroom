@@ -238,7 +238,19 @@
                     <RosterCell :student="s" field="student_number" :editor="cellEditor" v-model:draft="cellEdit.draft" mono />
                   </td>
                   <td style="padding: 6px 8px; font-weight: 500;">
-                    <RosterCell :student="s" field="full_name" :editor="cellEditor" v-model:draft="cellEdit.draft" empty-text="Not yet identified" />
+                    <!-- "Not yet identified" is only true while the row knows
+                         NOTHING. Once an address is on it - filled from a claim,
+                         harvested, or typed - the person IS identified and it is
+                         the name that is missing. Saying otherwise beside
+                         `lowie.serneels@student.pxl.be` is DESIGN.md §1.5: a line
+                         asserting more than it can evaluate. -->
+                    <RosterCell
+                      :student="s"
+                      field="full_name"
+                      :editor="cellEditor"
+                      v-model:draft="cellEdit.draft"
+                      :empty-text="String(s.email ?? '').trim() ? 'Name unknown' : 'Not yet identified'"
+                    />
                     <!-- What the reports know, when the row itself knows
                          nothing. Shown, never stored: a git author is whatever
                          the student typed into `git config`. -->
@@ -1695,7 +1707,15 @@ defineExpose({
   font-size: 0.78rem;
   font-weight: 400;
 }
-.harvest-hint code { font-size: inherit; }
+.harvest-hint code {
+  font-size: inherit;
+  /* An address is one unbreakable token, and it sets the column's intrinsic
+     width: on a 375px phone this hint alone took the table's horizontal scroll
+     from 71px to 219px, pushing Email, Group and GitHub Account off-screen.
+     Breaking inside it costs nothing - it is evidence to read, not a value to
+     select - and it is the same reasoning as the grid track in DESIGN.md §7. */
+  overflow-wrap: anywhere;
+}
 
 /* Where an address came from, when a person did not type it. Small and quiet:
    it qualifies the value beside it rather than competing with it. */

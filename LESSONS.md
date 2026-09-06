@@ -1483,3 +1483,13 @@ I had read `preserve.mjs` and `provision.mjs` closely enough to write three para
 
 **And the state a save owns, it must own before its first await.** `saveCellEdit` checked `isEditing` once and then awaited schema validation *and* a network read before claiming `saving`. Opening another cell in that window let the in-flight save's closing cancel shut it — the second edit vanished with nothing said. Claim the state before the first await, not after the last one.
 
+### Two regressions that only a phone and a filled-in row could show.
+
+Checked the session's UI against DESIGN.md. Every guard passed — theme tokens, undeclared classes, scoped-style leakage, doc references, one-primary-button, the responsive sweep — and two real regressions were sitting underneath all of them.
+
+**The route sweep never opens the tab.** `tests/e2e/25` visits `/dashboard/:org/admin` and, since the last time this bit someone, opens an assignment collapsed and expanded at seven widths. It does not click **Roster**. So the table I had added a second line to was measured at no width at all. At 375px the harvest hint took the table's horizontal scroll from **71px to 219px** and pushed Email, Group and GitHub Account off-screen — an address is one unbreakable token and it sets the column's intrinsic width, which is the same shape as the `1fr` grid track in DESIGN §7. `overflow-wrap: anywhere` on the hint's `code` put it back to 76px. Invisible at desktop width, which is where it was written.
+
+**And filling a field in made a neighbouring one lie.** The Name column's empty state read *"Not yet identified"*, which was true of a promoted row that knew nothing. The harvest then fills in the address — and the row goes on saying "Not yet identified" beside `lowie.serneels@student.pxl.be`, which identifies the student completely. DESIGN §1.5, from the other direction than usual: not a control promising behaviour that does not exist, but a line that was true when it was written and that a *later feature* made false. The empty text is conditional now — "Name unknown" once there is an address, "Not yet identified" while the row genuinely knows nothing.
+
+Both were found by looking at one screenshot of a mixed roster and one measurement at 375px, after four green test suites. A guard that passes tells you what it checks, not that the screen is right.
+
