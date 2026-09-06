@@ -9,7 +9,15 @@
 // clone of the private control repo.
 //
 // Inputs via env: TOKEN, ORG, ASSIGNMENT_ID, INVITE_NONCE, KEYS_FILE
-// Outputs via GITHUB_OUTPUT: valid (true|false), reason
+// Outputs via GITHUB_OUTPUT: valid (true|false), reason, kind (accept|confirm)
+//
+// `kind` is what the title asked for, and the BROKER MUST FORWARD IT rather
+// than re-reading the prefix: the purpose is folded into the signed subject
+// (lib/acceptance-signature.mjs), so this is the one place that has verified a
+// signature over it. A second reading in bash would be a reading of an
+// unverified string that happens to agree - until somebody swaps the prefix.
+// An old broker ignores the output and only ever sends `pxl-accept:`, so its
+// dispatch carries no kind and the hub defaults to accept.
 //
 // Exits 0 either way. The broker decides what to do with `valid`; a hard failure
 // here would turn every forged token into a red run on the lecturer's broker.
@@ -102,6 +110,8 @@ if (String(process.env.TITLE || "").trim() && String(process.env.INVITE_PUBKEY |
   // The dispatch downstream must carry THIS id, not the one the workflow read
   // from a different field of the same event.
   setOutput("github_id", String(verified.payload.githubId));
+  // Verified, not parsed. See the header: the signature covers the purpose.
+  setOutput("kind", verified.purpose);
   finish(true, "signed");
   process.exit(0);
 }

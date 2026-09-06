@@ -62,6 +62,12 @@ jobs:
           team-slug: ${{ steps.team.outputs.team_slug }}
           team-name: ${{ steps.team.outputs.team_name }}
           team-action: ${{ steps.team.outputs.team_action }}
+          # Straight off the dispatch, and it is safe there BECAUSE the broker
+          # took it from the verifier rather than the title: the signature
+          # covers the purpose. Absent is `accept`, which is what every dispatch
+          # predating confirmation meant. accept.mjs refuses any other value
+          # rather than reading an unknown one as either.
+          kind: ${{ github.event.client_payload.kind }}
           claim-payload: ${{ steps.team.outputs.claim_payload }}
           claim-verified: ${{ steps.team.outputs.claim_verified }}
           claim-private-key: ${{ secrets.PXL_CLAIM_PRIVATE_KEY }}
@@ -108,7 +114,7 @@ jobs:
           event-type: acceptance-rejected
           assignment-id: ${{ github.event.client_payload.assignment_id }}
           details: |
-            `${{ github.event.client_payload.github_login }}` tried to accept and was turned away: **${{ steps.accept.outputs.outcome }}**
+            `${{ github.event.client_payload.github_login }}` ${{ github.event.client_payload.kind == 'confirm' && 'tried to confirm their email address' || 'tried to accept' }} and was turned away: **${{ steps.accept.outputs.outcome }}**
 
             ${{ steps.accept.outputs.reject_reason }}
 

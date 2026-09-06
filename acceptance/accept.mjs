@@ -302,9 +302,18 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
 // There is also no guessing oracle to defend here, which is why no attempt is
 // counted: under `claim` a refusal tells the guesser whether an address is on
 // the roster, and under `open` nothing is refused, so nothing is revealed.
-async function observeOpenClaim({ assignment, assignmentId, roster, login, githubId, dataDir, now }) {
+// CONFIRMATION IS THIS FUNCTION WITH `required` FORCED ON, and that is the
+// whole implementation of it - not a second copy with the acceptance taken out.
+// A confirmation asks exactly the question `open` asks as an aside ("who is
+// this account?") and writes exactly the record `open` writes; what differs is
+// that there is no repository behind it to shrug and carry on to, so every
+// branch that shrugs here must refuse there. `voice` picks the wording, because
+// "this assignment asks you to confirm before accepting" is a lie on a link
+// that never offered to accept anything.
+async function recordClaim({ assignment, assignmentId, roster, login, githubId, dataDir, now, required, voice = "open" }) {
   const claimFile = join(dataDir, claimPath(githubId));
   const iso = now.toISOString();
+  const say = (openText, confirmText) => (voice === "confirm" ? confirmText : openText);
 
   const readJson = async (path) => {
     if (!existsSync(path)) return null;
@@ -328,20 +337,21 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
     };
   }
 
-  // `require_claim` turns the address from a review aid into a condition of
-  // accepting. Off by default: `open` exists for a cohort nobody listed up
-  // front, and making an exam identify itself by accident is the opposite of
-  // the point. Ticked, every branch below that used to shrug has to refuse
-  // instead - a requirement that quietly passes when the machinery fails is not
-  // a requirement.
-  const required = assignment?.require_claim === true;
-
+  // `required` is `require_claim` under `open` - off by default, because `open`
+  // exists for a cohort nobody listed up front and making an exam identify
+  // itself by accident is the opposite of the point - and unconditionally true
+  // for a confirmation, where the address IS the outcome. Either way, every
+  // branch below that shrugs has to refuse instead: a requirement that quietly
+  // passes when the machinery fails is not a requirement.
   const payload = env("CLAIM_PAYLOAD", "").trim();
   if (!payload) {
     if (required) {
       await reject(
         CLAIM_REJECTIONS.NO_CLAIM,
-        `this assignment asks you to confirm your institutional email address before accepting.`,
+        say(
+          `this assignment asks you to confirm your institutional email address before accepting.`,
+          `no address was sent, so there was nothing to confirm. Open the link again and pick an address.`,
+        ),
       );
     }
     log("claim", { ok: true, note: "no address confirmed - open enrolment does not require one" });
@@ -359,7 +369,10 @@ async function observeOpenClaim({ assignment, assignmentId, roster, login, githu
     if (required) {
       await fail(
         "fail:no-claim-key",
-        `require_claim is set but PXL_CLAIM_PRIVATE_KEY is not - no address can be read, so nobody can accept. See INSTALL.md §3.2.`,
+        say(
+          `require_claim is set but PXL_CLAIM_PRIVATE_KEY is not - no address can be read, so nobody can accept. See INSTALL.md §3.2.`,
+          `PXL_CLAIM_PRIVATE_KEY is not set on the hub, so no address can be read and nobody can confirm one. See INSTALL.md §3.2.`,
+        ),
       );
     }
     log("claim", { ok: true, note: "PXL_CLAIM_PRIVATE_KEY is not set - address not recorded (see INSTALL.md §3.2)" });
@@ -455,6 +468,18 @@ async function findClaimForEmail(dataDir, email, exceptGithubId) {
   return null;
 }
 
+/**
+ * What the student's signed title asked for.
+ *
+ * ABSENT IS `accept`, and it has to be: every dispatch made before
+ * confirmation existed carries no kind, and a broker published before it never
+ * sends one. Anything else FAILS rather than falling back - an unrecognised
+ * value read as `accept` would provision off a title nobody has verified says
+ * so, and read as `confirm` would silently stop provisioning a whole cohort.
+ * Neither guess is survivable, so it refuses and says which value it got.
+ */
+const KINDS = new Set(["accept", "confirm"]);
+
 async function main() {
   const assignmentId = env("ASSIGNMENT_ID");
   const login = env("GITHUB_LOGIN");
@@ -462,11 +487,15 @@ async function main() {
   const workflowRunUrl = env("WORKFLOW_RUN_URL", "");
   const org = env("ORG");
   const dataDir = env("DATA_DIR", ".");
+  const kind = env("KIND", "").trim() || "accept";
 
   // 1. Validate inputs
   const bad = validate(assignmentId, login, githubId);
   if (bad) await fail("fail:validation", bad);
-  log("validate", { ok: true, note: `${assignmentId} / ${login} / ${githubId}` });
+  if (!KINDS.has(kind)) {
+    await fail("fail:validation", `unknown kind ${JSON.stringify(kind)} - expected "accept" or "confirm"`);
+  }
+  log("validate", { ok: true, note: `${assignmentId} / ${login} / ${githubId} / kind=${kind}` });
 
   // 2. Load assignment definition
   const assignmentPath = join(dataDir, "assignments", `${assignmentId}.yml`);
@@ -479,6 +508,65 @@ async function main() {
   // 3. Check assignment state
   if (assignment.state !== "published")
     await reject("rejected:not-published", `assignment state is "${assignment.state}", not "published"`);
+
+  // 3.5 A CONFIRMATION STOPS HERE. It binds this account to an institutional
+  // address and does nothing else: no window, no cap, no roster gate, no
+  // repository, no team.
+  //
+  // The window is deliberately NOT checked, and that is the one surprising
+  // line. `opens_at`..`deadline_at` govern who gets a repository and when; a
+  // confirmation hands out nothing, so there is nothing for a deadline to
+  // protect - while the fortnight AFTER a deadline is exactly when a lecturer
+  // reads their roster and finds rows with a login and nothing else. The
+  // lifetime that does bound this is the broker's `INVITE_ENABLED`, flipped to
+  // false when the nightly finalizes, and rotating the nonce retires every link
+  // before that. `state: published` still gates it: a draft assignment has no
+  // business having a live link of any kind.
+  //
+  // roster_mode is not consulted either. The record is org-scoped - it says who
+  // an account is, not what they may accept - so an `enforced` assignment
+  // carrying the link is as good a carrier as any other, which matters when the
+  // only live assignment is the wrong mode.
+  if (kind === "confirm") {
+    // Read tolerantly and carry on without it. The roster only supplies a
+    // student number when the address happens to be on it; being unable to read
+    // it is not grounds to refuse somebody telling us who they are.
+    let confirmRoster = null;
+    const confirmRosterPath = join(dataDir, ROSTER_PATH);
+    if (existsSync(confirmRosterPath)) {
+      try {
+        confirmRoster = await loadYaml(confirmRosterPath);
+      } catch (err) {
+        log("roster", { ok: true, note: `roster unreadable (${err.message}) - confirming without it` });
+      }
+    }
+
+    const confirmed = await recordClaim({
+      assignment,
+      assignmentId,
+      roster: confirmRoster,
+      login,
+      githubId: Number(githubId),
+      dataDir,
+      now: new Date(),
+      required: true,
+      voice: "confirm",
+    });
+
+    await setOutput("assignment_id", assignmentId);
+    await setOutput("github_login", login);
+    await setOutput("github_id", githubId);
+    // `confirmed` and `already-confirmed` are distinct for the same reason
+    // `accepted` and `already-accepted` are: the second is idempotent success,
+    // and a lecturer reading a run log should not have to guess which happened.
+    // Neither is `accepted`, so no provisioning step can fire on either.
+    await setOutput("outcome", confirmed?.reused ? "already-confirmed" : "confirmed");
+    // The address itself is deliberately NOT an output. It is written to
+    // students/claims/<id>.json, which is the record; a second copy on a step
+    // output would be a field with no reader, and the next person to need one
+    // would add a writer somewhere else.
+    return;
+  }
 
   // 4. Check open window (guardrail)
   const now = new Date();
@@ -536,11 +624,12 @@ async function main() {
       note: `roster_mode=open - roster gate skipped (window + cap of ${assignment.max_acceptances} still enforced)`,
     });
     // The claim runs here too, but only to WRITE DOWN what it learns. See
-    // observeOpenClaim: it never refuses and never counts an attempt, because
-    // the claim is optional under `open` and a check anyone can skip is not a
-    // gate.
-    claimResult = await observeOpenClaim({
+    // recordClaim: unless `require_claim` is ticked it never refuses and never
+    // counts an attempt, because the claim is optional under `open` and a check
+    // anyone can skip is not a gate.
+    claimResult = await recordClaim({
       assignment, assignmentId, roster, login, githubId: Number(githubId), dataDir, now,
+      required: assignment?.require_claim === true,
     });
   } else if (rosterMode === "claim") {
     if (!roster) {

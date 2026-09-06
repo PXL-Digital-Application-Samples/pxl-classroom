@@ -16,6 +16,21 @@ const routes = [
     props: true,
   },
   {
+    // The SAME secret, asking a smaller question: who is this account? It binds
+    // a GitHub login to an institutional address and provisions nothing.
+    //
+    // A separate ROUTE rather than a flag on the one above, because the two
+    // pages must not be able to turn into each other: this one may never offer
+    // to accept anything, and a route is harder to lose than a query
+    // parameter. The purpose is also inside the signature the page produces -
+    // see lib/acceptance-signature.mjs - so relabelling the request is refused
+    // on the broker too, not merely discouraged here.
+    path: '/:org/c/:inviteToken',
+    name: 'confirm-email',
+    component: () => import('../views/ConfirmEmailView.vue'),
+    props: true,
+  },
+  {
     path: '/dashboard/:org?',
     name: 'dashboard',
     component: () => import('../views/DashboardView.vue'),

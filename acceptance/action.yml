@@ -56,6 +56,16 @@ inputs:
     description: Validated team action (join, create, switch).
     required: false
     default: ''
+  kind:
+    description: >-
+      What the student's signed title asked for - "accept" (a repository) or
+      "confirm" (bind this account to an institutional address, and nothing
+      else). Verified on the broker against a signature that covers it, never
+      re-read from the title. EMPTY MEANS ACCEPT, and must: every dispatch made
+      before confirmation existed carries no kind, and a broker published before
+      it never sends one.
+    required: false
+    default: ''
   claim-payload:
     description: >-
       Sealed claim from the acceptance issue body, validated by
@@ -101,7 +111,11 @@ outputs:
     description: Immutable GitHub user ID
     value: ${{ steps.accept.outputs.github_id }}
   outcome:
-    description: accepted | already-accepted | rejected:* | fail:*
+    description: >-
+      accepted | already-accepted | confirmed | already-confirmed | rejected:* |
+      fail:*. The two confirm outcomes come from kind: confirm and provision
+      nothing - the provisioning step gates on `accepted` explicitly rather than
+      on "not a rejection", which is why adding them here is safe.
     value: ${{ steps.accept.outputs.outcome }}
   reject_reason:
     description: >-
@@ -164,6 +178,7 @@ runs:
         TEAM_SLUG: ${{ inputs.team-slug }}
         TEAM_NAME: ${{ inputs.team-name }}
         TEAM_ACTION: ${{ inputs.team-action }}
+        KIND: ${{ inputs.kind }}
         CLAIM_PAYLOAD: ${{ inputs.claim-payload }}
         CLAIM_VERIFIED: ${{ inputs.claim-verified }}
         CLAIM_PRIVATE_KEY: ${{ inputs.claim-private-key }}

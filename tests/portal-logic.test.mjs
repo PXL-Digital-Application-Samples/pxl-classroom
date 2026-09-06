@@ -61,19 +61,51 @@ test("parseInvitationLink extracts org and token from a full Pages URL", () => {
   const res = parseInvitationLink(
     `https://pxl-digital-application-samples.github.io/pxl-classroom/pxl-course-org/i/${TOKEN}`
   );
-  assert.deepEqual(res, { org: "pxl-course-org", inviteToken: TOKEN });
+  assert.deepEqual(res, { org: "pxl-course-org", inviteToken: TOKEN, kind: "accept" });
 });
 
 test("parseInvitationLink tolerates a trailing slash, query, or hash", () => {
   const res = parseInvitationLink(`pxl-course-org/i/${TOKEN}/?ref=canvas#instructions`);
-  assert.deepEqual(res, { org: "pxl-course-org", inviteToken: TOKEN });
+  assert.deepEqual(res, { org: "pxl-course-org", inviteToken: TOKEN, kind: "accept" });
 });
 
 test("parseInvitationLink accepts the bare org/token form", () => {
   assert.deepEqual(parseInvitationLink(`pxl-course-org/${TOKEN}`), {
     org: "pxl-course-org",
     inviteToken: TOKEN,
+    // No route segment, so it cannot say which page it means. Accept is the
+    // right guess: it is what a student is handed by default.
+    kind: "accept",
   });
+});
+
+test("parseInvitationLink recognises a CONFIRM link, and says which it is", () => {
+  // A student handed a `/c/` link and told to "paste your link here" would
+  // otherwise be told it is not a link at all - which is the worst possible
+  // answer, because it is one, and the box is the only thing on the page.
+  assert.deepEqual(
+    parseInvitationLink(
+      `https://pxl-digital-application-samples.github.io/pxl-classroom/pxl-course-org/c/${TOKEN}`,
+    ),
+    { org: "pxl-course-org", inviteToken: TOKEN, kind: "confirm" },
+  );
+  assert.deepEqual(parseInvitationLink(`pxl-course-org/c/${TOKEN}/?ref=canvas`), {
+    org: "pxl-course-org",
+    inviteToken: TOKEN,
+    kind: "confirm",
+  });
+});
+
+test("…and no OTHER single letter becomes a route", () => {
+  // `([ic])`, not `(.)`. A wildcard here would turn every one-segment path into
+  // an invitation and send students to a page that can only say "not found".
+  for (const seg of ["a", "x", "ii", "C"]) {
+    assert.equal(
+      parseInvitationLink(`pxl-course-org/${seg}/${TOKEN}`),
+      null,
+      `expected null for /${seg}/`,
+    );
+  }
 });
 
 test("parseInvitationLink rejects anything that is not an invitation", () => {

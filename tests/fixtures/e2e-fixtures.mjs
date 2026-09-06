@@ -273,6 +273,18 @@ export function inviteUrl(org, assignmentId) {
 }
 
 /**
+ * The confirm-email URL: the SAME secret, on the `/c/` route.
+ *
+ * Built from `inviteToken` rather than a second fixture value, because that is
+ * the design - one keypair per assignment, so a confirmation inherits the
+ * assignment's nonce and kill switch. A fixture that minted its own secret here
+ * would be testing a system nobody built.
+ */
+export function confirmUrl(org, assignmentId) {
+  return `/${org}/c/${inviteToken(org, assignmentId)}`
+}
+
+/**
  * Expand the Admin Panel's "Edit settings" disclosure and wait for the form.
  *
  * A published or closed assignment opens on its cohort, with the six

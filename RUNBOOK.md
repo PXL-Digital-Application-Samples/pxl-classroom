@@ -665,6 +665,14 @@ An **empty** cell opens holding whatever the hint below it says, tinted to show 
 
 **Or ask them.** The most reliable identity is one the student confirms themselves — an address GitHub has verified on their account. That is what `roster_mode: claim`, and `require_claim` under `open`, collect at acceptance (§6.6), and the nightly folds a verified one straight into the matching row.
 
+**Send them the confirm-email link.** Acceptance is not the only way to collect that any more. Every published assignment has a second link beside its invitation — **Confirm-email link**, under *Invite link* on the assignment page and in the publish banner. Copy it and send it however you already reach students.
+
+It is the *same* link as the invitation, on `/c/` instead of `/i/`, and it asks a smaller question: the student signs in, picks one of their own GitHub-verified addresses, and their account is bound to it. **No repository, no roster check, no deadline** — it works after the deadline, before the assignment opens, and in every roster mode, because a confirmation says who an account *is* rather than what they may accept. The record is org-wide, so one confirmation covers every assignment in the organization, and a student who has already confirmed is not asked again.
+
+What bounds it is the assignment: the link stops working the night that assignment finalizes, and **Regenerate link** retires it immediately along with the invitation. That is deliberate — it means there is no permanent door to remember to close. The cost is that **you need a live assignment to carry one.** If you have none and a lot of people to identify, publish one for the purpose; it hands out nothing, so an assignment used only as a carrier costs you no repositories.
+
+Sharing it is not a leak in the way an invitation would be: whoever opens it can bind *their own* account to *their own* address and nothing else. The signed request says which of the two questions it is asking, so a confirm link cannot be turned into an acceptance.
+
 For a promoted row this now works in the direction you need. A claim carries the student's GitHub id and login as well as the address, so it is matched to a row that has a login and no address, and the address is written in. Three cases are held for you instead, and each is a decision rather than a failure — they appear on the Roster tab as *N need your decision*:
 
 | Held | Why |

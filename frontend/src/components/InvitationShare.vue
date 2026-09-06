@@ -57,6 +57,31 @@
         @click="$emit('regenerate')"
       >Regenerate link →</button>
     </div>
+
+    <!-- THE SAME SECRET, asking a smaller question: who is this account?
+         Deliberately quiet - the invitation is what a lecturer comes here for,
+         and this is the answer to a problem they meet later, on the Roster tab,
+         when rows carry a login and nothing else.
+         In the BANNER (just published) and the POPOVER (the detail view, where
+         a lecturer comes back a week later for the link) - which is when they
+         will actually want it - and not in `compact`, a single icon button with
+         no room, nor `inline`, whose Copy is already the primary action.
+         `btn-link` rather than a second solid button: DESIGN.md §1.2 is one
+         primary per view, and this row is a secondary route out of the same
+         block. -->
+    <div v-if="(variant === 'banner' || variant === 'popover') && link" class="invitation-share-confirm">
+      <span class="invitation-share-confirm-label">Confirm-email link</span>
+      <button
+        type="button"
+        class="btn-link"
+        :disabled="busy"
+        @click="copyConfirm"
+      >{{ confirmCopied ? 'Copied' : 'Copy' }}</button>
+      <span class="invitation-share-note">
+        Asks a student to link their {{ INSTITUTION_SHORT }} address to their GitHub account.
+        Gives out no repository, and stops working when this assignment does.
+      </span>
+    </div>
   </div>
 </template>
 
@@ -75,7 +100,8 @@ import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { getRepoContent } from '../lib/api.js'
-import { invitationUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
+import { invitationUrl, confirmationUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
+import { INSTITUTION_SHORT } from '../lib/deployment.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -112,7 +138,9 @@ const fetched = ref(null)
 const fetchedExpiry = ref(null)
 const busy = ref(false)
 const copied = ref(false)
+const confirmCopied = ref(false)
 let copiedTimer = null
+let confirmCopiedTimer = null
 
 // linkSecretFrom, not invite_token: a migrated assignment's link carries the
 // acceptance private key, an unmigrated one still carries the token, and which
@@ -274,10 +302,51 @@ async function copy() {
   }
 }
 
+/**
+ * The confirm-email link, off the SAME secret.
+ *
+ * Mirrors `copy()` step for step rather than sharing a helper with it, because
+ * the two differ in exactly one expression and every other line is the honest
+ * reporting the button needs: `ensureToken` can fetch, `copyText` can be
+ * refused, and both have to be said out loud rather than assumed. What it must
+ * NOT do is set the copied flag before the write resolves - a "Copied" over an
+ * empty clipboard is the defect that cost sign-in.
+ */
+async function copyConfirm() {
+  busy.value = true
+  try {
+    const value = await ensureToken()
+    if (!value) {
+      toast.error('No link yet - publish this assignment to mint one.')
+      return
+    }
+    if (!(await copyText(confirmationUrl(props.org, value)))) {
+      toast.error('Could not copy the link')
+      return
+    }
+    confirmCopied.value = true
+    clearTimeout(confirmCopiedTimer)
+    confirmCopiedTimer = setTimeout(() => { confirmCopied.value = false }, 2000)
+    if (props.assignment?.state !== 'published') {
+      toast.info(
+        `Confirm-email link copied. The assignment is ${props.assignment?.state || 'not published'}, ` +
+          `so nobody can confirm through it yet.`,
+      )
+    } else {
+      toast.success('Confirm-email link copied')
+    }
+  } catch {
+    toast.error('Could not copy the link')
+  } finally {
+    busy.value = false
+  }
+}
+
 // A different assignment in the same slot is a different link.
 watch(() => props.assignment?.id, () => {
   fetched.value = null
   fetchedExpiry.value = null
   copied.value = false
+  confirmCopied.value = false
 })
 </script>

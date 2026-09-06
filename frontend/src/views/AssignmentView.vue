@@ -1355,12 +1355,6 @@ function retry() {
 </script>
 
 <style scoped>
-.assignment-page {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
 .assignment-header .container {
   display: flex;
   justify-content: space-between;

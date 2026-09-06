@@ -83,9 +83,17 @@ jobs:
     # Evaluated BEFORE a runner is allocated. An issue that is not an acceptance
     # attempt, or an assignment whose invitations are switched off, is skipped
     # without consuming a runner at all.
+    # `pxl-confirm:` is the SAME link asking a smaller question: bind this
+    # account to an institutional address, and nothing else - no repository, no
+    # roster gate, no deadline. It rides this broker on purpose, so it inherits
+    # the kill switch on the line below and the nonce rotation that retires
+    # every link at once, instead of having a lifetime of its own that nobody
+    # would remember to end. The purpose is inside the signature, not just this
+    # prefix - see lib/acceptance-signature.mjs.
     if: >-
       github.event.action == 'opened'
-      && startsWith(github.event.issue.title, 'pxl-accept:')
+      && (startsWith(github.event.issue.title, 'pxl-accept:')
+          || startsWith(github.event.issue.title, 'pxl-confirm:'))
       && vars.INVITE_ENABLED != 'false'
     runs-on: ubuntu-latest
     steps:
@@ -226,6 +234,11 @@ jobs:
           ISSUE_NUMBER: ${{ steps.parse.outputs.number }}
           TEAM_HINT: ${{ steps.parse.outputs.team_hint }}
           BROKER_REPO: ${{ github.repository }}
+          # From the VERIFIER, which checked a signature covering it - never
+          # re-read off the title here. Empty from an older verifier, and the
+          # hub reads an absent kind as `accept`, which is what every dispatch
+          # before this change meant.
+          KIND: ${{ steps.verify.outputs.kind }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           ARGS=(
@@ -243,6 +256,9 @@ jobs:
           fi
           if [ -n "$TEAM_HINT" ]; then
             ARGS+=(-f "client_payload[team_hint]=$TEAM_HINT")
+          fi
+          if [ -n "$KIND" ]; then
+            ARGS+=(-f "client_payload[kind]=$KIND")
           fi
           gh api --method POST "${ARGS[@]}"
 
@@ -270,6 +286,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ steps.parse.outputs.number }}
+          # Only to name what happened. The redaction itself does not depend on
+          # it, so an empty kind still rewrites the title.
+          KIND: ${{ steps.verify.outputs.kind }}
         run: |
           [ -n "$ISSUE_NUMBER" ] || exit 0
           # REDACT and LOCK, but do NOT close.
@@ -289,5 +308,7 @@ jobs:
           # from being used as a conversation. Closed vs open changes nothing
           # else - the hub reads the issue by number, and the page's
           # "acceptance in flight" check reads `state=all`.
-          gh issue edit "$ISSUE_NUMBER" --title "Acceptance (processed)" || true
+          LABEL="Acceptance"
+          if [ "$KIND" = "confirm" ]; then LABEL="Email confirmation"; fi
+          gh issue edit "$ISSUE_NUMBER" --title "$LABEL (processed)" || true
           gh issue lock "$ISSUE_NUMBER" --reason "resolved" || true

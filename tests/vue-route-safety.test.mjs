@@ -114,14 +114,22 @@ test("every @event handler referenced in a template is defined in the component"
 // zero. Nothing in the build says so - a route is reachable by construction,
 // discoverable only by somebody linking to it.
 //
-// Two routes are exempt, and the list may not grow without a reason written
+// Three routes are exempt, and the list may not grow without a reason written
 // here:
 //
-//   invitation  - entered from OUTSIDE the app, which is the whole design.
-//                 The link is minted by publish-assignment.yml and handed to
-//                 students on Canvas; InvitationShare renders it as an <a
-//                 href> built from the token, never as a named route.
-//   not-found   - the catch-all. Linking to it would be absurd.
+//   invitation    - entered from OUTSIDE the app, which is the whole design.
+//                   The link is minted by publish-assignment.yml and handed to
+//                   students on Canvas; InvitationShare renders it as an <a
+//                   href> built from the token, never as a named route.
+//   confirm-email - the same link asking a smaller question ("who is this
+//                   account?"), entered from outside for the same reason and
+//                   built the same way: `confirmationUrl()` composes an href
+//                   from the assignment's own secret, which a lecturer copies
+//                   and sends. A <router-link> to it is impossible in
+//                   principle, not merely absent - the route needs a secret
+//                   the app does not hold outside the page that renders the
+//                   copy control.
+//   not-found     - the catch-all. Linking to it would be absurd.
 //
 // `sandbox` counts as reachable a different way: it is gated on
 // import.meta.env.DEV, so it does not exist in the bundle a student could
@@ -134,11 +142,11 @@ test("every route is either linked to from somewhere, or does not ship", () => {
   const names = [...routerSrc.matchAll(/name:\s*'([a-z-]+)'/g)].map((m) => m[1]);
   assert.ok(names.length >= 8, `expected to find the route table, found ${names.length} names`);
 
-  const ENTERED_FROM_OUTSIDE = new Set(["invitation", "not-found"]);
+  const ENTERED_FROM_OUTSIDE = new Set(["invitation", "confirm-email", "not-found"]);
   assert.deepEqual(
     [...ENTERED_FROM_OUTSIDE].sort(),
-    ["invitation", "not-found"],
-    "The exemption list is deliberately two entries. Adding a third means " +
+    ["confirm-email", "invitation", "not-found"],
+    "The exemption list is deliberately three entries. Adding a fourth means " +
       "writing down why that route needs no way in.",
   );
 

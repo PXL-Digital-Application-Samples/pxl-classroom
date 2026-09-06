@@ -19,6 +19,7 @@ import {
   signAcceptanceTitle,
   ACCEPTANCE_KEY_LENGTH,
   MAX_TITLE_LENGTH,
+  PURPOSE,
 } from '../../../lib/acceptance-signature.mjs'
 
 export { TOKEN_PATTERN }
@@ -134,9 +135,60 @@ export function acceptanceIssueTitle(token, teamSlug) {
   return teamSlug ? `pxl-accept:${token} team:${teamSlug}` : `pxl-accept:${token}`
 }
 
+/**
+ * The SAME link, asking a smaller question: who is this account?
+ *
+ * No repository, no roster gate, no deadline - it binds a GitHub account to an
+ * institutional address and stops. It reuses the assignment's own secret,
+ * nonce and broker deliberately, so it inherits the assignment's kill switch
+ * (`INVITE_ENABLED`, flipped at finalize) and its revocation (rotate the nonce)
+ * instead of having a lifetime of its own that nobody would remember to end.
+ *
+ * The PURPOSE IS INSIDE THE SIGNATURE, not just the `pxl-confirm:` prefix - see
+ * lib/acceptance-signature.mjs. Without that, a student sent a confirmation
+ * link could rewrite the prefix and accept an `open` assignment they were never
+ * invited to.
+ */
+export async function signedConfirmIssueTitle({ inviteSecret, assignmentId, githubId }) {
+  // A pre-migration link carries a bearer token, not a key, so there is nothing
+  // to sign a confirmation with - and its broker would not accept one anyway.
+  // Said plainly here: the alternative is `fromBase64Url` throwing "not
+  // base64url" at a student who did nothing wrong.
+  if (TOKEN_PATTERN.test(inviteSecret)) {
+    throw new Error(
+      'This link is too old to confirm an email address with. Ask your lecturer for a current one.',
+    )
+  }
+  if (!Number.isInteger(githubId) || githubId <= 0) {
+    throw new Error(
+      'Your GitHub account id is missing from this session, so this confirmation cannot be signed. ' +
+        'Sign out and sign in again, then try once more.',
+    )
+  }
+  return signAcceptanceTitle({
+    privateKey: inviteSecret,
+    kid: ACCEPTANCE_FORMAT,
+    subject: assignmentId,
+    githubId,
+    nonce: randomNonce(),
+    purpose: PURPOSE.CONFIRM,
+  })
+}
+
 /** The link a lecturer hands out. */
 export function invitationUrl(org, token, base = import.meta.env.BASE_URL) {
   return `${window.location.origin}${base}${org}/i/${token}`
+}
+
+/**
+ * The confirm-your-email link, built from the same secret as the invitation.
+ *
+ * `/c/` rather than a query parameter on `/i/`: the two pages ask different
+ * questions and one of them must never offer to accept anything, and a route
+ * is harder to lose than a flag.
+ */
+export function confirmationUrl(org, token, base = import.meta.env.BASE_URL) {
+  return `${window.location.origin}${base}${org}/c/${token}`
 }
 
 /**
@@ -147,7 +199,12 @@ export function invitationUrl(org, token, base = import.meta.env.BASE_URL) {
  * previous parser was re-implemented inside portal-logic.test.mjs, so the test
  * kept passing against a copy that no longer matched the view.
  *
- * @returns {{org: string, inviteToken: string} | null}
+ * BOTH ROUTES ARE ACCEPTED. A student handed a `/c/` confirmation link and
+ * asked to "paste your link here" would otherwise be told it is not a link at
+ * all - which is the worst possible answer, because it is one, and the box is
+ * the only thing on the page. `kind` says which page to send them to.
+ *
+ * @returns {{org: string, inviteToken: string, kind: 'accept'|'confirm'} | null}
  */
 export function parseInvitationLink(input) {
   if (typeof input !== 'string') return null
@@ -172,12 +229,21 @@ export function parseInvitationLink(input) {
     `(?:[A-Za-z0-9_-]{35}\\.[A-Za-z0-9_-]{86}|[A-Za-z0-9_-]{${ACCEPTANCE_KEY_LENGTH}})`
 
   const withSegment = clean.match(
-    new RegExp(`(?:^|/)([a-zA-Z0-9_-]+)/i/(${SECRET})(?:$|/|\\?|#)`),
+    new RegExp(`(?:^|/)([a-zA-Z0-9_-]+)/([ic])/(${SECRET})(?:$|/|\\?|#)`),
   )
-  if (withSegment) return { org: withSegment[1], inviteToken: withSegment[2] }
+  if (withSegment) {
+    return {
+      org: withSegment[1],
+      inviteToken: withSegment[3],
+      kind: withSegment[2] === 'c' ? 'confirm' : 'accept',
+    }
+  }
 
+  // `org/secret` with no route segment. It cannot say which page it means, and
+  // accept is the right guess: it is the link a student is handed by default,
+  // and the confirmation page is reached from a link somebody copied whole.
   const bare = clean.match(new RegExp(`^([a-zA-Z0-9_-]+)/(${SECRET})$`))
-  if (bare) return { org: bare[1], inviteToken: bare[2] }
+  if (bare) return { org: bare[1], inviteToken: bare[2], kind: 'accept' }
 
   return null
 }

@@ -453,7 +453,13 @@ function jumpToAssignment() {
   jumpError.value = ''
   const parsed = parseInvitationLink(jumpInput.value)
   if (parsed) {
-    router.push({ name: 'invitation', params: parsed })
+    // Named explicitly rather than spreading `parsed`: it carries `kind`, which
+    // chooses the route and is not a route param. Spreading it would hand the
+    // router a param no route declares.
+    router.push({
+      name: parsed.kind === 'confirm' ? 'confirm-email' : 'invitation',
+      params: { org: parsed.org, inviteToken: parsed.inviteToken },
+    })
     return
   }
   if (!jumpInput.value.trim()) return

@@ -1182,6 +1182,39 @@ select:focus {
   font-size: inherit;
   white-space: nowrap;
 }
+/* The full-height shell every student-facing page uses: header, then content,
+   then whatever space is left. It was scoped inside AssignmentView until the
+   confirm-email page needed the same shell - and a scoped rule reaches exactly
+   one component, so the second page would have rendered without it and nothing
+   would have said so. DESIGN.md §7: more than one component, so it lives here. */
+.assignment-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+/* The confirm-email row: the same block, one tonal step quieter. A divider
+   rather than a box - a second bordered panel inside this one is DESIGN.md
+   §1.1's third box. */
+.invitation-share-confirm {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.invitation-share-confirm-label {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.invitation-share-confirm .btn-link {
+  font-size: inherit;
+  white-space: nowrap;
+}
 .invitation-compact {
   flex-shrink: 0;
 }
