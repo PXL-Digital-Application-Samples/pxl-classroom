@@ -336,7 +336,7 @@ Full command list: [cli/README.md](cli/README.md).
 | `control-repo-template/` | Template scaffold for new organization control repos |
 | `tests/`, `cli/tests/` | Unit and integration test suites |
 
-## Further documentation
+## Documentation
 
 | Document | What it covers |
 | --- | --- |
