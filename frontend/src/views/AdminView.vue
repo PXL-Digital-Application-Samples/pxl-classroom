@@ -1783,6 +1783,13 @@ const cohortKey = (student) => cohortIdentity(student)
  * Name, then address, then account. A name is what a lecturer recognises; an
  * address is what they were handed; a login is what GitHub gave us. Only a row
  * carrying none of the three is genuinely unidentified.
+ *
+ * THE ROSTER TAB ANSWERS THIS DIFFERENTLY ON PURPOSE - it is not a fork left
+ * half-done. This is a picker: recognise the person, tick them, and a column
+ * nobody fills is noise. The Roster tab is the complete view, where the job is
+ * to SEE what is missing and fill it in, so it keeps its columns and says
+ * "Name unknown" beside an address rather than hiding the gap. Same data,
+ * different question. DESIGN.md 1.7.
  */
 function cohortPrimary(s) {
   const name = String(s?.full_name ?? '').trim()
