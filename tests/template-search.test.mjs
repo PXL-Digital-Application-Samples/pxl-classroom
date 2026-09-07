@@ -75,6 +75,30 @@ test("it scopes the search to the org it was asked about", () => {
   assert.match(query(), /\borg:\$\{org\}/);
 });
 
+test("the search is walked, not read once", () => {
+  // "Found N template repositories" and the wall that says there are none are
+  // both statements about the WHOLE collection, and both were being made from
+  // a single per_page=100 read. What each page contains is e2e's job (spec
+  // 70); this only refuses the shape that cannot be right.
+  const body = templateSearchBody();
+  assert.match(body, /pagedGet\(/, "one walker, shared with every other list read here");
+  assert.doesNotMatch(
+    body,
+    /ghApi\([^)]*\/search\/repositories/,
+    "a bare one-page read of a list endpoint",
+  );
+});
+
+test("a walk that could not finish is not reported as the list", () => {
+  // Both halves. `truncated` is the walker's own signal; `total_count` is the
+  // second source, because GitHub omits the Link header on a single-page
+  // response - so "there was no page two" and "we were not told about page
+  // two" are the same bytes, and only the count separates them.
+  const body = templateSearchBody();
+  assert.match(body, /truncated/);
+  assert.match(body, /total_count/);
+});
+
 test("the client-side is_template filter stays, and is not the filter", () => {
   // Belt and braces, in that order: the query does the filtering and this
   // catches anything the API hands back that is not a template. It is only

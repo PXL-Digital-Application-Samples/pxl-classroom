@@ -163,6 +163,130 @@ test.describe('70 - the qualifiers hold each other up', () => {
   });
 });
 
+// ================================================== one page is not the list
+
+/**
+ * The search endpoint as a PAGED endpoint.
+ *
+ * `total_count` is the whole collection and is repeated on every page - the
+ * two things a caller can cross-check. `link: rel="next"` needs
+ * `access-control-expose-headers`, or JS cannot read it on a cross-origin
+ * response and the walk quietly sees one page. (That is a real failure mode,
+ * not mock trivia: it is invisible in the browser and looks exactly like a
+ * short org.)
+ */
+async function routeSearchPages(page, repos, { failPage = null, omitLink = false, endless = false } = {}) {
+  const PER = 100;
+  await page.route('**/search/repositories*', async (route) => {
+    const url = new URL(route.request().url());
+    const p = Number(url.searchParams.get('page') || 1);
+    if (failPage === p) {
+      await route.fulfill({ status: 502, body: JSON.stringify({ message: 'bad gateway' }) });
+      return;
+    }
+    const items = repos.slice((p - 1) * PER, p * PER);
+    const more = endless || (!omitLink && p * PER < repos.length);
+    const next = new URL(url);
+    next.searchParams.set('page', String(p + 1));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: more
+        ? { link: `<${next}>; rel="next"`, 'access-control-expose-headers': 'link' }
+        : { 'access-control-expose-headers': 'link' },
+      // total_count is the COLLECTION, not the page - which is what makes a
+      // missing Link header detectable rather than merely absent.
+      body: JSON.stringify({ total_count: repos.length, items }),
+    });
+  });
+}
+
+/** The REST fallback, answering the same question the other way. */
+async function routeOrgReposFallback(page, repos, { status = 200 } = {}) {
+  await page.route(`**/orgs/${ORG}/repos*`, (route) =>
+    route.fulfill({
+      status,
+      body: JSON.stringify(status === 200 ? repos : { message: 'nope' }),
+    }));
+}
+
+test.describe('70 - one page is not the list', () => {
+  const many = (n) => Array.from({ length: n }, (_, i) => repo(`template-${String(i).padStart(3, '0')}`, { template: true }));
+
+  test('a template on page two is found', async ({ page }) => {
+    // "Found N template repositories" is a statement about the whole
+    // collection, and so is the wall that says there are none. Both were being
+    // made from a single per_page=100 read.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchPages(page, many(150));
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+    await expect(page.locator('text=Found 150 template repositories')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('a failed page is not a short list', async ({ page }) => {
+    // Page one arrives, page two 502s. The walk has 100 real templates in hand
+    // and they are NOT the answer - the fallback runs and answers in full.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchPages(page, many(150), { failPage: 2 });
+    await routeOrgReposFallback(page, many(150));
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+    await expect(page.locator('text=Found 150 template repositories')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('text=Found 100 template repositories')).toHaveCount(0);
+  });
+
+  test('a missing Link header does not turn 120 templates into 100', async ({ page }) => {
+    // The case a Link-only walk cannot see. GitHub omits Link when a response
+    // fits on one page, so "no next page" and "we were not told about the next
+    // page" are the same wire bytes - and the difference is a silently short
+    // list. total_count is the second source that settles it.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchPages(page, many(120), { omitLink: true });
+    await routeOrgReposFallback(page, many(120));
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+    await expect(page.locator('text=Found 120 template repositories')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('a Link header that never ends hits the cap and is not reported as the list', async ({ page }) => {
+    // A malformed or self-referential Link header is what the page cap is
+    // actually for - nobody has a thousand templates. Whatever it collected,
+    // it cannot show it is the whole list.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchPages(page, many(150), { endless: true });
+    await routeOrgReposFallback(page, many(150));
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+    await expect(page.locator('text=Found 150 template repositories')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('and when the fallback cannot answer either, it says so', async ({ page }) => {
+    // The end of the chain. A partial search plus a failed listing is no
+    // knowledge at all - not a short list, and not the wall, which would send
+    // a lecturer to create the templates they already have.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await routeSearchPages(page, many(150), { failPage: 2 });
+    await routeOrgReposFallback(page, [], { status: 503 });
+
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+
+    await expect(templateEmpty(page), 'we never established that it has none').toHaveCount(0);
+    await expect(page.locator('text=Found 100 template repositories')).toHaveCount(0);
+    await expect(page.locator('.text-danger', { hasText: 'Failed to load templates' })).toBeVisible({ timeout: 5000 });
+  });
+});
+
 test.describe('70 - the narrower query can still say "none"', () => {
   test('an organization with no templates still gets the wall', async ({ page }) => {
     // The fix must not make an empty answer unreachable. `template:true`

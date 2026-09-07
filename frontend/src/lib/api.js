@@ -746,7 +746,15 @@ export async function listOrgRepos(token, org, prefix = '', { failFast = false }
 }
 
 /**
- * List all template repositories in an org using search with rest fallback.
+ * Every template repository in an org. Search, walked, with a REST fallback.
+ *
+ * ONE PAGE IS NOT THE LIST, and this call makes two statements about the whole
+ * collection that a lecturer acts on: "Found N template repositories", and the
+ * first-run wall saying the organization has none. Both were being made from a
+ * single `per_page=100` read.
+ *
+ * Returns an ARRAY, or THROWS. There is no third answer, because every short
+ * list this function has ever returned was read as "that is all of them".
  */
 export async function listOrgTemplates(token, org) {
   try {
@@ -779,17 +787,39 @@ export async function listOrgTemplates(token, org) {
     // superset of the right answer, trimmed by the filter into something
     // plausible. The guard is on the query string: tests/template-search.test.mjs.
     const q = encodeURIComponent(`org:${org} template:true fork:true`)
-    const res = await ghApi(token, 'GET', `/search/repositories?q=${q}&per_page=100`)
-    if (res.ok) {
-      const items = res.data?.items || []
-      return items.filter((r) => r.is_template)
+    // maxPages 10 is the search API's own ceiling (it refuses past 1,000
+    // results), so it can only ever be reached by a Link header that lies.
+    // Nobody has a thousand templates; that is not what the cap is for.
+    const { res, merged, truncated } = await pagedGet(
+      token,
+      `/search/repositories?q=${q}&per_page=100`,
+      { maxPages: 10, extract: (d) => d?.items || [] },
+    )
+
+    // `total_count` is the collection; `merged` is what we managed to read of
+    // it. GitHub omits the Link header when a response fits on one page, so a
+    // walk that trusts Link alone cannot tell "there was no page two" from "we
+    // were not told about page two" - and the difference is exactly the short
+    // list this function must never return. Two sources have to agree.
+    const totalCount = Number(res?.data?.total_count)
+    const short = merged && Number.isFinite(totalCount) && merged.length < totalCount
+
+    if (res?.ok && merged && !truncated && !short) {
+      // Belt and braces, in that order: `template:true` did the filtering at
+      // GitHub, and this catches anything the API hands back that is not a
+      // template. As a REPLACEMENT for the qualifier it is the 2026-09-07 bug,
+      // because it runs after paging has already thrown results away.
+      return merged.filter((r) => r.is_template)
     }
+    // Fall through. A failed page, a capped walk and a short read are three
+    // different things, and none of them is an answer.
   } catch (e) {
     console.error('Search templates failed, falling back to listOrgRepos', e)
   }
 
-  // Fallback: list all org repos and filter client-side. This leg runs ONLY
-  // because the search already failed, so it is not allowed to fail quietly:
+  // Fallback: list all org repos and filter client-side. This leg runs only
+  // because the search could not be READ IN FULL - it failed, or it came back
+  // demonstrably partial - so it is not allowed to fail quietly:
   // `listOrgRepos` used to `break` out of its pagination loop on a bad
   // response and return an empty array, and the Admin Panel rendered that as
   // "This organization has no template repositories yet" - telling a lecturer

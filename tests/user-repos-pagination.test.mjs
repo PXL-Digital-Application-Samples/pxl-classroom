@@ -137,6 +137,31 @@ test("pagedGet stops on a short page, and cannot loop on a self-referential Link
   assert.match(body, /return \{ res: last, merged, truncated \}/, "and reported to the caller");
 });
 
+// HOW each paginated reader refuses a short list, declared one per caller.
+//
+// There is more than one honest refusal, because the callers do not share a
+// return contract: most hand back a ghApi-shaped response, so they refuse with
+// `truncatedResponse` - but `listOrgTemplates` returns an ARRAY or THROWS, and
+// handing a response object to something expecting an array would be a new bug
+// wearing the fix's clothes. It refuses by falling through to a second reader
+// that walks uncapped and fails closed.
+//
+// Declared rather than pattern-matched, and asserted to be EXHAUSTIVE: a new
+// pagedGet caller fails this test until somebody says which refusal it makes.
+// An "either spelling is fine" check is one a new caller passes by accident,
+// which is the whole failure mode this file exists for.
+const REFUSALS = {
+  getInvitations: "truncatedResponse",
+  getInstallations: "truncatedResponse",
+  getUserRepos: "truncatedResponse",
+  getUserEmails: "truncatedResponse",
+  // Two sources, not one: `truncated` is the walker's signal, and total_count
+  // catches the case it cannot see - GitHub omits the Link header on a
+  // single-page response, so "there is no page two" and "we were not told
+  // about page two" are identical on the wire.
+  listOrgTemplates: "fallback",
+};
+
 test("every pagedGet caller refuses a truncated list", () => {
   // A short list here is not a smaller answer, it is a WRONG one: a missing
   // invitation reads as "there is no invitation", and /user/repos sorts by
@@ -145,12 +170,38 @@ test("every pagedGet caller refuses a truncated list", () => {
   const src = readFileSync(API, "utf8");
   const callers = [...src.matchAll(/export async function (\w+)\(token[^)]*\)\s*\{([\s\S]*?)\n\}/g)]
     .filter(([, , body]) => body.includes("pagedGet("));
-  assert.ok(callers.length >= 4, `expected at least four paginated readers, saw ${callers.length}`);
+  assert.ok(callers.length >= 5, `expected at least five paginated readers, saw ${callers.length}`);
+
+  assert.deepEqual(
+    callers.map(([, name]) => name).sort(),
+    Object.keys(REFUSALS).sort(),
+    "a paginated reader must declare how it refuses a truncated list, above",
+  );
+
   for (const [, name, body] of callers) {
+    if (REFUSALS[name] === "truncatedResponse") {
+      assert.match(
+        body,
+        /if \(truncated\) return truncatedResponse\(/,
+        `${name}() must refuse a truncated list rather than return it as the whole one`,
+      );
+      continue;
+    }
+    // The fallback refusal. Three things, and the third is what makes it a
+    // refusal rather than a shrug: the walk's own signal is read, a short read
+    // is detected against total_count, and the leg it falls through to fails
+    // closed instead of returning what it has.
+    assert.match(body, /truncated/, `${name}() must read the walker's truncated signal`);
+    assert.match(body, /total_count/, `${name}() must cross-check the collection size`);
     assert.match(
       body,
-      /if \(truncated\) return truncatedResponse\(/,
-      `${name}() must refuse a truncated list rather than return it as the whole one`,
+      /failFast: true/,
+      `${name}() falls through to a second reader, which may not fail quietly`,
+    );
+    assert.doesNotMatch(
+      body,
+      /return merged\b(?![\s\S]{0,40}filter)/,
+      `${name}() must not return the merged pages unconditionally`,
     );
   }
 });
