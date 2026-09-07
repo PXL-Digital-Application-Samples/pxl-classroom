@@ -72,10 +72,34 @@ jobs:
       # workflow_dispatch is an App installation token - what a stolen broker
       # credential would be - and it arrives as `<slug>[bot]`. First, before
       # anything mints a token.
+      # A CREDENTIAL MAY NOT DISPATCH THIS - except the hub's own workflows,
+      # which now legitimately do.
+      #
+      # `publish-assignment.yml` arms this workflow after publishing, because
+      # enabling it is not arming it and a 4-hourly cron cannot see an exam
+      # created since it last fired. That dispatch uses `secrets.GITHUB_TOKEN`,
+      # so the actor is `github-actions[bot]` and the original guard refused it
+      # - measured on the testbed 2026-09-07, where the arm job failed with
+      # "This workflow is dispatched by a person, not a credential" and nothing
+      # was armed at all.
+      #
+      # `github-actions[bot]` is not a general escape hatch: it is the identity
+      # of a workflow already running in THIS repository from `main`, which is
+      # reviewed code, and `publish-assignment.yml` rejects a bot actor as its
+      # own first step - so a person is upstream of it either way. Every other
+      # `[bot]` is an App installation token, which is exactly what a stolen
+      # broker credential would be, and is still refused.
+      #
+      # The two other workflows publish dispatches - regenerate-dashboard.yml
+      # and daily-activity.yml - carry no such guard at all, so this stays the
+      # stricter of the three.
       - name: Reject automated dispatch
-        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        if: >-
+          github.event_name == 'workflow_dispatch'
+          && endsWith(github.actor, '[bot]')
+          && github.actor != 'github-actions[bot]'
         run: |
-          echo "::error::This workflow is dispatched by a person, not a credential."
+          echo "::error::This workflow is dispatched by a person or by a hub workflow, not by a credential."
           exit 1
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
