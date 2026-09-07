@@ -22,7 +22,7 @@ Classroom50 works well, but a few things made me build PXL Classroom anyway.
   - It enrols from a roster, while GitHub Classroom used to hand out a link anyone could accept.
   - Exams and workshops need that, so it is back, with a cap, alongside roster and email-claim enrolment.
 - **Setting up an assignment is too complicated / takes too long.**
-  - In PXL Classroom it is one form witrh very few clicks.
+  - In PXL Classroom it is one form with very few clicks.
 - **Admin rights option for student repo's.**
   - Students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD,
 
@@ -65,8 +65,8 @@ I built it for my own courses at first.
 
 - **You decide who may accept, per assignment.**
   - open signup with a limit on how many places there are.
-  - a roster of GitHub usernames
-  - a self-service email claim where the student confirms their institutional address and it is matched against your roster,
+  - a roster you import (by name and email, or by GitHub username)
+  - a self-service email claim, where the student confirms their institutional address and it is matched against your roster
   
 - **Students hold Admin on their own repository.**
   - They can manage secrets, environments, runners and OIDC
@@ -236,8 +236,12 @@ The two Apps are split on purpose:
 - The Broker exists because a public acceptance page needs *something* to carry a
 request inward: it is installed on one repository and can do only one thing.
 
-The request path a single acceptance takes, and the table of what each repository
-role owns, are in [ARCHITECTURE.md](ARCHITECTURE.md).
+### Sign-in needs a CORS proxy
+
+The device-flow endpoints do not support CORS, so browsers cannot access them directly. A proxy is therefore required.
+
+- the Web App tries a Cloudflare Worker first
+- and uses corsproxy.io as fallback.
 
 ---
 
@@ -277,6 +281,9 @@ Full command list: [cli/README.md](cli/README.md).
 | `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `notify/`, `pages/`, `registry/` | Composite actions |
 | `scripts/` | Node scripts the workflows call (no inline `node -e` in YAML) |
 | `frontend/` | Vue 3 single page application |
+| `cors-worker/` | The Cloudflare Worker that proxies GitHub's device-flow endpoints, because they send no CORS headers - see [Sign-in needs a CORS proxy](#sign-in-needs-a-cors-proxy) |
+| `templates/` | Starter template repositories, including the autograding ones |
+| `public/`, `assets/` | Data published to the Pages site, and the images this README uses |
 | `cli/` | Companion `@pxl-classroom/cli` package |
 | `lib/` | Shared utility modules (gh, gittree, audit, diagnostics, invite-token, claim, roster-mode) |
 | `schemas/` | JSON schemas for assignments, rosters, teams, reports, grading |
