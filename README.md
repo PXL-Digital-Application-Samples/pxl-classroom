@@ -191,14 +191,16 @@ flowchart LR
         direction TB
         Hub["HUB REPOSITORY<br/><b>public</b><br/>every workflow and script<br/>the only place code runs"]
         Pages["WEB APP on GitHub Pages<br/><b>public</b><br/>holds no keys of its own"]
+        ProvApp{{"PROVISIONER APP<br/>installed on your org<br/>key never leaves the hub"}}
+        BrokApp{{"BROKER APP<br/>hub repo only<br/>contents: write"}}
     end
 
     subgraph Course["COURSE ORGANIZATION - one per course or year"]
         direction TB
-        Broker["BROKER<br/><b>public</b><br/>1 per assignment<br/>the doorbell"]
+        Broker["BROKER REPOSITORY<br/><b>public</b><br/>1 per assignment<br/>the doorbell"]
         Control["CONTROL REPOSITORY<br/><b>private</b><br/>data only, no workflows"]
         Student["STUDENT REPOSITORIES<br/><b>private</b><br/>student is Admin"]
-        Archive["ARCHIVE<br/><b>private</b><br/>1 per assignment<br/>out of student reach"]
+        Archive["ARCHIVE REPOSITORIES<br/><b>private</b><br/>1 per assignment<br/>out of student reach"]
     end
 
     Pages -->|"signed acceptance"| Broker
@@ -207,6 +209,8 @@ flowchart LR
     Hub -->|"writes reports"| Control
     Student -->|"at the deadline"| Archive
     Pages <-->|"your own sign-in"| Control
+    Hub -.->|"acts through"| ProvApp
+    Broker -.->|"dispatches with"| BrokApp
 ```
 
 Everything public is either code you can read or a doorbell that carries a request inward. Everything with student work or student data in it is private.
