@@ -24,7 +24,7 @@ Classroom50 works well, but a few things made me build PXL Classroom anyway.
 - **Setting up an assignment is too complicated / takes too long.**
   - In PXL Classroom it is one form with very few clicks.
 - **Admin rights option for student repo's.**
-  - Students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD,
+  - Students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD
 
 The result is an expanded GitHub Classroom's feature set with a dashboard on top, running entirely on GitHub Team for Education. GitHub Enterprise is not required.
 
@@ -128,30 +128,6 @@ An owner installs the App there with access to **All repositories**, then runs *
 
 ## Quickstart
 
-```mermaid
-flowchart LR
-    Create["LECTURER<br/>creates and publishes,<br/>shares one link"] --> Who{"who may<br/>accept?"}
-    Who -->|"roster"| Roster["ROSTER<br/>only students<br/>you imported"]
-    Who -->|"open"| Open["OPEN<br/>anyone with the link,<br/>up to a cap"]
-    Roster --> acc
-    Open --> acc
-
-    subgraph acc [" "]
-        direction TB
-        Accept["STUDENT<br/>opens the link,<br/>signs in"] -.-> Repo["a private repo appears,<br/>from your template,<br/>in under a minute"]
-    end
-
-    acc --> Work["STUDENT<br/>works and pushes"]
-    Work --> Deadline["THE DEADLINE PASSES<br/>work is frozen,<br/>a copy preserved"]
-    Deadline --> Grade["LECTURER<br/>reviews every<br/>submission, and grades"]
-
-    style acc fill:none,stroke:none
-```
-
-The one choice that changes what a student experiences is **who may accept**.
-Everything after the link is the same either way, and there is one link per
-assignment rather than one per student.
-
 ### 1. Connect Organization
 
 - Open the [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/) and sign in with the GitHub device flow.
@@ -181,60 +157,89 @@ assignment rather than one per student.
 
 ## Architecture
 
-### Components
+### Core Philosophy
 
 ```mermaid
 flowchart LR
-    subgraph You["WHAT YOU USE"]
+    Create["LECTURER<br/>creates and publishes,<br/>shares one link"] --> Who{"who may<br/>accept?"}
+    Who -->|"roster"| Roster["ROSTER<br/>only students<br/>you imported"]
+    Who -->|"open"| Open["OPEN<br/>anyone with the link,<br/>up to a cap"]
+    Roster --> acc
+    Open --> acc
+
+    subgraph acc [" "]
         direction TB
-        WebApp["STATIC GH PAGES WEB APP<br/><i>public</i><br/>students accept an invitation<br/>lecturers create, watch, grade"]
-        CLI["CLI<br/>roster import, bulk download<br/>local grading, feedback PRs"]
+        Accept["STUDENT<br/>opens the link,<br/>signs in"] -.-> Repo["a private repo appears,<br/>from your template,<br/>in under a minute"]
     end
 
-    subgraph Central["CENTRAL ORGANIZATION - one, shared by everyone"]
-        direction TB
-        Hub["PXL-CLASSROOM REPO<br/><i>public</i><br/>the only place code runs"]
-        Flows["WORKFLOWS<br/>accept - nightly collect and finalize<br/>deadline sentinel - dashboard rebuild"]
-        Prov{{"GH APP: PROVISIONER<br/>installed on every course org"}}
-        Brok{{"GH APP: BROKER<br/>hub repo only"}}
-        Hub --- Flows
-        Flows -.acts through.-> Prov
-    end
+    acc --> Work["STUDENT<br/>works and pushes"]
+    Work --> Deadline["THE DEADLINE PASSES<br/>work is frozen,<br/>a copy preserved"]
+    Deadline --> Grade["LECTURER<br/>reviews every<br/>submission, and grades"]
 
-    subgraph Course["COURSE ORGANIZATION - one per course or year"]
-        direction TB
-        BrokerRepo["BROKER REPO<br/><i>public</i><br/>1 per assignment<br/>catches acceptances"]
-        Control["CONTROL REPO<br/><i>private</i><br/>assignments, roster, reports<br/>data only, no workflows"]
-        Student["STUDENT REPOS<br/><i>private</i>"]
-        Archive["ARCHIVE<br/><i>private</i><br/>1 per assignment"]
-        Student -->|"frozen at the deadline"| Archive
-    end
-
-    WebApp -->|"signed acceptance"| BrokerRepo
-    BrokerRepo -->|"dispatch"| Flows
-    BrokerRepo -.-> Brok
-    Flows -->|"creates"| Student
-    Flows -->|"writes reports"| Control
-    WebApp <-->|"your own sign-in"| Control
-    CLI <--> Control
+    style acc fill:none,stroke:none
 ```
 
-Notes:
+At its core, this system is a **repository provisioner and a passive monitor**. It creates a private repository from your template for a student.
 
-- **Nothing you run holds a credential.**
-  - The web app and the CLI act as *you*, through your own GitHub sign-in
-  - they can only reach what you could reach by hand.
-- **All the code lives in the central organization**
-  - and runs nowhere else
-  - the hub repository owns every workflow, which is why a course organization can be
-handed over or deleted without taking the machinery with it.
-- **A course organization holds only data and student work**, and has no workflows of its own.
+*Once provisioned, the risk is negligible: the rest of the system is just monitoring commit timestamps and building reports. Even if the dashboard code had a bug, student repositories and git history remain safe and untouched.*
 
-The two Apps are split on purpose:
+### Public vs. Private Boundaries
 
-- The Provisioner is installed on every course organization, so only workflows in the hub ever use it.
-- The Broker exists because a public acceptance page needs *something* to carry a
-request inward: it is installed on one repository and can do only one thing.
+| Component | Visibility | Where It Lives | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Hub Repository (`pxl-classroom`)** | **PUBLIC** | Central Org | Holds all workflows, scripts, and the static Vue SPA frontend. **The only place code runs!** (Hub workflow minutes are 100% free). |
+| **Web App (GitHub Pages)** | **PUBLIC** | Central Hub Pages | Static SPA. Holds **no secret keys**. Talks to GitHub's REST/GraphQL API using the authenticated user's own token. |
+| **Broker Repository (`broker-<id>`)** | **PUBLIC** | Your Course Org | **1 public repo per assignment.** Serves as a secure "doorbell" to catch student acceptance triggers at the edge. |
+| **Control Repository (`pxl-classroom-control`)** | **PRIVATE** | Your Course Org | **Data only.** Holds YAML configs, rosters, teams, reports, and observations. **Contains zero workflows.** |
+| **Student Repositories** | **PRIVATE** | Your Course Org | Private repos generated from your template where the student can be `Admin`. |
+| **Archive Repositories (`pxl-classroom-archive-<id>`)** | **PRIVATE** | Your Course Org | **1 private archive repo per assignment.** Holds frozen, immutable snapshot branches of submissions at the deadline. Out of student reach. |
+
+### Two GitHub Apps
+
+```text
+                  ┌──────────────────────────────┐
+                  │ 1. PROVISIONER APP           │
+                  │ Installed on: Course Org     │
+                  │ Scope: Full org admin        │
+                  └──────────────┬───────────────┘
+                                 │ (Only hub workflows can touch this)
+                                 ▼
+┌──────────────┐          ┌──────────────┐          ┌────────────────┐
+│ Student SPA  │ ───────► │ Public Broker│ ───────► │ Central Hub    │
+│ (Web browser)│          │ (doorbell)   │          │ (Actions)      │
+└──────────────┘          └──────────────┘          └────────────────┘
+                                 ▲
+                                 │ (Holds narrow dispatch token only)
+                  ┌──────────────┴───────────────┐
+                  │ 2. BROKER APP                │
+                  │ Installed on: Hub Repo ONLY  │
+                  │ Scope: contents:write only   │
+                  └──────────────────────────────┘
+```
+
+To keep security tight without a server, we split permissions between two GitHub Apps:
+
+- **Provisioner App:** *Installed on the course organization with full repository access. It creates repos, manages permissions, and sets rulesets. Its private key stays locked in the hub environment-it never touches a broker.*
+- **Broker App:** *Installed ONLY on the central hub repo with `contents: write` alone. It can do only one thing: dispatch an event back to the hub.
+
+### Token-Based / Signed Invite
+
+- Students have no permissions on our private course control repo.
+  - When a student opens the public invitation link, how do we know they are authorized without random internet bots abusing our Actions minutes?
+- When you publish an assignment:
+  - PXL Classroom mints a cryptographic keypair (`P-256` elliptic curve).
+  - The private key is embedded in the link URL.
+  - When the student clicks Accept, their browser signs their GitHub ID with that key.
+  - The public broker checks that signature in 5 seconds on a free public runner.
+    - If valid, it dispatches to the hub.
+    - a doorbell that only rings if the student holds the key.
+
+### User Management
+
+There is no user database or role engine.
+
+- If you are an Owner of the course GitHub organization, you are a Lecturer in PXL Classroom.
+- If you have Write access on the central hub, you can publish assignments.
 
 ### Sign-in needs a CORS proxy
 
@@ -277,7 +282,7 @@ Full command list: [cli/README.md](cli/README.md).
 | Path | Description |
 |---|---|
 | `deployment.yml` | **Institution-specific configuration** - email domains, timezone, hub/App/control-repo names, and the sign-in proxy. It is the only *code* a fork edits; the App and Pages site are set up per [INSTALL.md](INSTALL.md) |
-| `.github/workflows/` | Hub workflows (acceptance, daily activity, deadline sentinel, dashboard regen, publish) |
+| `.github/workflows/` | Every workflow in the system - acceptance, publishing, the nightly collect, the deadline sentinel, dashboard regeneration, usage reporting, release and deploy. A course organization has none of its own |
 | `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `notify/`, `pages/`, `registry/` | Composite actions |
 | `scripts/` | Node scripts the workflows call (no inline `node -e` in YAML) |
 | `frontend/` | Vue 3 single page application |
