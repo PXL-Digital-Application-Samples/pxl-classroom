@@ -191,9 +191,10 @@ flowchart LR
         direction TB
         Hub["HUB REPOSITORY<br/><b>public</b><br/>every workflow and script<br/>the only place code runs"]
         Pages["WEB APP on GitHub Pages<br/><b>public</b><br/>holds no keys of its own"]
-        ProvApp{{"PROVISIONER APP<br/>installed on your org<br/>key never leaves the hub"}}
-        BrokApp{{"BROKER APP<br/>hub repo only<br/>contents: write"}}
     end
+
+    ProvApp{{"PROVISIONER APP<br/>installed on the course org<br/>key never leaves the hub"}}
+    BrokApp{{"BROKER APP<br/>installed on the hub repo only<br/>contents: write, and its key<br/>is copied to each broker"}}
 
     subgraph Course["COURSE ORGANIZATION - one per course or year"]
         direction TB
