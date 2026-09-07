@@ -23,7 +23,7 @@ Classroom50 works well, but a few things made me build PXL Classroom anyway.
   - Exams and workshops need that, so it is back, with a cap, alongside roster and email-claim enrolment.
 - **Setting up an assignment is too complicated / takes too long.**
   - In PXL Classroom it is one form with very few clicks.
-- **Admin rights option for student repo's.**
+- **Admin rights option for student repositories.**
   - Students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD
 
 The result is an expanded GitHub Classroom's feature set with a dashboard on top, running entirely on GitHub Team for Education. GitHub Enterprise is not required.
@@ -181,7 +181,7 @@ flowchart LR
 
 At its core, this system is a **repository provisioner and a passive monitor**. It creates a private repository from your template for a student.
 
-*Once provisioned, the risk is negligible: the rest of the system is just monitoring commit timestamps and building reports. Even if the dashboard code had a bug, student repositories and git history remain safe and untouched.*
+*Once provisioned, the risk is negligible: the rest of the system is just monitoring commit timestamps and building reports. Even if the dashboard code had a bug, student repositories and git history remain safe and untouched, with the exception of a hard lockdown of student repos at the deadline.*
 
 ### Public vs. Private Boundaries
 
@@ -200,7 +200,7 @@ At its core, this system is a **repository provisioner and a passive monitor**. 
                   ┌──────────────────────────────┐
                   │ 1. PROVISIONER APP           │
                   │ Installed on: Course Org     │
-                  │ Scope: Full org admin        │
+                  │ Scope: declared perms only   │
                   └──────────────┬───────────────┘
                                  │ (Only hub workflows can touch this)
                                  ▼
@@ -219,18 +219,22 @@ At its core, this system is a **repository provisioner and a passive monitor**. 
 
 To keep security tight without a server, we split permissions between two GitHub Apps:
 
-- **Provisioner App:** *Installed on the course organization with full repository access. It creates repos, manages permissions, and sets rulesets. Its private key stays locked in the hub environment-it never touches a broker.*
-- **Broker App:** *Installed ONLY on the central hub repo with `contents: write` alone. It can do only one thing: dispatch an event back to the hub.
+- **Provisioner App:**
+  - Installed on the course organization.
+  - creates repositories, manages permissions and sets rulesets, through a declared permission set rather than ownership
+  - Its private key stays locked in the hub environment; it never touches a broker.
+- **Broker App:**
+  - *Installed ONLY on the central hub repo with `contents: write` alone.
+  - It can do only one thing: dispatch an event back to the hub.*
 
 ### Token-Based / Signed Invite
 
 - Students have no permissions on our private course control repo.
-  - When a student opens the public invitation link, how do we know they are authorized without random internet bots abusing our Actions minutes?
 - When you publish an assignment:
   - PXL Classroom mints a cryptographic keypair (`P-256` elliptic curve).
   - The private key is embedded in the link URL.
   - When the student clicks Accept, their browser signs their GitHub ID with that key.
-  - The public broker checks that signature in 5 seconds on a free public runner.
+  - The public broker checks that signature on a runner the public repository gets free.
     - If valid, it dispatches to the hub.
     - a doorbell that only rings if the student holds the key.
 
