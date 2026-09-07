@@ -744,6 +744,18 @@ Four states where the Admin Panel stopped a lecturer and then declined to help (
 
 `listOrgTemplates` searched `org:<org> is:template` (a broken qualifier in its own right - see below) and a forked template never appeared in the Admin Panel picker - no error, `is_template: true` on the repository, and the first-run wall confidently telling the lecturer their org had none. Reported live for `PXL-2TIN-NetAdv-26-27/Guts-DotNetAdvanced-2627` on 2026-08-24. The query carries **`fork:true`** ("forks *as well as* non-forks" - never `fork:only`, which swaps the blind spot for its opposite). The `listOrgRepos` fallback would have found it, because `GET /orgs/{org}/repos` includes forks - but that leg only runs when the search **fails**, and this search succeeded; it just answered a question nobody meant to ask. That is the shape to watch for: a successful call with a silently narrowed result set is not the same as a failure, and no fallback catches it. `tests/e2e/33-first-run-wall-edges.spec.mjs` mocks the search the way GitHub actually behaves - reading the real query string rather than being handed the answer - so dropping the qualifier goes red.
 
+### A decision that lives only in a conversation is not a decision anyone can find.
+
+A colleague looking through the SPA remarked that a few dirty things happen in it. He was right about the shape: `AdminView.vue` is 5,061 lines, `AssignmentDetailView.vue` 4,365, `RosterTab.vue` 3,036, and there are 73 inline `style=` attributes across the views.
+
+Everything where **dirty becomes dangerous** was already clean, and measurably so — zero colour literals outside `style.css` (the five matches are comments explaining the tokens), `addEventListener` balanced by `removeEventListener` in every component, two `v-html` of which one renders a hardcoded icon map and the other is a comment saying they avoided it, no unkeyed `v-for` because `vue/require-v-for-key` is an error, alongside `no-mutating-props`, `no-side-effects-in-computed-properties` and `no-watch-after-await`. The dirt is shape. The invariants hold.
+
+**The actual defect was that none of that was written down.** Not splitting those components had been decided, with reasons, and the decision existed nowhere in the repository — so a competent person read the code, correctly identified the largest thing in it, and found no answer waiting. This time it surfaced as a remark. Next time it could surface as a pull request that reorganises the surface an exam runs on, and the reviewer would have nothing to point at.
+
+So the rule went into CLAUDE.md, in the section someone about to do it would be reading, with the condition that *would* justify revisiting — and with the cost admitted rather than argued away: the size is genuinely slow to read, and `editing.value` holding `{ id }` instead of the assignment document has already misled a reader who assumed otherwise. A recorded decision that only lists its own advantages is one nobody believes the second time.
+
+Note what was **not** done. No refactor, no inline-style sweep, no line-count ratchet: a ratchet fails on legitimate feature work, which punishes landing features rather than the drift it was aimed at. The measurement was the deliverable; the code was already fine.
+
 ### A safety net that runs as a side effect of something else has a hole the shape of that something else.
 
 `reports/dashboard.json` was append-only, and a deleted assignment's card stayed on the lecturer's dashboard for ever — `phasea-live-sysex` on PXL-Systems-Expert, which took the page down. The fix put a reconciliation in `report.mjs`: list `assignments/`, drop every entry not in it. Correct, tested four ways, and it worked.
