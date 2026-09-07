@@ -614,7 +614,7 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 |---|---|---|
 | `acceptance-handler.yml` | `repository_dispatch [acceptance]` | Sync: read team payload -> accept -> provision -> dispatch dashboard regen. Per-student concurrency. |
 | `daily-activity.yml` | `cron 0 0 * * *` + `workflow_dispatch` | Nightly: collect, finalize finalizable assignments, disable self when idle. **Disabled when no class active.** |
-| `deadline-sentinel.yml` | `cron 0 */4 * * *` + `workflow_dispatch` | Arm a watcher for every deadline inside a 4.5 h window; at the instant, run lockdown Phase 1 (`STOP_ONLY=1`) and dispatch the finalize. **Ships disabled**, enabled by the first publish. `max-parallel: 8` on the watch job bounds sentinels globally, not per org (§11.2.3). |
+| `deadline-sentinel.yml` | `cron 0 */4 * * *` + `workflow_dispatch` | Arm a watcher for every deadline inside a 4.5 h window; at the instant, run lockdown Phase 1 (`STOP_ONLY=1`) and dispatch the finalize. **Ships disabled**, enabled by the first publish - which also **dispatches** it, because a cron cannot arm for an assignment created since it last fired; the same is true of a deadline edited forward, so `saveAssignment` dispatches it too (`lib/sentinel-window.mjs` decides what counts as imminent). `max-parallel: 8` on the watch job bounds sentinels globally, not per org (§11.2.3). |
 | `publish-assignment.yml` | `workflow_dispatch` | Create broker repo, set vars, push broker workflow, flip assignment `state` to `published`, **enable `daily-activity.yml`**. |
 | `regenerate-dashboard.yml` | `workflow_dispatch` (called by other workflows) | Multi-org: generate public Pages JSON + run privacy scanner + commit to each org's `public/`. |
 | `reconcile-registry.yml` | `workflow_dispatch` only (a push trigger cannot fire for the workflow-less `participating-orgs` data branch) | Detect drift: deleted student repos, visibility changes, revoked access. |
@@ -750,7 +750,9 @@ publish-assignment.yml:
       INVITE_ENABLED variables on the broker
    g. Pushes acceptance/broker-workflow.yml as .github/workflows/acceptance-trigger.yml
    h. Flips state: draft -> published in assignments/<id>.yml
-   i. gh workflow enable daily-activity.yml + deadline-sentinel.yml
+   i. gh workflow enable daily-activity.yml + deadline-sentinel.yml, then
+      gh workflow run deadline-sentinel.yml - ENABLING IS NOT ARMING, and a
+      cron cannot see an assignment published since it last fired
 ```
 
 ### 9.4 Override (deadline extension)

@@ -156,6 +156,10 @@ This dispatches `publish-assignment.yml`, which:
 
 ### 1.5 Share the link
 
+**Give it about three minutes after publishing before you hand the link out.** Measured 2026-09-07: publishing takes ~33s, then the dashboard regeneration it triggers ~45s, then the frontend deploy that puts the card on Pages ~62s, plus CDN propagation — a little over two minutes end to end. The link exists immediately, but a student who opens it before that last step finishes sees nothing.
+
+Publishing days or weeks ahead is safe and is the better habit for an exam: `opens_at` is enforced when a student accepts, so a link that leaks early hands out nothing, and the invitation token stays valid for about a year.
+
 The student-facing URL is the invitation link: `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>`. It cannot be constructed from the assignment id - the token is minted at publish time and recorded in the control repo (ARCHITECTURE §4.3.2).
 
 **Where to find it.** The **Share with students** block appears in four places, and you never have to open the editor to reach it:

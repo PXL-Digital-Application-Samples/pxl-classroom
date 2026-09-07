@@ -744,6 +744,28 @@ Four states where the Admin Panel stopped a lecturer and then declined to help (
 
 `listOrgTemplates` searched `org:<org> is:template` (a broken qualifier in its own right - see below) and a forked template never appeared in the Admin Panel picker - no error, `is_template: true` on the repository, and the first-run wall confidently telling the lecturer their org had none. Reported live for `PXL-2TIN-NetAdv-26-27/Guts-DotNetAdvanced-2627` on 2026-08-24. The query carries **`fork:true`** ("forks *as well as* non-forks" - never `fork:only`, which swaps the blind spot for its opposite). The `listOrgRepos` fallback would have found it, because `GET /orgs/{org}/repos` includes forks - but that leg only runs when the search **fails**, and this search succeeded; it just answered a question nobody meant to ask. That is the shape to watch for: a successful call with a silently narrowed result set is not the same as a failure, and no fallback catches it. `tests/e2e/33-first-run-wall-edges.spec.mjs` mocks the search the way GitHub actually behaves - reading the real query string rather than being handed the answer - so dropping the qualifier goes red.
 
+### Enabling a cron is not arming it, and a cron cannot see what did not exist when it last fired.
+
+A lecturer asked whether a two-hour exam deadline would hold if the assignment were published a week early, the night before, or hurriedly that morning. The first two are fine. The third was not, and the reason had nothing to do with the deadline machinery being wrong.
+
+`deadline-sentinel.yml` is careful work: a 4-hourly cron arms a job for every deadline inside a 4.5h window — wider than the cron interval so nothing is missed, narrower than the 6h job limit so nothing is killed — and that job **sleeps until the exact instant** and locks. Cron drift decides only whether a sentinel arms in time, never when it acts. `publish-assignment.yml` runs `gh workflow enable deadline-sentinel.yml` so a hub with no published assignments runs nothing.
+
+**Enabling it is not arming it.** Arming waits for the next firing, and the firings are 00/04/08/12/16/20 UTC:
+
+```
+exam 10:00-12:00 local, published the night before  -> the 10:00 firing sees it   ARMED
+exam 10:00-12:00 local, published at 09:45          -> the 10:00 firing sees it   ARMED
+exam 10:00-12:00 local, published at 10:15          -> next firing is 14:00       MISSED
+```
+
+A missed sentinel degrades to the nightly at 00:00 UTC, so the freeze lands up to fourteen hours late. Marks survive it — late is decided by the commit's own timestamp, and preservation reconstructs with `?until=` — but the repositories stay writable for the rest of the exam day, which is the wrong direction to fail in.
+
+The same hole opens with no publish at all: an assignment whose deadline was next week, **edited** to this afternoon. Nothing about that is a publish, so nothing armed, and the editor is exactly where a lecturer reschedules under time pressure.
+
+Both moments now arm the sentinel themselves. Duplicates were already safe and the original design says so out loud — the concurrency group is `(org, deadline instant)` with `cancel-in-progress: false`, so a second sentinel queues behind the first and exits immediately because by then the instant has passed. That is why this fix is two dispatches and no coordination: the hard part had been solved, and only the trigger was missing.
+
+Two smaller things fell out of it. The 4.5h window moved to `lib/sentinel-window.mjs` because one of the two callers is the **browser**, which cannot import a `scripts/` module that pulls in `node:fs` — a static `node:` builtin in the SPA's graph is a blank page. And the first version of the browser call wrapped `triggerWorkflow` in `try/catch`, which `tests/button-honesty.test.mjs` refused: everything in `frontend/src/lib/api.js` **resolves** `{ ok: false }` rather than throwing, so the catch could never run and was the look of error handling rather than the thing.
+
 ### A decision that lives only in a conversation is not a decision anyone can find.
 
 A colleague looking through the SPA remarked that a few dirty things happen in it. He was right about the shape: `AdminView.vue` is 5,061 lines, `AssignmentDetailView.vue` 4,365, `RosterTab.vue` 3,036, and there are 73 inline `style=` attributes across the views.

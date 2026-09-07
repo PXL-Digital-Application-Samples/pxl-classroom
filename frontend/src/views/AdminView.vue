@@ -1537,6 +1537,7 @@ import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
+import { deadlineIsImminent } from '../../../lib/sentinel-window.mjs'
 import {
   templateUsable,
   templateSourceMessage,
@@ -3540,6 +3541,45 @@ async function onSlugBlur() {
   }
 }
 
+/**
+ * Arm the deadline sentinel when a save leaves an imminent deadline.
+ *
+ * The sentinel arms from a 4-hourly cron, and a cron cannot see a change made
+ * after it last fired. Publishing covers one of the two moments that creates a
+ * deadline it has already missed; this covers the other, which is the one a
+ * lecturer reaches by accident: an assignment whose deadline was next week,
+ * edited to this afternoon. Nothing about that is a publish, so nothing armed.
+ *
+ * DELIBERATELY SILENT, in both directions. A dispatch that fails changes
+ * nothing a lecturer must act on - the cron still arms anything more than four
+ * hours out, and the nightly still locks whatever the sentinel misses, so the
+ * deadline holds either way and only its precision is at stake. Toasting a
+ * failure here would ask someone mid-exam-setup to care about a layer that
+ * exists to save them minutes. It is also entirely normal for this to fail:
+ * dispatching a hub workflow needs write access on the hub, which most
+ * lecturers do not have (OPEN-ITEMS 4).
+ *
+ * Only for a PUBLISHED assignment: a draft has nobody to freeze.
+ */
+async function armSentinelIfImminent(doc) {
+  if (doc?.state !== 'published') return
+  if (!deadlineIsImminent(doc?.deadline_at)) return
+  // `.ok`, not try/catch: everything in lib/api.js RESOLVES `{ ok: false }`
+  // rather than throwing, so a catch here would never run and would only look
+  // like error handling. Silent to the lecturer, visible in the console - the
+  // cron and the nightly are both still behind this, so there is nothing for
+  // them to do about it.
+  const res = await triggerWorkflow(getToken(), config.hubOwner, config.hubRepo, 'deadline-sentinel.yml', {
+    org: props.org,
+  })
+  if (!res?.ok) {
+    console.warn(
+      `Could not arm the deadline sentinel (HTTP ${res?.status}). The deadline still holds: ` +
+        `the 4-hourly cron arms anything further out, and the nightly locks whatever it misses.`,
+    )
+  }
+}
+
 async function saveAssignment(stateOverride = null) {
   // Touch all fields to show error styling
   for (const k of Object.keys(touchedFields.value)) {
@@ -3613,6 +3653,7 @@ async function saveAssignment(stateOverride = null) {
       if (form.value.state === 'published') {
         verifyLiveInfrastructure(form.value.id)
       }
+      await armSentinelIfImminent(doc)
       return true
     }
     toast.error(`Save failed: ${res.data?.message || 'unknown error'}`)

@@ -30,8 +30,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadYaml } from '../lib/yaml.mjs';
+import { SENTINEL_ARM_WINDOW_MS } from '../lib/sentinel-window.mjs';
 
-const ARM_WINDOW_MS = Number(process.env.ARM_WINDOW_MS ?? 4.5 * 3600_000);
+// The window itself lives in lib/, because publishing and editing an
+// assignment now arm the sentinel themselves - the cron cannot see a deadline
+// that did not exist when it last fired - and one of those two callers is the
+// browser, which cannot import this file at all (node:fs above). The env
+// override stays here: it is a test affordance for a script, not part of the
+// shared answer.
+const ARM_WINDOW_MS = Number(process.env.ARM_WINDOW_MS ?? SENTINEL_ARM_WINDOW_MS);
 
 // PER ORG, not per firing. This script runs once per org (the workflow's `arm`
 // job is a matrix over orgs), so this bounds one org's list and nothing more -
