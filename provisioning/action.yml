@@ -51,6 +51,21 @@ inputs:
     description: Baseline branch name (used as the PR base).
     required: false
     default: "pxl-baseline"
+  dry-run:
+    description: >-
+      "1" to rehearse: the template is read and the collision check runs, but no
+      repository is created, no collaborator granted, no record written and no
+      Feedback PR opened. The outcome is `dry-run:ok`.
+
+      THIS IS NOT A DRY RUN OF AN ACCEPTANCE. The acceptance action upstream has
+      already written the student's acceptance record and spent a slot of
+      max_acceptances by the time this runs, and it has no dry-run of its own.
+      A workflow that offers one must say which half it rehearses.
+
+      provision.mjs has supported this since it was written and the action could
+      not pass it, so the only way to reach it was to run the script by hand.
+    required: false
+    default: "0"
   previous-repo:
     description: Previous repository to remove collaborator from if switching teams
     required: false
@@ -115,6 +130,7 @@ runs:
         STUDENT_LOGIN: ${{ inputs.student-login }}
         STUDENT_PERMISSION: ${{ inputs.student-permission }}
         PRIVATE: ${{ inputs.repo-private }}
+        DRY_RUN: ${{ inputs.dry-run }}
         FEEDBACK_PR: ${{ inputs.feedback-pr }}
         FEEDBACK_PR_BASELINE_BRANCH: ${{ inputs.feedback-pr-baseline-branch }}
         PREVIOUS_REPO: ${{ inputs.previous-repo }}

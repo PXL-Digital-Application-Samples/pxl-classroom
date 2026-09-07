@@ -116,3 +116,23 @@ test("the scan actually found the calls it is meant to police", () => {
     "feedback.mjs opens PRs - the command that created real ones under --dry-run",
   );
 });
+
+test("provisioning's dry-run is reachable, not just implemented", () => {
+  // `provision.mjs` has read DRY_RUN since it was written - skipping the
+  // create, the grant, the record and the Feedback PR, and reporting
+  // `dry-run:ok` - while `provisioning/action.yml` declared no such input and
+  // never set the env var. The composite action is what every workflow calls,
+  // so the only way to reach the rehearsal was to run the script by hand with
+  // env vars. Found 2026-09-07 while looking for a zero-side-effect way to
+  // probe a cross-org template; there wasn't one, so a real assignment was
+  // published instead.
+  //
+  // A capability nothing can invoke reads as a feature and is not one - the
+  // same defect as a schema field with no writer, one layer out.
+  const action = readFileSync(join(root, "provisioning", "action.yml"), "utf8");
+  const script = readFileSync(join(root, "provisioning", "provision.mjs"), "utf8");
+
+  assert.match(script, /env\("DRY_RUN"/, "the script must still read it");
+  assert.match(action, /^\s{2}dry-run:/m, "the action must declare the input");
+  assert.match(action, /DRY_RUN:\s*\$\{\{\s*inputs\.dry-run\s*\}\}/, "and pass it through as env");
+});

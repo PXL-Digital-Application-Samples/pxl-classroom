@@ -1,6 +1,8 @@
 # Open items
 
-Known gaps in the deployed system that are **not** defects and have no home in a procedure: infrastructure that works today and would fail in a way nobody would be told about, one designed control that is deliberately weaker than it could be, and one question about how the app is arranged that it has not answered.
+Known gaps that are **not** defects and have no home in a procedure: infrastructure that works today and would fail in a way nobody would be told about, controls deliberately weaker than they could be, paths that have never been exercised, and questions about how the app is arranged that it has not answered.
+
+Counting them here was itself a thing that drifted — this sentence said "one designed control" while listing two — so it describes the kinds and leaves the count to the headings.
 
 This is a standing register, not a plan: nothing here is scheduled, and an entry earns its place by being something a reader of [RUNBOOK.md](RUNBOOK.md), [INSTALL.md](INSTALL.md) or [ADMIN.md](ADMIN.md) would otherwise have to rediscover. Every entry says how to tell whether it is still open, so it can be closed from evidence rather than from memory.
 
@@ -182,6 +184,46 @@ grep -c "RosterTab" frontend/src/views/AdminView.vue
 ```
 
 returns `0` - or the arrangement was considered and kept, and this entry says so instead.
+
+---
+
+## 7. e2e specs stage report fixtures the report schema would refuse
+
+**Status: open.** Measured 2026-09-07.
+
+Report fixtures staged by e2e specs are hand-written objects, and many of them are not the shape the app writes. Root fields the schema does not declare (`org:` is the common one), row fields that do not exist, required fields absent. `report.schema.json` is `additionalProperties: false`, so the real writer would be refused.
+
+**They stay green because they never reach a save.** A spec that only renders a report never validates it; the divergence surfaces only when a test drives a write. That is exactly how `tests/e2e/69-live-refresh-saves.spec.mjs` was written — the first draft staged an `org:` field, and the save it exists to guard failed against the schema rather than against the bug.
+
+Measured at **185 violations** across the suite. A rough re-scan flags keys in 21 specs, `17-freeze-lockdown-preservation-scenarios` (61) and `16-team-lifecycle-edge-cases` (44) worst.
+
+This is not a defect in the deployed system, and it is not urgent: the fixtures that matter — the ones behind a write — are already correct, and `tests/fixtures/e2e-fixtures.mjs` validates every control-repo write against the schema for its path. It is here because *"a mock that accepts anything tests nothing"* is a rule this repository already paid for, and 185 fixtures that could not survive contact with the writer are a standing bet that none of them ever will.
+
+Three ways to close it were offered and none chosen: fix all of them; fix only the specs whose fixtures could plausibly reach a save; or record the divergence and leave it. The decision is the open part.
+
+**How to tell it is closed:** every report-shaped literal in `tests/e2e/` validates against `schemas/report.schema.json` — enforced by a test, not by a one-off sweep, or the next hand-written fixture reopens it.
+
+---
+
+## 8. An organization that deletes its last assignment keeps the card
+
+**Status: open — deliberately.** Verified 2026-09-07.
+
+`pruneMissingAssignments` (`lib/dashboard-aggregate.mjs`) drops dashboard entries whose assignment YAML is gone. It refuses to act on an **empty** listing, for the same reason it refuses to act on an unreadable one: neither is evidence that every assignment is gone, and deleting every card in an organization because a checkout produced nothing is far worse than the stale card the prune exists to remove.
+
+The consequence is exact: an organization that deletes its **last** assignment keeps that assignment's card on the dashboard indefinitely, and no workflow will ever remove it. One assignment left, and it reconciles fine. Zero, and it never does.
+
+The Admin Panel's delete removes the entry in the same commit, so this is only reachable when an assignment's YAML disappears by another route — a hand edit, or a delete that failed partway. That is the same narrow path the prune itself is the net for.
+
+Closing it needs a signal that distinguishes "this organization has no assignments" from "I could not see any", which the directory listing alone cannot give. An empty `assignments/` directory containing the `.gitkeep` that scaffolding writes is one candidate: present-and-empty is then a different fact from absent.
+
+**How to tell it is closed:** an organization whose `assignments/` holds no YAML has `reports/dashboard.json` with `assignments: {}` after a `regenerate-dashboard` run.
+
+```bash
+gh api "repos/<org>/pxl-classroom-control/contents/reports/dashboard.json" \
+  -H "Accept: application/vnd.github.raw" | jq '.assignments | keys'
+gh api "repos/<org>/pxl-classroom-control/contents/assignments" --jq '[.[].name]'
+```
 
 ---
 
