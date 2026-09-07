@@ -524,3 +524,40 @@ test('clean', async ({ page }) => {
 `;
   assert.deepEqual(scanFixtureOptionKeys(clean, synthetic).findings, []);
 });
+
+// --------------------------------------------------------------------------
+// The report-fixture exemption list
+//
+// `REPORT_FIXTURE_EXEMPT` in the fixture names the specs whose staged report
+// documents the schema would refuse. It is an exemption list, which is a thing
+// that rots quietly: a spec renamed or deleted leaves an entry excusing
+// nothing, and the list stops describing what it claims to.
+// --------------------------------------------------------------------------
+
+function exemptSpecs() {
+  const src = readFileSync(join(ROOT, "tests", "fixtures", "e2e-fixtures.mjs"), "utf8");
+  const at = src.indexOf("const REPORT_FIXTURE_EXEMPT");
+  assert.ok(at > -1, "REPORT_FIXTURE_EXEMPT no longer exists under that name");
+  const end = src.indexOf("]);", at);
+  assert.ok(end > at, "the exemption list is no longer an array literal");
+  return [...src.slice(at, end).matchAll(/'([^']+\.spec\.mjs)'/g)].map((m) => m[1]);
+}
+
+test("every exempted spec still exists", () => {
+  // An entry for a spec that is gone excuses nothing and hides that the list
+  // has drifted. Same defect as a guard anchored on a renamed symbol: it goes
+  // quiet rather than red.
+  const present = new Set(readdirSync(E2E_DIR));
+  const missing = exemptSpecs().filter((f) => !present.has(f));
+  assert.deepEqual(missing, [], "these are exempted from the report-fixture check and do not exist");
+});
+
+test("the exemption list only shrinks - nothing is listed twice", () => {
+  const names = exemptSpecs();
+  assert.deepEqual(
+    names.filter((n, i) => names.indexOf(n) !== i),
+    [],
+    "a duplicate entry means two people exempted the same spec for different reasons",
+  );
+  assert.ok(names.length > 0, "an empty list would mean the check anchors on nothing");
+});

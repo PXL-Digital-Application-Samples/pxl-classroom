@@ -292,7 +292,11 @@ test.describe('37 - Per-student operations live on the student', () => {
       assignments: { [ID]: assignment() },
       reports: {
         [ID]: {
-          schema_version: 1, assignment_id: ID, org: ORG, generated_at: new Date().toISOString(),
+          // No `org` field: report.schema.json is additionalProperties: false
+          // and declares no such root property. This spec asserts on writes to
+          // reports/, so a fixture the app could not have written is one the
+          // save it guards would be refused for.
+          schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(),
           students: [{ github_login: STUDENT, acceptance_state: 'accepted', submission_status: 'on-time' }],
         },
       },
@@ -319,7 +323,11 @@ test.describe('37 - Per-student operations live on the student', () => {
       assignments: { [ID]: assignment() },
       reports: {
         [ID]: {
-          schema_version: 1, assignment_id: ID, org: ORG, generated_at: new Date().toISOString(),
+          // No `org` field: report.schema.json is additionalProperties: false
+          // and declares no such root property. This spec asserts on writes to
+          // reports/, so a fixture the app could not have written is one the
+          // save it guards would be refused for.
+          schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(),
           students: [{ github_login: STUDENT, acceptance_state: 'accepted', submission_status: 'on-time' }],
         },
       },

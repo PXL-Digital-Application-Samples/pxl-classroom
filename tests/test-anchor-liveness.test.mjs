@@ -43,7 +43,17 @@ const SRC_DIRS = [
 // is the one that matters: it carries the inline theme boot script, which
 // tests/theme-tokens.test.mjs anchors into, and it deliberately duplicates the
 // storage key so light-mode users do not flash dark before the bundle loads.
-const EXTRA_FILES = ["frontend/index.html", "frontend/vite.config.js", "package.json", "deployment.yml"];
+// The e2e fixture is source too, and tests anchor into it: it carries
+// CONTROL_PATH_SCHEMAS and REPORT_FIXTURE_EXEMPT, both of which are lists a
+// test reads back to check they still describe reality. Leaving it out made
+// those anchors read as dead the moment one was written.
+const EXTRA_FILES = [
+  "frontend/index.html",
+  "frontend/vite.config.js",
+  "package.json",
+  "deployment.yml",
+  "tests/fixtures/e2e-fixtures.mjs",
+];
 
 /** Everything a scanning test might legitimately be looking at. */
 function corpus() {

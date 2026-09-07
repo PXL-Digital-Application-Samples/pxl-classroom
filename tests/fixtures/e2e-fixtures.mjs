@@ -1,4 +1,6 @@
-import { expect } from '@playwright/test';
+// `test` for `test.info()` only - the running spec's filename, so a refused
+// report fixture can name the file that staged it and be excused by it.
+import { expect, test } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify as yamlStringify, parse as yamlParse } from 'yaml';
@@ -59,6 +61,104 @@ const CONTROL_PATH_SCHEMAS = [
  * say about bytes that are not a document. Only a well-formed document that
  * breaks its own contract is a finding.
  */
+/**
+ * Specs whose staged report fixtures are NOT the shape the app writes.
+ *
+ * A MOCK THAT ACCEPTS ANYTHING TESTS NOTHING applies to what a fixture STAGES
+ * as much as to what the app writes, and 18 specs stage report literals
+ * `report.schema.json` would refuse - `org` and `assignment_title` at the root
+ * (it is `additionalProperties: false`), `name` where a team has `team_name`,
+ * a missing `assignment_id` which is required. They stay green because they
+ * only ever RENDER the report; the divergence surfaces the moment a spec
+ * drives a save, which is how spec 69 was written - its first draft staged
+ * `org` and the save it exists to guard failed against the schema rather than
+ * against the bug.
+ *
+ * Every spec that both stages a report and asserts on writes to `reports/` is
+ * clean, and that is enforced below. These are the render-only remainder,
+ * listed rather than silently skipped so the set is countable and can only
+ * shrink: a NEW spec cannot join it without editing this list, and a spec that
+ * gains a save is no longer excused by being on it.
+ *
+ * OPEN-ITEMS 7 carries the decision to leave them.
+ */
+const REPORT_FIXTURE_EXEMPT = new Set([
+  // The last three were found by THIS guard and by nothing else: a source scan
+  // over the specs missed them because their fixtures are assembled at
+  // runtime - spread from a factory, built by a helper - which is the whole
+  // argument for checking where a fixture is staged rather than where it is
+  // typed. `41-promote-roster` does write bytes, but to `students/roster.yml`;
+  // its report fixture is only ever read.
+  '13-workflow-diagnostics-roster-tools.spec.mjs',
+  '39-orphan-routes.spec.mjs',
+  '41-promote-roster.spec.mjs',
+  '05-dashboard-teams-mgmt.spec.mjs',
+  '08-group-autograding-scenarios.spec.mjs',
+  '09-starter-code-sync.spec.mjs',
+  '10-deadline-failure-scenarios.spec.mjs',
+  '11-workflow-enhancements.spec.mjs',
+  '15-lifecycle-manifest-team-switch-exports.spec.mjs',
+  '16-team-lifecycle-edge-cases.spec.mjs',
+  '17-freeze-lockdown-preservation-scenarios.spec.mjs',
+  '21-org-dropdown.spec.mjs',
+  '22-design-conformity.spec.mjs',
+  '25-responsive-layout.spec.mjs',
+  '26-team-seeding.spec.mjs',
+  '28-audit-regressions.spec.mjs',
+  '30-deadline-extensions.spec.mjs',
+  '34-share-surface.spec.mjs',
+  '48-dropdown-in-viewport.spec.mjs',
+  '48-move-student.spec.mjs',
+  '62-unlock-repository.spec.mjs',
+]);
+
+/**
+ * Refuse a report fixture the app could not have written.
+ *
+ * Checked where it is STAGED rather than by scanning spec sources: a fixture
+ * assembled by a helper, spread from a factory or built at runtime is invisible
+ * to a source scan, and the failure lands in the spec that did it with the
+ * offending field named.
+ */
+function assertReportFixtures(reports) {
+  const file = (() => {
+    try {
+      return (test.info().file || '').split(/[\\/]/).pop();
+    } catch {
+      return '';
+    }
+  })();
+  if (REPORT_FIXTURE_EXEMPT.has(file)) return;
+
+  for (const [id, doc] of Object.entries(reports || {})) {
+    if (!doc || typeof doc !== 'object') continue;
+    // `reports` is keyed by assignment id and served at `reports/<key>.json`,
+    // so the key `dashboard` is the cross-assignment ROLL-UP -
+    // `{ assignments: { <id>: entry } }` - a different document with its own
+    // schema. CONTROL_PATH_SCHEMAS above splits them for the same reason, and
+    // records what conflating them cost: every write of dashboard.json refused
+    // with a 422 the SPA logged and swallowed, for months.
+    //
+    // It is SKIPPED rather than checked, deliberately. A dashboard fixture is
+    // routinely partial on purpose - a card reads a handful of fields and a
+    // spec stages those - while dashboard.schema.json requires the whole
+    // entry, so validating here would refuse a dozen correct fixtures to guard
+    // a document whose real WRITES controlWriteViolation already checks. The
+    // decision on record (OPEN-ITEMS 7) is about report fixtures; widening it
+    // to the roll-up is a separate call nobody has made.
+    if (id === 'dashboard') continue;
+    const schema = 'report';
+    const { valid, errors } = validateAgainst(schema, doc);
+    if (valid) continue;
+    const detail = errors.slice(0, 4).map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ');
+    throw new Error(
+      `report fixture for "${id}" in ${file || 'this spec'} is not a document the app could write (checked against ${schema}.schema.json): ${detail}. ` +
+        `A fixture the backend would refuse cannot prove anything about a save. Fix the fixture, or - if this ` +
+        `spec only renders and never writes - add it to REPORT_FIXTURE_EXEMPT with a reason.`,
+    );
+  }
+}
+
 function controlWriteViolation(path, content) {
   const entry = CONTROL_PATH_SCHEMAS.find(([re]) => re.test(path));
   if (!entry) return null;
@@ -509,6 +609,11 @@ export async function setupStandardMockRoutes(page, {
   // see student repos created after the fact.
   installationRepositorySelection = undefined,
 } = {}) {
+  // BEFORE anything is routed: a report fixture the backend would refuse
+  // cannot prove anything about a save, and the spec that staged it is the
+  // only place that failure means something.
+  assertReportFixtures(reports);
+
   // Schema route mock
   await page.route('**/schemas/*.schema.json*', async (route) => {
     const url = route.request().url();

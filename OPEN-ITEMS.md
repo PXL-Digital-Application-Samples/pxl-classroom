@@ -189,19 +189,29 @@ returns `0` - or the arrangement was considered and kept, and this entry says so
 
 ## 7. e2e specs stage report fixtures the report schema would refuse
 
-**Status: open.** Measured 2026-09-07.
+**Status: open — bounded and guarded.** Measured 2026-09-07, narrowed the same day.
+
+**What changed.** Every spec that both stages a report and asserts on a write to `reports/` is now clean, and `setupStandardMockRoutes` refuses a report fixture the schema would reject — at the moment it is staged, in the spec that staged it, naming the field. The remainder are listed by name in `REPORT_FIXTURE_EXEMPT`, so a **new** spec cannot join them without editing that list, and a spec that later gains a save is no longer excused by being on it. `tests/e2e/72-report-fixture-guard.spec.mjs` proves the guard fires and that a correct fixture still passes; `tests/fixture-options.test.mjs` fails if the list names a spec that no longer exists.
+
+Three of the exempted specs were found by the runtime guard and by nothing else — their fixtures are assembled by helpers, invisible to a source scan. That is the argument for checking where a fixture is staged rather than where it is typed, and it is why the count below is a floor rather than a total.
+
+What is still open is the remainder itself: 21 specs whose report fixtures describe documents the backend would refuse, kept because they only render.
 
 Report fixtures staged by e2e specs are hand-written objects, and many of them are not the shape the app writes. Root fields the schema does not declare (`org:` is the common one), row fields that do not exist, required fields absent. `report.schema.json` is `additionalProperties: false`, so the real writer would be refused.
 
 **They stay green because they never reach a save.** A spec that only renders a report never validates it; the divergence surfaces only when a test drives a write. That is exactly how `tests/e2e/69-live-refresh-saves.spec.mjs` was written — the first draft staged an `org:` field, and the save it exists to guard failed against the schema rather than against the bug.
 
-Measured at **185 violations** across the suite. A rough re-scan flags keys in 21 specs, `17-freeze-lockdown-preservation-scenarios` (61) and `16-team-lifecycle-edge-cases` (44) worst.
+A careful scan finds ~113 real violations: 19 x `org` and 14 x `assignment_title` at the root, 4 missing `assignment_id` (required), and row fields the schema does not declare - `name` where a team has `team_name`, plus the autograding fields that belong on a grading summary. An earlier looser count said 185.
 
-This is not a defect in the deployed system, and it is not urgent: the fixtures that matter — the ones behind a write — are already correct, and `tests/fixtures/e2e-fixtures.mjs` validates every control-repo write against the schema for its path. It is here because *"a mock that accepts anything tests nothing"* is a rule this repository already paid for, and 185 fixtures that could not survive contact with the writer are a standing bet that none of them ever will.
+This is not a defect in the deployed system, and it is not urgent: the fixtures that matter — the ones behind a write — are already correct, and `tests/fixtures/e2e-fixtures.mjs` validates every control-repo write against the schema for its path. It is here because *"a mock that accepts anything tests nothing"* is a rule this repository already paid for, and a fixture that could not survive contact with the writer is a standing bet that it never will meet one.
 
-Three ways to close it were offered and none chosen: fix all of them; fix only the specs whose fixtures could plausibly reach a save; or record the divergence and leave it. The decision is the open part.
+**The decision taken 2026-09-07** was to fix the specs that could reach a save and guard the rest, rather than rewrite all of them. Touching 21 specs to correct fixtures risks changing what they assert, which is a worse trade than a divergence that cannot reach a writer — and the guard makes the set countable instead of a number somebody re-measures each time. What remains open is whether to spend the pass that empties the list.
 
-**How to tell it is closed:** every report-shaped literal in `tests/e2e/` validates against `schemas/report.schema.json` — enforced by a test, not by a one-off sweep, or the next hand-written fixture reopens it.
+**How to tell it is closed:** `REPORT_FIXTURE_EXEMPT` in `tests/fixtures/e2e-fixtures.mjs` is empty. It holds **21** specs today, and the guard in front of it means the number can only go down.
+
+```bash
+sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs | grep -c "\.spec\.mjs'"
+```
 
 ---
 
