@@ -411,10 +411,22 @@ test.describe('65 - Add student, without a student number', () => {
     await expect(page.locator('.modal')).toContainText(/email address is already on the roster/i);
   });
 
-  test('the CSV panel no longer says a number is required', async ({ page }) => {
+  test('the CSV panel says a number is optional - and its EXAMPLES agree', async ({ page }) => {
+    // The sentence already said a number was one of three ways to identify a
+    // row. Every worked example on the panel then led with a filled-in
+    // `student_number` - the paste placeholder and both rows of the
+    // downloadable sample - so the panel taught the opposite of its own rule.
+    // Reported as "very unclear that you don't have to fill in the student
+    // number". Prose and examples are asserted together, because it was the
+    // disagreement between them that misled, not either one alone.
     await openRoster(page);
     const panel = page.locator('.roster-grid');
-    await expect(panel).toContainText('plus one of');
+    await expect(panel).toContainText('Optional:');
+    await expect(panel).toContainText(/one\s+way to find it\s+again/);
     await expect(panel).not.toContainText('Required columns: student_number');
+
+    const placeholder = await page.locator('.roster-grid textarea').first().getAttribute('placeholder');
+    expect(placeholder.startsWith('full_name'), 'the example leads with what everyone has').toBe(true);
+    expect(placeholder).not.toContain('student_number');
   });
 });

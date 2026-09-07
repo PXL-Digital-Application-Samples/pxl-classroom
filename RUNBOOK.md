@@ -748,6 +748,8 @@ When a student **deletes and recreates their GitHub account**, their new `github
 
 **Three cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, and one address claimed by two accounts. Those are listed at the top of the **Roster** tab as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way removed first — **Forget this account**, in that row's actions menu (above) — so the row says so instead of offering a button that would refuse.
 
+**Saying no is the other answer, and it is a button too.** **Discard** deletes that claim record, for the case where neither linking nor unlinking is what you want — a test account's address, or a typo you would rather the student simply re-entered. It clears the failed-attempt counter with it, for the same reason unlinking does, and the student may claim again with any allowed address; if they do, the box asks you again. Their repository and acceptance are untouched. There is no Discard on *one address claimed by two accounts*, because there is no single record to delete — remove one of the accounts instead. Without this the box could never be finished: a claim you had decided against stayed on the list for good.
+
 The CLI folds the same claims but treats **you** as the review step, so it also folds a typed address - you are looking at the plan when you run it:
 
 ```bash

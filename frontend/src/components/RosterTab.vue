@@ -5,10 +5,9 @@
            at once, and has to hold all three apart. The topic is the four-line
            orientation, not this tab's own instructions. -->
       <h3>Roster - {{ org }} <HelpButton topic="how-the-pieces-fit" label="how the roster, groups and teams fit together" /></h3>
-      <p class="text-secondary">
-        Import or update <code>students/roster.yml</code> in <code>{{ org }}/{{ controlRepo }}</code>.
-        Drop a CSV (header row required) or paste below. The diff is previewed before commit.
-      </p>
+      <!-- No subtitle. The one that was here described the tab as a CSV
+           importer, which it stopped being: the import is one panel, and that
+           panel already lists its own columns. The `?` is the orientation. -->
     </div>
 
     <div class="roster-grid" :class="{ 'has-roster': existingRoster && !parsedRoster }">
@@ -22,11 +21,23 @@
         <div class="field">
           <label>Upload CSV</label>
           <input type="file" accept=".csv,text/csv" @change="onFileChange" />
+          <!-- THE EXAMPLES USED TO CONTRADICT THE RULE. The sentence said a
+               number was one of three ways to identify a row, while every
+               worked example on this panel led with a filled-in
+               `student_number` - the placeholder below, and both rows of the
+               downloadable sample. Read together they taught that a number is
+               required, which is the opposite of what the importer does.
+               Reported as "very unclear that you don't have to fill in the
+               student number". The common case leads now, and the optional
+               columns say they are optional. -->
           <small>
-            Required: <code>full_name</code>, plus one of <code>email</code>, <code>github_login</code>
-            or <code>student_number</code> so the row can be found again.
-            Also accepted: <code>class_group</code>, <code>github_id</code>, <code>active</code>,
-            <code>team_slug</code>, <code>team_name</code>.
+            Every row needs a <code>full_name</code> and <strong>one</strong> way to find it
+            again: an <code>email</code>, a <code>github_login</code> or a
+            <code>student_number</code>. Most rosters use the address.
+            <br />
+            Optional: <code>student_number</code>, <code>class_group</code>,
+            <code>github_id</code>, <code>active</code>, <code>team_slug</code>,
+            <code>team_name</code> — leave out any column you do not have.
             <button class="btn-link" type="button" @click="downloadSampleCsv">Download sample CSV</button>
           </small>
         </div>
@@ -36,7 +47,7 @@
           <textarea
             v-model="csvText"
             rows="10"
-            :placeholder="`student_number,full_name,email,class_group,github_login,team_slug,team_name\n0123456,Alice Example,alice@${exampleDomain},3A,alice-test,team-alpha,Alpha Team`"
+            :placeholder="`full_name,email,class_group\nAlice Example,alice@${exampleDomain},3A\nBram Peeters,bram@${exampleDomain},3A`"
             @input="onCsvInput"
           ></textarea>
         </div>
@@ -188,6 +199,20 @@
                      an address two accounts claim needs one of them removed.
                      Offering a control that would refuse is worse than none. -->
                 <span v-else class="text-muted text-sm claim-review-hint">Unlink below to resolve</span>
+                <!-- THE OTHER WAY OUT, and until now there was none: the only
+                     exits were "Link anyway" or resolving a conflict, so an
+                     address a lecturer had decided against - a test account, a
+                     typo - sat in this box permanently. The comment above says
+                     this box exists so it can be finished; without a way to say
+                     no it never could be. -->
+                <button
+                  v-if="row.githubId"
+                  class="btn btn-sm btn-secondary"
+                  type="button"
+                  :disabled="discardingEmail === row.email"
+                  :title="`Delete this claim. ${row.login ? '@' + row.login : 'The student'} can claim again.`"
+                  @click="discardClaim(row)"
+                >{{ discardingEmail === row.email ? 'Discarding…' : 'Discard' }}</button>
               </li>
             </ul>
           </div>
@@ -2031,6 +2056,10 @@ const heldClaims = computed(() => {
       full_name: u.full_name,
       login: u.claim_login,
       reason: 'typed by the student, not verified by GitHub',
+      // The claim's own id, carried on the finding by lib/promote-roster.mjs
+      // rather than joined back from the login here - a second join between a
+      // finding and the record it was built from is a join that can disagree.
+      githubId: u.github_id ?? null,
       // The only one a single button can settle: the lecturer IS the check
       // that GitHub could not perform.
       canLink: true,
@@ -2045,6 +2074,7 @@ const heldClaims = computed(() => {
       // holds. `reason` is carried on the finding for the second, because a
       // sentence about @roster_login would be wrong for it.
       reason: c.reason || `the roster already names @${c.roster_login}`,
+      githubId: c.github_id ?? null,
       // Not a one-click fix: something has to give first, and choosing which
       // account is the lecturer's call. Unlink below is that action.
       canLink: false,
@@ -2059,6 +2089,7 @@ const heldClaims = computed(() => {
       full_name: o.full_name,
       login: o.claim_login,
       reason: 'verified by GitHub, but outside the allowed domains',
+      githubId: o.github_id ?? null,
       canLink: false,
     })),
     ...p.ambiguous.map((a) => ({
@@ -2067,6 +2098,9 @@ const heldClaims = computed(() => {
       full_name: a.full_name,
       login: null,
       reason: 'claimed by more than one account',
+      // No id, and that is the finding itself: "ambiguous" means more than one
+      // claim names this address, so there is no single record to discard.
+      githubId: null,
       canLink: false,
     })),
   ]
@@ -2074,6 +2108,67 @@ const heldClaims = computed(() => {
 
 const autoLinkedCount = computed(() => linkedCount.value)
 const linkingEmail = ref('')
+const discardingEmail = ref('')
+
+/**
+ * Say no to a held claim, and mean it.
+ *
+ * The review box had one exit - "Link anyway" - plus "unlink the account in the
+ * way" for the conflicts. A lecturer whose answer was neither, because the
+ * address is a test account's or a typo, had nowhere to put that: the row sat
+ * there for good, on a panel whose own comment says an unfinishable review box
+ * is a chore nobody completes.
+ *
+ * DELETING THE RECORD rather than marking it dismissed. A `dismissed` flag is a
+ * new state every reader of a claim has to understand, and this project has
+ * been bitten by a schema field carrying meaning nobody else knew about. The
+ * claim is re-creatable by the student, so nothing is lost that they cannot
+ * restore - and a second claim is genuinely a second decision rather than one
+ * silently remembered as already refused.
+ */
+async function discardClaim(row) {
+  if (!row?.githubId) return
+  const who = row.login ? `@${row.login}` : 'the student'
+  const ok = window.confirm(
+    `Discard the claim for ${row.email}?\n\n` +
+    `${who} can claim again with any allowed address, and this box will ask you again if they do. ` +
+    `Their repository and acceptance are untouched.`
+  )
+  if (!ok) return
+
+  discardingEmail.value = row.email
+  try {
+    const token = getToken()
+    const message = `Discard held claim ${row.email}${row.login ? ` (@${row.login})` : ''}`
+    // `.ok`, not a catch: everything in api.js RESOLVES a failure.
+    const res = await deleteFile(token, props.org, controlRepo, `students/claims/${row.githubId}.json`, message)
+    if (!res.ok) {
+      toast.error(`Could not discard ${row.email}: the claim record could not be removed (HTTP ${res.status}).`)
+      await loadClaims()
+      return
+    }
+    // The attempt counter goes with it, for the reason confirmUnlink gives:
+    // the student is being asked to claim again, and an exhausted counter
+    // would lock them out of the door just reopened. A 404 is the end state we
+    // wanted - most students never have one.
+    const attempts = await deleteFile(
+      token, props.org, controlRepo, `students/claim-attempts/${row.githubId}.json`, message,
+    )
+    if (!attempts.ok && attempts.status !== 404) {
+      toast.warning(
+        `Discarded ${row.email}, but their failed-attempt counter could not be cleared (HTTP ${attempts.status}). ` +
+        `If they are locked out, clear it before they retry.`,
+      )
+    } else {
+      toast.success(`Discarded ${row.email}. ${who} can claim again.`)
+    }
+    await loadClaims()
+  } catch (e) {
+    toast.error(`Could not discard: ${e.message}`)
+  } finally {
+    discardingEmail.value = ''
+  }
+}
 
 // --- adding the students who accepted an assignment -------------------------
 //
@@ -2330,9 +2425,12 @@ function downloadBlob(text, filename, type) {
 }
 
 function downloadSampleCsv() {
+  // The FIRST row has no student number, deliberately. Both rows used to carry
+  // one, so the file a lecturer opens in Excel taught that the column must be
+  // filled - while the importer asks only for a name and any one identity.
   const sample = [
     CSV_COLUMNS.join(','),
-    `0123456,Alice Example,alice@${exampleDomain},3A,alice-gh,,true,team-alpha,Alpha Team`,
+    `,Alice Example,alice@${exampleDomain},3A,alice-gh,,true,team-alpha,Alpha Team`,
     `0123457,Bob Example,bob@${exampleDomain},3B,,,true,team-alpha,Alpha Team`,
   ].join('\n') + '\n'
   downloadBlob(sample, 'roster-sample.csv', 'text/csv')

@@ -236,8 +236,27 @@ test.describe('filling them in', () => {
 test.describe('editing a row in place', () => {
   const cell = (page, login, field) => row(page, login).locator(`.cell-${field}`);
 
+  /**
+   * The same six promoted rows, with a number on the LAST of them.
+   *
+   * The Number column is not rendered when no student on the roster has one -
+   * on a roster built from addresses it is a permanently empty column asking
+   * for a value nobody has. These tests are about editing that cell, so the
+   * column has to exist: one number somewhere brings it back, and `afx42`
+   * still has none, which is what the "opens empty" test needs.
+   *
+   * A number on an EXISTING row rather than a seventh student, because two of
+   * these tests count `github_login` in the written YAML to prove no row was
+   * lost or duplicated.
+   */
+  const WITH_A_NUMBER = LIVE.map((s, i) => ({
+    github_login: s.login,
+    source: PROMOTED_SOURCE,
+    ...(i === LIVE.length - 1 ? { student_number: '0000001' } : {}),
+  }));
+
   test('all four fields are editable, and the account is not', async ({ page }) => {
-    await openRoster(page);
+    await openRoster(page, { roster: WITH_A_NUMBER });
     for (const field of ['student_number', 'full_name', 'email', 'class_group']) {
       await expect(cell(page, 'afx42', field)).toHaveCount(1);
     }
@@ -261,7 +280,7 @@ test.describe('editing a row in place', () => {
   test('the number can be set on a promoted row, which changes its own key', async ({ page }) => {
     // The row is keyed `login:` until it gains a number and `num:` after, so
     // the save has to match on the key as it was BEFORE the edit.
-    const { contentWrites } = await openRoster(page);
+    const { contentWrites } = await openRoster(page, { roster: WITH_A_NUMBER });
     await cell(page, 'afx42', 'student_number').click();
     await page.locator('.cell-edit').fill('0123456');
     await page.locator('.cell-edit').press('Enter');
@@ -330,7 +349,7 @@ test.describe('editing a row in place', () => {
     // focus on an element that no longer existed. Every test above drives the
     // input with `fill()`, which focuses for you - which is exactly why eight
     // of them passed over a cell a person had to click twice.
-    await openRoster(page);
+    await openRoster(page, { roster: WITH_A_NUMBER });
     await cell(page, 'afx42', 'student_number').click();
     await expect(page.locator('.cell-edit')).toBeFocused();
   });
@@ -425,7 +444,7 @@ test.describe('editing a row in place', () => {
 
   test('a cell with nothing behind it opens empty', async ({ page }) => {
     // No hint reaches student_number or class_group, and afx42 has no address.
-    await openRoster(page);
+    await openRoster(page, { roster: WITH_A_NUMBER });
     for (const field of ['student_number', 'class_group', 'email']) {
       await cell(page, 'afx42', field).click();
       await expect(page.locator('.cell-edit')).toHaveValue('');
@@ -586,6 +605,23 @@ test.describe('a claim identifying a promoted row', () => {
     ...over,
   });
 
+  /**
+   * The control-repo paths a test DELETEs.
+   *
+   * Observed on the request rather than recorded in the shared fixture: the
+   * fixture already answers DELETE, and adding a capture to it would change a
+   * file forty other specs depend on to prove something about four.
+   */
+  function captureDeletes(page) {
+    const deletes = [];
+    page.on('request', (req) => {
+      if (req.method() !== 'DELETE') return;
+      const m = /\/contents\/(.+?)(?:\?|$)/.exec(req.url());
+      if (m) deletes.push({ path: decodeURIComponent(m[1]) });
+    });
+    return deletes;
+  }
+
   const openWithClaim = (page, claims) => openRoster(page, {
     roster: [{ github_login: 'rayaneW', source: PROMOTED_SOURCE }],
     reportFiles: [],
@@ -611,6 +647,75 @@ test.describe('a claim identifying a promoted row', () => {
   test('a typed address is held as unverified, as it always was', async ({ page }) => {
     await openWithClaim(page, [claimFor({ claim_verified: false })]);
     await expect(page.locator('.claim-review')).toContainText('not verified by GitHub');
+  });
+
+  // ------------------------------------------------------- saying no to one
+  //
+  // The box had ONE exit - "Link anyway" - plus "unlink the account in the
+  // way" for a conflict. A lecturer whose answer was neither, because the
+  // address belongs to a test account or is a typo, had nowhere to put it: the
+  // row sat there permanently, on a panel whose own comment says an
+  // unfinishable review box is a chore nobody completes. Reported as "this
+  // stays here forever? no way to ignore it?".
+
+  test('DISCARD deletes the claim, so the box can be finished', async ({ page }) => {
+    const deletes = captureDeletes(page);
+    await openWithClaim(page, [claimFor({ claim_verified: false })]);
+    page.on('dialog', (d) => d.accept());
+
+    await page.locator('.claim-review').getByRole('button', { name: 'Discard' }).click();
+
+    // The claim record itself, addressed by the id the finding carries rather
+    // than by a login joined back to it.
+    await expect.poll(() => deletes.map((d) => d.path), { timeout: 10000 })
+      .toContain('students/claims/4711.json');
+  });
+
+  test('discarding goes after the failed-attempt counter, and survives not finding one', async ({ page }) => {
+    // Same reason confirmUnlink gives: the student is being asked to claim
+    // again, and an exhausted counter locks them out of the door just
+    // reopened.
+    //
+    // Asserted on the REQUEST, not on a DELETE: `deleteFile` GETs the file for
+    // its sha first, so where there is no counter - the common case, since most
+    // students never exhaust their attempts - no DELETE is ever issued and a
+    // test waiting for one would fail over correct behaviour. What must be true
+    // is that it asked, and that a 404 did not turn the discard into an error.
+    const asked = [];
+    page.on('request', (req) => {
+      if (req.url().includes('claim-attempts/4711.json')) asked.push(req.method());
+    });
+    await openWithClaim(page, [claimFor({ claim_verified: false })]);
+    page.on('dialog', (d) => d.accept());
+    await page.locator('.claim-review').getByRole('button', { name: 'Discard' }).click();
+
+    await expect.poll(() => asked.length, { timeout: 10000 }).toBeGreaterThan(0);
+    await expect(page.locator('.toast, [role="status"]').filter({ hasText: /can claim again/i }))
+      .toBeVisible({ timeout: 10000 });
+  });
+
+  test('cancelling the confirm deletes nothing', async ({ page }) => {
+    const deletes = captureDeletes(page);
+    await openWithClaim(page, [claimFor({ claim_verified: false })]);
+    page.on('dialog', (d) => d.dismiss());
+    await page.locator('.claim-review').getByRole('button', { name: 'Discard' }).click();
+
+    await page.waitForTimeout(500);
+    expect(deletes).toHaveLength(0);
+  });
+
+  test('no Discard where there is no single record to discard', async ({ page }) => {
+    // "Claimed by more than one account" is the finding itself: there is no one
+    // claim to delete, so offering a button that could not act is worse than
+    // none - the same rule the missing "Link anyway" follows on a conflict.
+    await openWithClaim(page, [
+      claimFor({ claim_verified: false }),
+      claimFor({ github_id: 4712, github_login: 'someoneElse', claim_verified: false }),
+    ]);
+    const ambiguous = page.locator('.claim-review-row', { hasText: 'more than one account' });
+    if (await ambiguous.count()) {
+      await expect(ambiguous.getByRole('button', { name: 'Discard' })).toHaveCount(0);
+    }
   });
 
   test('an address another row already holds is held as a conflict, not written twice', async ({ page }) => {

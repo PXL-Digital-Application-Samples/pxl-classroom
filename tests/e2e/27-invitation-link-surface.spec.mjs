@@ -328,7 +328,11 @@ test.describe('27 - The invitation link, end to end', () => {
 
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Linux Processes 2026');
     // By placeholder: the first textarea on the page belongs to the roster tab.
-    const description = page.getByPlaceholder('Optional');
+    // The description is folded away until asked for - it is optional and most
+    // assignments never get one, and an always-open textarea was pushing
+    // Schedule below the fold.
+    await page.getByRole('button', { name: 'Add a description' }).click();
+    const description = page.getByLabel('Description');
     await description.fill('Questions? Mail tom.cool@pxl.be');
 
     const error = page.locator('.field-error-msg', { hasText: /email address/i });
@@ -353,7 +357,8 @@ test.describe('27 - The invitation link, end to end', () => {
     await page.locator('.new-btn').click();
 
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Linux Processes 2026');
-    await page.getByPlaceholder('Optional')
+    await page.getByRole('button', { name: 'Add a description' }).click();
+    await page.getByLabel('Description')
       .fill('Implement a scheduler. Use `git push origin main` and tag v1.0.0. Score 20/20.');
 
     await expect(page.locator('.field-error-msg', { hasText: /email|token|key/i })).toHaveCount(0);

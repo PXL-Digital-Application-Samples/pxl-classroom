@@ -110,13 +110,22 @@ test.describe('67 - one block, in the order the data flows', () => {
     // assertions about fields that happen to exist.
     const labels = (await basics(page).locator('.field > label, .derived-line > span').allTextContents())
       .map((t) => t.replace(/\s*\*\s*$/, '').trim());
+    // Description is not a label until it is opened: it is optional, rarely
+    // written, and folded behind "Add a description" so that Schedule - which
+    // changes on every assignment - is not pushed below an empty textarea.
     expect(labels).toEqual([
       'Template repository',
       'Title',
       'Repository name pattern',
       'Slug',
-      'Description',
     ]);
+    await expect(basics(page).getByRole('button', { name: 'Add a description' })).toBeVisible();
+
+    // And it is last once it is there, because nothing derives from it.
+    await basics(page).getByRole('button', { name: 'Add a description' }).click();
+    const opened = (await basics(page).locator('.field > label, .derived-line > span').allTextContents())
+      .map((t) => t.replace(/\s*\*\s*$/, '').trim());
+    expect(opened.at(-1)).toBe('Description (optional)');
   });
 
   test('picking the template fills the title, the pattern and the slug', async ({ page }) => {
