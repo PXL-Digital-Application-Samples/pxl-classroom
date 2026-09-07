@@ -329,15 +329,18 @@ Full command list: [cli/README.md](cli/README.md).
 
 ## Further documentation
 
-| Role | Documentation |
+| Document | What it covers |
 | --- | --- |
-| A **lecturer** running assignments | **[RUNBOOK.md](RUNBOOK.md)** - publishing, deadlines, grading, a student who is stuck. Autograding has its own short one: **[AUTOGRADING.md](AUTOGRADING.md)** |
-| An **administrator** | **[ADMIN.md](ADMIN.md)** - onboarding an organization, budgets, App permissions, incidents |
-| Standing the system up for an institution | **[INSTALL.md](INSTALL.md)** - the one-time setup |
-| A **developer** changing the code | **[ARCHITECTURE.md](ARCHITECTURE.md)**, then **[CLAUDE.md](CLAUDE.md)** for the working conventions |
-| Changing the **UI** | **[DESIGN.md](DESIGN.md)** - the design system, and the rules the components already follow |
-
-Also here: [MANUAL.md](MANUAL.md) is the in-app help a lecturer sees, rendered inside the web app rather than read here. [OPEN-ITEMS.md](OPEN-ITEMS.md) is a standing register of known infrastructure gaps, each with the command that says whether it is still open. [LESSONS.md](LESSONS.md) records what broke and what it cost - read it before arguing with a rule, because nearly every one is there for a reason that already happened.
+| [RUNBOOK.md](RUNBOOK.md) | Running assignments: publishing, deadlines, grading, rosters |
+| [AUTOGRADING.md](AUTOGRADING.md) | Setting up checks, in Actions or locally |
+| [ADMIN.md](ADMIN.md) | Onboarding an organization, budgets, App permissions, incidents |
+| [INSTALL.md](INSTALL.md) | Standing up your own instance, once |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | How it works, in detail |
+| [CLAUDE.md](CLAUDE.md) | Working conventions for changing the code |
+| [DESIGN.md](DESIGN.md) | The UI design system and its rules |
+| [MANUAL.md](MANUAL.md) | The in-app help; read inside the web app |
+| [LESSONS.md](LESSONS.md) | What broke, and what it cost |
+| [OPEN-ITEMS.md](OPEN-ITEMS.md) | Known gaps, each with the command that tests it |
 
 ---
 
