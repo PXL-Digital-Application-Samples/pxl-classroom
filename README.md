@@ -258,9 +258,9 @@ To keep security tight without a server, we split permissions between two GitHub
   - creates repositories, manages permissions and sets rulesets, through a declared permission set rather than ownership
   - Its private key stays locked in the hub environment; it never touches a broker.
 - **Broker App:**
-  - Installed ONLY on the central hub repo, with `contents: write` alone - the single permission a `repository_dispatch` needs.
+  - Installed ONLY on the central hub repo, with `contents: write`.
   - It can do only one thing: dispatch an event back to the hub.
-  - Its private key is the one thing that does leave the hub: publishing copies it onto each broker, and finalizing deletes it again.
+  - Its private key never leaves the hub: publishing copies it onto each broker, and finalizing deletes it again.
 
 ### Token-Based / Signed Invite
 
