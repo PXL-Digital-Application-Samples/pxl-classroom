@@ -38,80 +38,57 @@ test.describe('07 - Multi-User Concurrent Live Browser Collaboration', () => {
     };
     const DIGEST = inviteFileFor(inviteToken(ORG, ASSIGNMENT_ID));
 
+    // Published-side fixtures. Nothing here reaches the network.
+    //
+    // These three routes used to try the live CDN first and fall back to a
+    // fixture if it failed - "setup live CDN data proxy", from before the
+    // acceptance card moved behind the token digest. What was left was a
+    // hermetic spec paying for a DNS lookup, a TLS handshake and a round trip
+    // to GitHub Pages inside the route handler, on the request that renders
+    // `.team-item-card`, with the default 5s expect timeout waiting behind it.
+    // That is the flake: green run after run, red under full-suite load, and
+    // passing again on its own - which reads as "concurrency is hard" and is
+    // in fact one un-timed network call.
+    //
+    // Both live legs were also dead or wrong. Measured 2026-09-07:
+    //
+    //   * teams -> 404. It fetched `data/<org>/teams/<id>.json`, the path from
+    //     before the digest, so it ALWAYS fell through to the fixture below.
+    //     Latency and nothing else.
+    //   * assignments -> 200, which is worse. A hermetic spec was asserting
+    //     against whatever is deployed right now; someone publishing over that
+    //     org's assignments.json turns this red with nothing wrong in the code.
+    //
+    // The deliberate live variant is `tests/multiuser-live.spec.mjs`, which
+    // needs real tokens and skips without them. This one is the mocked
+    // sibling, so it mocks.
+    const TEAMS = {
+      schema_version: 1,
+      assignment_id: ASSIGNMENT_ID,
+      teams: [
+        {
+          team_slug: 'docenten',
+          team_name: 'docenten',
+          members: ['d-ries'],
+          member_count: 1,
+          max_members: 3,
+          is_full: false,
+        },
+      ],
+    };
+    const ASSIGNMENTS = { schema_version: 1, assignments: { [ASSIGNMENT_ID]: CARD } };
+    const json = (route, body) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+
     const setupDataProxy = async (page) => {
-      // The acceptance card and its teams file now live behind the digest of
-      // the invitation token, so there is nothing on the live CDN to proxy -
-      // these tokens are minted locally. Serve them directly.
-      await page.route(`**/data/${ORG}/i/${DIGEST}.json*`, async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ schema_version: 1, assignment: CARD }),
-        });
-      });
-
-      await page.route(`**/data/${ORG}/assignments.json*`, async (route) => {
-        try {
-          const liveRes = await fetch(`https://pxl-digital-application-samples.github.io/pxl-classroom/data/${ORG}/assignments.json`);
-          if (liveRes.ok) {
-            const body = await liveRes.text();
-            await route.fulfill({ status: 200, contentType: 'application/json', body });
-            return;
-          }
-        } catch {}
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            schema_version: 1,
-            assignments: {
-              [ASSIGNMENT_ID]: {
-                id: ASSIGNMENT_ID,
-                title: 'Test Groepsopdracht 2',
-                organization: ORG,
-                state: 'published',
-                opens_at: new Date(Date.now() - 3600000).toISOString(),
-                deadline_at: new Date(Date.now() + 86400000 * 14).toISOString(),
-                assignment_type: 'group',
-                group_config: {
-                  max_team_size: 3,
-                  formation_mode: 'self-service',
-                  allow_team_creation: true,
-                },
-              },
-            },
-          }),
-        });
-      });
-
-      await page.route(`**/data/${ORG}/i/${DIGEST}.teams.json*`, async (route) => {
-        try {
-          const liveRes = await fetch(`https://pxl-digital-application-samples.github.io/pxl-classroom/data/${ORG}/teams/${ASSIGNMENT_ID}.json`);
-          if (liveRes.ok) {
-            const body = await liveRes.text();
-            await route.fulfill({ status: 200, contentType: 'application/json', body });
-            return;
-          }
-        } catch {}
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            schema_version: 1,
-            assignment_id: ASSIGNMENT_ID,
-            teams: [
-              {
-                team_slug: 'docenten',
-                team_name: 'docenten',
-                members: ['d-ries'],
-                member_count: 1,
-                max_members: 3,
-                is_full: false,
-              },
-            ],
-          }),
-        });
-      });
+      // The acceptance card and its teams file live behind the digest of the
+      // invitation token, and these tokens are minted locally.
+      await page.route(`**/data/${ORG}/i/${DIGEST}.json*`, (route) => json(route, { schema_version: 1, assignment: CARD }));
+      // ONE definition of the assignment, not a second copy that can drift
+      // from CARD - the card the invitation renders and the row the portal
+      // lists are the same assignment.
+      await page.route(`**/data/${ORG}/assignments.json*`, (route) => json(route, ASSIGNMENTS));
+      await page.route(`**/data/${ORG}/i/${DIGEST}.teams.json*`, (route) => json(route, TEAMS));
     };
 
     await setupDataProxy(student2Page);
