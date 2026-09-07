@@ -256,11 +256,11 @@ To keep security tight without a server, we split permissions between two GitHub
 - **Provisioner App:**
   - Installed on the course organization.
   - creates repositories, manages permissions and sets rulesets, through a declared permission set rather than ownership
-  - Its private key stays locked in the hub environment; it never touches a broker.
+  - private key stays locked in the hub environment; it never touches a broker.
 - **Broker App:**
   - Installed ONLY on the central hub repo, with `contents: write`.
-  - It can do only one thing: dispatch an event back to the hub.
-  - Its private key never leaves the hub: publishing copies it onto each broker, and finalizing deletes it again.
+  - only function: dispatch an event back to the hub.
+  - key sits on each broker while the assignment is open, and is deleted when it closes.
 
 ### Token-Based / Signed Invite
 
