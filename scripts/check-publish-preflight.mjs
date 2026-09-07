@@ -42,7 +42,7 @@
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { templateUsable, templateSourceMessage } from "../lib/template-source.mjs";
-import { assignmentFreezePlanFinding } from "../lib/audit.mjs";
+import { assignmentFreezePlanFinding, FREE_PLAN } from "../lib/audit.mjs";
 
 const API = process.env.GITHUB_API_URL || "https://api.github.com";
 
@@ -127,7 +127,23 @@ async function main() {
     warn(freeze.message);
     return;
   }
-  console.log(`[plan] ok - ${org} is on "${plan ?? "unknown"}"`);
+
+  // SAY WHAT WAS ESTABLISHED, not "ok". A free organization with a
+  // non-freezing assignment used to print `[plan] ok - ... is on "free"`,
+  // which reads as "free is fine" and contradicts what System Health says
+  // about the very same organization. What is actually true is narrower:
+  // this assignment does not ask for anything the plan would blunt.
+  const isFree = String(plan ?? "").toLowerCase() === FREE_PLAN;
+  const freezes = doc?.lock_down_enabled ?? true;
+  if (isFree) {
+    console.log(
+      `[plan] ${org} is on "free", which blunts the deadline freeze and Feedback PR baseline ` +
+        `protection - neither of which this assignment uses ` +
+        `(lock_down_enabled=${freezes}, feedback_pr=${doc?.feedback_pr === true})`,
+    );
+    return;
+  }
+  console.log(`[plan] ok - ${org} is on "${plan}", where rulesets apply to private repositories`);
 }
 
 await main();
