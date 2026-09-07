@@ -18,13 +18,15 @@ Live: [Web App](https://pxl-digital-application-samples.github.io/pxl-classroom/
 
 Classroom50 works well, but a few things made me build PXL Classroom anyway.
 
-- **Classroom50 cannot do open assignments.** It enrols from a roster, while GitHub Classroom used to hand out a link anyone could accept. Exams and workshops need that, so it is back, with a cap, alongside roster and email-claim enrolment.
-- **Setting up an assignment takes too long.** Here it is one form: fill it in, publish, copy the link.
-- **Admin rights option for student repo's.** Students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD,
+- **Classroom50 does not support open assignments.**
+  - It enrols from a roster, while GitHub Classroom used to hand out a link anyone could accept.
+  - Exams and workshops need that, so it is back, with a cap, alongside roster and email-claim enrolment.
+- **Setting up an assignment is too complicated / takes too long.**
+  - In PXL Classroom it is one form witrh very few clicks.
+- **Admin rights option for student repo's.**
+  - Students need to configure repository secrets, GitHub environments, workflows, runners, and OIDC tokens for topics like CI/CD,
 
-The result is an expanded GitHub Classroom's feature set with a dashboard on top, running entirely on GitHub Team for Education.
-
-GitHub Enterprise is never used. The CLI handles what scales badly through clicks (roster import, bulk download, local grading) and the web UI is what you use day to day.
+The result is an expanded GitHub Classroom's feature set with a dashboard on top, running entirely on GitHub Team for Education. GitHub Enterprise is not required.
 
 I built it for my own courses at first.
 
@@ -51,38 +53,46 @@ I built it for my own courses at first.
 
 ## Highlights
 
-**Nothing to run, nothing to pay for.** The whole system is a Pages site, some Actions workflows and two GitHub Apps. When no assignment is active, nothing runs and nothing is billed. A weekly check watches each organization's usage against its limits and tells you before you hit one.
+- **Nothing to run, nothing to pay for, nothing to maintain.**
+  - The whole system is a Pages site, some Actions workflows and two GitHub Apps.
+  - No central server management and maintenance
+  - When no assignment is active, nothing runs and nothing is billed.
+  - A weekly check watches each organization's usage against its limits.
 
-**Students get their repository in under a minute.** They open the invitation link, sign in, and press Accept; the repository is ready in 20 to 40 seconds. A signing key verifies the accepting account before credentials are created, without exposing the link.
+- **Students get their repository fast.**
+  - They open the invitation link, sign in, and press Accept
+  - A signing key verifies the accepting account before credentials are created, without exposing the link.
 
-**You decide who may accept, per assignment.** Either a roster of GitHub usernames, or an email claim where the student confirms their institutional address and it is matched against your roster, or open signup with a limit on how many places there are.
+- **You decide who may accept, per assignment.**
+  - open signup with a limit on how many places there are.
+  - a roster of GitHub usernames
+  - a self-service email claim where the student confirms their institutional address and it is matched against your roster,
+  
+- **Students hold Admin on their own repository.**
+  - They can manage secrets, environments, runners and OIDC
 
-**Students hold Admin on their own repository.** They can manage secrets, environments, runners and OIDC - which on these courses is the subject being taught, not a convenience.
+- **Teams form and manage themselves.**
+  - Students create or join a team within the size you set, and can move between teams until the deadline.
+  - A grouping that already worked can be carried into the next assignment.
 
-**Teams form themselves.** Students create or join a team within the size you set, and can move between teams until the deadline. A grouping that already worked can be carried into the next assignment.
+- **Fix a mistake after students have started.**
+  - Correct it once in the template and send it out.
+  - Files a student has not touched are updated directly
+  - anything they have edited arrives as a pull request.
 
-**Fix a mistake after students have started.** Correct it once in the template and send it out. Files a student has not touched are updated directly; anything they have edited arrives as a pull request, so their work is never overwritten.
+- **Grading, via GitHub Actions or on your machine.**
+  - Checks can run in each student repository on push
+  - or locally in a sandboxed Docker container that costs no Actions minutes, for very large or complex workloads.
+  - Scores come back into the dashboard either way
+  - includes a template that already ships GitHub Classroom's own grading workflow.
 
-**Grading, in the cloud or on your machine.** Checks can run in each student repository on push, or locally in a sandboxed Docker container that costs no Actions minutes. Scores come back into the dashboard either way - including from a template that already ships GitHub Classroom's own grading workflow, with nothing to set up. One button opens draft feedback pull requests for everyone who has pushed.
+- **The deadline can be a real deadline.**
+  - Choose per assignment: record late work, or stop writes at the deadline instant.
+  - A watcher enforces this immediately; the nightly workflow is the fallback.
 
-**The deadline can be a real deadline.** Choose per assignment: record late work, or stop writes at the deadline instant. A watcher enforces this immediately; the nightly workflow is the fallback. Every submission is archived in a private repository the student cannot access, so finished cohorts can be retired independently. Use the archive for examinations and grade disputes.
-
----
-
-## Feature Comparison
-
-The rows where the three genuinely differ. Everything else - assignment creation, team formation, feedback pull requests, CSV export - all three do in some form.
-
-| | GitHub Classroom | Classroom50 | PXL Classroom |
-| :--- | :--- | :--- | :--- |
-| **Student repo role** | Write | Write | **Admin** - secrets, environments, runners, OIDC |
-| **Deadline** | Soft; freeze by hand | Timestamps, reviewed by hand | Your choice per assignment: record late work, or stop writes at the instant it passes |
-| **Submission archive** | None; the live repo is the grade | None; the live repo is the grade | Private archive repo per assignment, out of the student's reach |
-| **Auto-grading** | GitHub Actions | GitHub Actions | GitHub Actions and local Sandboxed Docker via CLI |
-| **Enrolment** | Roster or LMS sync | Org repository roster | Roster, email claim matched to your roster, or open signup with a cap |
-| **Starter-code fixes** | Manual pull or fork | Manual upstream pull | Per file: direct where untouched, pull request where edited |
-| **Cost when idle** | GitHub-hosted | Hosted service | Nothing runs, so nothing is billed |
-| **Hosting** | GitHub's servers | Hosted web service | Your own Pages site and Actions; no server, no database |
+- **Archival function.**
+  - Every submission is archived in a private repository the student cannot access.
+  - useful for examinations and grade disputes.
 
 ---
 
@@ -92,19 +102,25 @@ There are two organizations involved.
 
 ### 1. The central organization
 
-Everyone shares this one. It holds this repository, the workflows, the Pages site, the GitHub App and the sample repositories.
+Everyone shares the central PXL Classroom organization.
 
-Give lecturers **Write** permission on this repository (as a collaborator or via a team). Publishing assignments dispatches a workflow using `workflow_dispatch`, which requires write access.
+It holds this repository, the workflows, the Pages site, the GitHub App and the sample repositories.
 
-**Grant repository Write access, not organization ownership.** Organization owners can generate private keys for the GitHub App (accessing all participating orgs), whereas Write access provides only the necessary publishing permissions.
+- **Grant repository Write access, not organization ownership.**
+  - Publishing assignments dispatches a workflow using `workflow_dispatch`, which requires write access.
+  - Give lecturers **Write** permission on this repository (as a collaborator or via a team).
 
-**More than one central organization can exist.** To be independent of this one, fork the repository, edit `deployment.yml`, create your own Apps at `/setup`, and publish your own Pages site - [INSTALL.md](INSTALL.md) is that path start to finish.
+- **More than one central organization can exist.** To be independent of this one, fork the repository, edit `deployment.yml`, create your own Apps at `/setup`, and publish your own Pages site - [INSTALL.md](INSTALL.md) is that path start to finish.
 
 ### 2. Your own course organization
 
-There is one of these per course or academic year. It holds the private `pxl-classroom-control` repository, the student repositories and the archives.
+The assumed model is one organization per course. It holds the private `pxl-classroom-control` repository, the student repositories and the archives.
 
-An owner installs the App there with access to **All repositories**, then runs **Setup Organization**. The **Connect an organization** button in the web app walks you through both steps.
+An owner installs the App there with access to **All repositories**, then runs **Setup Organization**.
+
+**The "Connect an organization" button in the web app walks you through both steps.**
+
+![Connect an organization button](assets/images/connect-org-button.png)
 
 **Owning this organization is what makes you a lecturer in it.** There is no user list and no roles, so every owner can edit every assignment in the organization.
 
@@ -144,19 +160,22 @@ assignment rather than one per student.
 ### 2. Create Assignment
 
 - Open `/dashboard/:org/admin`.
-- Fill in the title, the template repository, when it opens and closes, whether it is individual or group work, who may accept, and any automated checks.
+- Fill in the template repository, the title and deadline
+- Check settings for individual or group work, who may accept, and any automated checks.
 - Click Save & Publish.
 
 ### 3. Student Acceptance
 
-- Distribute the invitation link `/:org/i/:secret` - copy it from the assignment's detail view. It is minted at publish time and cannot be derived from the assignment id.
-- Students sign in and accept; the repository is provisioned in 20 to 40 seconds.
+- Distribute the invitation link `/:org/i/:secret` - copy it from the assignment's detail view.
+- It is minted at publish time and cannot be derived from the assignment id.
+- Students sign in and accept; the repository is provisioned in 1 to 2 minutes.
 
 ### 4. Collection and Grading
 
-- If you set late work not to count, writes stop at the instant the deadline passes; the nightly workflow finalizes the cohort either way, and is the fallback if anything goes wrong.
+- If you set late work not to count, writes stop at the instant the deadline passes
+- the nightly workflow finalizes the cohort either way, and is the fallback if anything goes wrong.
 - Submissions are preserved as immutable branches in `<org>/pxl-classroom-archive-<assignment-id>`.
-- View grades in the web dashboard or grade locally via the CLI.
+- View grades in the web dashboard.
 
 ---
 
