@@ -97,6 +97,47 @@ Leave it Off. Everything else about the assignment works normally.
 
 ---
 
+## What the grading workflow actually is
+
+Not something PXL Classroom invented. It is **GitHub Classroom's own autograding workflow** - an ordinary Actions workflow, usually `.github/workflows/classroom.yml`, living in your template and copied into every student repository. PXL Classroom reads what it produces and never rewrites it.
+
+It has two kinds of step, and they are always in this order:
+
+| Step | Action | What it does |
+| :--- | :--- | :--- |
+| One per check | [`autograding-command-grader`](https://github.com/classroom-resources/autograding-command-grader) | Runs a shell command. Passes if it exits 0 |
+| | [`autograding-io-grader`](https://github.com/classroom-resources/autograding-io-grader) | Feeds input, compares the output against what you expect |
+| | [`autograding-python-grader`](https://github.com/classroom-resources/autograding-python-grader) | Runs a Python script |
+| Once, at the end | [`autograding-grading-reporter`](https://github.com/classroom-resources/autograding-grading-reporter) | Adds up every grader's result and publishes the total |
+
+Each grader takes a `max-score` and a `timeout` - **in minutes**, which every one of them documents that way. Each writes its verdict to `outputs.result`, and the reporter collects them.
+
+**The wiring between them is the part that breaks.** A grader's step `id` has to appear twice more: once as an environment variable named `<ID>_RESULTS` on the reporter, and once in the reporter's `runners:` list. Miss either and that check contributes nothing, silently - no error, just a lower total.
+
+```yaml
+- name: example
+  id: example                                        # (1)
+  uses: classroom-resources/autograding-command-grader@v1
+  with:
+    test-name: example
+    command: ./run-tests.sh
+    timeout: 1                                       # minutes
+    max-score: 10
+
+- name: Autograding Reporter
+  uses: classroom-resources/autograding-grading-reporter@v1
+  env:
+    EXAMPLE_RESULTS: "${{ steps.example.outputs.result }}"   # (1) again
+  with:
+    runners: example                                          # (1) once more
+```
+
+**Add a starter workflow** (case 3) writes exactly this shape, with one failing example check for you to replace.
+
+**How the score gets back here.** The reporter publishes a GitHub *check run* named after the workflow's job, and puts the score in that run's **annotations** rather than its summary. PXL Classroom finds the run by name and reads the annotations - which is why the job is called `run-autograding-tests` and why changing that name loses the score.
+
+GitHub's own documentation: [autograding with GitHub Classroom](https://docs.github.com/en/education/manage-coursework-with-github-classroom/teach-with-github-classroom/use-autograding).
+
 ## Reading the scores
 
 **··· More → Read scores from GitHub Actions**. Once grades are on screen, the same action sits in the Autograder panel.

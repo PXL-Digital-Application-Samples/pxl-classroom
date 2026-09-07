@@ -3056,7 +3056,12 @@ async function refreshLiveStatus() {
   // Persist the refreshed report + dashboard aggregate back to the control
   // repo so reloads (and the Dashboard view) see the up-to-date snapshot.
   try {
-    const reportPath = reportPath(props.assignmentId)
+    // NOT `const reportPath = reportPath(...)`. That shadows the import for the
+    // whole block and reads it inside its own temporal dead zone, so every
+    // refresh threw `Cannot access 'reportPath' before initialization` into the
+    // catch below and reported "save failed" - for five days, because nothing
+    // asserted that a refresh actually writes.
+    const reportFile = reportPath(props.assignmentId)
     // Strip the display-only grade join before storing, and refuse rather than
     // write a report that fails its own schema.
     const storable = reportForStorage(report.value)
@@ -3071,7 +3076,7 @@ async function refreshLiveStatus() {
       return
     }
     const reportBody = JSON.stringify(storable, null, 2) + '\n'
-    const reportRes = await commitFile(token, props.org, config.controlRepo, reportPath, reportBody, `Live refresh: ${props.assignmentId}`)
+    const reportRes = await commitFile(token, props.org, config.controlRepo, reportFile, reportBody, `Live refresh: ${props.assignmentId}`)
     if (!reportRes.ok) {
       toast.error(`Refreshed locally but save failed: ${reportRes.data?.message || 'unknown error'}`)
       return
