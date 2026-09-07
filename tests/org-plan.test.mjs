@@ -33,8 +33,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { runDiagnostics } from "../lib/diagnostics.mjs";
+import { readFileSync } from "node:fs";
+
 import {
   organizationPlanFinding,
+  assignmentFreezePlanFinding,
   FREE_PLAN,
   MANIFEST_APP_PERMISSIONS,
   APP_SLUG,
@@ -203,4 +206,112 @@ test("diagnostics: reading the plan costs no extra request", async () => {
     org: ORG,
   });
   assert.equal(calls.filter((c) => c === `GET /orgs/${ORG}`).length, 1);
+});
+
+// --------------------------------------------------------------------------
+// THIS assignment, on THIS plan
+//
+// organizationPlanFinding says what a free org costs in general, in System
+// Health. This is the combination, asked at publish - the moment the freeze
+// stops being a checkbox and becomes a scheduled future event.
+// --------------------------------------------------------------------------
+
+test("THE DEFAULT IS THE POINT: an assignment that never mentions lock_down_enabled still freezes", () => {
+  // Most assignments do not carry the field, so reading it with `!!` would
+  // report "nothing freezes" for the majority - the exact opposite of what
+  // happens - and the warning would fire almost nowhere.
+  const f = assignmentFreezePlanFinding({ plan: "free", assignment: { id: "x" }, org: ORG });
+  assert.ok(f, "an absent lock_down_enabled means the deadline WILL freeze");
+  assert.equal(f.severity, "warn");
+  assert.match(f.message, /demote every student to "pull"/);
+});
+
+test("and that default is read out of the schema, not restated here", () => {
+  // Same rule as every other place two files spell one name: derive it. If
+  // someone changes the schema default to false, this test fails rather than
+  // the judge silently disagreeing with the document it judges.
+  const schema = JSON.parse(
+    readFileSync(new URL("../schemas/assignment.schema.json", import.meta.url), "utf8"),
+  );
+  const declared = schema.properties.lock_down_enabled.default;
+  assert.equal(typeof declared, "boolean", "the schema must declare a default to derive");
+
+  const finding = assignmentFreezePlanFinding({ plan: "free", assignment: {}, org: ORG });
+  assert.equal(
+    Boolean(finding),
+    declared,
+    "an assignment with no lock_down_enabled must be judged the way the schema defaults it",
+  );
+});
+
+test("an assignment that does not freeze and has no Feedback PR is not warned about", () => {
+  // The lecturer turned it off on purpose. Warning anyway is the noise that
+  // teaches people to ignore warnings.
+  assert.equal(
+    assignmentFreezePlanFinding({
+      plan: "free",
+      assignment: { lock_down_enabled: false, feedback_pr: false },
+      org: ORG,
+    }),
+    null,
+  );
+});
+
+test("Feedback PR is warned about on its own, in its own words", () => {
+  const f = assignmentFreezePlanFinding({
+    plan: "free",
+    assignment: { lock_down_enabled: false, feedback_pr: true },
+    org: ORG,
+  });
+  assert.match(f.message, /baseline branch cannot be protected/);
+  assert.doesNotMatch(f.message, /demote every student/, "it does not freeze, so do not say it will");
+});
+
+test("both degradations are named when both apply", () => {
+  const f = assignmentFreezePlanFinding({
+    plan: "free",
+    assignment: { lock_down_enabled: true, feedback_pr: true },
+    org: ORG,
+  });
+  assert.match(f.message, /demote every student/);
+  assert.match(f.message, /baseline branch/);
+});
+
+test("a paid plan says nothing at all", () => {
+  for (const plan of ["team", "Team", "business", "enterprise"]) {
+    assert.equal(
+      assignmentFreezePlanFinding({ plan, assignment: { lock_down_enabled: true }, org: ORG }),
+      null,
+      plan,
+    );
+  }
+});
+
+test("an unreadable plan is still not evidence", () => {
+  for (const plan of [undefined, null, ""]) {
+    assert.equal(
+      assignmentFreezePlanFinding({ plan, assignment: { lock_down_enabled: true }, org: ORG }),
+      null,
+      JSON.stringify(plan),
+    );
+  }
+});
+
+test("it warns, and never fails - the course works on free", () => {
+  // Publishing must not be refused over this. The freeze still happens, by
+  // demotion, recorded as lock_method so the unlock applies the right inverse.
+  const f = assignmentFreezePlanFinding({ plan: FREE_PLAN, assignment: {}, org: ORG });
+  assert.equal(f.severity, "warn");
+  assert.notEqual(f.severity, "fail");
+  assert.match(f.message, /still works/);
+});
+
+test("it says how to make the warning go away, and that nothing else changes", () => {
+  // THE ANSWER GOES STALE: the lecturer can upgrade tomorrow, which is why
+  // this is computed live from the plan every time and never stored on the
+  // assignment. The message has to make that upgrade findable.
+  const { message } = assignmentFreezePlanFinding({ plan: "free", assignment: {}, org: ORG });
+  assert.match(message, /github\.com\/education\/teachers/);
+  assert.match(message, /picks it up automatically/);
+  assert.doesNotMatch(message, /RUNBOOK|ARCHITECTURE|LESSONS|§/, "DESIGN.md §1.6");
 });

@@ -135,6 +135,37 @@ jobs:
             exit 1
           fi
 
+      # WHAT THE LECTURER SHOULD KNOW BEFORE STUDENTS CAN ACCEPT.
+      #
+      # Asked here because this is the first surface holding the credential
+      # that can answer it: the App installation token for the org, which is
+      # what provisioning and lockdown will themselves use. The Admin Panel
+      # asks the same questions of the same lib/ judges while the lecturer
+      # types, but on the LECTURER'S token - and they can see their own private
+      # repository in another organization, so the form's green badge is not
+      # evidence.
+      #
+      # It REFUSES a template the App cannot use, and WARNS when a free
+      # organization will blunt this assignment's deadline. Before it existed,
+      # nothing looked at either between save and the first acceptance: the
+      # template failed inside provisioning, after a student had accepted and
+      # spent a slot of max_acceptances, and the freeze degraded silently at
+      # the deadline weeks later.
+      #
+      # Runs on dry runs too - it only reads, and a dry run that skips the
+      # check cannot report the thing it is being asked about.
+      - name: Publish preflight - template and plan
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        run: |
+          YML="control/assignments/${ASSIGNMENT_ID}.yml"
+          if [ -f "$YML" ]; then
+            node scripts/check-publish-preflight.mjs "$YML"
+          else
+            echo "::notice::No YAML assignment at $YML - publish preflight skipped"
+          fi
+
       # What state was this assignment in before we touched it? A publish that
       # fails must undo its own transition and nothing else - demoting an
       # assignment that was ALREADY published, because a repair republish failed,

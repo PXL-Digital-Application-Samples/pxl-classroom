@@ -489,6 +489,12 @@
                 <span v-if="templateValidationStatus.checking" class="badge badge-neutral flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
                   <span class="spinner sm" style="width: 12px; height: 12px;"></span> Checking template repository…
                 </span>
+                <!-- Refused BEFORE the success badge: this one reads as valid
+                     on the lecturer's own token, which is how it used to reach
+                     provisioning and fail there, after a student had accepted. -->
+                <span v-else-if="templateValidationStatus.valid && templateValidationStatus.blocked" class="badge badge-error flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
+                  <Icon name="x-circle" :size="13" /> Private template in another organization
+                </span>
                 <span v-else-if="templateValidationStatus.valid && templateValidationStatus.isTemplate" class="badge badge-success flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
                   <Icon name="check-circle" :size="13" /> Valid Template Repository ({{ templateValidationStatus.defaultBranch }} branch{{ templateValidationStatus.isPrivate ? ', private' : '' }})
                 </span>
@@ -499,7 +505,13 @@
                   <Icon name="x-circle" :size="13" /> {{ templateValidationStatus.message || 'Repository not found on GitHub' }}
                 </span>
               </div>
-              <div v-if="(touchedFields.template || !isNew) && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
+              <!-- `templateValidationStatus?.blocked` widens the touched gate
+                   rather than adding a second message: the badge above it is
+                   four words, and this sentence is the one that says what to
+                   do. Untouched-and-new is reachable - the form fills in an
+                   org's sole template by itself - and a refusal nobody can
+                   read is the failure this whole check exists to end. -->
+              <div v-if="(touchedFields.template || !isNew || templateValidationStatus?.blocked) && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
               <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
                 Failed to load templates: {{ templatesError }}.
               </small>
@@ -1518,6 +1530,7 @@ import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
+import { templateUsable, templateSourceMessage, FOREIGN_PRIVATE } from '../../../lib/template-source.mjs'
 import { formatDate } from '../lib/format.js'
 
 // DESIGN.md §1.3/§4 - a status is a dot plus mixed-case text. The WORDS match
@@ -2226,6 +2239,22 @@ const fieldErrors = computed(() => {
     const parts = form.value.template.split('/')
     if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) {
       errors.template = `Use the full name, e.g. ${props.org}/linux-template`
+    } else {
+      // A private template in another organization cannot provision, measured
+      // rather than assumed (lib/template-source.mjs). Refused at SAVE because
+      // every later surface is worse: publishing is silent about it, and the
+      // student who accepts is the one who finds out.
+      //
+      // Read off the live probe, and only when the probe is about THIS
+      // template - `fullName` is GitHub's canonical spelling of what was
+      // asked, so a stale answer for the previous value cannot block the
+      // current one. No probe yet means no finding: this check refuses what
+      // was established, never what was not.
+      const probe = templateValidationStatus.value
+      const asked = form.value.template.trim().toLowerCase()
+      if (probe?.valid && probe.blocked && String(probe.fullName || '').toLowerCase() === asked) {
+        errors.template = probe.blocked.message
+      }
     }
   }
 
@@ -2443,12 +2472,43 @@ async function checkTemplateValidity(templateStr) {
     try {
       const res = await validateTemplateRepository(token, owner, repo)
       if (res.ok) {
+        // THIS PROBE RAN ON THE LECTURER'S TOKEN, and provisioning will not.
+        // It creates each student repository as an app installed on THIS org,
+        // with a token minted for this installation - so a private repository
+        // in another organization is a 404 to it, measured 2026-09-07, even
+        // where the app is installed on that other org too. The lecturer can
+        // see their own private repository perfectly well, which is exactly
+        // why the badge went green on the one configuration that cannot work
+        // and the failure surfaced in provisioning instead, after a student
+        // had accepted and spent a slot of max_acceptances.
+        const finding = templateUsable({
+          templateOwner: owner,
+          org: props.org,
+          isPrivate: res.isPrivate,
+          isTemplate: res.isTemplate,
+        })
         templateValidationStatus.value = {
           valid: true,
           isTemplate: res.isTemplate,
           defaultBranch: res.defaultBranch,
           isPrivate: res.isPrivate,
           fullName: res.fullName,
+          // Only the impossible one blocks the SAVE. A repository that is
+          // merely not ticked as a template keeps its existing warning: it is
+          // one checkbox away on a repository the lecturer owns, and a draft
+          // must stay saveable while they go and tick it. Publishing refuses
+          // both, which is the point at which students can accept.
+          blocked:
+            finding.ok || finding.code !== FOREIGN_PRIVATE
+              ? null
+              : {
+                  code: finding.code,
+                  message: templateSourceMessage(finding, {
+                    templateOwner: owner,
+                    templateRepo: repo,
+                    org: props.org,
+                  }),
+                },
         }
       } else {
         templateValidationStatus.value = {

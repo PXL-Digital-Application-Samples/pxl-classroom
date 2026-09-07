@@ -744,6 +744,27 @@ Four states where the Admin Panel stopped a lecturer and then declined to help (
 
 `listOrgTemplates` searched `org:<org> is:template` (a broken qualifier in its own right - see below) and a forked template never appeared in the Admin Panel picker - no error, `is_template: true` on the repository, and the first-run wall confidently telling the lecturer their org had none. Reported live for `PXL-2TIN-NetAdv-26-27/Guts-DotNetAdvanced-2627` on 2026-08-24. The query carries **`fork:true`** ("forks *as well as* non-forks" - never `fork:only`, which swaps the blind spot for its opposite). The `listOrgRepos` fallback would have found it, because `GET /orgs/{org}/repos` includes forks - but that leg only runs when the search **fails**, and this search succeeded; it just answered a question nobody meant to ask. That is the shape to watch for: a successful call with a silently narrowed result set is not the same as a failure, and no fallback catches it. `tests/e2e/33-first-run-wall-edges.spec.mjs` mocks the search the way GitHub actually behaves - reading the real query string rather than being handed the answer - so dropping the qualifier goes red.
 
+### A pre-flight that asks with the wrong credential is not a pre-flight.
+
+A colleague asked whether an assignment could use a template repository in **another organization**. Measured on the live testbed on 2026-09-07 by running the real acceptance and provisioning chain rather than reading the docs — which were ambiguous enough that the prediction came out **backwards**:
+
+* **public, another org — WORKS.** `contains-studio/agents`, a stranger's repository, generated into a private student repository with the invitation sent. Ownership is irrelevant: the installation token does not authenticate as the lecturer, so public is public. A lecturer's own or a colleague's public template is the same case.
+* **private, another org — HTTP 404**, on `PXL-Automation-II`, an organization the App **is installed on**. `generate` is one call needing read on the template and create in the course org, and a token is minted per installation. Being the owner grants the App nothing, and neither does installing it next door.
+
+The dangerous part was never the answer, it was **where you found it out**. The Admin Panel probes the template with the **lecturer's** token; provisioning runs on the App's. A lecturer can see their own private repository in another org, so the badge went **green** on the one configuration that cannot work. Publishing said nothing. The failure landed inside provisioning — *after* the student clicked accept, after their acceptance was recorded and had **spent a slot of `max_acceptances`** — and what it said was `HTTP 404` naming a repository the lecturer had open in another tab. They would check it existed, conclude the system was broken, and file a bug.
+
+So the rule is not "validate the template", it is **ask with the credential that has to answer**. `lib/template-source.mjs` is the one judge; the form consults it while the lecturer types (blocking the save, because a foreign private template is not one checkbox away from working), and `scripts/check-publish-preflight.mjs` re-asks it in `publish-assignment.yml` with the org's App installation token — the first surface that holds it, and the last moment before students can accept. Same step now also refuses a repository nobody ticked as a template, which until then *also* only surfaced per student.
+
+Owners are compared through `lib/github-login.mjs`, never a raw `!==`: refusing an organization's own private template over its casing would break the ordinary case.
+
+### The same step warns about a deadline that will be blunter than the form promised.
+
+`organizationPlanFinding` already knew that a **free** organization cannot apply rulesets or protected branches to private repositories, so the freeze degrades to demoting each student to `pull` — taking their Actions, secrets and environments with it, on a course whose subject may be exactly those. But it said so about the *organization*, in System Health, which a lecturer may never open, and unconditionally — whether or not any assignment freezes at all.
+
+`assignmentFreezePlanFinding` is the combination, asked at publish, when the freeze stops being a checkbox and becomes a scheduled event. **`lock_down_enabled` defaults to `true`**, so reading it with `!!` would report "nothing freezes" for the majority of assignments, which never carry the field; the test derives that default from the schema rather than restating it. It **warns and never refuses** — nothing is broken on free, the freeze still happens by demotion and is recorded as `lock_method` so the unlock applies the matching inverse.
+
+And the answer goes stale the moment it is taken: GitHub Team is free for verified educators, so the lecturer may upgrade the next day. It is computed from a **live** read of the plan every time and stored nowhere. A verdict written onto the assignment would outlive the fact by a year and be believed.
+
 ### `is:template` is not a qualifier, and search ignores what it does not know.
 
 The same query, one qualifier over, wrong for a year: `org:<org> is:template fork:true`. GitHub's `is:` takes a fixed vocabulary and `template` is not in it, so search **dropped the term in silence** and answered with the whole organization. Measured on `PXL-Automation-II` on 2026-09-07: `org:X` returns 93, `org:X is:template` returns the same 93, `org:X template:true` returns 11.
