@@ -264,14 +264,16 @@ To keep security tight without a server, we split permissions between two GitHub
 
 ### Token-Based / Signed Invite
 
-- Students have no permissions on our private course control repo.
-- When you publish an assignment:
-  - PXL Classroom mints a cryptographic keypair (`P-256` elliptic curve).
-  - The private key is embedded in the link URL.
-  - When the student clicks Accept, their browser signs their GitHub ID with that key.
-  - The public broker checks that signature on a runner the public repository gets free.
-    - If valid, it dispatches to the hub.
-    - a doorbell that only rings if the student holds the key.
+Students never get access to the private course control repository.
+
+When you publish an assignment:
+
+- PXL Classroom creates a cryptographic keypair for that assignment.
+- The invite link contains the private key. The broker keeps only the matching public key.
+- When a student accepts, their browser opens an issue on the public broker repository. Its title is their GitHub ID, signed with the private key.
+- The broker verifies that signature, and checks it against the GitHub account that opened the issue - which GitHub records, not the student.
+- A copied signature is useless to anyone else, because it names the account that made it.
+- If everything matches, the broker sends the request to the hub.
 
 ### User Management
 
@@ -284,8 +286,8 @@ There is no user database or role engine.
 
 The device-flow endpoints do not support CORS, so browsers cannot access them directly. A proxy is therefore required.
 
-- the Web App tries a Cloudflare Worker first
-- and uses corsproxy.io as fallback.
+- 2 solutions are bundled: a Cloudflare Worker and corsproxy.io configuration
+- the Web App tries the Cloudflare Worker first and uses corsproxy.io as fallback.
 
 ---
 
