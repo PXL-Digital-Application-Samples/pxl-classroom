@@ -1330,6 +1330,16 @@ select:focus {
 .form-group .form-hint { color: var(--text-muted); font-size: 0.8rem; }
 
 /* The row-per-record table. Wrap it in `.table-responsive` to scroll it. */
+/* A SORTABLE COLUMN HEADING, shared by the two tables that sort.
+   These lived scoped inside AssignmentDetailView while it was the only one.
+   The Roster tab sorts now, and per DESIGN.md 7 a class more than one
+   component reaches belongs here - as the shared BASE. AssignmentDetailView
+   keeps its own scoped copies, which still win on `[data-v-*]` specificity, so
+   nothing in that view shifted when this arrived. */
+th.sortable { cursor: pointer; user-select: none; }
+.th-label { display: inline-flex; align-items: center; gap: 4px; }
+.sort-glyph { color: var(--accent-blue); }
+
 .data-table {
   width: 100%;
   border-collapse: collapse;

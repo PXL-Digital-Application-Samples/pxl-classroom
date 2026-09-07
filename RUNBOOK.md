@@ -542,6 +542,18 @@ Both files are JSON, chmod 0600 on POSIX. Token TTL matches the device-flow OAut
 
 The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Admin Panel -> **Roster** tab or the CLI imports it from CSV.
 
+**Putting students into a class group without a CSV.** Tick the students on the Roster tab, type the group in the bar that appears, press **Apply**. It is written in **one commit** for the whole selection, which is the point: setting the group cell by cell is one commit per student, and twenty of those seconds apart is both slow to sit through and how the Contents API comes to refuse a write with a stale sha.
+
+The fast route is the chips: **No group (9)** → the tick box in the table header → type the group → **Apply**. Four clicks for any number of students. The header tick box takes everything the **current filter** is showing, and there is a chip per class group, so moving a whole class from 3A to 3C is the same four clicks.
+
+A selection deliberately survives changing the filter, so "3B plus these four" is one pass — and because that means the selection can include rows you are not looking at, the bar says how many are off-screen and a **Selected (n)** chip shows exactly who. **Remove from group** takes the group off the selection; an empty box never does that, so a half-typed group cannot wipe one by accident.
+
+Class groups are a filter for finding people, never a rule about who may accept - that is the assignment's cohort (§1).
+
+**Sorting.** Click any column heading to sort by it; click again to reverse. Students with nothing in that column sort last in both directions, so sorting by Group is how you find who is still ungrouped. Sorting is a view only - the stored order of `students` is untouched.
+
+**The Number column appears only when somebody has a student number.** `student_number` is optional (see the table below), and on a roster built from addresses it would otherwise be a permanently empty column asking for a value nobody has. Add one through **Edit details** on the row, or a CSV, and the column comes back.
+
 **CSV format** (header row required):
 
 | Column | Required | Notes |

@@ -1121,7 +1121,6 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { h } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
 import HelpButton from '../components/HelpButton.vue'
 import {
@@ -1142,12 +1141,10 @@ import StudentActionsModal from '../components/StudentActionsModal.vue'
 import FeedbackPrModal from '../components/FeedbackPrModal.vue'
 import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
 
-// Tiny render helper - keeps the table markup readable. `dir` is "asc" |
-// "desc" | null; null renders nothing so non-active columns stay quiet.
-const SortIcon = (props) => props.dir
-  ? h(Icon, { name: props.dir === 'asc' ? 'arrow-up' : 'arrow-down', size: 11, class: 'sort-glyph' })
-  : null
-SortIcon.props = ['dir']
+// Moved to components/SortIcon.vue when the Roster tab learned to sort. It was
+// a local render helper while one table in the app sorted; a second copy of it
+// beside a second sortable table is the fork this project has a rule against.
+import SortIcon from '../components/SortIcon.vue'
 import { config } from '../lib/config.js'
 // One CSV cell, shared. This file held a byte-identical copy of it, as did
 // RosterTab.vue and report.mjs, and none of the three had an inverse.

@@ -1521,7 +1521,7 @@ import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
 // disagree about which mode an assignment is actually in.
 import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
-import { classGroupCounts, studentInClassGroup, normalizeClassGroup } from '../lib/class-groups.js'
+import { classGroupChips, studentInClassGroup, normalizeClassGroup } from '../lib/class-groups.js'
 import { cohortIdentity, rosterIdentities, normalizeCohortEntry, danglingCohortEntries } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 
@@ -1720,17 +1720,10 @@ async function openAddStudents() {
 const cohortFilter = ref(null)
 const cohortSearch = ref('')
 
-const cohortGroupCounts = computed(() => {
-  const counts = classGroupCounts(rosterStudents.value)
-  const named = counts.filter((c) => c.group !== '')
-  // No groups at all means no chips at all. An org that has never used them
-  // would otherwise get a lone "No group · 40" beside "All 40" - two controls
-  // filtering to the same set, which is worse than neither.
-  if (named.length === 0) return []
-  // And the ungrouped chip only when somebody is in it.
-  const ungrouped = counts.find((c) => c.group === '')
-  return ungrouped && ungrouped.count > 0 ? [...named, ungrouped] : named
-})
+// The two display rules moved into lib/class-groups.mjs when the Roster tab
+// grew the same filter row - they were about to be copied, which is how one
+// surface comes to offer a chip the other hides.
+const cohortGroupCounts = computed(() => classGroupChips(rosterStudents.value))
 
 /** The identity a NEW pick is stored as. Never re-spelled here - lib/cohort.mjs owns it. */
 const cohortKey = (student) => cohortIdentity(student)

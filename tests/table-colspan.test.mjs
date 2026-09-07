@@ -101,6 +101,75 @@ test("every column the table renders has a matching body cell", () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// The SECOND table that does this, which is the whole point of the lesson above.
+//
+// This file guarded AssignmentDetailView and only AssignmentDetailView, so the
+// Roster tab's own empty-state cell sat at a hand-written `colspan="7"` over a
+// SIX-column table - wrong before the Number column was ever conditional, and
+// wrong in the same way, for the same reason, one file over. A guard that
+// watches one instance of a repeating mistake is a guard that documents it.
+// ---------------------------------------------------------------------------
+const ROSTER = readFileSync(join(root, "frontend", "src", "components", "RosterTab.vue"), "utf8");
+
+/** The roster table's header block, anchored on a control only it has. */
+function rosterThead(src) {
+  const anchor = src.indexOf("toggleSort('class_group')");
+  assert.ok(anchor > 0, "the roster table must still sort by class_group - update this anchor with it");
+  const open = src.lastIndexOf("<thead>", anchor);
+  const close = src.indexOf("</thead>", anchor);
+  assert.ok(open > 0 && close > open, "could not isolate the roster table's <thead>");
+  return src.slice(open, close);
+}
+
+test("the roster table's empty-state colspan matches the columns it renders", () => {
+  const cols = columns(rosterThead(ROSTER));
+  assert.ok(cols.length >= 6, `only ${cols.length} <th> found - the parse has broken, not the table`);
+
+  const always = cols.filter((c) => !c.conditional).length;
+  const conditionals = [...new Set(cols.map((c) => c.conditional).filter(Boolean))];
+
+  const from = ROSTER.indexOf("const tableColumnCount = computed(");
+  assert.ok(from > 0, "tableColumnCount must exist - the literal it replaced was already wrong");
+  const expr = ROSTER.slice(from, ROSTER.indexOf("\n\n", from));
+
+  const base = Number(/computed\(\(\) =>\s*(\d+)\s*\+/.exec(expr)?.[1]);
+  assert.equal(
+    base,
+    always,
+    `tableColumnCount starts at ${base} but the table renders ${always} unconditional columns`,
+  );
+
+  for (const cond of conditionals) {
+    assert.ok(
+      expr.includes(`(${cond}.value ? 1 : 0)`),
+      `the "${cond}" column is rendered but not counted - the empty-state cell is short by one`,
+    );
+  }
+  const terms = (expr.match(/\?\s*1\s*:\s*0/g) || []).length;
+  assert.equal(terms, conditionals.length, "one term per optional column, and no term without one");
+
+  // And the cell asks the computed rather than carrying a number of its own.
+  assert.match(ROSTER, /<td :colspan="tableColumnCount"/,
+    "the empty-state cell must derive its colspan, not restate it");
+});
+
+test("every roster column has a body cell gated the same way", () => {
+  const conditionals = [...new Set(columns(rosterThead(ROSTER)).map((c) => c.conditional).filter(Boolean))];
+  assert.ok(conditionals.length >= 1, "the Number column is optional - update this guard if that changed");
+
+  const bodyFrom = ROSTER.indexOf('<tr\n                  v-for="s in sortedRosterStudents"');
+  assert.ok(bodyFrom > 0, "the roster rows must still be v-for'd over sortedRosterStudents");
+  const body = ROSTER.slice(bodyFrom, ROSTER.indexOf("</tbody>", bodyFrom));
+
+  for (const cond of conditionals) {
+    assert.ok(
+      new RegExp(`<td[^>]*v-if="${cond.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`).test(body),
+      `the "${cond}" header has no <td> gated on the same condition`,
+    );
+  }
+});
+
 test("an uncorroborated claim is reported as unknown, never as a failure", () => {
   // `claim_verified` is false for every student who has not verified an
   // institutional address on their GitHub account - honest ones included - and

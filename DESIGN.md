@@ -486,6 +486,7 @@ Global vocabulary now includes:
 | :--- | :--- |
 | Layout | `.center-card`, `.empty-state`, `.loading-state`, `.app-header-*` |
 | Forms | `.field` (+ `label`, `small`), `.form-control`, `.form-hint`, `.req` |
+| Sortable table headings | `th.sortable`, `.th-label`, `.sort-glyph` — with `<SortIcon :dir>` for the arrow. Scoped inside `AssignmentDetailView` while it was the only table that sorted; shared once the Roster tab did. The view keeps its scoped copies, which still win on `[data-v-*]`. |
 | Status text | `.status-icon` (+ `-success`, `-warn`, `-error`, `-pulse`), `.status-text` |
 | Stat colours | `.stat-green`, `.stat-yellow`, `.stat-red`, `.stat-blue` |
 | Utilities | `.text-center`, `.text-green`, `.text-yellow`, `.text-blue`, `.spinner-sm`, `.btn-icon` |

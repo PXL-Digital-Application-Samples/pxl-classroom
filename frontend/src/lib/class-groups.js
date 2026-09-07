@@ -12,4 +12,5 @@ export {
   rosterClassGroups,
   studentInClassGroup,
   classGroupCounts,
+  classGroupChips,
 } from '../../../lib/class-groups.mjs'

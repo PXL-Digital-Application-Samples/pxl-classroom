@@ -71,7 +71,18 @@
               </p>
             </div>
             <div class="flex gap-xs flex-wrap">
-              <button class="btn btn-sm btn-primary" type="button" @click="openQuickAddModal">
+              <!-- YIELDS WHILE ROWS ARE SELECTED (DESIGN.md 1.2). The count of
+                   solid buttons on this tab has to be exactly one in both
+                   states, so when the selection bar appears and takes the
+                   primary, this steps down to secondary rather than sitting
+                   beside it. Same rule as `New assignment` going plain once an
+                   assignment is open. -->
+              <button
+                class="btn btn-sm"
+                :class="selectedStudents.length ? 'btn-secondary' : 'btn-primary'"
+                type="button"
+                @click="openQuickAddModal"
+              >
                 + Add student
               </button>
               <button
@@ -204,6 +215,85 @@
             >
               No account yet ({{ unlinkedStudents.length }})
             </button>
+            <!-- One chip per class group, and "No group" when anybody is in it.
+                 Same control as the assignment form's cohort picker, from the
+                 same module, so the two cannot come to disagree about which
+                 chips exist. -->
+            <button
+              v-for="c in groupChips"
+              :key="c.group || '__none'"
+              :class="['chip-btn', { active: rosterFilter === `group:${c.group}` }]"
+              type="button"
+              @click="rosterFilter = `group:${c.group}`"
+            >
+              {{ c.group || 'No group' }} ({{ c.count }})
+            </button>
+            <!-- Only while there IS a selection, and it is the way back to
+                 seeing it: the selection survives filter changes on purpose, so
+                 without this the count in the bar can describe rows that are
+                 nowhere on screen. -->
+            <button
+              v-if="selectedStudents.length"
+              :class="['chip-btn', { active: rosterFilter === 'selected' }]"
+              type="button"
+              @click="rosterFilter = 'selected'"
+            >
+              Selected ({{ selectedStudents.length }})
+            </button>
+          </div>
+
+          <!-- BULK GROUP ASSIGNMENT, AND THE REASON IT EXISTS IS THE WRITE.
+               Setting a class group cell by cell is one commit to roster.yml
+               per student, seconds apart - which is slow to sit through and is
+               how the Contents API came to answer with a stale sha on
+               PXL-Automation-II. This is ONE commit for the whole selection.
+
+               It appears only when something is selected: an empty bar
+               explaining what it would do if you had selected something is a
+               control that decides nothing. -->
+          <div v-if="selectedStudents.length" class="bulk-bar flex gap-sm items-center flex-wrap w-full">
+            <strong>{{ selectedStudents.length }} selected</strong>
+            <label for="bulk-group" class="text-muted">Set group to</label>
+            <input
+              id="bulk-group"
+              v-model="bulkGroup"
+              list="roster-class-groups"
+              placeholder="e.g. 3A"
+              size="1"
+              :disabled="bulkSaving"
+              @keydown.enter.prevent="applyGroupToSelected"
+            />
+            <button
+              class="btn btn-sm btn-primary"
+              type="button"
+              :disabled="!bulkGroup.trim() || bulkSaving"
+              @click="applyGroupToSelected"
+            >
+              {{ bulkSaving ? 'Saving…' : 'Apply' }}
+            </button>
+            <!-- ITS OWN BUTTON, never an empty box + Apply. Clearing on a blank
+                 field would mean a mistyped-then-deleted group silently wipes
+                 the group off everyone selected, and the two actions read
+                 identically right up until they happen. -->
+            <button
+              class="btn btn-sm btn-secondary"
+              type="button"
+              :disabled="bulkSaving"
+              @click="applyGroupToSelected(null)"
+            >
+              Remove from group
+            </button>
+            <button class="btn btn-sm btn-secondary" type="button" :disabled="bulkSaving" @click="clearSelection">
+              Clear selection
+            </button>
+            <!-- NAMES THE ONES THAT ARE NOT ON SCREEN. The selection survives a
+                 filter change on purpose, so the count can describe rows the
+                 filter is hiding - and "2 selected" over two different visible
+                 rows reads as though those are the two. -->
+            <span v-if="hiddenSelectedCount" class="text-warning text-sm">
+              {{ hiddenSelectedCount }} not shown by this filter
+            </span>
+            <span v-else class="text-muted text-sm">Written in one go.</span>
           </div>
 
           <!-- The groups this org already uses, offered as completions so a
@@ -219,20 +309,68 @@
             <table class="roster-table w-full text-left text-sm" style="border-collapse: collapse;">
               <thead>
                 <tr style="border-bottom: 1px solid var(--border-default); color: var(--text-secondary);">
-                  <th style="padding: 6px 8px;">Number</th>
-                  <th style="padding: 6px 8px;">Name</th>
-                  <th style="padding: 6px 8px;">Email</th>
-                  <th style="padding: 6px 8px;">Group</th>
-                  <th style="padding: 6px 8px;">GitHub Account</th>
+                  <th style="padding: 6px 8px; width: 1%;">
+                    <input
+                      type="checkbox"
+                      :checked="allShownSelected"
+                      :indeterminate="someShownSelected"
+                      :aria-label="allShownSelected ? 'Clear selection' : 'Select all shown'"
+                      @change="toggleAllShown"
+                    />
+                  </th>
+                  <!-- NUMBER IS CONDITIONAL. `student_number` is no longer
+                       required of an imported row and most institutions hand a
+                       lecturer addresses instead, so on those rosters this is a
+                       permanently empty column asking for a value nobody has.
+                       It comes back the moment one student has one.
+
+                       The sortable headings copy AssignmentDetailView's shape
+                       exactly - `th.sortable`, tabindex, Enter and Space, an
+                       `aria-sort`, and a `.th-label` holding the shared
+                       <SortIcon> - because a second table that sorts a
+                       different way is two answers to one question. -->
+                  <th v-if="anyStudentNumber" style="padding: 6px 8px;" class="sortable" tabindex="0"
+                      :aria-sort="ariaSort('student_number')"
+                      @click="toggleSort('student_number')" @keydown.enter="toggleSort('student_number')" @keydown.space.prevent="toggleSort('student_number')">
+                    <span class="th-label">Number<SortIcon :dir="sortDirFor('student_number')" /></span>
+                  </th>
+                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
+                      :aria-sort="ariaSort('full_name')"
+                      @click="toggleSort('full_name')" @keydown.enter="toggleSort('full_name')" @keydown.space.prevent="toggleSort('full_name')">
+                    <span class="th-label">Name<SortIcon :dir="sortDirFor('full_name')" /></span>
+                  </th>
+                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
+                      :aria-sort="ariaSort('email')"
+                      @click="toggleSort('email')" @keydown.enter="toggleSort('email')" @keydown.space.prevent="toggleSort('email')">
+                    <span class="th-label">Email<SortIcon :dir="sortDirFor('email')" /></span>
+                  </th>
+                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
+                      :aria-sort="ariaSort('class_group')"
+                      @click="toggleSort('class_group')" @keydown.enter="toggleSort('class_group')" @keydown.space.prevent="toggleSort('class_group')">
+                    <span class="th-label">Group<SortIcon :dir="sortDirFor('class_group')" /></span>
+                  </th>
+                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
+                      :aria-sort="ariaSort('github_login')"
+                      @click="toggleSort('github_login')" @keydown.enter="toggleSort('github_login')" @keydown.space.prevent="toggleSort('github_login')">
+                    <span class="th-label">GitHub Account<SortIcon :dir="sortDirFor('github_login')" /></span>
+                  </th>
                   <th style="padding: 6px 8px;"></th>
                 </tr>
               </thead>
               <tbody>
                 <tr
-                  v-for="s in filteredRosterStudents"
+                  v-for="s in sortedRosterStudents"
                   :key="rosterKey(s)"
                   style="border-bottom: 1px solid var(--border-default);"
                 >
+                  <td style="padding: 6px 8px;">
+                    <input
+                      type="checkbox"
+                      :checked="isSelected(s)"
+                      :aria-label="`Select ${whoIs(s)}`"
+                      @change="toggleSelected(s)"
+                    />
+                  </td>
                   <!-- Every one of these is editable in place, through ONE
                        editor over a field descriptor. A row promoted from an
                        acceptance arrives with a login and nothing else, and
@@ -240,7 +378,7 @@
                        has seen, and a claim joins on email, which such a row
                        does not have. Before this, the only route was a CSV
                        round trip for one cell. -->
-                  <td style="padding: 6px 8px;">
+                  <td v-if="anyStudentNumber" style="padding: 6px 8px;">
                     <RosterCell :student="s" field="student_number" :editor="cellEditor" v-model:draft="cellEdit.draft" mono />
                   </td>
                   <td style="padding: 6px 8px; font-weight: 500;">
@@ -409,8 +547,13 @@
                     </div>
                   </td>
                 </tr>
-                <tr v-if="filteredRosterStudents.length === 0">
-                  <td colspan="7" class="text-center text-muted" style="padding: 16px;">
+                <!-- DERIVED, not counted by hand. This said `colspan="7"` over
+                     a six-column table, and had done since before the Number
+                     column was conditional at all - the exact defect
+                     tests/table-colspan.test.mjs was written for, which guarded
+                     only AssignmentDetailView and so never looked here. -->
+                <tr v-if="sortedRosterStudents.length === 0">
+                  <td :colspan="tableColumnCount" class="text-center text-muted" style="padding: 16px;">
                     No students match the current filter.
                   </td>
                 </tr>
@@ -676,7 +819,7 @@ import { REPORTS_DIR, assignmentPath } from '../../../lib/control-layout.mjs'
 // An address is the only identity a person TYPES, so it is the only one that can
 // change under a row. This says which assignments would stop matching if it did.
 import { planCohortRename } from '../../../lib/cohort-reidentify.mjs'
-import { rosterClassGroups } from '../lib/class-groups.js'
+import { rosterClassGroups, classGroupChips, studentInClassGroup } from '../lib/class-groups.js'
 // The screen says "Published", not `published`. The helper owns the fallback so
 // a state with no label renders as itself rather than as a blank.
 import { assignmentStateLabel } from '../lib/status-labels.js'
@@ -696,6 +839,8 @@ import { planClaimPromotion } from '../../../lib/promote-roster.mjs'
 import { csvCell } from '../../../lib/csv-cell.mjs'
 import PromoteRosterModal from './PromoteRosterModal.vue'
 import RosterStudentModal from './RosterStudentModal.vue'
+// The same arrow AssignmentDetailView's table uses. Shared rather than copied.
+import SortIcon from './SortIcon.vue'
 import RosterCell from './RosterCell.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
@@ -754,8 +899,296 @@ const filteredRosterStudents = computed(() => {
   const all = existingRoster.value?.students || []
   if (rosterFilter.value === 'linked') return linkedStudents.value
   if (rosterFilter.value === 'unlinked') return unlinkedStudents.value
+  // SO A SELECTION IS NEVER INVISIBLE. Selecting two students and then
+  // switching filters showed "2 selected" over two DIFFERENT rows - the ones
+  // the filter happened to admit - and a lecturer reading that would take the
+  // rows on screen for the ones about to change. Apply would then have moved
+  // two students they could not see.
+  if (rosterFilter.value === 'selected') return selectedStudents.value
+  // `group:<spelling>` and `group:` for the ungrouped. Encoded into the one
+  // filter ref rather than held beside it, so the chips are mutually exclusive
+  // by construction - two filters that can both be on is two answers to "what
+  // am I looking at".
+  if (rosterFilter.value.startsWith('group:')) {
+    const wanted = rosterFilter.value.slice('group:'.length)
+    return all.filter((s) => studentInClassGroup(s, wanted))
+  }
   return all
 })
+
+/**
+ * The group chips, from the module both filter rows ask.
+ *
+ * SELECTING THE UNGROUPED IS THE POINT. Without this row the flow the bulk bar
+ * exists for - "put everyone who has no group into 3B" - had no expression:
+ * sorting by Group clusters them at the bottom, but select-all-shown takes the
+ * FILTER, so it took the whole roster. Forty students meant forty ticks, and
+ * the complaint that started this was that it was slow.
+ *
+ * Empty until the org uses groups at all, and then "All" is the correct filter
+ * for picking everybody into the first one.
+ */
+const groupChips = computed(() => classGroupChips(existingRoster.value))
+
+// A FILTER MAY NOT OUTLIVE ITS CHIP. Filter to 3A, move everyone in it to 3B,
+// and the 3A chip is gone while `rosterFilter` still names it - an empty table
+// with no highlighted chip and no way back except guessing. The same shape as
+// the Selected chip disappearing under `clearSelection`, and it fires on every
+// path that can change the roster: bulk apply, a cell edit, a CSV import.
+//
+// Watches the CHIPS, not the students, so it asks the same question the row
+// renders rather than a second opinion about which groups exist.
+watch(groupChips, (chips) => {
+  if (!rosterFilter.value.startsWith('group:')) return
+  const wanted = rosterFilter.value.slice('group:'.length)
+  if (!chips.some((c) => c.group === wanted)) rosterFilter.value = 'all'
+})
+
+// ------------------------------------------------------------------ sorting
+//
+// A VIEW, NEVER A WRITE. The order of `students` in roster.yml is the order the
+// file was written in, and every diff, import and commit reads it - so sorting
+// here builds a new array and the document is never touched. Nothing sorted
+// before this: a lecturer asking "which of my students are in 3A" had to read
+// the whole list, on a tab whose whole job is a list.
+const sortKey = ref(null)
+const sortDir = ref('asc')
+
+/** The value a column sorts on. Absent sorts LAST in both directions. */
+const SORT_VALUES = {
+  student_number: (s) => s.student_number ?? '',
+  full_name: (s) => s.full_name ?? '',
+  email: (s) => s.email ?? '',
+  class_group: (s) => s.class_group ?? '',
+  github_login: (s) => s.github_login ?? '',
+}
+
+function toggleSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+    return
+  }
+  sortKey.value = key
+  sortDir.value = 'asc'
+}
+
+/** 'asc' | 'desc' | null - what <SortIcon> reads. Null keeps a column quiet. */
+function sortDirFor(key) {
+  return sortKey.value === key ? sortDir.value : null
+}
+
+/** The heading's own statement of the same thing, for a screen reader. */
+function ariaSort(key) {
+  if (sortKey.value !== key) return 'none'
+  return sortDir.value === 'asc' ? 'ascending' : 'descending'
+}
+
+const sortedRosterStudents = computed(() => {
+  const rows = filteredRosterStudents.value
+  const key = sortKey.value
+  if (!key || !SORT_VALUES[key]) return rows
+  const read = SORT_VALUES[key]
+  const dir = sortDir.value === 'desc' ? -1 : 1
+  // A COPY. `filteredRosterStudents` can be `existingRoster.students` itself,
+  // and sorting that in place would reorder the document this tab is about to
+  // commit - a view control silently rewriting the file.
+  return [...rows].sort((a, b) => {
+    const av = String(read(a)).trim()
+    const bv = String(read(b)).trim()
+    // Empty last whichever way the arrow points: "the ones with no group" is a
+    // group of its own and belongs at the end, not interleaved at the top of a
+    // descending sort.
+    if (!av && !bv) return 0
+    if (!av) return 1
+    if (!bv) return -1
+    // `numeric` so 3A sorts before 12A, and `sensitivity: base` so a hand-typed
+    // `3a` sits beside `3A` rather than after every uppercase group.
+    return dir * av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' })
+  })
+})
+
+// ---------------------------------------------------------------- selection
+//
+// Held as roster KEYS rather than as row objects: `loadExisting` replaces every
+// object in `students` after a write, so a Set of objects would empty itself on
+// the reload that follows the very action it was collected for.
+const selectedKeys = ref(new Set())
+
+/**
+ * The selected students that ARE STILL ON THE ROSTER.
+ *
+ * `selectedKeys` outlives its rows: select somebody, remove them through the
+ * row menu, and their key is still in the Set. Counting the Set would then
+ * report "3 selected" over two rows and write a number into a commit message
+ * that never described anything. The rows are the population; the keys are how
+ * they are addressed.
+ */
+const selectedStudents = computed(() =>
+  (existingRoster.value?.students || []).filter((s) => selectedKeys.value.has(rosterKey(s))),
+)
+
+function toggleSelected(student) {
+  const key = rosterKey(student)
+  if (!key) return
+  const next = new Set(selectedKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  selectedKeys.value = next
+}
+
+const isSelected = (student) => selectedKeys.value.has(rosterKey(student))
+
+/** Are all the rows CURRENTLY SHOWN selected? The filter is the population. */
+const allShownSelected = computed(() => {
+  const shown = sortedRosterStudents.value
+  return shown.length > 0 && shown.every((s) => selectedKeys.value.has(rosterKey(s)))
+})
+
+/**
+ * Select or clear everything the filter is showing.
+ *
+ * TAKES THE FILTER, NOT THE ROSTER - the same rule the cohort picker follows.
+ * And it ADDS to the selection rather than replacing it, because "3A plus these
+ * four" means moving between filters and the selection has to survive that.
+ */
+function toggleAllShown() {
+  const shown = sortedRosterStudents.value
+  const next = new Set(selectedKeys.value)
+  if (allShownSelected.value) for (const s of shown) next.delete(rosterKey(s))
+  else for (const s of shown) { const k = rosterKey(s); if (k) next.add(k) }
+  selectedKeys.value = next
+}
+
+function clearSelection() {
+  selectedKeys.value = new Set()
+  // The "Selected" chip is gone with the selection, and a filter pointing at a
+  // chip that no longer exists is an empty table with no way back to the list.
+  if (rosterFilter.value === 'selected') rosterFilter.value = 'all'
+}
+
+/**
+ * Selected students the current filter is NOT showing.
+ *
+ * Named on screen rather than left to be discovered. A selection deliberately
+ * survives a filter change - assembling "3B plus these four" needs that - and
+ * the cost is that the count can describe rows nobody can see.
+ */
+const hiddenSelectedCount = computed(() => {
+  const shown = new Set(sortedRosterStudents.value.map((s) => rosterKey(s)))
+  return selectedStudents.value.filter((s) => !shown.has(rosterKey(s))).length
+})
+
+/** Some but not all of the shown rows: the header box says so rather than lying. */
+const someShownSelected = computed(() => {
+  const shown = sortedRosterStudents.value
+  return shown.some((s) => selectedKeys.value.has(rosterKey(s))) && !allShownSelected.value
+})
+
+const bulkGroup = ref('')
+const bulkSaving = ref(false)
+
+/**
+ * Give every selected student the same class group, in ONE commit.
+ *
+ * The whole point. Doing it a cell at a time is N commits to one file within
+ * seconds of each other, and GitHub's Contents API answered the second of those
+ * with a stale sha on PXL-Automation-II - which is the same reason
+ * RosterStudentModal exists. Reported as "extremely slow and annoying"; the
+ * annoyance is the clicking, the slowness is the writes.
+ */
+async function applyGroupToSelected(value = undefined) {
+  // `null` is the deliberate "take the group off these students", from its own
+  // button. `undefined` means read the box - and an empty box does nothing,
+  // because a blank field and a decision to clear must never be the same
+  // gesture.
+  const clearing = value === null
+  const group = clearing ? '' : bulkGroup.value.trim()
+  if ((!clearing && !group) || selectedStudents.value.length === 0) return
+
+  const doc = existingRoster.value
+  const keys = selectedKeys.value
+  // MERGE, NEVER REPLACE: every row is spread and only `class_group` is
+  // touched, so a field this tab does not render survives the write.
+  //
+  // Clearing DELETES the key rather than writing "". The roster schema treats
+  // absent and empty differently everywhere else, `coerceCell` omits an empty
+  // CSV cell for exactly this reason, and `rosterClassGroups` would otherwise
+  // be offered a blank spelling to deduplicate.
+  const students = (doc?.students || []).map((s) => {
+    if (!keys.has(rosterKey(s))) return s
+    if (clearing) { const { class_group: _dropped, ...rest } = s; return rest }
+    return { ...s, class_group: group }
+  })
+  const updatedDoc = { ...doc, schema_version: doc?.schema_version || 2, students }
+
+  bulkSaving.value = true
+  try {
+    const { valid, errors } = await validateAgainst('roster', updatedDoc)
+    if (!valid) {
+      toast.error(`Roster would be invalid: ${errors.map((e) => e.message).join(', ')}`)
+      return
+    }
+    const token = getToken()
+    // REFUSE, DO NOT OVERWRITE - the same guard the cell editor uses, and it
+    // matters more here: this write covers a whole class rather than one cell.
+    const onDisk = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
+    if (onDisk !== null && onDisk !== rosterRaw.value) {
+      toast.error('The roster changed since this page loaded. Reload before editing, so your change is not built on a stale copy.')
+      return
+    }
+    // The count of rows actually changed, not of keys held.
+    const n = selectedStudents.value.length
+    const res = await commitFile(
+      token, props.org, controlRepo, ROSTER_PATH,
+      stringifyYaml(updatedDoc),
+      clearing
+        ? `Remove class group from ${n} student${n === 1 ? '' : 's'}`
+        : `Set class group ${group} for ${n} student${n === 1 ? '' : 's'}`,
+      { baseContent: rosterRaw.value },
+    )
+    if (!res.ok) {
+      toast.error(writeFailure(res))
+      return
+    }
+    toast.success(clearing
+      ? `${n} student${n === 1 ? '' : 's'} no longer in a group`
+      : `${n} student${n === 1 ? '' : 's'} moved to ${group}`)
+    clearSelection()
+    bulkGroup.value = ''
+    await loadExisting()
+  } catch (e) {
+    toast.error(`Could not save: ${e.message}`)
+  } finally {
+    bulkSaving.value = false
+  }
+}
+
+// ------------------------------------------------------------ empty columns
+//
+// A COLUMN NOBODY FILLS ONLY ASKS A QUESTION. `student_number` stopped being
+// required of an imported row, and most institutions hand a lecturer addresses
+// rather than SIS numbers - so on those rosters the column is a permanently
+// empty prompt for a value that does not exist.
+//
+// The GROUP column deliberately does NOT do this. DESIGN.md 1 already records
+// the Class groups picker rendering only once a `class_group` existed, so the
+// control was invisible to every lecturer who had not already used the feature.
+// Hiding the column here would put that back: a lecturer starting to use groups
+// would have nowhere to see them.
+const anyStudentNumber = computed(() =>
+  (existingRoster.value?.students || []).some((s) => String(s.student_number ?? '').trim()),
+)
+
+/**
+ * The table's column count, DERIVED.
+ *
+ * The empty-state cell said `colspan="7"` over a six-column table, and had done
+ * since before the Number column was conditional at all. `tests/table-colspan`
+ * exists for exactly this and guarded only AssignmentDetailView, so the second
+ * table repeated it unwatched. Arithmetic here, and the test rebuilds this
+ * expression from the `<th>`s the template actually renders.
+ */
+const tableColumnCount = computed(() => 6 + (anyStudentNumber.value ? 1 : 0))
 
 function copyUnlinkedEmails() {
   const emails = unlinkedStudents.value
@@ -2415,6 +2848,23 @@ defineExpose({
 .roster-filter-chips {
   margin-top: var(--space-sm);
 }
+
+/* A TONAL STEP, NOT A BORDER (DESIGN.md 1.1). The table below it already draws
+   its own edges, and a bordered bar sitting on a bordered table inside a
+   bordered card is the third box.
+   `--bg-inset` is the recessed step that differs in BOTH themes, which
+   `--bg-surface-elevated` does not - it is `#ffffff` in light, the same as the
+   surface behind it. */
+.bulk-bar {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-inset);
+  border-radius: var(--radius-md);
+}
+/* The group box is one short token, not a sentence. `size="1"` in the markup
+   removes the ~20-character intrinsic width an <input> carries, and this gives
+   it back a readable amount. */
+.bulk-bar input { width: 12ch; }
 
 .roster-table-wrapper {
   margin-top: var(--space-sm);
