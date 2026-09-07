@@ -65,7 +65,7 @@ Done by a lecturer.
 
 **A fork can be a template.** GitHub's repository search omits forks unless the query says `fork:true`, which the picker's query carries. If a template still does not appear, the other cause is **search indexing lag** on a brand-new repository - type `owner/repo` into the box directly, which probes the repository via the REST API instead and works immediately.
 
-Step 2 is the one people miss, and it is the most common reason the Admin Panel's template list is empty: a repository that is not ticked as a **Template repository** does not appear in `is:template` search results, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
+Step 2 is the one people miss, and it is the most common reason the Admin Panel's template list is empty: a repository that is not ticked as a **Template repository** does not appear in the `template:true` search the picker runs, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
 
 ### 1.2 Define the assignment in the Admin Panel
 

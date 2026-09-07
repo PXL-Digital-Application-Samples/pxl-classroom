@@ -760,7 +760,25 @@ export async function listOrgTemplates(token, org) {
     // The REST fallback below would have found it (GET /orgs/{org}/repos
     // includes forks), but that leg only runs when the search FAILS - and this
     // search succeeded. It just answered a question nobody meant to ask.
-    const q = encodeURIComponent(`org:${org} is:template fork:true`)
+    //
+    // The template filter is `template:true`. `is:template` is NOT a qualifier
+    // GitHub has: search ignores an unknown `is:` value silently, so the query
+    // asked for every repository in the org. Measured on PXL-Automation-II,
+    // 2026-09-07: `org:X` returns 93, `org:X is:template` returns the same 93,
+    // `org:X template:true` returns 11.
+    //
+    // The `.filter(r => r.is_template)` below is what hid that for a year. With
+    // `fork:true` the unfiltered search matches 256 repositories, `per_page`
+    // caps the response at the first 100, and the client-side filter salvages
+    // whichever templates happen to be among them - 5 of that org's 11. So the
+    // picker was correct on every org under 100 repositories and silently lost
+    // templates on every org above it, in no stated order: a private template
+    // created minutes earlier during a demo was not in the first 100.
+    //
+    // A wrong qualifier cannot be caught by reading the response - it is a
+    // superset of the right answer, trimmed by the filter into something
+    // plausible. The guard is on the query string: tests/template-search.test.mjs.
+    const q = encodeURIComponent(`org:${org} template:true fork:true`)
     const res = await ghApi(token, 'GET', `/search/repositories?q=${q}&per_page=100`)
     if (res.ok) {
       const items = res.data?.items || []
