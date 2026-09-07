@@ -230,6 +230,7 @@ A GitHub App is a bot that gets short-lived access tokens, limited to specific p
 ```text
                   ┌──────────────────────────────┐
                   │ 1. PROVISIONER APP           │
+                  │ Owned by:     Central Org    │
                   │ Installed on: Course Org     │
                   │ Scope: declared perms only   │
                   └──────────────┬───────────────┘
@@ -240,9 +241,11 @@ A GitHub App is a bot that gets short-lived access tokens, limited to specific p
 │ (Web browser)│          │ (doorbell)   │          │ (Actions)      │
 └──────────────┘          └──────────────┘          └────────────────┘
                                  ▲
-                                 │ (Holds narrow dispatch token only)
+                                 │ (Its key sits here, and is deleted
+                                 │  when the assignment is finalized)
                   ┌──────────────┴───────────────┐
                   │ 2. BROKER APP                │
+                  │ Owned by:     Central Org    │
                   │ Installed on: Hub Repo ONLY  │
                   │ Scope: contents:write only   │
                   └──────────────────────────────┘
@@ -255,8 +258,9 @@ To keep security tight without a server, we split permissions between two GitHub
   - creates repositories, manages permissions and sets rulesets, through a declared permission set rather than ownership
   - Its private key stays locked in the hub environment; it never touches a broker.
 - **Broker App:**
-  - Installed ONLY on the central hub repo, with `contents: write` alone.
+  - Installed ONLY on the central hub repo, with `contents: write` alone - the single permission a `repository_dispatch` needs.
   - It can do only one thing: dispatch an event back to the hub.
+  - Its private key is the one thing that does leave the hub: publishing copies it onto each broker, and finalizing deletes it again.
 
 ### Token-Based / Signed Invite
 
