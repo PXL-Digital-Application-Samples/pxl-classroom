@@ -143,6 +143,9 @@ outputs:
   template_repo:
     description: Template repository name (from the assignment definition)
     value: ${{ steps.accept.outputs.template_repo }}
+  template_repository_id:
+    description: Pinned template repository id, or empty when the assignment has no pin
+    value: ${{ steps.accept.outputs.template_repository_id }}
   feedback_pr:
     description: Whether to set up a frozen baseline branch for a Feedback PR
     value: ${{ steps.accept.outputs.feedback_pr }}

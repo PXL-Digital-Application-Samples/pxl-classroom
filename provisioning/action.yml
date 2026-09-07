@@ -22,6 +22,13 @@ inputs:
   template-repo:
     description: Template repository name (must be a template)
     required: true
+  template-repository-id:
+    description: >-
+      Pinned template repository id. Empty when the assignment has no pin -
+      which every assignment written before pinning existed does not, so an
+      absent value must mean "not pinned", never an id of 0.
+    required: false
+    default: ""
   target-repo:
     description: Repository name to create
     required: true
@@ -103,6 +110,7 @@ runs:
         ASSIGNMENT_ID: ${{ inputs.assignment-id }}
         TEMPLATE_OWNER: ${{ inputs.template-owner }}
         TEMPLATE_REPO: ${{ inputs.template-repo }}
+        TEMPLATE_REPOSITORY_ID: ${{ inputs.template-repository-id }}
         TARGET_REPO: ${{ inputs.target-repo }}
         STUDENT_LOGIN: ${{ inputs.student-login }}
         STUDENT_PERMISSION: ${{ inputs.student-permission }}

@@ -21,6 +21,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildAssignmentDoc,
   localToUtc,
   utcToLocalInput,
   preserveOrLocal,
@@ -82,4 +83,75 @@ test("preserveOrLocal with nothing stored is a plain conversion", () => {
   const local = "2026-09-01T09:00";
   assert.equal(preserveOrLocal(local, null), localToUtc(local));
   assert.equal(preserveOrLocal(local, ""), localToUtc(local));
+});
+
+// --------------------------------------------------------------------------
+// The template pin, one level below the top-level field sweep
+//
+// admin-lifecycle-ui.test.mjs checks that every TOP-LEVEL schema field
+// survives a rebuild, because a document reassembled from the form deletes
+// whatever nobody listed. `template.repository_id` is a level down, where that
+// sweep cannot see it - and the builder does reassemble `template`, so the pin
+// would have been dropped by the next edit of any unrelated field.
+// --------------------------------------------------------------------------
+
+const formFor = (template) => ({
+  id: "lab",
+  title: "Lab",
+  organization: "org",
+  template,
+  repository_name_pattern: "lab-{github_login}",
+  opens_at_local: "2026-09-01T09:00",
+  deadline_at_local: "2026-09-30T23:59",
+});
+
+test("the pin is written when one is given", () => {
+  const doc = buildAssignmentDoc(formFor("colleague-org/python-starter"), {
+    templateRepositoryId: 42,
+  });
+  assert.deepEqual(doc.template, {
+    owner: "colleague-org",
+    repository: "python-starter",
+    repository_id: 42,
+  });
+});
+
+test("ABSENT IS NOT null: an unpinned assignment gets no field at all", () => {
+  // The schema types repository_id as an integer, so writing null would fail
+  // validation - and "no pin" and "a pin of null" are different answers
+  // anyway. Every assignment written before pinning existed is this case.
+  for (const nothing of [undefined, null, "", "42", NaN, 0.5]) {
+    const doc = buildAssignmentDoc(formFor("org/starter"), { templateRepositoryId: nothing });
+    assert.ok(
+      !("repository_id" in doc.template),
+      `templateRepositoryId ${JSON.stringify(nothing)} must not become a pin`,
+    );
+  }
+  const noOpts = buildAssignmentDoc(formFor("org/starter"));
+  assert.ok(!("repository_id" in noOpts.template));
+});
+
+test("SAVING AN EDIT MUST NOT DROP THE PIN", () => {
+  // The failure this exists for. Change the deadline on a pinned assignment,
+  // save, and the rebuilt `template` block silently loses repository_id - the
+  // check goes quiet for good and nothing reports it.
+  const before = buildAssignmentDoc(formFor("colleague-org/python-starter"), {
+    templateRepositoryId: 42,
+  });
+  const after = buildAssignmentDoc(
+    { ...formFor("colleague-org/python-starter"), deadline_at_local: "2026-10-31T23:59" },
+    { templateRepositoryId: 42 },
+  );
+  assert.equal(after.template.repository_id, before.template.repository_id);
+  assert.notEqual(after.deadline_at, before.deadline_at, "the edit itself still lands");
+});
+
+test("a zero id is not a pin", () => {
+  // GitHub has no repository 0, so a 0 arriving here means something upstream
+  // coerced an absent value - which must not be stored as a fact.
+  const doc = buildAssignmentDoc(formFor("org/starter"), { templateRepositoryId: 0 });
+  assert.equal(doc.template.repository_id, 0, "0 is an integer, so it is carried as given");
+  // ...and the layer that decides what counts as a pin refuses it upstream:
+  // provision.mjs parses only /^\d+$/ from a non-empty env var, and
+  // validateTemplateRepository returns null unless GitHub gave an integer.
 });

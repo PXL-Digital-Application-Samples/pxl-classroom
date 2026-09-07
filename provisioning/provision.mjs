@@ -16,6 +16,7 @@ import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
+import { resolveTemplatePin } from "../lib/template-source.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -23,6 +24,10 @@ const cfg = {
   org: env("ORG"),
   templateOwner: env("TEMPLATE_OWNER"),
   templateRepo: env("TEMPLATE_REPO"),
+  // "" means NOT PINNED, which every assignment predating the pin is. Parsed
+  // to null rather than left as a string so the comparison below cannot be a
+  // number-versus-string mismatch that reports every template as replaced.
+  templateRepositoryId: /^\d+$/.test(env("TEMPLATE_REPOSITORY_ID", "")) ? Number(env("TEMPLATE_REPOSITORY_ID", "")) : null,
   targetRepo: env("TARGET_REPO"),
   assignmentId: env("ASSIGNMENT_ID"),
   studentLogin: env("STUDENT_LOGIN"),
@@ -315,7 +320,43 @@ async function main() {
   const tpl = await gh("GET", `/repos/${cfg.templateOwner}/${cfg.templateRepo}`);
   if (!tpl.ok) await fail("fail:template-missing", `template ${cfg.templateOwner}/${cfg.templateRepo} HTTP ${tpl.status}`);
   if (!tpl.data.is_template) await fail("fail:not-a-template", `${cfg.templateOwner}/${cfg.templateRepo} is not a template repository`);
-  log("template", { ok: true, note: `private=${tpl.data.private} is_template=true` });
+
+  // IS THIS STILL THE SAME REPOSITORY? `owner/repo` is a name, and a name can
+  // come to mean something else: the template deleted and recreated, or
+  // transferred away and the name taken. A rename is NOT that - GitHub
+  // redirects a renamed repository and the id is unchanged - which is exactly
+  // why the pin is on the id and not on the name.
+  //
+  // Checked HERE and not only at publish, because publishing does not happen
+  // again while a cohort is accepting. Without this, students who accepted on
+  // Monday and students accepting on Friday would start from different code
+  // and nothing would ever say so. Refusing is the lesser harm: the lecturer
+  // gets a provisioning-failed notice naming both ids, and can decide.
+  //
+  // An empty pin is "not pinned" - every assignment written before pinning
+  // existed has none - and must never be read as an id of 0.
+  const pin = resolveTemplatePin({
+    storedTemplate: {
+      owner: cfg.templateOwner,
+      repository: cfg.templateRepo,
+      ...(cfg.templateRepositoryId === null ? {} : { repository_id: cfg.templateRepositoryId }),
+    },
+    owner: cfg.templateOwner,
+    repo: cfg.templateRepo,
+    probedId: tpl.data.id,
+  });
+  if (!pin.ok) {
+    await fail(
+      "fail:template-replaced",
+      `${cfg.templateOwner}/${cfg.templateRepo} is repository ${pin.probedId}, but this assignment ` +
+        `was created from ${pin.storedId}. It was deleted and recreated, or transferred and the name ` +
+        `reused. Students who accepted earlier started from the old one.`,
+    );
+  }
+  log("template", {
+    ok: true,
+    note: `private=${tpl.data.private} is_template=true id=${tpl.data.id}${pin.pinned ? " (pinned)" : ""}`,
+  });
 
   // 3. Idempotency: existing repo?
   const existing = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}`);

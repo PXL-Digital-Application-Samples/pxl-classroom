@@ -757,6 +757,18 @@ So the rule is not "validate the template", it is **ask with the credential that
 
 Owners are compared through `lib/github-login.mjs`, never a raw `!==`: refusing an organization's own private template over its casing would break the ordinary case.
 
+### `owner/repo` is a name, and a name can come to mean a different repository.
+
+`template.repository_id` sat in the schema for months as *"Immutable GitHub repository ID of the template. Set once on first use"* — with **no reader and no writer**. Exactly the shape LESSONS already warns about: a field that reads as a supported feature.
+
+It is written now, and what it catches is narrow on purpose. A **rename** is not it: GitHub redirects a renamed repository and the id is unchanged, so pinning the *name* would break every lecturer who tidies a template name mid-semester. What the id catches is the case a name cannot — the template **deleted and recreated** under the same name, or transferred away and the name taken. Then students who accepted on Monday and students accepting on Friday start from different code, and nothing anywhere says so. It matters most for the case the pin was added alongside: a template maintained in someone else's organization, where the lecturer is not the person who would be deleting it.
+
+**The pin belongs to the name it sits beside.** Stored inside `template`, next to the owner and repository it was taken from — so pointing the assignment at a *different* template is a new pin, not a mismatch. Getting that backwards would refuse every lecturer who edits the field.
+
+Three surfaces, one judge (`resolveTemplatePin`): the form warns, publish refuses, and **provisioning refuses** — that last one because publishing does not happen again while a cohort is accepting, so it is the only check standing between a replaced template and half a cohort on different starter code. A mismatch is a **warning** in the form, not a block: only the lecturer knows whether the new repository is the starter code they meant, and saving is how they accept it. Re-typing the same name would probe the same repository and reach the same mismatch, so pointing them at the field would be a loop with no exit — the message says *save*.
+
+Two traps found while wiring it. `buildAssignmentDoc` **rebuilds** the `template` block, so saving any unrelated edit dropped the pin and silenced the check for good — the top-level field sweep in `tests/admin-lifecycle-ui.test.mjs` guards exactly this and cannot see one level down. And the pin is read at **save**, not written into `form` when the probe answers: assigning it there would make merely *opening* an unpinned assignment look edited, and fire the discard prompt on a form nobody touched.
+
 ### The same step warns about a deadline that will be blunter than the form promised.
 
 `organizationPlanFinding` already knew that a **free** organization cannot apply rulesets or protected branches to private repositories, so the freeze degrades to demoting each student to `pull` — taking their Actions, secrets and environments with it, on a course whose subject may be exactly those. But it said so about the *organization*, in System Health, which a lecturer may never open, and unconditionally — whether or not any assignment freezes at all.

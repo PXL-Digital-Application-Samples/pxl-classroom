@@ -952,6 +952,9 @@ async function main() {
     await setOutput("previous_repo", previousRepo || "");
     await setOutput("template_owner", assignment.template.owner);
     await setOutput("template_repo", assignment.template.repository);
+    // The pin, or "" when this assignment predates one. Empty means "not
+    // pinned" downstream and must not be read as an id of 0.
+    await setOutput("template_repository_id", assignment.template.repository_id ?? "");
     await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
     await setOutput("feedback_pr_baseline_branch", assignment.feedback_pr_baseline_branch || "pxl-baseline");
     await summary(`### Acceptance: \`already-accepted\`\n\n${login} already accepted ${assignmentId}.`);
@@ -1023,6 +1026,7 @@ async function main() {
   await setOutput("previous_repo", previousRepo || "");
   await setOutput("template_owner", assignment.template.owner);
   await setOutput("template_repo", assignment.template.repository);
+  await setOutput("template_repository_id", assignment.template.repository_id ?? "");
   await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
   await setOutput("feedback_pr_baseline_branch", assignment.feedback_pr_baseline_branch || "pxl-baseline");
 

@@ -847,6 +847,11 @@ export async function validateTemplateRepository(token, owner, repo) {
   const repoData = res.data || {}
   return {
     ok: true,
+    // The immutable repository id, pinned onto the assignment so a template
+    // deleted and recreated under the same name is caught rather than adopted
+    // (lib/template-source.mjs). `null` rather than 0 when GitHub did not give
+    // one: an id nobody read must not become a pin.
+    id: Number.isInteger(repoData.id) ? repoData.id : null,
     isTemplate: !!repoData.is_template,
     defaultBranch: repoData.default_branch || 'main',
     isPrivate: !!repoData.private,

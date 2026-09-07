@@ -495,6 +495,13 @@
                 <span v-else-if="templateValidationStatus.valid && templateValidationStatus.blocked" class="badge badge-error flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
                   <Icon name="x-circle" :size="13" /> Private template in another organization
                 </span>
+                <!-- A WARNING, not a refusal: the new repository may be exactly
+                     what the lecturer intended, and only they can say. Saving
+                     adopts it; until then provisioning refuses, so nobody gets
+                     starter code the assignment was not built from. -->
+                <span v-else-if="templateValidationStatus.valid && templateValidationStatus.replaced" class="badge badge-warning flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
+                  <Icon name="alert-triangle" :size="13" /> {{ templateValidationStatus.replaced }}
+                </span>
                 <span v-else-if="templateValidationStatus.valid && templateValidationStatus.isTemplate" class="badge badge-success flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
                   <Icon name="check-circle" :size="13" /> Valid Template Repository ({{ templateValidationStatus.defaultBranch }} branch{{ templateValidationStatus.isPrivate ? ', private' : '' }})
                 </span>
@@ -1530,7 +1537,13 @@ import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
-import { templateUsable, templateSourceMessage, FOREIGN_PRIVATE } from '../../../lib/template-source.mjs'
+import {
+  templateUsable,
+  templateSourceMessage,
+  resolveTemplatePin,
+  templatePinMessage,
+  FOREIGN_PRIVATE,
+} from '../../../lib/template-source.mjs'
 import { formatDate } from '../lib/format.js'
 
 // DESIGN.md §1.3/§4 - a status is a dot plus mixed-case text. The WORDS match
@@ -2448,6 +2461,10 @@ function handleClickOutside(ev) {
 }
 
 const templateValidationStatus = ref(null)
+// The `template` block of the assignment currently open, as STORED. The pin is
+// compared against the document, not against the form - `form.template` is
+// only the `owner/repo` string, and rebuilding a pin from it is impossible.
+const storedTemplate = ref(null)
 let templateValidationTimer = null
 
 async function checkTemplateValidity(templateStr) {
@@ -2487,12 +2504,30 @@ async function checkTemplateValidity(templateStr) {
           isPrivate: res.isPrivate,
           isTemplate: res.isTemplate,
         })
+        // Is this still the repository the assignment was created from? Only
+        // meaningful while EDITING one - a new assignment has nothing to
+        // compare against, and `editing.value` carries the stored document.
+        const pin = resolveTemplatePin({
+          storedTemplate: isNew.value ? null : storedTemplate.value,
+          owner,
+          repo,
+          probedId: res.id,
+        })
         templateValidationStatus.value = {
           valid: true,
           isTemplate: res.isTemplate,
           defaultBranch: res.defaultBranch,
           isPrivate: res.isPrivate,
           fullName: res.fullName,
+          // Carried onto the saved document, so the pin is taken on first use
+          // and preserved afterwards rather than re-taken on every edit.
+          // On a replacement this is the NEW id: the badge reports it, and
+          // saving is how the lecturer accepts it. Storing null instead would
+          // drop the pin altogether and silence the check for good.
+          repositoryId: pin.ok ? pin.repositoryId : res.id,
+          replaced: pin.ok
+            ? null
+            : templatePinMessage(pin, { templateOwner: owner, templateRepo: repo }),
           // Only the impossible one blocks the SAVE. A repository that is
           // merely not ticked as a template keeps its existing warning: it is
           // one checkbox away on a repository the lecturer owns, and a draft
@@ -2870,6 +2905,9 @@ function newAssignment() {
   if (!confirmDiscard()) return
   stopPublishWatch()
   editing.value = { __new: true, id: '' }
+  // Nothing stored yet, so nothing to compare a pin against - and a stale one
+  // from the previously open assignment would accuse the wrong template.
+  storedTemplate.value = null
   manualSlug.value = false
   manualRepositoryNamePattern.value = false
   slugEditing.value = false
@@ -2906,6 +2944,11 @@ function editAssignment(a) {
   if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
   stopPublishWatch()
   editing.value = { id: a.id }
+  // The STORED template block, kept beside the form rather than inside it: the
+  // pin is compared against what the document says, and `form` carries only
+  // the `owner/repo` string. Not folded into `editing.value`, which other code
+  // compares as an identity.
+  storedTemplate.value = a.template || null
   manualSlug.value = true // existing assignments - never auto-rewrite the slug
   manualRepositoryNamePattern.value = true
   // Never editable on an existing assignment - changing it orphans the YAML -
@@ -3238,8 +3281,43 @@ function clearAutograde() {
 // that had drifted past the signed-acceptance keypair, claim_domains, autograde
 // and feedback_pr - so the diagnostics contract was checked against a shape this
 // panel had not written for months.
+/**
+ * The template pin to save: fresh from the probe, or the stored one carried
+ * over.
+ *
+ * Read at SAVE rather than written into `form` while typing, deliberately. The
+ * probe is async and fires on load; assigning its answer into the form would
+ * make merely OPENING an old assignment - one with no pin yet - look edited,
+ * and the discard prompt would fire on a form nobody touched.
+ *
+ * `resolveTemplatePin` decides, so the carry-over rule is the same one the
+ * publish preflight and provisioning apply: the pin belongs to the name it
+ * sits beside, a different template is a new pin, and a replaced repository is
+ * ADOPTED here because saving is the lecturer's deliberate act of accepting it
+ * (the badge told them first, and provisioning refuses until they do).
+ */
+function currentTemplatePin() {
+  const [owner, repo] = String(form.value.template || '').split('/')
+  if (!owner || !repo) return null
+  const probe = templateValidationStatus.value
+  const asked = `${owner}/${repo}`.toLowerCase()
+  const probedId =
+    probe?.valid && String(probe.fullName || '').toLowerCase() === asked ? probe.repositoryId : null
+  const pin = resolveTemplatePin({
+    storedTemplate: isNew.value ? null : storedTemplate.value,
+    owner,
+    repo,
+    probedId,
+  })
+  // A mismatch ADOPTS the new id rather than dropping the pin. The badge has
+  // already told the lecturer the repository changed and that saving accepts
+  // it; returning null here would instead delete the pin, silence the check
+  // permanently, and leave provisioning unable to refuse the next surprise.
+  return pin.ok ? pin.repositoryId : probedId
+}
+
 function buildDoc(state = null) {
-  return buildAssignmentDoc(form.value, { state })
+  return buildAssignmentDoc(form.value, { state, templateRepositoryId: currentTemplatePin() })
 }
 
 

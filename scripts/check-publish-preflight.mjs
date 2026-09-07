@@ -41,7 +41,12 @@
 // Env:   GITHUB_TOKEN - App installation token for the assignment's org
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
-import { templateUsable, templateSourceMessage } from "../lib/template-source.mjs";
+import {
+  templateUsable,
+  templateSourceMessage,
+  resolveTemplatePin,
+  templatePinMessage,
+} from "../lib/template-source.mjs";
 import { assignmentFreezePlanFinding, FREE_PLAN } from "../lib/audit.mjs";
 
 const API = process.env.GITHUB_API_URL || "https://api.github.com";
@@ -108,7 +113,24 @@ async function main() {
   if (!finding.ok) {
     fail(templateSourceMessage(finding, { templateOwner: owner, templateRepo: repo, org }));
   }
-  console.log(`[template] ok - ${full} private=${data.private} is_template=${data.is_template}`);
+
+  // Is this still the repository the assignment was created from? A rename is
+  // not: GitHub redirects it and the id is unchanged. A delete-and-recreate,
+  // or a transfer with the name reused, is - and publishing is the one moment
+  // a lecturer can be told before the next student accepts.
+  const pin = resolveTemplatePin({
+    storedTemplate: doc.template,
+    owner,
+    repo,
+    probedId: data?.id,
+  });
+  if (!pin.ok) {
+    fail(templatePinMessage(pin, { templateOwner: owner, templateRepo: repo }));
+  }
+  console.log(
+    `[template] ok - ${full} private=${data.private} is_template=${data.is_template} ` +
+      `id=${data.id}${pin.pinned ? " (pinned)" : " (not pinned)"}`,
+  );
 
   // --- 2. the plan, against what this assignment asked for -----------------
   //

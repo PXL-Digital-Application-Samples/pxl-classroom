@@ -360,9 +360,14 @@ test("the Admin Panel does not rebuild the document itself", () => {
   // growing back inside the view is how the contract test's copy drifted in the
   // first place, and every guard above this line reads the module, not the view.
   const view = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  // The options object may carry more than `state` - the template pin is
+  // computed at save rather than held in `form`, because writing the probe's
+  // answer into the form would make merely OPENING an unpinned assignment
+  // look edited. What this guards is unchanged: the view hands its form state
+  // to the module and does not rebuild the document itself.
   assert.match(
     view,
-    /buildAssignmentDoc\(form\.value, \{ state \}\)/,
+    /buildAssignmentDoc\(form\.value, \{ state[,}]/,
     "AdminView must delegate to lib/assignment-doc.mjs",
   );
   // Anchored on what only the DOCUMENT has and the form state does not: a

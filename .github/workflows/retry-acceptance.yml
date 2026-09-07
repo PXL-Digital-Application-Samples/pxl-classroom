@@ -207,6 +207,7 @@ jobs:
           assignment-id: ${{ inputs.assignment_id }}
           template-owner: ${{ steps.accept.outputs.template_owner }}
           template-repo: ${{ steps.accept.outputs.template_repo }}
+          template-repository-id: ${{ steps.accept.outputs.template_repository_id }}
           target-repo: ${{ steps.accept.outputs.target_repo }}
           student-login: ${{ steps.accept.outputs.github_login }}
           feedback-pr: ${{ steps.accept.outputs.feedback_pr }}

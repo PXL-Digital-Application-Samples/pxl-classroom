@@ -19,8 +19,11 @@ import {
   templateUsable,
   templateSourceMessage,
   isForeignTemplate,
+  resolveTemplatePin,
+  templatePinMessage,
   FOREIGN_PRIVATE,
   NOT_A_TEMPLATE,
+  TEMPLATE_REPLACED,
   UNKNOWN,
 } from "../lib/template-source.mjs";
 
@@ -135,6 +138,135 @@ test("the message never points a lecturer at this repository's docs", () => {
       assert.doesNotMatch(msg, /RUNBOOK|ARCHITECTURE|LESSONS|§|\.md\b/);
     }
   }
+});
+
+// --------------------------------------------------------------------------
+// The pin
+// --------------------------------------------------------------------------
+
+const tpl = (over = {}) => ({ owner: "colleague-org", repository: "python-starter", ...over });
+
+test("first use takes the pin", () => {
+  const r = resolveTemplatePin({
+    storedTemplate: tpl(),
+    owner: "colleague-org",
+    repo: "python-starter",
+    probedId: 42,
+  });
+  assert.deepEqual(r, { ok: true, repositoryId: 42, pinned: false });
+});
+
+test("an unchanged repository keeps its pin", () => {
+  const r = resolveTemplatePin({
+    storedTemplate: tpl({ repository_id: 42 }),
+    owner: "colleague-org",
+    repo: "python-starter",
+    probedId: 42,
+  });
+  assert.deepEqual(r, { ok: true, repositoryId: 42, pinned: true });
+});
+
+test("THE ALARM: same name, different repository", () => {
+  // Deleted and recreated, or transferred away and the name taken. Students
+  // who accepted yesterday started from a different repository than students
+  // accepting today, and nothing else in the system would ever notice.
+  const r = resolveTemplatePin({
+    storedTemplate: tpl({ repository_id: 42 }),
+    owner: "colleague-org",
+    repo: "python-starter",
+    probedId: 99,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, TEMPLATE_REPLACED);
+  assert.equal(r.storedId, 42);
+  assert.equal(r.probedId, 99);
+});
+
+test("A RENAME IS NOT A REPLACEMENT, and must not be reported as one", () => {
+  // GitHub redirects a renamed repository, so the old path keeps resolving to
+  // it with the SAME id. Renaming a template is an ordinary thing to do and
+  // must not break a live assignment - which is exactly what pinning the NAME
+  // instead of the id would have done.
+  const r = resolveTemplatePin({
+    storedTemplate: tpl({ repository_id: 42 }),
+    owner: "colleague-org",
+    repo: "python-starter",
+    probedId: 42,
+  });
+  assert.equal(r.ok, true);
+});
+
+test("pointing the assignment at a DIFFERENT template is a new pin, not a mismatch", () => {
+  // The pin belongs to the name it sits beside. Comparing it against a
+  // template the lecturer has just deliberately changed to would refuse every
+  // edit of that field - the opposite of the feature.
+  const r = resolveTemplatePin({
+    storedTemplate: tpl({ repository_id: 42 }),
+    owner: "other-org",
+    repo: "different-starter",
+    probedId: 99,
+  });
+  assert.deepEqual(r, { ok: true, repositoryId: 99, pinned: false });
+
+  // Same owner, different repository - also a different template.
+  const sameOwner = resolveTemplatePin({
+    storedTemplate: tpl({ repository_id: 42 }),
+    owner: "colleague-org",
+    repo: "another-starter",
+    probedId: 7,
+  });
+  assert.equal(sameOwner.ok, true);
+  assert.equal(sameOwner.repositoryId, 7);
+});
+
+test("the owner casing does not make it a different template", () => {
+  const r = resolveTemplatePin({
+    storedTemplate: tpl({ owner: "Colleague-Org", repository_id: 42 }),
+    owner: "colleague-org",
+    repo: "python-starter",
+    probedId: 99,
+  });
+  assert.equal(r.code, TEMPLATE_REPLACED, "same template, so the mismatch must still be caught");
+});
+
+test("an unreadable id neither pins nor accuses", () => {
+  // No id from the probe means we did not learn anything. Keep what is stored
+  // and say nothing: inventing a pin, or reporting a mismatch against
+  // `undefined`, are both facts nobody established.
+  for (const bad of [undefined, null, "42", NaN, 4.2]) {
+    const r = resolveTemplatePin({
+      storedTemplate: tpl({ repository_id: 42 }),
+      owner: "colleague-org",
+      repo: "python-starter",
+      probedId: bad,
+    });
+    assert.equal(r.ok, true, JSON.stringify(bad));
+    assert.equal(r.repositoryId, 42, "the stored pin survives an unreadable probe");
+  }
+});
+
+test("an assignment with no stored template pins whatever it is given", () => {
+  const r = resolveTemplatePin({ owner: "o", repo: "r", probedId: 5 });
+  assert.deepEqual(r, { ok: true, repositoryId: 5, pinned: false });
+});
+
+test("the mismatch message says what changed, what it cost, and whose call it is", () => {
+  const finding = resolveTemplatePin({
+    storedTemplate: tpl({ repository_id: 42 }),
+    owner: "colleague-org",
+    repo: "python-starter",
+    probedId: 99,
+  });
+  const msg = templatePinMessage(finding, {
+    templateOwner: "colleague-org",
+    templateRepo: "python-starter",
+  });
+  assert.match(msg, /colleague-org\/python-starter/);
+  assert.match(msg, /42/);
+  assert.match(msg, /99/);
+  assert.match(msg, /accepted earlier/, "what it means for students already provisioned");
+  assert.doesNotMatch(msg, /RUNBOOK|ARCHITECTURE|LESSONS|§/);
+  assert.equal(templatePinMessage({ ok: true }), "");
 });
 
 test("a passing finding has no message", () => {
