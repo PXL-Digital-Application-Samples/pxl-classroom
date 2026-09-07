@@ -128,3 +128,122 @@ test("pruning is reported, not silent", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --------------------------------------------------------------------------
+// THE HOLE IN THE NET
+//
+// All of the above runs report.mjs - which is the point. The reconciliation
+// lived inside it, so it happened only as a SIDE EFFECT of generating some
+// other assignment's report, and generate-interim-reports.mjs generates
+// reports for `published` and `closed` assignments only. An organization whose
+// remaining assignments are all draft or archived therefore reconciled
+// NOTHING, and a deleted assignment's card sat on the dashboard indefinitely.
+//
+// Found on pxl-classroom-testbed on 2026-09-07: its one surviving assignment
+// is archived, a deleted assignment's card survived a full
+// regenerate-dashboard run, and it had to be removed by hand.
+// --------------------------------------------------------------------------
+
+function makeArchivedOnlyDir() {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-prune-archived-"));
+  mkdirSync(join(dir, "reports"), { recursive: true });
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", "archived-one.yml"), [
+    "schema_version: 1",
+    "id: archived-one",
+    "title: Archived",
+    "organization: TestOrg",
+    "template:",
+    "  owner: TestOrg",
+    "  repository: tpl",
+    "repository_name_pattern: archived-one-{github_login}",
+    "opens_at: 2026-08-01T08:00:00.000Z",
+    "deadline_at: 2026-12-31T22:00:00.000Z",
+    "state: archived",
+    "",
+  ].join("\n"));
+  return dir;
+}
+
+const runPrune = (dir) =>
+  spawnSync("node", [join(root, "scripts", "prune-dashboard.mjs"), dir], { encoding: "utf8" });
+
+test("THE HOLE: an org with only archived assignments still reconciles", () => {
+  // No report can be generated here - nothing is published or closed - so
+  // before the standalone script this entry was unreachable by any prune.
+  const dir = makeArchivedOnlyDir();
+  try {
+    writeDashboard(dir, {
+      "archived-one": { title: "Archived", state: "archived" },
+      "deleted-one": { title: "Ghost", state: "published" },
+    });
+    const res = runPrune(dir);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(Object.keys(dashboardOf(dir).assignments).sort(), ["archived-one"]);
+    assert.match(res.stdout || "", /pruned dashboard entry for deleted-one/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the standalone prune leaves everything alone when it cannot list", () => {
+  // Same rule as report.mjs's: a failed listing is not evidence that every
+  // assignment is gone, and deleting a live cohort's card over a read hiccup
+  // is far worse than the stale card this removes.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-prune-nolist-"));
+  try {
+    mkdirSync(join(dir, "reports"), { recursive: true });
+    writeDashboard(dir, { live: {}, ghost: {} });
+    const res = runPrune(dir); // no assignments/ directory at all
+    assert.equal(res.status, 0);
+    assert.deepEqual(Object.keys(dashboardOf(dir).assignments).sort(), ["ghost", "live"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a missing dashboard is the ordinary state of a new org, not a failure", () => {
+  const dir = makeArchivedOnlyDir();
+  try {
+    const res = runPrune(dir);
+    assert.equal(res.status, 0, "a new organization has no dashboard yet");
+    assert.match(res.stdout || "", /not present/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("it does not restamp generated_at - it computed nothing", () => {
+  // The field records when the NUMBERS were computed. Removing somebody else's
+  // card did not recompute them, and restamping would claim a freshness this
+  // run did not produce.
+  const dir = makeArchivedOnlyDir();
+  try {
+    const stamp = "2020-01-01T00:00:00.000Z";
+    writeFileSync(
+      join(dir, "reports", "dashboard.json"),
+      JSON.stringify(
+        { schema_version: 1, generated_at: stamp, assignments: { "archived-one": {}, ghost: {} } },
+        null,
+        2,
+      ) + "\n",
+    );
+    runPrune(dir);
+    const after = dashboardOf(dir);
+    assert.deepEqual(Object.keys(after.assignments), ["archived-one"], "it did prune");
+    assert.equal(after.generated_at, stamp);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the workflow actually runs it, or the script is dead code", () => {
+  // The prune only closes the hole if regenerate-dashboard.yml calls it, and
+  // an unreferenced script in scripts/ looks exactly like a working fix.
+  const wf = readFileSync(join(root, ".github", "workflows", "regenerate-dashboard.yml"), "utf8");
+  assert.match(wf, /node scripts\/prune-dashboard\.mjs/, "regenerate-dashboard must run the prune");
+  // `always()`, so a failed report generation does not also skip the
+  // reconciliation - the two are independent, which is the whole point.
+  const step = wf.slice(wf.indexOf("Prune dashboard entries"));
+  assert.match(step.slice(0, 200), /if: always\(\)/);
+});

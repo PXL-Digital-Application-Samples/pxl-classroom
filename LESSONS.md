@@ -744,6 +744,18 @@ Four states where the Admin Panel stopped a lecturer and then declined to help (
 
 `listOrgTemplates` searched `org:<org> is:template` (a broken qualifier in its own right - see below) and a forked template never appeared in the Admin Panel picker - no error, `is_template: true` on the repository, and the first-run wall confidently telling the lecturer their org had none. Reported live for `PXL-2TIN-NetAdv-26-27/Guts-DotNetAdvanced-2627` on 2026-08-24. The query carries **`fork:true`** ("forks *as well as* non-forks" - never `fork:only`, which swaps the blind spot for its opposite). The `listOrgRepos` fallback would have found it, because `GET /orgs/{org}/repos` includes forks - but that leg only runs when the search **fails**, and this search succeeded; it just answered a question nobody meant to ask. That is the shape to watch for: a successful call with a silently narrowed result set is not the same as a failure, and no fallback catches it. `tests/e2e/33-first-run-wall-edges.spec.mjs` mocks the search the way GitHub actually behaves - reading the real query string rather than being handed the answer - so dropping the qualifier goes red.
 
+### A safety net that runs as a side effect of something else has a hole the shape of that something else.
+
+`reports/dashboard.json` was append-only, and a deleted assignment's card stayed on the lecturer's dashboard for ever — `phasea-live-sysex` on PXL-Systems-Expert, which took the page down. The fix put a reconciliation in `report.mjs`: list `assignments/`, drop every entry not in it. Correct, tested four ways, and it worked.
+
+It ran **only when a report was generated.** `generate-interim-reports.mjs` generates reports for `published` and `closed` assignments only, so an organization whose remaining assignments are all draft or archived generated none, reconciled nothing, and kept the stale card indefinitely — through a full `regenerate-dashboard` run, which regenerates the *public Pages data* and reported `Generated 0 assignment(s)`.
+
+Found by cleaning up after a live end-to-end test on `pxl-classroom-testbed` on 2026-09-07: the test assignment's card survived every workflow available and had to be deleted **by hand**. That hand-edit is the tell. A cleanup that a supported procedure cannot perform is a procedure that does not exist.
+
+Two things came out of it. The decision moved to `lib/dashboard-aggregate.mjs` (`pruneMissingAssignments`), shared rather than inlined in its one caller; and `scripts/prune-dashboard.mjs` runs it on its own in `regenerate-dashboard.yml`, `if: always()`, so reconciliation no longer depends on whether any report was worth generating. It does **not** restamp `generated_at` — that field records when the numbers were computed, and removing somebody else's card computed nothing.
+
+The Admin Panel's own delete was never affected: it removes the entry in the same commit as everything else it deletes. This is the net under the rest, and a net is exactly the thing whose gaps nobody notices until they fall through one.
+
 ### A pre-flight that asks with the wrong credential is not a pre-flight.
 
 A colleague asked whether an assignment could use a template repository in **another organization**. Measured on the live testbed on 2026-09-07 by running the real acceptance and provisioning chain rather than reading the docs — which were ambiguous enough that the prediction came out **backwards**:

@@ -55,6 +55,20 @@ jobs:
         run: |
           node scripts/generate-interim-reports.mjs control
 
+      # Reconcile the dashboard against the assignments that still exist.
+      #
+      # Separate from the step above, and `always()`, because the prune used to
+      # live INSIDE report.mjs - so it ran only as a side effect of generating
+      # some other assignment's report. The step above generates reports for
+      # `published` and `closed` assignments only, so an organization whose
+      # remaining assignments are all draft or archived reconciled nothing and
+      # kept a deleted assignment's card indefinitely. Reads one directory and
+      # rewrites one file; the commit step below carries it.
+      - name: Prune dashboard entries with no assignment
+        if: always()
+        run: |
+          node scripts/prune-dashboard.mjs control
+
       # `always()`, because generate-interim-reports.mjs now exits non-zero when
       # some reports could not be generated. The ones that DID generate are
       # already on disk, and abandoning them would mean the dashboard serves

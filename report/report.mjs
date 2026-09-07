@@ -19,7 +19,7 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { buildDashboardEntry } from "../lib/dashboard-aggregate.mjs";
+import { buildDashboardEntry, pruneMissingAssignments } from "../lib/dashboard-aggregate.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { csvCell } from "../lib/csv-cell.mjs";
 import { REPORT_ROW_COLUMNS } from "../lib/report-csv.mjs";
@@ -707,16 +707,20 @@ async function main() {
   } catch (e) {
     console.error(`[warn] could not list assignments/, leaving dashboard entries untouched: ${e.message}`);
   }
-  if (onDisk && onDisk.size > 0) {
-    for (const id of Object.keys(dashboard.assignments)) {
-      // Never the assignment this run just generated - it is on disk by
-      // definition, and a rename mid-run must not delete the entry just written.
-      if (id === assignmentId) continue;
-      if (!onDisk.has(id)) {
-        delete dashboard.assignments[id];
-        console.error(`[ok] pruned dashboard entry for ${id} - assignments/${id}.yml no longer exists`);
-      }
-    }
+  // `keep` is the assignment this run just generated - on disk by definition,
+  // and a rename mid-run must not delete the entry just written.
+  //
+  // The decision itself is `lib/dashboard-aggregate.mjs`, shared with
+  // scripts/prune-dashboard.mjs. It used to live here alone, which made the
+  // reconciliation a side effect of generating some OTHER assignment's report:
+  // an org whose remaining assignments are all draft or archived generates no
+  // reports at all and never reconciled.
+  const { dashboard: reconciled, pruned } = pruneMissingAssignments(dashboard, onDisk, {
+    keep: assignmentId,
+  });
+  dashboard = reconciled;
+  for (const id of pruned) {
+    console.error(`[ok] pruned dashboard entry for ${id} - assignments/${id}.yml no longer exists`);
   }
 
   dashboard.generated_at = new Date().toISOString();

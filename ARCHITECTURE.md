@@ -577,6 +577,8 @@ A limitation worth knowing: an extension granted *after* a student has already b
 - `daily-activity.yml` after the nightly run (so the dashboard reflects new observations and finalized state).
 - Manual `workflow_dispatch` (for repair).
 
+It also **reconciles** `reports/dashboard.json` against the assignments that still exist, in a step of its own (`scripts/prune-dashboard.mjs`, `if: always()`). That reconciliation used to live inside `report.mjs`, which made it a side effect of generating some other assignment's report - and `generate-interim-reports.mjs` generates reports for `published` and `closed` assignments only, so an organization whose remaining assignments were all draft or archived never reconciled at all and kept a deleted assignment's card indefinitely. The decision itself is `pruneMissingAssignments` in `lib/dashboard-aggregate.mjs`, shared by both callers. An unreadable or empty `assignments/` listing prunes **nothing** - it is not evidence that every assignment is gone - and the prune does not restamp `generated_at`, which records when the numbers were computed. The Admin Panel's delete is unaffected: it removes the entry in the same commit as the rest of the deletion, and this is the net under everything that does not go through it.
+
 ### 6.4 Zero idle minutes
 
 `daily-activity.yml` is disabled by default. The lifecycle is:
