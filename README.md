@@ -185,6 +185,32 @@ At its core, this system is a **repository provisioner and a passive monitor**. 
 
 ### Public vs. Private Boundaries
 
+```mermaid
+flowchart LR
+    subgraph Central["CENTRAL ORGANIZATION - one, shared by everyone"]
+        direction TB
+        Hub["HUB REPOSITORY<br/><b>public</b><br/>every workflow and script<br/>the only place code runs"]
+        Pages["WEB APP on GitHub Pages<br/><b>public</b><br/>holds no keys of its own"]
+    end
+
+    subgraph Course["COURSE ORGANIZATION - one per course or year"]
+        direction TB
+        Broker["BROKER<br/><b>public</b><br/>1 per assignment<br/>the doorbell"]
+        Control["CONTROL REPOSITORY<br/><b>private</b><br/>data only, no workflows"]
+        Student["STUDENT REPOSITORIES<br/><b>private</b><br/>student is Admin"]
+        Archive["ARCHIVE<br/><b>private</b><br/>1 per assignment<br/>out of student reach"]
+    end
+
+    Pages -->|"signed acceptance"| Broker
+    Broker -->|"dispatch"| Hub
+    Hub -->|"creates, then freezes"| Student
+    Hub -->|"writes reports"| Control
+    Student -->|"at the deadline"| Archive
+    Pages <-->|"your own sign-in"| Control
+```
+
+Everything public is either code you can read or a doorbell that carries a request inward. Everything with student work or student data in it is private.
+
 | Component | Visibility | Where It Lives | Purpose |
 | :--- | :--- | :--- | :--- |
 | **Hub Repository (`pxl-classroom`)** | **PUBLIC** | Central Org | Holds all workflows, scripts, and the static Vue SPA frontend. **The only place code runs!** (Hub workflow minutes are 100% free). |
@@ -195,6 +221,8 @@ At its core, this system is a **repository provisioner and a passive monitor**. 
 | **Archive Repositories (`pxl-classroom-archive-<id>`)** | **PRIVATE** | Your Course Org | **1 private archive repo per assignment.** Holds frozen, immutable snapshot branches of submissions at the deadline. Out of student reach. |
 
 ### Two GitHub Apps
+
+A GitHub App is a bot that gets short-lived access tokens, limited to specific permissions and organizations.
 
 ```text
                   ┌──────────────────────────────┐
@@ -224,8 +252,8 @@ To keep security tight without a server, we split permissions between two GitHub
   - creates repositories, manages permissions and sets rulesets, through a declared permission set rather than ownership
   - Its private key stays locked in the hub environment; it never touches a broker.
 - **Broker App:**
-  - *Installed ONLY on the central hub repo with `contents: write` alone.
-  - It can do only one thing: dispatch an event back to the hub.*
+  - Installed ONLY on the central hub repo, with `contents: write` alone.
+  - It can do only one thing: dispatch an event back to the hub.
 
 ### Token-Based / Signed Invite
 
@@ -284,7 +312,7 @@ Full command list: [cli/README.md](cli/README.md).
 ## Repository Layout
 
 | Path | Description |
-|---|---|
+| --- | --- |
 | `deployment.yml` | **Institution-specific configuration** - email domains, timezone, hub/App/control-repo names, and the sign-in proxy. It is the only *code* a fork edits; the App and Pages site are set up per [INSTALL.md](INSTALL.md) |
 | `.github/workflows/` | Every workflow in the system - acceptance, publishing, the nightly collect, the deadline sentinel, dashboard regeneration, usage reporting, release and deploy. A course organization has none of its own |
 | `acceptance/`, `provisioning/`, `collect/`, `lockdown/`, `preserve/`, `report/`, `notify/`, `pages/`, `registry/` | Composite actions |
@@ -302,7 +330,7 @@ Full command list: [cli/README.md](cli/README.md).
 ## Further documentation
 
 | Role | Documentation |
-|---|---|
+| --- | --- |
 | A **lecturer** running assignments | **[RUNBOOK.md](RUNBOOK.md)** - publishing, deadlines, grading, a student who is stuck. Autograding has its own short one: **[AUTOGRADING.md](AUTOGRADING.md)** |
 | An **administrator** | **[ADMIN.md](ADMIN.md)** - onboarding an organization, budgets, App permissions, incidents |
 | Standing the system up for an institution | **[INSTALL.md](INSTALL.md)** - the one-time setup |
