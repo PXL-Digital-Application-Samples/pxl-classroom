@@ -4123,6 +4123,24 @@ watch(
 
 /* EDITOR */
 .editor-pane {
+  /* THE BORDER HUGS THE FORM, because a card that grows around contents that
+     do not is a card with a hole in it. The pane is the grid's `1fr` track, so
+     it filled whatever was going: measured at 818px on a 1200px window and
+     1008px on anything from 1600px up, around a form fixed at 640px - 368px of
+     empty space INSIDE a border. Capping the pane moves that space outside,
+     where it reads as page margin instead of a gap in a panel.
+
+     ONE NUMBER, USED TWICE. `--form-measure` is the form's width and the thing
+     this border is sized from, so the two cannot drift; the +2px is the border
+     itself. It lives in style.css's `:root` beside `--gutter` rather than here
+     - a component-local custom property reads as dangling to the guard that
+     stops a `var()` silently dropping, and it cannot tell the difference.
+
+     Left-aligned, not centred: the tabs and the assignment list above and
+     beside it are, and a centred card under left-aligned tabs would be the odd
+     one out. The whole content column already centres in `.container`, which
+     is where the page-level balance comes from. */
+  max-width: calc(var(--form-measure) + 2 * var(--space-lg) + 2px);
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: 8px;
@@ -4149,7 +4167,9 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  max-width: 640px;
+  /* The same token `.editor-pane` sizes its border from, so the card and the
+     column it wraps cannot drift apart. */
+  max-width: var(--form-measure);
 }
 /* The Advanced disclosure is not a fieldset and carried no styling at all, so
    its three fields sat 16px wider than every other field on the form - the one
@@ -4215,6 +4235,11 @@ legend {
   margin-bottom: var(--space-md);
 }
 .field:last-child { margin-bottom: 0; }
+/* A `.field` is a flex COLUMN, so a child with no width of its own stretches
+   the full measure - which centred the text of "Add a description" and made a
+   link look like a heading. Everything else in a field is a full-width control
+   or a line of text, so this only ever bites a bare button. */
+.field > .btn-link { align-self: flex-start; }
 /* ONE MEASURE, ON THE COLUMN - see `.editor-form` below.
    Per-control caps lived here and were the wrong answer: they produced THREE
    widths on one screen (353px inputs, a 518px template picker, and help text

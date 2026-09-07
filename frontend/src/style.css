@@ -190,6 +190,17 @@
      full-bleed header share it so the brand stays aligned with content. */
   --gutter: clamp(12px, 1.6vw, var(--space-lg));
 
+  /* Form measure - how wide a column of form controls is allowed to get.
+     Chosen for the TEXT rather than the inputs: at 14px this is about 90
+     characters, against the ~110 a full-width admin pane was giving, and the
+     longest value a control here has to show without truncating
+     (`owner/repository` plus a refresh button) still fits.
+     A token rather than a number in one component's styles, for the reason
+     every token here exists: the card that draws the border around a form
+     sizes itself from the same value, and two places holding one measure is
+     how they come to disagree. */
+  --form-measure: 640px;
+
   /* ---- Border radius — tight & consistent ---- */
   --radius-xs: 4px;
   --radius-sm: 6px;
