@@ -17,13 +17,20 @@
           <!-- What is running. Deliberately the quietest thing in the bar -
                nobody needs it until something is wrong, and then they need it
                immediately. -->
+          <!-- The RELEASE where there is one, the commit where there is not.
+               "What changed" is answered by release notes; a commit page
+               answers it only for whoever can read a diff. The SHA stays in the
+               label either way, because that is what settles which build you
+               are actually looking at. -->
           <a
-            v-if="BUILD_COMMIT_URL"
+            v-if="BUILD_LINK_URL"
             class="app-header-build"
-            :href="BUILD_COMMIT_URL"
+            :href="BUILD_LINK_URL"
             target="_blank"
             rel="noopener noreferrer"
-            :title="`Deployed build - opens commit ${BUILD_SHORT_SHA}`"
+            :title="BUILD_RELEASE_URL
+              ? `Deployed build - opens the ${BUILD_VERSION} release notes`
+              : `Deployed build - opens commit ${BUILD_SHORT_SHA}`"
           >{{ BUILD_LABEL }}</a>
           <span v-else class="app-header-build" title="Local development build">{{ BUILD_LABEL }}</span>
           <router-link :to="{ name: 'manual' }" class="app-header-help">Help</router-link>
@@ -37,7 +44,9 @@
 
 <script setup>
 import logoUrl from '../assets/logo.png'
-import { BUILD_LABEL, BUILD_SHORT_SHA, BUILD_COMMIT_URL } from '../lib/build-info.js'
+import {
+  BUILD_LABEL, BUILD_SHORT_SHA, BUILD_VERSION, BUILD_LINK_URL, BUILD_RELEASE_URL,
+} from '../lib/build-info.js'
 import ThemeToggle from './ThemeToggle.vue'
 import UserBadge from './UserBadge.vue'
 

@@ -58,6 +58,32 @@ test("no commit URL when there is no commit to point at", () => {
   assert.match(SRC, /BUILD_COMMIT_URL\s*=\s*rawSha\s*\?/);
 });
 
+test("no release URL before the first release, for the same reason", () => {
+  // `/releases/tag/` with an empty version is the same 404 one line down.
+  assert.match(SRC, /BUILD_RELEASE_URL\s*=\s*rawVersion\s*\?/);
+});
+
+test("the header links to the RELEASE when there is one, the commit when not", () => {
+  // "What changed" is answered by release notes; a commit page answers it only
+  // for somebody who can read a diff. The SHA is still in the label either way,
+  // because that is what settles WHICH build is on screen - so nothing is lost
+  // by pointing the link at the more useful of the two.
+  assert.match(SRC, /BUILD_LINK_URL\s*=\s*BUILD_RELEASE_URL\s*\|\|\s*BUILD_COMMIT_URL/);
+
+  // And the header uses that one, not either half directly - a header bound to
+  // BUILD_COMMIT_URL would keep working and quietly never link a release.
+  const header = readFileSync(join(ROOT, "frontend", "src", "components", "AppHeader.vue"), "utf8");
+  assert.match(header, /:href="BUILD_LINK_URL"/);
+  assert.match(header, /v-if="BUILD_LINK_URL"/);
+});
+
+test("the release URL is the tag verbatim, never rebuilt from parts", () => {
+  // `git describe` returns the tag as written (`v1.0.0`), and .releaserc.json's
+  // tagFormat makes that also the release's own name. Stripping a `v` or
+  // re-adding one is how a link 404s on a tag somebody spelled differently.
+  assert.match(SRC, /releases\/tag\/\$\{rawVersion\}/);
+});
+
 test("the deploy injects exactly what the module reads", () => {
   // Two files, one contract. The build passing VITE_BUILD_SHA while the module
   // read VITE_COMMIT_SHA would render `dev` in production for ever, and look

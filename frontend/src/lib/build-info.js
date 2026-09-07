@@ -46,3 +46,27 @@ export const BUILD_LABEL = [
 export const BUILD_COMMIT_URL = rawSha
   ? `https://github.com/${HUB_REPO}/commit/${rawSha}`
   : null
+
+/**
+ * The release this was built from, or null before the first one.
+ *
+ * `rawVersion` is whatever `git describe --tags --abbrev=0` returned, which is
+ * the tag verbatim - `v1.0.0` - and `tagFormat` in .releaserc.json is what
+ * makes that also the release's own name. Nothing reformats it here: a tag and
+ * the release page named after it are one string, and rebuilding it from parts
+ * is how a link comes to 404 on a tag somebody spelled differently.
+ */
+export const BUILD_RELEASE_URL = rawVersion
+  ? `https://github.com/${HUB_REPO}/releases/tag/${rawVersion}`
+  : null
+
+/**
+ * What the header actually links to: the release when there is one, the commit
+ * when there is not.
+ *
+ * The release is what a person asking "what changed" wants - notes, a date, a
+ * name. The commit is what SETTLES it, and it is still on screen beside the
+ * version and still where this points before the first release, or on any build
+ * made between a tag and the deploy that picks it up.
+ */
+export const BUILD_LINK_URL = BUILD_RELEASE_URL || BUILD_COMMIT_URL
