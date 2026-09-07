@@ -211,7 +211,6 @@ flowchart LR
     Student -->|"at the deadline"| Archive
     Pages <-->|"your own sign-in"| Control
     Hub -.->|"acts through"| ProvApp
-    Broker -.->|"dispatches with"| BrokApp
 ```
 
 Everything public is either code you can read or a doorbell that carries a request inward. Everything with student work or student data in it is private.
