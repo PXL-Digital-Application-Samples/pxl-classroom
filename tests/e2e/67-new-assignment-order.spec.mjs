@@ -57,11 +57,50 @@ test.describe('67 - one block, in the order the data flows', () => {
   test('Template and Basics are ONE fieldset now', async ({ page }) => {
     await openNew(page);
     const legends = await page.locator('fieldset legend').allTextContents();
-    expect(legends).toEqual(['Basics', 'Assignment Type', 'Schedule', 'Guardrails']);
+    // Schedule sits ABOVE Assignment Type: the collaboration model is set once
+    // and almost never changed, the dates change on every assignment.
+    expect(legends).toEqual(['Basics', 'Schedule', 'Assignment Type', 'Guardrails']);
     // A border around each half of one question is the box prison DESIGN.md 1.1
     // names, and "what is this assignment called" and "what does it copy" are
     // one question.
     expect(legends).not.toContain('Template');
+  });
+
+  test('ONE MEASURE: every control ends at the same right edge', async ({ page }) => {
+    // The form had THREE widths on one screen - 353px inputs, a 518px template
+    // picker, and help text running the full 908px - which is neither uniform
+    // nor meaningful, and reported as "terrible". The column is what is bounded
+    // now and the controls fill it.
+    //
+    // Asserted as RIGHT EDGES rather than widths, because that is what the eye
+    // actually follows down the page, and it is the thing a per-control cap
+    // breaks. Read out of the rendered page, so a new field cannot quietly
+    // introduce a second edge.
+    await openNew(page);
+    const edges = await page.evaluate(() => {
+      const seen = new Map();
+      for (const f of document.querySelectorAll('.editor-form .field')) {
+        // A field sharing a row with another deliberately takes half of it -
+        // the pair still ends on the column's edge, and the left one does not.
+        const paired = !!f.closest('.field-row');
+        for (const c of f.querySelectorAll(':scope > input, :scope > select, :scope > textarea, :scope > .combobox-wrapper')) {
+          const r = c.getBoundingClientRect();
+          if (!r.width) continue;
+          const key = Math.round(r.right);
+          if (!seen.has(key)) seen.set(key, { count: 0, allPaired: true });
+          const e = seen.get(key);
+          e.count += 1;
+          if (!paired) e.allPaired = false;
+        }
+      }
+      return [...seen.entries()].map(([right, v]) => ({ right, ...v }));
+    });
+
+    const unpaired = edges.filter((e) => !e.allPaired);
+    expect(unpaired.length,
+      `controls end at ${unpaired.length} different right edges: ${JSON.stringify(unpaired)}`).toBe(1);
+    // And the only other edge that may exist belongs to a paired field.
+    for (const e of edges.filter((x) => x.allPaired)) expect(e.count).toBeGreaterThan(0);
   });
 
   test('THE ORDER: template, title, pattern, slug, description', async ({ page }) => {

@@ -75,14 +75,14 @@ test.describe('49 - picking who an assignment is for', () => {
     await newAssignment(page);
     await gateOnRoster(page);
 
-    await page.locator('.chip-btn', { hasText: '3A · 2' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '3A · 2' }).click();
     await expect(page.locator('.cohort-row')).toHaveCount(2);
     // Filtering is not selecting. Nothing has been chosen yet.
     await expect(guardrails(page)).toContainText('Every student on the roster may accept');
 
     // "No group" is a filter of its own, so the student the old rule refused
     // outright is visible and tickable like anybody else.
-    await page.locator('.chip-btn', { hasText: 'No group · 1' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: 'No group · 1' }).click();
     await expect(page.locator('.cohort-row')).toHaveCount(1);
     await expect(page.locator('.cohort-row')).toContainText('Eva Example');
   });
@@ -114,7 +114,7 @@ test.describe('49 - picking who an assignment is for', () => {
     await newAssignment(page);
     await gateOnRoster(page);
 
-    await page.locator('.chip-btn', { hasText: '3A · 2' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '3A · 2' }).click();
     await page.locator(".cohort-all input").check();
 
     await expect(guardrails(page)).toContainText('2 of 5 selected');
@@ -122,7 +122,7 @@ test.describe('49 - picking who an assignment is for', () => {
 
     // And a mixed cohort is just more ticking - the case that had no expression
     // under a group rule, because a student is in one group at most.
-    await page.locator('.chip-btn', { hasText: 'No group · 1' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: 'No group · 1' }).click();
     await row(page, 'Eva Example').locator('input[type=checkbox]').check();
     await expect(guardrails(page)).toContainText('3 of 5 selected');
   });
@@ -605,13 +605,13 @@ test.describe('49 - edges the happy path hides', () => {
 
     const chips = await page.locator('.cohort-filters .chip-btn').allInnerTexts();
     expect(chips).toEqual(['All 2', '3A · 2']);
-    await page.locator('.chip-btn', { hasText: '3A · 2' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '3A · 2' }).click();
     await expect(page.locator('.cohort-row')).toHaveCount(2);
   });
 
   test('emptying the selection while viewing it does not strand the filter', async ({ page }) => {
     await editing(page, published({ state: 'draft', cohort: ['num:0001'] }));
-    await page.locator('.chip-btn', { hasText: 'Selected' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: 'Selected' }).click();
     await expect(page.locator('.cohort-row')).toHaveCount(1);
 
     await page.locator('.cohort-row').first().locator('input[type=checkbox]').uncheck();
@@ -693,7 +693,7 @@ test.describe('49 - the picker at a real course size', () => {
     // chip that fills blue and reads as though it had already taken the class.
     await bigPicker(page);
 
-    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '1TIN-A' }).click();
     // It NAMES what it will take. "Select all" never says all of what.
     await expect(page.locator('.cohort-all')).toContainText('Select all 50 in 1TIN-A');
 
@@ -706,7 +706,7 @@ test.describe('49 - the picker at a real course size', () => {
     // box unticked, which reads as "this assignment is for 1TIN-A" while it is
     // still open to all 200. The count in the corner is not enough.
     await bigPicker(page);
-    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '1TIN-A' }).click();
 
     await expect(guardrails(page)).toContainText('nothing is selected yet');
     await expect(guardrails(page)).toContainText('every student on the roster may accept');
@@ -720,7 +720,7 @@ test.describe('49 - the picker at a real course size', () => {
     // The case the cohort design exists for, end to end.
     await bigPicker(page);
 
-    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '1TIN-A' }).click();
     await page.locator('.cohort-all input').check();
     await expect(guardrails(page)).toContainText('50 of 200 selected');
 
@@ -735,7 +735,7 @@ test.describe('49 - the picker at a real course size', () => {
 
     // READ IT BACK. Assembling a cohort means moving between filters, so there
     // has to be a way to see the result rather than trust the number.
-    await page.locator('.chip-btn', { hasText: 'Selected · 52' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: 'Selected · 52' }).click();
     await expect(page.locator('.cohort-row')).toHaveCount(52);
     await expect(page.locator('.cohort-all')).toContainText('All 52 selected');
   });
@@ -745,9 +745,9 @@ test.describe('49 - the picker at a real course size', () => {
     // somewhere else - that would lose work with no warning.
     await bigPicker(page);
 
-    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '1TIN-A' }).click();
     await page.locator('.cohort-all input').check();
-    await page.locator('.chip-btn', { hasText: '1TIN-B' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '1TIN-B' }).click();
     await page.locator('.cohort-all input').check();
     await expect(guardrails(page)).toContainText('100 of 200 selected');
 
@@ -777,13 +777,13 @@ test.describe('49 - the picker at a real course size', () => {
     // course.
     await bigPicker(page);
 
-    await page.locator('.chip-btn', { hasText: '1TIN-A' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '1TIN-A' }).click();
     await expect(page.locator('.cohort-row')).toHaveCount(50);
     await page.locator(".cohort-all input").check();
     await expect(guardrails(page)).toContainText('50 of 200 selected');
 
     // Adding a second section adds to the selection rather than replacing it.
-    await page.locator('.chip-btn', { hasText: '1TIN-B' }).click();
+    await page.locator('.cohort-filters .chip-btn', { hasText: '1TIN-B' }).click();
     await page.locator(".cohort-all input").check();
     await expect(guardrails(page)).toContainText('100 of 200 selected');
   });
@@ -863,5 +863,87 @@ test.describe('49 - the picker at a real course size', () => {
     // Ticking still works when the number and account columns are hidden.
     await page.locator('.cohort-row').first().locator('input[type=checkbox]').check();
     await expect(guardrails(page)).toContainText('1 of 200 selected');
+  });
+});
+
+// ===========================================================================
+// What a row says about the person, when it does not know their name.
+//
+// Reported from a live org: six rows, every one of them reading "Not yet
+// identified" in the widest, brightest column, a first column of nothing but
+// dashes, and the only thing that actually identified anybody - the GitHub
+// login - last, muted and narrow. The placeholder outranked the data, and it
+// was not even true: @afx42 identifies somebody.
+// ===========================================================================
+test.describe('49 - a row leads with what it knows', () => {
+  /** Rows promoted from acceptances: a login and nothing else. */
+  const LOGINS_ONLY = [
+    { github_login: 'afx42', class_group: '3A' },
+    { github_login: 'IlkayDuranPXL' },
+    { github_login: 'LowieSerneelsPXL' },
+  ];
+
+  const cells = (page) => page.locator('.cohort-row .cohort-name').allTextContents();
+
+  test('THE LOGIN IS THE IDENTITY when there is no name and no address', async ({ page }) => {
+    await newAssignment(page, { roster: LOGINS_ONLY });
+    await gateOnRoster(page);
+
+    expect((await cells(page)).map((t) => t.trim()))
+      .toEqual(['@afx42', '@IlkayDuranPXL', '@LowieSerneelsPXL']);
+    await expect(guardrails(page)).not.toContainText('Not yet identified');
+  });
+
+  test('a column nobody fills is not rendered', async ({ page }) => {
+    // Nobody has a student number, so that column is dashes all the way down.
+    // And the account column would repeat the primary cell verbatim.
+    await newAssignment(page, { roster: LOGINS_ONLY });
+    await gateOnRoster(page);
+
+    await expect(page.locator('.cohort-row .cohort-num')).toHaveCount(0);
+    await expect(page.locator('.cohort-row .cohort-acct')).toHaveCount(0);
+    // The group column stays: one of them has a group, so it says something.
+    await expect(page.locator('.cohort-row .cohort-group')).toHaveCount(3);
+  });
+
+  test('NAME, THEN ADDRESS, THEN ACCOUNT - in that order', async ({ page }) => {
+    await newAssignment(page, {
+      roster: [
+        { full_name: 'Alice Example', email: 'alice@x.be', github_login: 'alice-dev' },
+        { email: 'cara@student.pxl.be', github_login: 'cara-j' },
+        { github_login: 'afx42' },
+      ],
+    });
+    await gateOnRoster(page);
+
+    // Sorted, because the list orders itself by class then name - what is
+    // under test is which VALUE each row leads with, not where it sits.
+    expect((await cells(page)).map((t) => t.trim()).sort())
+      .toEqual(['@afx42', 'Alice Example', 'cara@student.pxl.be'].sort());
+  });
+
+  test('the account is shown beside a name, and never twice', async ({ page }) => {
+    // `@IlkayDuranPXL` beside `@IlkayDuranPXL` is the login twice - the same
+    // duplication DESIGN.md 1.7 names for a heading repeated in its cells.
+    await newAssignment(page, {
+      roster: [
+        { full_name: 'Alice Example', github_login: 'alice-dev' },
+        { github_login: 'afx42' },
+      ],
+    });
+    await gateOnRoster(page);
+
+    // Asked per row rather than as a list, for the same reason: the order is
+    // the list's business, the contents are this test's.
+    await expect(row(page, 'Alice Example').locator('.cohort-acct')).toHaveText('@alice-dev');
+    await expect(row(page, '@afx42').locator('.cohort-acct')).toHaveText('');
+  });
+
+  test('the columns come back the moment somebody fills them', async ({ page }) => {
+    await newAssignment(page);   // the default roster: numbers, names, groups, logins
+    await gateOnRoster(page);
+    await expect(page.locator('.cohort-row').first().locator('.cohort-num')).toHaveCount(1);
+    await expect(page.locator('.cohort-row').first().locator('.cohort-group')).toHaveCount(1);
+    await expect(page.locator('.cohort-row').first().locator('.cohort-acct')).toHaveCount(1);
   });
 });

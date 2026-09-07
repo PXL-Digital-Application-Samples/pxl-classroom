@@ -7,9 +7,6 @@
     "admin-view": [
       "AdminView.vue"
     ],
-    "advanced": [
-      "AdminView.vue"
-    ],
     "alert": [
       "RepublishBrokerModal.vue"
     ],
@@ -168,7 +165,6 @@
     ]
   },
   "reasons": {
-    "advanced": "AdminView scoped `details { border, radius, padding }` styles the element by tag.",
     "col-ci": "AssignmentDetailView scoped `th {}` / `td {}` style the cells by tag.",
     "col-score": "AssignmentDetailView scoped `th {}` / `td {}` style the cells by tag.",
     "team-name": "A <strong>; the weight is the element default and that is the intent.",

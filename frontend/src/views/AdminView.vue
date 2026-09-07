@@ -649,13 +649,28 @@
               </small>
             </div>
 
-            <!-- LAST. It is the only field here nothing else derives from. -->
-            <div class="field">
-              <label>Description</label>
+            <!-- LAST, AND FOLDED AWAY UNTIL IT IS WANTED. It is the only field
+                 here nothing else derives from, it is optional, and most
+                 assignments never get one - so a permanently open textarea was
+                 spending the most vertical space on the least-used control and
+                 pushing Schedule, which changes every time, below the fold.
+                 Opens on click, and opens by itself when there is something to
+                 show: a description already written, or an error about one on
+                 an assignment loaded from the control repo. -->
+            <div v-if="!descriptionOpen && !form.description && !fieldErrors.description" class="field">
+              <button type="button" class="btn-link" @click="openDescription">
+                Add a description
+              </button>
+              <small>Optional. Published on the public assignment page.</small>
+            </div>
+            <div v-else class="field">
+              <label for="assignment-description">Description <span class="text-muted">(optional)</span></label>
               <textarea
+                id="assignment-description"
+                ref="descriptionEl"
                 v-model="form.description"
                 rows="2"
-                placeholder="Optional"
+                placeholder="What students should know before they accept"
               ></textarea>
               <!-- Not gated on `touched`, unlike the required-field errors: this
                    one only fires when there IS content, so it can never nag an
@@ -664,6 +679,43 @@
               <div v-if="fieldErrors.description" class="field-error-msg">{{ fieldErrors.description }}</div>
               <small>Published on the public assignment page, so students can read it before they accept.</small>
             </div>
+          </fieldset>
+
+          <!-- SCHEDULE, BEFORE ASSIGNMENT TYPE.
+               Ordered by what a lecturer actually touches. The collaboration
+               model is set once and then almost never changed - individual is
+               the default and most assignments are individual - while the
+               opening date and the deadline are different on every single
+               assignment. The rarely-changed control was sitting above the
+               always-changed one. -->
+          <fieldset>
+            <legend>Schedule</legend>
+            <!-- THE ONE PLACE TWO FIELDS GENUINELY PAIR. They are read
+                 together - an assignment opens THEN closes - and a
+                 `datetime-local` is fixed-length, so a full-width box for
+                 "21/09/2026 03:15" tells the reader the wrong thing (Baymard's
+                 first rule: a fixed-length input is sized to its content).
+                 Side by side they end at the same right edge as every other
+                 field, so the column keeps its single measure while each date
+                 gets a box that fits what goes in it. -->
+            <div class="field-row">
+              <div class="field">
+                <label>Opens at <span class="req">*</span></label>
+                <input type="datetime-local" v-model="form.opens_at_local" @change="touchedFields.opens_at = true" />
+                <div v-if="(touchedFields.opens_at || !isNew) && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
+                <small>{{ utcHint(form.opens_at_local) }}</small>
+              </div>
+              <div class="field">
+                <label>Deadline <span class="req">*</span> <HelpButton topic="deadlines-and-extensions" label="deadlines and extensions" /></label>
+                <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
+                <div v-if="(touchedFields.deadline_at || !isNew) && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
+                <small>{{ utcHint(form.deadline_at_local) }}</small>
+              </div>
+            </div>
+            <!-- Full width, under BOTH dates, because it is about the pair. -->
+            <small v-if="deadlineInPast" class="text-warning">
+              This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
+            </small>
           </fieldset>
 
           <!-- ASSIGNMENT TYPE -->
@@ -775,26 +827,6 @@
                   forming a new one. Review the result in the assignment’s Teams tab before publishing.
                 </small>
               </div>
-            </div>
-          </fieldset>
-
-          <!-- SCHEDULE -->
-          <fieldset>
-            <legend>Schedule</legend>
-            <div class="field">
-              <label>Opens at <span class="req">*</span></label>
-              <input type="datetime-local" v-model="form.opens_at_local" @change="touchedFields.opens_at = true" />
-              <div v-if="(touchedFields.opens_at || !isNew) && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
-              <small>{{ utcHint(form.opens_at_local) }}</small>
-            </div>
-            <div class="field">
-              <label>Deadline <span class="req">*</span> <HelpButton topic="deadlines-and-extensions" label="deadlines and extensions" /></label>
-              <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
-              <div v-if="(touchedFields.deadline_at || !isNew) && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
-              <small>{{ utcHint(form.deadline_at_local) }}</small>
-              <small v-if="deadlineInPast" class="text-warning">
-                This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
-              </small>
             </div>
           </fieldset>
 
@@ -981,6 +1013,7 @@
                   :key="cohortKey(s)"
                   class="cohort-row"
                   :class="{ 'is-locked': isLocked(s) }"
+                  :style="cohortRowStyle"
                 >
                   <input
                     type="checkbox"
@@ -989,10 +1022,10 @@
                     :title="isLocked(s) ? 'Already in this assignment. Removing a student does not delete their repository or their work, so this only adds.' : null"
                     @change="toggleCohortStudent(s)"
                   />
-                  <code class="cohort-num">{{ s.student_number || '—' }}</code>
-                  <span class="cohort-name">{{ s.full_name || 'Not yet identified' }}</span>
-                  <span class="cohort-group text-muted">{{ s.class_group || '—' }}</span>
-                  <span class="cohort-acct text-muted">{{ s.github_login ? '@' + s.github_login : 'no account yet' }}</span>
+                  <code v-if="cohortShowsNumber" class="cohort-num">{{ s.student_number || '—' }}</code>
+                  <span class="cohort-name">{{ cohortPrimary(s) }}</span>
+                  <span v-if="cohortShowsGroup" class="cohort-group text-muted">{{ s.class_group || '—' }}</span>
+                  <span v-if="cohortShowsAccount" class="cohort-acct text-muted">{{ cohortSecondary(s) }}</span>
                 </label>
                 <p v-if="!cohortVisible.length" class="text-muted text-center cohort-empty">
                   No students match this filter.
@@ -1590,6 +1623,16 @@ const manualSlug = ref(false)
 // repository name that would be absurdly long. It stays open once opened -
 // somebody who went looking for it is editing it.
 const slugEditing = ref(false)
+// The description is optional and rarely written, so it is folded away until
+// asked for. Not a `<details>`: opening one leaves focus on the summary, and
+// the point of clicking "Add a description" is to type.
+const descriptionOpen = ref(false)
+const descriptionEl = ref(null)
+async function openDescription() {
+  descriptionOpen.value = true
+  await nextTick()
+  descriptionEl.value?.focus()
+}
 const saving = ref(false)
 const publishing = ref(false)
 const showRepublishModal = ref(false)
@@ -1727,6 +1770,65 @@ const cohortGroupCounts = computed(() => classGroupChips(rosterStudents.value))
 
 /** The identity a NEW pick is stored as. Never re-spelled here - lib/cohort.mjs owns it. */
 const cohortKey = (student) => cohortIdentity(student)
+
+/**
+ * WHAT THIS ROW ACTUALLY KNOWS ABOUT THE PERSON, in the primary cell.
+ *
+ * It printed `full_name || 'Not yet identified'`, so a roster of rows promoted
+ * from acceptances - which carry a login and nothing else - rendered six
+ * identical placeholders in the widest, brightest column while the one thing
+ * that DID identify each of them sat last and muted. The placeholder outranked
+ * the data, and it was not even true: `@afx42` identifies somebody.
+ *
+ * Name, then address, then account. A name is what a lecturer recognises; an
+ * address is what they were handed; a login is what GitHub gave us. Only a row
+ * carrying none of the three is genuinely unidentified.
+ */
+function cohortPrimary(s) {
+  const name = String(s?.full_name ?? '').trim()
+  if (name) return name
+  const email = String(s?.email ?? '').trim()
+  if (email) return email
+  const login = String(s?.github_login ?? '').trim()
+  if (login) return `@${login}`
+  return 'Not yet identified'
+}
+
+/**
+ * The account, and only when it is not already the primary.
+ *
+ * `@IlkayDuranPXL` beside `@IlkayDuranPXL` is the login twice - the same
+ * duplication DESIGN.md 1.7 names for a column heading repeated in its cells.
+ */
+function cohortSecondary(s) {
+  const login = String(s?.github_login ?? '').trim()
+  if (!login) return ''
+  return cohortPrimary(s) === `@${login}` ? '' : `@${login}`
+}
+
+// A COLUMN NOBODY FILLS IS A COLUMN OF DASHES. Measured against the whole
+// roster rather than the filtered view, so the table does not change shape
+// under a lecturer while they click between chips.
+const cohortShowsNumber = computed(() =>
+  rosterStudents.value.some((s) => String(s?.student_number ?? '').trim()))
+const cohortShowsGroup = computed(() =>
+  rosterStudents.value.some((s) => String(s?.class_group ?? '').trim()))
+const cohortShowsAccount = computed(() => rosterStudents.value.some((s) => cohortSecondary(s)))
+
+/**
+ * The row's grid, built from the columns that are actually rendered.
+ *
+ * Derived rather than written out per combination: five columns give eight
+ * templates, and the one nobody tested is the one a lecturer gets.
+ */
+const cohortRowStyle = computed(() => {
+  const cols = ['auto']
+  if (cohortShowsNumber.value) cols.push('6.5rem')
+  cols.push('minmax(0, 1fr)')
+  if (cohortShowsGroup.value) cols.push('5rem')
+  if (cohortShowsAccount.value) cols.push('minmax(0, 9rem)')
+  return { gridTemplateColumns: cols.join(' ') }
+})
 
 /**
  * Is this student in the cohort? ANY identity they carry, exactly as the gate asks.
@@ -2704,6 +2806,7 @@ function newAssignment() {
   manualSlug.value = false
   manualRepositoryNamePattern.value = false
   slugEditing.value = false
+  descriptionOpen.value = false
   templateSearchText.value = ''
   clearCollision()
   touchedFields.value = {
@@ -2741,6 +2844,7 @@ function editAssignment(a) {
   // Never editable on an existing assignment - changing it orphans the YAML -
   // so the derived line stays a reading, and the input is not offered.
   slugEditing.value = false
+  descriptionOpen.value = false
   form.value = {
     schema_version: a.schema_version || 1,
     id: a.id,
@@ -4022,7 +4126,49 @@ watch(
   padding: var(--space-2xl);
   color: var(--text-secondary);
 }
-.editor-form { display: flex; flex-direction: column; gap: var(--space-md); }
+/* THE FORM IS A COLUMN, AND THE COLUMN IS WHAT HAS A WIDTH.
+   The pane is 958px and everything in it used to be measured separately: the
+   inputs at 353px, the template picker at 518px, and the help text at the full
+   908px - three edges, so the eye never found one. The <small> under a field
+   was twice the width of the field, which is most of what read as "terrible".
+   Bounding the column instead gives one left edge and one right edge, and the
+   controls simply fill it.
+   640px is chosen for the TEXT: at 14px it is about 90 characters, against the
+   ~110 the full pane was giving, and the longest thing a control has to show
+   (`PXL-2TIN-CloudEssentials-2627/linux-processes-starter`, 52 characters plus
+   a refresh button) still fits without truncating. A max, so a narrow window
+   still collapses it rather than scrolling sideways. */
+.editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 640px;
+}
+/* The Advanced disclosure is not a fieldset and carried no styling at all, so
+   its three fields sat 16px wider than every other field on the form - the one
+   ragged edge left once the column was bounded, and invisible until the widths
+   were measured rather than looked at. A fieldset's content starts at its 1px
+   border plus its padding; this matches that and takes no border of its own,
+   because it is a disclosure rather than a group. */
+.advanced {
+  padding: 0 var(--space-md);
+}
+/* TWO FIELDS ON ONE ROW, for a pair that is read together and is short enough
+   that a full-width box overstates it. `minmax(0, 1fr)` and not `1fr`
+   (DESIGN.md 7): a bare `1fr` floors at the content's min-width, so a long
+   validation message under one date would push the row wider than the column
+   instead of wrapping inside its half.
+   Collapses to a stack before the boxes get too narrow to read a date in. */
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-md);
+}
+.field-row > .field { margin-bottom: 0; }
+@media (max-width: 560px) {
+  .field-row { grid-template-columns: minmax(0, 1fr); }
+  .field-row > .field:not(:last-child) { margin-bottom: var(--space-md); }
+}
 .editor-header-bar {
   display: flex;
   align-items: center;
@@ -4062,24 +4208,11 @@ legend {
   margin-bottom: var(--space-md);
 }
 .field:last-child { margin-bottom: 0; }
-/* A TEXT BOX IS NOT WIDER THAN THE LONGEST THING IT WILL HOLD.
-   Measured before this: the fieldsets are 958px and every input spanned the
-   full 880px, so `linux-processes-2026` sat in a box eight times its own
-   length. Width reads as "how much do you want from me", and the widest field
-   here is a repository name pattern.
-   A max, not a width - the flex column still shrinks it on a phone - and on
-   the inputs rather than on `.field`, so a field's error list, its <small> and
-   the collision findings keep the full column to wrap in. */
-.field > input,
-.field > select,
-.field > textarea {
-  max-width: 46ch;
-}
-/* The one field that earns more: it holds `owner/repository`, and
-   `PXL-2TIN-CloudEssentials-2627/linux-processes-starter` is 52 characters -
-   at 46ch the picker showed `…/linux-processes-sta` and a lecturer could not
-   read which template they had chosen. Still well short of the 880px it had. */
-.field > .combobox-wrapper { max-width: 64ch; }
+/* ONE MEASURE, ON THE COLUMN - see `.editor-form` below.
+   Per-control caps lived here and were the wrong answer: they produced THREE
+   widths on one screen (353px inputs, a 518px template picker, and help text
+   running the full 908px), which is neither uniform nor meaningful. The
+   controls fill their column now and the column is what is bounded. */
 /* What a name would land on top of. Scoped, because this is the only place
    they are listed - style.css is for classes more than one component reaches.
    No colour of its own: it inherits from whichever block wraps it, which is
@@ -4113,8 +4246,9 @@ legend {
   font-size: 0.82rem;
 }
 .derived-line code { font-size: 0.82rem; }
-/* Once opened it is an ordinary field again, so it takes the field width. */
-.derived-line input { max-width: 46ch; flex: 1 1 24ch; }
+/* Opened, it shares the row with its label, so it takes the rest of it rather
+   than a width of its own - the column above is what bounds it. */
+.derived-line input { flex: 1 1 24ch; }
 /* A checkbox field is a LABEL ROW with its explanation UNDER it.
    As `flex-direction: row` the field's own <small> became a second COLUMN: the
    label was squeezed to about 40% of the width and its help text floated
