@@ -35,6 +35,15 @@ pull_rebase() {
   fi
   CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')
   if [ -z "$CONFLICTS" ]; then
+    # A DIRTY WORKING TREE IS NOT RETRYABLE EITHER, and it does not look like a
+    # conflict: there are no unmerged paths, so the loop below re-ran the same
+    # refused pull five times and reported "push failed after 5 attempts" over a
+    # caller that had left a modified file behind. Measured on a live drill.
+    DIRTY=$(git diff --name-only 2>/dev/null | tr '\n' ' ')
+    if [ -n "$DIRTY" ]; then
+      echo "::error::Cannot rebase onto the remote: the working tree has unstaged changes in ${DIRTY}- the caller must commit, discard or restore them before pushing. Retrying cannot clear this." >&2
+      exit 1
+    fi
     return 0
   fi
   # Reported before the abort, because `git rebase --abort` is what clears the

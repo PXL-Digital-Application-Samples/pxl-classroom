@@ -447,7 +447,17 @@ jobs:
           # published or closed assignment's entry, and trigger-dashboard
           # dispatches it after this job on `always()`. Two writers of one
           # document, one of which is redundant.
-          git -C control restore --staged reports/dashboard.json 2>/dev/null || true
+          # `--worktree` as well as `--staged`, and that half was missing.
+          # Unstaging alone leaves the file MODIFIED, and `git pull --rebase`
+          # refuses to run with unstaged changes - so the push was rejected,
+          # every retry re-ran the same refused pull, and the leg died after
+          # five identical attempts. Measured on a live drill with two
+          # assignments finalizing at once, which is the case this whole
+          # exclusion exists for.
+          #
+          # Discarding is right: regenerate-dashboard.yml rebuilds this file
+          # from the reports and is dispatched after this job.
+          git -C control restore --staged --worktree reports/dashboard.json 2>/dev/null || true
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Finalize deadline for ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
