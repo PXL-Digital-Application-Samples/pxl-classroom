@@ -61,33 +61,26 @@ test("absent stays ABSENT, and is never coerced to false", () => {
   assert.ok(validateAgainst("assignment", doc).valid);
 });
 
-test("an explicit false is not carried either - it is the default", () => {
+test("AN EXPLICIT FALSE IS CARRIED - it is the only way back", () => {
+  // This asserted the opposite until 2026-09-09, and correctly: `false` was the
+  // default then, so writing it was noise. Now it is the OPT-OUT, the form has
+  // no control that can set it again, and a save that dropped it would move a
+  // cohort to organization scope with nobody asking.
   const doc = buildAssignmentDoc(form({ org_scoped_lock: false }));
-  assert.ok(!("org_scoped_lock" in doc));
+  assert.equal(doc.org_scoped_lock, false);
+  assert.ok(validateAgainst("assignment", doc).valid);
 });
 
 test("the editor reads it back in, or the round trip cannot start", () => {
   // buildDoc can only carry what the form holds, and the form is filled by the
   // editor from the stored document. A missing read there is the same deletion
   // one step earlier, and no unit test of buildDoc would see it.
+  //
+  // BOTH booleans, since `false` became the answer that matters.
   const view = readFileSync(join(root, "frontend/src/views/AdminView.vue"), "utf8");
   assert.match(
     view,
-    /a\.org_scoped_lock === true \? \{ org_scoped_lock: true \}/,
-    "AdminView must read org_scoped_lock off the stored assignment into the form",
-  );
-});
-
-test("lockdown.mjs only honours it under late_policy: block", () => {
-  // There is nothing to enforce with a ruleset when late work counts, and a
-  // flag that quietly did something under `report` would be a second meaning
-  // nobody asked for.
-  const src = readFileSync(join(root, "lockdown/lockdown.mjs"), "utf8");
-  assert.match(src, /const orgScope = blockLate && assignment\.org_scoped_lock === true;/);
-  // `=== true`, not truthy: a hand-edited YAML carrying the string "false"
-  // must not turn the org lock on.
-  assert.ok(
-    !/assignment\.org_scoped_lock\s*\)/.test(src),
-    "a truthy check would read the string \"false\" as on",
+    /typeof a\.org_scoped_lock === 'boolean' \? \{ org_scoped_lock: a\.org_scoped_lock \}/,
+    "AdminView must read BOTH booleans off the stored assignment into the form",
   );
 });

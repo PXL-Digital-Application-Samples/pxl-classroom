@@ -39,6 +39,7 @@ import { indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
 import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+import { usesOrgScope, lockScopeNote } from "../lib/lock-scope.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -831,10 +832,13 @@ async function main() {
   // whole cohort rather than two per repository, which is what matters at the
   // instant a sentinel fires.
   //
-  // Read off the assignment rather than a deployment-wide switch, because it is
-  // a property of how one course wants its deadline enforced - and absent means
-  // the repository-scoped behaviour every existing assignment already has.
-  const orgScope = blockLate && assignment.org_scoped_lock === true;
+  // lib/lock-scope.mjs decides, and says why in a sentence the run log carries.
+  // ABSENT NOW MEANS ORGANIZATION SCOPE: the configuration this is for is "the
+  // deadline is final and the student keeps their toolchain", which is exactly
+  // the case where they are still admin of the repository holding the ruleset
+  // that stops them. `false` opts out and is preserved through a save.
+  const orgScope = usesOrgScope(assignment, blockLate);
+  log("lock scope", { ok: true, note: lockScopeNote(assignment, blockLate) });
 
   let lockMethod = "none";
   if (targets.length) {

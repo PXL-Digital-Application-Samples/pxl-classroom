@@ -49,6 +49,7 @@ async function withStubApi(fn, opts = {}) {
   } = opts;
   const calls = [];
   const rulesetsByRepo = new Map();
+  const orgRulesets = [];
   let nextRulesetId = 500;
 
   const server = createServer((req, res) => {
@@ -66,6 +67,33 @@ async function withStubApi(fn, opts = {}) {
       if (path === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
       if (path.startsWith("/apps/")) {
         return appIdStatus === 200 ? send(200, { id: APP_ID }) : send(appIdStatus, { message: "nope" });
+      }
+
+      // ORGANIZATION rulesets, which the default under `block` now creates.
+      // Kept in the same recorded-call stub as the repository ones so a test can
+      // say which of the two was written, rather than only that something was.
+      const ors = path.match(/^\/orgs\/([^/]+)\/rulesets(?:\/(\d+))?$/);
+      if (ors) {
+        const [, , id] = ors;
+        if (req.method === "GET" && !id) {
+          return send(200, orgRulesets.map((r) => ({ id: r.id, name: r.name })));
+        }
+        if (denyRulesets) return send(403, { message: "Resource not accessible by integration" });
+        if (req.method === "GET" && id) {
+          const hit = orgRulesets.find((r) => String(r.id) === id);
+          return hit ? send(200, hit) : send(404, {});
+        }
+        if (req.method === "POST") {
+          const created = { id: nextRulesetId++, source_type: "Organization", ...body };
+          orgRulesets.push(created);
+          return send(201, created);
+        }
+        if (req.method === "PUT") {
+          const hit = orgRulesets.find((r) => String(r.id) === id);
+          if (!hit) return send(404, {});
+          Object.assign(hit, body);
+          return send(200, hit);
+        }
       }
 
       const rs = path.match(/^\/repos\/[^/]+\/([^/]+)\/rulesets(?:\/(\d+))?$/);
@@ -100,13 +128,13 @@ async function withStubApi(fn, opts = {}) {
 
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   try {
-    return await fn(`http://127.0.0.1:${server.address().port}`, calls, rulesetsByRepo);
+    return await fn(`http://127.0.0.1:${server.address().port}`, calls, rulesetsByRepo, orgRulesets);
   } finally {
     await new Promise((r) => server.close(r));
   }
 }
 
-function makeControlDir({ latePolicy = null, lockDownEnabled = null, logins = ["alice"] } = {}) {
+function makeControlDir({ latePolicy = null, lockDownEnabled = null, orgScopedLock = null, logins = ["alice"] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-lockdown-policy-"));
   const id = "exam";
   mkdirSync(join(dir, "assignments"), { recursive: true });
@@ -114,7 +142,12 @@ function makeControlDir({ latePolicy = null, lockDownEnabled = null, logins = ["
     join(dir, "assignments", `${id}.yml`),
     `state: published\ndeadline_at: "${DEADLINE}"\nsubmission_ref: refs/heads/main\n` +
       (latePolicy ? `late_policy: ${latePolicy}\n` : "") +
-      (lockDownEnabled === null ? "" : `lock_down_enabled: ${lockDownEnabled}\n`),
+      (lockDownEnabled === null ? "" : `lock_down_enabled: ${lockDownEnabled}\n`) +
+      // ABSENT MEANS ORGANIZATION SCOPE since 2026-09-09, so the repository-scoped
+      // cases below opt out EXPLICITLY. They are not legacy: `false` is the way
+      // back, and a repository ruleset is still the rung the organization one
+      // degrades to when it cannot be created.
+      (orgScopedLock === null ? "" : `org_scoped_lock: ${orgScopedLock}\n`),
   );
   mkdirSync(join(dir, "repositories", id), { recursive: true });
   for (const login of logins) {
@@ -165,7 +198,7 @@ const rulesetWrites = (calls) => calls.filter((c) => /\/rulesets/.test(c.line) &
 
 test("late_policy block stops the ref with a ruleset, not a demotion", async () => {
   await withStubApi(async (api, calls) => {
-    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
     const res = await runLockdown(dir, api);
     assert.equal(res.status, 0, res.stderr);
     assert.equal(res.record.lock_method, "ruleset");
@@ -181,7 +214,7 @@ test("late_policy block stops the ref with a ruleset, not a demotion", async () 
 
 test("the ruleset it creates is active and blocks force-push and deletion too", async () => {
   await withStubApi(async (api, calls) => {
-    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
     await runLockdown(dir, api);
     const created = calls.find((c) => c.line === "POST /repos/TestOrg/exam-alice/rulesets");
     assert.ok(created, "the lock is created when the repository has none");
@@ -195,7 +228,7 @@ test("the ruleset it creates is active and blocks force-push and deletion too", 
 test("a ruleset that cannot be applied degrades to a demotion, not to no lock", async () => {
   await withStubApi(
     async (api, calls) => {
-      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
       const res = await runLockdown(dir, api);
       assert.equal(res.status, 0, res.stderr);
       assert.equal(rowFor(res.record, "alice").lock_method, "demotion");
@@ -210,7 +243,7 @@ test("a ruleset that cannot be applied degrades to a demotion, not to no lock", 
 test("an unresolvable App id means demotion - never a lock the system cannot bypass", async () => {
   await withStubApi(
     async (api, calls) => {
-      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
       const res = await runLockdown(dir, api);
       assert.equal(res.record.lock_method, "demotion");
       assert.deepEqual(rulesetWrites(calls), []);
@@ -224,7 +257,7 @@ test("an unresolvable App id means demotion - never a lock the system cannot byp
 
 test("a push after the deadline is filtered out of the submission", async () => {
   await withStubApi(async (api, calls) => {
-    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
     const res = await runLockdown(dir, api);
     const alice = rowFor(res.record, "alice");
     assert.equal(alice.snapshot_sha, ON_TIME_SHA, "HEAD holds the late commit; the submission must not");
@@ -238,7 +271,7 @@ test("a push after the deadline is filtered out of the submission", async () => 
 test("nothing committed before the deadline is a no-submission, not an error", async () => {
   await withStubApi(
     async (api) => {
-      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
       const res = await runLockdown(dir, api);
       assert.equal(res.status, 0, res.stderr);
       const alice = rowFor(res.record, "alice");
@@ -255,7 +288,7 @@ test("nothing committed before the deadline is a no-submission, not an error", a
 test("a repository whose last push was before the deadline costs no extra call", async () => {
   await withStubApi(
     async (api, calls) => {
-      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
       const res = await runLockdown(dir, api);
       const alice = rowFor(res.record, "alice");
       assert.equal(alice.snapshot_sha, HEAD_SHA, "HEAD is the deadline state");
@@ -276,7 +309,7 @@ test("an extension widens the reconstruction window to the student's own deadlin
   // the window she was actually given.
   const granted = new Date(Date.now() - 2 * 3600_000).toISOString();
   await withStubApi(async (api, calls) => {
-    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
     mkdirSync(join(dir, "overrides", "exam"), { recursive: true });
     writeFileSync(
       join(dir, "overrides", "exam", "alice.json"),
@@ -343,7 +376,7 @@ test("report + lock_down_enabled false stops nothing at all", async () => {
 
 test("block + lock_down_enabled true locks the ref AND takes admin, in that order", async () => {
   await withStubApi(async (api, calls) => {
-    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: true });
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: true, orgScopedLock: false });
     const res = await runLockdown(dir, api);
     assert.equal(res.record.lock_method, "ruleset");
     assert.equal(rowFor(res.record, "alice").demoted, true);
@@ -354,5 +387,64 @@ test("block + lock_down_enabled true locks the ref AND takes admin, in that orde
     const demotion = lines.findIndex((l) => /^PUT .*\/collaborators\//.test(l));
     assert.ok(ruleset < snapshot, "stop first");
     assert.ok(snapshot < demotion, "the snapshot is taken while the student still has their access");
+  });
+});
+
+// --- the default under `block`, since 2026-09-09 -----------------------------
+//
+// ABSENT MEANS ORGANIZATION SCOPE. The repository-scoped cases above now say
+// `org_scoped_lock: false` out loud, which is what a lecturer opting out writes
+// and what the degradation rung still produces.
+
+test("AN ASSIGNMENT THAT SAYS NOTHING GETS ORGANIZATION SCOPE", async () => {
+  // The reinterpretation, observed rather than asserted about the source: no
+  // `org_scoped_lock` in the document at all, and one ORG ruleset comes out.
+  await withStubApi(async (api, calls, byRepo, orgRulesets) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.record.lock_method, "org-ruleset");
+    assert.equal(rowFor(res.record, "alice").lock_method, "org-ruleset");
+    assert.equal(orgRulesets.length, 1, "one ruleset for the whole cohort");
+    assert.deepEqual(orgRulesets[0].conditions.repository_id.repository_ids, [42]);
+    assert.equal(orgRulesets[0].enforcement, "active");
+    // And NOT one per repository - that is the whole difference.
+    assert.deepEqual(
+      calls.filter((c) => /^POST \/repos\/.*\/rulesets$/.test(c.line)).map((c) => c.line),
+      [],
+    );
+    assert.deepEqual(demotions(calls).map((c) => c.line), [], "they keep Actions and secrets");
+  });
+});
+
+test("THE RUN LOG SAYS WHICH MECHANISM APPLIED, and that it was the default", async () => {
+  // A default that reinterprets documents nobody edited has to be legible
+  // afterwards. `lock_method: org-ruleset` alone cannot tell a lecturer's own
+  // choice from ours.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+    const res = await runLockdown(dir, api);
+    assert.match(res.stdout, /lock scope/);
+    assert.match(res.stdout, /default under/);
+  });
+});
+
+test("an explicit opt-out says so in the log, and creates NO org ruleset", async () => {
+  await withStubApi(async (api, calls, byRepo, orgRulesets) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+    const res = await runLockdown(dir, api);
+    assert.match(res.stdout, /opts out/);
+    assert.equal(orgRulesets.length, 0);
+    assert.equal(res.record.lock_method, "ruleset");
+  });
+});
+
+test("under `report` nothing is locked, whatever the default would have said", async () => {
+  await withStubApi(async (api, calls, byRepo, orgRulesets) => {
+    const dir = makeControlDir({ latePolicy: "report", lockDownEnabled: false });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(orgRulesets.length, 0, "an org ruleset over a cohort that blocks nothing");
+    assert.deepEqual(rulesetWrites(calls).map((c) => c.line), []);
   });
 });

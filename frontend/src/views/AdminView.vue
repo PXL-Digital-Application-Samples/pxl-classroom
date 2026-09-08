@@ -3042,11 +3042,12 @@ function editAssignment(a) {
     // omits the field.
     max_acceptances: a.max_acceptances ?? '',
     lock_down_enabled: a.lock_down_enabled ?? true,
-    // No control renders this - it is set by hand or by the migration - but the
-    // editor rebuilds the whole document on save, so it has to be read in or an
-    // unrelated edit would move the cohort back to repository-scoped rulesets.
-    // Carried as `true` only, never coerced: absent must stay absent.
-    ...(a.org_scoped_lock === true ? { org_scoped_lock: true } : {}),
+    // No control renders this - organization scope is the default under
+    // `does not count` and `false` is the explicit opt-out - but the editor
+    // rebuilds the whole document on save, so BOTH booleans have to be read in.
+    // Dropping a `false` here would move a cohort to organization scope on an
+    // unrelated edit, and the form offers no way back.
+    ...(typeof a.org_scoped_lock === 'boolean' ? { org_scoped_lock: a.org_scoped_lock } : {}),
     invite_token: a.invite_token || '',
     invite_nonce: a.invite_nonce || '',
     invite_expires_at: a.invite_expires_at || '',

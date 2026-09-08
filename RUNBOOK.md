@@ -273,7 +273,16 @@ Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_meth
 
 **A student can delete a repository ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not.
 
-An **organization** ruleset lives above the student's repository, so being its admin does not help. That is `org_scoped_lock: true` on the assignment: one ruleset named `pxl-classroom-deadline-<assignment-id>` covers the whole cohort, targeted by repository id, and one `PUT` releases the lot. It is opt-in and off unless it is set - absent has to keep meaning the repository-scoped behaviour every existing assignment already has.
+An **organization** ruleset lives above the student's repository, so being its admin does not help - and since 2026-09-09 that is **what "does not count" does by default**. One ruleset named `pxl-classroom-deadline-<assignment-id>` covers the whole cohort, targeted by repository id, and one `PUT` releases the lot. There is no control for it on the form: the deadline asks whether late work counts, and where it does not, the lock goes where the student cannot reach it.
+
+The run says which mechanism it used and why, so a lecturer reading it can tell the default from a choice:
+
+```
+[ok] lock scope - organization scope - the default under `does not count` (this assignment does not say)
+[ok] lock scope - repository scope - this assignment opts out of organization scope
+```
+
+**To go back to a repository-scoped lock**, put `org_scoped_lock: false` on the assignment document. It survives later edits in the Admin Panel; nothing in the form can set it again, which is why it is carried rather than rebuilt.
 
 Two things to know before turning it on:
 
