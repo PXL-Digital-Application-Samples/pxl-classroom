@@ -369,15 +369,39 @@
 
                 <div class="dropdown-divider"></div>
 
-                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleCopyDownloadCmd">
+                <!-- "NOT YET" DISABLES WITH A REASON; "NEVER" HIDES.
+                     This clones the PRESERVED repositories, so before the
+                     deadline has frozen anything it copies a command that
+                     clones nothing - the same condition Download Manifest
+                     above already knows and says out loud. It knew and this
+                     did not, one control apart. -->
+                <button
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleCopyDownloadCmd"
+                  :disabled="preservedCount === 0"
+                  :class="{ 'disabled-item': preservedCount === 0 }"
+                >
                   <Icon name="copy" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
                     <span class="dropdown-item-title">Copy CLI Download</span>
-                    <span class="dropdown-item-sub">Command to bulk-clone preserved repos</span>
+                    <span class="dropdown-item-sub">
+                      {{ preservedCount > 0
+                        ? 'Command to bulk-clone preserved repos'
+                        : 'Available after deadline lockdown' }}
+                    </span>
                   </div>
                 </button>
 
-                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleCopyGradeCmd">
+                <!-- `pxl-classroom grade --runner docker` runs the checks on
+                     the lecturer's own machine, so it means something only when
+                     the assignment is configured to be graded there. The
+                     Autograding panel's button copies this exact command and
+                     has always been gated on it; this one was the same control
+                     without the guard. HIDDEN rather than disabled: on a
+                     CI-graded assignment it is not "not yet", it is never. -->
+                <button v-if="localRunnerDeclared" class="export-dropdown-item" type="button" role="menuitem" @click="handleCopyGradeCmd">
                   <Icon name="copy" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
                     <span class="dropdown-item-title">Copy CLI Grade</span>
@@ -1175,6 +1199,7 @@ import {
   submissionBranch,
   findMarkedCommit,
 } from '../lib/check-run-score.js'
+import { gradesInCi } from '../lib/autograde.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -1379,7 +1404,17 @@ const autogradeDeclared = computed(() => assignment.value?.autograde?.enabled ==
 const localRunnerDeclared = computed(
   () => autogradeDeclared.value && assignment.value?.autograde?.execution_environment !== 'github_actions',
 )
-const ciGradingAvailable = computed(() => !localRunnerDeclared.value)
+// ABSENT IS NOT "GRADED IN CI", and this read as though it were - it was
+// `!localRunnerDeclared`, a double negative asked of a tri-state. The decision
+// lives in frontend/src/lib/autograde.js so a test can run it rather than grep
+// for a branch; the reasoning is written there.
+const ciGradingAvailable = computed(() =>
+  gradesInCi(assignment.value, {
+    hasGrades: hasGrades.value,
+    hasSubmissionMarker: Boolean(readSubmissionMarker(assignment.value)),
+    anyCiStatus: (report.value?.students || []).some((s) => s.ci_status),
+  }),
+)
 const isGitHubActionsAutograde = computed(
   () => autogradeDeclared.value && assignment.value?.autograde?.execution_environment === 'github_actions',
 )

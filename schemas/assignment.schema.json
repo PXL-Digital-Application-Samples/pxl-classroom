@@ -303,9 +303,14 @@
       "default": "pxl-baseline",
       "description": "Name of the frozen baseline branch used as the PR base. Rarely changed."
     },
+    "template_grades": {
+      "type": "boolean",
+      "description": "The lecturer answered that the grading comes with the template repository. Recorded because `autograde` absent was written for BOTH 'the checks come with my template' and 'remove all' - the two were stored identically, the lecturer's own answer was discarded at save, and every surface downstream had to guess, which is why the CI grading controls appeared on assignments that grade nothing. This is a CHOICE, like late_policy, not a probe of the template: the editor's live look at the template can go stale and is deliberately stored nowhere, but what the lecturer picked cannot. ABSENT means an assignment saved before this field existed OR one that grades nothing, and those need not be told apart - both fall through to positive evidence (frontend/src/lib/autograde.js gradesInCi), and an assignment that grades nothing has none.",
+      "default": false
+    },
     "autograde": {
       "type": "object",
-      "description": "Optional autograder configuration. Tests can be executed on the lecturer's machine or on GitHub Actions.",
+      "description": "Optional autograder configuration. Tests can be executed on the lecturer's machine or on GitHub Actions. Present only when the CHECKS ARE DEFINED HERE - a template-graded assignment carries `template_grades: true` and no autograde block.",
       "required": [
         "enabled",
         "tests"
@@ -315,7 +320,7 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Whether autograding is configured for this assignment."
+          "description": "Whether the CHECKS ARE DEFINED HERE. False for an assignment graded by a workflow inside the template repository, and false for one that is not graded at all - see the top-level `template_grades`, which is what tells those two apart. The block itself means 'checks defined here', which is why `tests` has minItems 1 and why a template-graded assignment carries no autograde block at all."
         },
         "execution_environment": {
           "type": "string",

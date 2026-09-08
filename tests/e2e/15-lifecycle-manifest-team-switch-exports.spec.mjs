@@ -132,13 +132,19 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
     const exportMenu = page.locator('.export-dropdown-menu');
     await expect(exportMenu).toBeVisible();
 
+    // AND NOT Copy CLI Grade: this assignment has no autograding at all, and
+    // that command runs the checks on the lecturer's machine. It used to be
+    // offered unconditionally - a click here is what asserted that - so a
+    // lecturer was handed a runner for checks that do not exist. Spec 65
+    // covers the case where it IS relevant. Asserted while the menu is already
+    // open, because every item click closes it and each `exportBtn.click()`
+    // below is one half of a reopen.
+    await expect(
+      exportMenu.locator('.export-dropdown-item', { hasText: 'Copy CLI Grade' }),
+    ).toHaveCount(0);
+
     // Click Copy CLI download command
     await exportMenu.locator('.export-dropdown-item', { hasText: 'Copy CLI Download' }).click();
-    await expect(page.locator('.toast', { hasText: /CLI command copied/i }).first()).toBeVisible();
-
-    // Reopen dropdown and click Copy CLI grade command
-    await exportBtn.click();
-    await exportMenu.locator('.export-dropdown-item', { hasText: 'Copy CLI Grade' }).click();
     await expect(page.locator('.toast', { hasText: /CLI command copied/i }).first()).toBeVisible();
 
     // Reopen dropdown and trigger Download Manifest

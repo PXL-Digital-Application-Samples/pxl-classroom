@@ -240,7 +240,12 @@ test.describe('31 - A python test means one thing, from the form to the workflow
     await openChecks(page, 'Python Lab', { contentWrites });
 
     await page.getByRole('radio', { name: /In each student's repo/ }).check();
-    await page.locator('input[value="public"]').check();
+    // The "Can students read the checks?" answer this used to give was
+    // WITHDRAWN from the modal: `No` generated a reusable workflow nothing has
+    // ever created, and it was the default, so the default answer produced a
+    // workflow GitHub refuses to start (AutogradeModal, note 5). Checks that
+    // run on Actions land in the student's repository and there is no other
+    // shape. The control is gone; driving it here timed out and had CI red.
     await addPythonTest(page, { id: 'validator', script });
     await saveChecks(page).click();
 
@@ -350,7 +355,12 @@ test.describe('31 - A python test means one thing, from the form to the workflow
     const contentWrites = [];
     await openChecks(page, 'Two Python Lab', { contentWrites });
     await page.getByRole('radio', { name: /In each student's repo/ }).check();
-    await page.locator('input[value="public"]').check();
+    // The "Can students read the checks?" answer this used to give was
+    // WITHDRAWN from the modal: `No` generated a reusable workflow nothing has
+    // ever created, and it was the default, so the default answer produced a
+    // workflow GitHub refuses to start (AutogradeModal, note 5). Checks that
+    // run on Actions land in the student's repository and there is no other
+    // shape. The control is gone; driving it here timed out and had CI red.
     await addPythonTest(page, { id: 'first', script: 'assert 1 == 1', index: 0 });
     await addPythonTest(page, { id: 'second', script: 'assert 2 == 2', index: 1 });
     await saveChecks(page).click();

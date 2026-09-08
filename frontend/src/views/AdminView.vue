@@ -1485,6 +1485,7 @@
       }"
       :submission-marker="form.submission_marker_value || ''"
       :submission-marker-multiple="form.submission_marker_multiple !== false"
+      :template-grades="form.template_grades"
       :template="templateWorkflow"
       @check-template="checkTemplateWorkflow"
       @add-starter-workflow="addStarterWorkflow"
@@ -2746,6 +2747,7 @@ function emptyForm() {
     feedback_pr: false,
     feedback_pr_baseline_branch: 'pxl-baseline',
     autograde_enabled: false,
+    template_grades: null,
     autograde_execution_environment: 'lecturer_local',
     autograde_tests: [],
     submission_marker_value: '',
@@ -3062,6 +3064,13 @@ function editAssignment(a) {
     // YAML in that shape gets repaired by the next save instead of trapping
     // the lecturer behind an error they cannot reach a control for.
     autograde_enabled: a.autograde?.enabled === true && (a.autograde?.tests || []).length > 0,
+    // READ, NEVER RE-DERIVED. An assignment saved before this field existed
+    // carries no answer, and `=== true` keeps that as false here rather than
+    // guessing one from the autograde block - a made-up answer in the field
+    // whose whole purpose is to record the one the lecturer actually gave
+    // would be indistinguishable from a real one. Those documents are decided
+    // by positive evidence instead (frontend/src/lib/autograde.js).
+    template_grades: a.template_grades ?? null,
     autograde_execution_environment: a.autograde?.execution_environment || 'lecturer_local',
     autograde_tests: a.autograde?.tests || [],
     // The hand-in commit message, when the template's own workflow gates on
@@ -3295,6 +3304,11 @@ async function addStarterWorkflow({ handInMessage } = {}) {
 
 function applyAutograde(config) {
   form.value.autograde_enabled = config.enabled
+  // The half that distinguishes "the template grades this" from "nothing does".
+  // Both leave `enabled` false and write no autograde block, so without this
+  // the two saves produce the identical document and the answer the lecturer
+  // just gave is gone.
+  form.value.template_grades = config.source === 'template'
   form.value.autograde_execution_environment = config.execution_environment
   form.value.autograde_tests = config.tests
   // The modal answers ONE question, so it answers both halves of it. `?? ''`
@@ -3311,6 +3325,7 @@ function applyAutograde(config) {
 // system will never produce.
 function clearAutograde() {
   form.value.autograde_enabled = false
+  form.value.template_grades = false
   form.value.autograde_tests = []
   // Remove clears the whole answer, including a hand-in message: leaving one
   // behind would keep the summary line saying the template grades this while

@@ -324,6 +324,16 @@ const props = defineProps({
     type: Object,
     default: () => ({ state: 'unknown' }),
   },
+  /** The lecturer's recorded answer to "where does the grading come from".
+   *  THREE STATES, not two: `true` the template does it, `false` nothing does,
+   *  `null` nobody has been asked - which is every assignment created before
+   *  the answer was written down, and every new one. No `type`, deliberately:
+   *  declaring Boolean makes Vue cast an absent prop to `false`, which is the
+   *  one value here that means something specific.
+   *
+   *  A PROP the parent declares, not a field read off `config`: `autograde`
+   *  means "checks defined here" and a template-graded assignment has none. */
+  templateGrades: { default: null },
 })
 const emit = defineEmits(['save', 'close', 'check-template', 'add-starter-workflow'])
 
@@ -377,13 +387,28 @@ const PLACES = [
 // A copy: Cancel has to leave the assignment exactly as it was, and the rows
 // are edited in place.
 const draft = reactive({
-  // Which branch the assignment is already in. A hand-in message is the only
-  // evidence a template workflow is in charge, and checks outrank it: an
-  // assignment carrying both is one somebody configured here.
-  // Checks on the assignment are the only reason to open on "here"; everything
-  // else - a hand-in message, or nothing configured at all - opens on the
-  // template branch, which is what these courses actually do.
-  source: (props.config.tests || []).length ? 'here' : 'template',
+  // Which branch the assignment is already in. Checks outrank everything: an
+  // assignment carrying them is one somebody configured here.
+  //
+  // Otherwise the TEMPLATE branch, because every live assignment across every
+  // participating organization is graded by a workflow that came with its
+  // template and not one defines checks here (tests/e2e/35). A stored hand-in
+  // message says the same thing: the "here" branch clears it on save, so one
+  // that survived can only have come from the template branch.
+  //
+  // THE ONE EXCEPTION IS AN EXPLICIT NO. `templateGrades === false` is the
+  // lecturer having answered "nothing grades this", and re-suggesting the
+  // template over their answer was free only while both branches wrote the
+  // identical document. It is not free now - `template_grades` makes them
+  // different, so a Save nobody thought about would write down the opposite of
+  // what they said and put the CI grading controls back. Absent is NOT that
+  // answer: it means nobody has been asked, which is every assignment created
+  // before the field existed and every new one.
+  source: (props.config.tests || []).length
+    ? 'here'
+    : props.templateGrades === false && !props.submissionMarker
+      ? null
+      : 'template',
   markerMode: props.submissionMarker ? 'hand-in' : 'every-push',
   markerValue: props.submissionMarker || '',
   markerMultiple: props.submissionMarkerMultiple !== false,
@@ -406,6 +431,11 @@ const hasPython = computed(() => draft.tests.some((t) => t.type === 'python'))
 // refused rather than stored, because a blank marker would match a commit with
 // an empty message.
 const canSave = computed(() => {
+  // No branch picked: the assignment had no recorded answer and this dialog
+  // has not been given one. Saving would write a guess, and `save()` would
+  // take the "here" branch and emit `enabled: true` with no tests, which the
+  // schema refuses anyway - loudly, at the end, instead of here.
+  if (!draft.source) return false
   if (draft.source === 'template') {
     return draft.markerMode !== 'hand-in' || !!draft.markerValue.trim()
   }
@@ -479,6 +509,11 @@ function add(presetKey) {
 function removeAll() {
   emit('save', {
     enabled: false,
+    // `source: null` is the answer "nothing grades this", and it is a different
+    // answer from `source: 'template'` even though both write `enabled: false`.
+    // Storing only the flag is what made the two indistinguishable and put the
+    // CI grading controls on assignments that grade nothing.
+    source: null,
     execution_environment: draft.execution_environment,
     tests: [],
     submissionMarker: '',
@@ -494,6 +529,7 @@ function save() {
   if (draft.source === 'template') {
     emit('save', {
       enabled: false,
+      source: 'template',
       execution_environment: draft.execution_environment,
       tests: [],
       submissionMarker: draft.markerMode === 'hand-in' ? draft.markerValue.trim() : '',
@@ -503,6 +539,7 @@ function save() {
   }
   emit('save', {
     enabled: true,
+    source: 'declared',
     execution_environment: draft.execution_environment,
     tests: draft.tests,
     submissionMarker: '',
