@@ -16,6 +16,9 @@ import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
 import { resolveTemplatePin } from "../lib/template-source.mjs";
+// The branch grading reads from. One decision, one implementation - the
+// generated workflow has to fire on the branch the reader walks.
+import { submissionBranch } from "../lib/submission-marker.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -200,7 +203,15 @@ export function graderTimeoutMinutes(test) {
 export function buildAutogradingWorkflow(assignment, org) {
   const shell = {
     name: "Autograding",
-    on: { push: { branches: ["main"] } },
+    // THE BRANCH IS THE ASSIGNMENT'S, not `main`. `submission_ref` is a real
+    // field with a real default, and the READER already honours it -
+    // `submissionBranch()` in lib/submission-marker.mjs is what grading walks.
+    // Hardcoding `main` here meant an assignment collecting on any other branch
+    // got a grading workflow that never fires on the branch being graded: no
+    // check run at that commit, so the score read reports "no grading run" and
+    // the assignment looks configured. Two halves of one fact, in two files,
+    // with nothing deriving either from the other.
+    on: { push: { branches: [submissionBranch(assignment)] } },
     concurrency: { group: "autograde-${{ github.ref }}", "cancel-in-progress": true },
   };
 

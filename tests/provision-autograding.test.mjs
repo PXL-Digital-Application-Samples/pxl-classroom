@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
+import { submissionBranch } from "../lib/submission-marker.mjs";
 
 test("a stored visibility changes nothing - there is one generated workflow", () => {
   // `visibility: private` used to emit
@@ -124,6 +125,34 @@ function assertReporterCanFindEveryRunner(reporterStep) {
     assert.equal(reporterStep.env[key], `\${{ steps.${runner.trim()}.outputs.result }}`);
   }
 }
+
+test("the workflow fires on the branch grading actually reads", () => {
+  // `submission_ref` is a real field with a real default, and the READER
+  // honours it: `submissionBranch()` is what the score read walks. The
+  // generator hardcoded `main`, so an assignment collecting on another branch
+  // got a grading workflow that never fires on the branch being graded - no
+  // check run at that commit, the read reports "no grading run", and the
+  // assignment looks perfectly configured. Derived from the same function the
+  // reader uses rather than asserted as a literal.
+  const withRef = (submission_ref) => ({
+    ...(submission_ref ? { submission_ref } : {}),
+    autograde: {
+      enabled: true,
+      execution_environment: "github_actions",
+      tests: [{ id: "t1", type: "run", command: "true", points: 1 }],
+    },
+  });
+
+  for (const ref of [undefined, "refs/heads/main", "refs/heads/hand-in", "refs/heads/exam/final"]) {
+    const assignment = withRef(ref);
+    const doc = parse(buildAutogradingWorkflow(assignment, "PXLAutomation"));
+    assert.deepEqual(
+      doc.on.push.branches,
+      [submissionBranch(assignment)],
+      `submission_ref ${JSON.stringify(ref)} must be the branch the workflow triggers on`,
+    );
+  }
+});
 
 test("an io check asks for a comparison the grader will accept", () => {
   // autograding-io-grader@v1 throws on anything outside this set, and the
