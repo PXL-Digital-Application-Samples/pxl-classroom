@@ -23,6 +23,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SCAFFOLD_KEEPFILE } from "../lib/control-layout.mjs";
+import { pruneMissingAssignments } from "../lib/dashboard-aggregate.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -235,6 +237,94 @@ test("it does not restamp generated_at - it computed nothing", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --------------------------------------------------------------------------
+// ZERO IS A NUMBER
+//
+// The guard above refused an EMPTY listing exactly as it refuses an unreadable
+// one, so an organization that deleted its LAST assignment kept that card for
+// ever: one left and it reconciled fine, zero and nothing would ever remove it.
+// That is the case where the net is all there is - no other assignment's run
+// can carry the reconciliation.
+//
+// `.gitkeep` is what separates the two answers. scaffold-control-repo.mjs
+// writes one into every scaffold directory, so a control repo that can be read
+// at all has one in `assignments/`; a listing with neither ids nor a marker is
+// a read that established nothing and still prunes nothing.
+// --------------------------------------------------------------------------
+
+function makeEmptyAssignmentsDir({ keepfile = true } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-prune-empty-"));
+  mkdirSync(join(dir, "reports"), { recursive: true });
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  if (keepfile) writeFileSync(join(dir, "assignments", SCAFFOLD_KEEPFILE), "");
+  return dir;
+}
+
+test("the organization that deleted its LAST assignment loses the card too", () => {
+  const dir = makeEmptyAssignmentsDir();
+  try {
+    writeDashboard(dir, { "deleted-one": { title: "Ghost", state: "closed" } });
+    const res = runPrune(dir);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(Object.keys(dashboardOf(dir).assignments), [], "zero on disk means zero cards");
+    assert.match(res.stdout || "", /pruned dashboard entry for deleted-one/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an empty listing with no scaffold marker still prunes NOTHING", () => {
+  // The fail-safe direction. Whatever produces a listing with neither an
+  // assignment nor the marker in it told us nothing, and the worst it may cost
+  // is the stale card this file exists to remove - never a live cohort's.
+  const dir = makeEmptyAssignmentsDir({ keepfile: false });
+  try {
+    writeDashboard(dir, { live: { title: "Live" }, ghost: { title: "Ghost" } });
+    const res = runPrune(dir);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(Object.keys(dashboardOf(dir).assignments).sort(), ["ghost", "live"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the decision itself reads the listing, marker and all", () => {
+  // Straight at the function, because the two answers differ by one filename
+  // and a subprocess test cannot say which half of the rule fired.
+  const dash = () => ({ schema_version: 1, assignments: { a: {}, b: {} } });
+
+  assert.deepEqual(
+    pruneMissingAssignments(dash(), [SCAFFOLD_KEEPFILE]).pruned.sort(),
+    ["a", "b"],
+    "present-and-empty is evidence that both are gone",
+  );
+  assert.deepEqual(
+    pruneMissingAssignments(dash(), []).pruned,
+    [],
+    "an empty listing with no marker establishes nothing",
+  );
+  assert.deepEqual(
+    pruneMissingAssignments(dash(), null).pruned,
+    [],
+    "unreadable is not evidence",
+  );
+  assert.deepEqual(
+    pruneMissingAssignments(dash(), [SCAFFOLD_KEEPFILE, "a.yml"]).pruned,
+    ["b"],
+    "the marker does not stop the ordinary case",
+  );
+  assert.deepEqual(
+    pruneMissingAssignments(dash(), ["a.yaml", "b.yml"]).pruned,
+    [],
+    "both spellings of the extension name an assignment",
+  );
+  assert.deepEqual(
+    pruneMissingAssignments(dash(), ["a", "b"]).pruned,
+    [],
+    "ids where names belong name no assignment, and fail safe rather than deleting both",
+  );
 });
 
 test("the workflow actually runs it, or the script is dead code", () => {

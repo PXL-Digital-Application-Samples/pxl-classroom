@@ -12,7 +12,7 @@ import { mkdir, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 // Imports the dep-free layout module, not lib/audit.mjs: setup-org.yml runs
 // this without `npm ci`, and audit.mjs pulls in the `yaml` package.
-import { CONTROL_SCAFFOLD_DIRS } from "../lib/control-layout.mjs";
+import { CONTROL_SCAFFOLD_DIRS, SCAFFOLD_KEEPFILE } from "../lib/control-layout.mjs";
 // Safe here despite this script running with NO `npm ci` (CLAUDE.md):
 // lib/roster-entries.mjs imports nothing at all, so it adds no specifier -
 // bare or otherwise - to this entry point's graph.
@@ -67,10 +67,13 @@ async function main() {
 
   const created = [];
 
+  // The marker is read back as well as written: its presence in a listing is
+  // what tells `pruneMissingAssignments` that `assignments/` is genuinely empty
+  // rather than unreadable, so the name is a constant both halves share.
   for (const dir of CONTROL_SCAFFOLD_DIRS) {
     await mkdir(join(target, dir), { recursive: true });
-    if (await writeIfAbsent(join(target, dir, ".gitkeep"), "")) {
-      created.push(`${dir}/.gitkeep`);
+    if (await writeIfAbsent(join(target, dir, SCAFFOLD_KEEPFILE), "")) {
+      created.push(`${dir}/${SCAFFOLD_KEEPFILE}`);
     }
   }
 

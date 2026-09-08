@@ -78,7 +78,9 @@ An **organization** ruleset closes both. Measured live: one org ruleset with `co
 gh api apps/pxl-classroom-provisioner --jq .permissions
 ```
 
-What remains is code. `applySubmissionLock` in `lib/submission-lock.mjs` is the one function that would gain the new scope.
+What remains is code, in two files rather than the one this entry used to name. `applySubmissionLock` is a local function in [`lockdown/lockdown.mjs`](lockdown/lockdown.mjs) — it is where `method` is chosen, so it is what gains the new scope; `lib/submission-lock.mjs` is where the org-scoped pair would live, beside `ensureSubmissionLock` and `releaseSubmissionLock`.
+
+The awkward half is the **inverse**. An organization ruleset cannot be flipped for one student, so reopening one repository ([ARCHITECTURE §11.2.4](ARCHITECTURE.md)) stops being a flag flip and becomes an edit to `conditions.repository_name.exclude` — a different operation, on the record a grade dispute rests on. That is the part to design before writing any of it.
 
 **Whether to build it is a judgement, not a defect.** The position on record is that the repository ruleset suffices. Build this if you want a lock a student cannot reach at all; a high-stakes exam is the case that would justify it.
 
@@ -125,11 +127,13 @@ returns a non-zero count.
 
 ## 5. Lecturer-defined checks have never been used on a live assignment
 
-**Status: open.** Verified 2026-09-04.
+**Status: open.** Verified 2026-09-04, re-measured 2026-09-08.
 
 Autograding has two shapes (ARCHITECTURE §11.6). One reads the score a workflow that came with the template produced; the other has the lecturer describe checks in the Admin Panel, from which the system either writes a workflow into every student repository or grades locally with `pxl-classroom grade --runner docker`.
 
-Every live assignment uses the **first**. Across seven participating organizations and seventeen assignments, not one carries an `autograde` block. Both lecturers doing autograding — `d-ries` on `proef-pe1`, `dhoubrechts` on `python-hacking-intro` — ship a GitHub Classroom `classroom.yml` in their template, which is where these courses come from.
+Every live assignment uses the **first**. On 2026-09-08 the registry held **17** organizations, **14** with a control repository the sweep could read, **8** of those carrying assignments at all — **20** assignment YAMLs between them, and not one has an `autograde` block. Not one has a `submission_marker` either, so every assignment that grades is on the template's own schedule. Both lecturers doing autograding — `d-ries` on `proef-pe1`, `dhoubrechts` on `python-hacking-intro` — ship a GitHub Classroom `classroom.yml` in their template, which is where these courses come from.
+
+Three organizations 404 for the sweep, which is unreadable rather than empty, so the count is a floor.
 
 That is not a defect, and the path is not dead code: it is the only way to keep checks **out** of the student's repository, and the only one that produces a score per check rather than one total. But it is unexercised, and unexercised code is wrong in ways tests do not catch. It shipped for months handing every generated workflow a `timeout` in **minutes** where the schema field is seconds — a 30-second test capped at 30 minutes, on the side that bills an organization's Actions minutes — and nothing noticed, because nothing ran one.
 
@@ -215,34 +219,13 @@ sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs 
 
 ---
 
-## 8. An organization that deletes its last assignment keeps the card
-
-**Status: open — deliberately.** Verified 2026-09-07.
-
-`pruneMissingAssignments` (`lib/dashboard-aggregate.mjs`) drops dashboard entries whose assignment YAML is gone. It refuses to act on an **empty** listing, for the same reason it refuses to act on an unreadable one: neither is evidence that every assignment is gone, and deleting every card in an organization because a checkout produced nothing is far worse than the stale card the prune exists to remove.
-
-The consequence is exact: an organization that deletes its **last** assignment keeps that assignment's card on the dashboard indefinitely, and no workflow will ever remove it. One assignment left, and it reconciles fine. Zero, and it never does.
-
-The Admin Panel's delete removes the entry in the same commit, so this is only reachable when an assignment's YAML disappears by another route — a hand edit, or a delete that failed partway. That is the same narrow path the prune itself is the net for.
-
-Closing it needs a signal that distinguishes "this organization has no assignments" from "I could not see any", which the directory listing alone cannot give. An empty `assignments/` directory containing the `.gitkeep` that scaffolding writes is one candidate: present-and-empty is then a different fact from absent.
-
-**How to tell it is closed:** an organization whose `assignments/` holds no YAML has `reports/dashboard.json` with `assignments: {}` after a `regenerate-dashboard` run.
-
-```bash
-gh api "repos/<org>/pxl-classroom-control/contents/reports/dashboard.json" \
-  -H "Accept: application/vnd.github.raw" | jq '.assignments | keys'
-gh api "repos/<org>/pxl-classroom-control/contents/assignments" --jq '[.[].name]'
-```
-
----
-
 ## Closed
 
-Kept briefly so they are not reopened from memory. Each was verified against the live system on 2026-08-31, not against a changelog.
+Kept briefly so they are not reopened from memory. Each was verified against the live system, not against a changelog — 2026-08-31 unless the row says otherwise.
 
 | Item | Closed by | Evidence |
 |---|---|---|
+| **An organization that deletes its last assignment kept the card** (2026-09-08) | `pruneMissingAssignments` reads the listing rather than a set of ids, and takes the scaffold's `.gitkeep` as proof that an empty `assignments/` was really read | The signal the entry called "one candidate" was already there: `scripts/scaffold-control-repo.mjs` writes `SCAFFOLD_KEEPFILE` into every scaffold directory, and all 14 readable control repos carry it. `tests/dashboard-prune.test.mjs` covers both directions — present-and-empty prunes, empty-with-no-marker does not. |
 | **Brokers held the provisioning App's private key** | The broker App, plus republishing every live assignment | `gh secret list --repo <org>/broker-<id>` shows `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` only. Checked on `PXLAutomation/broker-finalize-drill`; a broker in an org you do not administer returns 403, so confirm the rest as an owner of that org. |
 | **`PXL_APP_PRIVATE_KEY` needed rotating after that sweep** | Rotated | The `provisioning` environment secret's `updated_at` is `2026-08-31T13:43:28Z`, after the broker App was created (12:59) and the brokers were migrated (13:13). |
 | **Ad-hoc branch creation on the hub was unrestricted** | Ruleset `Block ad-hoc branch creation` | `gh api repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets` returns it `active`, target `branch`, rule `creation`, `~ALL` excluding `refs/heads/participating-orgs`, bypass for OrganizationAdmin and the repository role — exactly as specified. |

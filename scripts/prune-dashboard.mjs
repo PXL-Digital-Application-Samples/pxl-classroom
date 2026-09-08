@@ -22,7 +22,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pruneMissingAssignments } from "../lib/dashboard-aggregate.mjs";
-import { DASHBOARD_PATH } from "../lib/control-layout.mjs";
+import { ASSIGNMENTS_DIR, DASHBOARD_PATH } from "../lib/control-layout.mjs";
 
 async function main() {
   const dataDir = process.argv[2] || "control";
@@ -41,19 +41,21 @@ async function main() {
   // UNREADABLE IS NOT EVIDENCE. A failed listing leaves every entry alone;
   // deleting a live cohort's card because a read hiccuped is far worse than the
   // stale card this exists to remove.
-  let onDisk = null;
+  //
+  // An EMPTY one is a different answer, and this is the run that acts on it: an
+  // organization that deleted its last assignment has no other assignment whose
+  // report would carry the reconciliation. The names go through unfiltered
+  // because the scaffold's `.gitkeep` is what proves the directory was really
+  // empty rather than really unread.
+  let listing = null;
   try {
-    onDisk = new Set(
-      (await readdir(join(dataDir, "assignments")))
-        .filter((f) => /\.ya?ml$/.test(f))
-        .map((f) => f.replace(/\.ya?ml$/, "")),
-    );
+    listing = await readdir(join(dataDir, ASSIGNMENTS_DIR));
   } catch (e) {
     console.log(`[skip] could not list assignments/, leaving every entry alone: ${e.message}`);
     return;
   }
 
-  const { dashboard: reconciled, pruned } = pruneMissingAssignments(dashboard, onDisk);
+  const { dashboard: reconciled, pruned } = pruneMissingAssignments(dashboard, listing);
   if (pruned.length === 0) {
     console.log(`[ok] nothing to prune - ${Object.keys(dashboard.assignments || {}).length} entries, all present`);
     return;

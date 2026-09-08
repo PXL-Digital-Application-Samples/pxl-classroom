@@ -790,6 +790,14 @@ Two things came out of it. The decision moved to `lib/dashboard-aggregate.mjs` (
 
 The Admin Panel's own delete was never affected: it removes the entry in the same commit as everything else it deletes. This is the net under the rest, and a net is exactly the thing whose gaps nobody notices until they fall through one.
 
+**And the net had one more hole, the shape of the number zero.** The reconciliation refused an **empty** listing exactly as it refuses an unreadable one — the same line, `!present || present.size === 0` — on the reasoning that neither proves every assignment is gone. Half of that is right and half of it cost the case the net is the *only* thing that covers: an organization with one assignment left reconciled fine, and one that deleted its **last** kept that card for ever, because no other assignment's run existed to carry the removal. It was written down as a deliberate accepted consequence, with a note that closing it needed a signal the directory listing "alone cannot give".
+
+It could. `scripts/scaffold-control-repo.mjs` had been writing `.gitkeep` into every scaffold directory since setup-org existed, and all fourteen readable control repos carried one — so *present-and-empty* was already distinguishable from *absent*, and the fix was to stop throwing that away. The function took a set of ids, filtered at both call sites by a `/\.ya?ml$/` spelled once in `report.mjs` and again in `scripts/prune-dashboard.mjs`; the marker was discarded by that filter before the decision ever saw it. It takes the **listing** now, `lib/control-layout.mjs` owns `assignmentIdFromFile` as the inverse of `assignmentPath`, and the two hand-written filters are gone with it.
+
+Two things worth keeping from it. **A guard that refuses two different answers is usually defending one of them**, and the other is riding along unexamined — "unreadable is not evidence" was load-bearing, "and neither is empty" was never argued, it was written in the same breath. And **the answer to "we would need a signal for this" is sometimes that the signal already exists**, put there by something else for its own reasons; the register entry proposed `.gitkeep` as a hypothetical for months while it sat in every live organization. Checking costs one API call.
+
+The direction of failure is still the safe one: a listing with neither an assignment nor the marker in it establishes nothing and prunes nothing, so the worst an unforeseen empty listing can now do is leave the stale card this exists to remove.
+
 ### A pre-flight that asks with the wrong credential is not a pre-flight.
 
 A colleague asked whether an assignment could use a template repository in **another organization**. Measured on the live testbed on 2026-09-07 by running the real acceptance and provisioning chain rather than reading the docs — which were ambiguous enough that the prediction came out **backwards**:

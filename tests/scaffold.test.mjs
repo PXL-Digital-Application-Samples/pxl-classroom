@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { CONTROL_SCAFFOLD_DIRS } from "../lib/control-layout.mjs";
+import { CONTROL_SCAFFOLD_DIRS, SCAFFOLD_KEEPFILE } from "../lib/control-layout.mjs";
 import { CONTROL_SCAFFOLD_DIRS as REEXPORTED } from "../lib/audit.mjs";
 
 const run = promisify(execFile);
@@ -68,8 +68,11 @@ test("scaffold script creates the full layout and is idempotent", async () => {
   const first = await run(process.execPath, [script, dir]);
   assert.match(first.stdout, /created/);
 
+  // Derived from the constant, not spelled again: the marker is read back by
+  // pruneMissingAssignments to tell an empty `assignments/` from an unreadable
+  // one, so a rename that lands here and not there is a silent behaviour change.
   for (const d of CONTROL_SCAFFOLD_DIRS) {
-    assert.ok(await exists(join(dir, d, ".gitkeep")), `${d}/.gitkeep missing`);
+    assert.ok(await exists(join(dir, d, SCAFFOLD_KEEPFILE)), `${d}/${SCAFFOLD_KEEPFILE} missing`);
   }
   assert.ok(await exists(join(dir, "README.md")));
   assert.ok(await exists(join(dir, "students", "roster.yml")));

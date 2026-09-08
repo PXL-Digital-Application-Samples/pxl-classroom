@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { buildDashboardEntry, pruneMissingAssignments } from "../lib/dashboard-aggregate.mjs";
+import { ASSIGNMENTS_DIR } from "../lib/control-layout.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { csvCell } from "../lib/csv-cell.mjs";
 import { REPORT_ROW_COLUMNS } from "../lib/report-csv.mjs";
@@ -697,13 +698,13 @@ async function main() {
   // grounds for deciding an assignment is gone; if the read fails, every entry
   // is left alone. Removing a live cohort's card because a listing hiccuped
   // would be far worse than the stale card this fixes.
-  let onDisk = null;
+  //
+  // The LISTING goes through, not a set of ids built from it: an empty
+  // `assignments/` and an unreadable one are different answers and the scaffold's
+  // `.gitkeep` is what tells them apart, so the decision needs the names.
+  let listing = null;
   try {
-    onDisk = new Set(
-      (await readdir(join(dataDir, "assignments")))
-        .filter((f) => /\.ya?ml$/.test(f))
-        .map((f) => f.replace(/\.ya?ml$/, ""))
-    );
+    listing = await readdir(join(dataDir, ASSIGNMENTS_DIR));
   } catch (e) {
     console.error(`[warn] could not list assignments/, leaving dashboard entries untouched: ${e.message}`);
   }
@@ -715,7 +716,7 @@ async function main() {
   // reconciliation a side effect of generating some OTHER assignment's report:
   // an org whose remaining assignments are all draft or archived generates no
   // reports at all and never reconciled.
-  const { dashboard: reconciled, pruned } = pruneMissingAssignments(dashboard, onDisk, {
+  const { dashboard: reconciled, pruned } = pruneMissingAssignments(dashboard, listing, {
     keep: assignmentId,
   });
   dashboard = reconciled;
