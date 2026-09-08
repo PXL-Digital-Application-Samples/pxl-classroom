@@ -47,7 +47,14 @@ const CONTROL_PATH_SCHEMAS = [
   // One repository reopened after the deadline. Nothing regenerates it and no
   // later run corrects it, so the only moment it can be checked is the one it
   // is written in.
+  //
+  // MORE SPECIFIC FIRST: `unlocked/<login>.json` is under `lockdowns/<id>/` and
+  // would otherwise be caught by the record's own pattern below.
   [/^lockdowns\/[^/]+\/unlocked\/[^/]+\.json$/, 'unlock-record', 'json'],
+  // What the deadline did to the cohort. It had no schema at all until
+  // 2026-09-08 - three writers' worth of fields and nothing that could reject
+  // one - which is the exemption this list is designed to make impossible.
+  [/^lockdowns\/[^/]+\/lockdown-record\.json$/, 'lockdown-record', 'json'],
   [/^grading\/[^/]+\/summary\.json$/, 'grading-summary', 'json'],
   [/^students\/roster\.yml$/, 'roster', 'yaml'],
   [/^assignments\/[^/]+\.yml$/, 'assignment', 'yaml'],

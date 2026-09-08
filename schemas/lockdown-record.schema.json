@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-classroom.github.io/schemas/lockdown-record.schema.json",
+  "title": "Lockdown Record",
+  "description": "What a deadline finalize did to one assignment's cohort, at lockdowns/<assignment-id>/lockdown-record.json. Written whole by lockdown.mjs on every finalize attempt and re-written by the next one, which is why an unlock lives beside it in lockdowns/<id>/unlocked/<login>.json rather than inside it. It is ALSO the idempotency key find-finalizable.mjs reads: a row with a snapshot_sha and no verified preservation re-queues the assignment. This schema was written after the fact - the document had three writers' worth of fields and nothing that could reject one - so every field here was read off lockdown.mjs and off the live records in the participating organizations, and `required` holds only what records written before this schema existed already carry.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "executed_at",
+    "results"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "assignment_id": { "type": "string", "minLength": 1 },
+    "deadline_at": {
+      "type": ["string", "null"],
+      "description": "The ASSIGNMENT's deadline. A student with an extension is deferred instead, and carries their own instant in `deferred_until` on their row."
+    },
+    "executed_at": { "type": "string", "format": "date-time" },
+    "finalize_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "First finalize is 1. find-finalizable.mjs stops re-queueing past MAX_FINALIZE_ATTEMPTS so a repository that can never be preserved cannot burn a matrix leg every night."
+    },
+    "first_finalized_at": { "type": "string", "format": "date-time" },
+    "observer_run": {
+      "type": ["string", "null"],
+      "description": "The Actions run that wrote this. A debugging aid with a 90-day life on a public repository (ARCHITECTURE §17) - the evidence is this file, not the run."
+    },
+    "locked_at": {
+      "type": ["string", "null"],
+      "description": "When phase 1 fired. Credited to a sentinel's instant where one already stopped the cohort, so uncertainty_seconds stays honest."
+    },
+    "lock_method": {
+      "type": "string",
+      "enum": ["org-ruleset", "ruleset", "demotion", "none"],
+      "description": "What the run set out to do for the cohort. A row may differ from it: a ruleset that could not be applied degrades to a demotion for that repository alone, so the ROW's lock_method is what an unlock reads. NOT required: PXL-Systems-Expert's two 2026 records predate the field, and refusing them would make this schema a claim about documents it cannot fix."
+    },
+    "org_ruleset_id": {
+      "type": ["integer", "null"],
+      "description": "The organization ruleset covering this cohort, when lock_method is `org-ruleset`. A convenience for reading; never the lookup key. The sentinel's STOP_ONLY path writes no record at all, so at the moment it fires there is no stored id - findOrgSubmissionLock resolves by NAME, and this field only saves a call afterwards."
+    },
+    "late_policy": { "type": "string", "enum": ["report", "block"] },
+    "locked_count": { "type": "integer", "minimum": 0 },
+    "error_count": { "type": "integer", "minimum": 0 },
+    "no_submission_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Branches holding nothing committed before the student's deadline. Under `block` that is an outcome, not a failure, and preserve treats it as its own bucket."
+    },
+    "deferred_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Left alone because a granted extension is still running. Neither a lock nor an error, so the run stays green."
+    },
+    "reopened_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Deliberately reopened by a lecturer and therefore not re-locked by this pass. Counted apart from deferrals and errors because it is neither: nothing failed and nobody was granted more time. These produce no result row - the count is the record."
+    },
+    "unfreezable_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Accounts that own the organization and keep admin whatever the run does. Not an error: nothing can freeze them under a demotion, and a ruleset stops them anyway."
+    },
+    "max_uncertainty_seconds": { "type": ["number", "null"] },
+    "results": {
+      "type": "array",
+      "description": "One row per LOGIN, not per repository - a group assignment's five members share one repository and produce five rows naming it.",
+      "items": {
+        "type": "object",
+        "required": ["github_login"],
+        "additionalProperties": false,
+        "properties": {
+          "github_login": { "type": "string", "minLength": 1 },
+          "team_slug": { "type": ["string", "null"] },
+          "repo_name": {
+            "type": ["string", "null"],
+            "description": "`owner/name`, because a record nothing regenerates has to be readable with no other document beside it."
+          },
+          "repo_id": {
+            "type": ["integer", "null"],
+            "description": "The immutable id (§13). What an organization ruleset targets, and what survives a rename."
+          },
+          "snapshot_sha": {
+            "type": ["string", "null"],
+            "description": "The submission. Frozen on retry: a later attempt reuses this rather than re-reading HEAD, or a late push would replace the on-time submission. Null with a `deferred_until` means deferred, and null WITHOUT one is a lockdown failure - preserve tells them apart on exactly that."
+          },
+          "snapshot_ref": { "type": ["string", "null"] },
+          "pushed_at": {
+            "type": ["string", "null"],
+            "description": "GitHub's own server-side timestamp for the last push. Unlike a commit date, a student cannot set it - the one field here they cannot influence."
+          },
+          "lockdown_at": { "type": ["string", "null"] },
+          "lock_method": {
+            "type": ["string", "null"],
+            "enum": ["org-ruleset", "ruleset", "demotion", "none", null],
+            "description": "What actually stopped THIS repository, which is not always what the run set out to do. lib/repo-unlock.mjs reads it to pick the inverse: undoing a demotion with a ruleset flip reports success over a student who still cannot push."
+          },
+          "reconstructed": {
+            "type": ["boolean", "null"],
+            "description": "The submission was rebuilt with `?until=` rather than read off HEAD, because a push landed after the deadline. Committer-date based, and that date is client-supplied."
+          },
+          "no_submission": { "type": ["boolean", "null"] },
+          "demoted": { "type": ["boolean", "null"] },
+          "permission_after": {
+            "type": ["string", "null"],
+            "description": "Read back after the demotion, never assumed. `admin` here beside verified:false is an organization owner, who cannot be demoted at all."
+          },
+          "verified": {
+            "type": ["boolean", "null"],
+            "description": "Whether the lock was confirmed, not whether the call returned 2xx."
+          },
+          "unfreezable_reason": {
+            "type": ["string", "null"],
+            "enum": ["org-owner", null],
+            "description": "Why this one was not frozen. Recorded rather than inferred from permission_after, because `admin` is also what a transient failure leaves behind and a grade dispute should not turn on somebody re-deriving the difference months later."
+          },
+          "deferred_until": { "type": ["string", "null"] },
+          "deferred_reason": { "type": ["string", "null"] },
+          "uncertainty_seconds": {
+            "type": ["number", "null"],
+            "description": "How long after THIS student's deadline they could still push - not after the assignment's."
+          }
+        }
+      }
+    }
+  }
+}
