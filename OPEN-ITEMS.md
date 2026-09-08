@@ -202,7 +202,35 @@ returns `0` - or the arrangement was considered and kept, and this entry says so
 
 ---
 
-## 7. e2e specs stage report fixtures the report schema would refuse
+## 7. Nothing grades automatically, and grading is one button for a whole cohort
+
+**Status: open — designed, not built.** Raised 2026-09-08.
+
+The nightly finalizes an assignment - collect, lockdown, preserve, report - and **never grades**. Reading a score back into the control repository is only ever a lecturer action: *Read scores from GitHub Actions* in the detail view, or `pxl-classroom grade`. `grep -rl "grading/" --include=*.mjs --include=*.vue` names three writers and none of them is a workflow.
+
+That is a gap under the way these courses actually run. The common shape here is: block nothing, let students push, and grade **the last commit inside the deadline carrying the hand-in message** - which the system supports (`submission_marker`, `findMarkedCommit`, deadline-bounded, reporting a late hand-in as late rather than missing). Everything is in place except that somebody has to remember to press a button afterwards.
+
+**Grading on the student's push is the obvious idea and it is not available.** The grading workflow already runs in the student's repository on every push; what is manual is reading the score *back*. For the hub to react to that push the student's repository would have to dispatch to the hub, which means a credential in a repository the student administers - the incident `close-acceptance.mjs` and the broker App exist to have ended. There is no other event the hub can see, and polling is what §6.4 exists to refuse.
+
+**Finalize is where it belongs.** It already runs per assignment at the deadline, already has the control repository checked out, already commits, and by then the marked hand-in is decided. One Checks read per student, no new trigger, no new credential, no idle minutes.
+
+**Three requirements that are part of the work, not extras:**
+
+- **A lecturer must be able to re-run it.** A grade read at finalize is not the last word: a student's run may have been re-run, a marker corrected, a check fixed.
+- **It gets its own button, not a corner of Refresh.** Re-grading a cohort is a big, slow, overwriting action and Refresh is a cheap read of commit state. Sharing a control would make one of them lie about what it costs.
+- **And a per-student action, on the row.** Chasing one student is the ordinary case; re-grading forty to fix one is not an answer.
+
+**How to tell it is closed:** an assignment's `grading/<id>/summary.json` has a `generated_at` later than its finalize, with nobody having pressed anything, and the detail view offers both a cohort-level re-grade and a per-row one.
+
+```bash
+grep -n "grading/" .github/workflows/daily-activity.yml
+```
+
+printing nothing is this item still open.
+
+---
+
+## 8. e2e specs stage report fixtures the report schema would refuse
 
 **Status: open — bounded and guarded.** Measured 2026-09-07, narrowed the same day.
 

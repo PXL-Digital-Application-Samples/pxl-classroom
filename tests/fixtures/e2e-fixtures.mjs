@@ -80,7 +80,7 @@ const CONTROL_PATH_SCHEMAS = [
  * shrink: a NEW spec cannot join it without editing this list, and a spec that
  * gains a save is no longer excused by being on it.
  *
- * OPEN-ITEMS 7 carries the decision to leave them.
+ * OPEN-ITEMS 8 carries the decision to leave them.
  */
 const REPORT_FIXTURE_EXEMPT = new Set([
   // The last three were found by THIS guard and by nothing else: a source scan
@@ -144,7 +144,7 @@ function assertReportFixtures(reports) {
     // spec stages those - while dashboard.schema.json requires the whole
     // entry, so validating here would refuse a dozen correct fixtures to guard
     // a document whose real WRITES controlWriteViolation already checks. The
-    // decision on record (OPEN-ITEMS 7) is about report fixtures; widening it
+    // decision on record (OPEN-ITEMS 8) is about report fixtures; widening it
     // to the roll-up is a separate call nobody has made.
     if (id === 'dashboard') continue;
     const schema = 'report';

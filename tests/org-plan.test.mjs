@@ -257,6 +257,67 @@ test("an assignment that does not freeze and has no Feedback PR is not warned ab
   );
 });
 
+test("BLOCKING LATE WORK is warned about, and it was the case that slipped", () => {
+  // `late_policy: block` + `lock_down_enabled: false` is the configuration a
+  // lecturer picks to stop late pushes WITHOUT losing Actions and secrets - the
+  // form unticks the demotion box for them when they choose it. On free the
+  // ruleset cannot be created and applySubmissionLock degrades to demotion, so
+  // that exact choice confiscates the toolchain it was chosen to protect.
+  //
+  // The finding gated only on `lock_down_enabled`, which is FALSE here, so it
+  // returned null and warned about nothing. Live on 2026-09-08:
+  // pxl-grpro-csmobile/voorbeeld-project is on free with late_policy: block.
+  const f = assignmentFreezePlanFinding({
+    plan: "free",
+    assignment: { late_policy: "block", lock_down_enabled: false },
+    org: ORG,
+  });
+  assert.ok(f, "a free org cannot enforce a branch lock, and must say so");
+  assert.equal(f.severity, "warn");
+  assert.match(f.message, /cannot be enforced with a ruleset/);
+  assert.match(f.message, /meant to preserve/, "it has to name what the lecturer loses");
+});
+
+test("blocking on a paid plan is silent, because it works there", () => {
+  assert.equal(
+    assignmentFreezePlanFinding({
+      plan: "team",
+      assignment: { late_policy: "block", lock_down_enabled: false },
+      org: ORG,
+    }),
+    null,
+  );
+});
+
+test("blocking AND demoting says the demotion once, not twice", () => {
+  // Both degrade to the same demotion, so naming it twice reads as two
+  // problems. The lecturer asked for the heavier one; that is what is reported.
+  const f = assignmentFreezePlanFinding({
+    plan: "free",
+    assignment: { late_policy: "block", lock_down_enabled: true },
+    org: ORG,
+  });
+  assert.ok(f);
+  assert.match(f.message, /demote every student to "pull"/);
+  assert.doesNotMatch(
+    f.message,
+    /cannot be enforced with a ruleset/,
+    "demotion was asked for outright, so the branch-lock sentence would be a second problem that is not there",
+  );
+});
+
+test("reporting late work on free is still silent", () => {
+  // Nothing degrades: `report` blocks nothing anywhere, on any plan.
+  assert.equal(
+    assignmentFreezePlanFinding({
+      plan: "free",
+      assignment: { late_policy: "report", lock_down_enabled: false },
+      org: ORG,
+    }),
+    null,
+  );
+});
+
 test("Feedback PR is warned about on its own, in its own words", () => {
   const f = assignmentFreezePlanFinding({
     plan: "free",
