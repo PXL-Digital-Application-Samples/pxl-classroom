@@ -1134,7 +1134,7 @@ import {
   lockdownRecordPath, unlockRecordPath,
 } from '../../../lib/control-layout.mjs'
 import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from '../lib/repo-unlock.js'
-import { releaseSubmissionLock } from '../../../lib/submission-lock.mjs'
+import { releaseSubmissionLock, removeRepoFromOrgLock } from '../../../lib/submission-lock.mjs'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
 import InvitationShare from '../components/InvitationShare.vue'
@@ -3595,12 +3595,18 @@ async function unlockRepositoryFor(student, { reason }) {
       // shape over the SPA's own client - not a second implementation of it.
       request: (method, path, body) => ghApi(token, method, path, body),
       releaseLock: releaseSubmissionLock,
+      releaseOrgLock: removeRepoFromOrgLock,
       setPermission: async ({ org, repo, login, permission }) => {
         const r = await ghApi(token, 'PUT', `/repos/${org}/${repo}/collaborators/${login}`, { permission })
         return { ok: r.ok, reason: r.ok ? null : `HTTP ${r.status} ${r.data?.message ?? ''}`.trim() }
       },
       org: owner,
       repo: name,
+      // Under an organization ruleset the unlock removes an ID, not a
+      // repository name - and the id comes off the lockdown row, which is the
+      // only place that records which repository this row's lock covered.
+      repositoryId: lockdownRow?.repo_id ?? null,
+      assignmentId: props.assignmentId,
       login: student.github_login,
       method: verdict.method,
       permission: verdict.permission,
