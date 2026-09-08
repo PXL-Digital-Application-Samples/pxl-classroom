@@ -148,3 +148,47 @@ test.describe('65 - grading controls appear only where there is grading', () => 
     await expect(page.locator('.export-dropdown-item', { hasText: CI_CONTROL })).toHaveCount(0);
   });
 });
+
+test.describe('65 - re-grading one student', () => {
+  const openRowActions = async (page) => {
+    await page.getByRole('button', { name: /Actions for student-one/i }).click();
+    await expect(page.locator('.modal-overlay')).toBeVisible();
+  };
+
+  test('THE ROW OFFERS A RE-GRADE, so chasing one student is not re-grading forty', async ({ page }) => {
+    await openDetail(page, { ...base, template_grades: true });
+    await openRowActions(page);
+    await expect(page.getByRole('button', { name: 'Re-grade this student' })).toBeVisible();
+    // And it says which commit the score will come from, so the lecturer is not
+    // guessing what they are about to read.
+    await expect(page.locator('.modal-overlay')).toContainText(/commit aaaaaaa/);
+  });
+
+  test('and does not, on an assignment that grades nothing', async ({ page }) => {
+    await openDetail(page, { ...base, template_grades: false });
+    await openRowActions(page);
+    await expect(page.getByRole('button', { name: 'Re-grade this student' })).toHaveCount(0);
+    // Not a disabled control with an explanation either: there is no grading
+    // here at all, so the section is absent rather than "not yet".
+    await expect(page.locator('.modal-overlay')).not.toContainText('Re-grade');
+  });
+
+  test('a student with no repository is told why, not offered a button', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      assignments: { [ID]: { ...base, template_grades: true } },
+      reports: {
+        [ID]: {
+          ...report,
+          students: [{ github_login: 'student-one', acceptance_state: 'accepted' }],
+        },
+      },
+      currentUser: LECTURER,
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
+    await openRowActions(page);
+    await expect(page.getByRole('button', { name: 'Re-grade this student' })).toHaveCount(0);
+    await expect(page.locator('.modal-overlay')).toContainText(/no repository yet/i);
+  });
+});

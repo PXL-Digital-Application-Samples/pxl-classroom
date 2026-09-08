@@ -373,6 +373,34 @@ jobs:
           DATA_DIR: control
         run: node scripts/close-acceptance.mjs
 
+      # 6. THE SCORES, which until now nobody read without pressing a button.
+      #
+      # Here and nowhere else: the deadline has passed, so the submission is
+      # decided - the preserved commit, or the hand-in the marker names bounded
+      # by each student's own effective deadline - and this job already holds
+      # the control repository and already commits it. One Checks read per
+      # student inside a job that is running anyway; no new trigger, no new
+      # credential, no idle minutes.
+      #
+      # AFTER the report, because it reads the report's rows to know which
+      # commit each student's score belongs to. Before the commit below, so the
+      # summary travels with the rest of the finalisation.
+      #
+      # `continue-on-error` AND the script's own refusal to exit non-zero, which
+      # is belt and braces on purpose: by this point the cohort is locked and
+      # their submissions are in the archive. Failing the leg over a score would
+      # re-queue all of that to fix something a lecturer can read with one
+      # button, and every retry burns an attempt from the ceiling that stops
+      # find-finalizable looping.
+      - name: 6. Read autograding scores
+        if: always()
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/grade-at-deadline.mjs
+
       # always(): lockdown demotes permissions through the API before preserve
       # runs, so those facts are already true of the world - dropping them on a
       # preserve failure loses the frozen snapshot and the attempt counter that
@@ -391,8 +419,13 @@ jobs:
           # committed none of the finalisation it just computed. A control repo
           # scaffolded before a directory joined CONTROL_SCAFFOLD_DIRS has that
           # shape today. mkdir -p is a no-op when the directory is there.
-          mkdir -p control/observations control/lockdowns control/reports
-          git -C control add observations/ lockdowns/ reports/
+          # `grading/` joins the list because step 6 now writes it. It is
+          # deliberately NOT a scaffolded directory - nothing creates it until
+          # something grades - so the mkdir is what stops `git add` exiting 128
+          # and staging none of the finalisation on the first assignment an
+          # organization ever grades.
+          mkdir -p control/observations control/lockdowns control/reports control/grading
+          git -C control add observations/ lockdowns/ reports/ grading/
           # THIS LEG DOES NOT PUBLISH THE DASHBOARD, and that is the whole fix
           # for a failure measured on a live drill (2026-09-08).
           #

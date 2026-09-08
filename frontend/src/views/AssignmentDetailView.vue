@@ -456,8 +456,12 @@
                 >
                   <Icon name="check-circle" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">{{ syncingGrades ? `Reading scores (${syncedGradesCount}/${totalGradesToSync})` : 'Read scores from GitHub Actions' }}</span>
-                    <span class="dropdown-item-sub">Pull each student's autograding result into the table</span>
+                    <span class="dropdown-item-title">{{ syncingGrades ? `Reading scores (${syncedGradesCount}/${totalGradesToSync})` : regradeLabel }}</span>
+                    <span class="dropdown-item-sub">
+                      {{ hasGrades
+                        ? `Replaces all ${gradableCount} scores with a fresh reading`
+                        : 'Pull each student’s autograding result into the table' }}
+                    </span>
                   </div>
                 </button>
 
@@ -997,7 +1001,7 @@
             <h3>Autograder</h3>
             <span class="text-muted text-xs">
               {{ autogradeSummary
-                ? `Last run ${fmt(autogradeSummary.generated_at)} by @${autogradeSummary.graded_by} via ${autogradeSummary.runner}`
+                ? gradingProvenance
                 : 'No results yet. Execution stays off-platform.' }}
             </span>
           </header>
@@ -1009,15 +1013,13 @@
             <template v-else>
               The checks are defined by a workflow inside the template repository, not here.
             </template>
-            <template v-if="ciGradingAvailable">
-              Reads the score annotation each grading run leaves on the student's commit.
-            </template>
+            <template v-if="ciGradingAvailable">{{ gradingBlurb }}</template>
             <!-- Secondary, not primary: DESIGN.md §1.2 names Sync among the
                  toolbar actions, and the invitation link is this view's one
                  solid button. -->
             <button v-if="localRunnerDeclared" class="btn-link" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
             <button v-else class="btn btn-secondary btn-sm" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
-              {{ syncingGrades ? `Reading (${syncedGradesCount}/${totalGradesToSync})` : 'Read scores from GitHub Actions' }}
+              {{ syncingGrades ? `Reading (${syncedGradesCount}/${totalGradesToSync})` : regradeLabel }}
             </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
@@ -1087,10 +1089,13 @@
         :retrying="actionRetrying"
         :unlock="actionUnlock"
         :unlocking="actionUnlocking"
+        :regrade="actionRegrade"
+        :regrading="actionRegrading"
         @close="closeActions"
         @grant="grantExtensionFor(actionStudent, $event)"
         @retry="retryAcceptanceFor(actionStudent)"
         @unlock="unlockRepositoryFor(actionStudent, $event)"
+        @regrade="regradeStudent(actionStudent)"
       />
 
       <!-- Open a draft Feedback PR per eligible student repository. -->
@@ -1191,21 +1196,19 @@ import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
 import { validateAgainst } from '../lib/validate.js'
-import {
-  parseCheckRunScore,
-  pickAutogradeCheckRun,
-  fetchCheckRunAnnotations,
-  readSubmissionMarker,
-  submissionBranch,
-  findMarkedCommit,
-} from '../lib/check-run-score.js'
+// `parseCheckRunScore`, `pickAutogradeCheckRun`, `fetchCheckRunAnnotations` and
+// `findMarkedCommit` were imported here to drive the score reading inline. That
+// orchestration is lib/grade-cohort.mjs now - the workflow needs the same
+// answers - and this view only asks it questions.
+import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
+import { gradeCohort, gradeStudent, gradingCommitFor } from '../lib/grade-cohort.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
-import { acceptanceLabel, assignmentStateLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported } from '../lib/status-labels.js'
+import { acceptanceLabel, assignmentStateLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
@@ -1911,6 +1914,75 @@ const totalGradesToSync = ref(0)
 // CI-derived summaries carry a single pass/fail conclusion, not per-test
 // points - display them as such instead of implying granular grading.
 const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'github_actions')
+
+/**
+ * Who produced the scores on screen, and when.
+ *
+ * `graded_by` is NULL for a run nobody started - the schema says so, "the
+ * session had no user on hand" - and that is now the ordinary case, because the
+ * deadline reads the scores by itself. Interpolating it produced `by @null`,
+ * which is DESIGN.md §1.7's rule in its plainest form: a stored value is not a
+ * label. Say what actually happened instead.
+ */
+/**
+ * The cohort control's label, which changed meaning when the deadline started
+ * reading scores on its own.
+ *
+ * "Read scores from GitHub Actions" described the only way scores ever arrived.
+ * Once there are results on record the same button REPLACES them for everybody,
+ * which is a bigger and slower thing than reading them for the first time, and
+ * a label that does not say so is a control lying about what it costs. The
+ * count is in it because forty is the number that makes a lecturer reach for
+ * the per-student action instead.
+ */
+const regradeLabel = computed(() =>
+  hasGrades.value ? `Re-grade all ${gradableCount.value}` : 'Read scores from GitHub Actions',
+)
+
+/**
+ * How many students this control will actually read.
+ *
+ * NOT the number that currently HAVE a score, which is what a first draft put
+ * in the label: on a cohort of twenty where twelve had been graded it said
+ * "Re-grade all 12" and then read all twenty. A count in a label is a claim
+ * about what the button does (DESIGN.md §1.5), and this is the one
+ * `gradeCohort` filters to.
+ */
+const gradableCount = computed(
+  () => (report.value?.students || []).filter((s) => s.github_login && s.repo_name).length,
+)
+
+/**
+ * What the Autograding panel says about where scores come from.
+ *
+ * The deadline reads them now, so the honest sentence depends on whether that
+ * has happened yet. "Scores are read automatically at the deadline" is true
+ * ahead of one and a DEAD PROMISE after it - nothing re-queues a finalize that
+ * is already complete, so a lecturer looking at a finished assignment with no
+ * scores would be waiting for a run that will never come. That is the shape of
+ * `rejected:cap-reached` telling somebody their acceptance was queued for a
+ * review that had been deleted.
+ */
+const gradingBlurb = computed(() => {
+  if (hasGrades.value) return 'Reads every student’s grading run again and replaces the results below.'
+  if (!deadlinePassed.value) {
+    return 'Scores are read automatically at the deadline. Reading them now covers the run so far.'
+  }
+  return 'No scores on record for this assignment. Reading them now covers the whole cohort.'
+})
+
+const gradingProvenance = computed(() => {
+  const s = autogradeSummary.value
+  if (!s) return ''
+  const when = fmt(s.generated_at)
+  // The map lives in status-labels.js, where a test reads the enum out of the
+  // schema: a runner added upstream fails there rather than reaching a lecturer
+  // as `github_actions` (DESIGN.md §1.7).
+  const how = gradingRunnerLabel(s.runner)
+  return s.graded_by
+    ? `Read ${when} by @${s.graded_by}, ${how}`
+    : `Read automatically at the deadline, ${when}, ${how}`
+})
 
 // login -> override doc from overrides/<assignment>/<login>.json, so granted
 // extensions are visible (and inspectable before granting again).
@@ -3247,10 +3319,9 @@ function mergeGradesIntoReport() {
 async function syncGradesFromGitHub() {
   const token = getToken()
   if (!token || !report.value || !assignment.value) return
-  
-  // CI results are read at each student's preserved SHA (if finalized) or latest observed SHA
-  const queue = report.value.students.filter(s => s.repo_name && (s.preserved_sha || s.latest_observed_sha || s.last_on_time_sha || s.tagged_submission_sha))
-  if (queue.length === 0) {
+
+  const queue = report.value.students.filter((s) => s.repo_name && gradingCommitFor(s))
+  if (queue.length === 0 && !readSubmissionMarker(assignment.value)) {
     toast.info(
       'No student commit observations or preserved submissions found yet. Click Refresh to query student repositories first.',
     )
@@ -3260,250 +3331,148 @@ async function syncGradesFromGitHub() {
   totalGradesToSync.value = queue.length
   syncedGradesCount.value = 0
   syncingGrades.value = true
-  const summary = { graded: [], failed: [] }
-
-  let apiFailedCount = 0
-  // Set when GitHub refuses rather than fails. A missing App permission is not
-  // something waiting fixes, and it is the same for every student - so it gets
-  // its own sentence instead of being counted as N transient errors.
-  let permissionDenied = false
-  let cursor = 0
-
-  // Declared once for the cohort, not per student: the marker belongs to the
-  // assignment, and `readSubmissionMarker` is the one judge of whether there is
-  // one (an empty or unknown-typed marker is no marker).
-  const marker = readSubmissionMarker(assignment.value)
-  const markerBranch = submissionBranch(assignment.value)
-  const totalFallback = (assignment.value.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0)
-
-  // ONE commit's worth of reading, so it can be done twice - at the commit the
-  // report names, and again at the hand-in commit when the first says the
-  // workflow never ran there. Returns a verdict; it never invents a score.
-  const readScoreAtCommit = async (s, sha) => {
-    const short = sha.slice(0, 7)
-    // s.repo_name is already the full org/repo name.
-    const checksReq = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
-    if (!checksReq.ok) {
-      // A 403 here is not transient, and "try again later" is advice that
-      // can never come true: both check-run endpoints are gated by the
-      // App's Checks permission, and a user-to-server token is capped by
-      // what the App declares. Name it, or a lecturer retries for ever.
-      if (checksReq.status === 403 || checksReq.status === 401) {
-        permissionDenied = true
-      }
-      throw new Error(`checks API fetch failed - HTTP ${checksReq.status}`)
-    }
-    const checkRuns = checksReq.data?.check_runs || []
-
-    if (checkRuns.length === 0) {
-      return { verdict: 'no-run', reason: `no CI run at commit ${short}` }
-    }
-
-    const run = pickAutogradeCheckRun(checkRuns)
-
-    // No autograding run at this commit is NOT a zero and NOT a pass. The
-    // picker used to fall back to the first check run of any kind, so a
-    // student who deleted the autograding workflow and added a green one of
-    // their own was awarded the full total from `conclusion: success`.
-    if (!run) {
-      return {
-        verdict: 'no-run',
-        reason: `no autograding run at commit ${short} - ${checkRuns.length} other check run(s) were found and none of them grades`,
-      }
-    }
-
-    // The score is an ANNOTATION, not an output body: a check run created
-    // by GitHub Actions has `output.summary === null` and carries
-    // `Points X/Y` plus `{"totalPoints":…,"maxPoints":…}` as notices. This
-    // used to parse `output.*` only, never match, and fall through to
-    // "green means full marks, anything else means zero" - so a 15/20 was
-    // recorded as 0. Skipped when the run declares no annotations, so the
-    // ordinary case costs no second request.
-    let annotations = []
-    let annotationsComplete = true
-    if (run?.output?.annotations_count) {
-      const res = await fetchCheckRunAnnotations(
-        (path) => ghApi(token, 'GET', path),
-        { repoFullName: s.repo_name, checkRunId: run.id },
-      )
-      annotations = res.annotations
-      annotationsComplete = res.complete
-    }
-
-    const parsed = parseCheckRunScore(run, annotations, totalFallback)
-
-    // An incomplete annotation read that still had to guess from the
-    // conclusion is not a grade, it is a failed read. Saying so beats
-    // writing a plausible number nobody can tell apart from a real one.
-    if (!parsed.matched && !annotationsComplete) {
-      return { verdict: 'unreadable', reason: `could not read the score annotations on the CI run at ${short}` }
-    }
-
-    // A run that was skipped, cancelled or is still going has no score in it -
-    // and `conclusion: skipped` is what a job gated on a hand-in commit leaves
-    // behind at every OTHER commit. Recording the 0 it used to produce was a
-    // grade nobody measured, in the table and in the CSV export.
-    if (!parsed.graded) {
-      return {
-        verdict: 'not-run',
-        reason: marker
-          ? `the grading workflow was ${parsed.conclusion || 'not run'} at commit ${short} - it only runs on a commit whose message is "${marker.value}"`
-          : `the grading run at commit ${short} was ${parsed.conclusion || 'never completed'}, so it carries no score`,
-      }
-    }
-
-    return { verdict: 'graded', run, parsed, sha }
-  }
-
-  const syncWorker = async () => {
-    while (cursor < queue.length) {
-      const s = queue[cursor++]
-      const targetSha = s.preserved_sha || s.latest_observed_sha || s.last_on_time_sha || s.tagged_submission_sha
-      try {
-        // No commit on record is not an API failure. Without this the URL was
-        // built with `undefined` in it, GitHub answered 404, and a student who
-        // simply has not pushed yet was counted among "API errors".
-        if (!targetSha) {
-          summary.failed.push({
-            login: s.github_login,
-            reason: 'no commit on record to read a CI run from',
-          })
-          continue
-        }
-
-        // WITH A MARKER, THE HAND-IN COMMIT IS THE SUBMISSION - the commit the
-        // report names is not consulted at all. It used to be read first and
-        // the hand-in used only as a fallback, which graded a hand-in pushed
-        // AFTER the deadline whenever it happened to be the student's last
-        // commit: the fallback carried the deadline bound and the direct read
-        // never did.
-        let outcome
-        if (marker) {
-          const found = await findMarkedCommit((path) => ghApi(token, 'GET', path), {
-            repoFullName: s.repo_name,
-            branch: markerBranch,
-            marker,
-            until: s.effective_deadline_at || null,
-          })
-          if (!found.ok) {
-            // Could not look. Not "there is no hand-in".
-            summary.failed.push({
-              login: s.github_login,
-              reason: `could not read this repository's commits to find the "${marker.value}" commit`,
-            })
-            continue
-          }
-          if (!found.complete) {
-            summary.failed.push({
-              login: s.github_login,
-              reason: `could not finish looking for the "${marker.value}" commit - stopped after ${found.scanned} commits`,
-            })
-            continue
-          }
-          if (!found.commit) {
-            // A late hand-in is a different fact from no hand-in, and the
-            // lecturer does something different about each.
-            summary.failed.push({
-              login: s.github_login,
-              reason: found.lateCommit
-                ? `the only "${marker.value}" commit is after the deadline (${found.lateCommit.sha.slice(0, 7)}, ${found.lateCommit.date})`
-                : `no commit says "${marker.value}", so nothing was handed in`,
-            })
-            continue
-          }
-          outcome = await readScoreAtCommit(s, found.commit.sha)
-        } else {
-          outcome = await readScoreAtCommit(s, targetSha)
-        }
-
-        if (outcome.verdict !== 'graded') {
-          summary.failed.push({ login: s.github_login, reason: outcome.reason })
-          continue
-        }
-
-        const { run, parsed } = outcome
-
-        // Built by lib/grading-summary.mjs, not here: `pxl-classroom grade`
-        // writes the same file and wrote a different row - no ci_status, no
-        // ci_run_url, no score_source - because both spelled the shape out by
-        // hand. One builder, two callers.
-        summary.graded.push(gradedRowFromCheckRun({
-          login: s.github_login,
-          parsed,
-          run,
-          fallbackTotal: totalFallback,
-        }))
-      } catch (err) {
-        apiFailedCount++
-        console.error(`Sync failed for ${s.github_login}:`, err)
-      } finally {
-        syncedGradesCount.value++
-      }
-    }
-  }
 
   try {
-    const workers = Array.from({ length: Math.min(6, queue.length) }, syncWorker)
-    await Promise.all(workers)
+    // ONE IMPLEMENTATION. Which commit to read, what a hand-in message changes,
+    // and the three refusals below all live in lib/grade-cohort.mjs, because
+    // scripts/grade-at-deadline.mjs needs exactly the same answers - and while
+    // they lived in this component nothing could import them and no test could
+    // run them.
+    const res = await gradeCohort((method, path, body) => ghApi(token, method, path, body), {
+      students: report.value.students,
+      marker: readSubmissionMarker(assignment.value),
+      markerBranch: submissionBranch(assignment.value),
+      fallbackTotal: autogradeTotalPoints.value,
+      onProgress: () => { syncedGradesCount.value++ },
+    })
 
-    if (permissionDenied) {
+    if (!res.ok) {
       toast.error(
-        'GitHub refused to show CI results: the PXL Classroom App needs the "Checks" permission (read), ' +
-          'and an owner of this organization has to approve it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
+        {
+          // A 403 here is not transient, and "try again later" is advice that
+          // can never come true: both check-run endpoints are gated by the
+          // App's Checks permission.
+          permission:
+            'GitHub refused to show CI results: the PXL Classroom App needs the "Checks" permission (read), ' +
+            'and an owner of this organization has to approve it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
+          'api-errors': `CI results sync failed for ${res.apiFailedCount} student(s) due to API errors. Nothing was saved; try again later.`,
+          'nothing-graded':
+            'Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.',
+        }[res.refusal],
       )
-      syncingGrades.value = false
       return
     }
 
-    if (apiFailedCount > 0) {
-      toast.error(`CI results sync failed for ${apiFailedCount} student(s) due to API errors. Nothing was saved; try again later.`)
-      syncingGrades.value = false
-      return
-    }
-
-    if (summary.graded.length === 0) {
-      toast.error('Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.')
-      syncingGrades.value = false
-      return
-    }
-    
     const summaryDoc = buildGradingSummary({
       assignmentId: props.assignmentId,
       gradedBy: user.value?.login,
       runner: 'github_actions',
-      students: summary.graded,
-      failed: summary.failed,
+      students: res.graded,
+      failed: res.failed,
     })
-    
+
     // Validated before it is committed, not after somebody notices. Two
     // surfaces write this file and neither checked it until the schema existed.
     const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
     if (!valid) {
       console.error('grading summary failed schema', errors)
       toast.error('The grade summary came out malformed and was not saved. Nothing was overwritten.')
-      syncingGrades.value = false
       return
     }
 
-    const path = `grading/${props.assignmentId}/summary.json`
-    const body = JSON.stringify(summaryDoc, null, 2) + '\n'
-    const res = await commitFile(token, props.org, config.controlRepo, path, body, `Sync grades for ${props.assignmentId}`)
-    
-    if (res.ok) {
-      autogradeSummary.value = summaryDoc
-      mergeGradesIntoReport()
-      const partial = summary.failed.length
-        ? ` ${summary.failed.length} could not be read.`
-        : ''
-      toast.success(`Read ${summary.graded.length} score(s) from GitHub Actions.${partial}`)
-    } else {
-      toast.error(`Save failed: ${res.data?.message}`)
+    const saved = await saveGradingSummary(token, summaryDoc, `Sync grades for ${props.assignmentId}`)
+    if (!saved.ok) {
+      toast.error(`Save failed: ${saved.data?.message}`)
+      return
     }
+    const partial = res.failed.length ? ` ${res.failed.length} could not be read.` : ''
+    toast.success(`Read ${res.graded.length} score(s) from GitHub Actions.${partial}`)
   } catch (e) {
     console.error('Failed to sync grades', e)
     toast.error(`Failed to sync grades: ${e.message}`)
   } finally {
     syncingGrades.value = false
+  }
+}
+
+/** Commit grading/<id>/summary.json and put it on screen. One writer. */
+async function saveGradingSummary(token, summaryDoc, message) {
+  const path = `grading/${props.assignmentId}/summary.json`
+  const res = await commitFile(
+    token, props.org, config.controlRepo, path, JSON.stringify(summaryDoc, null, 2) + '\n', message,
+  )
+  if (res.ok) {
+    autogradeSummary.value = summaryDoc
+    mergeGradesIntoReport()
+  }
+  return res
+}
+
+/**
+ * ONE student, from their row. Chasing one is the ordinary case; re-grading
+ * forty to fix one is not an answer.
+ *
+ * Merges into the summary already on record rather than rebuilding it, so
+ * everybody else's score - and the reasons recorded against students who could
+ * not be read - survive. Rebuilding from what this screen happens to hold is
+ * how a document loses whatever nobody listed.
+ */
+async function regradeStudent(student) {
+  const token = getToken()
+  if (!token || !student || actionRegrading.value) return
+  actionRegrading.value = true
+  try {
+    const outcome = await gradeStudent((method, path, body) => ghApi(token, method, path, body), {
+      row: student,
+      marker: readSubmissionMarker(assignment.value),
+      markerBranch: submissionBranch(assignment.value),
+      fallbackTotal: autogradeTotalPoints.value,
+    })
+
+    if (outcome.verdict !== 'graded') {
+      // Not a zero and not a failure of this button: it looked and there was no
+      // score there. Say which, and change nothing.
+      toast.error(`No score read for ${student.github_login}: ${outcome.reason}`)
+      return
+    }
+
+    const row = gradedRowFromCheckRun({
+      login: student.github_login,
+      parsed: outcome.parsed,
+      run: outcome.run,
+      fallbackTotal: autogradeTotalPoints.value,
+    })
+    const prev = autogradeSummary.value
+    const login = String(student.github_login).toLowerCase()
+    const summaryDoc = buildGradingSummary({
+      assignmentId: props.assignmentId,
+      gradedBy: user.value?.login,
+      runner: 'github_actions',
+      students: [...(prev?.students || []).filter((s) => String(s.login).toLowerCase() !== login), row],
+      // This student now has a score, so a reason recorded against them is
+      // stale. Everybody else's stands.
+      failed: (prev?.failed || []).filter((f) => String(f.login).toLowerCase() !== login),
+    })
+
+    const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
+    if (!valid) {
+      console.error('grading summary failed schema', errors)
+      toast.error('The grade summary came out malformed and was not saved. Nothing was overwritten.')
+      return
+    }
+
+    const saved = await saveGradingSummary(token, summaryDoc, `Re-grade ${student.github_login} for ${props.assignmentId}`)
+    if (!saved.ok) {
+      toast.error(`Save failed: ${saved.data?.message}`)
+      return
+    }
+    toast.success(`${student.github_login}: ${row.earned_points}/${row.total_points}.`)
+    closeActions()
+  } catch (e) {
+    console.error('Failed to re-grade', e)
+    toast.error(`Failed to re-grade ${student.github_login}: ${e.message}`)
+  } finally {
+    actionRegrading.value = false
   }
 }
 
@@ -3604,6 +3573,43 @@ const actionUnlock = computed(() => {
   const lockdownRow = lockdownRowFor(actionLockdown.value, student.github_login)
   if (!lockdownRow) return null
   return unlockability({ row: student, lockdownRow, assignment: assignment.value })
+})
+
+const actionRegrading = ref(false)
+
+/**
+ * May this one student's score be read again?
+ *
+ * Null hides the section entirely, the way `actionUnlock` does: an assignment
+ * that grades nothing has nothing to say, and a heading over "there is no
+ * grading here" is noise on every row of every cohort. `can: false` is the
+ * different case - grading exists, this student cannot be read yet - and it
+ * says why.
+ */
+const actionRegrade = computed(() => {
+  const student = actionStudent.value
+  if (!student) return null
+  if (!ciGradingAvailable.value) return null
+
+  if (!student.repo_name) {
+    return { can: false, reason: 'This student has no repository yet, so there is no grading run to read.' }
+  }
+  const marker = readSubmissionMarker(assignment.value)
+  if (marker) {
+    return {
+      can: true,
+      commitNote: `The score comes from the commit whose message is "${marker.value}".`,
+    }
+  }
+  const sha = gradingCommitFor(student)
+  if (!sha) {
+    return {
+      can: false,
+      reason:
+        'Nothing has been observed in this repository yet, so there is no commit to read a grading run from. Refresh first.',
+    }
+  }
+  return { can: true, commitNote: `The score comes from commit ${sha.slice(0, 7)}.` }
 })
 
 /**

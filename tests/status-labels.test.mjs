@@ -20,6 +20,8 @@ import {
   ACCEPTANCE_LABELS,
   ASSIGNMENT_STATE_LABELS,
   SUBMISSION_LABELS,
+  GRADING_RUNNER_LABELS,
+  gradingRunnerLabel,
   acceptanceLabel,
   assignmentStateLabel,
   submissionLabel,
@@ -115,4 +117,22 @@ test("published reads as what a reader wants to know, not as the stored word", (
   assert.equal(assignmentStateLabel("published"), "Accepting");
   assert.equal(assignmentStateLabel("draft"), "Draft");
   assert.equal(assignmentStateLabel("archived"), "Archived");
+});
+
+test("every grading runner the schema declares has a label", () => {
+  // The panel printed these raw after the word "via", so a lecturer read
+  // `github_actions`. A runner added upstream fails here, which is the moment
+  // somebody decides what to call it - not the moment it reaches a screen.
+  const values = enumFor(schema("grading-summary.schema.json"), "runner");
+  assert.ok(values.length > 0, "the schema must declare the runner enum");
+  for (const v of values) {
+    assert.ok(GRADING_RUNNER_LABELS[v], `no label for runner "${v}"`);
+  }
+});
+
+test("an unknown runner falls back to itself rather than a blank", () => {
+  // An unlovely word beats an empty sentence, which reads as "nothing to
+  // report" about a reading the system has plenty to say about.
+  assert.match(gradingRunnerLabel("quantum"), /quantum/);
+  assert.equal(gradingRunnerLabel(undefined), "");
 });

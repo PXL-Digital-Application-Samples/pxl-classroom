@@ -12,7 +12,7 @@
 // surface downstream had to guess. `autograde.source` records it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gradesInCi } from "../frontend/src/lib/autograde.js";
+import { gradesInCi } from "../lib/autograde-source.mjs";
 import { buildAssignmentDoc } from "../lib/assignment-doc.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 

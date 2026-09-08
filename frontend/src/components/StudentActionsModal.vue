@@ -84,6 +84,26 @@
         </template>
       </section>
 
+      <!-- CHASING ONE STUDENT IS THE ORDINARY CASE, and re-grading forty to fix
+           one was the only thing on offer. The verdict arrives decided, like
+           the reopen above: lib/autograde-source.mjs owns "does this assignment
+           grade in CI at all", so this dialog never asks it a second way. -->
+      <section v-if="regrade" class="modal-section">
+        <h4>Re-grade this student</h4>
+        <p v-if="!regrade.can" class="text-secondary">{{ regrade.reason }}</p>
+        <template v-else>
+          <p class="text-secondary">
+            Reads this student's grading run again and replaces their row in the results. Nobody
+            else's score is touched, and nothing in their repository changes - the run has already
+            happened, this only reads it.
+            <template v-if="regrade.commitNote">{{ regrade.commitNote }}</template>
+          </p>
+          <button class="btn" type="button" @click="emit('regrade')" :disabled="busy">
+            {{ regrading ? 'Reading…' : 'Re-grade this student' }}
+          </button>
+        </template>
+      </section>
+
       <section
         v-if="student.preservation_status === 'preserved' && student.preserved_sha && archiveUrl"
         class="modal-section"
@@ -140,9 +160,18 @@ const props = defineProps({
    */
   unlock: { type: Object, default: null },
   unlocking: { type: Boolean, default: false },
+  /**
+   * Whether this student's score can be read again, already decided:
+   * `{ can, reason, commitNote }`. Null when the section should not appear at
+   * all - an assignment that grades nothing has nothing to say here, and a
+   * heading over "there is no grading" is noise on every row of every cohort.
+   * The same shape and the same reason as `unlock`.
+   */
+  regrade: { type: Object, default: null },
+  regrading: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'grant', 'retry', 'unlock'])
+const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade'])
 
 // The dialog's own state, not the view's: it is created when the dialog opens
 // and meaningless when it is closed (DESIGN.md §6).
@@ -162,7 +191,9 @@ const ext = reactive({
 // A computed, not a function: the template binds `:disabled="busy"`, and a bare
 // function reference there is an object - always truthy, so every control would
 // render permanently disabled.
-const busy = computed(() => props.extending || props.retrying || props.unlocking)
+const busy = computed(
+  () => props.extending || props.retrying || props.unlocking || props.regrading,
+)
 
 function requestClose() {
   // Never close over work in flight: the run has been dispatched and the result

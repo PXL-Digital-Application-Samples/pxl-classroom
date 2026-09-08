@@ -887,6 +887,19 @@ pxl-classroom download --org PXLAutomation \
 
 **The procedure is [AUTOGRADING.md](AUTOGRADING.md)** - which case you are in, what to pick in the panel, and what to do when a student comes back with no score. It is the one place that describes it; this section keeps only what that document deliberately leaves out.
 
+**Scores arrive by themselves at the deadline.** The nightly finalize reads each student's grading run and writes `grading/<id>/summary.json`, so the morning after an exam the report and the CSV already carry the marks. Nobody presses anything. It reads the commit that IS the submission - the preserved one, or the hand-in message where the assignment names one, bounded by each student's own extension.
+
+It never replaces a reading **you** made. A summary carrying your login, or one produced by `pxl-classroom grade` on your machine, is left alone and the run log says so; only its own earlier reading is replaced. To overrule it, re-grade.
+
+**Re-grading, when a run was re-run or a check was fixed:**
+
+| | Where | What it does |
+|---|---|---|
+| **One student** | Roster & progress → their row → **⋯** → *Re-grade this student* | Reads that student's run again and replaces their row. Nobody else's score moves. This is the one to reach for - chasing one student is the ordinary case. |
+| **The whole cohort** | **More** → *Re-grade all N*, or the button on the Autograding panel | Reads every student again and replaces the results. Slow on a large cohort, and it is not on Refresh for that reason: Refresh is a cheap read of commit state. |
+
+A student whose commit has **no grading run** is listed by name with the reason, never counted as a zero. Nothing at all is written when no student could be read - a summary of nobody would replace real marks with none.
+
 **The YAML the panel writes.** Edit it by hand only for something the panel does not offer:
 
 ```yaml

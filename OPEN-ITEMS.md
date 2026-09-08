@@ -218,33 +218,6 @@ returns `0` - or the arrangement was considered and kept, and this entry says so
 
 ---
 
-## 7. Nothing grades automatically, and grading is one button for a whole cohort
-
-**Status: open — designed, not built.** Raised 2026-09-08.
-
-The nightly finalizes an assignment - collect, lockdown, preserve, report - and **never grades**. Reading a score back into the control repository is only ever a lecturer action: *Read scores from GitHub Actions* in the detail view, or `pxl-classroom grade`. `grep -rl "grading/" --include=*.mjs --include=*.vue` names three writers and none of them is a workflow.
-
-That is a gap under the way these courses actually run. The common shape here is: block nothing, let students push, and grade **the last commit inside the deadline carrying the hand-in message** - which the system supports (`submission_marker`, `findMarkedCommit`, deadline-bounded, reporting a late hand-in as late rather than missing). Everything is in place except that somebody has to remember to press a button afterwards.
-
-**Grading on the student's push is the obvious idea and it is not available.** The grading workflow already runs in the student's repository on every push; what is manual is reading the score *back*. For the hub to react to that push the student's repository would have to dispatch to the hub, which means a credential in a repository the student administers - the incident `close-acceptance.mjs` and the broker App exist to have ended. There is no other event the hub can see, and polling is what §6.4 exists to refuse.
-
-**Finalize is where it belongs.** It already runs per assignment at the deadline, already has the control repository checked out, already commits, and by then the marked hand-in is decided. One Checks read per student, no new trigger, no new credential, no idle minutes.
-
-**Three requirements that are part of the work, not extras:**
-
-- **A lecturer must be able to re-run it.** A grade read at finalize is not the last word: a student's run may have been re-run, a marker corrected, a check fixed.
-- **It gets its own button, not a corner of Refresh.** Re-grading a cohort is a big, slow, overwriting action and Refresh is a cheap read of commit state. Sharing a control would make one of them lie about what it costs.
-- **And a per-student action, on the row.** Chasing one student is the ordinary case; re-grading forty to fix one is not an answer.
-
-**How to tell it is closed:** an assignment's `grading/<id>/summary.json` has a `generated_at` later than its finalize, with nobody having pressed anything, and the detail view offers both a cohort-level re-grade and a per-row one.
-
-```bash
-grep -n "grading/" .github/workflows/daily-activity.yml
-```
-
-printing nothing is this item still open.
-
----
 
 ## 8. e2e specs stage report fixtures the report schema would refuse
 
@@ -280,6 +253,7 @@ Kept briefly so they are not reopened from memory. Each was verified against the
 
 | Item | Closed by | Evidence |
 |---|---|---|
+| **Nothing graded automatically, and grading was one button for a whole cohort** (2026-09-08) | `scripts/grade-at-deadline.mjs` as step 6 of the finalize job, plus a per-row re-grade | The nightly reads each student's grading run at the deadline and writes `grading/<id>/summary.json`, so the report and the CSV carry marks with nobody pressing anything. It refuses to replace a summary a person produced (`graded_by` set, or a docker/host runner) and refuses to fail the finalize, which by then has locked the cohort and archived its submissions. Grading on the student's PUSH stays unavailable for the reason the entry gave: it needs a credential in a repository the student administers. `lib/grade-cohort.mjs` is the one implementation - it was inside `AssignmentDetailView.vue`, where the workflow could not reach it. `tests/grade-at-deadline.test.mjs`, `tests/grade-cohort.test.mjs`, `tests/e2e/65`. |
 | **The two deadline controls read as one question and a footnote** (2026-09-08) — *filed as "they are one ladder", and that premise was wrong* | Asking them as two questions of the same shape, not merging them | `late_policy` decides what **counts** (lockdown.mjs passes `deadlineFor` to phase 2 only under `block`); `lock_down_enabled` decides **access**. All four combinations are distinct and *still counts* + read-only is what both 2026 exams ran on, so the three-way ladder this entry proposed would have made a live state unrepresentable. What was wrong was the wording: a grading verdict followed by a checkbox beginning "Also". DESIGN.md §1.9, `tests/e2e/29`. |
 | **An organization that deletes its last assignment kept the card** (2026-09-08) | `pruneMissingAssignments` reads the listing rather than a set of ids, and takes the scaffold's `.gitkeep` as proof that an empty `assignments/` was really read | The signal the entry called "one candidate" was already there: `scripts/scaffold-control-repo.mjs` writes `SCAFFOLD_KEEPFILE` into every scaffold directory, and all 14 readable control repos carry it. `tests/dashboard-prune.test.mjs` covers both directions — present-and-empty prunes, empty-with-no-marker does not. |
 | **Brokers held the provisioning App's private key** | The broker App, plus republishing every live assignment | `gh secret list --repo <org>/broker-<id>` shows `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` only. Checked on `PXLAutomation/broker-finalize-drill`; a broker in an org you do not administer returns 403, so confirm the rest as an owner of that org. |

@@ -125,3 +125,22 @@ export function acceptanceLabel(value) {
 export function assignmentStateLabel(value) {
   return label(ASSIGNMENT_STATE_LABELS, value);
 }
+
+/**
+ * How a set of scores was produced.
+ *
+ * `github_actions` / `docker` / `host` are the schema's words for a machine, and
+ * the panel used to print them raw after "via". They read as configuration
+ * because they are. The phrases are written to sit inside a sentence about when
+ * the reading happened, which is why they begin with a preposition.
+ */
+export const GRADING_RUNNER_LABELS = Object.freeze({
+  github_actions: "from GitHub Actions",
+  docker: "in Docker",
+  host: "on the lecturer’s machine",
+});
+
+/** Display only; lib/report-csv.mjs still exports the stored word. */
+export function gradingRunnerLabel(value) {
+  return GRADING_RUNNER_LABELS[value] || (value ? `via ${value}` : "")
+}
