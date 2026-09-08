@@ -1145,8 +1145,21 @@
               </small>
               <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
+            <!-- TWO QUESTIONS, ASKED AS TWO QUESTIONS.
+                 `late_policy` decides what COUNTS as the submission -
+                 lockdown.mjs passes `deadlineFor` to phase 2 only under
+                 `block`, so that is the flag that reconstructs the branch as of
+                 the deadline. `lock_down_enabled` decides ACCESS. They are a
+                 2x2, not two rungs of one ladder: `report` + demotion means
+                 "they lose the toolchain, but what they pushed before the
+                 nightly ran still counts", which is meaningful and is what both
+                 2026 exams ran on.
+                 It read as one question because the first was worded as a
+                 grading verdict ("Late work counts / does not count") and the
+                 second as an intensifier of it ("ALSO take admin away"). Same
+                 two fields, same four combinations - asked as what they are. -->
             <div class="field">
-              <label>Late work <HelpButton topic="late-work" label="late work" /></label>
+              <label>After the deadline, work a student pushes <HelpButton topic="late-work" label="late work" /></label>
               <!-- Two ALTERNATIVES, so they read as two rows to choose between
                    rather than two paragraphs of bold text running the full
                    width. The selected one takes a tonal step and an accent
@@ -1157,7 +1170,7 @@
                 <label class="policy-option" :class="{ selected: form.late_policy === 'report' }">
                   <input type="radio" v-model="form.late_policy" value="report" @change="onLatePolicyChange" />
                   <span class="policy-option-text">
-                    <strong>Counts</strong>
+                    <strong>still counts</strong>
                     <small>
                       Late commits are part of the submission and flagged in the report.
                       The submission branch is not locked.
@@ -1167,11 +1180,11 @@
                 <label class="policy-option" :class="{ selected: form.late_policy === 'block' }">
                   <input type="radio" v-model="form.late_policy" value="block" @change="onLatePolicyChange" />
                   <span class="policy-option-text">
-                    <strong>Does not count</strong>
+                    <strong>does not count</strong>
                     <small>
-                      Students can no longer push to the submission branch after the deadline.
-                      They keep the repository itself, and their Actions, secrets and runners
-                      keep working - only pushing is blocked.
+                      Pushing is blocked from the deadline, and the submission is the last
+                      commit dated before it. They keep the repository, and their Actions,
+                      secrets and runners keep working - only pushing is blocked.
                     </small>
                   </span>
                 </label>
@@ -1189,18 +1202,46 @@
                 enough for ordinary marking, but not proof if you ever need to challenge it.
               </small>
             </div>
-            <div class="field checkbox">
-              <label>
-                <input type="checkbox" v-model="form.lock_down_enabled" />
-                Also take admin away at the deadline (demote to read-only)
-              </label>
-              <small v-if="form.late_policy === 'block'">
-                Not needed to stop late pushes - the branch lock above already does that, and leaves
-                students their Actions, secrets and runners. Tick this only if they should lose those too.
+            <!-- A SECOND QUESTION, not a footnote to the first. It was a
+                 checkbox beginning "Also", which made the heaviest thing this
+                 system does to a student read as a modifier of a grading
+                 setting. Two radio rows, the same shape as the question above,
+                 so neither looks like the other's afterthought. -->
+            <div class="field">
+              <label>The student's repository <HelpButton topic="late-work" label="the repository at the deadline" /></label>
+              <div class="policy-options">
+                <label class="policy-option" :class="{ selected: !form.lock_down_enabled }">
+                  <input type="radio" :value="false" v-model="form.lock_down_enabled" />
+                  <span class="policy-option-text">
+                    <strong>stays as it is</strong>
+                    <small>
+                      They keep admin, and with it Actions, secrets, environments and runners.
+                    </small>
+                  </span>
+                </label>
+                <label class="policy-option" :class="{ selected: form.lock_down_enabled }">
+                  <input type="radio" :value="true" v-model="form.lock_down_enabled" />
+                  <span class="policy-option-text">
+                    <strong>becomes read-only</strong>
+                    <small>
+                      They lose admin, and with it Actions, secrets, environments and runners,
+                      until you reopen it.
+                    </small>
+                  </span>
+                </label>
+              </div>
+              <!-- The two answers a lecturer most often gets wrong, each said
+                   where they have just chosen it rather than in general. -->
+              <small v-if="form.lock_down_enabled && form.late_policy === 'block'">
+                Not needed to stop late pushes - the answer above already does that and leaves
+                students their Actions, secrets and runners. Choose this only if they should
+                lose those too.
               </small>
-              <small v-else class="text-warning">
-                At the deadline they lose write access to the repository, and with it their
-                Actions, secrets, environments and runners. Leave it off unless you need that.
+              <small v-else-if="form.lock_down_enabled" class="text-warning">
+                Note that these are two different answers: work they push before the nightly run
+                lands <strong>still counts</strong>, because you chose "still counts" above - they
+                simply lose the repository's tooling at the deadline. If you meant the deadline to
+                be final, choose "does not count" as well.
               </small>
             </div>
             <div class="field checkbox">

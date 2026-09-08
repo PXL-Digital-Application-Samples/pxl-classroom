@@ -23,8 +23,17 @@ async function openNewAssignmentForm(page) {
 
 const counts = (page) => page.locator('input[type="radio"][value="report"]');
 const doesNotCount = (page) => page.locator('input[type="radio"][value="block"]');
-const demoteBox = (page) =>
-  page.locator('label', { hasText: 'Also take admin away at the deadline' }).locator('input[type="checkbox"]');
+// TWO QUESTIONS, TWO RADIO GROUPS. This was a checkbox beginning "Also", which
+// made the heaviest thing this system does to a student read as a modifier of a
+// grading setting - and the two fields are a 2x2, not two rungs of one ladder:
+// `late_policy` decides what COUNTS as the submission (lockdown.mjs passes
+// `deadlineFor` to phase 2 only under `block`), `lock_down_enabled` decides
+// ACCESS, and `report` + demotion is meaningful and is what both 2026 exams ran
+// on. Same fields, same four combinations, asked as what they are.
+const repoField = (page) =>
+  page.locator('.field', { has: page.locator('label', { hasText: "The student's repository" }) });
+const staysAsIs = (page) => repoField(page).locator('input[type="radio"]').first();
+const becomesReadOnly = (page) => repoField(page).locator('input[type="radio"]').last();
 
 test.describe('29 - Late work control', () => {
   test('A new assignment does not discard late work by default', async ({ page }) => {
@@ -66,38 +75,70 @@ test.describe('29 - Late work control', () => {
     // assignment confiscated it at the deadline unless the lecturer noticed the
     // checkbox. Preservation does not depend on it.
     await openNewAssignmentForm(page);
-    await expect(demoteBox(page)).not.toBeChecked();
+    await expect(staysAsIs(page)).toBeChecked();
+    await expect(becomesReadOnly(page)).not.toBeChecked();
   });
 
-  test('Locking the branch unticks the demotion, because it takes what the lock preserves', async ({ page }) => {
+  test('The two questions are asked as two questions, not as one and a footnote', async ({ page }) => {
+    // The whole point of the reframing. `late_policy` is about what COUNTS,
+    // `lock_down_enabled` about ACCESS, and the second used to begin "Also",
+    // which read as an intensifier of the first. Both 2026 exams landed on the
+    // diagonal that wording made easy to pick by accident.
     await openNewAssignmentForm(page);
-    await demoteBox(page).check();
-
-    await doesNotCount(page).check();
-    await expect(demoteBox(page)).not.toBeChecked();
-    await expect(page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) }))
-      .toContainText('Tick this only if they should lose those too');
+    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+    await expect(guardrails).toContainText('After the deadline, work a student pushes');
+    await expect(guardrails).toContainText("The student's repository");
+    await expect(guardrails).not.toContainText('Also take admin away');
+    // Same shape for both, so neither is the other's afterthought.
+    await expect(repoField(page).locator('.policy-option')).toHaveCount(2);
   });
 
-  test('Ticking the demotion back on is a deliberate choice and sticks', async ({ page }) => {
+  test('Blocking pushes resets the repository answer, because it takes what the lock preserves', async ({ page }) => {
+    await openNewAssignmentForm(page);
+    await becomesReadOnly(page).check();
+
+    await doesNotCount(page).check();
+    await expect(staysAsIs(page)).toBeChecked();
+
+    // The note belongs to the deliberate re-choice, not to the reset: once
+    // pushing is blocked, read-only takes exactly what the block preserves, so
+    // it is said at the moment somebody picks it anyway.
+    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+    await expect(guardrails).not.toContainText('Choose this only if they should lose those too');
+    await becomesReadOnly(page).check();
+    await expect(guardrails).toContainText('Choose this only if they should lose those too');
+  });
+
+  test('Choosing read-only again is a deliberate choice and sticks', async ({ page }) => {
     await openNewAssignmentForm(page);
     await doesNotCount(page).check();
-    await demoteBox(page).check();
+    await becomesReadOnly(page).check();
 
     // Editing anything else must not quietly undo it.
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Exam 2026');
-    await expect(demoteBox(page)).toBeChecked();
+    await expect(becomesReadOnly(page)).toBeChecked();
     await expect(doesNotCount(page)).toBeChecked();
   });
 
-  test('Going back to "Counts" leaves the demotion where the lecturer left it', async ({ page }) => {
+  test('The odd diagonal says what it actually does', async ({ page }) => {
+    // `still counts` + read-only is NOT incoherent - it means they lose the
+    // toolchain at the deadline while work pushed before the nightly ran still
+    // counts. It is what both 2026 exams ran on, and it surprised the lecturer,
+    // so the form says it where they have just chosen it.
     await openNewAssignmentForm(page);
-    await demoteBox(page).check();
-    await doesNotCount(page).check();
-    await expect(demoteBox(page)).not.toBeChecked();
     await counts(page).check();
-    await expect(demoteBox(page)).not.toBeChecked();
-    await expect(page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) }))
-      .toContainText('Actions, secrets, environments and runners');
+    await becomesReadOnly(page).check();
+    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+    await expect(guardrails).toContainText('still counts');
+    await expect(guardrails).toContainText('two different answers');
+  });
+
+  test('Going back to "still counts" leaves the repository answer where the lecturer left it', async ({ page }) => {
+    await openNewAssignmentForm(page);
+    await becomesReadOnly(page).check();
+    await doesNotCount(page).check();
+    await expect(staysAsIs(page)).toBeChecked();
+    await counts(page).check();
+    await expect(staysAsIs(page)).toBeChecked();
   });
 });
