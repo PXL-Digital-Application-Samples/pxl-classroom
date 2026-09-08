@@ -202,12 +202,27 @@ export function buildAutogradingWorkflow(assignment, org) {
   for (const t of tests) {
     const runnerId = String(t.id || "test").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
     runnerIds.push(runnerId);
-    // Two ids differing only by `-` vs `_` collapsed onto one env key, so one
-    // test's results silently replaced the other's in the reporter. Suffix the
-    // collisions rather than losing a result.
-    let envKey = `${runnerId.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_RESULTS`;
-    for (let n = 2; envKey in env; n++) envKey = `${envKey.replace(/_RESULTS$/, "")}_${n}_RESULTS`;
-    env[envKey] = `\${{ steps.${runnerId}.outputs.result }}`;
+    // THE REPORTER DERIVES THIS NAME; we do not get to choose it. Measured
+    // against the published source of autograding-grading-reporter@v1:
+    //
+    //   process.env[`${runner.trim().toUpperCase()}_RESULTS`]
+    //
+    // The runner id is upper-cased and NOTHING ELSE - a hyphen stays a hyphen,
+    // which is what GitHub Classroom's own generated workflows write
+    // (`VPC-TEST_RESULTS` for a `vpc-test` runner, live in
+    // PXL-2TIN-CloudEssentials-2627/template_proef_PE1).
+    //
+    // This used to fold `[^A-Z0-9_]` to `_`, defending against two ids
+    // differing only by `-` vs `_`. That collision cannot exist: the schema's
+    // id pattern is `^[a-z0-9][a-z0-9-]{0,63}$`, so an underscore never
+    // arrives. What the defence actually did was rename the variable the
+    // reporter looks up, so `process.env[...]` was `undefined` for every
+    // hyphenated id - and a hyphen is the only separator the pattern allows.
+    // `Buffer.from(undefined, "base64")` then threw, and the reporter's catch
+    // block blamed the `runners` input: "must be a comma-separated list of
+    // strings", which it was. Measured on the testbed 2026-09-08: every grader
+    // step green, the whole grading job red, no score annotations at all.
+    env[`${runnerId.toUpperCase()}_RESULTS`] = `\${{ steps.${runnerId}.outputs.result }}`;
 
     const common = { name: String(t.id ?? "test"), id: runnerId };
     if (t.type === "io") {

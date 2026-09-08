@@ -139,6 +139,17 @@ That is not a defect, and the path is not dead code: it is the only way to keep 
 
 The modal now opens on the template branch for that reason, so nobody meets the unproven path by default.
 
+**It was exercised end to end on 2026-09-08, and it was broken in four places.** A drill assignment on `pxl-classroom-testbed` — three checks, ten points, a template with a deliberate bug — provisioned, graded and read back. What it found, in the order it was hit ([LESSONS.md](LESSONS.md), *"The unexercised path was broken in four places"*):
+
+1. **The workflow injection races template population**, because `POST /generate` returns before the repository has content and `provision.mjs` writes immediately after it. Two students provisioned two minutes apart got two *different* broken repositories — one with the starter code and no workflow, one with the workflow and no starter code — and both runs logged `[ok] inject-autograding` and exited `created`. **Still open**; a retry against the populated repository repairs it.
+2. **The reporter's environment variable was renamed by the generator**, so every hyphenated check id was invisible to it: all graders green, grading job red, no score. **Fixed** — the key is derived the way `autograding-grading-reporter@v1` derives it.
+3. **Two tests asserted the broken spelling**, having been written from the generator's output rather than the reporter's rule. **Fixed** — both derive it now.
+4. **`autograding-python-grader@v1` cannot build its Docker image** (`apt-get install jq` exits 100), and a Docker action that fails to build takes the whole job down before `Checkout code`. So **no `type: python` check can run on Actions today**, and it is upstream, not ours.
+
+A fifth thing is a defect in the *reading* half rather than this path: a `failure` conclusion with no score annotation is recorded as a real zero, and item 2 above is one way to produce exactly that. See the register's sibling note in LESSONS.md; both callers guard "could not finish reading the annotations" and neither guards "read them all, no score in them".
+
+**`visibility: private` has never been able to work at all.** It generates `uses: <org>/pxl-classroom-control/.github/workflows/grade.yml@main`, and nothing in this repository ever creates that file — ARCHITECTURE §3.1 says control repos contain no workflows, which is load-bearing. The Admin Panel's modal **defaults to it** (`props.config.visibility || 'private'`) and offers it as *"No — the checks stay in the control repository and run from there"*. That is a control describing behaviour the system does not have. Undecided: build it, or withdraw the option.
+
 **How to tell it is closed:** an assignment in some organization carries an `autograde` block, and a student repository under it has a grading run that came from `provisioning/provision.mjs` rather than from the template. For the first half:
 
 ```bash

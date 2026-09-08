@@ -44,9 +44,6 @@ test("buildAutogradingWorkflow: generates full autograding workflow with graders
 
   // Reporter present
   assert.ok(yamlStr.includes("uses: classroom-resources/autograding-grading-reporter@v1"));
-  assert.ok(yamlStr.includes("TASK_1_LINT_RESULTS"));
-  assert.ok(yamlStr.includes("TASK_2_IO_RESULTS"));
-  assert.ok(yamlStr.includes("TASK_3_PYTEST_RESULTS"));
   assert.ok(yamlStr.includes("runners: task-1-lint,task-2-io,task-3-pytest"));
   
   // Guardrails
@@ -82,8 +79,60 @@ test("buildAutogradingWorkflow: sanitizes runner IDs and environment variable ke
   assert.equal(reporterStep.uses, "classroom-resources/autograding-grading-reporter@v1");
   assert.ok(reporterStep.with.runners.includes("task-1-0--setup---build-"));
   assert.ok(reporterStep.with.runners.includes("task_2_test-"));
-  assert.ok(reporterStep.env["TASK_1_0__SETUP___BUILD__RESULTS"]);
-  assert.ok(reporterStep.env["TASK_2_TEST__RESULTS"]);
+  assertReporterCanFindEveryRunner(reporterStep);
+});
+
+/**
+ * The reporter DERIVES the environment variable it reads; we do not name it.
+ * From the published source of autograding-grading-reporter@v1:
+ *
+ *   process.env[`${runner.trim().toUpperCase()}_RESULTS`]
+ *
+ * Upper-cased and nothing else - a hyphen stays a hyphen. So this is derived
+ * from the `runners` list the same way, rather than written out a second time.
+ * A hand-written expectation is what let the old spelling stand: the generator
+ * folded `-` to `_`, the test asserted the folded name, both agreed, and the
+ * reporter found `undefined` for every hyphenated id - which is every id the
+ * schema's `^[a-z0-9][a-z0-9-]{0,63}$` can produce with more than one word.
+ * Measured on the testbed 2026-09-08: all graders green, grading job red,
+ * "The runners input must be a comma-separated list of strings", no score.
+ */
+function assertReporterCanFindEveryRunner(reporterStep) {
+  const runners = String(reporterStep.with.runners).split(",");
+  for (const runner of runners) {
+    const key = `${runner.trim().toUpperCase()}_RESULTS`;
+    assert.ok(
+      reporterStep.env[key],
+      `the reporter will read process.env[${JSON.stringify(key)}] for runner ${JSON.stringify(runner)}, and the workflow does not set it (it sets ${JSON.stringify(Object.keys(reporterStep.env))})`,
+    );
+    assert.equal(reporterStep.env[key], `\${{ steps.${runner.trim()}.outputs.result }}`);
+  }
+}
+
+test("every runner's results reach the reporter under the name it looks up", () => {
+  // The whole point of the generated workflow is that a score comes back. It
+  // cannot if the reporter cannot find the step outputs, and that failure is
+  // silent in the only way that matters: every grader step goes green.
+  const assignment = {
+    autograde: {
+      enabled: true,
+      execution_environment: "github_actions",
+      visibility: "public",
+      tests: [
+        { id: "greeting-runs", type: "run", command: "python3 greet.py", points: 2 },
+        { id: "greets-by-name", type: "io", command: "python3 greet.py", stdin: "Ada\n", expected_stdout: "Hello, Ada!", points: 3 },
+        { id: "single", type: "run", command: "true", points: 1 },
+      ],
+    },
+  };
+  const doc = parse(buildAutogradingWorkflow(assignment, "PXLAutomation"));
+  const reporterStep = doc.jobs.grade.steps.at(-1);
+  assert.equal(reporterStep.uses, "classroom-resources/autograding-grading-reporter@v1");
+  assertReporterCanFindEveryRunner(reporterStep);
+
+  // And nothing else is in there: an env key no runner names is a result the
+  // reporter will never read, which is the shape the bug had.
+  assert.equal(Object.keys(reporterStep.env).length, 3);
 });
 
 test("buildAutogradingWorkflow: handles io tests with multiline strings and default parameters", () => {

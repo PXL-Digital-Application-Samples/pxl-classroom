@@ -100,10 +100,18 @@ test("autograde workflow: parses valid YAML with multi-step commands and custom 
   // Reporter
   assert.equal(steps[6].uses, "classroom-resources/autograding-grading-reporter@v1");
   assert.equal(steps[6].with.runners, "step-1-compile,step-2-io-basic,step-3-io-negative,step-4-python-validator");
-  assert.equal(steps[6].env.STEP_1_COMPILE_RESULTS, "${{ steps.step-1-compile.outputs.result }}");
-  assert.equal(steps[6].env.STEP_2_IO_BASIC_RESULTS, "${{ steps.step-2-io-basic.outputs.result }}");
-  assert.equal(steps[6].env.STEP_3_IO_NEGATIVE_RESULTS, "${{ steps.step-3-io-negative.outputs.result }}");
-  assert.equal(steps[6].env.STEP_4_PYTHON_VALIDATOR_RESULTS, "${{ steps.step-4-python-validator.outputs.result }}");
+  // Derived, not spelled: autograding-grading-reporter@v1 reads
+  // `process.env[runner.toUpperCase() + "_RESULTS"]`, so the key follows from
+  // the runner id and a hyphen stays a hyphen. Writing the names out by hand is
+  // how the folded `STEP_1_COMPILE_RESULTS` spelling agreed with a generator
+  // the reporter could not read - see tests/provision-autograding.test.mjs.
+  for (const runner of steps[6].with.runners.split(",")) {
+    assert.equal(
+      steps[6].env[`${runner.toUpperCase()}_RESULTS`],
+      `\${{ steps.${runner}.outputs.result }}`,
+      `the reporter looks up ${runner.toUpperCase()}_RESULTS for runner ${runner}`,
+    );
+  }
 });
 
 test("parseCheckRunScore: handles realistic markdown tables from autograding-grading-reporter", () => {
