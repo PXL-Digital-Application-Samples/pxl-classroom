@@ -361,7 +361,11 @@ const PLACES = [
     what: 'GitHub Actions runs them on every push.',
     cost: "Uses the organization's Actions minutes.",
     students: 'A pass/fail on every push.',
-    tests: 'In the repo, unless hidden.',
+    // Not "unless hidden": hiding them was `visibility: private`, which
+    // generated a workflow calling a file nothing creates. Checks that run on
+    // Actions are committed to the student's repository, always. Keeping them
+    // out is what the other card is for, and it says so.
+    tests: 'In the repo, and students can read them.',
   },
 ]
 

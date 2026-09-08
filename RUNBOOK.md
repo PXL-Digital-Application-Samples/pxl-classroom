@@ -93,7 +93,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Late work | **Counts** by default. *Does not count* locks the submission branch at the deadline with a repository ruleset — students keep their repository, Actions, secrets and runners, they simply cannot push to that branch. The two deadline settings are independent; §3.4 is the whole picture. |
 | Lock down student repos at the deadline | **Off by default**, and opt-in on purpose: demoting to `pull` takes Actions, secrets, environments and runners away, which on these courses is the subject being taught. Preservation happens either way (§3.4). |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §6.10) |
-| Autograding | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos, hidden`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
+| Autograding | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
 
 5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
@@ -917,7 +917,9 @@ Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.jso
 
 If the template repository already contains `.github/workflows/autograding.yml` or `classroom.yml`, provisioning **preserves it** and injects nothing. That is what makes a GitHub Classroom template work unchanged, and it is why the panel offers to write one only when it finds none.
 
-Where it does inject: a `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is what the CLI runners do, which is what makes a test definition mean one thing on both paths. The generated workflow carries `timeout-minutes: 10` and `concurrency: { cancel-in-progress: true }`, and under `visibility: private` it calls a reusable workflow in the control repository so the commands stay out of the student's view.
+Where it does inject: a `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is what the CLI runners do, which is what makes a test definition mean one thing on both paths. The generated workflow carries `timeout-minutes: 10` and `concurrency: { cancel-in-progress: true }`. **Checks that run on Actions are committed to the student's repository and they can read them** - keeping checks out of a student's view is what *on your machine* is for, and there is no third arrangement. A `visibility: private` setting used to promise one and generated a workflow calling a reusable workflow in the control repository, which nothing creates and §3.1 forbids; it is withdrawn.
+
+Each grader step's result reaches the reporter through an environment variable **the reporter names, not us**: `<RUNNER-ID-UPPERCASED>_RESULTS`, with the hyphens kept. Getting that name wrong is silent - every grader step goes green and the job fails at the reporter with a message blaming its `runners` input.
 
 Autograding on with **no** checks makes the injected workflow **fail**, saying so, rather than guessing at the student's toolchain and reporting the guess as a grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
 

@@ -4,7 +4,10 @@
 // unlabelled textareas whose meaning changed with it - no headers, no totals,
 // no validation until the schema refused the save three commits later, and a
 // visibility control named after its mechanism ("Private (Hidden via reusable
-// workflow)") rather than after the decision.
+// workflow)") rather than after the decision. That control was later renamed to
+// name the decision, and is now withdrawn altogether: the reusable workflow it
+// pointed at is a file nothing creates and ARCHITECTURE §3.1 forbids, so it
+// could never have run. Naming it well was the smaller of its two problems.
 //
 // The form now shows one line. Everything else is a modal, and these tests care
 // about the round trip through it: what a lecturer configures, what lands in the
@@ -83,18 +86,23 @@ test.describe('35 - §6.1 The form shows a summary, never the configuration', ()
     await expect(summaryText(page)).toHaveText('Off');
   });
 
-  test('Running in student repos, hidden or visible, reads differently', async ({ page }) => {
+  test('Running in student repos has no second question about hiding them', async ({ page }) => {
+    // "Can students read the checks?" is withdrawn. `No` wrote
+    // `visibility: private`, which generated a workflow calling a reusable
+    // workflow in the control repository - a file nothing creates and
+    // ARCHITECTURE §3.1 forbids - so the default answer produced a workflow
+    // GitHub refuses to start. Checks that run on Actions are committed to the
+    // student's repository; keeping them out is what "on your machine" is for.
     await openNewForm(page);
     await openAutogradeModal(page);
     await addCheck(page, CHECK_RUN);
     await page.getByRole('radio', { name: /In each student's repo/ }).check();
-    await saveChecks(page).click();
-    await expect(summaryText(page)).toHaveText('1 check · run in student repos, hidden');
 
-    await openAutogradeModal(page);
-    await page.locator('input[value="public"]').check();
+    await expect(page.getByText(/Can students read the checks/i)).toHaveCount(0);
+    await expect(page.locator('input[name="ag-visibility"]')).toHaveCount(0);
+
     await saveChecks(page).click();
-    await expect(summaryText(page)).toHaveText('1 check · run in student repos, visible');
+    await expect(summaryText(page)).toHaveText('1 check · run in student repos');
   });
 });
 
@@ -159,18 +167,26 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
     await expect(cards.last()).toContainText('pass/fail on every push');
   });
 
-  test('Visibility is a question about students, and only when it applies', async ({ page }) => {
+  test('Where they run is where the checks end up, and the cards say which', async ({ page }) => {
+    // This used to assert that "Can students read the checks?" appeared once
+    // the checks ran on Actions. It is withdrawn: `No` wrote
+    // `visibility: private`, which generated a workflow calling a reusable
+    // workflow in the control repository - nothing creates that file and
+    // ARCHITECTURE §3.1 forbids it - so the question offered an answer that
+    // could not work, and it was the default.
+    //
+    // What replaces it is not a question but a fact on each card, because with
+    // one arrangement per place there is nothing left to decide.
     await chooseOwnChecks(page);
-    // On your machine: the checks are never in the repo, so there is nothing
-    // to ask.
     await expect(modal(page)).not.toContainText('Can students read the checks?');
+    await expect(modal(page)).toContainText('Never in the student repo.');
 
     await page.getByRole('radio', { name: /In each student's repo/ }).check();
-    await expect(modal(page)).toContainText('Can students read the checks?');
-    await expect(modal(page)).toContainText('committed to each student');
-    await expect(modal(page)).toContainText('stay in the control repository');
-    // The mechanism is true, but it is not the decision.
+    await expect(modal(page)).not.toContainText('Can students read the checks?');
+    await expect(modal(page)).toContainText('In the repo, and students can read them.');
+    // And no trace of the thing that never worked.
     await expect(modal(page)).not.toContainText('reusable workflow');
+    await expect(modal(page)).not.toContainText('control repository');
   });
 
   test('The checks are a table with headers, and a running total', async ({ page }) => {
@@ -328,7 +344,7 @@ test.describe('35 - §6.3 The modal cannot produce a document the schema rejects
 // ================================================ the round trip
 
 test.describe('35 - What the lecturer configured is what the YAML says', () => {
-  test('Three checks, in student repos, hidden - through the form to the document', async ({ page }) => {
+  test('Three checks, in student repos - through the form to the document', async ({ page }) => {
     const contentWrites = [];
     await openNewForm(page, { contentWrites });
     await fillMinimum(page, 'Checks Lab');
@@ -348,7 +364,9 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
 
     expect(doc.autograde.enabled).toBe(true);
     expect(doc.autograde.execution_environment).toBe('github_actions');
-    expect(doc.autograde.visibility).toBe('private');
+    // No `visibility` any more: there is one arrangement, so the document does
+    // not carry a field naming which one it is.
+    expect(doc.autograde.visibility).toBeUndefined();
     expect(doc.autograde.tests.map((t) => t.id)).toEqual(['builds', 'output', 'script']);
     expect(doc.autograde.tests.map((t) => t.type)).toEqual(['run', 'io', 'python']);
 
@@ -696,13 +714,12 @@ jobs:
     await page.goto(`/dashboard/${ORG}/admin?edit=lab`);
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Lab', { timeout: 10000 });
 
-    await expect(summaryText(page)).toHaveText('1 check · run in student repos, visible');
+    await expect(summaryText(page)).toHaveText('1 check · run in student repos');
 
     await openAutogradeModal(page);
     await expect(page.getByLabel('Check 1 ID')).toHaveValue('compiles');
     await expect(page.getByLabel('Check 1 command')).toHaveValue('make');
     await expect(modal(page).locator('.ag-total')).toHaveText('20 points total');
-    await expect(page.locator('input[value="public"]')).toBeChecked();
     await saveChecks(page).click();
 
     await saveDraft(page).click();
@@ -710,7 +727,10 @@ jobs:
     expect(committed(contentWrites, 'lab').autograde).toEqual({
       enabled: true,
       execution_environment: 'github_actions',
-      visibility: 'public',
+      // The stored `visibility: public` is NOT carried through: buildDoc stopped
+      // writing the field when the option was withdrawn, so a re-save drops it.
+      // "Re-saves unchanged" is about the checks and where they run, which are
+      // the things a lecturer chose.
       tests: [{ id: 'compiles', type: 'run', command: 'make', points: 20 }],
     });
   });

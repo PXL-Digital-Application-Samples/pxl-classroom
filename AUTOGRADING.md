@@ -79,9 +79,8 @@ For checks students must not see, or grading you run yourself after the deadline
 1. **I define them here**.
 2. **Where do they run?**
    * *On your machine* — no Actions minutes, checks never reach the student repository, you run the CLI after the deadline.
-   * *In each student's repo* — runs on every push on the organisation's Actions minutes, student sees a pass/fail each time.
-3. If in student repos: **Can students read the checks?** *No* keeps them in the control repository.
-4. Add checks. Three starting points, each pre-filled: a command that must succeed, compare output for given input, a Python script.
+   * *In each student's repo* — runs on every push on the organisation's Actions minutes, student sees a pass/fail each time, and **the checks are committed to their repository where they can read them**. If that is not acceptable, the answer is *on your machine*; there is no third option.
+3. Add checks. Three starting points, each pre-filled: a command that must succeed, compare output for given input, a Python script.
 
 A blank points box is not zero. If a check is worth nothing, type `0`.
 

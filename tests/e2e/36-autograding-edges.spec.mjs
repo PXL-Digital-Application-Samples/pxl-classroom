@@ -327,27 +327,25 @@ test.describe('36 - A field the modal does not show is not a field it may delete
 // ======================================= where they run
 
 test.describe('36 - Where they run, and what that changes', () => {
-  test('Switching back to your machine keeps the visibility choice for next time', async ({ page }) => {
+  // "Can students read the checks?" is withdrawn, and the two tests that were
+  // here went with it. They asserted that the answer persisted across a switch
+  // and that `private` was the default "because it is the safer answer" - which
+  // was the opposite of true: `private` generated a workflow calling a reusable
+  // workflow in the control repository that nothing creates and ARCHITECTURE
+  // §3.1 forbids, so the safe-sounding default was the one that could not run.
+  // Neither test asked whether the file it named exists, which is how both
+  // stood over a path that had never been used (OPEN-ITEMS §5).
+  test('Where they run is the last question - there is no second one about hiding them', async ({ page }) => {
     await openNewForm(page);
     await openAutogradeModal(page);
     await addCheck(page, CHECK_RUN);
 
     await page.getByRole('radio', { name: /In each student's repo/ }).check();
-    await page.locator('input[value="public"]').check();
-    await page.getByRole('radio', { name: /On your machine/ }).check();
     await expect(modal(page)).not.toContainText('Can students read the checks?');
+    await expect(page.locator('input[name="ag-visibility"]')).toHaveCount(0);
 
-    await page.getByRole('radio', { name: /In each student's repo/ }).check();
-    await expect(page.locator('input[value="public"]')).toBeChecked();
-  });
-
-  test('Hidden is the default, because it is the safer answer', async ({ page }) => {
-    await openNewForm(page);
-    await openAutogradeModal(page);
-    await addCheck(page, CHECK_RUN);
-    await page.getByRole('radio', { name: /In each student's repo/ }).check();
-
-    await expect(page.locator('input[value="private"]')).toBeChecked();
+    // And the card says so, rather than implying an option that is gone.
+    await expect(modal(page)).not.toContainText('unless hidden');
   });
 
   test('Changing where they run updates the document, not just the screen', async ({ page }) => {
@@ -367,15 +365,16 @@ test.describe('36 - Where they run, and what that changes', () => {
 
     await openAutogradeModal(page);
     await page.getByRole('radio', { name: /In each student's repo/ }).check();
-    await page.locator('input[value="public"]').check();
     await saveChecks(page).click();
-    await expect(summaryText(page)).toHaveText('1 check · run in student repos, visible');
+    await expect(summaryText(page)).toHaveText('1 check · run in student repos');
 
     await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'lab'), { timeout: 10000 }).toBeTruthy();
     const { autograde } = committed(contentWrites, 'lab');
     expect(autograde.execution_environment).toBe('github_actions');
-    expect(autograde.visibility).toBe('public');
+    // The stored `visibility: private` this assignment arrived with is not
+    // carried forward: buildDoc no longer writes the field at all.
+    expect(autograde.visibility).toBeUndefined();
   });
 
   test('The CLI hint appears only when the checks run on your machine, with this slug in it', async ({ page }) => {
