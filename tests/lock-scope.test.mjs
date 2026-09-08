@@ -103,3 +103,38 @@ test("lockdown.mjs asks lib/lock-scope.mjs rather than re-deciding", () => {
   assert.match(src, /usesOrgScope\(assignment, blockLate\)/);
   assert.doesNotMatch(src, /org_scoped_lock\s*===/, "the decision must not be re-inlined here");
 });
+
+test("VALIDATING A DOCUMENT MUST NOT INVENT THE FIELD", () => {
+  // lib/validate.mjs runs Ajv with `useDefaults: true`, which MUTATES the object
+  // being validated and fills in any `default` the schema declares. A
+  // `"default": true` on org_scoped_lock therefore wrote the field into every
+  // assignment that passed through a validator - including ones under
+  // `late_policy: report`, where it means nothing - turning an absent answer
+  // into an explicit one nobody gave.
+  //
+  // Caught in the first minute of a live drill, by an assignment printing
+  // `org_scoped_lock=true` from a file that does not contain the string.
+  const doc = buildAssignmentDoc({ ...FORM });
+  assert.equal("org_scoped_lock" in doc, false, "buildAssignmentDoc must not write it");
+  const res = validateAgainst("assignment", doc);
+  assert.equal(res.valid, true, JSON.stringify(res.errors));
+  assert.equal(
+    "org_scoped_lock" in doc,
+    false,
+    "validation inserted the schema default - a default is a WRITER under useDefaults",
+  );
+});
+
+test("no schema default may reintroduce it, whatever a future edit says", () => {
+  // Anchored on the schema rather than on behaviour, because the behaviour above
+  // only fails once somebody re-adds the key - and the reason it must not come
+  // back is not visible from the mutation.
+  const schema = JSON.parse(
+    readFileSync(new URL("../schemas/assignment.schema.json", import.meta.url), "utf8"),
+  );
+  assert.equal(
+    "default" in schema.properties.org_scoped_lock,
+    false,
+    "a `default` here is inserted into every validated document by useDefaults",
+  );
+});

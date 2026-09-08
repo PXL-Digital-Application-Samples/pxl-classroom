@@ -1705,3 +1705,38 @@ The `repository_ids` cap is at least **301**, above the 250-student design targe
 Two measurement mistakes are worth recording, because both produced confident wrong answers. The first cap probe sliced a 100-item page, so "500 accepted" was 100 ids three times over. And the first live check of the dead-id path used `999999999` — an id that never existed, which GitHub **silently ignores** — where the 422 comes from a repository that existed and was deleted. Only the second is what a student produces.
 
 The recovery was then written to fire only when the 422's message matched `/repository_ids/`. A live probe hit a 422 whose body the harness did not surface, the recovery silently did not run, and the cohort failed to lock — a guard that checks nothing, in the one place where that means a graded cohort is not frozen. It recovers on the **status** now, and a 422 where every id is live is reported rather than retried identically.
+
+### A JSON Schema `default` is a writer, and it collapsed two tri-states in two days
+
+`lib/validate.mjs` constructs Ajv with `useDefaults: true`. That option **mutates
+the object being validated**: every `default` the schema declares is written into
+the document, whether or not anybody chose it. Twenty-three fields in the
+assignment schema carry one, and for twenty-one of them that is invisible,
+because the value written is the same answer every reader already gives an
+absent field — `assignment_type: individual`, `feedback_pr: false`.
+
+It is not invisible for a **tri-state**, and two were introduced on consecutive
+days without anyone noticing the interaction.
+
+`template_grades` distinguishes *nobody has been asked* (absent, every assignment
+predating the field) from *they answered no* (`false`, which ends the question).
+`"default": false` turned the first into the second on any document that reached
+a validator — so the grading controls would have vanished from exactly the
+template-graded assignments whose whole reason for the evidence fallback is that
+their answer was never recorded.
+
+`org_scoped_lock` distinguishes *the default under `block`* (absent) from *opt
+out* (`false`). `"default": true` wrote the opposite of the opt-out into
+documents, and it was caught within a minute of a live drill: an assignment
+printed `org_scoped_lock=true` from a file that does not contain the string. No
+test had seen it, because the unit test asserting "absent stays absent" checked
+`buildAssignmentDoc`'s output and never validated it — the mutation happens one
+call later.
+
+The default belongs in the code that decides (`lib/lock-scope.mjs`,
+`lib/autograde-source.mjs`), which is one owner rather than two.
+`tests/schema-defaults-are-writers.test.mjs` pins the set validation may invent
+with a written reason for each, so a new default fails until somebody says
+whether absent and the default are the same answer. Both halves are needed: the
+sweep only fires once a document reaches a validator, and the named check says
+why those two must stay absent.
