@@ -1500,6 +1500,10 @@ import {
 } from '../../../lib/control-layout.mjs'
 import { archiveRepoName } from '../../../lib/archive-repo.mjs'
 import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
+// Deleting an assignment has to take its organization ruleset with it: unlike a
+// repository one, it does not live in a student repository and would be left
+// behind, named after an assignment that no longer exists.
+import { findOrgSubmissionLock } from '../../../lib/submission-lock.mjs'
 import {
   collidingRepoNames,
   clashingAssignments,
@@ -4024,6 +4028,36 @@ async function deleteAssignment() {
       return
     }
 
+    // 3b. The ORGANIZATION ruleset, if this cohort was locked with one.
+    //
+    // Repository rulesets need no cleanup: they live inside student
+    // repositories, which this delete deliberately never touches, so they die
+    // with the repositories whenever the lecturer removes those. An
+    // organization ruleset lives in the ORGANIZATION and would simply be left
+    // behind - still named after an assignment that no longer exists, still
+    // blocking pushes to whatever repositories it targets.
+    //
+    // Not fatal, unlike the broker. A leftover ruleset is untidy and visible in
+    // the organization's settings; a leftover broker is a public repository
+    // holding a key with a door nothing will ever close. Different costs, so
+    // different handling - the delete continues and the manifest records what
+    // happened either way.
+    let orgRulesetRemoved = null
+    const orgLock = await findOrgSubmissionLock(
+      (method, path, body) => ghApi(token, method, path, body),
+      { org: props.org, assignmentId: id },
+    )
+    if (orgLock.ok && orgLock.ruleset) {
+      const del = await ghApi(token, 'DELETE', `/orgs/${props.org}/rulesets/${orgLock.ruleset.id}`)
+      orgRulesetRemoved = del.ok || del.status === 404
+      if (!orgRulesetRemoved) {
+        toast.warning(
+          `The organization ruleset "${orgLock.ruleset.name}" could not be removed (HTTP ${del.status}). ` +
+            `Delete it by hand in the organization's Settings → Rules; the rest of the deletion continued.`,
+        )
+      }
+    }
+
     // 4. One commit: write the evidence, remove the working data, and take the
     //    entry off the dashboard.
     const changes = [
@@ -4046,6 +4080,10 @@ async function deleteAssignment() {
             // can say where the submissions actually went and how many there
             // were - rather than composing an archive name and hoping.
             students: retiredStudents(reportJson),
+            // Null when this cohort was never held by an organization ruleset,
+            // so the manifest omits the field rather than recording a `false`
+            // that reads as a failed removal.
+            orgRulesetRemoved,
           }),
           null,
           2,

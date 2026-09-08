@@ -66,6 +66,10 @@
       "minimum": 0,
       "description": "How many submissions were preserved in that archive when the assignment was deleted - report rows with `preservation_status: preserved`. Exists so a later 404 on the archive is interpretable: 0 means it never held a submission and removing it cost nothing, N means N are gone. Without it a reader finding no repository cannot tell a deliberate end-of-year cleanup from a name that was recorded wrong."
     },
+    "org_ruleset_removed": {
+      "type": "boolean",
+      "description": "Whether the organization ruleset holding this cohort was removed by the delete. ABSENT means the cohort was never locked with one - repository rulesets need no entry here, because they live inside student repositories which the delete never touches and so go when those go. `false` is the value a reader acts on: an organization ruleset outlives the assignment, so a leftover is a rule named after something that no longer exists, still blocking pushes to whatever it targets, and only a person can remove it."
+    },
     "removed_paths": {
       "type": "array",
       "items": {

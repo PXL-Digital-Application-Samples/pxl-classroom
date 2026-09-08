@@ -138,6 +138,32 @@ test("removed_paths survives a tree entry that is not a path", () => {
   assert.equal(check(doc).valid, true);
 });
 
+test("an organization ruleset that outlived the delete is recorded as such", () => {
+  // Repository rulesets need no entry: they live inside student repositories,
+  // which the delete never touches, so they go when those go. An ORGANIZATION
+  // one lives in the organization, and a delete that could not remove it leaves
+  // a rule named after an assignment that no longer exists, still blocking
+  // pushes. Only a person can clear that, and only if they are told.
+  const removed = buildRetiredManifest({ ...ARGS, orgRulesetRemoved: true });
+  assert.equal(removed.org_ruleset_removed, true);
+  assert.equal(check(removed).valid, true);
+
+  const leftBehind = buildRetiredManifest({ ...ARGS, orgRulesetRemoved: false });
+  assert.equal(leftBehind.org_ruleset_removed, false);
+  assert.equal(check(leftBehind).valid, true);
+});
+
+test("a cohort never locked by an organization ruleset omits the field", () => {
+  // ABSENT and FALSE are different answers: false says a removal was attempted
+  // and failed, which is something to act on. Writing false for every ordinary
+  // assignment would make the one that matters unfindable.
+  for (const arg of [undefined, null]) {
+    const doc = buildRetiredManifest({ ...ARGS, orgRulesetRemoved: arg });
+    assert.ok(!("org_ruleset_removed" in doc), `orgRulesetRemoved: ${arg} wrote the field`);
+    assert.equal(check(doc).valid, true);
+  }
+});
+
 test("a bare repository name is refused by the schema", () => {
   // What the first live manifest carried. The schema is what stops it coming
   // back, so it has to actually reject it.
