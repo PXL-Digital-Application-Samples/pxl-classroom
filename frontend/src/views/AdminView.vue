@@ -1440,7 +1440,6 @@
       v-if="showAutogradeModal"
       :config="{
         execution_environment: form.autograde_execution_environment,
-        visibility: form.autograde_visibility,
         tests: form.autograde_tests,
       }"
       :submission-marker="form.submission_marker_value || ''"
@@ -2703,7 +2702,6 @@ function emptyForm() {
     feedback_pr_baseline_branch: 'pxl-baseline',
     autograde_enabled: false,
     autograde_execution_environment: 'lecturer_local',
-    autograde_visibility: 'private',
     autograde_tests: [],
     submission_marker_value: '',
     // Handing in again is allowed unless somebody says otherwise, which is the
@@ -3015,7 +3013,6 @@ function editAssignment(a) {
     // the lecturer behind an error they cannot reach a control for.
     autograde_enabled: a.autograde?.enabled === true && (a.autograde?.tests || []).length > 0,
     autograde_execution_environment: a.autograde?.execution_environment || 'lecturer_local',
-    autograde_visibility: a.autograde?.visibility || 'private',
     autograde_tests: a.autograde?.tests || [],
     // The hand-in commit message, when the template's own workflow gates on
     // one. `type` is the schema's only member today, and a SECOND member has to
@@ -3110,7 +3107,6 @@ const autogradeSummary = computed(() =>
     autograde: {
       enabled: form.value.autograde_enabled,
       execution_environment: form.value.autograde_execution_environment,
-      visibility: form.value.autograde_visibility,
       tests: form.value.autograde_tests,
     },
     submissionMarker: form.value.submission_marker_value,
@@ -3250,7 +3246,6 @@ async function addStarterWorkflow({ handInMessage } = {}) {
 function applyAutograde(config) {
   form.value.autograde_enabled = config.enabled
   form.value.autograde_execution_environment = config.execution_environment
-  form.value.autograde_visibility = config.visibility
   form.value.autograde_tests = config.tests
   // The modal answers ONE question, so it answers both halves of it. `?? ''`
   // rather than `||`: an explicit empty string is the modal saying "no hand-in

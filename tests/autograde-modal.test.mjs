@@ -156,13 +156,22 @@ test("the summary line describes the configuration, in one line", () => {
     [{ enabled: true, tests: [] }, "Off"],
     [{ enabled: true, execution_environment: "lecturer_local", tests: [1, 2, 3] }, "3 checks · run on your machine"],
     [{ enabled: true, execution_environment: "lecturer_local", tests: [1] }, "1 check · run on your machine"],
+    // The line said "visible" or "hidden" off `visibility`, and "hidden" was a
+    // promise nothing kept: it generated a workflow calling a reusable workflow
+    // in the control repository that nothing creates. The option is withdrawn,
+    // so the line no longer offers a distinction, and a stored value from
+    // before the withdrawal changes nothing about what it says.
     [
       { enabled: true, execution_environment: "github_actions", visibility: "private", tests: [1, 2] },
-      "2 checks · run in student repos, hidden",
+      "2 checks · run in student repos",
     ],
     [
       { enabled: true, execution_environment: "github_actions", visibility: "public", tests: [1, 2] },
-      "2 checks · run in student repos, visible",
+      "2 checks · run in student repos",
+    ],
+    [
+      { enabled: true, execution_environment: "github_actions", tests: [1, 2] },
+      "2 checks · run in student repos",
     ],
   ];
   for (const [config, expected] of cases) {

@@ -327,8 +327,7 @@
             "public",
             "private"
           ],
-          "default": "private",
-          "description": "If 'private' and execution_environment is github_actions, uses a reusable workflow to hide tests in the control repo."
+          "description": "VESTIGIAL - nothing reads this, nothing writes it, and no default is asserted. 'private' generated a workflow calling a reusable workflow in the control repository, which nothing creates and ARCHITECTURE §3.1 forbids, so it could never run; it was also the value the Admin Panel offered by default. The option is withdrawn and checks that run on Actions are always committed to the student's repository. Kept in the schema only so a document written before the withdrawal still validates."
         },
         "tests": {
           "type": "array",

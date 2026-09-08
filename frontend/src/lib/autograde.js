@@ -168,12 +168,17 @@ export function summariseGrading({ autograde, submissionMarker } = {}) {
   return 'Off'
 }
 
-export function summariseAutograde({ enabled, execution_environment: env, visibility, tests } = {}) {
+export function summariseAutograde({ enabled, execution_environment: env, tests } = {}) {
   const count = Array.isArray(tests) ? tests.length : 0
   if (!enabled || count === 0) return 'Off'
   const checks = `${count} check${count === 1 ? '' : 's'}`
   if (env === 'github_actions') {
-    return `${checks} · run in student repos, ${visibility === 'public' ? 'visible' : 'hidden'}`
+    // No longer "visible" or "hidden": checks that run on Actions are committed
+    // to the student's repository, which is the only arrangement that works.
+    // `visibility: private` promised to keep them in the control repository and
+    // generated a workflow calling a file nothing creates - withdrawn, see
+    // provisioning/provision.mjs.
+    return `${checks} · run in student repos`
   }
   return `${checks} · run on your machine`
 }

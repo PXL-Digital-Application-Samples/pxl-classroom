@@ -169,23 +169,14 @@
           </div>
         </fieldset>
 
-        <!-- (5) Only a question when the checks are in the student's repo. -->
-        <fieldset v-if="draft.source === 'here' && draft.execution_environment === 'github_actions'" class="ag-section">
-          <legend>Can students read the checks?</legend>
-          <label class="ag-choice">
-            <input type="radio" value="public" v-model="draft.visibility" name="ag-visibility" />
-            <span>
-              <strong>Yes</strong> - the checks are committed to each student's repository.
-              Simplest, and students can run them locally.
-            </span>
-          </label>
-          <label class="ag-choice">
-            <input type="radio" value="private" v-model="draft.visibility" name="ag-visibility" />
-            <span>
-              <strong>No</strong> - the checks stay in the control repository and run from there.
-            </span>
-          </label>
-        </fieldset>
+        <!-- (5) "Can students read the checks?" was here, and it is withdrawn.
+             `No` generated `uses: <org>/<control repo>/.github/workflows/
+             grade.yml@main`, a reusable workflow nothing has ever created and
+             nothing may - ARCHITECTURE §3.1 is that control repos hold data and
+             contain no workflows. It was the default, so the default answer
+             produced a workflow GitHub refuses to start. Checks that run on
+             Actions land in the student's repository; that is the only shape
+             there is, and the card in (4) already says so. -->
 
         <!-- (6) The checks themselves. -->
         <fieldset v-if="draft.source === 'here'" class="ag-section">
@@ -309,7 +300,7 @@ import HelpButton from './HelpButton.vue'
 import { CHECK_PRESETS, newCheck, checkProblems, totalPoints } from '../lib/autograde.js'
 
 const props = defineProps({
-  // { execution_environment, visibility, tests }
+  // { execution_environment, tests }
   config: { type: Object, required: true },
   // The assignment's hand-in commit message, '' for none. A STRING, not the
   // stored object: `lib/submission-marker.mjs` owns what a marker means and
@@ -388,7 +379,6 @@ const draft = reactive({
   markerValue: props.submissionMarker || '',
   markerMultiple: props.submissionMarkerMultiple !== false,
   execution_environment: props.config.execution_environment || 'lecturer_local',
-  visibility: props.config.visibility || 'private',
   // A whole-object copy, not a field list: `timeout_s` has no control here and
   // must still survive an edit. Rebuilding a record from the fields a form
   // happens to show is how buildDoc used to delete invitation tokens.
@@ -481,7 +471,6 @@ function removeAll() {
   emit('save', {
     enabled: false,
     execution_environment: draft.execution_environment,
-    visibility: draft.visibility,
     tests: [],
     submissionMarker: '',
     submissionMarkerMultiple: true,
@@ -497,7 +486,6 @@ function save() {
     emit('save', {
       enabled: false,
       execution_environment: draft.execution_environment,
-      visibility: draft.visibility,
       tests: [],
       submissionMarker: draft.markerMode === 'hand-in' ? draft.markerValue.trim() : '',
       submissionMarkerMultiple: draft.markerMultiple,
@@ -507,7 +495,6 @@ function save() {
   emit('save', {
     enabled: true,
     execution_environment: draft.execution_environment,
-    visibility: draft.visibility,
     tests: draft.tests,
     submissionMarker: '',
     submissionMarkerMultiple: true,

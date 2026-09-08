@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
-import { CONTROL_REPO } from "../lib/deployment.mjs";
 import { resolveTemplatePin } from "../lib/template-source.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -81,10 +80,60 @@ function validate() {
 // HEAD and protects it against force-push/delete. The Feedback PR itself
 // cannot be opened at provisioning time because main and the baseline point
 // at the same SHA - GitHub returns 422 "No commits between …". The PR is
+// `POST /repos/{tpl}/generate` RETURNS BEFORE THE REPOSITORY HAS ANY CONTENT.
+//
+// GitHub creates the repository object and populates it from the template
+// asynchronously. Every write this file does afterwards was racing that, and
+// the race has two losing outcomes - measured three times on
+// pxl-classroom-testbed, 2026-09-08:
+//
+//   * the write lands first and becomes the repository's ROOT commit; the
+//     population commit arrives a second later and its diff reads
+//     `removed .github/workflows/autograding.yml`. The student has the starter
+//     code and no grading workflow.
+//   * the write lands first and population never comes at all. The student has
+//     a grading workflow and NO STARTER CODE.
+//
+// Both reported `[ok] inject-autograding` and exited `created`, because the PUT
+// itself succeeds either way - it is the repository that changes underneath it.
+// The same race makes the "did the template already ship a grading workflow?"
+// check answer `no` about a repository that has not been filled in yet.
+//
+// So: anything that writes to a freshly generated repository waits for it
+// first. Only the writers call this, so an ordinary assignment - no autograde
+// block, no feedback PR - pays nothing and its timing is unchanged.
+let repoPopulated = false;
+async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
+  if (repoPopulated) return true;
+  for (let i = 0; i < attempts; i++) {
+    const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/`);
+    // 404 is "this repository is empty" here, not "no such repository" - the
+    // repository object exists, we created it. An empty ARRAY is the same
+    // state through a different door.
+    if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
+      repoPopulated = true;
+      if (i > 0) log("await-template", { ok: true, note: `populated after ${i + 1} check(s)` });
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return false;
+}
+
 // opened lazily by `pxl-classroom feedback open` once the student has pushed.
 async function setupFeedbackBaseline(repo) {
   const branch = cfg.baselineBranch;
   const defaultBranch = repo.default_branch || "main";
+
+  // Same race as the autograding injection: on a freshly generated repository
+  // `refs/heads/<default>` does not exist yet, and a baseline branched from
+  // nothing is a feedback PR the lecturer never gets. This one degrades rather
+  // than failing the provisioning - the feedback PR is optional scaffolding and
+  // the student's repository is already usable without it.
+  if (!(await ensureRepoPopulated())) {
+    log("feedback-baseline", { ok: false, note: `${cfg.targetRepo} is still empty after generate - no baseline` });
+    return null;
+  }
 
   const head = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/git/ref/heads/${defaultBranch}`);
   if (!head.ok) { log("feedback-baseline", { ok: false, note: `read ${defaultBranch} HTTP ${head.status}` }); return null; }
@@ -145,6 +194,9 @@ export function graderTimeoutMinutes(test) {
 // does not parse, in EVERY student repository, discovered by the student when
 // their grading run goes red. A colon in an id did the same to `- name:`. There
 // is no escaping to get right if nothing is concatenated.
+// `org` is retained for the signature every caller and test already uses; the
+// workflow no longer depends on it. It was the owner of the reusable workflow
+// the withdrawn `visibility: private` branch called - see below.
 export function buildAutogradingWorkflow(assignment, org) {
   const shell = {
     name: "Autograding",
@@ -152,14 +204,24 @@ export function buildAutogradingWorkflow(assignment, org) {
     concurrency: { group: "autograde-${{ github.ref }}", "cancel-in-progress": true },
   };
 
-  const isPublic = assignment?.autograde?.visibility === "public";
-  if (!isPublic) {
-    return stringifyYaml({
-      ...shell,
-      jobs: { grade: { uses: `${org}/${CONTROL_REPO}/.github/workflows/grade.yml@main` } },
-    });
-  }
-
+  // THERE IS ONE PATH, and there only ever was one that worked.
+  //
+  // `visibility: private` emitted `uses: <org>/<control repo>/.github/workflows/
+  // grade.yml@main` - a reusable workflow in the per-org control repository.
+  // Nothing in this repository has ever created that file, and nothing may:
+  // §3.1 is that control repos hold data and contain no workflows, which is
+  // what keeps the system upgradable in one place and participating-org Actions
+  // budgets near zero. So the generated workflow named a file that cannot
+  // exist, in every student repository, and GitHub refuses the run outright.
+  //
+  // It was also the DEFAULT the Admin Panel offered ("No - the checks stay in
+  // the control repository and run from there"), which made it a control
+  // describing behaviour the system does not have. The option is withdrawn
+  // rather than built: building it would put a workflow in the control repo.
+  //
+  // `visibility` survives in the schema so a document carrying one still
+  // validates, exactly as `acceptance_mode` does with its single implemented
+  // value (§5.4), and nothing reads it any more.
   const tests = assignment?.autograde?.tests || [];
   if (tests.length === 0) {
     // Public visibility with no checks used to emit `run: npm test` - a
@@ -317,6 +379,21 @@ export function buildAutogradingWorkflow(assignment, org) {
 }
 
 async function injectAutogradingWorkflow(assignment) {
+  // The repository has to be filled in before either half of this is sound:
+  // the check below reads an empty repository as "the template shipped no
+  // grading workflow", and the write below becomes a root commit the
+  // population then deletes. Failing is the right outcome rather than
+  // injecting anyway - `retry-acceptance` repairs it, and a missing grading
+  // workflow is invisible in a way a red provisioning run is not.
+  if (!(await ensureRepoPopulated())) {
+    await fail(
+      "fail:template-not-populated",
+      `${cfg.org}/${cfg.targetRepo} was created from the template but is still empty, so the ` +
+        `autograding workflow cannot be added without racing GitHub's own population of it. ` +
+        `Re-run Retry acceptance for this student.`,
+    );
+  }
+
   // Check if template repository already supplied an autograding workflow
   const checkAutograde = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/autograding.yml`);
   const checkClassroom = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/classroom.yml`);
@@ -393,6 +470,10 @@ async function main() {
   const existing = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}`);
   const alreadyExists = existing.status === 200;
   log("idempotency", { ok: existing.status === 200 || existing.status === 404, note: alreadyExists ? `exists id=${existing.data.id} - reuse` : "absent - create" });
+  // Nothing is populating a repository we did not just generate, so the writers
+  // below have nothing to wait for. Waiting anyway would fail a legitimate
+  // reuse of a repository a student has emptied out.
+  if (alreadyExists) repoPopulated = true;
 
   // 4. Create from template (skip if exists / dry-run).
   let repo = alreadyExists ? existing.data : null;

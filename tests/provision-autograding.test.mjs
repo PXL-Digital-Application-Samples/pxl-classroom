@@ -3,23 +3,39 @@ import assert from "node:assert/strict";
 import { parse } from "yaml";
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
 
-test("buildAutogradingWorkflow: generates reusable caller when visibility is private", () => {
-  const assignment = {
+test("a stored visibility changes nothing - there is one generated workflow", () => {
+  // `visibility: private` used to emit
+  //   uses: <org>/pxl-classroom-control/.github/workflows/grade.yml@main
+  // and this test asserted that string, which is the whole reason it stood: it
+  // pinned the shape of the output without ever asking whether the file it
+  // named exists. It does not, and ARCHITECTURE §3.1 says it may not - control
+  // repositories hold data and contain no workflows - so every student under a
+  // `private` assignment got a workflow GitHub refuses to start. It was the
+  // Admin Panel's default answer.
+  //
+  // The option is withdrawn. The field survives in the schema so an older
+  // document still validates, and it is inert: both values produce the same
+  // workflow, and it is the one that runs.
+  const withTests = (visibility) => ({
     autograde: {
       enabled: true,
       execution_environment: "github_actions",
-      visibility: "private",
-      tests: [{ id: "t1", type: "run", command: "npm test", points: 10 }]
-    }
-  };
-  const yamlStr = buildAutogradingWorkflow(assignment, "PXLAutomation");
-  assert.ok(yamlStr.includes("uses: PXLAutomation/pxl-classroom-control/.github/workflows/grade.yml@main"));
-  assert.ok(!yamlStr.includes("classroom-resources"));
+      ...(visibility ? { visibility } : {}),
+      tests: [{ id: "t1", type: "run", command: "npm test", points: 10 }],
+    },
+  });
 
-  // Verify valid YAML
-  const doc = parse(yamlStr);
+  const asPrivate = buildAutogradingWorkflow(withTests("private"), "PXLAutomation");
+  assert.equal(asPrivate, buildAutogradingWorkflow(withTests("public"), "PXLAutomation"));
+  assert.equal(asPrivate, buildAutogradingWorkflow(withTests(null), "PXLAutomation"));
+
+  assert.ok(!asPrivate.includes("grade.yml"), "nothing calls a reusable workflow in the control repo");
+  assert.ok(!asPrivate.includes("pxl-classroom-control"), "the control repo is not named in a student workflow");
+  assert.ok(asPrivate.includes("classroom-resources/autograding-grading-reporter@v1"));
+
+  const doc = parse(asPrivate);
   assert.equal(doc.name, "Autograding");
-  assert.ok(doc.jobs?.grade?.uses);
+  assert.ok(Array.isArray(doc.jobs.grade.steps), "it runs the checks itself");
 });
 
 test("buildAutogradingWorkflow: generates full autograding workflow with graders and reporter when visibility is public", () => {
