@@ -184,6 +184,43 @@ Runnable from the hub with the App token, so nobody needs owner access to each
 org. Order: `pxl-classroom-testbed` first (it is on **free**, so it proves the
 degradation path and nothing else), then two Team orgs.
 
+## Parked for the end: the two locks are presented as orthogonal and are not
+
+**Do this discussion after the build, not during it.** Raised 2026-09-08.
+
+The form offers two independent switches — `late_policy` (`report` / `block`)
+and a `lock_down_enabled` checkbox — and logically they are not independent at
+all. Demotion to `pull` *includes* stopping pushes; it is a branch lock plus
+the confiscation of Actions, secrets, environments and runners. So the four
+combinations are really three rungs of one ladder:
+
+| What the lecturer means | Today's spelling |
+|---|---|
+| Record late work, stop nothing | `report` + no demotion |
+| Stop pushes at the deadline | `block` + no demotion |
+| Stop pushes *and* take the toolchain | either policy + demotion |
+
+`report` + demotion is the odd one: it says *late work counts* and then removes
+the student's ability to produce any. That is the configuration the 2026 exams
+ran on, and it is the one that hurt — the lecturer got no deadline enforcement
+and lost Actions and secrets anyway.
+
+The code already half-admits this: `onLatePolicyChange` unticks the demotion
+box when a lecturer chooses `block`, with a comment saying demoting on top
+takes exactly what the branch lock exists to preserve. That is a single control
+wearing two checkboxes.
+
+**The question to answer later**, once org-scoped lockdown exists and the
+choices are stable: should this be one three-way control — *nothing / stop
+pushes / stop everything* — with `late_policy` and `lock_down_enabled` derived
+from it? It would make the impossible combination unrepresentable rather than
+merely discouraged, and it is the shape a lecturer actually reasons in.
+
+Not now, because the answer changes if org scope lands: "stop pushes" gains a
+second implementation and the form should not learn a distinction that turns
+out to be an implementation detail. The stored fields need not change either
+way — this is about what the screen asks, not about the document.
+
 ## Tests that have to exist
 
 Derived, never restated — the rule this repository keeps paying for.
