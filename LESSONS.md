@@ -1680,4 +1680,28 @@ Enforcing it is the standard recipe: commitlint, and husky to run it from `commi
 
 `husky || exit 0` fixes it, and `exit 0` rather than the more common `|| true` because npm runs scripts through `cmd.exe` on Windows and `true` is not a builtin there. Both paths were then run and watched: `npm ci --omit=dev` exits 0 and installs no hooks, `npm ci` exits 0 and sets `core.hooksPath`.
 
-Two things worth keeping. **A tool's `init` command optimises for the common repository, not for yours** - it scaffolded a `pre-commit` hook running the full 52-second test suite as well, which CI already runs on every push. And **the blast radius of a dev-tooling change is whatever shares the file it edits**: `package.json` is not a developer's file here, it is the thing fourteen production jobs install from.
+Two things worth keeping here. **A tool's `init` command optimises for the common repository, not for yours** - it scaffolded a `pre-commit` hook running the full 52-second test suite as well, which CI already runs on every push. And **the blast radius of a dev-tooling change is whatever shares the file it edits**: `package.json` is not a developer's file here, it is the thing fourteen production jobs install from.
+
+### The recommendation that survived being argued with, and the two costs that did not.
+
+Asked whether to build organization-scoped lockdown, the answer was no, on four grounds: a race when two lecturers reopen two students at once, repository-name globs colliding between assignments, the coexistence work, and free organizations gaining nothing.
+
+**Two of the four did not survive contact.** The race is real and negligible — two lecturers inside one read-modify-write window, on cohorts of **six**, where the failure is visible and the fix is to repeat the action. Giving it weight was wrong. And the name-glob collision was real but avoidable: organization rulesets accept `conditions.repository_id.repository_ids`, an explicit list, so the hazard evaporates — and the id survives a rename, which a name does not.
+
+That mattered, because the collision was **not** hypothetical: `test-groepsopdracht-{team_slug}`, `test-groepsopdracht-2-{team_slug}` and `test-groepsopdracht-vervolg-{team_slug}` all live in one organization, all on `late_policy: block`, and `test-groepsopdracht-*` matches all three cohorts. Designing on the assumed mechanism would have shipped that.
+
+**What actually decided it was none of the four.** The exams do not use rulesets at all — `late_policy: report` with a demotion — and a demoted student cannot restore themselves, so the hole org scope closes was not open on the assignments that matter. Then the lecturer explained that demoting an exam had been *horrible*, because these courses need Actions and secrets, and the picture inverted: what they actually want is `block` with no demotion, which leaves the student admin **by design** — and a repository ruleset is then one click away in the student's own settings. The feature became the thing that makes the wanted configuration hold.
+
+Three lessons, and the middle one is uncomfortable. **A cost estimate deserves the same checking as a claim** — "this needs an approval round from twelve owners" was in RUNBOOK and was false; all thirteen readable installations already grant the permission. **A recommendation is worth more when its weakest argument is dropped rather than defended**, because what remains is the reason that actually carries. And **the decisive fact was not technical**: it was what happened in the room when an exam demoted a cohort, which no amount of reading the code would have produced.
+
+### An API nobody documents, and the asymmetry that shaped the code.
+
+GitHub documents none of the limits organization-scoped lockdown rests on, so they were measured against a live Team organization with `enforcement: "disabled"` — a disabled ruleset blocks nothing whatever its conditions match, so no repository could be affected.
+
+The `repository_ids` cap is at least **301**, above the 250-student design target, so no chunking. `PUT` **replaces** conditions rather than merging them, which is the whole reason removing one repository works. A name is accepted at 252 characters and refused at 262, and assignment ids are capped at 100, so nothing needs truncating.
+
+**And the one that shaped the code: a create carrying a deleted repository is refused 422, while an update carrying one is accepted.** A student can delete their own repository; the control repo's record survives, so a derived id list still carries a dead id. Verifying every repository first would be N reads before the one time-critical call — the entire thing the change exists to avoid — so the create is attempted, and a 422 triggers one re-derivation of the live ids and one retry, naming who was dropped.
+
+Two measurement mistakes are worth recording, because both produced confident wrong answers. The first cap probe sliced a 100-item page, so "500 accepted" was 100 ids three times over. And the first live check of the dead-id path used `999999999` — an id that never existed, which GitHub **silently ignores** — where the 422 comes from a repository that existed and was deleted. Only the second is what a student produces.
+
+The recovery was then written to fire only when the 422's message matched `/repository_ids/`. A live probe hit a 422 whose body the harness did not surface, the recovery silently did not run, and the cohort failed to lock — a guard that checks nothing, in the one place where that means a graded cohort is not frozen. It recovers on the **status** now, and a 422 where every id is live is reported rather than retried identically.

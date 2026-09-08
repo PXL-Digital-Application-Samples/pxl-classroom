@@ -61,7 +61,13 @@ If that account is lost, sign-in does not break — it fails over to the third-p
 
 ## 3. Lock-down is per repository, and a student can delete their own ruleset
 
-**Status: open — unblocked, unbuilt.** Verified 2026-08-31.
+**Status: open — BUILT, never run on a cohort.** Verified 2026-08-31, built 2026-09-08.
+
+**What changed.** `org_scoped_lock: true` on an assignment now covers the whole cohort with one organization ruleset targeted by `repository_id` (ARCHITECTURE §11.2.1), with the matching inverse in `lib/repo-unlock.mjs`, cleanup on delete, and `scripts/migrate-org-lock.mjs` to move an existing cohort. The API limits it rests on were measured against a live Team organization rather than assumed — the `repository_ids` cap, `PUT` replacing rather than merging, and the create-refuses/update-accepts asymmetry for a deleted repository.
+
+**What is still open is the part code cannot settle.** No cohort has ever been locked this way. The ruleset path *itself* has run in production exactly once — `PXL-2TIN-CloudEssentials-2627/test-groepsopdracht-2`, two repositories — and every real exam so far used `late_policy: report` with a demotion, which is a different mechanism with a different inverse. Until an assignment runs `late_policy: block` + `org_scoped_lock: true` through a real deadline and a real reopen, this is unexercised code, and OPEN-ITEMS §5 is the standing reminder of what unexercised code is worth.
+
+The paragraphs below are what the entry said before the work, kept because they are still the argument for whether to *use* it.
 
 At a deadline under *late work does not count*, `lib/submission-lock.mjs` creates one repository ruleset named `pxl-classroom-deadline` on **each** student's repository, blocking `update`, `non_fast_forward` and `deletion` on the submission ref, with the Provisioner App in `bypass_actors` so the system can still write.
 
@@ -78,13 +84,15 @@ An **organization** ruleset closes both. Measured live: one org ruleset with `co
 gh api apps/pxl-classroom-provisioner --jq .permissions
 ```
 
-What remains is code, in two files rather than the one this entry used to name. `applySubmissionLock` is a local function in [`lockdown/lockdown.mjs`](lockdown/lockdown.mjs) — it is where `method` is chosen, so it is what gains the new scope; `lib/submission-lock.mjs` is where the org-scoped pair would live, beside `ensureSubmissionLock` and `releaseSubmissionLock`.
+The awkward half was the **inverse**, and it turned out smaller than feared. An organization ruleset cannot be flipped for one student, so reopening one repository ([ARCHITECTURE §11.2.4](ARCHITECTURE.md)) is removing one entry from an object covering everybody else. It targets `repository_id` rather than a name pattern, so that entry is an integer read off the lockdown row, and `PUT` replaces conditions rather than merging them (measured). Two lecturers reopening two students inside the same read-modify-write window would lose one exclusion; on cohorts of six that is vanishingly rare, the ruleset is re-read immediately before the write, and the student notices at once.
 
-The awkward half is the **inverse**. An organization ruleset cannot be flipped for one student, so reopening one repository ([ARCHITECTURE §11.2.4](ARCHITECTURE.md)) stops being a flag flip and becomes an edit to `conditions.repository_name.exclude` — a different operation, on the record a grade dispute rests on. That is the part to design before writing any of it.
+**Whether to USE it is a judgement, not a defect.** The position on record is that the repository ruleset suffices *for the way these courses run today* — every real exam demotes rather than blocking, and a demoted student cannot restore themselves, so the hole this closes is not open on them. It becomes worth using the moment an exam moves to `late_policy: block` with the demotion off, which is the configuration that keeps a student their Actions and secrets: they then keep admin by design, and a repository ruleset is one click in their own settings.
 
-**Whether to build it is a judgement, not a defect.** The position on record is that the repository ruleset suffices. Build this if you want a lock a student cannot reach at all; a high-stakes exam is the case that would justify it.
+**How to tell it is closed:** a student's repository shows `pxl-classroom-deadline-<assignment-id>` with `source_type: "Organization"` after a cohort is locked, and a reopen has been done through the Admin Panel against that lock.
 
-**How to tell it is closed:** a student's repository shows `pxl-classroom-deadline` with `source_type: "Organization"` after a cohort is locked.
+```bash
+gh api "repos/<org>/<student-repo>/rulesets" --jq '.[] | select(.source_type=="Organization") | .name'
+```
 
 ---
 
@@ -230,7 +238,31 @@ printing nothing is this item still open.
 
 ---
 
-## 8. e2e specs stage report fixtures the report schema would refuse
+## 8. The two deadline controls are offered as orthogonal and are one ladder
+
+**Status: open — a question about the form, not the behaviour.** Raised 2026-09-08.
+
+The assignment form offers `late_policy` (`report` / `block`) and a separate *"Also take admin away at the deadline"* checkbox, as if they were independent. Logically they are not: demoting a student to `pull` **includes** stopping pushes, and adds the confiscation of Actions, secrets, environments and runners. So the four combinations are three rungs of one ladder:
+
+| What the lecturer means | Today's spelling |
+|---|---|
+| Record late work, stop nothing | `report`, no demotion |
+| Stop pushes at the deadline | `block`, no demotion |
+| Stop pushes **and** take the toolchain | either policy, with demotion |
+
+`report` + demotion is the odd one out: it says *late work counts* and then removes the student's ability to produce any. That is what both 2026 exams ran on, and it is the combination that hurt — no deadline enforcement, and Actions and secrets gone anyway.
+
+The code already half-admits it. `onLatePolicyChange` unticks the demotion box when a lecturer chooses `block`, with a comment saying demoting on top takes exactly what the branch lock exists to preserve. That is one control wearing two checkboxes.
+
+**The question:** should this be a single three-way choice — *nothing / stop pushes / stop everything* — with `late_policy` and `lock_down_enabled` derived from it? It would make the incoherent combination unrepresentable rather than merely discouraged, and it is the shape a lecturer reasons in. The stored fields need not change either way; this is about what the screen asks.
+
+Deliberately not answered while org-scoped lockdown was being built, so the form would not learn a distinction that turned out to be an implementation detail. That work has landed, so the question is now answerable.
+
+**How to tell it is closed:** the form asks one question about what the deadline does, or the arrangement was considered and kept and this entry says so instead.
+
+---
+
+## 9. e2e specs stage report fixtures the report schema would refuse
 
 **Status: open — bounded and guarded.** Measured 2026-09-07, narrowed the same day.
 
