@@ -445,6 +445,24 @@ export function registerGradeCommand(program) {
           students: summary.graded,
           failed: summary.failed,
         };
+        // Validated before it is committed, on BOTH sides. The Admin Panel has
+        // checked this document since the schema existed and this side never
+        // did - so the schema's own description ("TWO surfaces write this file
+        // ... until this schema existed neither validated it") was true of one
+        // of them for as long as it has been written down. A malformed summary
+        // is not a loud failure anywhere else: the Assignment detail view joins
+        // it onto the report by login, so a bad row shows up as a missing Score
+        // column rather than as an error.
+        const v = validateAgainst("grading-summary", summaryDoc);
+        if (!v.valid) {
+          // ajv returns error OBJECTS, not strings - `${e}` would print
+          // "[object Object]" at the person who has to fix it.
+          process.stderr.write(
+            `\nthe grade summary came out malformed and was NOT written - nothing was overwritten:\n` +
+              v.errors.map((e) => `  ${e.instancePath || "/"} ${e.message}\n`).join(""),
+          );
+          process.exit(1);
+        }
         await commitWithRebase(octokit, {
           owner: org, repo: CONTROL_REPO, branch: "main",
           message: `Grade ${opts.assignment}: summary (${summary.graded.length} graded, ${summary.failed.length} failed)`,
