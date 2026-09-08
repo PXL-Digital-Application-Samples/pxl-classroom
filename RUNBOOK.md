@@ -231,15 +231,19 @@ On a **group** assignment an extension granted to one member applies to the whol
 
 To see who is deferred, open `lockdowns/<id>/lockdown-record.json` in the control repo: deferred students carry `deferred_until` and a null `snapshot_sha`, and `deferred_count` sits beside `locked_count`.
 
-## 3.3 An extension granted after lock-down does not reopen the repository
+## 3.3 An extension granted after lock-down may not reopen the repository
 
-Lock-down is a permission change (student -> `pull`) and nothing currently reverses it. If a student has already been locked down and you grant an extension anyway, the override is recorded and `report.mjs` will use it to classify their submission, but they cannot push. Restore write access manually:
+**Grant extensions before the deadline wherever possible.** Afterwards, whether the student can push again depends on how they were frozen, and only one of the three answers is automatic.
 
-```bash
-gh api -X PUT repos/<org>/<repo>/collaborators/<login> -f permission=push
-```
+| How they were frozen | An extension granted afterwards |
+|---|---|
+| **Organization ruleset** | Reopens them at the next finalize pass. The ruleset is rebuilt from the students it still covers, and a student whose own deadline has moved into the future is no longer one of them. Measured on a live drill, 2026-09-08. |
+| **Repository ruleset** | Does **not** reopen them. Nothing revisits a ruleset that is already on their repository. |
+| **Demotion** | Does **not** reopen them. The permission change is not reversed by an extension. |
 
-Then delete `lockdowns/<id>/lockdown-record.json`'s entry for that student, or the next finalize will re-lock them at the frozen snapshot. Grant extensions before the deadline wherever possible.
+In the two cases that do not reopen, the override is still recorded and the report classifies their submission against their own deadline - they simply cannot push to it. Use **Reopen** (§6.15) rather than GitHub: it picks the right inverse and records who did it and why.
+
+To see who is deferred, `lockdowns/<id>/lockdown-record.json` gives deferred students a `deferred_until` and a null `snapshot_sha`.
 
 ## 3.4 Deciding what happens to late work
 

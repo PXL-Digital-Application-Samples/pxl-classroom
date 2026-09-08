@@ -32,6 +32,7 @@ function runReport({
   overrides = [],
   teams = [],
   roster = [],
+  lockdown = null,
   csv = false,
 }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-report-test-"));
@@ -89,6 +90,16 @@ function runReport({
   for (const [login, doc] of Object.entries(preservations)) {
     mkdirSync(join(dir, "observations", id, login), { recursive: true });
     writeFileSync(join(dir, "observations", id, login, "preservation.json"), JSON.stringify(doc));
+  }
+
+  // lockdowns/<id>/lockdown-record.json - what the freeze decided, which is not
+  // the same evidence as an observation and can outrank it.
+  if (lockdown) {
+    mkdirSync(join(dir, "lockdowns", id), { recursive: true });
+    writeFileSync(
+      join(dir, "lockdowns", id, "lockdown-record.json"),
+      JSON.stringify({ schema_version: 1, assignment_id: id, ...lockdown }),
+    );
   }
 
   if (teams.length) {
@@ -774,3 +785,180 @@ state: published
   assert.equal(alice.team_name, "Alpha Team");
 });
 
+
+// ---------------------------------------------------------------------------
+// A RECONSTRUCTED SNAPSHOT OUTRANKS THE OBSERVATIONS.
+//
+// Found on a live drill against a Team organization (2026-09-08), not by a
+// test: a student accepted, worked, and pushed once more after the deadline,
+// all inside one nightly interval. No collector run ever saw an on-time commit
+// as HEAD, so `last_on_time_sha` was null and the row read `no-submission` -
+// while lockdown had reconstructed the submission with `?until=`, preservation
+// had pushed it to the archive, and the SAME ROW carried `preserved_sha`.
+//
+// One row, two answers, and the wrong one is the one a lecturer grades from.
+// ---------------------------------------------------------------------------
+
+const ON_TIME_SHA = "d".repeat(40);
+const LATE_SHA = "9".repeat(40);
+
+const BLOCK_YAML = BASE_YAML + "late_policy: block\n";
+
+/** The drill, reduced: every observation happened after the deadline. */
+const drill = ({ yaml = BLOCK_YAML, preserved = true, lockdownRow = {}, noLockdownRow = false } = {}) =>
+  runReport({
+    assignmentYaml: yaml,
+    acceptances: [{ github_login: "dana", status: "accepted" }],
+    observations: {
+      dana: [
+        // The only collector run, after the deadline, with the late commit on
+        // HEAD. This is the whole problem: nothing observed the on-time state.
+        {
+          observed_at: "2026-09-11T00:30:00Z",
+          sha: LATE_SHA,
+          commit_date: "2026-09-11T00:10:00Z",
+          commit_count: 3,
+        },
+      ],
+    },
+    // `source_sha`, which is what preserve.mjs writes - not a `sha` the test
+    // invented. A fixture in the wrong shape is how `preserved_sha` was null on
+    // every report ever generated while a test asserted it was fine.
+    preservations: preserved
+      ? {
+          dana: {
+            schema_version: 1,
+            verified: true,
+            source_sha: ON_TIME_SHA,
+            archive_repo: "org/arch",
+            archive_ref: "refs/heads/preserved/test-asgn/dana",
+          },
+        }
+      : {},
+    lockdown: {
+      late_policy: "block",
+      lock_method: "org-ruleset",
+      results: noLockdownRow
+        ? []
+        : [
+            {
+              github_login: "dana",
+              repo_name: "org/test-asgn-dana",
+              repo_id: 11,
+              lock_method: "org-ruleset",
+              snapshot_sha: ON_TIME_SHA,
+              reconstructed: true,
+              verified: true,
+              ...lockdownRow,
+            },
+          ],
+    },
+  });
+
+test("A PRESERVED SUBMISSION UNDER block IS ON-TIME, not no-submission", () => {
+  const dana = drill().students.find((s) => s.github_login === "dana");
+  assert.equal(
+    dana.submission_status,
+    "on-time",
+    "lockdown selected this commit at or before the deadline and preserved it - the row cannot also say nobody submitted",
+  );
+});
+
+test("the late push is still reported as late activity", () => {
+  // The status changing must not quietly stop telling the lecturer that the
+  // student pushed after the deadline. Under `block` it does not count; it
+  // still happened.
+  const dana = drill().students.find((s) => s.github_login === "dana");
+  assert.ok(
+    (dana.warnings || []).includes("late-activity-detected"),
+    `expected a late-activity warning, got ${JSON.stringify(dana.warnings)}`,
+  );
+});
+
+test("A REOPENED STUDENT KEEPS THEIR STATUS, though their lockdown row is gone", () => {
+  // The lockdown record is rewritten whole on every finalize pass, and a
+  // student who has been reopened is skipped - so their row disappears from it
+  // while `reopened_count` counts them. Judging on the lockdown row would hand
+  // a lecturer "no-submission" the moment they granted somebody a second
+  // chance. preservation.json is per student and nobody else's pass rewrites
+  // it. Measured on the live drill.
+  const dana = drill({ noLockdownRow: true }).students.find((s) => s.github_login === "dana");
+  assert.equal(dana.submission_status, "on-time");
+  assert.equal(dana.preserved_sha, ON_TIME_SHA);
+});
+
+test("a reconstruction that found NOTHING is still no-submission", () => {
+  // The other half of the drill: a student whose repository was created after
+  // the deadline has a reconstructed snapshot of `null` and nothing preserved.
+  // Absent and empty are different answers, and this one really is nobody's
+  // submission - not a late one.
+  const dana = drill({ preserved: false, lockdownRow: { snapshot_sha: null } })
+    .students.find((s) => s.github_login === "dana");
+  assert.equal(dana.submission_status, "no-submission");
+});
+
+test("under late_policy report a preserved snapshot decides nothing", () => {
+  // Under `report` lockdown preserves HEAD at lock time, which may be a commit
+  // pushed after the deadline - the policy says late work counts and is
+  // flagged. That SHA proves nothing about when the work was done, so the
+  // observations remain the evidence and this student is late.
+  const dana = drill({ yaml: BASE_YAML }).students.find((s) => s.github_login === "dana");
+  assert.equal(
+    dana.submission_status,
+    "late",
+    "only a policy that discards late work makes a preserved commit on-time by construction",
+  );
+});
+
+test("no lockdown record at all leaves the observation logic untouched", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "dana", status: "accepted" }],
+    observations: {
+      dana: [
+        { observed_at: "2026-09-05T10:00:00Z", sha: ON_TIME_SHA, commit_date: "2026-09-05T09:00:00Z" },
+      ],
+    },
+  });
+  const dana = report.students.find((s) => s.github_login === "dana");
+  assert.equal(dana.submission_status, "on-time");
+  assert.equal(dana.last_on_time_sha, ON_TIME_SHA);
+});
+
+test("PRESERVATION.JSON IS NOT AN OBSERVATION", () => {
+  // It lives in the same directory and readDirJsonFiles takes every .json in
+  // there. It carries no `observed_at` and no `sha`, so processed as an
+  // observation it blanked `latest_observed_sha` and `latest_observed_at`.
+  // The guard meant to stop that tested `collection_type === "preservation"`,
+  // a field preserve.mjs has never written.
+  //
+  // The fixture is the document preserve.mjs actually writes, which is the
+  // whole point: a made-up one with a `collection_type` would have passed
+  // against the broken code.
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "erin", status: "accepted" }],
+    observations: {
+      erin: [
+        { observed_at: "2026-09-09T10:00:00Z", sha: ON_TIME_SHA, commit_date: "2026-09-09T09:00:00Z" },
+      ],
+    },
+    preservations: {
+      erin: {
+        schema_version: 1,
+        assignment_id: "test-asgn",
+        github_login: "erin",
+        source_repo: "org/test-asgn-erin",
+        source_sha: ON_TIME_SHA,
+        archive_repo: "org/arch",
+        preserved_ref: "refs/heads/preserved/test-asgn/erin",
+        verified: true,
+        preserved_at: "2026-09-11T00:40:00Z",
+      },
+    },
+  });
+  const erin = report.students.find((s) => s.github_login === "erin");
+  assert.equal(erin.latest_observed_sha, ON_TIME_SHA, "the real observation must survive");
+  assert.equal(erin.latest_observed_at, "2026-09-09T10:00:00Z");
+  assert.equal(erin.submission_status, "on-time");
+});

@@ -66,9 +66,25 @@ async function readJsonSafe(path) {
 //
 // An ABSENT directory is still simply "none" - git cannot store an empty one,
 // and most assignments have no overrides at all.
-async function readDirJsonFiles(dir) {
+// `preservation.json` lives in the SAME directory as a student's observations
+// and is not one. It carries no `observed_at` and no `sha`, so read as an
+// observation it sorts nowhere in particular and then blanks
+// `latest_observed_sha` / `latest_observed_at` on its way past.
+//
+// There WAS a guard - `if (obs.collection_type === "preservation") continue` -
+// and it never matched anything: preserve.mjs has never written that field.
+// A guard whose anchor does not exist checks nothing, silently. Excluded by
+// the one thing that actually identifies the document, its filename, which is
+// the same constant the read a few hundred lines below joins.
+//
+// Seen on a live drill (2026-09-08): the two students with a preservation
+// record had no `latest_observed_sha` at all, and the one whose record had been
+// lost to a failed push had one. The same natural experiment, run by accident.
+const PRESERVATION_FILE = "preservation.json";
+
+async function readDirJsonFiles(dir, { exclude = null } = {}) {
   if (!existsSync(dir)) return [];
-  const files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".json") && f !== exclude);
   const results = [];
   for (const f of files) {
     const data = await readJsonSafe(join(dir, f));
@@ -150,7 +166,7 @@ async function main() {
       const key = normalizeLogin(dirName);
       if (!key) continue;
       const loginPath = join(obsDir, dirName);
-      const obs = await readDirJsonFiles(loginPath);
+      const obs = await readDirJsonFiles(loginPath, { exclude: PRESERVATION_FILE });
       observationsByLogin.set(
         key,
         obs.sort((a, b) => new Date(a.observed_at) - new Date(b.observed_at))
@@ -266,8 +282,9 @@ async function main() {
     let latestTagObservation = null;
 
     for (const obs of observations) {
-      // Skip preservation records
-      if (obs.collection_type === "preservation") continue;
+      // The preservation record is excluded at load, by filename. The guard
+      // that used to sit here read a `collection_type` preserve.mjs has never
+      // written - see PRESERVATION_FILE above.
 
       if (obs.commit_count != null) {
         latestCommitCount = obs.commit_count;
@@ -292,6 +309,15 @@ async function main() {
         if (!latestTagObservation || new Date(obs.observed_at) > new Date(latestTagObservation.observed_at)) {
           latestTagObservation = obs;
         }
+        continue;
+      }
+
+      // An observation with no `observed_at` cannot be placed on the timeline,
+      // and every comparison below against `Invalid Date` is false - so it does
+      // not become "late", it silently becomes nothing while still overwriting
+      // the latest-seen fields above. Skip it and say so.
+      if (!obs.observed_at) {
+        console.error(`[warn] observation with no observed_at, skipped: ${login}`);
         continue;
       }
 
@@ -409,8 +435,90 @@ async function main() {
     // cannot drift apart again.
     const hasLateActivity = Boolean(firstLateSha) && firstLateSha !== lastOnTimeSha;
 
+    // A RECONSTRUCTED SNAPSHOT IS AN ANSWER, AND IT OUTRANKS THE OBSERVATIONS.
+    //
+    // Observations are collector runs, so `lastOnTimeSha` exists only if some
+    // run happened to look while an on-time commit was HEAD. Under
+    // `late_policy: block` lockdown does not wait for one: it asks GitHub for
+    // the newest commit committed at or before this student's own effective
+    // deadline and preserves THAT. So a student who accepted, worked, and
+    // pushed once more after the deadline - all inside one nightly interval,
+    // which is an ordinary exam day - has no observation carrying an on-time
+    // SHA, and this row read `no-submission` while the archive held their work
+    // and the row itself carried `preserved_sha`. One row, two answers.
+    // Measured on a live drill against a Team organization, 2026-09-08.
+    //
+    // `reconstructed` is what makes the SHA usable here rather than
+    // `snapshot_sha` on its own: it means the commit was selected BY the
+    // deadline, so it is on-time by construction. lockdown.mjs passes
+    // `deadlineFor` to phase 2 only under `block`, so this flag cannot be set
+    // under `report`, where a snapshot is merely HEAD at lock time and proves
+    // nothing about when the work was done.
+    //
+    // It is checked BEFORE `lastOnTimeSha` deliberately. Under `block` a late
+    // push is not part of the submission - that is what the policy means - so
+    // it must not turn a reconstructed on-time submission into `late`. The
+    // `late-activity-detected` warning still says the pushing happened.
+    // Find preservation info. The directory is whatever spelling preserve.mjs
+    // wrote, not the normalised key - there is nothing to read otherwise. Read
+    // here rather than below the status block, because under `block` it is
+    // EVIDENCE OF THE SUBMISSION and not merely a column.
+    const preservationPath = join(obsDir, obsDirNameByLogin.get(key) ?? login, "preservation.json");
+    const preservation = existsSync(preservationPath)
+      ? await readJsonSafe(preservationPath)
+      : null;
+
+    // UNDER `block`, A PRESERVED COMMIT IS ON-TIME BY CONSTRUCTION.
+    //
+    // Lockdown under that policy takes one of two commits: HEAD, when nothing
+    // was pushed after the deadline, or the newest commit committed at or
+    // before this student's own effective deadline, reconstructed with
+    // `?until=`. Both are at or before the deadline, and preservation archived
+    // whichever it was. So a verified preservation settles the question that
+    // the observations - which are collector RUNS, not commits - may simply
+    // never have been in a position to answer.
+    //
+    // That gap is not exotic. A student who accepted, worked, and pushed once
+    // more after the deadline, all inside one nightly interval, has no
+    // observation carrying an on-time SHA: `lastOnTimeSha` is null and this row
+    // read `no-submission` while the same row carried `preserved_sha` and the
+    // archive held the work. One row, two answers. Measured on a live drill
+    // against a Team organization, 2026-09-08.
+    //
+    // Judged on PRESERVATION rather than on the lockdown row, because the row
+    // does not survive: the record is rewritten whole on every pass and a
+    // student who has been reopened is no longer in it, so a reopen would have
+    // taken the answer away again. preservation.json is per student and is
+    // never rewritten by somebody else's pass.
+    // `source_sha` is the field preserve.mjs writes, and it is the same one the
+    // `preserved_sha` column below reads - which spent a long time reading a
+    // `preserved_sha` that has never existed in that document. Spelled once
+    // here, and the fixture in tests/report.test.mjs is the shape preserve.mjs
+    // actually writes rather than one the test invented.
+    const blocksLate = assignment?.late_policy === "block";
+    const preservedOnTimeSha =
+      blocksLate && preservation?.verified === true
+        ? (preservation.source_sha ?? lockdownByLogin.get(key)?.snapshot_sha ?? null)
+        : null;
+
+    // The other direction, and it matters just as much: a repository whose
+    // every commit is after the deadline reconstructs to `snapshot_sha: null`,
+    // which is lockdown saying there is no submission and preservation
+    // archiving nothing. Reading that as `late` off the observations would
+    // report work that does not count as though it did, under the very policy
+    // whose meaning is that it does not.
+    const lockdownRowForStatus = lockdownByLogin.get(key);
+    const reconstructedNothing =
+      lockdownRowForStatus?.reconstructed === true && !lockdownRowForStatus.snapshot_sha;
+
     let submissionStatus = "unknown";
     if (!acceptance || isUnstarted) {
+      submissionStatus = "no-submission";
+      noSubCount++;
+    } else if (preservedOnTimeSha) {
+      submissionStatus = "on-time";
+      onTimeCount++;
+    } else if (reconstructedNothing) {
       submissionStatus = "no-submission";
       noSubCount++;
     } else if (lastOnTimeSha) {
@@ -431,14 +539,7 @@ async function main() {
 
     // Find lockdown info from observations
     const lockdownObs = observations.find((o) => o.collection_type === "lockdown");
-    const lockdownRow = lockdownByLogin.get(key);
-
-    // Find preservation info. The directory is whatever spelling preserve.mjs
-    // wrote, not the normalised key - there is nothing to read otherwise.
-    const preservationPath = join(obsDir, obsDirNameByLogin.get(key) ?? login, "preservation.json");
-    const preservation = existsSync(preservationPath)
-      ? await readJsonSafe(preservationPath)
-      : null;
+    const lockdownRow = lockdownRowForStatus;
 
     const warnings = [];
     if (repo && !repo.repo_id) warnings.push("missing-repo-id");
