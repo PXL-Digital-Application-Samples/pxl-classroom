@@ -159,6 +159,16 @@ The modal now opens on the template branch for that reason, so nobody meets the 
 
 So the path works where it had never been run. What the entry still says is unchanged: no assignment a real cohort uses has an `autograde` block, and a drill on an organization with nothing at stake is not that.
 
+**`io` and `python` were drilled on 2026-09-09, and the drill found the thing this entry predicts.** `classroom-resources/autograding-python-grader@v1` is a Docker action whose own Dockerfile fails (`apt-get install jq`, exit 100), and GitHub builds every Docker action in a job *before* running any step — so it did not merely fail its own check, it took the whole grading job down and skipped the `io` check with it. Nobody scored anything. The same assignment with the python step removed scored 6/6, which is how the failure was isolated to that one action. Fixed by generating `autograding-command-grader` instead: we were already driving the python grader as a plain command runner with an empty `setup-command`, so it contributed a container that will not build and nothing else.
+
+**One trap is left, unfixed and worth knowing before a lecturer meets it.** All three runners put the script *outside* the repository — Actions at `.pxl-autograde/<id>.py`, `runner-host` at `<scratch>/t.py`, `runner-docker` mounted at `/t.py` — and Python puts the SCRIPT's directory on `sys.path`, not the working directory. So the obvious thing a lecturer writes, `import solution`, fails in every runner with `ModuleNotFoundError` for a reason that has nothing to do with the student's work. It is at least consistent across all three, so a check behaves the same on the CLI and on Actions; the fix would be putting the repository on `PYTHONPATH` in all three, which is a change to each runner and is not made here.
+
+```bash
+grep -rn "PYTHONPATH" provisioning/provision.mjs cli/src/lib/runner-host.mjs cli/src/lib/runner-docker.mjs
+```
+
+printing nothing is that trap still open.
+
 **It was exercised end to end on 2026-09-08, and it was broken in four places.** A drill assignment on `pxl-classroom-testbed` — three checks, ten points, a template with a deliberate bug — provisioned, graded and read back. What it found, in the order it was hit ([LESSONS.md](LESSONS.md), *"The unexercised path was broken in four places"*):
 
 1. **The workflow injection races template population**, because `POST /generate` returns before the repository has content and `provision.mjs` writes immediately after it. Two students provisioned two minutes apart got two *different* broken repositories — one with the starter code and no workflow, one with the workflow and no starter code — and both runs logged `[ok] inject-autograding` and exited `created`. **Still open**; a retry against the populated repository repairs it.
