@@ -393,6 +393,28 @@ jobs:
           # shape today. mkdir -p is a no-op when the directory is there.
           mkdir -p control/observations control/lockdowns control/reports
           git -C control add observations/ lockdowns/ reports/
+          # THIS LEG DOES NOT PUBLISH THE DASHBOARD, and that is the whole fix
+          # for a failure measured on a live drill (2026-09-08).
+          #
+          # Everything else finalize writes is per assignment - its own
+          # observations, its own lockdown record, reports/<id>.json - so two
+          # legs never touch one file. `reports/dashboard.json` is the single
+          # exception: report.mjs rewrites it on every run, this matrix is
+          # concurrent per ASSIGNMENT (max-parallel: 4), and two assignments in
+          # one organization reaching their deadline on the same night is
+          # ordinary. Both legs then commit the same file, the second push is
+          # rejected, and git-push-with-retry.sh rebases straight into a
+          # conflict - so a leg that had already applied the lock and pushed to
+          # the archive lost every record of having done so, and the assignment
+          # came back for another attempt with its attempts counter not even
+          # incremented.
+          #
+          # regenerate-dashboard.yml already owns this file: it is serialised
+          # per ORGANIZATION (`group: dashboard-<org>`), regenerates every
+          # published or closed assignment's entry, and trigger-dashboard
+          # dispatches it after this job on `always()`. Two writers of one
+          # document, one of which is redundant.
+          git -C control restore --staged reports/dashboard.json 2>/dev/null || true
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Finalize deadline for ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
