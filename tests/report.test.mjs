@@ -33,6 +33,7 @@ function runReport({
   teams = [],
   roster = [],
   lockdown = null,
+  unlocked = [],
   csv = false,
 }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-report-test-"));
@@ -100,6 +101,16 @@ function runReport({
       join(dir, "lockdowns", id, "lockdown-record.json"),
       JSON.stringify({ schema_version: 1, assignment_id: id, ...lockdown }),
     );
+  }
+
+  // lockdowns/<id>/unlocked/<login>.json - one file per student, because the
+  // lockdown record is rewritten whole by the next pass and skips a reopened
+  // student, so this is the only durable statement that it happened.
+  if (unlocked.length) {
+    mkdirSync(join(dir, "lockdowns", id, "unlocked"), { recursive: true });
+    for (const u of unlocked) {
+      writeFileSync(join(dir, "lockdowns", id, "unlocked", `${u.github_login}.json`), JSON.stringify(u));
+    }
   }
 
   if (teams.length) {
@@ -961,4 +972,73 @@ test("PRESERVATION.JSON IS NOT AN OBSERVATION", () => {
   assert.equal(erin.latest_observed_sha, ON_TIME_SHA, "the real observation must survive");
   assert.equal(erin.latest_observed_at, "2026-09-09T10:00:00Z");
   assert.equal(erin.submission_status, "on-time");
+});
+
+// ---------------------------------------------------------------------------
+// A REOPENED STUDENT.
+//
+// Nothing here read `lockdowns/<id>/unlocked/` at all, so a student a lecturer
+// had deliberately let back in still reported `locked` - the report saying the
+// opposite of what the lecturer did, on the document a grade dispute is read
+// from months later.
+// ---------------------------------------------------------------------------
+
+const REOPEN_YAML = BASE_YAML + "late_policy: block\n";
+
+const reopenRun = ({ unlocked = true } = {}) =>
+  runReport({
+    assignmentYaml: REOPEN_YAML,
+    acceptances: [{ github_login: "fran", status: "accepted" }],
+    observations: {
+      fran: [{ observed_at: "2026-09-11T00:30:00Z", sha: "f".repeat(40), commit_date: "2026-09-09T10:00:00Z" }],
+    },
+    lockdown: {
+      late_policy: "block",
+      lock_method: "org-ruleset",
+      results: [{
+        github_login: "fran", repo_name: "org/test-asgn-fran", repo_id: 11,
+        lock_method: "org-ruleset", snapshot_sha: "f".repeat(40), lockdown_at: "2026-09-11T00:31:00Z", verified: true,
+      }],
+    },
+    unlocked: unlocked
+      ? [{
+          schema_version: 1,
+          github_login: "fran",
+          repo_name: "org/test-asgn-fran",
+          unlocked_at: "2026-09-12T09:15:00Z",
+          reason: "Medical certificate",
+          lock_method: "org-ruleset",
+          snapshot_sha: "f".repeat(40),
+        }]
+      : [],
+  });
+
+test("A REOPENED STUDENT IS NOT REPORTED AS LOCKED", () => {
+  const fran = reopenRun().students.find((s) => s.github_login === "fran");
+  assert.equal(fran.lock_down_outcome, "reopened");
+  assert.equal(fran.reopened_at, "2026-09-12T09:15:00Z");
+  // And the lock itself is still on record - both facts are true of this
+  // student, and the pair is the answer a grade dispute wants.
+  assert.equal(fran.lock_down_at, "2026-09-11T00:31:00Z");
+});
+
+test("a student who was never reopened still reads as locked", () => {
+  const fran = reopenRun({ unlocked: false }).students.find((s) => s.github_login === "fran");
+  assert.equal(fran.lock_down_outcome, "locked");
+  assert.equal(fran.reopened_at, null);
+});
+
+test("reopened_at reaches the CSV, where a dispute is actually argued", () => {
+  const report = runReport({
+    assignmentYaml: REOPEN_YAML,
+    acceptances: [{ github_login: "fran", status: "accepted" }],
+    observations: { fran: [{ observed_at: "2026-09-11T00:30:00Z", sha: "f".repeat(40) }] },
+    unlocked: [{
+      schema_version: 1, github_login: "fran", repo_name: "org/test-asgn-fran",
+      unlocked_at: "2026-09-12T09:15:00Z", reason: "Appeal upheld", lock_method: "demotion",
+    }],
+    csv: true,
+  });
+  const row = csvRow(report.csvText, "fran");
+  assert.equal(row.reopened_at, "2026-09-12T09:15:00Z");
 });

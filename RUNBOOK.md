@@ -1075,6 +1075,8 @@ It appears only once the deadline has actually frozen something, and only for a 
 
 **A reopened repository stays open.** A finalize run is not once — the nightly re-runs one when preservation is still incomplete, and again when *any other* student's extension expires. It used to re-lock the whole cohort, so reopening one student's repository was undone by granting somebody else more time. It now skips a repository with a reopen record on it, says so in the run, and counts it (`reopened_count`). To close it again, re-run the freeze.
 
+**The record keeps a row for them**, carrying `reopened_at` and the snapshot that was frozen, with `lock_method: null` because nothing is holding the repository now. They used to be dropped from it entirely - counted in `reopened_count` and then written about nowhere - so the document a grade dispute is read from lost the fact that they had ever been locked. The report says `lock_down_outcome: reopened` and exports `reopened_at` beside `lock_down_at`, which is the pair that answers *could this student have pushed after the deadline, and from when*.
+
 **What it does not do:** it does not change the deadline, the report, or the grade. The preserved snapshot is immutable and stays exactly as it was, so anything the student pushes afterwards is *after* what you graded. If you mean to give them more time rather than access, grant a deadline extension instead (§6.13) — that changes what the report says; this does not.
 
 **On a group assignment there is one repository and one lock on it,** so reopening for one member reopens it for the team. The record notes the team slug.

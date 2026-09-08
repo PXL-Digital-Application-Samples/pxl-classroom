@@ -452,7 +452,7 @@
               "string",
               "null"
             ],
-            "description": "Outcome of the lock-down operation."
+            "description": "Outcome of the lock-down operation: `locked`, or `reopened` where lockdowns/<id>/unlocked/<login>.json says a lecturer let this student back in. Reopened OUTRANKS locked - both are true of a student who was frozen at the deadline and released afterwards, and reporting only the first contradicts the person who did it."
           },
           "preservation_status": {
             "type": [
@@ -496,6 +496,14 @@
             },
             "default": [],
             "description": "Human-readable warnings about this student's submission."
+          },
+          "reopened_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When a lecturer reopened this repository, from lockdowns/<id>/unlocked/<login>.json. Null when they never did. That file is the ONLY durable record of it: the lockdown record is rewritten whole by the next finalize pass and skips a reopened student, so their row disappears from it."
           }
         }
       }

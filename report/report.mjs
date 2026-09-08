@@ -197,6 +197,19 @@ async function main() {
   );
   const lockdownByLogin = indexByLogin(lockdownRecord?.results || []);
 
+  // WHO WAS LET BACK IN. Nothing here read `lockdowns/<id>/unlocked/` at all, so
+  // a student a lecturer had deliberately reopened still reported `locked` -
+  // the report saying the opposite of what the lecturer did, on the document a
+  // grade dispute is read from months later.
+  //
+  // One file per student, because the lockdown record is rewritten whole by the
+  // next finalize pass and a reopened student is skipped by it: their row is
+  // gone from the record while this file survives. That makes it the ONLY
+  // durable statement that the reopen happened.
+  const unlockedByLogin = indexByLogin(
+    await readDirJsonFiles(join(dataDir, "lockdowns", assignmentId, "unlocked")),
+  );
+
   // Load teams (for group assignments)
   const teams = await readDirJsonFiles(
     join(dataDir, "teams", assignmentId)
@@ -540,6 +553,7 @@ async function main() {
     // Find lockdown info from observations
     const lockdownObs = observations.find((o) => o.collection_type === "lockdown");
     const lockdownRow = lockdownRowForStatus;
+    const unlocked = unlockedByLogin.get(key) ?? null;
 
     const warnings = [];
     if (repo && !repo.repo_id) warnings.push("missing-repo-id");
@@ -606,7 +620,15 @@ async function main() {
       // timestamp is only when the nightly looked, and falls back to it for a
       // control repo whose record predates this field.
       lock_down_at: lockdownRow?.lockdown_at ?? lockdownObs?.observed_at ?? null,
-      lock_down_outcome: lockdownObs || lockdownRow ? "locked" : null,
+      // REOPENED OUTRANKS LOCKED, because it happened afterwards and because a
+      // lecturer did it on purpose. Both facts can be true of one student - they
+      // were locked at the deadline and let back in on Tuesday - and reporting
+      // only the first is the report contradicting the person reading it.
+      lock_down_outcome: unlocked ? "reopened" : lockdownObs || lockdownRow ? "locked" : null,
+      // Exported, unlike `lock_down_outcome` beside it: this is the question a
+      // grade dispute actually asks - could this student have pushed after the
+      // deadline, and from when - and a spreadsheet is where it gets asked.
+      reopened_at: unlocked?.unlocked_at ?? null,
       // How long after their own deadline this student could still push. NOT
       // `uncertainty_interval_seconds` below, which is the opposite side of the
       // deadline - the gap between the last observation and the deadline, i.e.

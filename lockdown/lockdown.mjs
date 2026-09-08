@@ -975,6 +975,39 @@ async function main() {
   const rows = [];
   const lockdownResults = [];
 
+  // A REOPENED STUDENT KEEPS A ROW, the way a deferred one always has.
+  //
+  // They used to be dropped entirely: the run counted them in `reopened_count`
+  // and then wrote nothing about them, so the record - the document a grade
+  // dispute is read from - lost the fact that they had ever been locked, what
+  // their snapshot was, and when. The only surviving statement was
+  // `unlocked/<login>.json`, which no reader of this file joins.
+  //
+  // `lock_method: null`, because nothing is holding this repository now. That
+  // is what stops `unlockability` offering to reopen an open repository, and
+  // `reopened_at` beside it is what lets it say so rather than "the record does
+  // not say how this was locked".
+  for (const r of reopenedTargets) {
+    for (const m of r.teamMembers ?? [r.login]) {
+      lockdownResults.push({
+        github_login: m,
+        team_slug: r.rec?.team_slug || undefined,
+        repo_name: `${cfg.org}/${r.repoName}`,
+        repo_id: r.rec?.repo_id ?? null,
+        // Carried from the reopen record so the report's preservation join and
+        // any later reader still know what was frozen for this student.
+        snapshot_sha: r.record?.snapshot_sha ?? null,
+        snapshot_ref: submissionRef,
+        lockdown_at: null,
+        lock_method: null,
+        reopened_at: r.record?.unlocked_at ?? null,
+        permission_after: null,
+        verified: false,
+        uncertainty_seconds: null,
+      });
+    }
+  }
+
   for (const d of deferrals) {
     const deferredUntil = d.effective.deadline.toISOString();
     rows.push(`| ${d.displayKey} | - | - | deferred to ${deferredUntil} |`);

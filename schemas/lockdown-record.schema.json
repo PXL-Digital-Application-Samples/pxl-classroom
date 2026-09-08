@@ -12,39 +12,80 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "integer", "const": 1 },
-    "assignment_id": { "type": "string", "minLength": 1 },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "deadline_at": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "The ASSIGNMENT's deadline. A student with an extension is deferred instead, and carries their own instant in `deferred_until` on their row."
     },
-    "executed_at": { "type": "string", "format": "date-time" },
+    "executed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "finalize_attempts": {
       "type": "integer",
       "minimum": 1,
       "description": "First finalize is 1. find-finalizable.mjs stops re-queueing past MAX_FINALIZE_ATTEMPTS so a repository that can never be preserved cannot burn a matrix leg every night."
     },
-    "first_finalized_at": { "type": "string", "format": "date-time" },
+    "first_finalized_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "observer_run": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "The Actions run that wrote this. A debugging aid with a 90-day life on a public repository (ARCHITECTURE §17) - the evidence is this file, not the run."
     },
     "locked_at": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "When phase 1 fired. Credited to a sentinel's instant where one already stopped the cohort, so uncertainty_seconds stays honest."
     },
     "lock_method": {
       "type": "string",
-      "enum": ["org-ruleset", "ruleset", "demotion", "none"],
+      "enum": [
+        "org-ruleset",
+        "ruleset",
+        "demotion",
+        "none"
+      ],
       "description": "What the run set out to do for the cohort. A row may differ from it: a ruleset that could not be applied degrades to a demotion for that repository alone, so the ROW's lock_method is what an unlock reads. NOT required: PXL-Systems-Expert's two 2026 records predate the field, and refusing them would make this schema a claim about documents it cannot fix."
     },
     "org_ruleset_id": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "description": "The organization ruleset covering this cohort, when lock_method is `org-ruleset`. A convenience for reading; never the lookup key. The sentinel's STOP_ONLY path writes no record at all, so at the moment it fires there is no stored id - findOrgSubmissionLock resolves by NAME, and this field only saves a call afterwards."
     },
-    "late_policy": { "type": "string", "enum": ["report", "block"] },
-    "locked_count": { "type": "integer", "minimum": 0 },
-    "error_count": { "type": "integer", "minimum": 0 },
+    "late_policy": {
+      "type": "string",
+      "enum": [
+        "report",
+        "block"
+      ]
+    },
+    "locked_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
     "no_submission_count": {
       "type": "integer",
       "minimum": 0,
@@ -65,64 +106,155 @@
       "minimum": 0,
       "description": "Accounts that own the organization and keep admin whatever the run does. Not an error: nothing can freeze them under a demotion, and a ruleset stops them anyway."
     },
-    "max_uncertainty_seconds": { "type": ["number", "null"] },
+    "max_uncertainty_seconds": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
     "results": {
       "type": "array",
       "description": "One row per LOGIN, not per repository - a group assignment's five members share one repository and produce five rows naming it.",
       "items": {
         "type": "object",
-        "required": ["github_login"],
+        "required": [
+          "github_login"
+        ],
         "additionalProperties": false,
         "properties": {
-          "github_login": { "type": "string", "minLength": 1 },
-          "team_slug": { "type": ["string", "null"] },
+          "github_login": {
+            "type": "string",
+            "minLength": 1
+          },
+          "team_slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "repo_name": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "`owner/name`, because a record nothing regenerates has to be readable with no other document beside it."
           },
           "repo_id": {
-            "type": ["integer", "null"],
+            "type": [
+              "integer",
+              "null"
+            ],
             "description": "The immutable id (§13). What an organization ruleset targets, and what survives a rename."
           },
           "snapshot_sha": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "The submission. Frozen on retry: a later attempt reuses this rather than re-reading HEAD, or a late push would replace the on-time submission. Null with a `deferred_until` means deferred, and null WITHOUT one is a lockdown failure - preserve tells them apart on exactly that."
           },
-          "snapshot_ref": { "type": ["string", "null"] },
+          "snapshot_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "pushed_at": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "GitHub's own server-side timestamp for the last push. Unlike a commit date, a student cannot set it - the one field here they cannot influence."
           },
-          "lockdown_at": { "type": ["string", "null"] },
+          "lockdown_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lock_method": {
-            "type": ["string", "null"],
-            "enum": ["org-ruleset", "ruleset", "demotion", "none", null],
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "org-ruleset",
+              "ruleset",
+              "demotion",
+              "none",
+              null
+            ],
             "description": "What actually stopped THIS repository, which is not always what the run set out to do. lib/repo-unlock.mjs reads it to pick the inverse: undoing a demotion with a ruleset flip reports success over a student who still cannot push."
           },
           "reconstructed": {
-            "type": ["boolean", "null"],
+            "type": [
+              "boolean",
+              "null"
+            ],
             "description": "The submission was rebuilt with `?until=` rather than read off HEAD, because a push landed after the deadline. Committer-date based, and that date is client-supplied."
           },
-          "no_submission": { "type": ["boolean", "null"] },
-          "demoted": { "type": ["boolean", "null"] },
+          "no_submission": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "demoted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "permission_after": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Read back after the demotion, never assumed. `admin` here beside verified:false is an organization owner, who cannot be demoted at all."
           },
           "verified": {
-            "type": ["boolean", "null"],
+            "type": [
+              "boolean",
+              "null"
+            ],
             "description": "Whether the lock was confirmed, not whether the call returned 2xx."
           },
           "unfreezable_reason": {
-            "type": ["string", "null"],
-            "enum": ["org-owner", null],
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "org-owner",
+              null
+            ],
             "description": "Why this one was not frozen. Recorded rather than inferred from permission_after, because `admin` is also what a transient failure leaves behind and a grade dispute should not turn on somebody re-deriving the difference months later."
           },
-          "deferred_until": { "type": ["string", "null"] },
-          "deferred_reason": { "type": ["string", "null"] },
+          "deferred_until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deferred_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "uncertainty_seconds": {
-            "type": ["number", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "description": "How long after THIS student's deadline they could still push - not after the assignment's."
+          },
+          "reopened_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When a lecturer reopened this repository, copied from lockdowns/<id>/unlocked/<login>.json at the pass that skipped it. A reopened student used to be DROPPED from this record entirely - the run counted them in reopened_count and then wrote nothing about them, so the document a grade dispute reads lost the fact that they were ever locked. A deferred student has always kept a row saying why; this is the same answer for the other reason a repository is not locked. lock_method is null on such a row, because nothing is holding it now."
           }
         }
       }
