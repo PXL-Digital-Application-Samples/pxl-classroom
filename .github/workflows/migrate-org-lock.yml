@@ -1,0 +1,97 @@
+name: Migrate to organization-scoped lock
+
+# One-shot, per organization, dispatched by a person.
+#
+# Moves a cohort's deadline lock from one repository ruleset per student to a
+# single organization ruleset (ARCHITECTURE §11.2.1). The order inside
+# scripts/migrate-org-lock.mjs is the safety property - create and VERIFY the
+# organization ruleset before disabling any repository one - so this workflow
+# only supplies the credential and the checkout.
+#
+# It runs from the hub with the App's installation token, which holds admin on
+# every participating organization, so whoever dispatches it does not need to be
+# an owner of the organization being migrated.
+#
+# `dry_run` defaults to TRUE. Run it that way first, read what it says it would
+# cover, and only then run it for real.
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: Organization to migrate (blank = every participating org)
+        required: false
+        type: string
+      assignment_id:
+        description: One assignment (blank = every assignment with a lockdown record)
+        required: false
+        type: string
+      dry_run:
+        description: Report what would change and write nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  find-orgs:
+    uses: ./.github/workflows/_find-orgs.reusable.yml
+    with:
+      org: ${{ inputs.org }}
+
+  migrate:
+    environment: provisioning
+    needs: find-orgs
+    if: needs.find-orgs.outputs.orgs != '[]'
+    strategy:
+      matrix:
+        org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
+      # One at a time. This changes what stops a graded cohort from being
+      # written to, and a migration that half-ran across four organizations at
+      # once is harder to read than one that stopped at the first failure.
+      max-parallel: 1
+      fail-fast: false
+    concurrency:
+      # Shares the deadline's own group per organization: a migration must not
+      # run while a finalize is applying locks to the same repositories.
+      group: lockdown-${{ matrix.org }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # A person dispatches this. An App installation token - what a stolen
+      # broker credential would be - arrives as `<slug>[bot]`. First, before
+      # anything mints a token. Nothing in this repository dispatches this
+      # workflow, so there is no legitimate machine caller to exclude.
+      - name: Reject automated dispatch
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        run: |
+          echo "::error::This workflow is dispatched by a person, not a credential."
+          exit 1
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - run: npm ci --omit=dev
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: token
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.org }}
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ matrix.org }}/pxl-classroom-control
+          token: ${{ steps.token.outputs.token }}
+          path: control
+
+      # Nothing is composed into this script's text: every value arrives through
+      # `env:`, where it is data.
+      - name: Migrate
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ matrix.org }}
+          DATA_DIR: control
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: node scripts/migrate-org-lock.mjs
