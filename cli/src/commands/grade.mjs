@@ -24,6 +24,12 @@ import { resolveOrg } from "../lib/org.mjs";
 import { CONTROL_REPO, getAssignment, getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
+// The shape of grading/<id>/summary.json, shared with the Admin Panel.
+import {
+  gradedRowFromCheckRun,
+  gradedRowFromLocalRun,
+  buildGradingSummary,
+} from "../../../lib/grading-summary.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { readSubmissionMarker, submissionBranch, findMarkedCommit } from "../../../lib/submission-marker.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
@@ -265,6 +271,10 @@ export function registerGradeCommand(program) {
       };
       await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
         let result;
+        // The check run this grade was read from, on the Actions path only.
+        // Null on the local runners, where there is no check run to describe
+        // and the summary row is legitimately sparser.
+        let ciRow = null;
         if (s.team_slug && teamResultsCache.has(s.team_slug)) {
           const cached = teamResultsCache.get(s.team_slug);
           result = {
@@ -324,6 +334,11 @@ export function registerGradeCommand(program) {
             const total = parsedScore.total > 0 ? parsedScore.total : totalFallback;
             const passed = parsedScore.passed;
             const summaryOutput = parsedScore.summaryText || "";
+            // Carried to the summary row below. The Admin Panel has always
+            // recorded the check run's conclusion, its URL and where the number
+            // came from; this path recorded none of them, so the same file had
+            // two shapes depending on which surface wrote it.
+            ciRow = { parsed: parsedScore, run: outcome.run };
 
             result = {
               schema_version: 1,
@@ -423,12 +438,24 @@ export function registerGradeCommand(program) {
               }],
             });
           }
-          summary.graded.push({
-            login: s.github_login,
-            earned_points: result.earned_points,
-            total_points: result.total_points,
-            graded_at: result.graded_at,
-          });
+          // One builder, shared with the Admin Panel (lib/grading-summary.mjs).
+          // This used to be a fourth hand-written row shape for the same file.
+          summary.graded.push(
+            ciRow
+              ? gradedRowFromCheckRun({
+                  login: s.github_login,
+                  parsed: ciRow.parsed,
+                  run: ciRow.run,
+                  fallbackTotal: totalFallback,
+                  gradedAt: result.graded_at,
+                })
+              : gradedRowFromLocalRun({
+                  login: s.github_login,
+                  earnedPoints: result.earned_points,
+                  totalPoints: result.total_points,
+                  gradedAt: result.graded_at,
+                }),
+          );
         } catch (err) {
           process.stderr.write(`  ! ${s.github_login}: ${err.message}\n`);
           summary.failed.push({ login: s.github_login, reason: err.message });
@@ -436,15 +463,13 @@ export function registerGradeCommand(program) {
       });
 
       if (!opts.dryRun) {
-        const summaryDoc = {
-          schema_version: 1,
-          assignment_id: opts.assignment,
-          generated_at: new Date().toISOString(),
-          graded_by: gradedBy,
+        const summaryDoc = buildGradingSummary({
+          assignmentId: opts.assignment,
+          gradedBy,
           runner: runnerName,
           students: summary.graded,
           failed: summary.failed,
-        };
+        });
         // Validated before it is committed, on BOTH sides. The Admin Panel has
         // checked this document since the schema existed and this side never
         // did - so the schema's own description ("TWO surfaces write this file

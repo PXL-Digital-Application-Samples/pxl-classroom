@@ -31,6 +31,20 @@
                    as the `?? 150` acceptance cap. -->
               {{ item.earned_points != null ? `${item.earned_points} / ${item.total_points} pts` : (item.ci_status || 'No score read yet') }}
             </div>
+            <!-- WHERE THE NUMBER CAME FROM, said rather than left to be
+                 guessed. A grade read out of the check run's annotations was
+                 measured by the grader; one derived from the run's conclusion
+                 was not, and all that is known there is whether the run went
+                 green. A grading job that dies at setup - before it reaches the
+                 student's code - produces exactly the second kind, and looks
+                 identical to a measured zero. Absent means a summary written
+                 before the field was carried through, so nothing is claimed. -->
+            <div
+              v-if="item.score_source && !scoreWasReported(item.score_source)"
+              class="score-banner-source text-xs"
+            >
+              {{ SCORE_SOURCE_LABELS[item.score_source] }}
+            </div>
           </div>
           <div>
             <span
@@ -105,10 +119,11 @@
 // "Results".
 import { computed } from 'vue'
 import Icon from './Icon.vue'
+import { SCORE_SOURCE_LABELS, scoreWasReported } from '../lib/status-labels.js'
 
 const props = defineProps({
   /** A report student row or a team row: both carry ci_status, earned_points,
-   *  total_points, tests[], ci_run_url and repo_url. */
+   *  total_points, score_source, tests[], ci_run_url and repo_url. */
   item: { type: Object, required: true },
   /** What the dialog is about, for the accessible label and the default title. */
   subjectLabel: { type: String, default: '' },
@@ -162,6 +177,15 @@ const subject = computed(
 .score-banner-status {
   font-size: 0.85rem;
   padding: 4px 10px;
+}
+
+/* Where the number came from, under the number. Secondary rather than a
+   warning colour: a conclusion-sourced grade is not necessarily wrong - a
+   template workflow with no reporter is legitimately pass/fail - it is just a
+   different kind of fact, and the lecturer needs to be able to tell. */
+.score-banner-source {
+  color: var(--text-secondary);
+  margin-top: 2px;
 }
 
 .test-item-card {

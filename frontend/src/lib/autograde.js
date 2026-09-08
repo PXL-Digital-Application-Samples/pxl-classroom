@@ -37,7 +37,18 @@ export const CHECK_PRESETS = [
   {
     key: 'python',
     label: 'A Python script',
-    hint: 'Runs the script; a failed assert fails the check.',
+    // MEASURED 2026-09-08, on the testbed: `autograding-python-grader@v1` cannot
+    // build its Docker image - `apt-get install jq` exits 100 - and GitHub
+    // builds every Docker action in a job BEFORE any step runs, so one broken
+    // grader fails the whole grading job at setup. Every other check in the
+    // assignment is skipped, no score is reported, and the run reads as the
+    // student scoring zero. It is upstream, not ours, and nothing here can
+    // work around it.
+    //
+    // The preset stays, because the same check runs correctly on the local
+    // runners (`--runner docker|host` write the script and run python3 over it)
+    // - and this hint is where a lecturer finds that out before a cohort does.
+    hint: 'Runs the script; a failed assert fails the check. On your machine only - the GitHub Actions Python grader is broken upstream and fails the whole run.',
     baseId: 'script',
     make: () => ({
       type: 'python',

@@ -359,7 +359,12 @@ const PLACES = [
     value: 'github_actions',
     title: "In each student's repo",
     what: 'GitHub Actions runs them on every push.',
-    cost: "Uses the organization's Actions minutes.",
+    // A number, not "uses minutes". It runs on EVERY push, so the bill is
+    // students x pushes, not students - and a free organization has 2,000
+    // minutes a month, which 40 students pushing 25 times each would spend.
+    // The panel that shows what an org has left is one click away on the
+    // dashboard; what belongs here is the shape of the cost.
+    cost: "Every push, every student. 40 students x 25 pushes ≈ 1,000 runs.",
     students: 'A pass/fail on every push.',
     // Not "unless hidden": hiding them was `visibility: private`, which
     // generated a workflow calling a file nothing creates. Checks that run on

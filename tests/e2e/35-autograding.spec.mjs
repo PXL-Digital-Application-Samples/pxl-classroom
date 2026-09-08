@@ -163,7 +163,10 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
     await expect(cards).toHaveCount(2);
     await expect(cards.first()).toContainText('No Actions minutes');
     await expect(cards.first()).toContainText('Never in the student repo');
-    await expect(cards.last()).toContainText("organization's Actions minutes");
+    // The cost is a SHAPE, not the phrase "uses minutes": it runs on every
+    // push, so the bill is students x pushes, and a free organization has 2,000
+    // minutes a month to spend on it.
+    await expect(cards.last()).toContainText('Every push, every student');
     await expect(cards.last()).toContainText('pass/fail on every push');
   });
 

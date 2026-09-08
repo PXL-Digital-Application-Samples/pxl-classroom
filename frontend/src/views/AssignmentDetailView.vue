@@ -735,10 +735,15 @@
                     class="badge badge-clickable"
                     :class="s.earned_points >= s.total_points && s.total_points > 0 ? 'badge-success' : (s.earned_points > 0 ? 'badge-warning' : 'badge-error')"
                     @click="openAutogradeModal(s)"
-                    title="Click to view the score and open the CI run"
+                    :title="scoreTitle(s)"
                     style="font-size: 0.75rem;"
                   >
-                    {{ s.earned_points }}/{{ s.total_points }} pts
+                    {{ s.earned_points }}/{{ s.total_points }} pts<!--
+                    --><span
+                      v-if="s.score_source && !scoreWasReported(s.score_source)"
+                      class="score-inferred"
+                      aria-hidden="true"
+                    >*</span>
                   </button>
                   <span v-else class="text-muted text-xs">-</span>
                 </td>
@@ -1155,6 +1160,8 @@ import {
   rejectionCount,
 } from '../../../lib/rejection-notice.mjs'
 import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../../../lib/report-csv.mjs'
+// The shape of grading/<id>/summary.json, shared with `pxl-classroom grade`.
+import { gradedRowFromCheckRun, buildGradingSummary } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
@@ -1173,7 +1180,7 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
-import { acceptanceLabel, assignmentStateLabel, submissionLabel } from '../lib/status-labels.js'
+import { acceptanceLabel, assignmentStateLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
@@ -1594,6 +1601,25 @@ const showAutogradeModal = ref(false)
 function openAutogradeModal(item) {
   activeAutogradeItem.value = item
   showAutogradeModal.value = true
+}
+
+/**
+ * What the Score badge says on hover, and it says where the number came from.
+ *
+ * A grade read out of a check run's ANNOTATIONS was measured by the grader. One
+ * derived from the run's conclusion was not: nothing reported a score, and all
+ * that is known is whether the run went green. That is a legitimate answer for
+ * a template workflow with no reporter in it, and it is also what a grading job
+ * that died at setup produces - so the number is shown either way and the
+ * difference is said rather than left for the lecturer to guess.
+ *
+ * Absent `score_source` means a summary written before the field was joined
+ * through; saying nothing is right there, because nothing was established.
+ */
+function scoreTitle(s) {
+  const base = 'Click to view the score and open the CI run'
+  const label = SCORE_SOURCE_LABELS[s?.score_source]
+  return label ? `${label}. ${base}` : base
 }
 
 function closeAutogradeModal() {
@@ -3108,6 +3134,12 @@ const DISPLAY_ONLY_ROW_FIELDS = [
   'total_points',
   'ci_status',
   'ci_run_url',
+  // Where the number came from. Joined for the Score badge and the results
+  // modal, and stripped like the rest: it is a grading-summary field and
+  // report.schema.json does not declare it. The guard in
+  // tests/report-storage-shape.test.mjs caught it the moment the join learned
+  // to assign it, which is what that test is for.
+  'score_source',
   'graded_at',
 ]
 
@@ -3158,6 +3190,11 @@ function mergeGradesIntoReport() {
     s.total_points = g?.total_points ?? null
     s.ci_status = g?.ci_status ?? null
     s.ci_run_url = g?.ci_run_url ?? null
+    // Where the number came from. Carried because "0 out of 10" and "the run
+    // died before it reached your code" are different facts that look
+    // identical, and the summary has recorded which since the schema existed -
+    // the join simply dropped it, so nothing could ever show it.
+    s.score_source = g?.score_source ?? null
     s.graded_at = g?.graded_at ?? null
   }
 
@@ -3351,17 +3388,16 @@ async function syncGradesFromGitHub() {
 
         const { run, parsed } = outcome
 
-        summary.graded.push({
+        // Built by lib/grading-summary.mjs, not here: `pxl-classroom grade`
+        // writes the same file and wrote a different row - no ci_status, no
+        // ci_run_url, no score_source - because both spelled the shape out by
+        // hand. One builder, two callers.
+        summary.graded.push(gradedRowFromCheckRun({
           login: s.github_login,
-          earned_points: parsed.earned,
-          total_points: parsed.total > 0 ? parsed.total : totalFallback,
-          // Recorded because the student table renders it, and because
-          // "0 out of 20" and "the run never finished" are different facts.
-          ci_status: run?.conclusion || run?.status || 'completed',
-          ci_run_url: run?.html_url || run?.details_url || null,
-          score_source: parsed.source,
-          graded_at: new Date().toISOString()
-        })
+          parsed,
+          run,
+          fallbackTotal: totalFallback,
+        }))
       } catch (err) {
         apiFailedCount++
         console.error(`Sync failed for ${s.github_login}:`, err)
@@ -3396,15 +3432,13 @@ async function syncGradesFromGitHub() {
       return
     }
     
-    const summaryDoc = {
-      schema_version: 1,
-      assignment_id: props.assignmentId,
-      generated_at: new Date().toISOString(),
-      graded_by: user.value?.login,
-      runner: "github_actions",
+    const summaryDoc = buildGradingSummary({
+      assignmentId: props.assignmentId,
+      gradedBy: user.value?.login,
+      runner: 'github_actions',
       students: summary.graded,
       failed: summary.failed,
-    }
+    })
     
     // Validated before it is committed, not after somebody notices. Two
     // surfaces write this file and neither checked it until the schema existed.
@@ -3831,6 +3865,17 @@ async function retryAcceptanceFor(student) {
 /* padding-top/bottom, NOT the shorthand - see DashboardView: the shorthand
    out-specifies .container and removes its horizontal padding. */
 main { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
+
+/* The Score badge's marker for a grade nobody reported - the number came from
+   whether the run went green, not from a score the grader emitted. It is a
+   glyph rather than a colour because the badge's colour already means something
+   (pass / partial / fail), and the sentence is on the badge's title and in the
+   results modal. `aria-hidden`, because a bare asterisk read aloud says
+   nothing; the title carries it for a screen reader. */
+.score-inferred {
+  margin-left: 2px;
+  opacity: 0.8;
+}
 
 
 .daily-watch {

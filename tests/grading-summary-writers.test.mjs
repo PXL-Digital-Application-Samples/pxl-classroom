@@ -17,6 +17,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateAgainst } from "../lib/validate.mjs";
 import { parseCheckRunScore } from "../lib/check-run-score.mjs";
+import { gradedRowFromCheckRun, gradedRowFromLocalRun } from "../lib/grading-summary.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -56,6 +57,57 @@ test("both writers commit only after the schema accepts the document", () => {
     at(cli, "validateAgainst(\"grading-summary\"") < at(cli, "grading/${opts.assignment}/summary.json"),
     "pxl-classroom grade validates before it commits, not after",
   );
+});
+
+test("both writers build the row with the same function, not two literals", () => {
+  // They wrote the same file from four hand-written shapes - two envelopes and
+  // two rows - and the rows were not the same rows: the Admin Panel recorded
+  // ci_status, ci_run_url and score_source and `pxl-classroom grade` recorded
+  // none of the three, on the identical Actions path. Same assignment, two
+  // shapes, depending on which button a lecturer pressed.
+  for (const [name, src] of [
+    ["the Admin Panel", read("frontend/src/views/AssignmentDetailView.vue")],
+    ["pxl-classroom grade", read("cli/src/commands/grade.mjs")],
+  ]) {
+    assert.match(src, /gradedRowFromCheckRun\(/, `${name} must build its Actions row with the shared builder`);
+    assert.match(src, /buildGradingSummary\(/, `${name} must build the envelope with the shared builder`);
+    assert.match(src, /lib\/grading-summary\.mjs/, `${name} must import it rather than restate it`);
+  }
+});
+
+test("the shared row carries everything a check run can tell us", () => {
+  const row = gradedRowFromCheckRun({
+    login: "ada",
+    parsed: { earned: 5, total: 10, source: "annotation-json" },
+    run: { conclusion: "failure", html_url: "https://github.com/o/r/actions/runs/1" },
+    fallbackTotal: 20,
+  });
+  assert.equal(row.login, "ada");
+  assert.equal(row.earned_points, 5);
+  assert.equal(row.total_points, 10, "the parsed total wins over the fallback");
+  assert.equal(row.ci_status, "failure");
+  assert.equal(row.ci_run_url, "https://github.com/o/r/actions/runs/1");
+  assert.equal(row.score_source, "annotation-json");
+  assert.ok(row.graded_at, "and when it was read");
+  assert.ok(validateAgainst("grading-summary", envelope([row])).valid);
+
+  // No denominator in the parse: the assignment's own total beats zero.
+  const noTotal = gradedRowFromCheckRun({
+    login: "bo",
+    parsed: { earned: 0, total: 0, source: "conclusion" },
+    run: { conclusion: "failure" },
+    fallbackTotal: 20,
+  });
+  assert.equal(noTotal.total_points, 20);
+  assert.equal(noTotal.ci_run_url, null, "absent rather than an invented URL");
+});
+
+test("a local-runner row is sparser on purpose, and says nothing it cannot know", () => {
+  const row = gradedRowFromLocalRun({ login: "ada", earnedPoints: 7, totalPoints: 10 });
+  assert.deepEqual(Object.keys(row).sort(), ["earned_points", "graded_at", "login", "total_points"]);
+  assert.ok(!("ci_status" in row), "there is no check run to describe");
+  assert.ok(!("score_source" in row), "and nothing to say about where a check run's number came from");
+  assert.ok(validateAgainst("grading-summary", envelope([row])).valid);
 });
 
 test("a row carrying only what the local runners know is accepted", () => {

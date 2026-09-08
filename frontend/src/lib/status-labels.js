@@ -45,6 +45,39 @@ export const ACCEPTANCE_LABELS = Object.freeze({
 });
 
 /**
+ * `score_source`, enumerated in schemas/grading-summary.schema.json: where a
+ * grade's number actually came from.
+ *
+ * IT WAS WRITTEN AND NEVER READ. The schema's own description says why it
+ * exists - "`conclusion` means no reporter annotation was found and the grade
+ * is all-or-nothing, which is not the same kind of fact as a parsed score" -
+ * the Admin Panel dutifully stored it, and no surface showed it. So a lecturer
+ * saw `0/10` and could not tell a zero somebody measured from a grading job
+ * that died before it reached the student's code.
+ *
+ * Both are real. Measured on pxl-classroom-testbed 2026-09-08: a Docker-based
+ * grader that cannot build its image fails the whole job at BUILD time, before
+ * `Checkout code`, and the check run concludes `failure` with no score
+ * annotation - which parses as 0 out of the assignment's total, identical in
+ * every visible respect to the student who genuinely scored nothing.
+ *
+ * `conclusion` is not always wrong, which is why the number is still shown: a
+ * template workflow with no reporter in it is legitimately pass/fail, and green
+ * there really is full marks. What a lecturer needs is to know which they are
+ * looking at.
+ */
+export const SCORE_SOURCE_LABELS = Object.freeze({
+  "annotation-json": "Reported by the grader",
+  points: "Reported by the grader",
+  conclusion: "From the run's outcome - no score was reported",
+});
+
+/** Whether a grade was measured, or inferred from whether the run went green. */
+export function scoreWasReported(source) {
+  return source === "annotation-json" || source === "points";
+}
+
+/**
  * An assignment's `state`, enumerated in schemas/assignment.schema.json.
  *
  * Four surfaces rendered this with a two-branch ternary - published and closed
