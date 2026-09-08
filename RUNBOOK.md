@@ -90,7 +90,8 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
 | Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** tab: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
 | Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open`, which is the default (§6.4). |
-| Late work | **Counts** by default. *Does not count* locks the submission branch at the deadline with a repository ruleset — students keep their repository, Actions, secrets and runners, they simply cannot push to that branch. The two deadline settings are independent; §3.4 is the whole picture. |
+| After the deadline, work a student pushes | **still counts** by default. *does not count* locks the submission branch at the deadline with a repository ruleset — students keep their repository, Actions, secrets and runners, they simply cannot push to that branch. |
+| The student's repository | **stays as it is** by default. *becomes read-only* demotes them, taking Actions, secrets and runners too. This is a different question from the one above and all four combinations mean something; §3.4 is the whole picture. |
 | Lock down student repos at the deadline | **Off by default**, and opt-in on purpose: demoting to `pull` takes Actions, secrets, environments and runners away, which on these courses is the subject being taught. Preservation happens either way (§3.4). |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §6.10) |
 | Autograding | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
@@ -244,11 +245,16 @@ Then delete `lockdowns/<id>/lockdown-record.json`'s entry for that student, or t
 
 Two independent switches in **Guardrails**, and until August 2026 neither did anything - `late_policy: block` never refused a push and `lock_down_enabled` never decided anything, because lockdown demoted every student on every assignment.
 
-| Setting | At the deadline |
+The form asks **two questions**, and they are two questions rather than one and a stronger version of it. *After the deadline, work a student pushes* decides what counts as the submission; *the student's repository* decides what they keep. All four combinations mean something.
+
+| Answer | At the deadline |
 |---|---|
-| **Late work: Counts** (default for new assignments) | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
-| **Late work: Does not count** | The submission branch is locked with a repository ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. |
-| **Also take admin away** | The student is demoted to read-only, losing Actions and secrets too. Defaults **on** for assignments that predate this change, and comes **off** when you pick "Does not count" (the branch lock already stops pushes). |
+| **still counts** (default for new assignments) | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
+| **does not count** | The submission branch is locked with a repository ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. |
+| **repository stays as it is** (default) | They keep admin, and with it Actions, secrets, environments and runners. |
+| **repository becomes read-only** | The student is demoted, losing Actions and secrets too. Defaults **on** for assignments that predate this change, and resets to *stays as it is* when you pick "does not count" (the branch lock already stops pushes). |
+
+**The combination worth understanding is "still counts" with "becomes read-only".** It is not a mistake: the student loses the repository's tooling at the deadline, and work they pushed before the nightly run landed **still counts** toward the submission, because nothing reconstructs the branch under *still counts*. Both 2026 exams ran on it. If you mean the deadline to be final, answer *does not count* as well - the form says so where you choose it.
 
 Two things to tell students honestly:
 

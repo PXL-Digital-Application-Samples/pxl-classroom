@@ -87,10 +87,19 @@ They cannot change it themselves. On the **Roster** tab, open that student's act
 
 ## Late work
 
-What happens to work pushed after the deadline.
+The deadline asks you two things, and they are two different questions.
 
-- **Counts.** Late commits are collected and marked late in the report. Nothing is blocked. This is the default.
-- **Does not count.** Students can no longer push after the deadline. The submission is the last commit dated before it.
+**After the deadline, work a student pushes…**
+
+- **still counts.** Late commits are collected and marked late in the report. Nothing is blocked. This is the default.
+- **does not count.** Students can no longer push after the deadline. The submission is the last commit dated before it.
+
+**The student's repository…**
+
+- **stays as it is.** They keep admin, and with it Actions, secrets, environments and runners. This is the default.
+- **becomes read-only.** They lose admin, and with it Actions, secrets and runners, until you reopen the repository.
+
+Choosing *still counts* together with *becomes read-only* is not a mistake: the student loses the repository's tooling at the deadline, and anything they pushed before the nightly run landed still counts. If you mean the deadline to be final, answer *does not count* as well.
 
 A student with an extension is judged against their own deadline.
 

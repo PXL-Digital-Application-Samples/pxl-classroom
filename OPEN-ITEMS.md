@@ -238,31 +238,7 @@ printing nothing is this item still open.
 
 ---
 
-## 8. The two deadline controls are offered as orthogonal and are one ladder
-
-**Status: open — a question about the form, not the behaviour.** Raised 2026-09-08.
-
-The assignment form offers `late_policy` (`report` / `block`) and a separate *"Also take admin away at the deadline"* checkbox, as if they were independent. Logically they are not: demoting a student to `pull` **includes** stopping pushes, and adds the confiscation of Actions, secrets, environments and runners. So the four combinations are three rungs of one ladder:
-
-| What the lecturer means | Today's spelling |
-|---|---|
-| Record late work, stop nothing | `report`, no demotion |
-| Stop pushes at the deadline | `block`, no demotion |
-| Stop pushes **and** take the toolchain | either policy, with demotion |
-
-`report` + demotion is the odd one out: it says *late work counts* and then removes the student's ability to produce any. That is what both 2026 exams ran on, and it is the combination that hurt — no deadline enforcement, and Actions and secrets gone anyway.
-
-The code already half-admits it. `onLatePolicyChange` unticks the demotion box when a lecturer chooses `block`, with a comment saying demoting on top takes exactly what the branch lock exists to preserve. That is one control wearing two checkboxes.
-
-**The question:** should this be a single three-way choice — *nothing / stop pushes / stop everything* — with `late_policy` and `lock_down_enabled` derived from it? It would make the incoherent combination unrepresentable rather than merely discouraged, and it is the shape a lecturer reasons in. The stored fields need not change either way; this is about what the screen asks.
-
-Deliberately not answered while org-scoped lockdown was being built, so the form would not learn a distinction that turned out to be an implementation detail. That work has landed, so the question is now answerable.
-
-**How to tell it is closed:** the form asks one question about what the deadline does, or the arrangement was considered and kept and this entry says so instead.
-
----
-
-## 9. e2e specs stage report fixtures the report schema would refuse
+## 8. e2e specs stage report fixtures the report schema would refuse
 
 **Status: open — bounded and guarded.** Measured 2026-09-07, narrowed the same day.
 
@@ -296,6 +272,7 @@ Kept briefly so they are not reopened from memory. Each was verified against the
 
 | Item | Closed by | Evidence |
 |---|---|---|
+| **The two deadline controls read as one question and a footnote** (2026-09-08) — *filed as "they are one ladder", and that premise was wrong* | Asking them as two questions of the same shape, not merging them | `late_policy` decides what **counts** (lockdown.mjs passes `deadlineFor` to phase 2 only under `block`); `lock_down_enabled` decides **access**. All four combinations are distinct and *still counts* + read-only is what both 2026 exams ran on, so the three-way ladder this entry proposed would have made a live state unrepresentable. What was wrong was the wording: a grading verdict followed by a checkbox beginning "Also". DESIGN.md §1.9, `tests/e2e/29`. |
 | **An organization that deletes its last assignment kept the card** (2026-09-08) | `pruneMissingAssignments` reads the listing rather than a set of ids, and takes the scaffold's `.gitkeep` as proof that an empty `assignments/` was really read | The signal the entry called "one candidate" was already there: `scripts/scaffold-control-repo.mjs` writes `SCAFFOLD_KEEPFILE` into every scaffold directory, and all 14 readable control repos carry it. `tests/dashboard-prune.test.mjs` covers both directions — present-and-empty prunes, empty-with-no-marker does not. |
 | **Brokers held the provisioning App's private key** | The broker App, plus republishing every live assignment | `gh secret list --repo <org>/broker-<id>` shows `PXL_BROKER_CLIENT_ID` and `PXL_BROKER_PRIVATE_KEY` only. Checked on `PXLAutomation/broker-finalize-drill`; a broker in an org you do not administer returns 403, so confirm the rest as an owner of that org. |
 | **`PXL_APP_PRIVATE_KEY` needed rotating after that sweep** | Rotated | The `provisioning` environment secret's `updated_at` is `2026-08-31T13:43:28Z`, after the broker App was created (12:59) and the brokers were migrated (13:13). |
