@@ -270,7 +270,8 @@ test.describe('31 - A python test means one thing, from the form to the workflow
     expect(write.env.PXL_SCRIPT).toBe(script);
     expect(write.env.PXL_SCRIPT_PATH).toBe('.pxl-autograde/validator.py');
     expect(write.run).not.toContain('hello: world'); // env, never the run text
-    expect(grade.uses).toBe('classroom-resources/autograding-python-grader@v1');
+    // The command grader - the python one does not build. provision.mjs says why.
+    expect(grade.uses).toBe('classroom-resources/autograding-command-grader@v1');
     expect(grade.with.command).toBe('python3 .pxl-autograde/validator.py');
     expect(JSON.stringify(grade.with)).not.toContain('pytest');
   });

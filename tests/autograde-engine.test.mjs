@@ -93,9 +93,17 @@ test("autograde workflow: parses valid YAML with multi-step commands and custom 
   assert.equal(steps[4].env.PXL_SCRIPT_PATH, ".pxl-autograde/step-4-python-validator.py");
   assert.ok(!steps[4].run.includes("subprocess"), "the script must not be pasted into the run text");
   assert.equal(steps[5].id, "step-4-python-validator");
-  assert.equal(steps[5].uses, "classroom-resources/autograding-python-grader@v1");
+  // The COMMAND grader: the python one is a Docker action whose Dockerfile
+  // fails to build, which takes the whole job down and skips every other
+  // check. Measured on a live drill, 2026-09-09. See provisioning/provision.mjs.
+  assert.equal(steps[5].uses, "classroom-resources/autograding-command-grader@v1");
   assert.equal(steps[5].with.command, "python3 .pxl-autograde/step-4-python-validator.py");
-  assert.equal(steps[5].with["setup-command"], "", "the CLI runners install nothing either");
+  // No `setup-command` any more: it was the python grader's input and was
+  // always empty, because the CLI runners install nothing before running the
+  // script either. The command grader has no such input, and passing one it
+  // does not declare is the `with:` mismatch tests/workflow-input-contract
+  // exists to refuse.
+  assert.equal("setup-command" in steps[5].with, false);
 
   // Reporter
   assert.equal(steps[6].uses, "classroom-resources/autograding-grading-reporter@v1");

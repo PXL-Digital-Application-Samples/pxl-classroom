@@ -347,16 +347,30 @@ export function buildAutogradingWorkflow(assignment, org) {
         run: `mkdir -p .pxl-autograde\nprintf '%s' "$PXL_SCRIPT" > "$PXL_SCRIPT_PATH"\n`,
         env: { PXL_SCRIPT: String(t.script ?? ""), PXL_SCRIPT_PATH: scriptPath },
       });
+      // THE COMMAND GRADER, NOT THE PYTHON ONE, and the difference is that this
+      // one builds.
+      //
+      // `classroom-resources/autograding-python-grader@v1` is a Docker action
+      // whose own Dockerfile runs `apt-get install jq` and fails with exit 100.
+      // GitHub builds every Docker action in a job BEFORE running any step, so
+      // it does not merely fail its own check - it takes the whole grading job
+      // down and every other check with it, `io` and `run` included. Measured
+      // 2026-09-09 on a live drill: three build attempts, all failed, every
+      // step after `Set up job` skipped, no score for anybody. The same
+      // assignment with the python step removed scored 6/6.
+      //
+      // Nothing is lost by the swap. We were already using the python grader as
+      // a plain command runner: `setup-command` is empty (the CLI runners
+      // install nothing before running the script, so neither does this, and
+      // `setup_command` is not a schema field - `additionalProperties: false`
+      // means it could never legitimately arrive), and `command` is the same
+      // `python3 <script>` either way. The python grader adds nothing over the
+      // command grader here except a container that will not build.
       steps.push({
         ...common,
-        uses: "classroom-resources/autograding-python-grader@v1",
+        uses: "classroom-resources/autograding-command-grader@v1",
         with: {
           "test-name": String(t.id ?? "test"),
-          // The CLI runners install nothing before running the script, so
-          // neither does this. `setup_command` was read here and is not a
-          // schema field - `additionalProperties: false` means it could never
-          // legitimately arrive.
-          "setup-command": "",
           command: `python3 ${scriptPath}`,
           timeout: graderTimeoutMinutes(t),
           "max-score": t.points || 1,

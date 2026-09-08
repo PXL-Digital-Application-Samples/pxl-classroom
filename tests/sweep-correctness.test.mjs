@@ -278,7 +278,8 @@ test("a python test's script reaches the generated workflow, through env and not
   );
   assert.match(write.run, /"\$PXL_SCRIPT"/, "and the run text reads it from the environment");
 
-  assert.equal(grade.uses, "classroom-resources/autograding-python-grader@v1");
+  // The command grader - the python one does not build. provision.mjs says why.
+  assert.equal(grade.uses, "classroom-resources/autograding-command-grader@v1");
   assert.equal(grade.with.command, "python3 .pxl-autograde/py.py", "it runs the script, not pytest");
   assert.ok(
     !JSON.stringify(grade.with).includes("pytest"),

@@ -192,3 +192,98 @@ test.describe('65 - re-grading one student', () => {
     await expect(page.locator('.modal-overlay')).toContainText(/no repository yet/i);
   });
 });
+
+test.describe('65 - the per-student re-grade actually writes', () => {
+  // Asserting the button is VISIBLE is not the same as asserting it works, and
+  // the click is the half that had never run anywhere - not in a browser, not
+  // in a drill. This drives it and reads the document it commits.
+  const RUN = {
+    id: 77,
+    name: 'run-autograding-tests',
+    conclusion: 'success',
+    html_url: 'https://github.com/x/y/runs/1',
+    output: { title: null, summary: null, text: null, annotations_count: 2 },
+  };
+  const ANNOTATIONS = [
+    { annotation_level: 'notice', title: 'Autograding report', message: '{"totalPoints":17,"maxPoints":20}', path: '.github' },
+    { annotation_level: 'notice', title: 'Autograding complete', message: 'Points 17/20', path: '.github' },
+  ];
+
+  test('CLICKING IT COMMITS A MERGED SUMMARY, keeping everybody else', async ({ page }) => {
+    const writes = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      assignments: { [ID]: { ...base, template_grades: true } },
+      reports: { [ID]: report },
+      // Somebody else already has a score, and a third student is on record as
+      // unreadable. Both must survive a re-grade of student-one.
+      gradingSummaries: {
+        [ID]: {
+          schema_version: 1,
+          assignment_id: ID,
+          generated_at: '2026-09-08T10:00:00.000Z',
+          graded_by: 'tomcoolpxl',
+          runner: 'github_actions',
+          students: [
+            { login: 'student-one', earned_points: 2, total_points: 20 },
+            { login: 'student-two', earned_points: 19, total_points: 20 },
+          ],
+          failed: [{ login: 'student-three', reason: 'no CI run at commit abc1234' }],
+        },
+      },
+      currentUser: LECTURER,
+    });
+
+    // Registered AFTER the fixture, so these win.
+    await page.route('**/check-runs/77/annotations*', (r) =>
+      r.fulfill({ status: 200, body: JSON.stringify(ANNOTATIONS) }));
+    await page.route('**/commits/*/check-runs*', (r) =>
+      r.fulfill({ status: 200, body: JSON.stringify({ check_runs: [RUN] }) }));
+    await page.route('**/contents/grading/**', async (r) => {
+      if (r.request().method() !== 'PUT') return r.fallback();
+      writes.push(JSON.parse(r.request().postData() || '{}'));
+      await r.fulfill({ status: 200, body: JSON.stringify({ content: { sha: 'x' }, commit: { sha: 'y' } }) });
+    });
+
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
+    await page.getByRole('button', { name: /Actions for student-one/i }).click();
+    await page.getByRole('button', { name: 'Re-grade this student' }).click();
+
+    await expect(page.locator('.toast', { hasText: /17\/20/ })).toBeVisible();
+    expect(writes).toHaveLength(1);
+
+    const doc = JSON.parse(Buffer.from(writes[0].content, 'base64').toString('utf8'));
+    const byLogin = Object.fromEntries(doc.students.map((s) => [s.login, s.earned_points]));
+    expect(byLogin['student-one']).toBe(17);
+    // MERGED, not rebuilt: rebuilding from what this screen holds is how a
+    // document loses whatever nobody listed.
+    expect(byLogin['student-two']).toBe(19);
+    expect(doc.failed.map((f) => f.login)).toEqual(['student-three']);
+  });
+
+  test('a student with no readable run changes nothing', async ({ page }) => {
+    const writes = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      assignments: { [ID]: { ...base, template_grades: true } },
+      reports: { [ID]: report },
+      currentUser: LECTURER,
+    });
+    // A check run that is not the grading workflow. Not a zero, not full marks.
+    await page.route('**/commits/*/check-runs*', (r) =>
+      r.fulfill({ status: 200, body: JSON.stringify({ check_runs: [{ id: 9, name: 'my own tests', conclusion: 'success', output: {} }] }) }));
+    await page.route('**/contents/grading/**', async (r) => {
+      if (r.request().method() === 'PUT') writes.push(1);
+      return r.fallback();
+    });
+
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
+    await page.getByRole('button', { name: /Actions for student-one/i }).click();
+    await page.getByRole('button', { name: 'Re-grade this student' }).click();
+
+    await expect(page.locator('.toast', { hasText: /No score read for student-one/ })).toBeVisible();
+    expect(writes).toHaveLength(0);
+  });
+});

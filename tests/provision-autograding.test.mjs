@@ -57,7 +57,8 @@ test("buildAutogradingWorkflow: generates full autograding workflow with graders
   // Graders present
   assert.ok(yamlStr.includes("uses: classroom-resources/autograding-command-grader@v1"));
   assert.ok(yamlStr.includes("uses: classroom-resources/autograding-io-grader@v1"));
-  assert.ok(yamlStr.includes("uses: classroom-resources/autograding-python-grader@v1"));
+  // The command grader - the python one does not build. provision.mjs says why.
+  assert.ok(yamlStr.includes("uses: classroom-resources/autograding-command-grader@v1"));
 
   // Reporter present
   assert.ok(yamlStr.includes("uses: classroom-resources/autograding-grading-reporter@v1"));
