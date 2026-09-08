@@ -95,3 +95,22 @@ jobs:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
         run: node scripts/migrate-org-lock.mjs
+
+      # always(): the script writes the control repo BEFORE it releases anything,
+      # so a run that died half way through the releases has already recorded
+      # which lock is the real one. Losing that write is the case where Reopen
+      # goes green over a student who still cannot push.
+      #
+      # A dry run writes nothing, so `diff --cached --quiet` exits 0 for it and
+      # this step is a no-op rather than a special case.
+      - name: Commit + push to control repo
+        if: always()
+        run: |
+          set -e
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          mkdir -p control/assignments control/lockdowns
+          git -C control add assignments/ lockdowns/
+          if git -C control diff --cached --quiet; then exit 0; fi
+          git -C control commit -m "Move deadline lock to an organization ruleset"
+          scripts/git-push-with-retry.sh control

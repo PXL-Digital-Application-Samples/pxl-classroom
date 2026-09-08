@@ -7,7 +7,19 @@
 //   1. read the lockdown record and take the repository ids it locked
 //   2. create the ORGANIZATION ruleset, active
 //   3. VERIFY it reads back active over those ids
-//   4. only then disable the per-repository rulesets
+//   4. write the control repo back: the assignment is org-scoped now, and the
+//      rows say so
+//   5. only then disable the per-repository rulesets
+//
+// Step 4 sits where it does for the same reason as everything else here. The
+// row's `lock_method` is what an unlock reads, so a record still saying
+// `ruleset` while the organization ruleset is the real lock makes Reopen flip a
+// repository ruleset, report success, and leave the student unable to push.
+// Written BEFORE the disable, a crash in between leaves rows saying
+// `org-ruleset` over repositories that still carry an active repository one -
+// and lib/repo-unlock.mjs releases both in that case. The other order has no
+// such recovery. lib/repo-unlock.mjs guards this direction too, because the
+// files written here are not committed until the workflow's final step.
 //
 // Never the reverse. Deleting first leaves a window with no lock on a cohort
 // whose deadline has passed, and the whole point of the exercise is a lock a
@@ -21,8 +33,9 @@
 //
 // --dry-run reports what it would do and writes nothing, anywhere.
 
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { stringify as yamlStringify } from "yaml";
 import { gh } from "../lib/gh.mjs";
 import {
   ensureOrgSubmissionLock,
@@ -83,8 +96,9 @@ async function migrateOne(assignmentId, appId) {
 
   if (cfg.dryRun) {
     return log(true, assignmentId,
-      `DRY RUN - would cover ${ids.length} repositor${ids.length === 1 ? "y" : "ies"} on ${submissionRef} ` +
-      `and then disable ${repos.length} repository ruleset(s)`);
+      `DRY RUN - would cover ${ids.length} repositor${ids.length === 1 ? "y" : "ies"} on ${submissionRef}, ` +
+      `set org_scoped_lock and rewrite ${locked.length} row(s) to org-ruleset, ` +
+      `then disable ${repos.length} repository ruleset(s)`);
   }
 
   // 2. Create the organization ruleset, ACTIVE.
@@ -110,7 +124,48 @@ async function migrateOne(assignmentId, appId) {
   }
   log(true, assignmentId, `organization ruleset ${check.ruleset.id} active over ${covered.length} repositor${covered.length === 1 ? "y" : "ies"}`);
 
-  // 4. Only now, and disabled rather than deleted.
+  // 4. Say so in the control repo, BEFORE anything is released.
+  //
+  // MERGE, NEVER REPLACE - both documents are read, spread and overridden in
+  // the two places that decide, rather than rebuilt from what this script
+  // happens to care about. The assignment carries fields no migration knows
+  // about (a template pin among them), and the lockdown record is a record of a
+  // run.
+  //
+  // A repository that was dropped keeps its row as it is: it no longer exists,
+  // so nothing covers it and nothing can reopen it, and writing `org-ruleset`
+  // over it would claim a lock that is not there.
+  const migrated = new Set(ids.filter((id) => !(made.dropped ?? []).includes(id)));
+  const migratedRecord = {
+    ...record,
+    lock_method: "org-ruleset",
+    org_ruleset_id: check.ruleset.id,
+    results: rows.map((r) =>
+      r.lock_method === "ruleset" && migrated.has(r.repo_id)
+        ? { ...r, lock_method: "org-ruleset" }
+        : r),
+  };
+  await writeFile(
+    join(cfg.dataDir, lockdownRecordPath(assignmentId)),
+    JSON.stringify(migratedRecord, null, 2) + "\n");
+
+  // `org_scoped_lock` is what stops the NEXT finalize re-creating a repository
+  // ruleset per student. A finalize run is not once - the nightly re-queues an
+  // assignment while preservation is incomplete and when any student's deferred
+  // extension expires - so leaving this unset would quietly undo the migration
+  // on somebody else's extension.
+  if (!assignment) {
+    log(false, assignmentId,
+      "the assignment document could not be read, so `org_scoped_lock` was NOT set - " +
+      "the next finalize will lock per repository again; set it by hand before releasing anything");
+    return;
+  }
+  await writeFile(
+    join(cfg.dataDir, assignmentPath(assignmentId)),
+    yamlStringify({ ...assignment, org_scoped_lock: true }));
+  log(true, assignmentId, "control repo updated: org_scoped_lock, and the rows now read org-ruleset");
+
+  // 5. Only now, and disabled rather than deleted.
   let released = 0;
   for (const full of repos) {
     const [, name] = String(full).split("/");

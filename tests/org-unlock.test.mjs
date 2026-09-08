@@ -157,3 +157,85 @@ test("a failed removal is reported, never reported as done", async () => {
   assert.equal(res.ok, false);
   assert.match(res.reason, /403/);
 });
+
+// ---------------------------------------------------------------------------
+// THE OTHER HALF OF THE MIGRATION WINDOW.
+//
+// The tests above cover a row that says `org-ruleset` while a repository
+// ruleset is still on the repository. This is the reverse, and it is the one
+// that happens by itself: scripts/migrate-org-lock.mjs creates the organization
+// ruleset and rewrites the rows, but that rewrite is not committed until the
+// workflow's last step - so a run that dies in between leaves rows saying
+// `ruleset` over repositories an organization ruleset is really holding.
+//
+// A protection guards the case you were thinking of, not the dangerous one.
+// ---------------------------------------------------------------------------
+
+const staleRow = (t, over = {}) => unlock(t, { method: "ruleset", ...over });
+
+test("A STALE `ruleset` ROW UNDER AN ORGANIZATION LOCK RELEASES BOTH", async () => {
+  const t = transport({
+    orgRulesets: [orgLock([111, 222])],
+    repoRulesets: [{ id: 7, name: SUBMISSION_LOCK_NAME, enforcement: "active", source_type: "Repository" }],
+  });
+  const res = await staleRow(t);
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(res.alsoReleased, "organization-ruleset");
+  assert.equal(t.repoRulesets[0].enforcement, "disabled");
+  assert.deepEqual(t.orgRulesets[0].conditions.repository_id.repository_ids, [222],
+    "the student is out of the organization ruleset, everybody else stays in");
+});
+
+test("a stale row whose repository ruleset is already gone still succeeds", async () => {
+  // The migration disables the repository ruleset AFTER the organization one is
+  // in place, so this is what a run interrupted one step later looks like. The
+  // ordinary "absent means tell the lecturer" answer would be wrong here: the
+  // organization ruleset was the lock, and it has just been released.
+  const t = transport({ orgRulesets: [orgLock([111, 222])] });
+  const res = await staleRow(t);
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(res.alsoReleased, "organization-ruleset");
+  assert.deepEqual(t.orgRulesets[0].conditions.repository_id.repository_ids, [222]);
+});
+
+test("an unmigrated cohort is untouched - no organization ruleset, no change", async () => {
+  const t = transport({
+    repoRulesets: [{ id: 7, name: SUBMISSION_LOCK_NAME, enforcement: "active", source_type: "Repository" }],
+  });
+  const res = await staleRow(t);
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(res.alsoReleased, undefined, "nothing to say - this is the ordinary path");
+  assert.equal(t.repoRulesets[0].enforcement, "disabled");
+});
+
+test("an organization ruleset that never covered this repository is not a release", async () => {
+  // It exists, so the lookup succeeds, but this student was never in it - most
+  // likely a partly-migrated cohort. Claiming a release here would put
+  // "organization-ruleset" in front of a lecturer over an object nothing did.
+  const t = transport({
+    orgRulesets: [orgLock([222, 333])],
+    repoRulesets: [{ id: 7, name: SUBMISSION_LOCK_NAME, enforcement: "active", source_type: "Repository" }],
+  });
+  const res = await staleRow(t);
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(res.alsoReleased, undefined);
+  assert.deepEqual(t.orgRulesets[0].conditions.repository_id.repository_ids, [222, 333]);
+});
+
+test("a stale row still fails when the ORGANIZATION ruleset cannot be updated", async () => {
+  // Fail closed. The organization ruleset is the stronger lock, so a repository
+  // flip on its own would be a green toast over a student who cannot push.
+  const t = transport({
+    orgRulesets: [orgLock([111, 222])],
+    repoRulesets: [{ id: 7, name: SUBMISSION_LOCK_NAME, enforcement: "active", source_type: "Repository" }],
+  });
+  const request = async (m, p, b) =>
+    (m === "PUT" && p.startsWith(`/orgs/${ORG}/rulesets/`))
+      ? { ok: false, status: 403, data: { message: "Resource not accessible" } }
+      : t.request(m, p, b);
+  const res = await staleRow({ ...t, request });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /403/);
+  assert.equal(t.repoRulesets[0].enforcement, "active",
+    "and it stops before touching the repository ruleset, so the record still describes reality");
+});

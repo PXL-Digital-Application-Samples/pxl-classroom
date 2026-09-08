@@ -261,17 +261,22 @@ Two things to tell students honestly:
 - **The lock fires on the first nightly run after the deadline, not at the deadline itself.** Anything pushed in between is filtered out - the submission falls back to the last commit *committed* before the deadline. That date comes from the student's own machine (`GIT_COMMITTER_DATE`), so it reconstructs the ordinary case correctly and is not evidence in a dispute.
 - **A student who only pushed after the deadline has no submission.** That shows in the run as a no-submission, not an error, and does not fail the cohort's nightly.
 
-Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Does not count" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor. To unlock a repository, delete its `pxl-classroom-deadline` ruleset:
+Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `org-ruleset`, `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Does not count" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor.
 
-```bash
-gh api repos/<org>/<repo>/rulesets --jq '.[] | select(.name=="pxl-classroom-deadline") | .id'
-```
+**To let one student push again, use Reopen (§6.15) rather than GitHub.** It reads that student's own `lock_method` and applies the matching inverse - an organization ruleset drops their repository id, a repository ruleset is disabled, a demotion restores the assignment's student permission - and it records who did it, when and why. Doing it by hand records nothing.
 
-then `gh api -X DELETE repos/<org>/<repo>/rulesets/<id>`.
+**Never delete a `pxl-classroom-deadline` ruleset.** Nothing in this system does, and the reason is that a ruleset re-created later without the App in `bypass_actors` locks *this system* out of the repository along with the student. `enforcement` is a flag; releasing a lock flips it back.
 
-**A student can delete that ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. If you ever want a lock they cannot reach, that would be an **organization** ruleset - it lives above the student's repository, so being its admin does not help. This is an option, not a gap: the argument above is that the repository ruleset is enough. Should you decide otherwise, the App already declares `organization_administration: write`, so what it would take is every installed org approving that permission (§10.6) and the code to create the ruleset - `lib/submission-lock.mjs` applies one per student today.
+**A student can delete a repository ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not.
 
-Measured before recommending it: one org ruleset matching `exam2026-*` blocked pushes to both cohort repos and left an unrelated repo alone, and one `PUT` released them all.
+An **organization** ruleset lives above the student's repository, so being its admin does not help. That is `org_scoped_lock: true` on the assignment: one ruleset named `pxl-classroom-deadline-<assignment-id>` covers the whole cohort, targeted by repository id, and one `PUT` releases the lot. It is opt-in and off unless it is set - absent has to keep meaning the repository-scoped behaviour every existing assignment already has.
+
+Two things to know before turning it on:
+
+- **There is no control on the assignment form.** The field is set on the assignment document, or by the migration below. That is deliberate while item 3 in `OPEN-ITEMS.md` is open: the path has never held a real cohort through a deadline and a reopen.
+- **An existing cohort can be moved** with the **Migrate to organization-scoped lock** workflow (`workflow_dispatch`; `dry_run` defaults to true - run it that way and read what it says first). It creates and verifies the organization ruleset *before* disabling any repository one, then records in the control repo that the organization ruleset is now the lock. Both halves matter: an unrecorded migration leaves Reopen flipping a repository ruleset that no longer holds anything, and the next finalize re-locking per repository.
+
+Measured against a live Team organization before any of this was built: an organization ruleset blocks pushes to the repositories it targets and leaves the rest of the org alone, `PUT` **replaces** the targeted id list rather than merging into it, and a create carrying a deleted repository's id is refused `422` while an update carrying one is accepted.
 
 ## 3.5 Before an exam deadline: nobody in the cohort may be an organization owner
 
