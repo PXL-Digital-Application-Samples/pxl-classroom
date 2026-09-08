@@ -19,18 +19,45 @@ function imageFor(test) {
   return test.type === "python" ? "python:3.12-slim" : "debian:stable-slim";
 }
 
+/**
+ * The full `docker` argv for one test, exported so it can be checked without a
+ * daemon - the flags here are the sandbox, and a missing one is silent.
+ *
+ * `-i` IS LOAD-BEARING AND WAS MISSING. Without it docker does not attach the
+ * container's stdin, so everything written to `child.stdin` is discarded and
+ * the program under test reads EOF immediately. Every `type: io` check was
+ * therefore graded against EMPTY INPUT while the Node side believed it had
+ * supplied some - measured 2026-09-08:
+ *
+ *   printf 'Ada\n' | docker run --rm      … python3 -c "print(repr(input()))"  ->  ''
+ *   printf 'Ada\n' | docker run --rm -i   … python3 -c "print(repr(input()))"  ->  'Ada\n'
+ *
+ * It fails quietly in both directions. The drill's `greets-by-name` check
+ * passed on GitHub Actions and failed here, comparing the greeting for an empty
+ * name against the one for "Ada" - and a program that ignores its input, or an
+ * expected value that happens to match the empty-input output, PASSES for a
+ * reason nobody measured.
+ *
+ * Unconditional rather than only when there is stdin: `dockerRun` always closes
+ * the stream, so a check with no input gets EOF either way and there is no
+ * second code path to keep in step.
+ */
+export function dockerArgs({ image, args, mounts }) {
+  const baseArgs = [
+    "run", "--rm", "-i", "--init", "--network=none",
+    "--read-only", "--tmpfs", "/tmp:rw,size=64m",
+    "--memory=512m", "--pids-limit=256",
+    "--workdir", "/workspace",
+  ];
+  for (const m of mounts) {
+    baseArgs.push("-v", m);
+  }
+  return [...baseArgs, image, ...args];
+}
+
 function dockerRun({ image, args, mounts, stdin = "", timeoutMs }) {
   return new Promise((resolveFn) => {
-    const baseArgs = [
-      "run", "--rm", "--init", "--network=none",
-      "--read-only", "--tmpfs", "/tmp:rw,size=64m",
-      "--memory=512m", "--pids-limit=256",
-      "--workdir", "/workspace",
-    ];
-    for (const m of mounts) {
-      baseArgs.push("-v", m);
-    }
-    const fullArgs = [...baseArgs, image, ...args];
+    const fullArgs = dockerArgs({ image, args, mounts });
     const child = cp.spawn("docker", fullArgs, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "", stderr = "";
     const start = Date.now();

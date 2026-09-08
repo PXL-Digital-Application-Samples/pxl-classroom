@@ -149,6 +149,12 @@ export function cleanChecks(checks) {
     ...(t.type === 'io' && t.stdin ? { stdin: t.stdin } : {}),
     ...(t.type === 'io' && t.expected_stdout ? { expected_stdout: t.expected_stdout } : {}),
     ...(t.timeout_s ? { timeout_s: Number(t.timeout_s) } : {}),
+    // The local docker runner's image override. There is no control for it in
+    // the modal - it is set by hand or by the CLI - so this exists to STOP THE
+    // SAVE DELETING IT, which is the failure `buildDoc` already had once with
+    // invitation tokens: a document rebuilt from the fields a form happens to
+    // show drops whatever nobody listed.
+    ...(t.image ? { image: String(t.image) } : {}),
   }))
 }
 

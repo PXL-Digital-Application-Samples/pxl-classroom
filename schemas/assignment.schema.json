@@ -371,6 +371,11 @@
                 "type": "string",
                 "description": "Expected stdout for type=io. Compared after trim+normalize-newlines."
               },
+              "image": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Container image for the LOCAL docker runner (`pxl-classroom grade --runner docker`). Defaults to `python:3.12-slim` for a python check and `debian:stable-slim` for everything else - and debian:stable-slim has no python3, no node, no make and no compiler, while the runner enforces --network=none so a check cannot install one. `runner-docker.mjs` has always read this field; the schema refused it, so no saveable assignment could set it and a `run`/`io` check needing any toolchain could not pass locally however it was written. Ignored on the GitHub Actions path, where the runner image is ubuntu-latest and carries all of the above."
+              },
               "timeout_s": {
                 "type": "integer",
                 "minimum": 1,
