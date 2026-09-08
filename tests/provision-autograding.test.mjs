@@ -109,6 +109,32 @@ function assertReporterCanFindEveryRunner(reporterStep) {
   }
 }
 
+test("an io check asks for a comparison the grader will accept", () => {
+  // autograding-io-grader@v1 throws on anything outside this set, and the
+  // throw is caught into a result carrying NO `max_score` - so the reporter
+  // scores the check 0 out of 0 and the assignment's stated total shrinks
+  // without saying so. Its own action.yml documents `included`, which the code
+  // refuses; the documentation is what we followed, and it was wrong.
+  //
+  // `exact` is also the only value that agrees with the CLI runners, which
+  // compare `normalize(stdout) === normalize(expected_stdout)`. ARCHITECTURE
+  // §11.6: one test definition means one thing on both paths.
+  const ACCEPTED_BY_THE_GRADER = ["exact", "contains", "regex"];
+  const assignment = {
+    autograde: {
+      enabled: true,
+      execution_environment: "github_actions",
+      visibility: "public",
+      tests: [{ id: "io-check", type: "io", command: "./run", stdin: "x", expected_stdout: "y", points: 1 }],
+    },
+  };
+  const doc = parse(buildAutogradingWorkflow(assignment, "PXLAutomation"));
+  const io = doc.jobs.grade.steps.find((s) => s.uses === "classroom-resources/autograding-io-grader@v1");
+  assert.ok(ACCEPTED_BY_THE_GRADER.includes(io.with["comparison-method"]),
+    `comparison-method ${JSON.stringify(io.with["comparison-method"])} is not one the grader accepts (${ACCEPTED_BY_THE_GRADER.join(", ")})`);
+  assert.equal(io.with["comparison-method"], "exact", "and equality is what the CLI runners do");
+});
+
 test("every runner's results reach the reporter under the name it looks up", () => {
   // The whole point of the generated workflow is that a score comes back. It
   // cannot if the reporter cannot find the step outputs, and that failure is

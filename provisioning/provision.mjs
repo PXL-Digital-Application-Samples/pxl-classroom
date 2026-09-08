@@ -234,7 +234,23 @@ export function buildAutogradingWorkflow(assignment, org) {
           command: t.command || "",
           input: t.stdin || "",
           "expected-output": t.expected_stdout || "",
-          "comparison-method": "included",
+          // `exact`, and it is the CLI runners' rule rather than a preference.
+          // `runner-host.mjs` and `runner-docker.mjs` both compare
+          // `normalize(stdout) === normalize(expected_stdout)` - equality after
+          // trailing whitespace - and the grader trims its own output before
+          // comparing, so `exact` is the same test on both paths. A substring
+          // rule would not be, and this file's own §11.6 rule is that one test
+          // definition means one thing.
+          //
+          // It was `included`, which autograding-io-grader@v1 DOCUMENTS in its
+          // action.yml ("Supported values: `included`, `exact`, `regex`") and
+          // its code REFUSES: `getInputs()` throws on anything outside
+          // ['exact','contains','regex']. The throw lands in a catch that emits
+          // a result with no `max_score` at all, so the reporter counted the
+          // check as 0 out of **0** - the assignment's own total silently
+          // shrank, ten points reported as seven, and the io check was marked
+          // failed rather than errored. Measured on the testbed 2026-09-08.
+          "comparison-method": "exact",
           timeout: graderTimeoutMinutes(t),
           "max-score": t.points || 1,
         },
