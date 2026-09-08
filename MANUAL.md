@@ -171,7 +171,7 @@ Optional. Tests that run against a student's work and give you a score per stude
 
 ### Reading the scores
 
-- **You do not have to ask for them.** Scores are read at the deadline and appear in the table, the report and the CSV export by themselves.
+- **You do not have to ask for them.** Scores are read at the deadline and are in the table, and in **Export CSV**, by themselves.
 - Before the deadline, **Read scores from GitHub Actions** shows you where the cohort has got to so far.
 - **Re-grade this student** is on each student's row, under **⋯**. Use it when their run was re-run, or you fixed a check for them. Only their score changes.
 - **Re-grade all** reads the whole cohort again. It is slower, and it replaces every score, so reach for the row action when you are chasing one student.

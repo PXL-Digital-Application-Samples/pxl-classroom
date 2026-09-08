@@ -887,7 +887,9 @@ pxl-classroom download --org PXLAutomation \
 
 **The procedure is [AUTOGRADING.md](AUTOGRADING.md)** - which case you are in, what to pick in the panel, and what to do when a student comes back with no score. It is the one place that describes it; this section keeps only what that document deliberately leaves out.
 
-**Scores arrive by themselves at the deadline.** The nightly finalize reads each student's grading run and writes `grading/<id>/summary.json`, so the morning after an exam the report and the CSV already carry the marks. Nobody presses anything. It reads the commit that IS the submission - the preserved one, or the hand-in message where the assignment names one, bounded by each student's own extension.
+**Scores arrive by themselves at the deadline.** The nightly finalize reads each student's grading run and writes `grading/<id>/summary.json`, so the morning after an exam the marks are on the assignment's page and in its **Export CSV** with nobody having pressed anything. It reads the commit that IS the submission - the preserved one, or the hand-in message where the assignment names one, bounded by each student's own extension.
+
+**The nightly's own `reports/<id>.csv` does not carry them**, and that is a column decision rather than an oversight: grades are not report-row fields, they live in `grading/<id>/summary.json` and are joined by login at render time (`RENDER_JOIN_COLUMNS` in `lib/report-csv.mjs`). Export from the assignment's page to get a spreadsheet with the scores in it.
 
 It never replaces a reading **you** made. A summary carrying your login, or one produced by `pxl-classroom grade` on your machine, is left alone and the run log says so; only its own earlier reading is replaced. To overrule it, re-grade.
 
