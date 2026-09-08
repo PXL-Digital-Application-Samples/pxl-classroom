@@ -155,6 +155,10 @@ That is not a defect, and the path is not dead code: it is the only way to keep 
 
 The modal now opens on the template branch for that reason, so nobody meets the unproven path by default.
 
+**The round trip was drilled on 2026-09-08**, on `PXL-Systems-Advanced-II` with two accounts: two `run` checks declared in the panel, `execution_environment: github_actions`, through publish → accept → push → deadline → finalize. Provisioning generated the workflow into both student repositories, GitHub ran it, and the scores came back **20/20 and 5/20 read from the annotations** (`score_source: annotation-json`) — the partial one being the case a red conclusion used to record as 0. The generated reporter's env keys carried their hyphens (`HAS-ANSWER_RESULTS`), which is the spelling the fix earlier that day restored. `io` and `python` checks were not part of that drill; `run` was.
+
+So the path works where it had never been run. What the entry still says is unchanged: no assignment a real cohort uses has an `autograde` block, and a drill on an organization with nothing at stake is not that.
+
 **It was exercised end to end on 2026-09-08, and it was broken in four places.** A drill assignment on `pxl-classroom-testbed` — three checks, ten points, a template with a deliberate bug — provisioned, graded and read back. What it found, in the order it was hit ([LESSONS.md](LESSONS.md), *"The unexercised path was broken in four places"*):
 
 1. **The workflow injection races template population**, because `POST /generate` returns before the repository has content and `provision.mjs` writes immediately after it. Two students provisioned two minutes apart got two *different* broken repositories — one with the starter code and no workflow, one with the workflow and no starter code — and both runs logged `[ok] inject-autograding` and exited `created`. **Still open**; a retry against the populated repository repairs it.
