@@ -1,0 +1,9 @@
+# The version and the release notes are DERIVED from commit subjects, so a
+# malformed one is a silent loss rather than a style slip: `fixed:` releases
+# nothing and appears in no release notes. There is no pull request here to
+# catch it - commit and push straight to `main` - so this hook is the only
+# place it CAN be caught.
+#
+# Types come from `.releaserc.json` via commitlint.config.js. Nothing to edit
+# here when the list changes.
+npx --no-install commitlint --edit "$1"

@@ -21,7 +21,14 @@
     "",
     "Version numbers therefore live in git tags only - package.json versions are",
     "left alone deliberately, because three packages with three numbers was the",
-    "shape this project explicitly did not choose."
+    "shape this project explicitly did not choose.",
+    "",
+    "EVERY TYPE THIS PROJECT USES IS NAMED BELOW, including the ones that release",
+    "nothing and the ones kept out of the notes. `style` was used four times and",
+    "declared in neither list, so those commits were invisible by accident rather",
+    "than by decision - absent and empty are different answers. `commitlint.config.js`",
+    "READS this file for its type-enum, so the hook cannot admit a type the release",
+    "process has no opinion about; do not spell the list there as well."
   ],
   "branches": ["main"],
   "tagFormat": "v${version}",
@@ -34,6 +41,7 @@
           { "type": "docs", "release": false },
           { "type": "test", "release": false },
           { "type": "chore", "release": false },
+          { "type": "style", "release": false },
           { "type": "refactor", "release": "patch" },
           { "type": "revert", "release": "patch" }
         ]
@@ -51,6 +59,7 @@
             { "type": "refactor", "section": "Internal" },
             { "type": "docs", "section": "Documentation", "hidden": false },
             { "type": "chore", "hidden": true },
+            { "type": "style", "hidden": true },
             { "type": "test", "hidden": true }
           ]
         }

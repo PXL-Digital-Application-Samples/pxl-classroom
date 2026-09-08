@@ -21,7 +21,8 @@
     "coverage": "node --test --experimental-test-coverage tests/*.test.mjs cli/tests/*.test.mjs",
     "typecheck": "tsc -p jsconfig.json",
     "test:e2e": "playwright test",
-    "test:all": "npm run lint && npm test && npm run test:e2e"
+    "test:all": "npm run lint && npm test && npm run test:e2e",
+    "prepare": "husky || exit 0"
   },
   "dependencies": {
     "ajv": "^8.20.0",
@@ -29,12 +30,15 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.62.1",
     "@types/node": "^24.7.2",
     "eslint": "^9.39.5",
     "eslint-plugin-vue": "^9.33.0",
     "globals": "^17.11.0",
+    "husky": "^9.1.7",
     "typescript": "^5.9.3"
   }
 }
