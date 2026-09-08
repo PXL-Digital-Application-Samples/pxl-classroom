@@ -2995,6 +2995,11 @@ function editAssignment(a) {
     // omits the field.
     max_acceptances: a.max_acceptances ?? '',
     lock_down_enabled: a.lock_down_enabled ?? true,
+    // No control renders this - it is set by hand or by the migration - but the
+    // editor rebuilds the whole document on save, so it has to be read in or an
+    // unrelated edit would move the cohort back to repository-scoped rulesets.
+    // Carried as `true` only, never coerced: absent must stay absent.
+    ...(a.org_scoped_lock === true ? { org_scoped_lock: true } : {}),
     invite_token: a.invite_token || '',
     invite_nonce: a.invite_nonce || '',
     invite_expires_at: a.invite_expires_at || '',

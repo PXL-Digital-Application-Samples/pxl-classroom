@@ -37,7 +37,7 @@ import { gh } from "../lib/gh.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
-import { ensureSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
+import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -421,6 +421,61 @@ async function demote(t) {
 async function applySubmissionLock({ targets, method, submissionRef, appId, priorByLogin, sentinelStoppedAt, deadlineFor }) {
   const lockedAt = new Date().toISOString();
   const byRepo = new Map();
+  let orgRulesetId = null;
+
+  // ONE CALL FOR THE WHOLE COHORT, tried first and degrading rather than
+  // failing. The id list is the targets' own repository ids - derived from the
+  // same plan that decided who is locked, so a deferred student and a
+  // reopened repository are absent by construction rather than by a loop
+  // remembering to skip them.
+  //
+  // A target with no `repo_id` is NOT silently omitted: an id missing from the
+  // list is a student nothing locks and nothing reports, which is the failure
+  // this whole file exists to prevent. Those fall through to the per-repository
+  // path below and are recorded as `ruleset`, which `lock_method` per row
+  // already supports.
+  const orgTargets = method === "org-ruleset" ? targets.filter((t) => Number.isInteger(t.rec?.repo_id)) : [];
+  const orgCovered = new Set();
+  if (method === "org-ruleset") {
+    const missingId = targets.filter((t) => !Number.isInteger(t.rec?.repo_id));
+    if (missingId.length) {
+      log("org-lock", { ok: false, note:
+        `${missingId.length} record(s) carry no repo_id and fall back to a repository ruleset: ` +
+        missingId.map((t) => t.displayKey).join(", ") });
+    }
+    if (orgTargets.length) {
+      const res = await ensureOrgSubmissionLock(gh, {
+        org: cfg.org,
+        assignmentId: cfg.assignmentId,
+        submissionRef,
+        appId,
+        repositoryIds: orgTargets.map((t) => t.rec.repo_id),
+        enforcement: "active",
+      });
+      if (res.ok) {
+        orgRulesetId = res.rulesetId;
+        // `dropped` is a repository GitHub says no longer exists. There is
+        // nothing to lock for that student, but somebody has to be told - a
+        // silently unlocked row is indistinguishable from a locked one.
+        const dropped = new Set(res.dropped ?? []);
+        for (const t of orgTargets) {
+          if (dropped.has(t.rec.repo_id)) continue;
+          orgCovered.add(t);
+        }
+        log("org-lock", { ok: true, note:
+          `${res.action} ruleset ${res.rulesetId} over ${orgCovered.size} repositor${orgCovered.size === 1 ? "y" : "ies"}` +
+          (dropped.size ? ` (${dropped.size} no longer exist)` : "") });
+        for (const t of orgTargets) {
+          if (!dropped.has(t.rec.repo_id)) continue;
+          log(`org-lock ${t.displayKey}`, { ok: false, note: "repository no longer exists - nothing to lock" });
+        }
+      } else {
+        // Degrade to the repository-scoped path rather than to no lock at all,
+        // exactly as a failed repository ruleset degrades to a demotion.
+        log("org-lock", { ok: false, note: `${res.reason} - falling back to repository rulesets` });
+      }
+    }
+  }
 
   for (const t of targets) {
     // Frozen on retry: lockdown_at is a historical fact about when this student
@@ -447,8 +502,19 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
       continue;
     }
 
+    // Already stopped by the one organization-scoped call. Nothing further to
+    // do for this repository, and the row records WHICH lock holds it so
+    // lib/repo-unlock.mjs applies the matching inverse - removing one id from
+    // the organization ruleset, not flipping a repository one that is not
+    // there.
+    if (orgCovered.has(t)) {
+      log(`stop ${t.displayKey}`, { ok: true, note: `organization ruleset ${orgRulesetId}` });
+      byRepo.set(t, { locked: true, permissionAfter: null, lockdownAt, method: "org-ruleset", rulesetId: orgRulesetId });
+      continue;
+    }
+
     try {
-      if (method === "ruleset") {
+      if (method === "ruleset" || method === "org-ruleset") {
         const res = await ensureSubmissionLock(gh, {
           org: cfg.org,
           repo: t.repoName,
@@ -477,7 +543,7 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     ok: true,
     note: `${method} applied to ${targets.length} repository/repositories at ${lockedAt}`,
   });
-  return { method, lockedAt, byRepo };
+  return { method, lockedAt, byRepo, orgRulesetId };
 }
 
 // --- Phase 2: RECORD ---------------------------------------------------------
@@ -758,9 +824,21 @@ async function main() {
     if (!appId) log("app-id", { ok: false, note: "could not resolve the App id - the lock falls back to demotion" });
   }
 
+  // ORG SCOPE IS OPT-IN, and deliberately not the default while it is new. A
+  // repository ruleset lives in the student's own repository and they are its
+  // admin, so they can delete it; an organization ruleset lists as
+  // `source_type: "Organization"` and they cannot. It is also ONE call for the
+  // whole cohort rather than two per repository, which is what matters at the
+  // instant a sentinel fires.
+  //
+  // Read off the assignment rather than a deployment-wide switch, because it is
+  // a property of how one course wants its deadline enforced - and absent means
+  // the repository-scoped behaviour every existing assignment already has.
+  const orgScope = blockLate && assignment.org_scoped_lock === true;
+
   let lockMethod = "none";
   if (targets.length) {
-    if (blockLate) lockMethod = appId ? "ruleset" : "demotion";
+    if (blockLate) lockMethod = appId ? (orgScope ? "org-ruleset" : "ruleset") : "demotion";
     else if (demoteToo) lockMethod = "demotion";
   }
 
@@ -1022,6 +1100,11 @@ async function main() {
     // applied rather than implying one.
     locked_at: lock.lockedAt,
     lock_method: lock.method,
+    // The organization ruleset covering this cohort, when there is one. A
+    // convenience for reading it back, never the lookup key: the sentinel's
+    // STOP_ONLY path writes no record at all, so findOrgSubmissionLock resolves
+    // by name and this only saves a call afterwards.
+    ...(lock.orgRulesetId ? { org_ruleset_id: lock.orgRulesetId } : {}),
     late_policy: assignment.late_policy ?? "report",
     locked_count: lockedCount,
     error_count: errorCount,

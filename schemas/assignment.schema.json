@@ -287,6 +287,11 @@
       "default": true,
       "description": "Whether to lock down student repos after the deadline."
     },
+    "org_scoped_lock": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enforce `late_policy: block` with ONE organization ruleset over the cohort instead of one ruleset per student repository. The repository-scoped ruleset lives in the student's own repository and they are its admin, so they can delete it; an organization one lists as `source_type: \"Organization\"` and they cannot. It is also one call for the whole cohort rather than two per repository, which is what matters at the instant a sentinel fires. DEFAULTS TO FALSE, unlike lock_down_enabled: absent must mean the repository-scoped behaviour every existing assignment already has, and this is opt-in while it is new. Read only when late_policy is `block` - there is nothing to enforce otherwise - and it degrades to repository rulesets and then to demotion, so a free organization (where no ruleset applies to a private repository) is unaffected by setting it."
+    },
     "feedback_pr": {
       "type": "boolean",
       "default": false,
