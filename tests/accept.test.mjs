@@ -1316,6 +1316,65 @@ template:
   assert.equal(rec.reused_existing_repo, undefined, "their own team's repository is not a reuse");
 });
 
+test("an unfrozen repository at a team's name is REFUSED, without being told to", () => {
+  // The security case, and the reason absent means something different here.
+  // `grp-team-a` names a TEAM. A previous run's team-a were different students,
+  // so reuse hands this year's team their repository - with their work in it -
+  // and nothing in provisioning knows. An individual name embeds its own
+  // student's login and cannot do that, which is why the two defaults differ.
+  probe.setRepos({ "grp-team-a": { rulesets: [] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: [], max_members: 4 },
+        },
+      },
+    },
+  );
+  assert.equal(res.outputs.outcome, "rejected:repo-exists");
+  assert.match(res.outputs.reject_reason, /team name is not tied to particular students/);
+});
+
+test("…and a lecturer who explicitly says reuse is still obeyed there", () => {
+  // Derived, never written. A stored answer the system quietly overrode would
+  // be worse than not offering the option at all.
+  probe.setRepos({ "grp-team-a": { rulesets: [] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+existing_repo_policy: reuse
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: [], max_members: 4 },
+        },
+      },
+    },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+});
+
 test("a group repository the assignment has NOT provisioned is still checked", () => {
   // The other direction, and the reason this reads `repo_name` rather than
   // skipping every group assignment: a seeded team nobody has accepted into

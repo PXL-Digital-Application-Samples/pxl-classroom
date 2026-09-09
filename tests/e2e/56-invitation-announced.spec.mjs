@@ -109,6 +109,30 @@ test.describe('56 - An announced invitation', () => {
     await expect(page.locator('.timeout-state')).toContainText(/lecturer can see the reason/i);
   });
 
+  test('a refused student is given the attempt to quote, and never the reason', async ({ page }) => {
+    // "It didn't work" is unanswerable. This names WHICH attempt - the
+    // assignment, the account, the time - so a lecturer reading a list of
+    // refusals knows which one is being asked about.
+    //
+    // NEVER the reason, and that is the constraint the line exists inside: the
+    // hub's only channel to this page is a label on the student's own PUBLIC
+    // acceptance issue, so a per-reason label would be a filterable public list
+    // of which named students are not enrolled. Everything on this line is
+    // already on that issue.
+    await acceptWith(page, [REJECTED_LABEL]);
+    const state = page.locator('.timeout-state');
+    await expect(state).toBeVisible({ timeout: 30000 });
+
+    const reference = state.locator('.reject-reference');
+    await expect(reference).toContainText(`@${STUDENT_1.login}`);
+    // The TITLE, not the slug: a stored value is not a label, and this is a
+    // student-facing surface (DESIGN.md §1.7).
+    await expect(reference).toContainText('Announced Invitation');
+    await expect(reference).not.toContainText(ID);
+    // And no reason, in any of the words the hub uses for one.
+    await expect(state).not.toContainText(/roster|frozen|deadline|cap|claim|rejected:/i);
+  });
+
   test('a group student is told too', async ({ page }) => {
     // The group card is a second reader of the same labels, and it was the
     // copy that would have been left behind: it had no outcome reading at all,

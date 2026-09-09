@@ -85,7 +85,6 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Template repository | pick from template repositories in your org (repositories marked as templates on GitHub). **Fill this first** - it prefills the three fields below it |
 | Title | shown to students. Prefilled from the template's repository name |
 | Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}`. This is the name students see, and it is the key the collision check uses (§5.1) |
-| When a student already owns one | only shown when repositories matching the pattern already exist. **Give them the existing repository** by default — what has always happened, and what you want for a portfolio carried across years. **Turn that student away, and tell me** refuses them by name instead, which is what you want for a lab or an exam where they would otherwise silently miss this year's starter code. A repository frozen by an earlier deadline is refused either way (§5.1.1) |
 | Slug | not a field you fill in: shown under the pattern as a derived value, with **Edit** beside it. It names `assignments/<id>.yml`, the public `broker-<id>` repository students open to accept, and your own link to this assignment - so it is worth reading, and almost never worth changing. Fixed once the assignment exists, because changing it would orphan the YAML file. It is **not** in the student's invitation link, which is a token |
 | Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
@@ -502,17 +501,27 @@ Two things are refused, and both would otherwise fail weeks later, at the deadli
 
 Each is named individually, so one pass of cleanup clears both.
 
-**Repositories that already exist do not refuse the save.** They are reported, and the form asks what to do about them:
+**Repositories that already exist do not refuse the save.** Nothing appears on the form while you type. On an **individual** assignment, pressing Save asks you once:
 
-> 300 repositories in this organization already match this pattern: portfolio-PXL-…
+> ⚠ **This name is already in use**
+>
+> **300** repositories in **PXL-Example** already match `portfolio-{github_login}`.
 >
 > **When a student already owns one**
-> - *Give them the existing repository* — they keep what is in it, and this assignment's starter code is not copied over the top. What you want for work that carries across years, such as a portfolio.
-> - *Turn that student away, and tell me* — they are refused by name rather than quietly starting the assignment without its starter code. What you want for a lab or an exam.
+> - **Give them the existing repository** — they keep what is in it, and this assignment's starter code is not copied over the top. What you want for work that carries across years, such as a portfolio.
+> - **Turn that student away, and tell me** — they are refused by name rather than quietly starting the assignment without its starter code. What you want for a lab or an exam.
+>
+> *A repository locked by an earlier deadline is refused whichever you pick — the student could not have pushed to it.*
+>
+> `Cancel`  `Save as draft`
 
-The count is the **organization's**, not this cohort's. That is why it does not refuse: at the moment you are naming an assignment, nobody has accepted it, so "300 repositories exist" says nothing about how many belong to a student who will actually take it. Usually the answer is none, or the two or three who are repeating the year.
+**It is asked once.** Your answer is stored as `existing_repo_policy`, and every later save of that assignment — a title typo, a new deadline, publishing it — is silent. Changing the **pattern** asks again, because that is a different question about a different set of repositories.
 
-The real check happens at acceptance, one student at a time, where the answer is knowable — see §5.1.1. Leaving the setting alone means *give them the existing repository*, which is what the system has always done.
+The count is the **organization's**, not this cohort's. That is why it does not refuse: at the moment you are naming an assignment, nobody has accepted it, so "300 repositories exist" says nothing about how many belong to a student who will actually take it. Usually the answer is none, or the two or three who are repeating the year. The real check happens at acceptance, one student at a time, where the answer is knowable — see §5.1.1.
+
+**On a team assignment you are not asked, and the answer is always "turn them away."** A repository name is built from `{team_slug}` and carries **no assignment id**, so `grp-team-a` from any earlier assignment is the same name — and that team was different students. Handing it over would give this year's team another cohort's repository with their work in it. An individual name cannot do this: `portfolio-PXL-AnnDeWit` embeds Ann's own login, so the name itself proves whose it is.
+
+If you genuinely want a team assignment to continue from an existing repository, set `existing_repo_policy: reuse` in its YAML by hand. Nothing overrides an answer you gave.
 
 #### 5.1.1 What a student meets when the name is taken
 
@@ -522,12 +531,15 @@ At acceptance, once it knows which student and which repository name, the system
 |---|---|
 | Nothing | The ordinary path: a fresh repository from the template. |
 | A repository frozen by an earlier deadline | **That student is refused**, whatever the assignment says, and the refusal names the ruleset. There is no assignment for which handing somebody a repository they cannot push to is the right outcome. Reopen it (§6.15) or rename it on GitHub, and they can accept. |
-| An ordinary repository | Whatever you chose above. Reused, or that student refused by name. |
+| An ordinary repository, individual assignment | Whatever you chose in the dialog. Reused, or that student refused by name. |
+| An ordinary repository, team assignment | **Refused**, unless the YAML says `existing_repo_policy: reuse`. The name is another team's. |
 | An unreadable answer | Refused. A failed read is not evidence the name is free; it is transient, and the student can try again. |
 
 A refusal here reaches you the same way every other one does — the assignment's detail view, and the tracking issue — naming the student and what was in the way. It is not a red workflow run: a student the system turned away on purpose is an outcome, not a failure.
 
-A **group** repository is shared, so only the first member's acceptance can meet this; for everyone after them the repository exists because their teammate is in it.
+**The student is never told why.** They see *"Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next"*, with the assignment, their account and the time underneath so they can tell you which attempt they mean. The reason is not on that screen deliberately: the only channel to it is a label on their own **public** acceptance issue, and a per-reason label would be a filterable public list of which named students are not enrolled.
+
+A **team** repository is shared, so only the first member's acceptance can meet this. For everyone after them the team's own record already names the repository, so nothing is asked at all — including a student joining a team everybody else has left, whose repository is still there.
 
 Reuse is recorded, so you can tell afterwards which students did not start from this year's template: `reused_existing_repo` is a column in the assignment's **Export CSV** and in the nightly `reports/<id>.csv`. It is empty for a student with no acceptance record — which is not the same as `false`.
 

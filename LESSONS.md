@@ -1803,9 +1803,64 @@ that, and narrowing to the roster does not fix it either: the org in question
 has no roster, which is normal under `roster_mode: open`.
 
 So the question moved to `acceptance/accept.mjs`, where both halves are known -
-this student, this name - and the form keeps a note plus the one question a
-lecturer can answer and the system cannot: reuse the repository, or turn that
-student away. The refusal that remains is per student, by name.
+this student, this name. The refusal that remains is per student, by name.
+
+**And the form got a radio pair, which was the wrong answer twice over.** It
+asked every lecturer in the deployment to have an opinion about a case exactly
+one of them meets, and it sat under the field permanently to do it. The lecturer
+who owns the system read it as clutter, and was right: nobody who worked before
+needs to know this exists, because absent already means reuse and reuse is what
+has always happened.
+
+Three shapes before it was right, and each correction came from the person who
+would have to live with it:
+
+1. **A permanent control under the field.** Clutter for every lecturer, an
+   answer for one.
+2. **A `window.confirm` at Save.** Off the form, but a native dialog is not the
+   app's own surface and cannot carry two options with their explanations. Its
+   first draft also said *"a student who owns one gets it back instead of a
+   fresh copy of the template"* - which is not what happens when the repository
+   is frozen, and frozen is the case that matters most. A sentence asserting an
+   outcome the system may not produce is DESIGN.md 1.5, and the brevity that
+   dropped the exception is exactly how it gets written.
+3. **A dialog, opened by Save, ASKED ONCE.** What fires it is "repositories
+   exist", not "a student will hit one" - so on the one assignment where it does
+   fire it would fire on every later save: the title typo, the deadline, the
+   publish. Same dialog, same answer, four times, which is how a warning becomes
+   something people click past. The answer is stored, so the second save is
+   silent; a changed pattern asks again, being a different question.
+
+### A name that embeds the owner proves ownership. A name that embeds a team does not.
+
+The question "is this existing repository theirs?" was being answered by one
+rule for both kinds of assignment, and it is only true of one of them.
+
+`portfolio-PXL-AnnDeWit` is built from `{github_login}`. Whoever accepts under
+that name IS the student the name is about, so handing the repository back is
+safe by construction - it is hers.
+
+`grp-team-a` is built from `{team_slug}`. Teams are per assignment
+(`teams/<id>/<slug>.json`) but **the repository name is not**: it carries the
+slug and no assignment id, so every assignment that ever had a `team-a` produces
+that same name, and each one's `team-a` was different students. Reuse hands this
+year's team another cohort's repository with their work in it - and provisioning
+has done exactly that, silently, since it was written. Slugs like `team-a` or
+`de-bende` are chosen by students or seeded by a lecturer; they repeat every
+year, which is the point of them.
+
+So an absent policy resolves by assignment type - `reuse` for individual,
+`refuse` for team - **derived and never written**, so an explicit `reuse` is
+still obeyed. And the dialog is not shown on a team assignment at all: there is
+no choice to offer, and asking *"when a student already owns one"* about a team
+would be a control describing something the system does not do.
+
+Two smaller things fell out of it. The refusal has to say WHY in team terms,
+because "this assignment refuses a repository it did not create" is a different
+statement from "that name belonged to another team". And the word matters: the
+UI says **team**, never group, because `class_group` on the roster is an
+unrelated concept that already owns the other word - a distinction the
+Assignment Type fieldset had already made and this nearly undid.
 
 Three things fell out of building it that were not the point of it:
 

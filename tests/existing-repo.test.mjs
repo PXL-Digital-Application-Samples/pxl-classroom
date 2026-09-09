@@ -18,7 +18,7 @@ import {
 
 // ------------------------------------------------------------------ the policy
 
-test("absent means reuse, because reuse is what already happened", () => {
+test("absent means reuse on an individual assignment, because reuse is what already happened", () => {
   // Every assignment written before this field existed has been reusing since
   // the day it was published - provisioning is idempotent on repository
   // existence and always has been. Reading absence as `refuse` would start
@@ -26,6 +26,38 @@ test("absent means reuse, because reuse is what already happened", () => {
   assert.equal(normalizeExistingRepoPolicy(undefined), "reuse");
   assert.equal(normalizeExistingRepoPolicy(null), "reuse");
   assert.equal(normalizeExistingRepoPolicy(""), "reuse");
+  assert.equal(normalizeExistingRepoPolicy(undefined, { assignmentType: "individual" }), "reuse");
+});
+
+test("absent means REFUSE on a group assignment, because the name proves nothing", () => {
+  // `portfolio-PXL-AnnDeWit` can only be Ann's - the name embeds her login. A
+  // group name embeds a TEAM SLUG, and `grp-team-a` from a previous run
+  // belonged to a previous year's team-a: different people. Reuse there hands
+  // this year's team another cohort's repository with their work in it.
+  assert.equal(normalizeExistingRepoPolicy(undefined, { assignmentType: "group" }), "refuse");
+  assert.equal(normalizeExistingRepoPolicy(null, { assignmentType: "group" }), "refuse");
+  assert.equal(normalizeExistingRepoPolicy("", { assignmentType: "group" }), "refuse");
+});
+
+test("a lecturer who says reuse on a group assignment is still obeyed", () => {
+  // Derived, never written: the default resolves at the moment it is needed and
+  // an explicit answer outranks it. Otherwise this would be a stored value the
+  // system quietly overrides, which is worse than not offering the option.
+  assert.equal(normalizeExistingRepoPolicy("reuse", { assignmentType: "group" }), "reuse");
+  assert.equal(normalizeExistingRepoPolicy("refuse", { assignmentType: "individual" }), "refuse");
+});
+
+test("a group refusal says why, and it is not the individual reason", () => {
+  const group = existingRepoVerdict({ exists: true, frozen: false, assignmentType: "group" });
+  assert.equal(group.outcome, "refuse");
+  assert.match(group.note, /team name is not tied to particular students/);
+
+  // An individual assignment that was TOLD to refuse is a different statement:
+  // that repository really is the student's, the lecturer just does not want it
+  // reused. Explaining it with the team reasoning would be a guess.
+  const solo = existingRepoVerdict({ exists: true, frozen: false, policy: "refuse" });
+  assert.equal(solo.outcome, "refuse");
+  assert.doesNotMatch(solo.note, /team name/);
 });
 
 test("only the exact word refuses - anything else is reuse", () => {

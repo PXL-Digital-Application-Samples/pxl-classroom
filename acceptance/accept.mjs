@@ -1043,6 +1043,12 @@ async function main() {
       exists,
       frozen,
       policy: assignment.existing_repo_policy,
+      // Decides what an ABSENT policy means. A `{github_login}` name can only
+      // be its own student's; a `{team_slug}` one names a team, and the
+      // repository name carries the slug WITHOUT the assignment id - so a
+      // previous assignment's `team-a` produces the same name, and its members
+      // were different people.
+      assignmentType: assignment.assignment_type,
     });
     log("existing-repo", { ok: verdict.reject === null, note: `${targetRepo} ${verdict.note}` });
     if (verdict.reject) await reject(verdict.reject, `${org}/${targetRepo} ${verdict.note}`);

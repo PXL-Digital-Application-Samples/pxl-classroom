@@ -399,6 +399,14 @@
             <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
             <h2>You were not able to accept this assignment</h2>
             <p class="text-secondary">{{ rejectionMessage }}</p>
+            <!-- WHICH ATTEMPT, so "it didn't work" becomes something a lecturer
+                 can look up. Never the reason: the hub's only channel to this
+                 page is a label on a PUBLIC issue, and a per-reason label would
+                 publish which named students are not enrolled. Everything here
+                 is already on the student's own acceptance issue. -->
+            <p v-if="rejectionReference" class="reject-reference text-muted">
+              Tell them: <strong>{{ rejectionReference }}</strong>
+            </p>
             <div class="flex justify-center gap-sm mt-md">
               <button class="btn btn-primary" @click="acceptState = 'ready'">Back</button>
               <button class="btn btn-secondary" @click="checkAgain" :disabled="checkingAgain">
@@ -594,6 +602,33 @@ const REJECTION_MESSAGE =
   'Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next.'
 
 const rejectionMessage = computed(() => REJECTION_MESSAGE)
+
+/** When this attempt was refused. Set beside every `acceptState = 'rejected'`. */
+const rejectedAt = ref(null)
+
+/**
+ * What the student can read out to their lecturer.
+ *
+ * NOT the reason - the page does not have it and must not guess. This names the
+ * ATTEMPT, so a lecturer looking at a list of refusals knows which one is being
+ * asked about. Every part of it is already public on the student's own
+ * acceptance issue, so nothing here is disclosed that was not already.
+ *
+ * The TITLE rather than the assignment id: a slug is a stored value and this is
+ * a student-facing surface (DESIGN.md §1.7). The id is the fallback only where
+ * an assignment somehow carries no title, because an unlovely word beats an
+ * empty line.
+ *
+ * Local time and the student's own locale, deliberately - they are reading it
+ * off their own screen to a person in the same room, not filing a bug.
+ */
+const rejectionReference = computed(() => {
+  const what = assignment.value?.title || resolvedId.value
+  const when = rejectedAt.value
+    ? rejectedAt.value.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : ''
+  return [what, user.value?.login ? `@${user.value.login}` : '', when].filter(Boolean).join(' · ')
+})
 const repoCopied = ref(false)
 
 // Student Diagnostics & Account Checker State (1.A)
@@ -982,6 +1017,7 @@ async function checkExistingState() {
       const said = await readAcceptanceOutcome()
       if (isRejection(said)) {
         rejectedCategory.value = said
+        rejectedAt.value = new Date()
         acceptState.value = 'rejected'
         return
       }
@@ -1246,6 +1282,7 @@ function startPolling() {
       const said = await readAcceptanceOutcome()
       if (isRejection(said)) {
         rejectedCategory.value = said
+        rejectedAt.value = new Date()
         acceptState.value = 'rejected'
         return
       }
@@ -1278,6 +1315,7 @@ function startPolling() {
       const outcome = await readAcceptanceOutcome()
       if (outcome) {
         rejectedCategory.value = outcome
+        rejectedAt.value = new Date()
         acceptState.value = 'rejected'
         return
       }

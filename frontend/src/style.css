@@ -1310,6 +1310,41 @@ select:focus {
 .field label { font-weight: 500; font-size: 0.9rem; color: var(--text-secondary); }
 .field small { color: var(--text-muted); font-size: 0.8rem; }
 
+/* --- Alternatives, as rows to choose between -----------------------------
+   Two answers to one question, each carrying its own explanation. Tonal and
+   edge-marked rather than bordered: a full outline would be a box inside a
+   fieldset inside a pane, which is DESIGN.md §1.1's prison, and the inset edge
+   does not move the text when the selection changes.
+
+   HERE RATHER THAN SCOPED, because AdminView's late-work pair and
+   ExistingReposModal both render it. A scoped block cannot cross a component
+   boundary, so the second consumer would have rendered unstyled with no build
+   error and no console warning - the failure DESIGN.md §7 is written about.
+   ------------------------------------------------------------------------ */
+.policy-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-top: var(--space-2xs);
+}
+.policy-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: inset 2px 0 0 transparent;
+}
+.policy-option:hover { background: var(--bg-inset); }
+.policy-option.selected {
+  background: var(--bg-inset);
+  box-shadow: inset 2px 0 0 var(--accent-blue);
+}
+.policy-option input[type="radio"] { margin-top: 3px; flex-shrink: 0; }
+.policy-option-text { display: flex; flex-direction: column; gap: var(--space-2xs); }
+.policy-option-text small { color: var(--text-secondary); }
+
 /* ------------------------------------------------------------------------
    SHARED VOCABULARY THAT WAS DECLARED NOWHERE.
 
@@ -1411,6 +1446,13 @@ th.sortable { cursor: pointer; user-select: none; }
   text-align: center;
   padding: var(--space-xl) var(--space-md);
   color: var(--text-secondary);
+}
+
+/* Which attempt was refused, under the sentence that says one was. Quieter than
+   the message it sits below - it is a thing to read out, not the answer. */
+.reject-reference {
+  margin-top: var(--space-sm);
+  font-size: 0.85rem;
 }
 
 .empty-state {

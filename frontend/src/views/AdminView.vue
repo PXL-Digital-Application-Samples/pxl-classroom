@@ -624,55 +624,6 @@
                 </ul>
               </div>
 
-              <!-- THE QUESTION THE NOTE ABOVE RAISES, asked where they are
-                   already reading about it (DESIGN.md §1.9: say it where they
-                   choose it) and only when repositories were actually found -
-                   on an organization where the name is free it is a question
-                   about nothing.
-
-                   The note deliberately carries no consequence clause, because
-                   this control is the consequence: "a student who owns one is
-                   handed it" belongs in the answer they are choosing between,
-                   not stated twice.
-
-                   Same shape as the late-work pair, and for the same reason -
-                   a second question wearing a checkbox's clothes reads as a
-                   modifier of the first. This one is genuinely a second
-                   question: it is about the repository, not the name. -->
-              <div v-if="collisionRepoCount" class="field existing-repo-policy">
-                <label>When a student already owns one</label>
-                <div class="policy-options">
-                  <label class="policy-option" :class="{ selected: existingRepoPolicy === 'reuse' }">
-                    <input type="radio" v-model="existingRepoPolicy" value="reuse" />
-                    <span class="policy-option-text">
-                      <strong>Give them the existing repository</strong>
-                      <small>
-                        They keep what is in it and this assignment's starter code is not
-                        copied over the top. What you want for work that carries across
-                        years, such as a portfolio.
-                      </small>
-                    </span>
-                  </label>
-                  <label class="policy-option" :class="{ selected: existingRepoPolicy === 'refuse' }">
-                    <input type="radio" v-model="existingRepoPolicy" value="refuse" />
-                    <span class="policy-option-text">
-                      <strong>Turn that student away, and tell me</strong>
-                      <small>
-                        They are refused by name rather than quietly starting the assignment
-                        without its starter code. What you want for a lab or an exam.
-                      </small>
-                    </span>
-                  </label>
-                </div>
-                <!-- One line, in the field's own `small` - a drawer would be
-                     for a decision with more consequence than this. It is here
-                     because it is the reassurance that makes the note safe to
-                     click past: the dangerous case is handled either way. -->
-                <small>
-                  A repository frozen by an earlier deadline is refused whichever you pick -
-                  the student could not push to it.
-                </small>
-              </div>
 
               <small v-if="collisionChecking">Checking whether this name is free…</small>
               <small v-else>
@@ -1526,6 +1477,21 @@
       @confirm="deleteAssignment"
     />
 
+    <!-- THIS NAME IS ALREADY IN USE. Opened by Save, and only when the
+         organization actually holds repositories the pattern would produce -
+         which on a normal course is never. The count and the pattern are
+         passed in; lib/assignment-collision.mjs decided them and the dialog
+         does not re-derive either. -->
+    <ExistingReposModal
+      v-if="existingReposPrompt"
+      :count="existingReposPrompt.count"
+      :org="org"
+      :pattern="existingReposPrompt.pattern"
+      :confirm-label="existingReposPrompt.confirmLabel"
+      @close="answerExistingRepos(null)"
+      @confirm="answerExistingRepos"
+    />
+
     <!-- AUTOMATED CHECKS -->
     <AutogradeModal
       v-if="showAutogradeModal"
@@ -1596,9 +1562,6 @@ import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
 // repository one, it does not live in a student repository and would be left
 // behind, named after an assignment that no longer exists.
 import { findOrgSubmissionLock } from '../../../lib/submission-lock.mjs'
-// Straight from lib/, like the line above: it has no imports of its own, so
-// there is nothing for a shim in frontend/src/lib to keep out of the bundle.
-import { normalizeExistingRepoPolicy } from '../../../lib/existing-repo.mjs'
 import {
   collidingRepoNames,
   clashingAssignments,
@@ -1674,6 +1637,7 @@ import SeedTeamsModal from '../components/SeedTeamsModal.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import AutogradeModal from '../components/AutogradeModal.vue'
 import DeleteAssignmentModal from '../components/DeleteAssignmentModal.vue'
+import ExistingReposModal from '../components/ExistingReposModal.vue'
 import RepublishBrokerModal from '../components/RepublishBrokerModal.vue'
 import Icon from '../components/Icon.vue'
 // Shared with acceptance/accept.mjs and pages/generate.mjs so the three cannot
@@ -2782,11 +2746,13 @@ function emptyForm() {
     // it would silently start throwing away students' late commits on every new
     // assignment - so a lecturer opts in.
     late_policy: 'report',
-    // EMPTY, NOT 'reuse'. Absent means reuse (lib/existing-repo.mjs) and this
-    // question is only asked when the check finds repositories, so seeding a
-    // real value here would write an answer into every assignment where it
-    // never came up - the tri-state trap `org_scoped_lock` and
-    // `template_grades` both fell into. buildDoc omits an empty one.
+    // EMPTY, and no field on the form sets it - the dialog Save opens does,
+    // once, and only on an individual assignment where repositories were
+    // actually found. Absent is "nobody said", which lib/existing-repo.mjs
+    // resolves by assignment type: individual reuses, team refuses. Carried
+    // here and through buildDoc because this editor rebuilds the whole
+    // document, so an answer that was not carried would be deleted by the next
+    // unrelated edit.
     existing_repo_policy: '',
     state: 'draft',
     max_acceptances: 50,
@@ -3093,9 +3059,9 @@ function editAssignment(a) {
     // behaviour the system does not have (DESIGN.md §1.5).
     _cohort_published: a.state && a.state !== 'draft' && Array.isArray(a.cohort) ? [...a.cohort] : [],
     late_policy: a.late_policy || 'report',
-    // Read back as stored, empty when the assignment never answered - `||
-    // 'reuse'` would turn "nobody was asked" into an explicit answer the first
-    // time anyone opened the assignment to change its title.
+    // Read back as stored, empty when the assignment does not say - `||
+    // 'reuse'` would turn silence into an explicit answer the first time
+    // anyone opened the assignment to change its title.
     existing_repo_policy: a.existing_repo_policy || '',
     state: a.state || 'draft',
     // 50 is the default for a NEW assignment (emptyForm), not a value to
@@ -3525,32 +3491,62 @@ const collisionChecking = ref(false)
 // delete. Notes are their own block, in the muted voice, and only when nothing
 // blocks - a refusal is not the moment to also mention a bookkeeping detail.
 const collisionBlockers = computed(() => blockingFindings(collisionVerdict.value))
+// `existing-repos` is deliberately NOT among them - it is said once, in the
+// confirm on the way out of Save (`existingRepoNote`), rather than sitting
+// under the field for every lecturer who reuses a name. What is left is the
+// retired record, which is genuinely worth reading while choosing a name: it
+// says a later delete would overwrite the previous run's grades.
 const collisionNotes = computed(() =>
-  collisionVerdict.value?.clear ? noteFindings(collisionVerdict.value) : [])
+  (collisionVerdict.value?.clear ? noteFindings(collisionVerdict.value) : [])
+    .filter((f) => f.kind !== 'existing-repos'))
 
 /**
- * How many repositories the organization already holds under this pattern.
+ * The existing-repository finding, for the ONE place that reads it: the confirm
+ * on the way out of Save.
  *
- * Read off the finding rather than parsed back out of its sentence, and gated
- * on the note being on screen: the follow-up control asks what to do about
- * these, so it may not appear where the lecturer cannot see what "these" are.
+ * Deliberately not rendered on the form. It is not a refusal - who will accept
+ * is not knowable on this screen, and acceptance decides per student - and a
+ * line under the field asking every lecturer to notice a case almost none of
+ * them meet is clutter for everyone and an answer for nobody. Said once, at the
+ * moment the assignment is actually being created.
+ *
+ * The count is read off the finding rather than parsed back out of its
+ * sentence: a guard reading a string its own module built is the shape this
+ * project keeps rediscovering.
  */
-const collisionRepoCount = computed(
-  () => collisionNotes.value.find((f) => f.kind === 'existing-repos')?.count ?? 0)
+const existingRepoNote = (verdict) =>
+  (verdict?.clear ? noteFindings(verdict) : []).find((f) => f.kind === 'existing-repos') ?? null
 
 /**
- * The radio's selection, which is NOT the stored value.
+ * The dialog's props while it is open, and null when it is not.
  *
- * The getter shows `reuse` for an assignment that never answered, because that
- * is what would happen - a radio pair with neither option filled would be the
- * form asking a question the system has already decided. The setter writes an
- * explicit value, so the document gains one only once a lecturer has actually
- * chosen; `buildAssignmentDoc` omits an empty one.
+ * `v-if` on the parent, so the component is created fresh each time and there
+ * is no selection left over from a previous open to reset (DESIGN.md §6).
  */
-const existingRepoPolicy = computed({
-  get: () => normalizeExistingRepoPolicy(form.value.existing_repo_policy),
-  set: (v) => { form.value.existing_repo_policy = v },
-})
+const existingReposPrompt = ref(null)
+
+/**
+ * Open it and wait, because the save cannot continue until a person answers.
+ *
+ * A resolver held outside the ref rather than inside it: what is on screen is
+ * the parent's state, and putting a function in reactive data makes Vue proxy
+ * it. Resolves with the chosen policy, or `null` for Cancel - `null` rather
+ * than `false` because the answers are strings and a falsy string would be
+ * indistinguishable from a refusal to answer.
+ */
+let existingReposResolve = null
+function askExistingRepos({ count, pattern, confirmLabel }) {
+  existingReposPrompt.value = { count, pattern, confirmLabel }
+  return new Promise((resolve) => { existingReposResolve = resolve })
+}
+function answerExistingRepos(policy) {
+  existingReposPrompt.value = null
+  const resolve = existingReposResolve
+  existingReposResolve = null
+  // Guarded: a second close event after the first would resolve a settled
+  // promise, which is harmless, and calling null is not.
+  if (resolve) resolve(policy)
+}
 
 // The remedy names no year and composes no name: nothing here knows whether
 // any particular replacement is free, so it states the requirement - the name
@@ -3809,6 +3805,60 @@ async function saveAssignment(stateOverride = null) {
       touchedFields.value.repository_name_pattern = true
       toast.error(`"${slug}" would collide with something that already exists. See the form.`)
       return false
+    }
+
+    // AND THE ONE THING THAT DOES NOT REFUSE, asked once, in a dialog.
+    //
+    // Repositories the pattern would produce already existing is not a
+    // refusal - who will accept is not knowable on this screen, and the
+    // judgement is acceptance/accept.mjs step 7 (§5.1.1). It is worth asking
+    // about once, and this is the moment: a permanent control under the field
+    // asked every lecturer to have an opinion about a case almost none of them
+    // meet, and read as clutter for the rest.
+    //
+    // ASKED ONCE is the load-bearing half. What fires this is "repositories
+    // matching the pattern exist", which is not "a student in this cohort will
+    // hit one" - that second question cannot be answered here, which is the
+    // whole reason the judgement lives in acceptance. So on the one assignment
+    // where it does fire, it would fire on every later save too: the title
+    // typo, the new deadline, the publish. Same dialog, same answer, four
+    // times, which is how a warning becomes something people click past
+    // without reading.
+    //
+    // It asks while the assignment has no recorded answer, and stops once it
+    // has one. A CHANGED PATTERN asks again, because it is a different question
+    // about a different set of repositories and the stored answer was not given
+    // about them.
+    // NOT ON A TEAM ASSIGNMENT, and that is not an omission. There the answer
+    // is fixed: a `{team_slug}` name is not tied to any student, and the
+    // repository name carries the slug without the assignment id - so a
+    // repository already at it belonged to a DIFFERENT team, and handing it
+    // over would give this year's team another cohort's work.
+    // `lib/existing-repo.mjs` refuses it, and a dialog offering a choice that
+    // does not exist would be a control describing behaviour the system does
+    // not have (DESIGN.md §1.5) - as would asking "when a student already owns
+    // one" about a team. (`group` is the stored value; the UI says team.)
+    const found = form.value.assignment_type === 'group' ? null : existingRepoNote(verdict)
+    const storedPattern = assignments.value.find((a) => a.id === slug)?.repository_name_pattern
+    const answered = !!form.value.existing_repo_policy &&
+      (!storedPattern || storedPattern === pattern)
+    if (found && !answered) {
+      // The label of the button that opened this, derived the same way the
+      // buttons themselves derive it rather than passed down through three
+      // callers - a third spelling of "Save & publish" is a third place for it
+      // to drift. `saveAssignment()` with no override is saveAndPublish's
+      // already-published path, which is the primary button reading `Save`.
+      const chosen = await askExistingRepos({
+        count: found.count,
+        pattern,
+        confirmLabel: stateOverride === 'draft'
+          ? 'Save as draft'
+          : (form.value.state === 'published' ? 'Save' : 'Save & publish'),
+      })
+      if (chosen === null) return false
+      // Recorded, so this is the last time it is asked for this assignment.
+      // buildDoc writes it; absent still means "never came up".
+      form.value.existing_repo_policy = chosen
     }
   }
   saving.value = true
@@ -4806,42 +4856,11 @@ legend {
   .cohort-num, .cohort-acct { display: none; }
 }
 
-/* Late-work alternatives. Tonal, not bordered - see the template note. */
-.policy-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
-  margin-top: var(--space-2xs);
-}
-.policy-option {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-  padding: var(--space-sm);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  /* An inset edge rather than a border: it does not move the text when the
-     selection changes, and a full outline here would be a nested box. */
-  box-shadow: inset 2px 0 0 transparent;
-}
-.policy-option:hover { background: var(--bg-inset); }
-.policy-option.selected {
-  background: var(--bg-inset);
-  box-shadow: inset 2px 0 0 var(--accent-blue);
-}
-.policy-option input[type="radio"] { margin-top: 3px; flex-shrink: 0; }
-.policy-option-text { display: flex; flex-direction: column; gap: var(--space-2xs); }
-.policy-option-text small { color: var(--text-secondary); }
-/* The follow-up the collision note raises, nested inside the pattern's own
-   `.field`. A divider rather than a box: this is already inside a fieldset
-   inside the editor pane, so an outline here would be DESIGN.md §1.1's third
-   one. The rule separates it from the note it answers without claiming to be a
-   separate section. */
-.existing-repo-policy {
-  margin-top: var(--space-sm);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--border-subtle);
-}
+/* The late-work alternatives used to be declared here. They moved to
+   style.css when ExistingReposModal.vue started using the same vocabulary:
+   a scoped block cannot reach another component, so leaving them would have
+   rendered that dialog's options completely unstyled, with no build error and
+   no console warning (DESIGN.md §7). */
 .field input[type="text"],
 .field input[type="number"],
 .field input[type="datetime-local"],

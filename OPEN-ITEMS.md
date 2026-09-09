@@ -261,6 +261,28 @@ sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs 
 
 ---
 
+## 9. A team repository's name drops the assignment, so team names collide across assignments
+
+**Status: open — mitigated, not fixed.** Found 2026-09-09, while building the existing-repository check.
+
+`{team_slug}` carries the slug and **drops the assignment**. Teams themselves are per assignment — `teams/<id>/<slug>.json` — but the repository name is not, so two assignments with a `team-a` produce the same repository name and their members are different people. Slugs like `team-a` or `de-bende` repeat every year, whether students pick them self-service or a lecturer seeds them; repeating is what they are for.
+
+Provisioning is idempotent on repository existence, so before 2026-09-09 the first member of this year's `team-a` was silently handed the previous cohort's `grp-team-a` — with their work in it, and their names in its history. Nothing on any screen said so.
+
+**What the mitigation does.** `lib/existing-repo.mjs` resolves an absent `existing_repo_policy` to `refuse` for a team assignment, so that acceptance is turned away and the lecturer is told by name. It is derived rather than written, so a lecturer who deliberately sets `reuse` is still obeyed. The exposure is closed; the collision is not.
+
+**Why that is a mitigation.** The name is still ambiguous by construction. A lecturer who hits it has to rename the assignment's pattern, and nothing warns them at creation — the check cannot know, at that moment, which team slugs students have not chosen yet. An individual assignment cannot have this problem at all: `{github_login}` embeds the owner, so the name proves whose it is.
+
+**The fix, if it is taken,** is for a team pattern to carry something assignment-specific by default — the form prefills `repository_name_pattern` from the slug already, so `lab-3-{team_slug}` is what a lecturer gets unless they delete the prefix. What is missing is anything that *stops* them, and a rule that a team pattern must contain more than the placeholder would be enforceable in `lib/assignment-collision.mjs` beside the checks already there.
+
+**How to tell it is closed:** a team pattern that is only the placeholder is refused. Today it saves:
+
+```bash
+node -e "import('./lib/assignment-collision.mjs').then(m => console.log(m.repoNameMatcher('{team_slug}') ? 'accepted - still open' : 'refused'))"
+```
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system, not against a changelog — 2026-08-31 unless the row says otherwise.

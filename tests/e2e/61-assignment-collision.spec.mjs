@@ -175,6 +175,31 @@ const patternField = (page) => page.locator('.field:has(label:text-matches("^Rep
 const refusal = (page) => patternField(page).locator('.field-error-msg');
 const note = (page) => patternField(page).locator('.collision-note');
 
+/** The dialog Save raises when the organization already holds matching names. */
+const reposModal = (page) => page.locator('.modal-existing-repos');
+
+/**
+ * Save, and answer the dialog if it opens.
+ *
+ * `answer` is 'reuse', 'refuse', or null to cancel. It waits a beat rather than
+ * for the dialog, because "it did not open" is a real and frequently asserted
+ * outcome here - waiting for a locator that must not appear is how an absence
+ * assertion becomes a timeout, and the caller checks `.count()` itself.
+ */
+async function saveAnswering(page, answer, button = 'Save as draft') {
+  await page.getByRole('button', { name: button }).first().click();
+  const modal = reposModal(page);
+  await page.waitForTimeout(400);
+  if (await modal.count() === 0) return false;
+  if (answer === null) {
+    await modal.getByRole('button', { name: 'Cancel' }).click();
+  } else {
+    await modal.locator(`input[value="${answer}"]`).check();
+    await modal.getByRole('button', { name: button }).click();
+  }
+  return true;
+}
+
 async function expectNoWrite(page, writes) {
   await saveDraft(page).click();
   await page.waitForTimeout(300);
@@ -262,80 +287,112 @@ test.describe('the name is free', () => {
 });
 
 test.describe('the name is taken', () => {
-  test('an existing student repository NOTES and is named - and the assignment saves', async ({ page }) => {
+  test('existing repositories say NOTHING on the form - they are not a refusal', async ({ page }) => {
     // It refused until 2026-09-09, over a question this screen cannot answer:
     // who will accept. A real course hit it with `portfolio-{github_login}` on
     // an org holding 300 portfolios from previous years, of which perhaps two
     // belonged to a student who would accept - and the two ways forward were
     // rename the assignment or delete 300 students' work.
-    const writes = await openAdmin(page, {
-      orgRepos: ['lab-3-alice', 'lab-3-bob', 'unrelated-repo'],
-    });
+    //
+    // And nothing renders under the field either. One lecturer in the
+    // deployment meets this; a permanent line asking the rest to notice it is
+    // clutter for everyone and an answer for nobody.
+    await openAdmin(page, { orgRepos: ['lab-3-alice', 'lab-3-bob', 'unrelated-repo'] });
     await fillNew(page);
 
     await expect(refusal(page)).toHaveCount(0);
-    await expect(note(page)).toContainText('lab-3-alice, lab-3-bob');
-    await saveDraft(page).click();
-    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    await expect(note(page)).toHaveCount(0);
   });
 
-  test('a DIFFERENT id pointing at an occupied pattern is noted too', async ({ page }) => {
+  test('…it is asked once, in a dialog Save opens', async ({ page }) => {
+    await openAdmin(page, { orgRepos: ['lab-3-alice', 'lab-3-bob', 'unrelated-repo'] });
+    await fillNew(page);
+    await saveDraft(page).click();
+
+    const modal = reposModal(page);
+    await expect(modal).toBeVisible();
+    // The count, the organization and the pattern - so a lecturer can tell
+    // whether it is 300 of everybody's or two of theirs.
+    await expect(modal).toContainText(`2`);
+    await expect(modal).toContainText(ORG);
+    await expect(modal).toContainText('lab-3-{github_login}');
+    // Reuse pre-selected: it is what already happens, and a pair with neither
+    // filled would ask a question the system has already answered.
+    await expect(modal.locator('.policy-option.selected')).toContainText('Give them the existing repository');
+    // BOTH outcomes named. "they get it back" alone asserts something the
+    // system does not always do - a frozen repository refuses that student -
+    // and it would be wrong in the case that matters most (DESIGN.md §1.5).
+    await expect(modal).toContainText('locked by an earlier deadline is refused whichever you pick');
+  });
+
+  test('the confirming button echoes the one that was clicked', async ({ page }) => {
+    // The dialog interrupts an action the lecturer asked for; offering a
+    // differently-named one asks whether it still does what they clicked.
+    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+    await saveDraft(page).click();
+    await expect(reposModal(page).getByRole('button', { name: 'Save as draft' })).toBeVisible();
+
+    await reposModal(page).getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: 'Save & publish' }).first().click();
+    await expect(reposModal(page).getByRole('button', { name: 'Save & publish' })).toBeVisible();
+  });
+
+  test('choosing reuse saves, and records the answer', async ({ page }) => {
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice', 'lab-3-bob'] });
+    await fillNew(page);
+    expect(await saveAnswering(page, 'reuse')).toBe(true);
+
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    // RECORDED, and that is what makes not asking again honest rather than
+    // forgetful: absent means "never came up", set means "asked, and this is
+    // what they said".
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .toContain('existing_repo_policy: reuse');
+  });
+
+  test('choosing refuse saves that instead', async ({ page }) => {
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+    expect(await saveAnswering(page, 'refuse')).toBe(true);
+
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .toContain('existing_repo_policy: refuse');
+  });
+
+  test('Cancel means cancel - nothing is written', async ({ page }) => {
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+    expect(await saveAnswering(page, null)).toBe(true);
+
+    await page.waitForTimeout(300);
+    expect(writes.filter((w) => w.path.startsWith('assignments/'))).toHaveLength(0);
+  });
+
+  test('a DIFFERENT id pointing at an occupied pattern is caught too', async ({ page }) => {
     // The whole reason the check is on the pattern rather than the id: this
     // looks like a brand new assignment and would hand out lab-3's
-    // repositories. Still true, and still reported - it is the consequence
-    // that moved, not the detection.
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    // repositories. Still detected - it is the consequence that moved.
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page, { title: 'Lab 3 v2', slug: 'lab-3-v2', pattern: 'lab-3-{github_login}' });
-
-    await expect(refusal(page)).toHaveCount(0);
-    await expect(note(page)).toContainText('lab-3-alice');
+    expect(await saveAnswering(page, 'reuse')).toBe(true);
+    await expect.poll(() => writes.filter((w) => w.path === 'assignments/lab-3-v2.yml').length).toBe(1);
   });
 
-  test('the note asks what to do about them, and offers reuse first', async ({ page }) => {
-    // The question the note raises, asked where the lecturer is reading about
-    // it. `reuse` is what provisioning has always done, so it is the selected
-    // one until somebody says otherwise.
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+  test('nothing is asked where the name is free', async ({ page }) => {
+    // A dialog over nothing is a question about nothing, and it would land on
+    // every lecturer in the deployment rather than the one who meets this.
+    const writes = await openAdmin(page, { orgRepos: ['pxl-classroom-control', 'starter-template'] });
     await fillNew(page);
+    expect(await saveAnswering(page, 'reuse')).toBe(false, 'the dialog must not open');
 
-    const control = page.locator('.existing-repo-policy');
-    await expect(control).toBeVisible();
-    await expect(control).toContainText('When a student already owns one');
-    await expect(control.locator('.policy-option.selected')).toContainText('Give them the existing repository');
-    // The dangerous case is handled either way, and it says so - that is what
-    // makes the note safe to click past.
-    await expect(control).toContainText('frozen by an earlier deadline is refused whichever you pick');
-  });
-
-  test('and the question is not asked where the name is free', async ({ page }) => {
-    // A control that renders over nothing is a question about nothing.
-    await openAdmin(page, { orgRepos: ['pxl-classroom-control', 'starter-template'] });
-    await fillNew(page);
-    await expect(page.locator('.existing-repo-policy')).toHaveCount(0);
-  });
-
-  test('choosing refuse is written to the assignment; leaving it alone writes nothing', async ({ page }) => {
-    // The tri-state. Absent means reuse, so a form that wrote `reuse` on every
-    // save would turn "never came up" into a recorded decision - the trap
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    // And nothing is recorded either: the question never came up, and writing
+    // `reuse` anyway would turn silence into a decision - the tri-state trap
     // org_scoped_lock and template_grades both fell into.
-    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
-    await fillNew(page);
-
-    await saveDraft(page).click();
-    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
-    const untouched = writes.find((w) => w.path === `assignments/${ID}.yml`);
-    expect(untouched.content).not.toContain('existing_repo_policy');
-  });
-
-  test('…and choosing refuse IS written', async ({ page }) => {
-    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
-    await fillNew(page);
-
-    await page.locator('.existing-repo-policy input[value="refuse"]').check();
-    await saveDraft(page).click();
-    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
-    const doc = writes.find((w) => w.path === `assignments/${ID}.yml`);
-    expect(doc.content).toContain('existing_repo_policy: refuse');
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .not.toContain('existing_repo_policy');
   });
 
   test('another LIVE assignment already using the pattern blocks, and is named', async ({ page }) => {
@@ -473,11 +530,12 @@ test.describe('the name is taken', () => {
     // match would report a name free that cannot be created.
     await openAdmin(page, { orgRepos: ['Lab-3-Alice'] });
     await fillNew(page);
-    await expect(note(page)).toContainText('Lab-3-Alice');
+    await saveDraft(page).click();
+    await expect(reposModal(page)).toContainText('1 repository');
   });
 
-  test('a group pattern collides on the team repositories', async ({ page }) => {
-    await openAdmin(page, { orgRepos: ['lab-3-team-alpha', 'lab-3-team-beta'] });
+  test('a TEAM pattern is not asked about at all - the answer is fixed', async ({ page }) => {
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-team-alpha', 'lab-3-team-beta'] });
     await page.locator('.new-btn').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab 3');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
@@ -486,16 +544,32 @@ test.describe('the name is taken', () => {
     const pat = page.getByPlaceholder('linux-processes-{github_login}');
     await pat.fill('lab-3-{team_slug}');
     await pat.blur();
-    await expect(note(page)).toContainText('lab-3-team-alpha, lab-3-team-beta');
+    await saveDraft(page).click();
+
+    // NO DIALOG on a team assignment. There is no choice to offer: a team slug
+    // is not tied to any student, and the repository name carries the slug
+    // without the assignment id - so a repository already at that name belonged
+    // to a DIFFERENT team, and it is refused at acceptance. Asking "when a
+    // student already owns one" about a team would be a control describing
+    // behaviour the system does not have.
+    await expect(reposModal(page)).toHaveCount(0);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    // And nothing is recorded, so the default keeps deciding.
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .not.toContain('existing_repo_policy');
   });
 
   test('a huge cohort is counted, not printed', async ({ page }) => {
     // 200 is the shape of the case this whole change is about: a number that
-    // says nothing about how many of them belong to a student who will accept.
+    // says nothing about how many of them belong to a student who will accept,
+    // which is why it is one sentence at save and not a wall of names.
     await openAdmin(page, { orgRepos: Array.from({ length: 200 }, (_, i) => `lab-3-s${i}`) });
     await fillNew(page);
-    await expect(note(page)).toContainText('200 repositories');
-    await expect(note(page)).toContainText('…');
+    await saveDraft(page).click();
+    await expect(reposModal(page)).toContainText('200');
+    // The names are NOT in it. Two hundred of them is a wall nobody reads, and
+    // the count is the part that carries the decision.
+    await expect(reposModal(page)).not.toContainText('lab-3-s0');
   });
 });
 
@@ -699,18 +773,17 @@ test.describe('an existing assignment', () => {
     // one you wanted. It went through in silence, because this branch only ever
     // looked at other assignments - and it is the natural move for a lecturer
     // who has just been told no, written down in RUNBOOK §5.1.
-    await open(page, { orgRepos: ['portfolio-alice', 'portfolio-bob'] });
+    const writes = await open(page, { orgRepos: ['portfolio-alice', 'portfolio-bob'] });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
     const pat = page.getByPlaceholder('linux-processes-{github_login}');
     await pat.fill('portfolio-{github_login}');
     await pat.blur();
 
-    await expect(note(page)).toContainText('portfolio-alice, portfolio-bob');
-    // A note, not a refusal - same as at creation. What it buys is that the
-    // lecturer sees the same list and is asked the same question rather than
-    // walking past both.
+    // Not a refusal - same as at creation. What it buys is that the lecturer is
+    // asked once rather than walking past it in silence.
     await expect(refusal(page)).toHaveCount(0);
-    await expect(page.locator('.existing-repo-policy')).toBeVisible();
+    expect(await saveAnswering(page, 'reuse')).toBe(true);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
   });
 
   test('…and widening its own pattern does not report its own cohort back at it', async ({ page }) => {
