@@ -603,17 +603,41 @@ test.describe('the name is taken', () => {
     await pat.blur();
     await saveDraft(page).click();
 
-    // NO DIALOG on a team assignment. There is no choice to offer: a team slug
-    // is not tied to any student, and the repository name carries the slug
-    // without the assignment id - so a repository already at that name belonged
-    // to a DIFFERENT team, and it is refused at acceptance. Asking "when a
-    // student already owns one" about a team would be a control describing
-    // behaviour the system does not have.
-    await expect(reposModal(page)).toHaveCount(0);
+    // TOLD, NOT ASKED. There is no choice to offer - a team slug names a team
+    // rather than a student, so a repository already at that name belonged to a
+    // DIFFERENT team and is refused at acceptance whatever anybody picks. But
+    // it still has to be said: suppressing the question suppressed the warning
+    // with it, and the lecturer only found out when the first team was turned
+    // away mid-cohort.
+    const modal = reposModal(page);
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('will be turned away');
+    await expect(modal).toContainText('may be a previous team');
+    // No radios: there is nothing to choose.
+    await expect(modal.locator('.policy-option')).toHaveCount(0);
+
+    await modal.getByRole('button', { name: 'Save as draft' }).click();
     await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
     // And nothing is recorded, so the default keeps deciding.
     expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
       .not.toContain('existing_repo_policy');
+  });
+
+  test('a team assignment that says reuse is not warned about a refusal that will not happen', async ({ page }) => {
+    // The warning's whole sentence is "a team whose name matches will be turned
+    // away", and that is false for an assignment whose YAML says `reuse`.
+    // A warning that does not apply is DESIGN.md §1.5.
+    const writes = await openAdmin(page, {
+      assignments: { [ID]: liveAssignment(ID, `${ID}-{team_slug}`, { assignment_type: 'group', existing_repo_policy: 'reuse' }) },
+      orgRepos: [`${ID}-team-alpha`],
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    await pat.fill(`${ID}-v2-{team_slug}`);
+    await pat.blur();
+
+    expect(await saveAnswering(page, 'reuse'), 'no dialog for an explicit reuse').toBe(false);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
   });
 
   test('a huge cohort is counted, not printed', async ({ page }) => {

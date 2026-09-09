@@ -297,7 +297,7 @@
                  the students who need it. -->
             <p v-if="sawInvitation" class="text-muted invitation-aftermath">
               GitHub may also email you about a repository invitation. You have already
-              accepted it — you can ignore that email.
+              accepted it, so you can ignore that email.
             </p>
 
             <!-- Student Submission Status & Deadline Countdown Card -->

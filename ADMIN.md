@@ -113,9 +113,9 @@ Lecturers trigger **Publish** from the Admin Panel and **Retry acceptance** from
 
 ### 1.5 Changing the budget owner, or adding SKU overrides
 
-**Onboarding already registered the budget owner** — §1.2 takes it as a required input and Setup Organization writes it. This section is for changing it later, or adding per-org thresholds.
+**Onboarding already registered the budget owner** - §1.2 takes it as a required input and Setup Organization writes it. This section is for changing it later, or adding per-org thresholds.
 
-Edit `participating-orgs.yml` on the `participating-orgs` branch — carefully, because automation appends to this file from a Linux runner and an editor that saves UTF-16 produces a mixed-encoding file that breaks every cron (§5.6). Save as UTF-8, LF, no BOM.
+Edit `participating-orgs.yml` on the `participating-orgs` branch - carefully, because automation appends to this file from a Linux runner and an editor that saves UTF-16 produces a mixed-encoding file that breaks every cron (§5.6). Save as UTF-8, LF, no BOM.
 
 ```yaml
 orgs:
@@ -355,13 +355,13 @@ Run **Actions -> Weekly Usage Report** and read the `installation-approvals` job
 
 | Class | Reported as |
 |---|---|
-| A **participating** org that has not approved | `::error` naming the org and its Review-request URL — fails the run |
-| A participating org with **no installation at all** | `::error` — nothing can be provisioned there |
-| An installation **not in `participating-orgs.yml`** | `::notice` — named, but does not fail the run |
+| A **participating** org that has not approved | `::error` naming the org and its Review-request URL - fails the run |
+| A participating org with **no installation at all** | `::error` - nothing can be provisioned there |
+| An installation **not in `participating-orgs.yml`** | `::notice` - named, but does not fail the run |
 
 The third class exists because the App is publicly **listed**: hub-and-spoke needs it to be, since each course org is a separate organization and a private App can only be installed on the account that owns it. So any GitHub account can install it, and one unrelated org did on 2026-08-22. It grants them nothing in a PXL org, and failing every Sunday over an org nobody can make approve anything would make the check unreadable.
 
-It reports `DID NOT RUN` rather than a false all-clear when the credentials are absent or the API is unreadable, and if `participating-orgs.yml` itself cannot be read it warns and treats **every** installation as participating — over-reporting rather than silencing real gaps. Locally:
+It reports `DID NOT RUN` rather than a false all-clear when the credentials are absent or the API is unreadable, and if `participating-orgs.yml` itself cannot be read it warns and treats **every** installation as participating - over-reporting rather than silencing real gaps. Locally:
 
 ```bash
 PXL_APP_CLIENT_ID=... PXL_APP_PRIVATE_KEY="$(cat key.pem)" node scripts/check-installation-approvals.mjs

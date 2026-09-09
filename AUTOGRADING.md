@@ -32,7 +32,7 @@ After the deadline, read the scores (below).
 
 ## 2. Exam: grade only the hand-in commit
 
-Use this when the checks cannot be re-run later — they read the student's own AWS or Azure account, and that account is gone when the lab session ends. The score has to be taken while the student is still working.
+Use this when the checks cannot be re-run later - they read the student's own AWS or Azure account, and that account is gone when the lab session ends. The score has to be taken while the student is still working.
 
 Your template's workflow needs the gate:
 
@@ -56,7 +56,7 @@ A hand-in after the deadline is never graded. That student appears by name with 
 
 The panel reads your template and says what it grades on. If it finds no grading workflow:
 
-1. Type the hand-in message first, if you want one — it is written into the file.
+1. Type the hand-in message first, if you want one - it is written into the file.
 2. **Add a starter workflow**. This commits `.github/workflows/classroom.yml` to your template repository.
 3. Open that file and replace the `example` step with your own checks.
 
@@ -78,8 +78,8 @@ For checks students must not see, or grading you run yourself after the deadline
 
 1. **I define them here**.
 2. **Where do they run?**
-   * *On your machine* — no Actions minutes, checks never reach the student repository, you run the CLI after the deadline.
-   * *In each student's repo* — runs on every push on the organisation's Actions minutes, student sees a pass/fail each time, and **the checks are committed to their repository where they can read them**. If that is not acceptable, the answer is *on your machine*; there is no third option.
+   * *On your machine* - no Actions minutes, checks never reach the student repository, you run the CLI after the deadline.
+   * *In each student's repo* - runs on every push on the organisation's Actions minutes, student sees a pass/fail each time, and **the checks are committed to their repository where they can read them**. If that is not acceptable, the answer is *on your machine*; there is no third option.
 3. Add checks. Three starting points, each pre-filled: a command that must succeed, compare output for given input, a Python script.
 
 A blank points box is not zero. If a check is worth nothing, type `0`.
@@ -149,7 +149,7 @@ There is no per-check breakdown on this path. The workflow reports one total, an
 
 ## When a student has no score
 
-They are listed by name in the Autograder panel with the reason. They are **not** scored zero — nothing ran, so nothing was measured.
+They are listed by name in the Autograder panel with the reason. They are **not** scored zero - nothing ran, so nothing was measured.
 
 | What it says | What happened |
 | :--- | :--- |

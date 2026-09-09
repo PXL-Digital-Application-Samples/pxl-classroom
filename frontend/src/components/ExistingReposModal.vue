@@ -27,7 +27,24 @@
           already {{ count === 1 ? 'matches' : 'match' }} <code>{{ pattern }}</code>.
         </p>
 
-        <div class="field">
+        <!-- A TEAM ASSIGNMENT IS TOLD, NOT ASKED. There is no choice to offer:
+             a team slug names a team rather than a student, and the repository
+             name carries the slug without the assignment, so a repository
+             already at that name belonged to a different team. It is refused at
+             acceptance whatever anybody picks.
+
+             But it still has to be SAID here. Suppressing the question
+             suppressed the warning with it, and nothing else on this form
+             mentions it - so the lecturer published, students formed teams, and
+             the first team whose name collided was turned away mid-cohort over
+             something that was knowable at this click. -->
+        <p v-if="teams" class="text-sm existing-repos-warn">
+          A team whose name matches one of them will be turned away. A team name
+          is not tied to particular students, so it may be a previous team's
+          repository.
+        </p>
+
+        <div v-else class="field">
           <label id="existing-repos-q">When a student already owns one</label>
           <div class="policy-options" role="radiogroup" aria-labelledby="existing-repos-q">
             <label class="policy-option" :class="{ selected: policy === 'reuse' }">
@@ -57,7 +74,7 @@
                "a student may be handed a repository they cannot push to",
                which is the one thing that never happens. -->
           <small>
-            A repository locked by an earlier deadline is refused whichever you pick — the
+            A repository locked by an earlier deadline is refused whichever you pick. The
             student could not have pushed to it.
           </small>
         </div>
@@ -65,7 +82,9 @@
 
       <footer class="modal-foot flex justify-end gap-sm">
         <button class="btn btn-secondary" type="button" @click="emit('close')">Cancel</button>
-        <button class="btn btn-primary" type="button" @click="emit('confirm', policy)">
+        <!-- `null` for a team assignment: nothing was chosen, so nothing is
+             recorded, and the default keeps deciding. -->
+        <button class="btn btn-primary" type="button" @click="emit('confirm', teams ? null : policy)">
           {{ confirmLabel }}
         </button>
       </footer>
@@ -110,6 +129,13 @@ defineProps({
    * still does what they clicked.
    */
   confirmLabel: { type: String, required: true },
+  /**
+   * A team assignment, which is told rather than asked. Named for what it IS
+   * rather than for what it hides: `hideChoice` would describe this dialog,
+   * `teams` describes the assignment, and the reason there is no choice is a
+   * fact about team names.
+   */
+  teams: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['close', 'confirm'])
@@ -147,6 +173,13 @@ const { el, onKeydown } = useFocusTrap()
 
 .existing-repos-lede {
   margin: 0;
+}
+
+/* What a team assignment gets instead of the question. Same weight as the lede
+   above it: it is the consequence, not an aside. */
+.existing-repos-warn {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 .modal-foot {

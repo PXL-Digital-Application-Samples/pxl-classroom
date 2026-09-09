@@ -92,7 +92,7 @@ The deadline asks you two things, and they are two different questions.
 **After the deadline, work a student pushes…**
 
 - **still counts.** Late commits are collected and marked late in the report. Nothing is blocked. This is the default.
-- **does not count.** Students can no longer push after the deadline. The submission is the last commit dated before it. The block is placed above their repository, so a student cannot lift it themselves — they keep admin, Actions and secrets, and simply cannot push.
+- **does not count.** Students can no longer push after the deadline. The submission is the last commit dated before it. The block is placed above their repository, so a student cannot lift it themselves - they keep admin, Actions and secrets, and simply cannot push.
 
 **The student's repository…**
 

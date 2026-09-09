@@ -1487,8 +1487,9 @@
       :count="existingReposPrompt.count"
       :org="org"
       :pattern="existingReposPrompt.pattern"
+      :teams="existingReposPrompt.teams"
       :confirm-label="existingReposPrompt.confirmLabel"
-      @close="answerExistingRepos(null)"
+      @close="answerExistingRepos(false)"
       @confirm="answerExistingRepos"
     />
 
@@ -2629,7 +2630,13 @@ watch(() => form.value.template, (newVal) => {
 })
 
 watch(() => form.value.id, (newId) => {
-  if (isNew.value && !manualRepositoryNamePattern.value) {
+  // OR THE FIELD IS EMPTY, whatever the manual flag says. The flag means "the
+  // lecturer is managing this themselves", and it is set by an `@input` - which
+  // fires when somebody clicks in, types a character and deletes it again.
+  // Leaving that person with a permanently empty pattern is the same trap the
+  // `{slug}` seed was, one step over: an empty field cannot be a deliberate
+  // choice, because it is not a savable value.
+  if (isNew.value && (!manualRepositoryNamePattern.value || !form.value.repository_name_pattern)) {
     const isGrp = form.value.assignment_type === 'group'
     // No id yet means no pattern yet. It used to fall back to
     // "{slug}-{github_login}", which is not a placeholder deriveRepoName
@@ -3556,13 +3563,15 @@ const existingRepoAnsweredFor = ref('')
  *
  * A resolver held outside the ref rather than inside it: what is on screen is
  * the parent's state, and putting a function in reactive data makes Vue proxy
- * it. Resolves with the chosen policy, or `null` for Cancel - `null` rather
- * than `false` because the answers are strings and a falsy string would be
- * indistinguishable from a refusal to answer.
+ * it. THREE outcomes, not two: the chosen policy, `null` when a team
+ * assignment confirms (it was told rather than asked, so there is nothing to
+ * record), and `false` for Cancel. Collapsing the last two into one falsy value
+ * would make "confirmed without choosing" indistinguishable from "did not
+ * confirm", and the save would silently stop.
  */
 let existingReposResolve = null
-function askExistingRepos({ count, pattern, confirmLabel }) {
-  existingReposPrompt.value = { count, pattern, confirmLabel }
+function askExistingRepos({ count, pattern, teams, confirmLabel }) {
+  existingReposPrompt.value = { count, pattern, teams, confirmLabel }
   return new Promise((resolve) => { existingReposResolve = resolve })
 }
 function answerExistingRepos(policy) {
@@ -3864,7 +3873,19 @@ async function saveAssignment(stateOverride = null) {
     // does not exist would be a control describing behaviour the system does
     // not have (DESIGN.md §1.5) - as would asking "when a student already owns
     // one" about a team. (`group` is the stored value; the UI says team.)
-    const found = form.value.assignment_type === 'group' ? null : existingRepoNote(verdict)
+    // A TEAM ASSIGNMENT IS TOLD, NOT ASKED, and it used to be neither.
+    // Suppressing the question suppressed the warning with it, so a lecturer
+    // published, students formed teams, and the first team whose name collided
+    // was turned away mid-cohort over something knowable at this click.
+    //
+    // Skipped where the assignment explicitly says `reuse`: the dialog's whole
+    // sentence is "a team whose name matches will be turned away", which is
+    // false for that assignment, and a warning that does not apply is
+    // DESIGN.md §1.5.
+    const teams = form.value.assignment_type === 'group'
+    const found = teams && form.value.existing_repo_policy === 'reuse'
+      ? null
+      : existingRepoNote(verdict)
     // WHICH PATTERN THE ANSWER WAS GIVEN ABOUT, not merely that one exists.
     //
     // This asked "does the assignment carry a policy, and is its STORED pattern
@@ -3879,17 +3900,20 @@ async function saveAssignment(stateOverride = null) {
       // callers - a third spelling of "Save & publish" is a third place for it
       // to drift. `saveAssignment()` with no override is saveAndPublish's
       // already-published path, which is the primary button reading `Save`.
-      const chosen = await askExistingRepos({
+      const answer = await askExistingRepos({
         count: found.count,
         pattern,
+        teams,
         confirmLabel: stateOverride === 'draft'
           ? 'Save as draft'
           : (form.value.state === 'published' ? 'Save' : 'Save & publish'),
       })
-      if (chosen === null) return false
-      // Recorded, so this is the last time it is asked FOR THIS PATTERN.
-      // buildDoc writes it; absent still means "never came up".
-      form.value.existing_repo_policy = chosen
+      // `false` is Cancel. A team assignment confirms with `null`, because it
+      // was told rather than asked and there is no answer to record - which is
+      // why Cancel cannot be `null` here.
+      if (answer === false) return false
+      if (answer) form.value.existing_repo_policy = answer
+      // Either way this pattern has now been raised, so it is not raised again.
       existingRepoAnsweredFor.value = pattern
     }
   }
