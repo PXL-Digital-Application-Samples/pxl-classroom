@@ -197,3 +197,22 @@ test("the demotion this check predicts is still the one lockdown performs", () =
   assert.match(body, /collaborators\/\$\{m\}\/permission/, "demote must still read the permission back");
   assert.match(body, /userPerm\s*!==\s*"read"/, "demote must still require read to call it locked");
 });
+
+test("IT NAMES BOTH MECHANISMS, because it does not know which one applies", () => {
+  // It fires on "an owner is in the cohort" and never sees the assignment, so a
+  // message describing only the demotion was false for the default the moment
+  // organization scope became one.
+  //
+  // Measured on a live drill, 2026-09-09: an owner IS blocked by an
+  // organization ruleset - 409 on push, and the record says `verified: true`,
+  // not the `verified: false` the old text promised. What they can do instead
+  // is DELETE the ruleset, which releases the whole cohort; the other student
+  // in that drill pushed successfully straight afterwards.
+  const f = unfreezableAcceptorsFinding({ acceptors: ["ada"], owners: ["ada"], org: ORG });
+  assert.ok(f, "an owner in the cohort must still be reported");
+  // The demotion half.
+  assert.match(f.message, /demotion to "pull"|reads back "admin"/);
+  // The ruleset half, and the blast radius, which is the part that is worse.
+  assert.match(f.message, /delete the organization ruleset/i);
+  assert.match(f.message, /every student in the cohort|whole cohort/i);
+});

@@ -293,7 +293,14 @@ Measured against a live Team organization before any of this was built: an organ
 
 ## 3.5 Before an exam deadline: nobody in the cohort may be an organization owner
 
-Lock-down cannot freeze an organization **owner**. GitHub grants owners admin on every repository in the org, so the demotion writes `pull`, reads the permission back, gets `admin`, and records `verified: false`. The freeze does not hold for that account and nothing says so until someone reads the record afterwards.
+An organization **owner** in the cohort defeats the deadline, and *how* depends on which deadline you set. Both were measured on 2026-09-09.
+
+| The deadline | What an owner in the cohort does to it |
+|---|---|
+| **becomes read-only** (demotion) | The freeze never holds for them. GitHub grants owners admin on every repository in the org, so the demotion writes `pull`, reads the permission back, gets `admin`, and records `verified: false` - and nothing says so until somebody reads the record afterwards. |
+| **does not count** (organization ruleset) | The block *does* hold for them - they get the same 409 as anybody else, and the record says `verified: true`. But administering the organization's rulesets is an owner's power: they can **delete the ruleset**, and that releases **every student in the cohort at once**. |
+
+The second is the worse of the two, and it is the default. One account can undo the whole cohort's deadline in a single call, and the record will say it was locked.
 
 Check it **in advance**, on the assignment: open **System Health** → Tier 3 carries *Cohort Can Be Frozen At The Deadline*. By hand:
 
