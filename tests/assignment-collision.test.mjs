@@ -5,6 +5,7 @@ import {
   repoNameMatcher,
   patternSpecificity,
   collidingRepoNames,
+  patternProblem,
   clashingAssignments,
   assignmentCollisions,
   describeCollisions,
@@ -433,6 +434,54 @@ test("IT NAMES NO REPLACEMENT AT ALL - not a composed one, not a year", () => {
   // again. Advice that does not work is worse than no advice: the lecturer
   // takes it and hits the same wall.
   assert.doesNotMatch(label, /suffix/);
+});
+
+// ------------------------------------------------------- what a pattern may be
+
+test("AN UNKNOWN PLACEHOLDER IS REFUSED, because it would be copied through", () => {
+  // `deriveRepoName` does two literal replacements and leaves everything else
+  // alone, so `{slug}-{github_login}` produces `{slug}-alice` - not even a legal
+  // GitHub repository name. It was reachable and it SAVED: the form seeded that
+  // exact string, and touching the field before naming the assignment set the
+  // manual flag so both auto-writers stood down (measured 2026-09-09).
+  const said = patternProblem("{slug}-{github_login}");
+  assert.match(said, /\{slug\} is not a placeholder/);
+  assert.match(said, /exactly as written/);
+
+  // `{login}` is the same hole with a real history: tests/accept.test.mjs pins
+  // that it does NOT substitute, which is behaviour nothing was preventing.
+  assert.match(patternProblem("hw-{login}"), /\{login\} is not a placeholder/);
+  assert.match(patternProblem("hw-{githublogin}"), /not a placeholder/);
+});
+
+test("a pattern that is ONLY a placeholder is refused", () => {
+  // It names nothing of its own, so two assignments using it share one
+  // namespace and the second cohort is handed the first one's repositories.
+  assert.match(patternProblem("{team_slug}", { assignmentType: "group" }), /something of its own/);
+  assert.match(patternProblem("{github_login}"), /something of its own/);
+});
+
+test("and every pattern in live use passes", () => {
+  // Measured across 13 participating organizations on 2026-09-09: all 20 live
+  // assignments carry their id. This refuses nothing that exists.
+  for (const p of [
+    "2526-examen-aut2-ek2-{github_login}",
+    "test-groepsopdracht-{team_slug}",
+    "groepsindeling-{team_slug}",
+    "live-smoke-group-{team_slug}",
+    "net-advanced-guts-2627-{github_login}",
+  ]) {
+    assert.equal(patternProblem(p, { assignmentType: p.includes("{team_slug}") ? "group" : "individual" }), null, p);
+  }
+});
+
+test("the placeholder each assignment type needs is still required", () => {
+  assert.match(patternProblem("lab-3", { assignmentType: "individual" }), /must contain "\{github_login\}"/);
+  assert.match(patternProblem("lab-3", { assignmentType: "group" }), /must contain "\{team_slug\}"/);
+  // A team assignment may use either - a per-student repository inside a team
+  // assignment is a real configuration.
+  assert.equal(patternProblem("lab-3-{github_login}", { assignmentType: "group" }), null);
+  assert.match(patternProblem("", {}), /required/);
 });
 
 test("a suffix genuinely does not clear a pattern clash", () => {

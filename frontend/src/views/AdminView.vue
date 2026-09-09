@@ -1564,6 +1564,7 @@ import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
 import { findOrgSubmissionLock } from '../../../lib/submission-lock.mjs'
 import {
   collidingRepoNames,
+  patternProblem,
   clashingAssignments,
   assignmentCollisions,
   blockingFindings,
@@ -2348,16 +2349,13 @@ const fieldErrors = computed(() => {
     if (violation) errors[key] = publicTextMessage(field, violation)
   }
 
-  // 5. Repository Name Pattern check
-  if (!form.value.repository_name_pattern) {
-    errors.repository_name_pattern = 'Repository name pattern is required.'
-  } else if (form.value.assignment_type === 'group') {
-    if (!form.value.repository_name_pattern.includes('{team_slug}') && !form.value.repository_name_pattern.includes('{github_login}')) {
-      errors.repository_name_pattern = 'Pattern must contain "{team_slug}" (or "{github_login}").'
-    }
-  } else if (!form.value.repository_name_pattern.includes('{github_login}')) {
-    errors.repository_name_pattern = 'Pattern must contain "{github_login}".'
-  }
+  // 5. Repository Name Pattern check. The rules live in
+  // lib/assignment-collision.mjs beside the matcher that reads the same
+  // placeholders, so "what is a placeholder" is answered once.
+  const patternIssue = patternProblem(form.value.repository_name_pattern, {
+    assignmentType: form.value.assignment_type,
+  })
+  if (patternIssue) errors.repository_name_pattern = patternIssue
 
   // 6. Schedule check
   //
@@ -2633,9 +2631,12 @@ watch(() => form.value.template, (newVal) => {
 watch(() => form.value.id, (newId) => {
   if (isNew.value && !manualRepositoryNamePattern.value) {
     const isGrp = form.value.assignment_type === 'group'
+    // No id yet means no pattern yet. It used to fall back to
+    // "{slug}-{github_login}", which is not a placeholder deriveRepoName
+    // knows - it would have been copied into the repository name verbatim.
     form.value.repository_name_pattern = newId
       ? (isGrp ? `${newId}-{team_slug}` : `${newId}-{github_login}`)
-      : (isGrp ? '{slug}-{team_slug}' : '{slug}-{github_login}')
+      : ''
   }
 })
 
@@ -2700,7 +2701,15 @@ function emptyForm() {
     description: '',
     organization: props.org,
     template: '',
-    repository_name_pattern: '{slug}-{github_login}',
+    // EMPTY, not a fake placeholder. This seeded "{slug}-{github_login}", and
+    // "{slug}" is not one: deriveRepoName does two literal replacements and
+    // copies anything else through, so a repository would be named
+    // "{slug}-alice" - which is not even a legal GitHub name. The seed
+    // survived to a real save whenever the lecturer touched this field before
+    // naming the assignment: that sets manualRepositoryNamePattern, and both
+    // auto-writers then stand down. Measured 2026-09-09, and patternProblem()
+    // now refuses it as well.
+    repository_name_pattern: '',
     opens_at_local: toLocalInputValue(now),
     deadline_at_local: toLocalInputValue(in14d),
     _opens_at_original: '',

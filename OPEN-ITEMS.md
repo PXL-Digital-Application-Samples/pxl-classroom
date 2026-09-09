@@ -261,24 +261,25 @@ sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs 
 
 ---
 
-## 9. A team repository's name drops the assignment, so team names collide across assignments
+## 9. A team repository's name can drop the assignment, and only the form stops it
 
-**Status: open — mitigated, not fixed.** Found 2026-09-09, while building the existing-repository check.
+**Status: open — narrowed to a residual.** Found 2026-09-09; the first version of this entry overstated it and is corrected here.
 
-`{team_slug}` carries the slug and **drops the assignment**. Teams themselves are per assignment — `teams/<id>/<slug>.json` — but the repository name is not, so two assignments with a `team-a` produce the same repository name and their members are different people. Slugs like `team-a` or `de-bende` repeat every year, whether students pick them self-service or a lecturer seeds them; repeating is what they are for.
+**What is actually true.** A team repository's name comes from `repository_name_pattern`, and `{team_slug}` on its own carries no assignment — so two assignments with a `team-a` would produce the same repository name for different people. Slugs like `team-a` or `de-bende` repeat every year; repeating is what they are for.
 
-Provisioning is idempotent on repository existence, so before 2026-09-09 the first member of this year's `team-a` was silently handed the previous cohort's `grp-team-a` — with their work in it, and their names in its history. Nothing on any screen said so.
+**But the default already prevents it, and nothing in the field deviates.** The form prefills `<assignment-id>-{team_slug}`, and measured across all 13 participating organizations on 2026-09-09, **all 20 live assignments carry their id** — 5 team assignments among them, every one of the form `test-groepsopdracht-{team_slug}`. Not one bare placeholder anywhere. The first version of this entry used `grp-{team_slug}` as its example and made a hand-crafted shape look like the norm.
 
-**What the mitigation does.** `lib/existing-repo.mjs` resolves an absent `existing_repo_policy` to `refuse` for a team assignment, so that acceptance is turned away and the lecturer is told by name. It is derived rather than written, so a lecturer who deliberately sets `reuse` is still obeyed. The exposure is closed; the collision is not.
+**Two things now close the gap from both ends:**
 
-**Why that is a mitigation.** The name is still ambiguous by construction. A lecturer who hits it has to rename the assignment's pattern, and nothing warns them at creation — the check cannot know, at that moment, which team slugs students have not chosen yet. An individual assignment cannot have this problem at all: `{github_login}` embeds the owner, so the name proves whose it is.
+- `patternProblem` (`lib/assignment-collision.mjs`) refuses a pattern that is only a placeholder, and refuses an unknown one like `{slug}` or `{login}` that `deriveRepoName` would copy into the name verbatim.
+- `lib/existing-repo.mjs` resolves an absent `existing_repo_policy` to `refuse` for a team assignment, so if a name ever does collide, that acceptance is turned away and the lecturer is told by name rather than the cohort being handed another team's work. Verified live on a Team organization.
 
-**The fix, if it is taken,** is for a team pattern to carry something assignment-specific by default — the form prefills `repository_name_pattern` from the slug already, so `lab-3-{team_slug}` is what a lecturer gets unless they delete the prefix. What is missing is anything that *stops* them, and a rule that a team pattern must contain more than the placeholder would be enforceable in `lib/assignment-collision.mjs` beside the checks already there.
+**What remains.** Two assignments sharing a pattern is refused only while both are **live** (`clashingAssignments` reads the assignment list). A deleted or archived assignment whose repositories survive is not in that list, so a new assignment may legitimately be created on a colliding pattern — and it is the acceptance-time refusal above, not the form, that catches it. That is a defence in the right place, but it means the lecturer learns at the first acceptance rather than at the click.
 
-**How to tell it is closed:** a team pattern that is only the placeholder is refused. Today it saves:
+**How to tell it is closed:** a form-level warning exists when a pattern would land on repositories from a *retired* assignment of another id. Today nothing checks that:
 
 ```bash
-node -e "import('./lib/assignment-collision.mjs').then(m => console.log(m.repoNameMatcher('{team_slug}') ? 'accepted - still open' : 'refused'))"
+node -e "import('./lib/assignment-collision.mjs').then(m => console.log(typeof m.retiredPatternClash === 'function' ? 'checked' : 'not checked - still open'))"
 ```
 
 ---

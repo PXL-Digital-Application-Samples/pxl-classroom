@@ -1892,6 +1892,42 @@ It keys on the pattern the answer was given about now, which is the thing
 from its own stored pattern, so opening one asks nothing and changing its
 pattern asks again.
 
+### The seed the form shipped was not a placeholder, and it saved
+
+`deriveRepoName` does two literal `String.replace` calls — `{team_slug}` and
+`{github_login}` — and copies everything else through untouched. `emptyForm()`
+seeded `repository_name_pattern` as **`{slug}-{github_login}`**, and `{slug}` is
+not one of the two.
+
+It looked unreachable: the id is required, and two separate writers rewrite the
+pattern whenever the id changes. Both stand down on
+`manualRepositoryNamePattern`, which is set by an `@input` on the field — and an
+`@input` fires when a lecturer clicks in, types a character and deletes it
+again. Value unchanged, flag set. Then they name the assignment, both writers
+skip, and the seed goes to the commit:
+
+```
+initial pattern:      "{slug}-{github_login}"
+after touch-and-undo: "{slug}-{github_login}"
+after naming it:      "{slug}-{github_login}"
+SAVED PATTERN:        repository_name_pattern: "{slug}-{github_login}"
+```
+
+Every student would have been provisioned a repository named `{slug}-alice`,
+which is not a legal GitHub name at all.
+
+Two things worth keeping from it. **A default value is code**, and this one was
+a string literal in an object initialiser that nobody read as a behaviour. And
+the same hole admits `{login}` — a real legacy spelling that
+`tests/accept.test.mjs` *pins as not substituting*, which is to say the
+codebase had written the failure down as expected behaviour and prevented it
+nowhere. `patternProblem` refuses any `{...}` that is not one of the two, so the
+class is closed rather than the instance.
+
+It was found by asking "is this reachable?" and then **driving the browser to
+find out** instead of reasoning about the watchers. The reasoning had already
+concluded it was unreachable.
+
 ### A name that embeds the owner proves ownership. A name that embeds a team does not.
 
 The question "is this existing repository theirs?" was being answered by one
