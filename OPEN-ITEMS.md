@@ -272,7 +272,9 @@ sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs 
 **Two things now close the gap from both ends:**
 
 - `patternProblem` (`lib/assignment-collision.mjs`) refuses a pattern that is only a placeholder, and refuses an unknown one like `{slug}` or `{login}` that `deriveRepoName` would copy into the name verbatim.
-- `lib/existing-repo.mjs` resolves an absent `existing_repo_policy` to `refuse` for a team assignment, so if a name ever does collide, that acceptance is turned away and the lecturer is told by name rather than the cohort being handed another team's work. Verified live on a Team organization.
+- `lib/existing-repo.mjs` resolves an absent `existing_repo_policy` to `refuse` for a team assignment, so if a name ever does collide, that acceptance is turned away and the lecturer is told by name rather than the cohort being handed another team's work.
+
+**Drilled live on 2026-09-09**, through the real broker with a second account: a team assignment on `liveteam-{team_slug}` over a pre-planted `liveteam-team-a`. `team-a` was refused with the team wording, and the lecturer's tracking issue named it; a second acceptance into a fresh `team-zz` was created from the template and provisioned normally. The refusal wrote **nothing**: no acceptance record, no repository record, and no `teams/live-team/team-a.json`, so a turned-away team leaves no state to clean up. The previous team's repository was untouched, still holding only its own file.
 
 **What remains.** Two assignments sharing a pattern is refused only while both are **live** (`clashingAssignments` reads the assignment list). A deleted or archived assignment whose repositories survive is not in that list, so a new assignment may legitimately be created on a colliding pattern - and it is the acceptance-time refusal above, not the form, that catches it. That is a defence in the right place, but it means the lecturer learns at the first acceptance rather than at the click.
 
