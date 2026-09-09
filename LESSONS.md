@@ -1740,3 +1740,45 @@ with a written reason for each, so a new default fails until somebody says
 whether absent and the default are the same answer. Both halves are needed: the
 sweep only fires once a document reaches a validator, and the named check says
 why those two must stay absent.
+
+### The create/update asymmetry was a measurement artefact, and the update path had no recovery
+
+`ensureOrgSubmissionLock` recovered from a deleted student repository on CREATE
+and not on UPDATE, on the strength of a recorded measurement: *create carrying
+an id that no longer exists is refused, update carrying one is accepted*. The
+test fixture encoded it, so nothing could see the gap.
+
+The measurement was made with **two different kinds of missing id**. GitHub
+silently ignores an id that never existed - `999999999` - and refuses one whose
+repository existed and was deleted. The update path had been probed with the
+first and the create path with the second, which is the same mistake this file
+already records for the create path's own recovery, repeated one branch over.
+
+A live drill found it: a student deleted their repository, the first finalize
+CREATED the organization ruleset and recovered, and the second UPDATED it and
+came back `422 ... repository selected does not exist`. `ensureOrgSubmissionLock`
+failed, lockdown fell back to repository rulesets for the whole cohort, and the
+one property organization scope exists for - that a student cannot lift their
+own deadline - was gone, silently, on the second night.
+
+The update path recovers the same way now. The fixture distinguishes *deleted*
+from *never existed*, because a fake that is kinder than the API is how the
+first version passed.
+
+### An organization owner in the cohort fails differently under each lock
+
+`unfreezableAcceptorsFinding` explained one mechanism: owners hold admin
+everywhere, so a demotion writes `pull`, reads back `admin`, and records
+`verified: false`. True, and no longer the default.
+
+Under an organization ruleset an owner IS blocked - measured, 409 on push, and
+the record says `verified: true`. So a lecturer following the warning was
+looking for a symptom that would not appear. What the warning did not say is the
+thing that matters: administering rulesets is an owner's power, so they can
+**delete** the one carrying the deadline, and that releases the entire cohort.
+The drill did it - the owner deleted the ruleset and another student's push
+succeeded immediately afterwards.
+
+One account not being frozen is a smaller problem than one account unfreezing
+everybody. The finding fires on "an owner is in the cohort" and never sees the
+assignment, so it names both mechanisms rather than guessing which applies.

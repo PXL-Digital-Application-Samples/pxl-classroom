@@ -6,8 +6,14 @@
 // the two facts that shape this code are both asymmetries a friendly mock would
 // smooth away:
 //
-//   CREATE carrying an id that no longer exists -> 422
-//   UPDATE carrying an id that no longer exists -> accepted
+//   CREATE or UPDATE carrying a DELETED repository's id  -> 422
+//   CREATE or UPDATE carrying an id that NEVER existed    -> silently accepted
+//
+// Those two lines used to read 'create refuses, update accepts', on a
+// measurement that used 999999999 for the update and a genuinely deleted
+// repository for the create. There is no asymmetry: both refuse a deleted
+// repository, and the update path had no recovery for it until a live drill
+// dropped a whole cohort to repository rulesets (2026-09-09).
 //   PUT conditions REPLACES, it does not merge
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -32,7 +38,18 @@ const REF = "refs/heads/main";
  * `live` is the set of repository ids the organization still has; anything else
  * is treated as deleted, which is what the 422 on create is about.
  */
-function fakeGitHub({ rulesets = [], live = new Set(), failList = false } = {}) {
+// `deleted` is ids that EXISTED and were deleted - the only ones GitHub
+// refuses. An id that never existed at all is silently ignored instead, and
+// that distinction is what made the create-vs-update asymmetry look real: it
+// was measured with `999999999` on the update path and a genuinely deleted
+// repository on the create path. Both refuse a deleted repository, measured on
+// a live drill 2026-09-09.
+//
+// Defaults to "anything not live is deleted", which is what every test written
+// before that drill meant, so a test opts IN to the never-existed case by
+// passing `deleted` explicitly.
+function fakeGitHub({ rulesets = [], live = new Set(), deleted = null, failList = false } = {}) {
+  const refuses = (id) => (deleted ? deleted.has(id) : !live.has(id));
   const calls = [];
   let nextId = 1000;
   const request = async (method, path, body) => {
@@ -50,7 +67,7 @@ function fakeGitHub({ rulesets = [], live = new Set(), failList = false } = {}) 
     }
     if (method === "POST" && path === orgRules) {
       const ids = body.conditions.repository_id.repository_ids;
-      const dead = ids.filter((i) => !live.has(i));
+      const dead = ids.filter(refuses);
       if (dead.length) {
         return { ok: false, status: 422, data: {
           message: "Validation Failed",
@@ -65,6 +82,21 @@ function fakeGitHub({ rulesets = [], live = new Set(), failList = false } = {}) 
       const id = Number(path.split("/").pop());
       const hit = rulesets.find((r) => r.id === id);
       if (!hit) return { ok: false, status: 404, data: {} };
+      // A DEAD ID IS REFUSED ON UPDATE TOO, and this fake used to accept it.
+      //
+      // That is why the missing 422 recovery on the update path was invisible
+      // here: the fixture was kinder than GitHub. Measured on a live drill
+      // (2026-09-09) - one student deleted their repository, the create
+      // recovered, and the update on the next pass came back "Invalid parameter
+      // repository_ids: repository selected does not exist", which dropped the
+      // whole cohort to repository rulesets.
+      const putIds = body?.conditions?.repository_id?.repository_ids ?? [];
+      if (putIds.some(refuses)) {
+        return { ok: false, status: 422, data: {
+          message: "Validation Failed",
+          errors: ["Invalid parameter repository_ids: repository selected does not exist or is not in this organization"],
+        } };
+      }
       // REPLACE, not merge - measured.
       if (body.conditions) hit.conditions = body.conditions;
       if (body.enforcement) hit.enforcement = body.enforcement;
@@ -188,20 +220,59 @@ test("a repository transferred out of the organization counts as gone", async ()
   assert.deepEqual(res.dropped, [22], "an org ruleset cannot cover a repository in another org");
 });
 
-test("an existing lock is UPDATED, and a dead id there is tolerated", async () => {
-  // Measured: an update carrying an id that no longer exists is accepted, so
-  // the recovery path must not run on this branch and cost N reads.
+test("an existing lock is UPDATED, and an id that NEVER EXISTED is tolerated", async () => {
+  // This said "a dead id there is tolerated" and cited a measurement. The
+  // measurement used `999999999`, an id that never existed - which GitHub
+  // silently ignores - and that is not what a student deleting their repository
+  // leaves behind. `deleted` is empty here, so 99 is the never-existed case and
+  // the recovery must NOT run and cost N reads.
   const existing = {
     id: 500, name: orgSubmissionLockName(ASSIGNMENT), enforcement: "disabled",
     conditions: { repository_id: { repository_ids: [11] }, ref_name: { include: [REF], exclude: [] } },
   };
-  const gh = fakeGitHub({ rulesets: [existing], live: new Set([11]) });
+  const gh = fakeGitHub({ rulesets: [existing], live: new Set([11]), deleted: new Set() });
   const res = await ensureOrgSubmissionLock(gh.request, { ...base, repositoryIds: [11, 99], enforcement: "active" });
   assert.equal(res.ok, true, res.reason);
   assert.equal(res.action, "updated");
   assert.deepEqual(targetedRepositoryIds(existing), [11, 99]);
   assert.equal(existing.enforcement, "active");
   assert.ok(!gh.calls.some((c) => c.path.startsWith("/repositories/")), "no per-repository reads on the ordinary path");
+});
+
+test("A DELETED REPOSITORY ON UPDATE IS RECOVERED TOO, and it was not", async () => {
+  // THE DRILL FINDING. The create path recovered from a deleted repository and
+  // the update path did not, so the SECOND finalize pass over a cohort where
+  // one student had deleted their repo failed the ensure and dropped the whole
+  // cohort to repository rulesets - losing the one property organization scope
+  // exists for, that a student cannot lift their own deadline.
+  //
+  // Measured live 2026-09-09: "update org ruleset HTTP 422 ... repository
+  // selected does not exist ... - falling back to repository rulesets".
+  const existing = {
+    id: 501, name: orgSubmissionLockName(ASSIGNMENT), enforcement: "active",
+    // Only 11 today, so the ensure genuinely UPDATES rather than short-circuiting
+    // on `sameIds` - which is what the drill's second pass did when it re-added
+    // the cohort's ids.
+    conditions: { repository_id: { repository_ids: [11] }, ref_name: { include: [REF], exclude: [] } },
+  };
+  const gh = fakeGitHub({ rulesets: [existing], live: new Set([11]), deleted: new Set([22]) });
+  const res = await ensureOrgSubmissionLock(gh.request, { ...base, repositoryIds: [11, 22], enforcement: "active" });
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(res.action, "updated");
+  assert.deepEqual(res.dropped, [22], "the dropped student is named, not hidden");
+  assert.deepEqual(targetedRepositoryIds(existing), [11], "and the survivor is still locked");
+  assert.equal(existing.enforcement, "active");
+});
+
+test("an update where EVERY repository is gone fails rather than emptying the lock", async () => {
+  const existing = {
+    id: 502, name: orgSubmissionLockName(ASSIGNMENT), enforcement: "disabled",
+    conditions: { repository_id: { repository_ids: [11] }, ref_name: { include: [REF], exclude: [] } },
+  };
+  const gh = fakeGitHub({ rulesets: [existing], live: new Set(), deleted: new Set([11]) });
+  const res = await ensureOrgSubmissionLock(gh.request, { ...base, repositoryIds: [11], enforcement: "active" });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /every targeted repository is gone/);
 });
 
 test("an unchanged lock is not rewritten", async () => {
