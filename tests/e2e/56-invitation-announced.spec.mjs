@@ -109,6 +109,68 @@ test.describe('56 - An announced invitation', () => {
     await expect(page.locator('.timeout-state')).toContainText(/lecturer can see the reason/i);
   });
 
+  test('the stale invitation email is explained, but only to students who got one', async ({ page }) => {
+    // Accepting through the in-app button leaves GitHub's email in their inbox
+    // pointing at an invitation that no longer exists - a second PATCH on it
+    // answers 404 - so a student who finds it later cannot tell whether they
+    // missed a step.
+    let repoExists = false;
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1,
+      assignments: { [ID]: assignment() },
+      brokerIssueLabels: [INVITED_LABEL],
+    });
+    // 404 until the invitation is dealt with, then it appears - which is what
+    // accepting one looks like from this page, whether they did it here or in
+    // their inbox.
+    await page.route(`**/api.github.com/repos/${ORG}/${REPO}`, (route) =>
+      repoExists
+        ? route.fulfill({ status: 200, body: JSON.stringify({ full_name: `${ORG}/${REPO}`, html_url: `https://github.com/${ORG}/${REPO}` }) })
+        : route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+    await page.route('**/api.github.com/user/repository_invitations*', (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify([]) }));
+
+    await page.goto(inviteUrl(ORG, ID));
+    await page.getByRole('button', { name: /Accept assignment/i }).click();
+    // The hub said an invitation exists, which is what sets `sawInvitation`.
+    await expect(page.locator('.invited-state')).toBeVisible({ timeout: 40000 });
+
+    repoExists = true;
+    await page.getByRole('button', { name: /Check again/i }).click();
+
+    const ready = page.locator('.provisioned-state');
+    await expect(ready).toBeVisible({ timeout: 40000 });
+    await expect(ready.locator('.invitation-aftermath')).toContainText('you can ignore that email');
+  });
+
+  test('…and a student added directly is told about no such email', async ({ page }) => {
+    // An organization member is added straight away - GitHub answers 204 and
+    // sends nothing - so mentioning an email would be a status line about
+    // something that never happened. The repository is simply there.
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1,
+      assignments: { [ID]: assignment() },
+      brokerIssueLabels: [],
+    });
+    await page.route(`**/api.github.com/repos/${ORG}/${REPO}`, (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify({ full_name: `${ORG}/${REPO}`, html_url: `https://github.com/${ORG}/${REPO}` }) }));
+    await page.route('**/api.github.com/user/repository_invitations*', (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify([]) }));
+
+    await page.goto(inviteUrl(ORG, ID));
+    // The repository is simply there, so this student may never see an accept
+    // button at all - whichever branch renders, they end up provisioned.
+    const accept = page.getByRole('button', { name: /Accept assignment/i });
+    if (await accept.count()) await accept.click();
+
+    const ready = page.locator('.provisioned-state');
+    await expect(ready).toBeVisible({ timeout: 40000 });
+    await expect(ready.locator('.invitation-aftermath')).toHaveCount(0);
+    await expect(ready).not.toContainText(/ignore that email/i);
+  });
+
   test('a refused student is given the attempt to quote, and never the reason', async ({ page }) => {
     // "It didn't work" is unanswerable. This names WHICH attempt - the
     // assignment, the account, the time - so a lecturer reading a list of

@@ -279,6 +279,26 @@
                  can do with it. DESIGN.md §1.5 - a status line reporting a
                  state nothing computes. -->
 
+            <!-- THE STALE EMAIL, and only for the students who got one.
+                 Accepting through the button above leaves GitHub's invitation
+                 email sitting in their inbox pointing at an invitation that no
+                 longer exists (measured: a second PATCH on it answers 404), so
+                 a student who finds it later cannot tell whether they missed a
+                 step.
+
+                 Gated on `sawInvitation` rather than shown to everyone: a
+                 student already in the organization is added directly, GitHub
+                 sends nothing, and telling them to ignore an email that was
+                 never sent is the same defect as the sentence deleted above.
+
+                 NOT on the pending state, where the email is a way IN - and
+                 where the token cannot always list the invitation, making that
+                 email the only route. "Ignore it" there would strand exactly
+                 the students who need it. -->
+            <p v-if="sawInvitation" class="text-muted invitation-aftermath">
+              GitHub may also email you about a repository invitation. You have already
+              accepted it — you can ignore that email.
+            </p>
 
             <!-- Student Submission Status & Deadline Countdown Card -->
             <div class="student-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; text-align: left;">
@@ -574,6 +594,20 @@ const acceptError = ref(null)
 const repoUrl = ref(null)
 const repoFullName = ref(null)
 const pendingInvitation = ref(null)
+
+/**
+ * Did an invitation exist at any point in this session?
+ *
+ * Only then is there an email to tell them to ignore. A student who is already
+ * an organization member is added as a direct collaborator - GitHub answers 204
+ * and sends nothing (measured 2026-09-09) - so saying "you may get an email"
+ * there would be a status line about something that never happened.
+ *
+ * Sticky on purpose: it is read on the `provisioned` state, which is reached
+ * AFTER the invitation has been accepted and `pendingInvitation` is empty
+ * again. The question is "was there one", not "is there one".
+ */
+const sawInvitation = ref(false)
 // Number of the acceptance issue opened on the broker, so we can tell a
 // restricted account apart from a slow one when polling gives up.
 const acceptanceIssue = ref(null)
@@ -979,6 +1013,7 @@ async function checkExistingState() {
     repoUrl.value = match.repository.html_url
     repoFullName.value = match.repository.full_name
     acceptState.value = 'invited'
+    sawInvitation.value = true
     return
   }
 
@@ -1023,6 +1058,7 @@ async function checkExistingState() {
       }
       if (announcesInvitation(said)) {
         acceptState.value = 'invited'
+        sawInvitation.value = true
         return
       }
 
@@ -1263,6 +1299,7 @@ function startPolling() {
       repoUrl.value = match.repository.html_url
       repoFullName.value = match.repository.full_name
       acceptState.value = 'invited'
+      sawInvitation.value = true
       return
     }
 
@@ -1292,6 +1329,7 @@ function startPolling() {
         // is waiting, which is exactly what makes the guessed link safe to
         // offer: it can no longer 404 for the "not created yet" reason.
         acceptState.value = 'invited'
+        sawInvitation.value = true
         return
       }
     }

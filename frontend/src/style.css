@@ -1455,6 +1455,14 @@ th.sortable { cursor: pointer; user-select: none; }
   font-size: 0.85rem;
 }
 
+/* An aside under a success, about an email that is now stale. Quiet on purpose:
+   it answers a question the student may never ask, and must not compete with
+   the repository link that is the point of the screen. */
+.invitation-aftermath {
+  margin-top: var(--space-sm);
+  font-size: 0.85rem;
+}
+
 .empty-state {
   text-align: center;
   padding: var(--space-2xl);
