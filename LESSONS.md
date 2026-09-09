@@ -1782,3 +1782,56 @@ succeeded immediately afterwards.
 One account not being frozen is a smaller problem than one account unfreezing
 everybody. The finding fires on "an owner is in the cohort" and never sees the
 assignment, so it names both mechanisms rather than guessing which applies.
+
+### The gate that could not answer its own question, and the 300 repositories
+
+A lecturer reported that the assignment form would not let them create their
+portfolio assignment. They use `portfolio-{github_login}` every year, on purpose:
+the repository name is a student's public URL and they want it to stay clean.
+The organization holds about 300 portfolios from previous years, so the collision
+check listed all 300 and refused, offering two ways forward - rename the
+assignment, or delete 300 students' work.
+
+The check was right that a collision is possible and wrong about who it applies
+to. Repository names are per student, so the only way to collide with
+`portfolio-<login>` is to be the same person: a student repeating the year. Two
+or three, on a good year none. **The screen refusing over 300 has no way to know
+which**, because at the moment a lecturer is naming an assignment nobody has
+accepted it - the form holds the pattern and the organization's repository
+listing, and "who will accept" is not on it. There was no wording that fixed
+that, and narrowing to the roster does not fix it either: the org in question
+has no roster, which is normal under `roster_mode: open`.
+
+So the question moved to `acceptance/accept.mjs`, where both halves are known -
+this student, this name - and the form keeps a note plus the one question a
+lecturer can answer and the system cannot: reuse the repository, or turn that
+student away. The refusal that remains is per student, by name.
+
+Three things fell out of building it that were not the point of it:
+
+* **The refusal was already routed around, and the route was documented.** An
+  existing assignment is checked only for a pattern clash, so creating under a
+  throwaway pattern and editing it afterwards went straight through - the
+  natural move for a lecturer who has been told no, and the check re-asked
+  nothing. It re-asks now when the pattern changed, subtracting the names the
+  stored pattern already owns.
+* **"A prefix or suffix is enough" was wrong.** A placeholder expands to
+  `[A-Za-z0-9-]+`, so `lab-3-2026-{github_login}` is still inside
+  `lab-3-{github_login}`'s namespace and clashes with it. The advice sent a
+  lecturer back into the same refusal. Found by writing a fixture that took its
+  own advice and failed.
+* **The acceptance tests were calling api.github.com.** Adding one API call to
+  `accept.mjs` - which had been purely a function of the control repo - turned
+  24 tests red, because with no token they got a 401, which the new code
+  correctly reads as unreadable. They had no stand-in because they had never
+  needed one. `spawnSync` blocks the event loop, so an in-process fake server
+  deadlocks (already learned once, on the deadline drill); the stand-in runs as
+  its own process and answers 404 unless a test says otherwise.
+
+The general shape, and it is the reason this is written down: **a gate belongs
+where its question can be answered.** A check placed too early cannot narrow, so
+it either refuses far more than it should or it is turned off; the fix is not
+better wording at the wrong moment, it is moving the judgement to the moment the
+evidence exists - and leaving behind only what that moment genuinely settles.
+The pattern clash and the surviving archive still refuse at creation, because
+those two ARE fully answerable there and nothing downstream re-asks them.

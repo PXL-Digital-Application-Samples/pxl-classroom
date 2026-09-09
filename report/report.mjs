@@ -584,6 +584,12 @@ async function main() {
       // of the claim has to land: an address outside `claim_domains` is
       // recorded rather than refused, and a lecturer who cannot see it might as
       // well not have it.
+      // Null, not false, without an acceptance record: "they did not start from
+      // the template" is a statement about an acceptance, and there is no
+      // acceptance to make it about. accept.mjs writes the field only when it
+      // is true, so `=== true` is the read - `?? null` would report every
+      // ordinary acceptance as unknown.
+      reused_existing_repo: acceptance ? acceptance.reused_existing_repo === true : null,
       claimed_email: acceptance?.claimed_email ?? null,
       claim_verified: acceptance?.claim_verified ?? null,
       // Null, not true, when there is no claim: "inside the allowed domains" is

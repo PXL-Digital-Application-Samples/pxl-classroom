@@ -624,6 +624,56 @@
                 </ul>
               </div>
 
+              <!-- THE QUESTION THE NOTE ABOVE RAISES, asked where they are
+                   already reading about it (DESIGN.md §1.9: say it where they
+                   choose it) and only when repositories were actually found -
+                   on an organization where the name is free it is a question
+                   about nothing.
+
+                   The note deliberately carries no consequence clause, because
+                   this control is the consequence: "a student who owns one is
+                   handed it" belongs in the answer they are choosing between,
+                   not stated twice.
+
+                   Same shape as the late-work pair, and for the same reason -
+                   a second question wearing a checkbox's clothes reads as a
+                   modifier of the first. This one is genuinely a second
+                   question: it is about the repository, not the name. -->
+              <div v-if="collisionRepoCount" class="field existing-repo-policy">
+                <label>When a student already owns one</label>
+                <div class="policy-options">
+                  <label class="policy-option" :class="{ selected: existingRepoPolicy === 'reuse' }">
+                    <input type="radio" v-model="existingRepoPolicy" value="reuse" />
+                    <span class="policy-option-text">
+                      <strong>Give them the existing repository</strong>
+                      <small>
+                        They keep what is in it and this assignment's starter code is not
+                        copied over the top. What you want for work that carries across
+                        years, such as a portfolio.
+                      </small>
+                    </span>
+                  </label>
+                  <label class="policy-option" :class="{ selected: existingRepoPolicy === 'refuse' }">
+                    <input type="radio" v-model="existingRepoPolicy" value="refuse" />
+                    <span class="policy-option-text">
+                      <strong>Turn that student away, and tell me</strong>
+                      <small>
+                        They are refused by name rather than quietly starting the assignment
+                        without its starter code. What you want for a lab or an exam.
+                      </small>
+                    </span>
+                  </label>
+                </div>
+                <!-- One line, in the field's own `small` - a drawer would be
+                     for a decision with more consequence than this. It is here
+                     because it is the reassurance that makes the note safe to
+                     click past: the dangerous case is handled either way. -->
+                <small>
+                  A repository frozen by an earlier deadline is refused whichever you pick -
+                  the student could not push to it.
+                </small>
+              </div>
+
               <small v-if="collisionChecking">Checking whether this name is free…</small>
               <small v-else>
                 Students see this name. Must contain
@@ -1546,6 +1596,9 @@ import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
 // repository one, it does not live in a student repository and would be left
 // behind, named after an assignment that no longer exists.
 import { findOrgSubmissionLock } from '../../../lib/submission-lock.mjs'
+// Straight from lib/, like the line above: it has no imports of its own, so
+// there is nothing for a shim in frontend/src/lib to keep out of the bundle.
+import { normalizeExistingRepoPolicy } from '../../../lib/existing-repo.mjs'
 import {
   collidingRepoNames,
   clashingAssignments,
@@ -2729,6 +2782,12 @@ function emptyForm() {
     // it would silently start throwing away students' late commits on every new
     // assignment - so a lecturer opts in.
     late_policy: 'report',
+    // EMPTY, NOT 'reuse'. Absent means reuse (lib/existing-repo.mjs) and this
+    // question is only asked when the check finds repositories, so seeding a
+    // real value here would write an answer into every assignment where it
+    // never came up - the tri-state trap `org_scoped_lock` and
+    // `template_grades` both fell into. buildDoc omits an empty one.
+    existing_repo_policy: '',
     state: 'draft',
     max_acceptances: 50,
     // Demoting to `pull` does not just stop pushes - it takes Actions, secrets,
@@ -3034,6 +3093,10 @@ function editAssignment(a) {
     // behaviour the system does not have (DESIGN.md §1.5).
     _cohort_published: a.state && a.state !== 'draft' && Array.isArray(a.cohort) ? [...a.cohort] : [],
     late_policy: a.late_policy || 'report',
+    // Read back as stored, empty when the assignment never answered - `||
+    // 'reuse'` would turn "nobody was asked" into an explicit answer the first
+    // time anyone opened the assignment to change its title.
+    existing_repo_policy: a.existing_repo_policy || '',
     state: a.state || 'draft',
     // 50 is the default for a NEW assignment (emptyForm), not a value to
     // invent for an existing one. buildDoc rebuilds the whole document, so
@@ -3465,6 +3528,30 @@ const collisionBlockers = computed(() => blockingFindings(collisionVerdict.value
 const collisionNotes = computed(() =>
   collisionVerdict.value?.clear ? noteFindings(collisionVerdict.value) : [])
 
+/**
+ * How many repositories the organization already holds under this pattern.
+ *
+ * Read off the finding rather than parsed back out of its sentence, and gated
+ * on the note being on screen: the follow-up control asks what to do about
+ * these, so it may not appear where the lecturer cannot see what "these" are.
+ */
+const collisionRepoCount = computed(
+  () => collisionNotes.value.find((f) => f.kind === 'existing-repos')?.count ?? 0)
+
+/**
+ * The radio's selection, which is NOT the stored value.
+ *
+ * The getter shows `reuse` for an assignment that never answered, because that
+ * is what would happen - a radio pair with neither option filled would be the
+ * form asking a question the system has already decided. The setter writes an
+ * explicit value, so the document gains one only once a lecturer has actually
+ * chosen; `buildAssignmentDoc` omits an empty one.
+ */
+const existingRepoPolicy = computed({
+  get: () => normalizeExistingRepoPolicy(form.value.existing_repo_policy),
+  set: (v) => { form.value.existing_repo_policy = v },
+})
+
 // The remedy names no year and composes no name: nothing here knows whether
 // any particular replacement is free, so it states the requirement - the name
 // has to be different - and leaves the choice to the lecturer, over a listing
@@ -3505,11 +3592,16 @@ function clearCollision() {
  * Fails CLOSED on an unreadable answer: what it prevents fails weeks later, at
  * the deadline, on a student who did nothing wrong.
  *
- * An EXISTING assignment is checked for one thing only: another live assignment
- * sharing its pattern. Its own repositories match its own pattern, its own
- * archive is meant to be there, and its own `retired/` record would be from a
- * previous life of the id - so those three questions have no meaning here, and
- * asking them would refuse every save. That check costs no requests at all.
+ * An EXISTING assignment whose pattern has NOT changed is checked for one thing
+ * only: another live assignment sharing its pattern. Its own repositories match
+ * its own pattern, its own archive is meant to be there, and its own `retired/`
+ * record would be from a previous life of the id - so those questions have no
+ * meaning there, and asking them would refuse every save. That costs no
+ * requests at all.
+ *
+ * A CHANGED pattern is checked against the organization too, minus the names
+ * the stored pattern already owns. Without it, "save under another name and
+ * edit the pattern back" walked past the creation check in silence.
  *
  * @param {string} slug
  * @param {string} pattern
@@ -3523,10 +3615,36 @@ async function checkCollisions(slug, pattern, { fresh = true } = {}) {
   let archiveExists = false
 
   if (!fresh) {
-    return {
-      message: '',
-      verdict: assignmentCollisions({ clashes: clashingAssignments(pattern, assignments.value, slug) }),
+    const clashes = clashingAssignments(pattern, assignments.value, slug)
+    const stored = assignments.value.find((a) => a.id === slug)?.repository_name_pattern || ''
+    // An UNCHANGED pattern asks nothing more, and costs no requests: its own
+    // repositories match its own pattern, its own archive is meant to be there,
+    // and its own `retired/` record would be from a previous life of the id.
+    if (!stored || stored === pattern) return { message: '', verdict: assignmentCollisions({ clashes }) }
+
+    // A CHANGED one is a different question, and it was not being asked.
+    //
+    // The creation check refuses two things, so the way round it was to save
+    // under a name it accepts and edit the pattern afterwards - which went
+    // straight through, because this branch only ever looked at other
+    // assignments. It is the natural move for a lecturer who has been told no,
+    // it is written down in RUNBOOK §5.1, and it re-asked nothing.
+    let orgRepos
+    try {
+      orgRepos = await listOrgRepos(token, props.org, '', { failFast: true })
+    } catch (e) {
+      return refuse(`Could not list the repositories in ${props.org} (${e.message}). Refusing rather than guessing what this pattern would land on.`)
     }
+    const names = orgRepos.map((r) => r.name)
+    const others = assignments.value.filter((a) => a.id !== slug)
+    // MINUS WHAT THE STORED PATTERN ALREADY OWNS. Widening is the case that
+    // needs it: a placeholder expands to `[A-Za-z0-9-]+`, so moving from
+    // `portfolio-2627-{github_login}` to `portfolio-{github_login}` swallows
+    // this assignment's OWN repositories, and reporting those back would be the
+    // form telling a lecturer their own cohort is in the way.
+    const own = new Set(collidingRepoNames(stored, names, others))
+    const existingRepos = collidingRepoNames(pattern, names, others).filter((n) => !own.has(n))
+    return { message: '', verdict: assignmentCollisions({ existingRepos, clashes }) }
   }
 
   try {
@@ -4714,6 +4832,16 @@ legend {
 .policy-option input[type="radio"] { margin-top: 3px; flex-shrink: 0; }
 .policy-option-text { display: flex; flex-direction: column; gap: var(--space-2xs); }
 .policy-option-text small { color: var(--text-secondary); }
+/* The follow-up the collision note raises, nested inside the pattern's own
+   `.field`. A divider rather than a box: this is already inside a fieldset
+   inside the editor pane, so an outline here would be DESIGN.md §1.1's third
+   one. The rule separates it from the note it answers without claiming to be a
+   separate section. */
+.existing-repo-policy {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
 .field input[type="text"],
 .field input[type="number"],
 .field input[type="datetime-local"],

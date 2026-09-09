@@ -242,19 +242,37 @@ test("the warning says what recreating would cost, and nothing more", () => {
   assert.match(v.findings[0].detail, /overwrite/i);
 });
 
-test("an existing repository blocks, and is named", () => {
+test("an existing repository NOTES and is named - it does not block", () => {
+  // It blocked until 2026-09-09. The question "would a student in this cohort
+  // be handed one" cannot be answered on this screen - who accepts is not known
+  // here - so 300 repositories from previous years refused a name over perhaps
+  // two that mattered. The judgement is acceptance/accept.mjs step 7 now, where
+  // both halves are known, and this is a note.
   const v = assignmentCollisions({ existingRepos: ["lab-3-alice", "lab-3-bob"] });
-  assert.equal(v.clear, false);
-  assert.match(describeCollisions(v), /lab-3-alice, lab-3-bob/);
-  // The one consequence not obvious from the fact itself: repositories
-  // existing says nothing about students being handed them.
-  assert.match(describeCollisions(v), /students would get those back/);
+  assert.equal(v.clear, true);
+  assert.equal(blockingFindings(v).length, 0);
+  assert.equal(describeCollisions(v), null, "a note must not render as a refusal");
+
+  const note = noteFindings(v).find((f) => f.kind === "existing-repos");
+  assert.ok(note, "the fact is still reported");
+  assert.match(note.detail, /lab-3-alice, lab-3-bob/);
+});
+
+test("the note says these are the ORGANIZATION's matches, not this cohort's", () => {
+  // The number is what the whole org holds. A lecturer reading "300" has to be
+  // able to tell it is 300 of everybody's rather than 300 of theirs, because
+  // that difference is the entire reason this stopped blocking.
+  const v = assignmentCollisions({ existingRepos: ["lab-3-alice", "lab-3-bob"] });
+  const note = noteFindings(v).find((f) => f.kind === "existing-repos");
+  assert.match(note.detail, /in this organization already match this pattern/);
+  // And it carries NO consequence clause: what happens to a student who owns
+  // one is asked by the control directly beneath it.
+  assert.doesNotMatch(note.detail, /would get|handed|starter code/);
 });
 
 test("one existing repository is not pluralised", () => {
   const v = assignmentCollisions({ existingRepos: ["lab-3-alice"] });
-  assert.match(v.findings[0].detail, /^1 repository already exists: lab-3-alice/);
-  assert.match(v.findings[0].detail, /students would get it back/);
+  assert.match(v.findings[0].detail, /^1 repository in this organization already matches this pattern: lab-3-alice/);
 });
 
 test("a long list is truncated with an ellipsis rather than printed whole", () => {
@@ -333,9 +351,12 @@ test("everything at once is ordered blockers first, record last", () => {
     "archive",
     "retired-record",
   ]);
-  assert.deepEqual(v.findings.map((f) => f.blocking), [true, true, true, false]);
-  assert.deepEqual(blockingFindings(v).map((f) => f.kind), ["existing-repos", "pattern-clash", "archive"]);
-  assert.deepEqual(noteFindings(v).map((f) => f.kind), ["retired-record"]);
+  // Two of the four block. `existing-repos` is answered at acceptance instead
+  // and `retired-record` never blocked; what is left are the two questions this
+  // screen can answer and nothing downstream re-asks.
+  assert.deepEqual(v.findings.map((f) => f.blocking), [false, true, true, false]);
+  assert.deepEqual(blockingFindings(v).map((f) => f.kind), ["pattern-clash", "archive"]);
+  assert.deepEqual(noteFindings(v).map((f) => f.kind), ["existing-repos", "retired-record"]);
 });
 
 test("a refusal lists only what stops the save, never the record", () => {
@@ -343,10 +364,19 @@ test("a refusal lists only what stops the save, never the record", () => {
   // record is not something anyone has to delete - listing it there would tell
   // a lecturer to destroy the evidence of the previous run.
   const msg = describeCollisions(
-    assignmentCollisions({ existingRepos: ["lab-3-alice"], manifest: { assignment_id: "lab-3" } }),
+    assignmentCollisions({
+      archiveExists: true,
+      existingRepos: ["lab-3-alice"],
+      manifest: { assignment_id: "lab-3" },
+    }),
   );
-  assert.match(msg, /lab-3-alice/);
+  assert.match(msg, /archive still exists/);
   assert.doesNotMatch(msg, /retired\//);
+  // Nor the repositories, now that they are a note: the remedies say "delete
+  // the archive", and a refusal that also listed 300 student repositories reads
+  // as an instruction to delete those too. That reading is what this change
+  // exists to have ended.
+  assert.doesNotMatch(msg, /lab-3-alice/);
 });
 
 test("blockingFindings and noteFindings tolerate junk", () => {
@@ -365,17 +395,17 @@ test("the refusal never points a lecturer at the repository's own documentation"
 
 test("the refusal says how to proceed, not only that it refused", () => {
   // A refusal that only says no gets routed around.
-  const msg = describeCollisions(assignmentCollisions({ existingRepos: ["lab-3-alice"] }));
+  const msg = describeCollisions(assignmentCollisions({ archiveExists: true }));
   assert.match(msg, /What to do:/);
   assert.match(msg, /has to be different/);
-  assert.match(msg, /Delete what is listed above/);
+  assert.match(msg, /Delete the archive repository/);
 });
 
 // ---------------------------------------------------------------- remedies
 
 test("distinguishing the name is offered first and is the recommended one", () => {
   const ways = collisionRemedies({
-    verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
+    verdict: assignmentCollisions({ archiveExists: true }),
     yearLabel: "2627",
   });
   assert.equal(ways[0].key, "distinguish");
@@ -396,7 +426,20 @@ test("IT NAMES NO REPLACEMENT AT ALL - not a composed one, not a year", () => {
   assert.doesNotMatch(label, /academic/i);
   // What is actually true, and all of it.
   assert.match(label, /has to be different/);
-  assert.match(label, /prefix or suffix/);
+  assert.match(label, /in front of it/);
+  // NOT "a prefix or suffix", which it said until 2026-09-09 and which is
+  // wrong for a pattern clash - a placeholder expands to `[A-Za-z0-9-]+`, so a
+  // suffixed pattern is still inside the original's namespace and is refused
+  // again. Advice that does not work is worse than no advice: the lecturer
+  // takes it and hits the same wall.
+  assert.doesNotMatch(label, /suffix/);
+});
+
+test("a suffix genuinely does not clear a pattern clash", () => {
+  // The measurement the remedy's wording rests on, run rather than described.
+  const rival = [{ id: "lab-3", repository_name_pattern: "lab-3-{github_login}" }];
+  assert.equal(clashingAssignments("lab-3-2026-{github_login}", rival).length, 1, "a suffix still clashes");
+  assert.equal(clashingAssignments("2026-lab-3-{github_login}", rival).length, 0, "a prefix does not");
 });
 
 test("IT NEVER PROMISES THE NEW NAME IS FREE", () => {
@@ -413,9 +456,9 @@ test("both ends are offered, not one", () => {
   // Which end, and what it says, is the lecturer's call over a listing they
   // can see and this module cannot.
   const label = collisionRemedies({
-    verdict: assignmentCollisions({ existingRepos: ["x"] }),
+    verdict: assignmentCollisions({ archiveExists: true }),
   })[0].label;
-  assert.match(label, /a prefix or suffix/);
+  assert.match(label, /in front of it/);
 });
 
 test("deleting is offered ONLY when there is something to delete", () => {
@@ -429,10 +472,15 @@ test("deleting is offered ONLY when there is something to delete", () => {
   // nothing to distinguish it from when it is the only one.
   assert.equal(clashOnly[0].recommended, false);
 
+  // EXISTING REPOSITORIES ARE NO LONGER ONE OF THEM. They stopped blocking, so
+  // they cannot reach this list - and that is the point rather than a side
+  // effect: "delete 300 students' repositories" was one of exactly two things
+  // this screen suggested to a lecturer whose only mistake was reusing a name.
   const withRepos = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"] }),
   });
-  assert.deepEqual(withRepos.map((w) => w.key), ["distinguish", "delete"]);
+  assert.deepEqual(withRepos.map((w) => w.key), ["distinguish"]);
+  assert.ok(!withRepos.some((w) => /[Dd]elete/.test(w.label)));
 
   const withArchive = collisionRemedies({ verdict: assignmentCollisions({ archiveExists: true }) });
   assert.ok(withArchive.some((w) => w.key === "delete"));
@@ -442,7 +490,9 @@ test("the delete option says what it costs, in the same breath", () => {
   const del = collisionRemedies({
     verdict: assignmentCollisions({ existingRepos: ["lab-3-alice"], archiveExists: true }),
   }).find((w) => w.key === "delete");
-  assert.match(del.label, /destroys the students' work/);
+  // What it destroys is now the preserved submissions, because the archive is
+  // the only thing left that this option deletes.
+  assert.match(del.label, /destroys the preserved submissions/);
   assert.equal(del.recommended, false);
 });
 

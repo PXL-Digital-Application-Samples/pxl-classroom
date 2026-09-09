@@ -15,6 +15,9 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
+import { gh } from "../lib/gh.mjs";
+import { isSubmissionLockName } from "../lib/submission-lock.mjs";
+import { existingRepoVerdict } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
@@ -739,6 +742,10 @@ async function main() {
   let previousTeamSlug = null;
   let previousRepo = null;
   let isFirstMember = true;
+  // Set by step 7. Recorded on the acceptance so the lecturer's report can say
+  // this student did not start from the template - `outcome: "reused"` already
+  // existed in provision.mjs and reached nothing but the run log.
+  let reusedExistingRepo = false;
 
   if (isGroup) {
     const teamsDir = join(dataDir, "teams", assignmentId);
@@ -963,6 +970,85 @@ async function main() {
 
   log("repo-name", { ok: true, note: targetRepo });
 
+  // 7. Is something already at that name?
+  //
+  // HERE, AND NOT AT CREATION. The form knows the pattern and the organization's
+  // repository listing and cannot know who will accept, so it refused
+  // `portfolio-{github_login}` over 300 portfolios from previous years of which
+  // perhaps two belonged to a student in this cohort. This line knows both
+  // halves: this student, this name.
+  //
+  // AND HERE, NOT IN provision.mjs, which makes the same GET a moment later.
+  // Refusing there would be after the acceptance record was written and after a
+  // slot of `max_acceptances` was spent - the same failure the publish
+  // pre-flight exists to have ended, where the check that could have said no
+  // ran once the student had already paid for the answer.
+  //
+  // Everything above has already excluded the cases where an existing
+  // repository is ours:
+  //
+  //   * A student who has accepted before left through the `already-accepted`
+  //     branch above and never reaches this.
+  //   * A group repository is one object shared by the team, so it exists for
+  //     everyone after the first member - which is the assignment working.
+  //
+  // So a 200 here is a repository this assignment did not make.
+  //
+  // THE GROUP TEST IS THE TEAM'S OWN `repo_name`, NOT `isFirstMember`. That
+  // flag counts MEMBERS, and a team whose members all left is marked `vacant`
+  // while its repository stays where it is - so the next student to join reads
+  // as the first member and would meet their own cohort's repository as a
+  // stranger's, blocked under `refuse`. `write-repository-record.mjs` stamps
+  // `repo_name` onto the team manifest once the repository exists, so the
+  // manifest answers "did this assignment already make this one" exactly;
+  // a seeded team nobody has accepted into carries no `repo_name` and is
+  // still probed, which is right. (Same shape as sweep F12, where
+  // `isFirstMember` counted members and a seeded team had those before
+  // anybody accepted.)
+  let ownGroupRepo = false;
+  if (isGroup && teamSlug) {
+    try {
+      const teamPath = join(dataDir, "teams", assignmentId, `${teamSlug}.json`);
+      if (existsSync(teamPath)) {
+        ownGroupRepo = JSON.parse(await readFile(teamPath, "utf-8"))?.repo_name === targetRepo;
+      }
+    } catch {
+      // Unreadable manifest: fall through and ask GitHub, which is the
+      // authority anyway.
+    }
+  }
+  if (!ownGroupRepo) {
+    const probe = await gh("GET", `/repos/${org}/${targetRepo}`);
+    // `exists` is deliberately a tri-state: 404 is an answer, 200 is an answer,
+    // and anything else is not one. lib/gh.mjs has already retried a 5xx six
+    // times by the time we see it.
+    const exists = probe.status === 200 ? true : probe.status === 404 ? false : null;
+
+    // Only asked when there is something to ask about, so the ordinary
+    // acceptance costs one request and this one costs two.
+    let frozen = false;
+    if (exists === true) {
+      const rules = await gh("GET", `/repos/${org}/${targetRepo}/rulesets`);
+      if (!rules.ok || !Array.isArray(rules.data)) {
+        frozen = null;
+      } else {
+        // Organization rulesets come back from this endpoint too, and one of
+        // those freezes the repository exactly as a repository-scoped one does -
+        // so unlike `findSubmissionLock`, whose job is releasing, we want both.
+        frozen = rules.data.find((r) => isSubmissionLockName(r?.name))?.name ?? false;
+      }
+    }
+
+    const verdict = existingRepoVerdict({
+      exists,
+      frozen,
+      policy: assignment.existing_repo_policy,
+    });
+    log("existing-repo", { ok: verdict.reject === null, note: `${targetRepo} ${verdict.note}` });
+    if (verdict.reject) await reject(verdict.reject, `${org}/${targetRepo} ${verdict.note}`);
+    reusedExistingRepo = verdict.outcome === "reuse";
+  }
+
   // 8. Record acceptance
   await mkdir(acceptDir, { recursive: true });
   // A team switch falls through the idempotency check above (it has work to do),
@@ -988,6 +1074,11 @@ async function main() {
     star_event_ref: workflowRunUrl || null,
     status: "accepted",
     ...(isGroup ? { team_slug: teamSlug, team_name: teamName } : {}),
+    // Written only when true. A `false` on every other record would be a field
+    // claiming to have been evaluated on acceptances that predate it, and the
+    // question this answers - "did this student start from the template" - has
+    // no stored answer for them at all.
+    ...(reusedExistingRepo ? { reused_existing_repo: true } : {}),
     // Only under `claim`. Written here as well as in students/claims/<id>.json
     // because the two answer different questions: the claim file is the
     // ORG-SCOPED binding ("who is this account"), and this is what THIS

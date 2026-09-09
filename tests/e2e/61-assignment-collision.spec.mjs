@@ -13,15 +13,23 @@
 // `lab-3` recreated with a fresh pattern does not collide at all.
 // lib/seed-teams.mjs has said so since it was written; nothing enforced it.
 //
-// Three things block, and two are silent until the deadline:
+// TWO things block, and one NOTES - which is the distinction this spec has to
+// hold, because it changed on 2026-09-09 and the reason is not obvious:
 //
 //   - provision.mjs hands a returning student their OLD repository back
-//     (`alreadyExists ? existing.data`) - last year's work, under last year's
-//     lockdown ruleset, `active` from the moment they get it. Not permanent
-//     (`enforcement` is a flag the Unlock action flips), but nothing in
-//     provisioning knows to, so they meet a repository they cannot push to.
+//     (`alreadyExists ? existing.data`) - last year's work, and none of this
+//     year's starter code. This is the one that stopped blocking. The screen
+//     knows the pattern and the organization's repository listing and cannot
+//     know WHO WILL ACCEPT, so "300 repositories exist" and "a student in this
+//     cohort would be handed one" are different statements - and a real course
+//     was refused over 300 portfolios from previous years of which perhaps two
+//     mattered, with "delete 300 students' repositories" offered as one of two
+//     ways forward. The judgement is `acceptance/accept.mjs` step 7 now, where
+//     both halves are known, and this screen asks what to do about it instead.
 //   - two assignments sharing a pattern do that to each other, from the first
-//     acceptance.
+//     acceptance. Still blocks: it is fully answerable here (both assignments
+//     are on screen) and acceptance cannot see it at all, because the
+//     repository does not exist yet for step 7 to find.
 //   - preserve.mjs pushes `refs/heads/preserved/<id>/<login>` WITHOUT --force
 //     on purpose. A kept archive still holds that ref, so the new snapshot is a
 //     non-fast-forward and is rejected - for every returning student, at the
@@ -254,28 +262,80 @@ test.describe('the name is free', () => {
 });
 
 test.describe('the name is taken', () => {
-  test('an existing student repository blocks, and is named', async ({ page }) => {
+  test('an existing student repository NOTES and is named - and the assignment saves', async ({ page }) => {
+    // It refused until 2026-09-09, over a question this screen cannot answer:
+    // who will accept. A real course hit it with `portfolio-{github_login}` on
+    // an org holding 300 portfolios from previous years, of which perhaps two
+    // belonged to a student who would accept - and the two ways forward were
+    // rename the assignment or delete 300 students' work.
     const writes = await openAdmin(page, {
       orgRepos: ['lab-3-alice', 'lab-3-bob', 'unrelated-repo'],
     });
     await fillNew(page);
 
-    const err = refusal(page);
-    await expect(err).toBeVisible();
-    await expect(err).toContainText('lab-3-alice, lab-3-bob');
-    await expect(err).toContainText(/students would get those back/);
-    await expectNoWrite(page, writes);
+    await expect(refusal(page)).toHaveCount(0);
+    await expect(note(page)).toContainText('lab-3-alice, lab-3-bob');
+    await saveDraft(page).click();
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
   });
 
-  test('a DIFFERENT id pointing at an occupied pattern is refused too', async ({ page }) => {
-    // The whole reason the check is on the pattern: this looks like a brand new
-    // assignment and would hand out lab-3's repositories.
-    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+  test('a DIFFERENT id pointing at an occupied pattern is noted too', async ({ page }) => {
+    // The whole reason the check is on the pattern rather than the id: this
+    // looks like a brand new assignment and would hand out lab-3's
+    // repositories. Still true, and still reported - it is the consequence
+    // that moved, not the detection.
+    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
     await fillNew(page, { title: 'Lab 3 v2', slug: 'lab-3-v2', pattern: 'lab-3-{github_login}' });
 
-    await expect(refusal(page)).toBeVisible();
-    await expect(refusal(page)).toContainText('lab-3-alice');
-    await expectNoWrite(page, writes);
+    await expect(refusal(page)).toHaveCount(0);
+    await expect(note(page)).toContainText('lab-3-alice');
+  });
+
+  test('the note asks what to do about them, and offers reuse first', async ({ page }) => {
+    // The question the note raises, asked where the lecturer is reading about
+    // it. `reuse` is what provisioning has always done, so it is the selected
+    // one until somebody says otherwise.
+    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+
+    const control = page.locator('.existing-repo-policy');
+    await expect(control).toBeVisible();
+    await expect(control).toContainText('When a student already owns one');
+    await expect(control.locator('.policy-option.selected')).toContainText('Give them the existing repository');
+    // The dangerous case is handled either way, and it says so - that is what
+    // makes the note safe to click past.
+    await expect(control).toContainText('frozen by an earlier deadline is refused whichever you pick');
+  });
+
+  test('and the question is not asked where the name is free', async ({ page }) => {
+    // A control that renders over nothing is a question about nothing.
+    await openAdmin(page, { orgRepos: ['pxl-classroom-control', 'starter-template'] });
+    await fillNew(page);
+    await expect(page.locator('.existing-repo-policy')).toHaveCount(0);
+  });
+
+  test('choosing refuse is written to the assignment; leaving it alone writes nothing', async ({ page }) => {
+    // The tri-state. Absent means reuse, so a form that wrote `reuse` on every
+    // save would turn "never came up" into a recorded decision - the trap
+    // org_scoped_lock and template_grades both fell into.
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+
+    await saveDraft(page).click();
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    const untouched = writes.find((w) => w.path === `assignments/${ID}.yml`);
+    expect(untouched.content).not.toContain('existing_repo_policy');
+  });
+
+  test('…and choosing refuse IS written', async ({ page }) => {
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+
+    await page.locator('.existing-repo-policy input[value="refuse"]').check();
+    await saveDraft(page).click();
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    const doc = writes.find((w) => w.path === `assignments/${ID}.yml`);
+    expect(doc.content).toContain('existing_repo_policy: refuse');
   });
 
   test('another LIVE assignment already using the pattern blocks, and is named', async ({ page }) => {
@@ -333,27 +393,29 @@ test.describe('the name is taken', () => {
     await fillNew(page);
 
     const err = refusal(page);
-    await expect(err).toContainText('lab-3-alice');
     await expect(err).toContainText('"lab-3-old"');
     await expect(err).toContainText('the archive still exists');
-    // Three blockers, and NOT the retired record: the consequence line says
-    // "delete what is listed above", and nobody has to delete the evidence.
-    await expect(err.locator('.collision-list').first().locator('li')).toHaveCount(3);
+    // TWO blockers now, not three. The existing repositories are a note, and
+    // the retired record never blocked - the remedies say "delete the archive",
+    // and nobody has to delete the evidence of the previous run or 300
+    // students' repositories.
+    await expect(err.locator('.collision-list').first().locator('li')).toHaveCount(2);
     await expect(err).not.toContainText(`retired/${ID}/`);
+    await expect(err).not.toContainText('lab-3-alice');
     await expectNoWrite(page, writes);
   });
 
   test('the refusal names real options, and never points at the repo docs', async ({ page }) => {
     // A refusal that only says no gets routed around. DESIGN.md 1.6 - and a
     // lecturer is not the operator of this deployment.
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await openAdmin(page, { orgRepos: [], archive: true });
     await fillNew(page);
     const err = refusal(page);
     await expect(err).toContainText('What to do:');
     await expect(err.locator('.collision-ways li')).toHaveCount(2);
     await expect(err).toContainText('Recommended');
     await expect(err).toContainText('The name has to be different');
-    await expect(err).toContainText('Delete what is listed above');
+    await expect(err).toContainText('Delete the archive repository');
     await expect(err).not.toContainText(/RUNBOOK|ARCHITECTURE|LESSONS|DESIGN\.md/);
   });
 
@@ -363,7 +425,7 @@ test.describe('the name is taken', () => {
     // - 2627" is the same defect one step back: nothing here knows THAT name
     // is free either, nor that the organization does not already encode the
     // year some other way. The requirement is stated instead.
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await openAdmin(page, { orgRepos: [], archive: true });
     await fillNew(page, { opensAt: '2026-09-21T06:00' });
 
     const ways = refusal(page).locator('.collision-ways li').first();
@@ -371,7 +433,11 @@ test.describe('the name is taken', () => {
     await expect(ways).not.toContainText(/academic/i);
     await expect(ways).not.toContainText(/never collides?/i);
     await expect(ways).toContainText('The name has to be different');
-    await expect(ways).toContainText('a prefix or suffix is enough');
+    await expect(ways).toContainText('put something in front of it');
+    // And NOT "or suffix": a placeholder expands to `[A-Za-z0-9-]+`, so a
+    // suffixed pattern is still inside the original's namespace and the clash
+    // survives. Advice that sends a lecturer back into the same refusal.
+    await expect(ways).not.toContainText(/suffix/);
   });
 
   test('deleting is not offered when there is nothing to delete', async ({ page }) => {
@@ -386,7 +452,7 @@ test.describe('the name is taken', () => {
     const err = refusal(page);
     // One way forward, and it is not "delete": there is nothing to delete.
     await expect(err.locator('.collision-ways li')).toHaveCount(1);
-    await expect(err).not.toContainText('Delete what is listed above');
+    await expect(err).not.toContainText(/Delete/);
     // Nor "Recommended" - there is nothing to recommend it over.
     await expect(err).not.toContainText('Recommended');
     // The finding names the pattern, so the field to change is identified
@@ -395,16 +461,19 @@ test.describe('the name is taken', () => {
   });
 
   test('the delete option says what it costs, in the same breath', async ({ page }) => {
-    await openAdmin(page, { orgRepos: ['lab-3-alice'], archive: true, retired: manifest() });
+    await openAdmin(page, { orgRepos: [], archive: true, retired: manifest() });
     await fillNew(page);
-    await expect(refusal(page)).toContainText("destroys the students' work");
+    // What it destroys is the preserved submissions: the archive is the only
+    // thing this option still deletes.
+    await expect(refusal(page)).toContainText('destroys the preserved submissions');
   });
 
   test('matching is case-insensitive, because GitHub repository names are', async ({ page }) => {
-    // `Lab-3-Alice` and `lab-3-alice` cannot both exist.
+    // `Lab-3-Alice` and `lab-3-alice` cannot both exist, so a case-sensitive
+    // match would report a name free that cannot be created.
     await openAdmin(page, { orgRepos: ['Lab-3-Alice'] });
     await fillNew(page);
-    await expect(refusal(page)).toContainText('Lab-3-Alice');
+    await expect(note(page)).toContainText('Lab-3-Alice');
   });
 
   test('a group pattern collides on the team repositories', async ({ page }) => {
@@ -417,14 +486,16 @@ test.describe('the name is taken', () => {
     const pat = page.getByPlaceholder('linux-processes-{github_login}');
     await pat.fill('lab-3-{team_slug}');
     await pat.blur();
-    await expect(refusal(page)).toContainText('lab-3-team-alpha, lab-3-team-beta');
+    await expect(note(page)).toContainText('lab-3-team-alpha, lab-3-team-beta');
   });
 
   test('a huge cohort is counted, not printed', async ({ page }) => {
+    // 200 is the shape of the case this whole change is about: a number that
+    // says nothing about how many of them belong to a student who will accept.
     await openAdmin(page, { orgRepos: Array.from({ length: 200 }, (_, i) => `lab-3-s${i}`) });
     await fillNew(page);
-    await expect(refusal(page)).toContainText('200 repositories');
-    await expect(refusal(page)).toContainText('…');
+    await expect(note(page)).toContainText('200 repositories');
+    await expect(note(page)).toContainText('…');
   });
 });
 
@@ -466,8 +537,15 @@ test.describe('what the check does when it cannot see', () => {
 });
 
 test.describe('the verdict follows the form it was about', () => {
+  // These are about STALENESS, not about which finding was raised, so they need
+  // a blocker to watch appear and disappear - and it has to be one the pattern
+  // decides, because two of them clear it by editing the pattern. A live
+  // assignment on the same pattern is that; the archive is keyed on the id and
+  // would survive a pattern change, which is correct and useless here.
+  const rival = () => ({ 'lab-3-old': liveAssignment('lab-3-old', 'lab-3-{github_login}') });
+
   test('editing the slug drops a verdict decided for the previous one', async ({ page }) => {
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await openAdmin(page, { orgRepos: [], assignments: rival() });
     const slug = await fillNew(page);
     await expect(refusal(page)).toBeVisible();
 
@@ -476,7 +554,7 @@ test.describe('the verdict follows the form it was about', () => {
   });
 
   test('editing the PATTERN drops it too - it is the half that actually decides', async ({ page }) => {
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await openAdmin(page, { orgRepos: [], assignments: rival() });
     await fillNew(page);
     await expect(refusal(page)).toBeVisible();
 
@@ -485,12 +563,16 @@ test.describe('the verdict follows the form it was about', () => {
   });
 
   test('…and re-checking with the new pattern clears it for real', async ({ page }) => {
-    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    const writes = await openAdmin(page, { orgRepos: [], assignments: rival() });
     await fillNew(page);
     await expect(refusal(page)).toBeVisible();
 
     const pat = page.getByPlaceholder('linux-processes-{github_login}');
-    await pat.fill('lab-3-2026-{github_login}');
+    // A PREFIX, and it has to be. A placeholder expands to `[A-Za-z0-9-]+`, so
+    // `lab-3-2026-{github_login}` is still inside `lab-3-{github_login}`'s
+    // namespace and the clash correctly survives - which makes a suffix a
+    // fixture that proves the opposite of what this test is for.
+    await pat.fill('2026-lab-3-{github_login}');
     await pat.blur();
     await expect(refusal(page)).toHaveCount(0);
     await saveDraft(page).click();
@@ -500,7 +582,7 @@ test.describe('the verdict follows the form it was about', () => {
   test('retyping the title re-derives both halves and drops the stale verdict', async ({ page }) => {
     // autoSyncSlug rewrites form.id AND the pattern without an @input on
     // either field, so the clear cannot live only on those handlers.
-    await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await openAdmin(page, { orgRepos: [], assignments: rival() });
     await page.locator('.new-btn').click();
     const title = page.getByPlaceholder('e.g. Linux Processes 2026');
     await title.fill('Lab 3');
@@ -524,7 +606,7 @@ test.describe('the verdict follows the form it was about', () => {
     // can raise the same refusal by the courtesy route - which is the point of
     // that handler, and would make an assertion about visible text pass
     // without the gate ever running.
-    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    const writes = await openAdmin(page, { orgRepos: [], assignments: rival() });
     await page.locator('.new-btn').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab 3');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
@@ -605,8 +687,47 @@ test.describe('an existing assignment', () => {
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
     await page.getByPlaceholder('linux-processes-{github_login}').blur();
     await expect(refusal(page)).toHaveCount(0);
+    // Nor a note: an unchanged pattern asks the organization nothing at all.
+    await expect(note(page)).toHaveCount(0);
 
     await saveDraft(page).click();
     await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+  });
+
+  test('THE WAY ROUND THE CREATION CHECK: repointing at occupied names is reported now', async ({ page }) => {
+    // Create under a name the check accepts, save, then edit the pattern to the
+    // one you wanted. It went through in silence, because this branch only ever
+    // looked at other assignments - and it is the natural move for a lecturer
+    // who has just been told no, written down in RUNBOOK §5.1.
+    await open(page, { orgRepos: ['portfolio-alice', 'portfolio-bob'] });
+    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    await pat.fill('portfolio-{github_login}');
+    await pat.blur();
+
+    await expect(note(page)).toContainText('portfolio-alice, portfolio-bob');
+    // A note, not a refusal - same as at creation. What it buys is that the
+    // lecturer sees the same list and is asked the same question rather than
+    // walking past both.
+    await expect(refusal(page)).toHaveCount(0);
+    await expect(page.locator('.existing-repo-policy')).toBeVisible();
+  });
+
+  test('…and widening its own pattern does not report its own cohort back at it', async ({ page }) => {
+    // A placeholder expands to `[A-Za-z0-9-]+`, so `lab-3-{github_login}`
+    // matches `lab-3-2026-alice`. Going the other way - narrow to wide - would
+    // otherwise list this assignment's own repositories as something in its
+    // way, which is the reading that makes the check useless on an edit.
+    await openAdmin(page, {
+      assignments: { [ID]: liveAssignment(ID, `${ID}-2026-{github_login}`) },
+      orgRepos: [`${ID}-2026-alice`, `${ID}-2026-bob`],
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    await pat.fill(`${ID}-{github_login}`);
+    await pat.blur();
+
+    await expect(note(page)).toHaveCount(0);
+    await expect(refusal(page)).toHaveCount(0);
   });
 });

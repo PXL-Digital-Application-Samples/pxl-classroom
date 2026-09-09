@@ -231,6 +231,13 @@
             "type": "string",
             "description": "Acceptance status of the student for this assignment."
           },
+          "reused_existing_repo": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "A repository already stood at this student's name when they accepted, so provisioning handed it back instead of generating from the template - they do not have this assignment's starter code. Null when there is no acceptance record to say either way, which is not the same as false. Only reachable where the assignment allows reuse (existing_repo_policy); under 'refuse' that student is turned away at acceptance and has no record at all."
+          },
           "claimed_email": {
             "type": [
               "string",

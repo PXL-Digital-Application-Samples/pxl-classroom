@@ -31,6 +31,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { REJECT_REPO_EXISTS, REJECT_REPO_FROZEN } from "../lib/existing-repo.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const acceptSrc = readFileSync(join(root, "acceptance", "accept.mjs"), "utf8");
@@ -55,8 +56,26 @@ function declaredOutcomes() {
     out.add(m[2]);
   }
   for (const m of acceptSrc.matchAll(/\b(?:await\s+)?(?:reject|fail)\(\s*"([^"]+)"/g)) out.add(m[1]);
+  // AND THE ONES REACHED THROUGH A VARIABLE. Step 7 calls
+  // `reject(verdict.reject, …)`, where the outcome comes back from
+  // lib/existing-repo.mjs - so the regexes above cannot see it, and an
+  // extractor that silently sees less than it did is the failure this file's
+  // second test exists to catch one level up. Read from the module that owns
+  // the names rather than spelled again here.
+  //
+  // These two happen to be `rejected:*`, which the persist step covers as a
+  // family, so nothing is currently at risk - the point is that the NEXT
+  // indirect outcome may not be, and it would arrive invisible.
+  for (const o of [REJECT_REPO_FROZEN, REJECT_REPO_EXISTS]) out.add(o);
   return out;
 }
+
+test("the indirect outcomes are genuinely reachable from accept.mjs", () => {
+  // Otherwise the two added above are a claim, not a derivation: this file
+  // would be asserting coverage for outcomes the script can no longer emit.
+  assert.match(acceptSrc, /reject\(\s*verdict\.reject/, "step 7 no longer rejects through the verdict");
+  assert.match(acceptSrc, /existingRepoVerdict/, "accept.mjs no longer asks lib/existing-repo.mjs");
+});
 
 // Outcomes whose work is committed by the provisioning path's own step, which
 // stages repositories/, teams/, acceptances/ AND students/.

@@ -25,9 +25,15 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { generateClaimKeypair, encryptClaim } from "../lib/claim.mjs";
+import { startRepoProbe } from "./fixtures/repo-probe.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const acceptScript = join(here, "..", "acceptance", "accept.mjs");
+
+// accept.mjs step 7 asks GitHub whether the target repository name is taken.
+// Answers 404 for everything here - and a `kind: confirm` run never reaches
+// that question at all, which is itself worth the stand-in being present.
+const probe = await startRepoProbe();
 
 const ID = "cloud-lab-3";
 const LOGIN = "alice";
@@ -80,6 +86,7 @@ function run(dir, env = {}) {
     encoding: "utf8",
     env: {
       ...process.env,
+      ...probe.env,
       ASSIGNMENT_ID: ID,
       GITHUB_LOGIN: LOGIN,
       GITHUB_ID: String(GITHUB_ID),

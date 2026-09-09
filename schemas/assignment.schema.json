@@ -266,6 +266,14 @@
       "default": "report",
       "description": "What happens on late submissions: report only, or block pushes."
     },
+    "existing_repo_policy": {
+      "type": "string",
+      "enum": [
+        "reuse",
+        "refuse"
+      ],
+      "description": "What acceptance does when the student already owns a repository at this assignment's name. 'reuse' hands it back, which is what provisioning has always done and is right for a portfolio carried across years; 'refuse' turns that one student away and tells the lecturer, which is right for a lab or an exam where they would silently miss this year's starter code. NO `default` HERE ON PURPOSE - lib/validate.mjs runs Ajv with `useDefaults: true`, so a default is a WRITER that mutates the document being validated (CLAUDE.md, tests/schema-defaults-are-writers.test.mjs). Absent means 'reuse' and lib/existing-repo.mjs is the one thing that decides it: every assignment written before this field existed has been reusing since it was published, so validation must not turn that silence into an answer somebody could later read as deliberate. A repository frozen by a deadline ruleset is refused whatever this says - lib/existing-repo.mjs, and there is no assignment for which handing over a repository the student cannot push to is the wanted outcome."
+    },
     "state": {
       "type": "string",
       "enum": [

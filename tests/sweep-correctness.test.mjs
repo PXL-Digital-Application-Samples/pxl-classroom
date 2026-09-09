@@ -27,9 +27,15 @@ import { parse } from "yaml";
 
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+import { startRepoProbe } from "./fixtures/repo-probe.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
+
+// accept.mjs step 7 asks GitHub whether the target repository name is taken.
+// F12 and F13 drive the real script, so they need something to answer it; it
+// says 404 to everything, which is the case both of them are about.
+const probe = await startRepoProbe();
 
 // --- F15: autograding YAML --------------------------------------------------
 
@@ -372,6 +378,7 @@ function runAccept(dir, envOverrides) {
   execFileSync(process.execPath, [join(root, "acceptance", "accept.mjs")], {
     env: {
       ...process.env,
+      ...probe.env,
       DATA_DIR: dir,
       ORG: "PXLAutomation",
       CONTROL_REPO: "pxl-classroom-control",

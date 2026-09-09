@@ -85,6 +85,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Template repository | pick from template repositories in your org (repositories marked as templates on GitHub). **Fill this first** - it prefills the three fields below it |
 | Title | shown to students. Prefilled from the template's repository name |
 | Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}`. This is the name students see, and it is the key the collision check uses (§5.1) |
+| When a student already owns one | only shown when repositories matching the pattern already exist. **Give them the existing repository** by default — what has always happened, and what you want for a portfolio carried across years. **Turn that student away, and tell me** refuses them by name instead, which is what you want for a lab or an exam where they would otherwise silently miss this year's starter code. A repository frozen by an earlier deadline is refused either way (§5.1.1) |
 | Slug | not a field you fill in: shown under the pattern as a derived value, with **Edit** beside it. It names `assignments/<id>.yml`, the public `broker-<id>` repository students open to accept, and your own link to this assignment - so it is worth reading, and almost never worth changing. Fixed once the assignment exists, because changing it would orphan the YAML file. It is **not** in the student's invitation link, which is a token |
 | Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
@@ -490,23 +491,51 @@ Do **not** delete an archive for an assignment whose deadline has passed but who
 
 ### 5.1 Running the same lab again, or reusing a name
 
-Creating an assignment checks whether it would land on top of an existing one, and refuses if it would. The check is on `repository_name_pattern`, not on the assignment id: two ids can point at one namespace, and provisioning is idempotent on repository *existence*, so the second assignment hands students the first one's repository - already locked down, already preserved - instead of a fresh one.
+Creating an assignment checks whether it would land on top of an existing one. The check is on `repository_name_pattern`, not on the assignment id: two ids can point at one namespace, and provisioning is idempotent on repository *existence*, so the second assignment hands students the first one's repository instead of a fresh one.
 
-Three things are refused, and two of them would otherwise fail weeks later, at the deadline:
+Two things are refused, and both would otherwise fail weeks later, at the deadline:
 
 | What is in the way | What would happen |
 |---|---|
-| A repository the pattern would produce already exists | A returning student is handed the old one, holding last year's work and locked by last year's deadline. You can reopen it (§6.15), but nothing in provisioning knows to, so they meet a repository they cannot push to. |
-| Another assignment already uses that pattern | The same thing, from the first acceptance. |
+| Another assignment already uses that pattern | Whoever accepts second is handed the other assignment's repository, from the first acceptance. |
 | `<org>/pxl-classroom-archive-<id>` still exists | It still holds `refs/heads/preserved/<id>/<login>`, and preservation pushes without `--force` on purpose - so the snapshot is rejected at the new deadline, for every returning student. |
 
-Each is named individually, so one pass of cleanup clears all of them.
+Each is named individually, so one pass of cleanup clears both.
+
+**Repositories that already exist do not refuse the save.** They are reported, and the form asks what to do about them:
+
+> 300 repositories in this organization already match this pattern: portfolio-PXL-…
+>
+> **When a student already owns one**
+> - *Give them the existing repository* — they keep what is in it, and this assignment's starter code is not copied over the top. What you want for work that carries across years, such as a portfolio.
+> - *Turn that student away, and tell me* — they are refused by name rather than quietly starting the assignment without its starter code. What you want for a lab or an exam.
+
+The count is the **organization's**, not this cohort's. That is why it does not refuse: at the moment you are naming an assignment, nobody has accepted it, so "300 repositories exist" says nothing about how many belong to a student who will actually take it. Usually the answer is none, or the two or three who are repeating the year.
+
+The real check happens at acceptance, one student at a time, where the answer is knowable — see §5.1.1. Leaving the setting alone means *give them the existing repository*, which is what the system has always done.
+
+#### 5.1.1 What a student meets when the name is taken
+
+At acceptance, once it knows which student and which repository name, the system asks GitHub what is there:
+
+| What it finds | What happens |
+|---|---|
+| Nothing | The ordinary path: a fresh repository from the template. |
+| A repository frozen by an earlier deadline | **That student is refused**, whatever the assignment says, and the refusal names the ruleset. There is no assignment for which handing somebody a repository they cannot push to is the right outcome. Reopen it (§6.15) or rename it on GitHub, and they can accept. |
+| An ordinary repository | Whatever you chose above. Reused, or that student refused by name. |
+| An unreadable answer | Refused. A failed read is not evidence the name is free; it is transient, and the student can try again. |
+
+A refusal here reaches you the same way every other one does — the assignment's detail view, and the tracking issue — naming the student and what was in the way. It is not a red workflow run: a student the system turned away on purpose is an outcome, not a failure.
+
+A **group** repository is shared, so only the first member's acceptance can meet this; for everyone after them the repository exists because their teammate is in it.
+
+Reuse is recorded, so you can tell afterwards which students did not start from this year's template: `reused_existing_repo` is a column in the assignment's **Export CSV** and in the nightly `reports/<id>.csv`. It is empty for a student with no acceptance record — which is not the same as `false`.
 
 **What is *not* refused:** an assignment you opened, changed your mind about and deleted before anybody joined. The delete writes `retired/<id>/` unconditionally, so a record exists for a run that never had a repository - you get a note saying a later delete would overwrite it, and the assignment saves.
 
-The same applies once you have cleaned up: the check asks what **exists**, not what once happened. Delete the archive and the student repositories (the two steps above) and the name is free again.
+The same applies once you have cleaned up: the check asks what **exists**, not what once happened. Delete the archive and the name is free again.
 
-**The cheap way is a name that sets this run apart** — a prefix, a suffix, either. The requirement is only that it be different; what you put there is your call. The academic year is a convention that works (`2627-lab-3`, or `lab-3-2627`), and a prefix has the side benefit of sorting one year's repositories together in the organization's listing.
+**The cheap way is a name that sets this run apart, and it goes in front.** The academic year is a convention that works (`2627-lab-3`). Put it on the end and a *pattern clash* survives it: `{github_login}` matches anything a repository name may contain, hyphens included, so `lab-3-2627-{github_login}` is still inside `lab-3-{github_login}`'s namespace and is refused again. A prefix also sorts one year's repositories together in the organization's listing.
 
 The refusal itself names no replacement, deliberately: any name it suggested would be one it had not checked, and it can be taken too. What you type is checked when you type it.
 

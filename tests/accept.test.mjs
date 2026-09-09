@@ -6,8 +6,17 @@ import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
+import { startRepoProbe } from "./fixtures/repo-probe.mjs";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const acceptScript = join(here, "..", "acceptance", "accept.mjs");
+
+// accept.mjs step 7 asks GitHub whether the target repository name is already
+// taken. Without something to answer, these tests reached the real
+// api.github.com, got a 401 and were refused for an unreadable probe - so the
+// stand-in is not a convenience here, it is what keeps the suite hermetic. It
+// answers 404 for everything unless a test says otherwise.
+const probe = await startRepoProbe();
 
 function runAccept(envOverrides = {}, setupData = null) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-accept-test-"));
@@ -57,6 +66,7 @@ function runAccept(envOverrides = {}, setupData = null) {
     encoding: "utf8",
     env: {
       ...process.env,
+      ...probe.env,
       DATA_DIR: dir,
       GITHUB_OUTPUT: outputEnv,
       GITHUB_STEP_SUMMARY: summaryEnv,
@@ -250,6 +260,7 @@ template:
     encoding: "utf8",
     env: {
       ...process.env,
+      ...probe.env,
       DATA_DIR: dir,
       GITHUB_OUTPUT: outputEnv,
       ASSIGNMENT_ID: "test-asgn",
@@ -629,6 +640,7 @@ template:
     encoding: "utf8",
     env: {
       ...process.env,
+      ...probe.env,
       DATA_DIR: dir,
       ASSIGNMENT_ID: "test-asgn",
       GITHUB_LOGIN: "charlie",
@@ -680,6 +692,7 @@ template:
     encoding: "utf8",
     env: {
       ...process.env,
+      ...probe.env,
       DATA_DIR: dir,
       ASSIGNMENT_ID: "test-asgn",
       GITHUB_LOGIN: "alice",
@@ -1156,4 +1169,178 @@ template:
   assert.notEqual(res.outputs.outcome, "fail:exception", res.stdout + res.stderr);
   assert.equal(res.status, 0, "a hand-edited manifest must not turn a team switch into a red run");
   assert.equal(res.outputs.outcome, "accepted");
+});
+
+// ------------------------------------------- step 7: something is already there
+//
+// The judgement that used to live in the assignment form, where the cohort was
+// not knowable and 300 repositories from previous years refused a name over
+// perhaps two that mattered. Here both halves are known.
+
+const SOLO_YAML = `state: published
+repository_name_pattern: portfolio-{github_login}
+template:
+  owner: TestOrg
+  repository: tpl`;
+
+const acceptRecord = (res, login = "charlie") =>
+  JSON.parse(readFileSync(join(res.dir, "acceptances", "test-asgn", `${login}.json`), "utf8"));
+
+test("a repository frozen by an earlier deadline refuses that student", () => {
+  probe.setRepos({ "portfolio-charlie": { rulesets: ["pxl-classroom-deadline-lab-3"] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  // A rejection, not a failure: the run is green and the outcome carries it.
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "rejected:repo-frozen");
+  assert.match(res.outputs.reject_reason, /pxl-classroom-deadline-lab-3/);
+});
+
+test("an organization-scoped lock freezes it just the same", () => {
+  // findSubmissionLock filters organization rulesets OUT, because its job is
+  // releasing one. The student cannot push either way, so this read must not
+  // inherit that filter.
+  probe.setRepos({ "portfolio-charlie": { rulesets: ["pxl-classroom-deadline"] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "rejected:repo-frozen");
+});
+
+test("an unfrozen repository is handed over, and the record says so", () => {
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "accepted");
+  // The assignment never answered, so it reuses - which is what provisioning
+  // has always done. What is new is that it is written down: `reused` lived in
+  // provision.mjs's run log and reached no screen.
+  assert.equal(acceptRecord(res).reused_existing_repo, true);
+});
+
+test("a ruleset that is not ours does not freeze anything", () => {
+  probe.setRepos({ "portfolio-charlie": { rulesets: ["main-protection"] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "accepted", "a lecturer's own branch rule is not a deadline lock");
+});
+
+test("existing_repo_policy: refuse turns that one student away", () => {
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: `${SOLO_YAML}\nexisting_repo_policy: refuse` },
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "rejected:repo-exists");
+});
+
+test("a free name is untouched by any of this", () => {
+  probe.setRepos({ "portfolio-someone-else": { rulesets: [] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(acceptRecord(res).reused_existing_repo, undefined, "written only when true");
+});
+
+test("a second team member is not refused over their teammate's repository", () => {
+  // A group repository is ONE object shared by the team, so it exists for
+  // everyone after the first member - which is the assignment working, not a
+  // collision. Refusing here would break every group assignment at the second
+  // acceptance. The manifest carries `repo_name` because the first member's
+  // acceptance provisioned it, and that is the signal this reads.
+  probe.setRepos({ "grp-team-a": { rulesets: ["pxl-classroom-deadline-other"] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: ["alice"], max_members: 4, repo_name: "grp-team-a" },
+        },
+      },
+    },
+  );
+  // Not even a frozen ruleset stops them: it is THEIR repository, and the
+  // manifest says so before GitHub is asked at all.
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.equal(res.outputs.target_repo, "grp-team-a");
+});
+
+test("joining a team that went vacant is not a collision either", () => {
+  // `isFirstMember` counts MEMBERS, so a team everybody left reads as brand new
+  // while its repository is still there. Checking that flag instead of the
+  // team's own `repo_name` would refuse a student joining their own cohort's
+  // repository - the same defect as sweep F12, one field over.
+  probe.setRepos({ "grp-team-a": { rulesets: [] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "333", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: [], max_members: 4, vacant: true, repo_name: "grp-team-a" },
+        },
+      },
+    },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  const rec = JSON.parse(readFileSync(join(res.dir, "acceptances", "test-asgn", "dave.json"), "utf8"));
+  assert.equal(rec.reused_existing_repo, undefined, "their own team's repository is not a reuse");
+});
+
+test("a group repository the assignment has NOT provisioned is still checked", () => {
+  // The other direction, and the reason this reads `repo_name` rather than
+  // skipping every group assignment: a seeded team nobody has accepted into
+  // carries no repository, so a name already taken in the organization is a
+  // real collision and has to be found.
+  probe.setRepos({ "grp-team-a": { rulesets: ["pxl-classroom-deadline"] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "444", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: [], max_members: 4 },
+        },
+      },
+    },
+  );
+  assert.equal(res.outputs.outcome, "rejected:repo-frozen");
 });

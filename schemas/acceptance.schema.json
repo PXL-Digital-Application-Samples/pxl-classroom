@@ -67,6 +67,10 @@
     "claim_domain_allowed": {
       "type": "boolean",
       "description": "Whether the address was inside claim_domains. Always true under claim, where a failing domain is refused before a record exists; under open nothing is refused, so this is the detection half."
+    },
+    "reused_existing_repo": {
+      "type": "boolean",
+      "description": "The repository already existed when this student accepted, so provisioning handed it back rather than generating from the template - they do not have this assignment's starter code. Written only when true, and only for a repository this assignment did not create: a student re-accepting leaves through the already-accepted branch, and a group member joining a teammate's repository is the assignment working. Recorded because the lecturer allowed reuse for the cohort (assignment.existing_repo_policy) and still has to be told which students it actually happened to."
     }
   }
 }
