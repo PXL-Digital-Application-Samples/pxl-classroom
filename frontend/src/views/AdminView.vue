@@ -2996,6 +2996,8 @@ function newAssignment() {
     max_acceptances: false,
   }
   form.value = emptyForm()
+  // A new assignment has been asked nothing, whatever the last one answered.
+  existingRepoAnsweredFor.value = ''
   // Auto-select sole template if we already have it loaded
   if (templates.value.length === 1) {
     form.value.template = templates.value[0].full_name
@@ -3015,6 +3017,10 @@ function editAssignment(a) {
   if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
   stopPublishWatch()
   editing.value = { id: a.id }
+  // A stored policy was given about the pattern stored beside it, so opening
+  // this assignment asks nothing - and changing its pattern asks again, which
+  // is the whole reason this is a pattern rather than a flag.
+  existingRepoAnsweredFor.value = a.existing_repo_policy ? (a.repository_name_pattern || '') : ''
   // The STORED template block, kept beside the form rather than inside it: the
   // pin is compared against what the document says, and `form` carries only
   // the `owner/repo` string. Not folded into `editing.value`, which other code
@@ -3526,6 +3532,17 @@ const existingRepoNote = (verdict) =>
 const existingReposPrompt = ref(null)
 
 /**
+ * The pattern the stored answer was given about, or '' when there is none.
+ *
+ * Not a boolean, because "answered" is only meaningful about a set of
+ * repositories, and the pattern is what names that set. An assignment loaded
+ * from disk seeds this from its own stored pattern - a policy in that document
+ * was given about the pattern beside it - so opening an assignment that has
+ * already answered asks nothing, and changing its pattern asks again.
+ */
+const existingRepoAnsweredFor = ref('')
+
+/**
  * Open it and wait, because the save cannot continue until a person answers.
  *
  * A resolver held outside the ref rather than inside it: what is on screen is
@@ -3839,10 +3856,15 @@ async function saveAssignment(stateOverride = null) {
     // not have (DESIGN.md §1.5) - as would asking "when a student already owns
     // one" about a team. (`group` is the stored value; the UI says team.)
     const found = form.value.assignment_type === 'group' ? null : existingRepoNote(verdict)
-    const storedPattern = assignments.value.find((a) => a.id === slug)?.repository_name_pattern
-    const answered = !!form.value.existing_repo_policy &&
-      (!storedPattern || storedPattern === pattern)
-    if (found && !answered) {
+    // WHICH PATTERN THE ANSWER WAS GIVEN ABOUT, not merely that one exists.
+    //
+    // This asked "does the assignment carry a policy, and is its STORED pattern
+    // the one on screen" - and a new assignment has no stored pattern, so the
+    // second half was vacuously true for the whole window between answering and
+    // the assignment existing. Answer, have the commit fail, change the name,
+    // save again: the second save recorded a decision about a set of
+    // repositories nobody had been shown. `tests/e2e/61`.
+    if (found && existingRepoAnsweredFor.value !== pattern) {
       // The label of the button that opened this, derived the same way the
       // buttons themselves derive it rather than passed down through three
       // callers - a third spelling of "Save & publish" is a third place for it
@@ -3856,9 +3878,10 @@ async function saveAssignment(stateOverride = null) {
           : (form.value.state === 'published' ? 'Save' : 'Save & publish'),
       })
       if (chosen === null) return false
-      // Recorded, so this is the last time it is asked for this assignment.
+      // Recorded, so this is the last time it is asked FOR THIS PATTERN.
       // buildDoc writes it; absent still means "never came up".
       form.value.existing_repo_policy = chosen
+      existingRepoAnsweredFor.value = pattern
     }
   }
   saving.value = true

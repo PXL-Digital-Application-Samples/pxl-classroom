@@ -380,6 +380,63 @@ test.describe('the name is taken', () => {
     await expect.poll(() => writes.filter((w) => w.path === 'assignments/lab-3-v2.yml').length).toBe(1);
   });
 
+  test('an answer given about ONE pattern is not reused for another', async ({ page }) => {
+    // The ask-once rule keyed on the STORED pattern, which a new assignment does
+    // not have yet - so between answering and the assignment existing, the
+    // answer applied to whatever the pattern became. Reachable without anything
+    // exotic: answer, have the commit fail, change the name, save again. The
+    // second save recorded a decision about repositories nobody was shown.
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice', 'resit-bob'] });
+    // Fail the first write only, so the editor stays open with the answer in it.
+    let failed = false;
+    await page.route('**/contents/assignments/**', async (route) => {
+      if (route.request().method() !== 'PUT' || failed) return route.fallback();
+      failed = true;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'boom' }) });
+    });
+
+    await fillNew(page);
+    expect(await saveAnswering(page, 'refuse')).toBe(true);
+    await expect.poll(() => failed).toBe(true);
+    expect(writes.filter((w) => w.path.startsWith('assignments/'))).toHaveLength(0);
+
+    // A different name, a different set of repositories, a question never asked
+    // about them.
+    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    await pat.fill('resit-{github_login}');
+    await pat.blur();
+    expect(await saveAnswering(page, 'reuse'), 'it must ask again for the new pattern').toBe(true);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .toContain('existing_repo_policy: reuse');
+  });
+
+  test('Cancel records nothing, so the next save asks again', async ({ page }) => {
+    // Cancelling is not an answer. If it counted as one, backing out of the
+    // dialog would silently commit the pre-selected option on the next save -
+    // a suggestion accepted by not answering it.
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+    expect(await saveAnswering(page, null)).toBe(true);
+    expect(writes.filter((w) => w.path.startsWith('assignments/'))).toHaveLength(0);
+
+    expect(await saveAnswering(page, 'refuse'), 'it must ask again').toBe(true);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .toContain('existing_repo_policy: refuse');
+  });
+
+  test('and once answered, saving again in the same session asks nothing', async ({ page }) => {
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice'] });
+    await fillNew(page);
+    expect(await saveAnswering(page, 'reuse')).toBe(true);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab 3 renamed');
+    expect(await saveAnswering(page, 'reuse'), 'a title edit is not a new question').toBe(false);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(2);
+  });
+
   test('nothing is asked where the name is free', async ({ page }) => {
     // A dialog over nothing is a question about nothing, and it would land on
     // every lecturer in the deployment rather than the one who meets this.
@@ -784,6 +841,41 @@ test.describe('an existing assignment', () => {
     await expect(refusal(page)).toHaveCount(0);
     expect(await saveAnswering(page, 'reuse')).toBe(true);
     await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+  });
+
+  test('one that already answered is not asked again when it is opened', async ({ page }) => {
+    // The whole point of storing the answer. Opening a saved assignment to
+    // change its title must not re-ask a question it has already answered -
+    // that is what turns a warning into something people click past.
+    const writes = await openAdmin(page, {
+      assignments: { [ID]: liveAssignment(ID, `${ID}-{github_login}`, { existing_repo_policy: 'reuse' }) },
+      orgRepos: [`${ID}-alice`, `${ID}-bob`],
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+    expect(await saveAnswering(page, 'reuse'), 'it must not ask again').toBe(false);
+
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    // And the stored answer survives the save: buildDoc rebuilds the whole
+    // document, so a value it did not carry would be deleted by an edit to
+    // something else entirely.
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .toContain('existing_repo_policy: reuse');
+  });
+
+  test('…but changing its pattern asks again, about the new set', async ({ page }) => {
+    const writes = await openAdmin(page, {
+      assignments: { [ID]: liveAssignment(ID, `${ID}-{github_login}`, { existing_repo_policy: 'reuse' }) },
+      orgRepos: [`${ID}-alice`, 'resit-bob'],
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    await pat.fill('resit-{github_login}');
+    await pat.blur();
+
+    expect(await saveAnswering(page, 'refuse'), 'a different pattern is a different question').toBe(true);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+    expect(writes.find((w) => w.path === `assignments/${ID}.yml`).content)
+      .toContain('existing_repo_policy: refuse');
   });
 
   test('…and widening its own pattern does not report its own cohort back at it', async ({ page }) => {

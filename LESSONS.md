@@ -1831,6 +1831,67 @@ would have to live with it:
    something people click past. The answer is stored, so the second save is
    silent; a changed pattern asks again, being a different question.
 
+### A 403 was the plan gate, and reading it as a failure broke every free organization
+
+The review after all of the above asked one question the unit tests could not
+answer: what does `GET /repos/{o}/{r}/rulesets` actually return? Measured against
+two live organizations the same afternoon:
+
+```
+free org, PRIVATE repo   403 "Upgrade to GitHub Pro or make this repository
+                              public to enable this feature."
+free org, PUBLIC repo    200 []
+free org, /orgs/../rulesets
+                         403 "Upgrade to GitHub Team to enable this feature."
+team org, PRIVATE repo   200 []
+```
+
+The code read anything that was not a readable array as **unreadable**, and
+unreadable refuses. So on a free organization every student whose repository
+already existed would have been turned away — the exact population this check was
+built to help, and the plan the testbed organization runs on. Nothing in the
+suite could see it: the fixture answered 200 because that is what the author
+believed.
+
+**Not frozen is the right reading, twice.** The feature is unavailable, so no
+ruleset can be enforcing and the student can push. And the lock would have been
+written by this same App with this same token — one that cannot read rulesets
+here cannot have created one — so there is no lock of ours to find either way.
+An organization that downgraded since a lock was applied lands in the same place
+correctly: an inert ruleset stops nobody.
+
+Anything else that is not a readable array is still `null`. A 401 is an absent
+token and a 500 is a failure; neither is a statement about the plan.
+`frozenFromRulesets` is the one judge, and it takes the status rather than a
+boolean so the distinction is expressible at all.
+
+### An unreadable answer borrowed another refusal's words
+
+The same review found `rejected:repo-exists` being returned for a read that had
+failed. The lecturer was told *"they already own a repository with this name"* —
+about a repository nothing had established was there.
+
+What makes it worse than an imprecise message is how it is reached: an absent
+token, or an App that has lost `administration`, refuses **every** student at
+once. So the one situation where the whole cohort is stuck is the one where the
+lecturer is sent to look for repositories that do not exist.
+`rejected:repo-unreadable` says what happened, says the student can retry, and
+names an administrator as the person who can check the installation — a lecturer
+cannot.
+
+### An answer given about one pattern was reused for another
+
+The dialog is asked once, and "once" was keyed on the assignment's **stored**
+pattern. A new assignment has none — so between answering and the assignment
+existing, the answer applied to whatever the pattern became. Answer, have the
+commit fail, change the name, save again: the second save recorded a decision
+about a set of repositories nobody had been shown.
+
+It keys on the pattern the answer was given about now, which is the thing
+"answered" was always a statement about. An assignment loaded from disk seeds it
+from its own stored pattern, so opening one asks nothing and changing its
+pattern asks again.
+
 ### A name that embeds the owner proves ownership. A name that embeds a team does not.
 
 The question "is this existing repository theirs?" was being answered by one

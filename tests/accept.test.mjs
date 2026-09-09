@@ -1242,6 +1242,51 @@ test("existing_repo_policy: refuse turns that one student away", () => {
   assert.equal(res.outputs.outcome, "rejected:repo-exists");
 });
 
+test("an unreadable probe refuses, and says THAT rather than borrowing a reason", () => {
+  // This reported `rejected:repo-exists` for a day, so an App that had lost
+  // `administration` told the lecturer "they already own a repository with this
+  // name" about every student in the cohort - and sent them looking for
+  // repositories that do not exist. A configuration fault refuses everybody at
+  // once, which is exactly when the message has to be about the fault.
+  probe.setRepos({ "portfolio-charlie": { status: 403 } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "rejected:repo-unreadable");
+  assert.match(res.outputs.reject_reason, /could not be read/);
+});
+
+test("A FREE ORGANIZATION still works - a 403 on rulesets is the plan gate, not a failure", () => {
+  // The regression this nearly shipped. Measured 2026-09-09: a free
+  // organization answers 403 "Upgrade to GitHub Pro or make this repository
+  // public to enable this feature" for a PRIVATE repository's rulesets, and a
+  // Team organization answers `200 []`. Reading that as unreadable refused
+  // every student on a free organization whose repository already existed -
+  // which is the population this check exists to help.
+  probe.setRepos({ "portfolio-charlie": { rulesetsStatus: 403 } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.equal(acceptRecord(res).reused_existing_repo, true);
+});
+
+test("…but a rulesets read that fails for any other reason is still unreadable", () => {
+  // 401 is an absent or wrong token, which is a configuration fault rather than
+  // a plan. "We could not tell whether it is frozen" must not read as "it is
+  // open": guessing open hands a student a repository they cannot push to.
+  probe.setRepos({ "portfolio-charlie": { rulesetsStatus: 401 } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "rejected:repo-unreadable");
+  assert.match(res.outputs.reject_reason, /rulesets could not be read/);
+});
+
 test("a free name is untouched by any of this", () => {
   probe.setRepos({ "portfolio-someone-else": { rulesets: [] } });
   const res = runAccept(

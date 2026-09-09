@@ -6,7 +6,10 @@ import {
   EXISTING_REPO_POLICIES,
   REJECT_REPO_EXISTS,
   REJECT_REPO_FROZEN,
+  REJECT_REPO_UNREADABLE,
+  EXISTING_REPO_REJECTIONS,
   existingRepoVerdict,
+  frozenFromRulesets,
   normalizeExistingRepoPolicy,
 } from "../lib/existing-repo.mjs";
 import { rejectionReason } from "../lib/rejection-notice.mjs";
@@ -83,6 +86,39 @@ test("the schema declares the same two answers, and NO default", () => {
   assert.ok(!("default" in field), "a tri-state field may not carry a schema default");
 });
 
+// ------------------------------------------------- reading the rulesets answer
+
+test("A 403 IS THE PLAN GATE, and it means not frozen", () => {
+  // Measured 2026-09-09 on two live organizations: a FREE org answers 403
+  // "Upgrade to GitHub Pro or make this repository public to enable this
+  // feature" for a private repository's rulesets, while a Team org answers
+  // `200 []`. Reading that as unreadable refused every student on a free
+  // organization whose repository already existed.
+  //
+  // Not frozen is right twice: the feature is unavailable so nothing can be
+  // enforcing, and the lock would have been written by this same token - one
+  // that cannot read rulesets here cannot have created one.
+  assert.equal(frozenFromRulesets({ ok: false, status: 403 }, () => true), false);
+});
+
+test("a readable list finds our lock at either scope, and nobody else's", () => {
+  const ours = (n) => typeof n === "string" && n.startsWith("pxl-classroom-deadline");
+  assert.equal(
+    frozenFromRulesets({ ok: true, status: 200, data: [{ name: "pxl-classroom-deadline-lab-3" }] }, ours),
+    "pxl-classroom-deadline-lab-3",
+  );
+  assert.equal(frozenFromRulesets({ ok: true, status: 200, data: [] }, ours), false);
+  assert.equal(frozenFromRulesets({ ok: true, status: 200, data: [{ name: "main-protection" }] }, ours), false);
+});
+
+test("anything else establishes nothing", () => {
+  // A 500 that survived lib/gh.mjs's retries, or a shape we did not expect.
+  // `null` is the third answer, and the caller turns it into a refusal.
+  assert.equal(frozenFromRulesets({ ok: false, status: 500 }, () => true), null);
+  assert.equal(frozenFromRulesets({ ok: true, status: 200, data: { nope: 1 } }, () => true), null);
+  assert.equal(frozenFromRulesets(undefined, () => true), null);
+});
+
 // ----------------------------------------------------------------- the verdict
 
 test("nothing at the name is the ordinary path", () => {
@@ -128,12 +164,31 @@ test("unreadable is not evidence, in either read", () => {
   // retries.
   const unread = existingRepoVerdict({ exists: null, frozen: false, policy: "reuse" });
   assert.equal(unread.outcome, "unknown");
-  assert.equal(unread.reject, REJECT_REPO_EXISTS);
+  assert.equal(unread.reject, REJECT_REPO_UNREADABLE);
 
   const rulesUnread = existingRepoVerdict({ exists: true, frozen: null, policy: "reuse" });
   assert.equal(rulesUnread.outcome, "unknown");
-  assert.equal(rulesUnread.reject, REJECT_REPO_EXISTS);
+  assert.equal(rulesUnread.reject, REJECT_REPO_UNREADABLE);
   assert.match(rulesUnread.note, /could not be read/);
+});
+
+test("AND IT SAYS SO - an unreadable answer never borrows another refusal's words", () => {
+  // It borrowed `rejected:repo-exists` for a day. The way to reach this is a
+  // configuration fault - an absent token, an App that lost `administration` -
+  // which refuses EVERY student at once, so the lecturer was told the whole
+  // cohort already owned repositories and went looking for them. A message no
+  // branch computed is a guess, and this one was reachable by accident.
+  const unread = existingRepoVerdict({ exists: null, frozen: false });
+  assert.notEqual(unread.reject, REJECT_REPO_EXISTS);
+  assert.notEqual(unread.reject, REJECT_REPO_FROZEN);
+
+  const said = rejectionReason(unread.reject);
+  assert.match(said, /could not read/);
+  assert.doesNotMatch(said, /already own/, "it must not claim what was never established");
+  // And it names who can act, rather than an instruction a lecturer cannot
+  // follow (DESIGN.md §1.6).
+  assert.match(said, /try again/);
+  assert.match(said, /administrator/);
 });
 
 test("junk in yields a refusal, never a silent handover", () => {
@@ -144,12 +199,29 @@ test("junk in yields a refusal, never a silent handover", () => {
 
 // ------------------------------------------------ the names, spelled once each
 
-test("both rejection outcomes have a human label", () => {
+test("every rejection this can produce is in the exported set", () => {
+  // The set is what tests/acceptance-outcome-persisted.test.mjs iterates, and
+  // step 7 rejects through a variable so a source scan cannot see any of them.
+  // Derived from the verdicts themselves rather than from the list, or the list
+  // would be checking its own copy.
+  const produced = new Set([
+    existingRepoVerdict({ exists: null }).reject,
+    existingRepoVerdict({ exists: true, frozen: null }).reject,
+    existingRepoVerdict({ exists: true, frozen: "pxl-classroom-deadline" }).reject,
+    existingRepoVerdict({ exists: true, frozen: false, policy: "refuse" }).reject,
+  ].filter(Boolean));
+  for (const o of produced) {
+    assert.ok(EXISTING_REPO_REJECTIONS.includes(o), `${o} is produced but not exported`);
+  }
+  assert.equal(EXISTING_REPO_REJECTIONS.length, produced.size, "the set names one that is never produced");
+});
+
+test("every rejection outcome has a human label", () => {
   // Derived from the constants the producer uses, not from two string literals:
   // an outcome spelled one way in accept.mjs and another in the label table is
   // the silent nothing lib/rejection-notice.mjs exists to have ended -
   // `rejectionReason` falls back to the raw slug rather than failing.
-  for (const outcome of [REJECT_REPO_FROZEN, REJECT_REPO_EXISTS]) {
+  for (const outcome of EXISTING_REPO_REJECTIONS) {
     const label = rejectionReason(outcome);
     assert.notEqual(label, outcome.replace(/^rejected:/, "").replace(/-/g, " "), `${outcome} fell back to its slug`);
     assert.match(label, /repository|repositories|own/, `${outcome} says what is in the way`);

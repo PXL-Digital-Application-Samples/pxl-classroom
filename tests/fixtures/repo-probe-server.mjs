@@ -56,6 +56,11 @@ const server = createServer((req, res) => {
   if (m) {
     const entry = repos[m[1]];
     if (!entry) return json(res, 404, { message: "Not Found" });
+    // A repository that is there while its rulesets are not readable is a real
+    // state, not a contrivance: it is what an App without `administration`
+    // sees, and reportedly what a free organization answers for a private
+    // repository. `status` covers the same for the repository read itself.
+    if (entry.rulesetsStatus) return json(res, entry.rulesetsStatus, { message: "Forbidden" });
     const names = Array.isArray(entry.rulesets) ? entry.rulesets : [];
     return json(
       res,
@@ -69,6 +74,10 @@ const server = createServer((req, res) => {
   if (m) {
     const entry = repos[m[1]];
     if (!entry) return json(res, 404, { message: "Not Found" });
+    // 4xx ONLY in fixtures. lib/gh.mjs retries anything >= 500 six times with
+    // backoff, so staging a 500 here buys minutes of sleeping and a test that
+    // looks hung rather than the refusal it is trying to assert.
+    if (entry.status) return json(res, entry.status, { message: "Forbidden" });
     return json(res, 200, { id: entry.id ?? 4242, name: m[1] });
   }
 

@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName } from "../lib/submission-lock.mjs";
-import { existingRepoVerdict } from "../lib/existing-repo.mjs";
+import { existingRepoVerdict, frozenFromRulesets } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
@@ -1028,15 +1028,15 @@ async function main() {
     // acceptance costs one request and this one costs two.
     let frozen = false;
     if (exists === true) {
-      const rules = await gh("GET", `/repos/${org}/${targetRepo}/rulesets`);
-      if (!rules.ok || !Array.isArray(rules.data)) {
-        frozen = null;
-      } else {
-        // Organization rulesets come back from this endpoint too, and one of
-        // those freezes the repository exactly as a repository-scoped one does -
-        // so unlike `findSubmissionLock`, whose job is releasing, we want both.
-        frozen = rules.data.find((r) => isSubmissionLockName(r?.name))?.name ?? false;
-      }
+      // Organization rulesets come back from this endpoint too, and one of
+      // those freezes the repository exactly as a repository-scoped one does -
+      // so unlike `findSubmissionLock`, whose job is releasing, we want both.
+      // The status reading (a 403 is the plan gate, not a failure) is in
+      // lib/existing-repo.mjs, where a test can run it.
+      frozen = frozenFromRulesets(
+        await gh("GET", `/repos/${org}/${targetRepo}/rulesets`),
+        isSubmissionLockName,
+      );
     }
 
     const verdict = existingRepoVerdict({

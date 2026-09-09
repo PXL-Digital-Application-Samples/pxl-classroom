@@ -533,7 +533,9 @@ At acceptance, once it knows which student and which repository name, the system
 | A repository frozen by an earlier deadline | **That student is refused**, whatever the assignment says, and the refusal names the ruleset. There is no assignment for which handing somebody a repository they cannot push to is the right outcome. Reopen it (§6.15) or rename it on GitHub, and they can accept. |
 | An ordinary repository, individual assignment | Whatever you chose in the dialog. Reused, or that student refused by name. |
 | An ordinary repository, team assignment | **Refused**, unless the YAML says `existing_repo_policy: reuse`. The name is another team's. |
-| An unreadable answer | Refused. A failed read is not evidence the name is free; it is transient, and the student can try again. |
+| An unreadable answer | Refused, and it says so rather than blaming the repository. A failed read is not evidence the name is free. The student can try again; if it keeps happening for everybody, an administrator should check the App's access to the organization. |
+
+**On a free organization this still works.** Rulesets are a paid feature there, so GitHub answers `403 Upgrade to GitHub Pro` for a private repository's rulesets — which is read as *nothing is frozen*, correctly: no ruleset can be enforcing, so nobody is locked out. Reuse and refusal behave exactly as on Team; only the frozen case cannot arise, because on that plan a deadline lock could not have been applied in the first place.
 
 A refusal here reaches you the same way every other one does — the assignment's detail view, and the tracking issue — naming the student and what was in the way. It is not a red workflow run: a student the system turned away on purpose is an outcome, not a failure.
 

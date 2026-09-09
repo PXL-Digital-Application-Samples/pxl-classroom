@@ -31,7 +31,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { REJECT_REPO_EXISTS, REJECT_REPO_FROZEN } from "../lib/existing-repo.mjs";
+import { EXISTING_REPO_REJECTIONS } from "../lib/existing-repo.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const acceptSrc = readFileSync(join(root, "acceptance", "accept.mjs"), "utf8");
@@ -63,10 +63,12 @@ function declaredOutcomes() {
   // second test exists to catch one level up. Read from the module that owns
   // the names rather than spelled again here.
   //
-  // These two happen to be `rejected:*`, which the persist step covers as a
-  // family, so nothing is currently at risk - the point is that the NEXT
+  // ITERATED, not named. This listed two of them by hand and a third was added
+  // without joining the list - the same silent gap this whole block exists to
+  // close, one level up. They happen to be `rejected:*`, which the persist step
+  // covers as a family, so nothing was at risk; the point is that the next
   // indirect outcome may not be, and it would arrive invisible.
-  for (const o of [REJECT_REPO_FROZEN, REJECT_REPO_EXISTS]) out.add(o);
+  for (const o of EXISTING_REPO_REJECTIONS) out.add(o);
   return out;
 }
 
