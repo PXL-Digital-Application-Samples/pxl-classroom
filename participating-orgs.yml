@@ -40,3 +40,5 @@ orgs:
     budget_owner_login: guidofris
   - login: PXL-Digital-SNE-Werkplekleren
     budget_owner_login: guidofris
+  - login: pxl-grpro-csmobile-project
+    budget_owner_login: WimBervoetsPXL
