@@ -42,3 +42,5 @@ orgs:
     budget_owner_login: guidofris
   - login: pxl-grpro-csmobile-project
     budget_owner_login: WimBervoetsPXL
+  - login: PXL-Java-Essentials
+    budget_owner_login: SamVanderstraeten
