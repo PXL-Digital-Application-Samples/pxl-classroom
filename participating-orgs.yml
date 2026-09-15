@@ -44,3 +44,5 @@ orgs:
     budget_owner_login: WimBervoetsPXL
   - login: PXL-Java-Essentials
     budget_owner_login: SamVanderstraeten
+  - login: PXL-FullStack-NET-2627
+    budget_owner_login: wesleyhendrikx
