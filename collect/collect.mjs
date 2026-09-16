@@ -11,6 +11,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+import { isGitHubNoreplyAddress } from "../lib/github-noreply.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -280,7 +281,7 @@ async function main() {
         };
 
         if (isBotName(authorName)) authorName = null;
-        if (authorEmail && authorEmail.includes("noreply.github.com")) authorEmail = null;
+        if (isGitHubNoreplyAddress(authorEmail)) authorEmail = null;
 
         if (!authorName || !authorEmail) {
           try {

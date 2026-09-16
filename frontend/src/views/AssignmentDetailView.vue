@@ -1189,6 +1189,7 @@ import {
   rejectionCount,
 } from '../../../lib/rejection-notice.mjs'
 import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../../../lib/report-csv.mjs'
+import { isGitHubNoreplyAddress } from '../../../lib/github-noreply.mjs'
 // The shape of grading/<id>/summary.json, shared with `pxl-classroom grade`.
 import { gradedRowFromCheckRun, buildGradingSummary } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
@@ -2022,7 +2023,7 @@ function studentTooltip(s) {
 
   // Real email from roster, commit, or GitHub public profile
   const rawEmail = s.email || roster?.email || s.author_email || profile?.email
-  const realEmail = rawEmail && !rawEmail.includes('noreply.github.com') ? rawEmail : null
+  const realEmail = rawEmail && !isGitHubNoreplyAddress(rawEmail) ? rawEmail : null
 
   // Name from roster, GitHub public profile, or non-bot Git commit author
   let fullName = s.full_name || roster?.full_name || profile?.name
@@ -3064,7 +3065,7 @@ async function refreshOne(token, s) {
       if (authorName && authorName !== s.github_login && !isBot(authorName)) {
         s.author_name = authorName
       }
-      if (authorEmail && !authorEmail.includes('noreply.github.com')) {
+      if (authorEmail && !isGitHubNoreplyAddress(authorEmail)) {
         s.author_email = authorEmail
       }
 

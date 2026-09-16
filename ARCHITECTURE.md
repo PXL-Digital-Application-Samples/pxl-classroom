@@ -206,7 +206,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 Four things can be compromised, and each is bounded to what it can reach. The subsections below are the mechanisms behind those bounds.
 
 - **Public broker compromise.** A broker workflow mints a token for the `pxl-classroom`-scoped installation and dispatches into the hub. The *private key* it does that with is bounded too (§4.3.0), so a broker compromise buys the ability to submit an acceptance - which the signature check already gates - and nothing else. §4.3.1 is a hard rule rather than a style preference: it is what keeps attacker code out of the job in the first place.
-- **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly. A bypass of those controls is the actual concern - see ADMIN.md §5 - and §4.3.4 bounds what a hub credential is worth to someone who does obtain one.
+- **Hub compromise.** The hub is public. Branch protection on `main` (force-pushes and deletions blocked, including for administrators), secret scanning, and push protection are what make this safe; CI runs on every push and fails loudly, and CodeQL code scanning (default setup) reports to the Security tab on every push and weekly. A bypass of those controls is the actual concern - see ADMIN.md §5 - and §4.3.4 bounds what a hub credential is worth to someone who does obtain one.
 - **Per-org control-repo compromise.** Restricted to that single org's data.
 - **Student-repo compromise.** Contained to that student's repository. Student tokens never see the App's installation tokens.
 
