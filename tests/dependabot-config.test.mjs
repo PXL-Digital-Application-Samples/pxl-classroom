@@ -1,0 +1,203 @@
+// Dependabot version updates, and the three things they can silently get wrong.
+//
+// 1. A directory nobody listed is a directory nobody updates. Dependabot reads
+//    `.github/workflows` for "/" and nothing else, so a composite action is
+//    watched only if its directory is named, and a new one is missed without a
+//    sound. Both lists are therefore DERIVED from the tracked files here, with
+//    every exclusion carrying its reason, rather than trusted.
+//
+// 2. A merged update's subject feeds the release like any other commit's
+//    (`.releaserc.json`), and it never meets `.husky/commit-msg`: Dependabot
+//    writes it on GitHub. Left unset, the prefix is guessed from the history,
+//    so every block must set one and it must be a type the hook accepts.
+//
+// 3. `acceptance/broker-workflow.yml` pins actions and is neither a workflow
+//    in this repository nor an `action.yml`, so Dependabot never reads it. It
+//    is copied onto every broker, a public repository holding the broker App's
+//    key, so an update that moves the hub and leaves it behind is exactly the
+//    drift that must not be quiet. This fails that pull request instead.
+//
+// And the trigger that makes pull requests checkable at all: ci.yml runs on
+// `pull_request`, which cannot filter by author, so every job carries the same
+// Dependabot gate or a stranger's pull request starts runners.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join, dirname, posix } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
+
+import commitlint from "../commitlint.config.js";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (p) => readFileSync(join(root, p), "utf8");
+const dependabot = parse(read(".github/dependabot.yml"));
+const WORKFLOW_DIR = ".github/workflows";
+
+/**
+ * npm packages Dependabot deliberately does not watch, and why.
+ *
+ * An entry for a package that no longer exists fails, so this cannot outlive
+ * what it excuses.
+ */
+const NPM_EXCLUDED = {
+  "templates/template-autograding-docker":
+    "starter code a cohort receives; a bump changes what students get, which is a lecturer's call",
+  "templates/template-cloud-autograding/.github/aws-autograde":
+    "starter code a cohort receives; a bump changes what students get, which is a lecturer's call",
+};
+
+function tracked(...patterns) {
+  return execFileSync("git", ["ls-files", "-z", "--", ...patterns], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+}
+
+/** Dependabot spells a directory from the root with a leading slash. */
+const asDirectory = (file) => {
+  const dir = posix.dirname(file);
+  return dir === "." ? "/" : `/${dir}`;
+};
+
+function block(ecosystem) {
+  const found = (dependabot.updates ?? []).filter((u) => u["package-ecosystem"] === ecosystem);
+  assert.equal(found.length, 1, `expected one ${ecosystem} block in .github/dependabot.yml, found ${found.length}`);
+  return found[0];
+}
+
+const sorted = (xs) => [...xs].sort();
+
+test("every composite action is watched, and nothing that is not one", () => {
+  const actions = tracked("action.yml", "action.yaml", "**/action.yml", "**/action.yaml");
+  assert.ok(actions.length > 3, `sanity: expected several composite actions, found ${actions.length}`);
+
+  const expected = new Set(["/", ...actions.map(asDirectory)]);
+  assert.deepEqual(
+    sorted(block("github-actions").directories ?? []),
+    sorted(expected),
+    "github-actions `directories` must be \"/\" plus the directory of every tracked action.yml",
+  );
+});
+
+test("every hub package is watched, and every package left out says why", () => {
+  const packages = tracked("package.json", "**/package.json").map(asDirectory);
+  assert.ok(packages.includes("/"), "sanity: the root package.json must be tracked");
+
+  const excluded = new Set(Object.keys(NPM_EXCLUDED).map((d) => `/${d}`));
+  for (const dir of excluded) {
+    assert.ok(packages.includes(dir), `NPM_EXCLUDED names ${dir}, which has no package.json any more`);
+  }
+
+  assert.deepEqual(
+    sorted(block("npm").directories ?? []),
+    sorted(packages.filter((d) => !excluded.has(d))),
+    "npm `directories` must be every tracked package.json, less the ones NPM_EXCLUDED gives a reason for",
+  );
+});
+
+test("every update's commit subject is a type the commit hook accepts", () => {
+  const allowed = new Set(commitlint.rules["type-enum"][2]);
+  assert.ok(allowed.size > 3, "sanity: the hook's type list must be readable");
+
+  for (const update of dependabot.updates ?? []) {
+    const name = update["package-ecosystem"];
+    const message = update["commit-message"] ?? {};
+    // Absent is not a default here: Dependabot then guesses from the history.
+    assert.ok(message.prefix, `${name}: commit-message.prefix must be set, or Dependabot guesses one`);
+    for (const key of ["prefix", "prefix-development"]) {
+      if (message[key] === undefined) continue;
+      assert.ok(
+        allowed.has(message[key]),
+        `${name}: commit-message.${key} "${message[key]}" is not a type .releaserc.json declares`,
+      );
+    }
+  }
+});
+
+function triggersOf(doc) {
+  const on = doc?.on;
+  if (typeof on === "string") return [on];
+  if (Array.isArray(on)) return on;
+  return Object.keys(on ?? {});
+}
+
+test("ci.yml is the only workflow a pull request can start, and never with pull_request_target", () => {
+  const prTriggered = readdirSync(join(root, WORKFLOW_DIR))
+    .filter((f) => /\.ya?ml$/.test(f))
+    .filter((f) => {
+      const triggers = triggersOf(parse(read(`${WORKFLOW_DIR}/${f}`)));
+      return triggers.includes("pull_request") || triggers.includes("pull_request_target");
+    });
+  assert.deepEqual(prTriggered, ["ci.yml"]);
+
+  // pull_request_target runs with this repository's secrets against the pull
+  // request's code. Dependabot's runs get no secrets on `pull_request`, and
+  // ci.yml needs none; that is the answer, not a reason to switch.
+  assert.ok(!triggersOf(parse(read(`${WORKFLOW_DIR}/ci.yml`))).includes("pull_request_target"));
+});
+
+test("every ci.yml job runs on a push or on Dependabot's pull request, and on no other", () => {
+  const ci = parse(read(`${WORKFLOW_DIR}/ci.yml`));
+  assert.ok(triggersOf(ci).includes("pull_request"), "sanity: ci.yml must run on Dependabot's pull requests");
+
+  const jobs = Object.entries(ci.jobs ?? {});
+  assert.ok(jobs.length >= 3, "sanity: expected the unit, e2e and lint jobs");
+  const ungated = jobs
+    .filter(([, job]) => {
+      const cond = String(job.if ?? "");
+      return !(
+        cond.includes("github.event_name == 'push'") &&
+        cond.includes("github.event.pull_request.user.login == 'dependabot[bot]'")
+      );
+    })
+    .map(([name]) => name);
+  assert.deepEqual(ungated, [], "these jobs would run on anybody's pull request");
+});
+
+/** Every `uses:` in a workflow's jobs or a composite action's steps. */
+function usesIn(doc) {
+  const steps = [
+    ...Object.values(doc?.jobs ?? {}).flatMap((job) => job?.steps ?? []),
+    ...(doc?.runs?.steps ?? []),
+  ];
+  return steps.map((s) => s?.uses).filter((u) => typeof u === "string" && u.includes("@"));
+}
+
+test("the broker template pins every action where the hub does", () => {
+  const hubFiles = [
+    ...readdirSync(join(root, WORKFLOW_DIR)).filter((f) => /\.ya?ml$/.test(f)).map((f) => `${WORKFLOW_DIR}/${f}`),
+    ...tracked("**/action.yml", "**/action.yaml"),
+  ];
+  const hubRefs = new Map();
+  for (const file of hubFiles) {
+    for (const uses of usesIn(parse(read(file)))) {
+      const [action, ref] = uses.split("@");
+      if (!hubRefs.has(action)) hubRefs.set(action, new Set());
+      hubRefs.get(action).add(ref);
+    }
+  }
+
+  const brokerPath = "acceptance/broker-workflow.yml";
+  assert.ok(existsSync(join(root, brokerPath)), `sanity: ${brokerPath} must exist`);
+  const brokerUses = usesIn(parse(read(brokerPath)));
+  assert.ok(brokerUses.length > 0, "sanity: the broker template must pin at least one action");
+
+  const drift = [];
+  for (const uses of brokerUses) {
+    const [action, ref] = uses.split("@");
+    const hub = hubRefs.get(action);
+    if (!hub) {
+      drift.push(`${action}: used by the broker and nowhere in the hub, so Dependabot never updates it`);
+    } else if (hub.size !== 1 || !hub.has(ref)) {
+      drift.push(`${action}: broker pins ${ref}, hub pins ${[...hub].join(", ")}`);
+    }
+  }
+  assert.deepEqual(
+    drift,
+    [],
+    `${brokerPath} is not read by Dependabot. Copy the hub's pin (SHA and version comment) into it, ` +
+      "on the update's own branch.",
+  );
+});

@@ -42,6 +42,14 @@ Structure drifts the same way and is even quieter. ARCHITECTURE §4.3 opened a f
 
 **Before renumbering anything, count the references.** The section numbers are this documentation's public API - code comments, tests and workflow YAML all cite them - so the numbering is held stable on purpose, and a tidier scheme is not worth a silent dangling reference. Sweep with an exact string, and check first that the string is unambiguous: a high subsection number belongs to ARCHITECTURE alone and is safe to replace everywhere, while a low one such as `6.2` is claimed by RUNBOOK too and a blind sweep rewrites both. Verify afterwards with something that re-derives the heading set from the documents rather than trusting the sweep.
 
+### Dependabot's pull requests are the one exception, and CI had never run on a pull request.
+
+GHSA-2883-xcg3-v3hh, a high-severity advisory against `js-yaml`, was published on 2026-09-08 and opened Dependabot alert 1 on the hub that night. It was noticed eight days later because `git push` happened to print it, and fixed by hand in `faee09c`. Dependabot security updates are enabled and opened no pull request for it; the hub has had two pull requests in its history, neither from Dependabot. The package was dev-only and nothing reached it.
+
+Version updates were turned on the same day, and they can only arrive as pull requests. `ci.yml` ran on `push` to `main` alone, so every one of them would have shown no checks, and a broken update would have turned `main` red after landing. It now runs on `pull_request` too. That trigger cannot filter by author and the hub is public, so each job carries `github.event_name == 'push' || github.event.pull_request.user.login == 'dependabot[bot]'`, and anybody else's pull request starts no runner. It is `pull_request`, never `pull_request_target`: there, Dependabot's runs get none of the repository's Actions secrets, and CI needs none.
+
+The directory lists are derived rather than written, because Dependabot's `/` for actions means `.github/workflows` only. Nine composite actions pin actions too, each watched only if its directory is named, and a tenth added next year would have been missed without a sound. `tests/dependabot-config.test.mjs` builds both lists from `git ls-files` and fails until a new one is listed or excluded with a reason; the two `templates/` packages are excluded because a bump there changes what a cohort receives. It also requires every commit-message prefix to be a type `.husky/commit-msg` accepts: Dependabot writes its subjects on GitHub, where the hook never sees them, and left unset it guesses a prefix from the history.
+
 ## Shape of the system
 
 ### Hub-and-spoke
@@ -137,6 +145,12 @@ Zip Slip, arbitrary file write and hardlink creation on extraction, advisory ran
 ### GitHub's secret scanning cannot see the credentials this system mints itself.
 
 Push protection is on and blocks `ghp_`, which is why `.env.test` is a smaller problem than it looks - but the invitation link's PKCS#8 P-256 key and the claim key have no provider prefix and nothing for GitHub to key on. `tests/tracked-secrets.test.mjs` scans **`git ls-files`**, not the filesystem: the question is not "is there a secret on this machine" (there is, deliberately) but "is one TRACKED", which is the thing that travels. It reuses `lib/public-text.mjs`'s rule rather than writing a second one, so the repo scan and the Pages publish gate cannot disagree about what a private key looks like. Writing it immediately found three shape-matches, all read before being allowlisted and all genuinely inert - and one of them, `E2E_CLAIM_KEYPAIR` in the e2e fixtures, is a **real P-256 private key**, safe only because it is not the production one. So the exemption carries its own assertion: a separate test fails if the live claim public key ever appears in that fixture, which is what would fire the day somebody pastes the production key in to make a test pass.
+
+### Dependabot does not read `acceptance/broker-workflow.yml`.
+
+Dependabot's action updater reads `.github/workflows` and the `action.yml` in each directory it is given. The broker template is neither: it sits in `acceptance/` under its own name, and `publish-assignment.yml` copies it onto every broker as `.github/workflows/acceptance-trigger.yml`, beside the broker App's private key. It pins `actions/checkout` and `actions/create-github-app-token` at the same SHAs as the hub, and when version updates were enabled on 2026-09-16 nothing would have noticed an update moving the hub's pins and leaving the broker's behind. Anyone can open an issue on a broker and start that workflow, with the key in scope, so a pin there should not lag without anyone knowing.
+
+`tests/dependabot-config.test.mjs` compares every pin in the template to the hub's and fails the update's own pull request until they agree; ADMIN.md §8 says how to carry the pin across on that branch. Action updates arrive as a single group, majors included, so the hub's own pins move together and `tests/workflow-hardening.test.mjs`'s one-version rule for checkouts and App-token steps holds between merges.
 
 ### Hub credentials only run from `main`.
 

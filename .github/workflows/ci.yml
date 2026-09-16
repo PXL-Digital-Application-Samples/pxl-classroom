@@ -3,6 +3,13 @@ name: CI
 on:
   push:
     branches: ["main"]
+  # Dependabot's pull requests, and nobody else's. This repository commits to
+  # main directly; Dependabot is the one contributor that cannot, and an update
+  # merged with no checks turns main red after it has landed. The trigger cannot
+  # filter by author, so every job below carries the same `if:` and a pull
+  # request from anyone else starts no runner (tests/dependabot-config.test.mjs).
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -18,9 +25,10 @@ jobs:
   # whether the expensive half does.
   #
   # It fails OPEN. An unreadable range - a new branch, a force-push, an empty
-  # diff - runs the full suite, because "we could not tell" must never be the
-  # cheaper answer.
+  # diff, a pull request, which has no `before` - runs the full suite, because
+  # "we could not tell" must never be the cheaper answer.
   changes:
+    if: github.event_name == 'push' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -61,6 +69,7 @@ jobs:
           fi
 
   test:
+    if: github.event_name == 'push' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -88,7 +97,7 @@ jobs:
   # because `node --test` never touches tests/**/*.spec.mjs.
   e2e:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || github.event.pull_request.user.login == 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -133,6 +142,7 @@ jobs:
           retention-days: 7
 
   lint:
+    if: github.event_name == 'push' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

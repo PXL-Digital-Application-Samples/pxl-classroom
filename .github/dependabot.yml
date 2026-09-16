@@ -1,0 +1,81 @@
+# Dependabot version updates for the hub.
+#
+# These are the only pull requests this repository takes. Everything else is
+# committed straight to main (CLAUDE.md), but Dependabot can only deliver an
+# update as a pull request, so ci.yml runs its jobs on a pull request when
+# Dependabot opened it and on no other.
+#
+# tests/dependabot-config.test.mjs derives both directory lists from the files
+# in the repository, so a new composite action or package fails the suite until
+# it is listed here or excluded with a reason. It also checks that every
+# commit-message prefix is a type .husky/commit-msg accepts: a merged update's
+# subject feeds the release like any other commit's.
+#
+# Merging one: ADMIN.md §8.
+version: 2
+updates:
+  - package-ecosystem: npm
+    # The hub's own packages. The two package.json files under templates/ are
+    # starter code a cohort receives, so bumping them is a lecturer's decision.
+    directories:
+      - "/"
+      - "/cli"
+      - "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Brussels
+    # A release is not proposed until it is a week old. A hijacked package is
+    # usually caught and pulled inside that window. Security updates are not
+    # held back by this.
+    cooldown:
+      default-days: 7
+    # `fix(deps)` for a runtime dependency, which changes what ships and
+    # releases a patch; `chore(deps-dev)` for tooling, which releases nothing.
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+      # One pull request per major, across all three directories. Without
+      # group-by, a major arrives as one pull request per directory, and the
+      # three copies of `yaml` would move at different times.
+      npm-major:
+        update-types: [major]
+        group-by: dependency-name
+
+  - package-ecosystem: github-actions
+    # "/" is .github/workflows. Each composite action is its own directory.
+    # acceptance/broker-workflow.yml pins actions too and Dependabot does not
+    # read it, so the test fails an update that leaves it behind.
+    directories:
+      - "/"
+      - "/acceptance"
+      - "/collect"
+      - "/lockdown"
+      - "/notify"
+      - "/pages"
+      - "/preserve"
+      - "/provisioning"
+      - "/registry"
+      - "/report"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Brussels
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+      include: scope
+    # Every action update, majors included, in one pull request: the hub's
+    # checkouts and App-token steps must agree on a single pinned SHA
+    # (tests/workflow-hardening.test.mjs), and a per-directory split would
+    # break that between merges.
+    groups:
+      actions:
+        patterns: ["*"]

@@ -637,9 +637,11 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 | `sync-starter-code.yml` | `workflow_dispatch` | Distribute one template commit into student repositories: untouched files land on `main`, edited ones arrive as a PR (§11.7). |
 | `open-feedback-prs.yml` | `workflow_dispatch` | Open (or adopt) the draft Feedback PR per student, once they have commits ahead of `pxl-baseline` (§11.4). |
 | `_find-orgs.reusable.yml` | `workflow_call` | Reusable: resolve the participating-org matrix, narrowed to one org when a caller passes `org`. |
-| `ci.yml` | `push` to `main` | Three jobs: `node --test` over `tests/` and `cli/tests/`, Playwright e2e, and `npm run lint` - which is the **only** lint entry point, and runs eslint, actionlint and shellcheck together. |
+| `ci.yml` | `push` to `main` + `pull_request` opened by Dependabot | Three jobs: `node --test` over `tests/` and `cli/tests/`, Playwright e2e, and `npm run lint` - which is the **only** lint entry point, and runs eslint, actionlint and shellcheck together. Every job is gated on the event being a push or the pull request's author being `dependabot[bot]`, so anybody else's pull request starts no runner. |
 
 **Broker template:** `acceptance/broker-workflow.yml` is the file `publish-assignment.yml` copies into each broker repository as `.github/workflows/acceptance-trigger.yml`. It's the one workflow that does NOT live in the hub at runtime - it lives on every broker - but it is owned and re-published from the hub.
+
+**Dependency updates:** `.github/dependabot.yml` has Dependabot propose updates every Monday to the hub's npm packages (`/`, `/cli`, `/frontend`) and to every pinned action (`.github/workflows` and each composite action's directory). They are the only pull requests the hub takes. Dependabot does not read the broker template, so its pins are kept equal to the hub's by `tests/dependabot-config.test.mjs`. Merging one is [ADMIN.md §8](ADMIN.md).
 
 **A `workflow_dispatch`-only workflow is untested code, and a green Actions tab says nothing about it.** Nothing on a cron exercises `sync-starter-code.yml`, `open-feedback-prs.yml`, `retry-acceptance.yml`, `setup-org.yml`, `reconcile-registry.yml` or `regenerate-dashboard.yml`, so a fault in one - a mis-named action input, an un-awaited async call - surfaces for the first time in front of a lecturer who is trying to use it. Changes to these are verified by running them, not by reading them.
 

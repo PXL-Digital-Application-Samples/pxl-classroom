@@ -1,6 +1,6 @@
 # PXL Classroom - Administration
 
-**Audience: a system administrator or an organization owner.** Onboarding an organization, budgets, usage thresholds, App permissions, and incident response.
+**Audience: a system administrator or an organization owner.** Onboarding an organization, budgets, usage thresholds, App permissions, incident response, and the hub's dependency updates.
 
 > [!IMPORTANT]
 > **Not what you are looking for?**
@@ -392,3 +392,36 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `limits.yml` exists at hub root and validates against `schemas/limits.schema.json`.
 - [ ] Cold-load an invitation link `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>` lands on AssignmentView with the right assignment resolved.
 - [ ] The Instructor Notifications issue exists and is open in each control repo.
+
+---
+
+## 8. Dependency updates (Dependabot)
+
+Every Monday, Dependabot opens pull requests against the hub for its npm packages (`/`, `/cli`, `/frontend`) and for every action the hub pins. These are the only pull requests this repository takes; everything else is committed straight to `main`. The configuration is `.github/dependabot.yml`.
+
+What arrives:
+
+| Pull request | Subject |
+|---|---|
+| All npm minor and patch updates, across the three packages | `fix(deps):` or `chore(deps-dev):` |
+| One per npm major version, across the three packages | `fix(deps):` for a runtime dependency, `chore(deps-dev):` for tooling |
+| All action updates, majors included | `chore(deps):` |
+
+A release is not proposed until it is 7 days old. Security updates for an advisory arrive on their own, as soon as it is published, and are not held back. Starter code under `templates/` is not watched: a bump there changes what students receive.
+
+### 8.1 Merging one
+
+1. **Wait for CI on the pull request.** The unit, end-to-end and lint jobs run on Dependabot's pull requests exactly as on a push to `main`. Do not merge a red one.
+2. **For a major, read the release notes** Dependabot quotes in the pull request. The suite covers what this system does with a dependency, not everything a major can change.
+3. **An action update that fails `tests/dependabot-config.test.mjs`** has moved a pin that `acceptance/broker-workflow.yml` also carries. Dependabot does not read that file. Copy the new SHA and its version comment from any hub workflow into it, and push to the pull request's own branch (PowerShell):
+
+   ```
+   git fetch origin <branch>
+   git switch <branch>
+   # edit acceptance/broker-workflow.yml
+   git commit -am 'chore(deps): the broker template follows the hub pins'
+   $env:GITHUB_TOKEN=""; git push origin <branch>
+   ```
+
+   CI runs again on the push.
+4. **Merge with Squash and merge**, keeping the title. The title becomes the commit subject, and Dependabot has already written it as a type the release reads. `fix(deps)` releases a patch; `chore` releases nothing.
