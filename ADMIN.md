@@ -416,7 +416,7 @@ Dependabot creates its branches through its own bypass on the `Block ad-hoc bran
 
 1. **Wait for CI on the pull request.** The unit, end-to-end and lint jobs run on Dependabot's pull requests exactly as on a push to `main`. Do not merge a red one.
 2. **For a major, read the release notes** Dependabot quotes in the pull request. The suite covers what this system does with a dependency, not everything a major can change.
-3. **An action update that fails `tests/dependabot-config.test.mjs`** has moved a pin that `acceptance/broker-workflow.yml` also carries. Dependabot does not read that file. Copy the new SHA and its version comment from any hub workflow into it, and push to the pull request's own branch (PowerShell):
+3. **An action update that fails `tests/dependabot-config.test.mjs`** has moved a hub pin without moving the same one in `acceptance/broker-workflow.yml`. Dependabot normally updates both, through the `/acceptance` directory. Where it has not, copy the new SHA and its version comment from any hub workflow into the template, and push to the pull request's own branch (PowerShell):
 
    ```
    git fetch origin <branch>

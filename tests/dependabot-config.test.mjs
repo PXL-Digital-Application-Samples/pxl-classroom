@@ -11,11 +11,14 @@
 //    writes it on GitHub. Left unset, the prefix is guessed from the history,
 //    so every block must set one and it must be a type the hook accepts.
 //
-// 3. `acceptance/broker-workflow.yml` pins actions and is neither a workflow
-//    in this repository nor an `action.yml`, so Dependabot never reads it. It
-//    is copied onto every broker, a public repository holding the broker App's
-//    key, so an update that moves the hub and leaves it behind is exactly the
-//    drift that must not be quiet. This fails that pull request instead.
+// 3. `acceptance/broker-workflow.yml` pins actions and is neither a hub
+//    workflow nor an `action.yml`. It is copied onto every broker, a public
+//    repository holding the broker App's key, so an update that moves the hub
+//    and leaves it behind is exactly the drift that must not be quiet. This was
+//    written expecting Dependabot never to read it; the first action update
+//    (pull request #8) moved its pin anyway, because `/acceptance` is a listed
+//    directory. So this is the guard that it keeps happening, not the
+//    workaround for it not happening.
 //
 // And the trigger that makes pull requests checkable at all: ci.yml runs on
 // `pull_request`, which cannot filter by author, so every job carries the same
@@ -216,7 +219,7 @@ test("the broker template pins every action where the hub does", () => {
     const [action, ref] = uses.split("@");
     const hub = hubRefs.get(action);
     if (!hub) {
-      drift.push(`${action}: used by the broker and nowhere in the hub, so Dependabot never updates it`);
+      drift.push(`${action}: used by the broker and nowhere in the hub, so nothing keeps the two in step`);
     } else if (hub.size !== 1 || !hub.has(ref)) {
       drift.push(`${action}: broker pins ${ref}, hub pins ${[...hub].join(", ")}`);
     }
@@ -224,7 +227,7 @@ test("the broker template pins every action where the hub does", () => {
   assert.deepEqual(
     drift,
     [],
-    `${brokerPath} is not read by Dependabot. Copy the hub's pin (SHA and version comment) into it, ` +
-      "on the update's own branch.",
+    `${brokerPath} disagrees with the hub. Dependabot updates it through the /acceptance directory; ` +
+      "where it did not, copy the hub's pin (SHA and version comment) into it on the update's own branch.",
   );
 });

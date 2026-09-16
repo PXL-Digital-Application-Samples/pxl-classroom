@@ -43,8 +43,6 @@ updates:
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-    # A dependency joins the FIRST group that matches it, so eslint-major sits
-    # above npm-major.
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
@@ -56,14 +54,22 @@ updates:
       # One pull request per major, across all three directories. Without
       # group-by, a major arrives as one pull request per directory, and the
       # three copies of `yaml` would move at different times.
+      #
+      # It must EXCLUDE the ESLint names. Group order does not decide where a
+      # dependency goes: Dependabot counts a group-by group as more specific,
+      # and the first run with eslint-major listed above this one still split
+      # @eslint/js and eslint-plugin-vue out into their own pull requests.
       npm-major:
         update-types: [major]
         group-by: dependency-name
+        exclude-patterns: ["eslint", "@eslint/*", "eslint-plugin-*"]
 
   - package-ecosystem: github-actions
     # "/" is .github/workflows. Each composite action is its own directory.
-    # acceptance/broker-workflow.yml pins actions too and Dependabot does not
-    # read it, so the test fails an update that leaves it behind.
+    # Listing /acceptance also covers acceptance/broker-workflow.yml, the
+    # template every broker runs: the first action update (pull request #8)
+    # moved its checkout pin with the hub's. The test fails an update that
+    # leaves it behind all the same.
     directories:
       - "/"
       - "/acceptance"
