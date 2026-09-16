@@ -37,9 +37,22 @@ updates:
       prefix: fix
       prefix-development: chore
       include: scope
+    # @types/node describes the Node the hub runs, which is the `engines` floor
+    # and CI's setup-node. A newer major types APIs that runtime does not have,
+    # so it moves by hand, with the other two (tests/dependabot-config.test.mjs).
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    # A dependency joins the FIRST group that matches it, so eslint-major sits
+    # above npm-major.
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+      # ESLint, its config package and its Vue plugin are one lint setup, so a
+      # major moves all three in one pull request.
+      eslint-major:
+        update-types: [major]
+        patterns: ["eslint", "@eslint/*", "eslint-plugin-*"]
       # One pull request per major, across all three directories. Without
       # group-by, a major arrives as one pull request per directory, and the
       # three copies of `yaml` would move at different times.

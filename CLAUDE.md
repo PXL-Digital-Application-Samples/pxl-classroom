@@ -7,7 +7,7 @@ Working conventions for `PXL-Digital-Application-Samples/pxl-classroom`.
 ## Git
 
 - **No pull requests.** Commit and push directly to `main`. Never branch "to be safe".
-- **Dependabot's pull requests are the one exception**, because it cannot commit to `main`. `ci.yml` runs on them and on nobody else's: `pull_request` cannot filter by author, so every job carries the same `if:`, and never `pull_request_target`. Merging one is ADMIN.md §8. `tests/dependabot-config.test.mjs`.
+- **Dependabot's pull requests are the one exception**, because it cannot commit to `main`. `ci.yml` runs on them and on nobody else's: `pull_request` cannot filter by author, so every job carries the same `if:`, and never `pull_request_target`. Its branches exist only because the Dependabot app is a bypass actor on `Block ad-hoc branch creation` - a bypass for that app, never an excluded branch pattern anyone could create. Merging one is ADMIN.md §8. `tests/dependabot-config.test.mjs`.
 - End commit messages with the standard `Co-Authored-By` trailer.
 - **A `Co-Authored-By` address is an identity claim, and GitHub resolves it by EMAIL, not by the name beside it.** Whoever holds that address becomes a contributor to this public repository. `Co-Authored-By: Antigravity <antigravity@google.com>` credited a stranger in New York on seven commits, and still does - removing it means rewriting 400 commits and force-pushing a protected branch. Use a vendor's published noreply address or an `@users.noreply.github.com` one; never a plausible-looking mailbox at a real domain. `tests/commit-trailers.test.mjs`.
 - **Push with `$env:GITHUB_TOKEN=""; git push origin main`** (PowerShell) - a dummy token in the environment otherwise fails the auth.

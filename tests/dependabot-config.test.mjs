@@ -116,6 +116,33 @@ test("every update's commit subject is a type the commit hook accepts", () => {
   }
 });
 
+test("@types/node is held to the Node the hub runs, and Dependabot does not move its major", () => {
+  // The first run proposed @types/node 26 while `engines` and CI said 24: types
+  // for APIs the runtime does not have. The three move together, by hand.
+  const pkg = JSON.parse(read("package.json"));
+  const major = (spec) => Number(/(\d+)/.exec(String(spec))?.[1]);
+
+  const engine = major(pkg.engines?.node);
+  assert.ok(Number.isInteger(engine), `sanity: engines.node must name a major, found ${pkg.engines?.node}`);
+  assert.equal(major(pkg.devDependencies?.["@types/node"]), engine, "@types/node's major must be the engines floor");
+
+  const ci = parse(read(`${WORKFLOW_DIR}/ci.yml`));
+  const setupNode = Object.values(ci.jobs ?? {})
+    .flatMap((job) => job.steps ?? [])
+    .filter((s) => String(s.uses ?? "").startsWith("actions/setup-node@"));
+  assert.ok(setupNode.length > 0, "sanity: ci.yml must set Node up");
+  for (const step of setupNode) {
+    assert.equal(major(step.with?.["node-version"]), engine, "CI must run the Node that engines names");
+  }
+
+  const held = (block("npm").ignore ?? []).some(
+    (rule) =>
+      rule["dependency-name"] === "@types/node" &&
+      (rule["update-types"] ?? []).includes("version-update:semver-major"),
+  );
+  assert.ok(held, "Dependabot must ignore @types/node majors, or it proposes types for a Node the hub does not run");
+});
+
 function triggersOf(doc) {
   const on = doc?.on;
   if (typeof on === "string") return [on];

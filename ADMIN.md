@@ -404,10 +404,13 @@ What arrives:
 | Pull request | Subject |
 |---|---|
 | All npm minor and patch updates, across the three packages | `fix(deps):` or `chore(deps-dev):` |
-| One per npm major version, across the three packages | `fix(deps):` for a runtime dependency, `chore(deps-dev):` for tooling |
+| ESLint, `@eslint/*` and `eslint-plugin-*` majors, together | `chore(deps-dev):` |
+| One per other npm major version, across the three packages | `fix(deps):` for a runtime dependency, `chore(deps-dev):` for tooling |
 | All action updates, majors included | `chore(deps):` |
 
-A release is not proposed until it is 7 days old. Security updates for an advisory arrive on their own, as soon as it is published, and are not held back. Starter code under `templates/` is not watched: a bump there changes what students receive.
+A release is not proposed until it is 7 days old. Security updates for an advisory arrive on their own, as soon as it is published, and are not held back. Starter code under `templates/` is not watched: a bump there changes what students receive. `@types/node` majors are never proposed: they move by hand, together with `engines` and CI's `setup-node`.
+
+Dependabot creates its branches through its own bypass on the `Block ad-hoc branch creation` ruleset (INSTALL.md §3.4). If an update run in the Actions tab lists pull requests as `created` and none exist, check that bypass first: the run does not report the refusal.
 
 ### 8.1 Merging one
 
