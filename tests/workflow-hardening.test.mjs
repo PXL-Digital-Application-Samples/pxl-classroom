@@ -14,6 +14,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
@@ -46,6 +47,25 @@ function workflows() {
   return readdirSync(WORKFLOW_DIR)
     .filter((f) => f.endsWith(".yml"))
     .map((f) => ({ file: f, doc: parse(readFileSync(join(WORKFLOW_DIR, f), "utf8")) }));
+}
+
+/** Tracked files matching the pathspecs, relative to the repository root. */
+function tracked(...patterns) {
+  return execFileSync("git", ["ls-files", "-z", "--", ...patterns], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+}
+
+/**
+ * Every `actions/checkout@` ref in a source text. Before v5 it runs on Node 20,
+ * which GitHub has deprecated. A SHA names no major, so it is never judged
+ * deprecated here; whether it should be a SHA at all is the caller's rule.
+ */
+function checkoutRefs(src) {
+  return [...src.matchAll(/actions\/checkout@(v\d+|[0-9a-f]{40})/g)].map((m) => {
+    const major = Number(m[1].replace("v", ""));
+    return { ref: m[1], deprecated: !Number.isNaN(major) && major < 5 };
+  });
 }
 
 test("every job holding a hub credential is pinned to the provisioning environment", () => {
@@ -329,15 +349,45 @@ test("the workflow written into student repositories is not on a deprecated Node
   // deprecated - v4 put a Node 20 warning annotation on every student's grading
   // run, which is noise on the one screen a student reads for their mark.
   const src = readFileSync(join(root, "provisioning", "provision.mjs"), "utf8");
-  const uses = [...src.matchAll(/actions\/checkout@(v\d+|[0-9a-f]{40})/g)].map((m) => m[1]);
+  const uses = checkoutRefs(src);
   assert.ok(uses.length > 0, "the generated workflow must still check the repository out");
-  for (const v of uses) {
-    const major = Number(String(v).replace("v", ""));
-    assert.ok(
-      Number.isNaN(major) || major >= 5,
-      `actions/checkout@${v} runs on Node 20, which GitHub has deprecated`,
-    );
+  for (const { ref, deprecated } of uses) {
+    assert.ok(!deprecated, `actions/checkout@${ref} runs on Node 20, which GitHub has deprecated`);
   }
+});
+
+test("no starter template under templates/ ships a deprecated checkout either", () => {
+  // Same reason, other door, and the same tag rather than a SHA. A template is
+  // what a lecturer copies into a template repository, and every student
+  // repository generated from it gets the copy. Dependabot deliberately does
+  // not watch templates/ (ADMIN.md §8), because a bump there changes what a
+  // cohort receives, so nothing moves one but a person:
+  // template-autograding-actions sat on v4 while AUTOGRADING.md told lecturers
+  // to change exactly that line.
+  //
+  // Every tracked file, derived rather than listed, and not only the
+  // workflows: a snippet in a template's README is copied as faithfully as the
+  // workflow beside it.
+  const files = tracked("templates");
+  assert.ok(
+    files.some((f) => /\/\.github\/workflows\/[^/]+\.ya?ml$/.test(f)),
+    "sanity: expected at least one workflow under templates/",
+  );
+
+  const offenders = [];
+  let seen = 0;
+  for (const file of files) {
+    for (const { ref, deprecated } of checkoutRefs(readFileSync(join(root, file), "utf8"))) {
+      seen++;
+      if (deprecated) offenders.push(`${file}: actions/checkout@${ref}`);
+    }
+  }
+  assert.ok(seen > 0, "sanity: expected a template that checks its repository out");
+  assert.deepEqual(
+    offenders,
+    [],
+    `these run on Node 20, which GitHub has deprecated:\n  ${offenders.join("\n  ")}`,
+  );
 });
 
 test("no workflow trusts gh's stdout instead of its exit code", () => {

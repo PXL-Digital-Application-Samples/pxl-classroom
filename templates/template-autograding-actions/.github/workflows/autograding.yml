@@ -11,7 +11,9 @@ jobs:
     name: Autograding
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v4 runs on Node 20, which GitHub has deprecated: every student's
+      # grading result carries a warning annotation saying so.
+      - uses: actions/checkout@v7
 
       - name: Basic Stats Test
         id: test-basic
