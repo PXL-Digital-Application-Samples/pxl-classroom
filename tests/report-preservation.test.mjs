@@ -42,7 +42,14 @@ const reportScript = join(root, "report", "report.mjs");
 const ID = "test-asgn";
 const PRESERVED_SHA = "a7655427953d" + "0".repeat(28);
 
-const BASE_YAML = `schema_version: 1
+// Fixed, and therefore in the past on every day this suite runs from now on.
+// report.mjs compares the deadline to the real clock, so a test about which
+// side of the deadline NOW is on must build its own relative to Date.now().
+// This one used to say "comfortably in the future" and expired on 2026-09-11.
+const DEADLINE = "2026-09-10T23:59:59Z";
+
+function assignmentYaml(deadline = DEADLINE) {
+  return `schema_version: 1
 id: ${ID}
 title: Test Assignment
 organization: TestOrg
@@ -51,9 +58,10 @@ template:
   repository: tpl
 repository_name_pattern: ${ID}-{github_login}
 opens_at: 2026-09-01T00:00:00Z
-deadline_at: 2026-09-10T23:59:59Z
+deadline_at: ${deadline}
 state: published
 `;
+}
 
 /** Exactly what preserve.mjs writes, field for field. */
 function preservationDoc(login) {
@@ -72,10 +80,10 @@ function preservationDoc(login) {
   };
 }
 
-function runReport({ preservation, lockdownRecord, lockdownObservedAt }) {
+function runReport({ preservation, lockdownRecord, lockdownObservedAt, deadline }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-report-pres-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
-  writeFileSync(join(dir, "assignments", `${ID}.yml`), BASE_YAML);
+  writeFileSync(join(dir, "assignments", `${ID}.yml`), assignmentYaml(deadline));
 
   if (lockdownRecord) {
     mkdirSync(join(dir, "lockdowns", ID), { recursive: true });
@@ -159,8 +167,6 @@ test("no preservation document still means not-required and a null sha", () => {
 // `uncertainty_interval_seconds`, which is the OTHER side of the deadline
 // entirely - the gap between the last observation and the deadline.
 
-const DEADLINE = "2026-09-10T23:59:59Z";
-
 test("lock_down_at comes from the record, not from when the nightly looked", () => {
   const report = runReport({
     lockdownObservedAt: "2026-09-11T04:00:00Z",
@@ -215,8 +221,9 @@ test("no lockdown record leaves both fields null rather than inventing them", ()
 // "116h" for every student, and alarmed on it at a one-hour threshold.
 
 test("no uncertainty is reported before the deadline has passed", () => {
-  // BASE_YAML's deadline is 2026-09-10, comfortably in the future here.
-  const report = runReport({});
+  // A year from whenever this runs, so it cannot expire the way a literal did.
+  const deadline = new Date(Date.now() + 365 * 86400000).toISOString();
+  const report = runReport({ deadline });
   const alice = report.students.find((s) => s.github_login === "alice");
   assert.equal(
     alice.uncertainty_interval_seconds,
@@ -230,7 +237,7 @@ test("once the deadline has passed the gap is measured", () => {
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(
     join(dir, "assignments", `${ID}.yml`),
-    BASE_YAML.replace("2026-09-10T23:59:59Z", "2020-01-02T00:00:00Z"),
+    assignmentYaml("2020-01-02T00:00:00Z"),
   );
   mkdirSync(join(dir, "acceptances", ID), { recursive: true });
   writeFileSync(
