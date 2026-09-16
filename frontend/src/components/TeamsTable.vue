@@ -464,7 +464,8 @@ import { teamPath } from '../../../lib/control-layout.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { submissionLabel } from '../lib/status-labels.js'
-import { commitFile, commitFiles, deleteFile, getRepoContent, addCollaborator, removeCollaborator, triggerWorkflow, explainDispatchFailure } from '../lib/api.js'
+import { commitFile, commitFiles, deleteFile, getRepoContent, addCollaborator, removeCollaborator } from '../lib/api.js'
+import { republishStudentPages } from '../lib/student-pages.js'
 import { validateAgainst } from '../lib/validate.js'
 import { config } from '../lib/config.js'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
@@ -715,35 +716,12 @@ function addMemberToTeam(login) {
 // Students never read the control repo - they read the generated public teams
 // file. A lecturer edit that skips this is invisible to them until the next
 // nightly run, which is exactly how lecturer-created teams used to vanish.
-async function republishTeams(token) {
-  try {
-    // triggerWorkflow resolves with { ok: false } on a 403/404 rather than
-    // throwing, so the result has to be inspected: silently swallowing it
-    // reports success while students still cannot see the change.
-    const res = await triggerWorkflow(
-      token,
-      config.hubOwner,
-      config.hubRepo,
-      'regenerate-dashboard.yml',
-      { org: props.org }
-    )
-    if (!res.ok) {
-      toast.error(
-        explainDispatchFailure(res, 'Saved, but publishing the change to students failed'),
-        { link: {
-          href: `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/regenerate-dashboard.yml`,
-          text: 'Run it manually',
-        } }
-      )
-      return false
-    }
-    return true
-  } catch (e) {
-    toast.error(
-      `Saved, but publishing the change to students failed: ${e.message}. Run Regenerate Dashboard from the hub's Actions tab.`
-    )
-    return false
-  }
+function republishTeams(token) {
+  return republishStudentPages({
+    token,
+    org: props.org,
+    failure: 'Saved, but publishing the change to students failed',
+  })
 }
 
 async function removeSeededTeams() {

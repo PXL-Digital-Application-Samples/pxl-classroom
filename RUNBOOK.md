@@ -144,6 +144,8 @@ In the editor -> click **Save & publish** in the header bar (on an existing draf
 
 Once it is published, opening it again leads with the invitation link, an accepted/deadline summary and a link to the tracking page; the six fieldsets move behind **Edit settings** and *Lifecycle* separates **Repair** (Republish broker) from the state transitions below it.
 
+**Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as ticking *Ask students to confirm their email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
+
 If the workflow dispatch fails (typically 403 - you're not a hub collaborator, see ADMIN.md §1.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again.
 
 This dispatches `publish-assignment.yml`, which:

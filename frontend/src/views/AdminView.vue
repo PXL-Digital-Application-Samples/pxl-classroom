@@ -1547,7 +1547,8 @@ import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
-import { needsBrokerDispatch } from '../lib/publish.js'
+import { publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.js'
+import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import {
   assignmentPath,
@@ -3969,8 +3970,18 @@ async function saveAndPublish() {
     // cost of guessing wrong is one redundant workflow run. The cost of the
     // other guess is an assignment that says "published" and cannot be
     // accepted.
-    if (needsBrokerDispatch(brokerExists.value)) {
+    //
+    // A broker that exists still needs the student page rebuilt: the hub
+    // enforces the stored document from this commit on, while the page shows
+    // the card from the last regeneration. See publishedSaveWorkflow.
+    if (publishedSaveWorkflow(brokerExists.value) === 'publish-assignment.yml') {
       await publishExisting()
+    } else if (await republishStudentPages({
+      token: getToken(),
+      org: props.org,
+      failure: 'Saved, but publishing the change to students failed',
+    })) {
+      toast.info('Students see this change in about two minutes, once their page is rebuilt.')
     }
     return
   }
@@ -4417,6 +4428,7 @@ async function setState(newState) {
     archived: `Archive "${form.value.id}"? It leaves the student-facing list and day-to-day tracking.`,
   }
   if (warnings[newState] && !window.confirm(warnings[newState])) return
+  const before = form.value.state
   saving.value = true
   try {
     const token = getToken()
@@ -4429,6 +4441,16 @@ async function setState(newState) {
       snapshotForm()
       toast.success(`${form.value.id} -> ${newState}`)
       await syncDashboardState(doc)
+      // After the sync, so the run checks out the overview this just wrote. A
+      // closed assignment whose page still says published offers an Accept
+      // button the hub refuses.
+      if (writeReachesStudentPage(before, newState)) {
+        await republishStudentPages({
+          token,
+          org: props.org,
+          failure: 'Saved, but publishing the change to students failed',
+        })
+      }
       await loadAssignments()
     } else {
       toast.error(`Update failed: ${res.data?.message || 'unknown error'}`)

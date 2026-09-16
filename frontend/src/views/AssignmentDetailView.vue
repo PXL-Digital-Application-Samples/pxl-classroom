@@ -1194,6 +1194,8 @@ import { gradedRowFromCheckRun, buildGradingSummary } from '../../../lib/grading
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
+import { writeReachesStudentPage } from '../lib/publish.js'
+import { republishStudentPages } from '../lib/student-pages.js'
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
 import { validateAgainst } from '../lib/validate.js'
 // `parseCheckRunScore`, `pickAutogradeCheckRun`, `fetchCheckRunAnnotations` and
@@ -1263,6 +1265,13 @@ async function toggleAcceptanceState() {
     if (res.ok) {
       assignment.value.state = nextState
       toast.success(`Acceptance is now ${nextState === 'published' ? 'OPEN' : 'CLOSED'}`)
+      // The student's page reads the card, not this document: reopened with a
+      // stale one, it keeps telling the cohort acceptance is closed.
+      await republishStudentPages({
+        token,
+        org: props.org,
+        failure: 'Saved, but publishing the change to students failed',
+      })
     } else {
       toast.error(`Failed to change state: ${res.data?.message || 'unknown error'}`)
     }
@@ -1574,6 +1583,15 @@ async function bumpCapacity(delta) {
     const res = await commitFile(token, props.org, config.controlRepo, assignmentPath(props.assignmentId), updatedYaml, commitMsg)
     if (res.ok) {
       toast.success(delta == null ? 'Registration cap removed' : `Capacity increased to ${newCap} slots`)
+      // The acceptance page checks the cap against the card before offering the
+      // button, so a raised cap nobody republishes keeps the cohort locked out.
+      if (writeReachesStudentPage(doc.state, doc.state)) {
+        await republishStudentPages({
+          token,
+          org: props.org,
+          failure: 'Saved, but publishing the change to students failed',
+        })
+      }
       if (delta == null) {
         delete assignment.value.max_acceptances
       } else {

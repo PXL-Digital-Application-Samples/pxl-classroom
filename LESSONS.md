@@ -1987,3 +1987,44 @@ better wording at the wrong moment, it is moving the judgement to the moment the
 evidence exists - and leaving behind only what that moment genuinely settles.
 The pattern clash and the surviving archive still refuse at creation, because
 those two ARE fully answerable there and nothing downstream re-asks them.
+
+### The hub read the edit, the page read the card, and Save told only one of them.
+
+PXL-2TIN-NetAdv-26-27, 2026-09-16. A lecturer opened a live assignment, ticked
+"Ask students to confirm their PXL email address", renamed it and pressed Save
+at 15:05:37Z. He tried to accept it himself 71 seconds later, and five more
+times in the next twelve minutes. Every attempt was refused as
+`rejected:no-claim`, and his report guessed at the cause: three verified
+addresses on one GitHub account.
+
+The addresses were innocent. Every one of the six hub runs logged
+`claim=absent`: the browser had never sent one, because the page never showed
+the field. The page reads the card `pages/generate.mjs` writes; the hub reads the
+stored document. The card still said `require_claim: false` and the old title,
+because Save on a published assignment dispatched only when the broker was
+missing, and here it existed. The hub enforced the new rule from the commit on,
+and the page would have caught up at the nightly run, about nine hours later.
+Retrying could not bring that forward: `acceptance-handler.yml` regenerates on
+`accepted` only, and a refusal is not one. One manual `regenerate-dashboard.yml`
+run fixed the live assignment in under two minutes.
+
+It is the test-pe3 incident of 2026-09-03 (`tests/published-card-fields.test.mjs`)
+on a different axis. That one was a field the publisher left off the card; this
+one was a publish that never ran. The guard checked that the field is written,
+and nothing checked that anything writes it after an edit.
+
+Asking which other writes change a card found three, each wrong in its own way:
+**Stop accepting** leaves a page offering an Accept button the hub answers with
+`rejected:not-published`; **Re-open Acceptance** leaves one telling the cohort
+they are too late; raising a full cap leaves the page's own cap check refusing
+the students the lecturer just made room for. All four now dispatch the
+regeneration after the write lands, through one helper
+(`frontend/src/lib/student-pages.js`) shared with the two team surfaces that
+already dispatched from copies of their own. A save that publishes does not also regenerate,
+because `publish-assignment.yml` already does.
+
+What remains is a window, and it is stated rather than engineered away: for
+about two minutes after a save the hub enforces the new document while the page
+still shows the old card. The toast says so. Closing the window would mean the
+hub reading the card, or the page reading the control repository, and a student
+can read neither.

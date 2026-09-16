@@ -166,9 +166,8 @@ import {
   getRepoContent,
   listRepoDir,
   listClaims,
-  triggerWorkflow,
-  explainDispatchFailure,
 } from '../lib/api.js'
+import { republishStudentPages } from '../lib/student-pages.js'
 import { config } from '../lib/config.js'
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { ROSTER_PATH } from '../lib/roster.js'
@@ -413,27 +412,13 @@ async function apply() {
     }
 
     // Students read the published teams file, not the control repo, so a failed
-    // regeneration means the teams exist but nobody can see them. triggerWorkflow
-    // resolves with { ok: false } rather than throwing - not checking it is how a
-    // 403 turns into a success message.
-    const dispatch = await triggerWorkflow(
+    // regeneration means the teams exist but nobody can see them.
+    const published = await republishStudentPages({
       token,
-      config.hubOwner,
-      config.hubRepo,
-      'regenerate-dashboard.yml',
-      { org: props.org }
-    )
-    if (!dispatch.ok) {
-      toast.error(
-        explainDispatchFailure(
-          dispatch,
-          `Seeded ${fresh.stats.teams} team(s), but publishing them to students failed`
-        ),
-        { link: {
-          href: `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/regenerate-dashboard.yml`,
-          text: 'Run it manually',
-        } }
-      )
+      org: props.org,
+      failure: `Seeded ${fresh.stats.teams} team(s), but publishing them to students failed`,
+    })
+    if (!published) {
       emit('seeded', { teams: fresh.stats.teams, students: fresh.stats.students })
       emit('close')
       return
