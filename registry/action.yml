@@ -46,6 +46,11 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
+        # Every repository: reconcile.mjs reads the student repositories named
+        # in the records, which no list here could know. Only what its calls
+        # need (lib/app-token-scopes.mjs).
+        permission-metadata: read
+        permission-issues: write
 
     - name: Run reconciliation
       id: reconcile
