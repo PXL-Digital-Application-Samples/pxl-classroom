@@ -199,7 +199,7 @@ The App is created via the one-shot Manifest flow at the hub's `/setup` Pages ro
 
 - **Lecturers** authenticate to the SPA via GitHub device flow against the Provisioner App. Authorization derives from organization ownership: any owner of an org where the App is installed is a lecturer in that org. The SPA reads control-repo data with the **lecturer's own token**; no per-user secret on the server side.
 - **Students** authenticate to the SPA via the same device flow. Acceptance gating is per assignment, via `roster_mode`. Under `enforced` the student's GitHub login must be registered in the control repository's `students/roster.yml` for their acceptance to be processed and their repository provisioned. Under `open` any GitHub account may accept within the window and below the cap, and the lecturer reconciles `github_login` -> student afterward; unrecognised `roster_mode` values fail closed to `enforced`.
-- **Automation** authenticates as the App, using short-lived per-org installation tokens minted at workflow runtime.
+- **Automation** authenticates as the App, using short-lived per-org installation tokens minted at workflow runtime. A token minted with only `owner:` reaches every repository in that org with every permission the installation holds, for up to an hour, and a control-repo checkout keeps it in `control/.git/config` for the rest of the job. `lib/app-token-scopes.mjs` records, for every token step, the repositories and permissions it asks for, or why it still asks for all of them; `tests/app-token-scopes.test.mjs` holds each workflow and composite action to its row and every row to what its App declares. Narrowing is staged, and what is still broad is tracked in [OPEN-ITEMS.md](OPEN-ITEMS.md).
 
 ### 4.3 Bounded blast radius
 
