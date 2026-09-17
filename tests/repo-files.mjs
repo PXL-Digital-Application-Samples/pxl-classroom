@@ -14,6 +14,11 @@
 // a convenience: a sweep over committed files alone passes on a new module
 // until it is `git add`ed, which is how tests/github-noreply.test.mjs once ran
 // green over a file that failed it the moment it was committed.
+//
+// `trackedFiles` is the other question, asked on purpose by the tests whose
+// subject is what is COMMITTED: a credential that travels with a push, the
+// directories Dependabot can see. A file on this machine that nobody has added
+// is not an answer to either.
 import { execFileSync } from "node:child_process";
 import { statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -21,20 +26,40 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** `git ls-files -z <args>`, repo-relative with forward slashes, in git's order. */
+function lsFiles(args) {
+  return execFileSync("git", ["ls-files", "-z", ...args], {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  })
+    .split("\0")
+    .filter(Boolean);
+}
+
+/**
+ * Tracked files only, repo-relative with forward slashes, narrowed by git
+ * pathspecs (`"templates"`, `"*.yml"`); none means every one.
+ *
+ * Exactly what the index holds: a tracked file deleted from the working tree is
+ * still listed, so a caller that reads each one checks it exists.
+ *
+ * @param {...string} pathspecs
+ * @returns {string[]}
+ */
+export function trackedFiles(...pathspecs) {
+  return lsFiles(["--", ...pathspecs]);
+}
+
 let listed;
 
 /** Every file git tracks or would track, repo-relative with forward slashes, sorted. */
 function gitFiles() {
   if (listed) return listed;
-  const out = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
-    cwd: ROOT,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
   // `--cached` still names a file deleted from the working tree but not yet
   // staged, and a conflicted path once per stage; `--others` names an untracked
   // nested repository as a directory. None of those is a file to read.
-  listed = [...new Set(out.split("\0").filter(Boolean))]
+  listed = [...new Set(lsFiles(["--cached", "--others", "--exclude-standard"]))]
     .filter((rel) => statSync(join(ROOT, rel), { throwIfNoEntry: false })?.isFile())
     .sort();
   // A sweep over nothing reports a clean repository.

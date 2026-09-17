@@ -23,12 +23,12 @@
 // meant to be there - but "is one TRACKED", which is the thing that travels.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PUBLIC_TEXT_RULES } from "../lib/public-text.mjs";
+import { trackedFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -41,13 +41,6 @@ const PEM_PRIVATE_KEY = /-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/
 // The link-secret rule from the shared module, so the repository scan and the
 // Pages publish gate cannot disagree about what a private key looks like.
 const linkSecretRule = PUBLIC_TEXT_RULES.find((r) => /key/i.test(r.name) || /private/i.test(r.label ?? ""));
-
-function trackedFiles() {
-  return execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-}
 
 // Files that legitimately contain the SHAPE of a credential while containing no
 // credential: the fixtures that exist to prove a scanner fires, and the tests

@@ -27,12 +27,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { join, dirname, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import commitlint from "../commitlint.config.js";
+import { trackedFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -52,12 +52,6 @@ const NPM_EXCLUDED = {
     "starter code a cohort receives; a bump changes what students get, which is a lecturer's call",
 };
 
-function tracked(...patterns) {
-  return execFileSync("git", ["ls-files", "-z", "--", ...patterns], { cwd: root, encoding: "utf8" })
-    .split("\0")
-    .filter(Boolean);
-}
-
 /** Dependabot spells a directory from the root with a leading slash. */
 const asDirectory = (file) => {
   const dir = posix.dirname(file);
@@ -73,7 +67,7 @@ function block(ecosystem) {
 const sorted = (xs) => [...xs].sort();
 
 test("every composite action is watched, and nothing that is not one", () => {
-  const actions = tracked("action.yml", "action.yaml", "**/action.yml", "**/action.yaml");
+  const actions = trackedFiles("action.yml", "action.yaml", "**/action.yml", "**/action.yaml");
   assert.ok(actions.length > 3, `sanity: expected several composite actions, found ${actions.length}`);
 
   const expected = new Set(["/", ...actions.map(asDirectory)]);
@@ -85,7 +79,7 @@ test("every composite action is watched, and nothing that is not one", () => {
 });
 
 test("every hub package is watched, and every package left out says why", () => {
-  const packages = tracked("package.json", "**/package.json").map(asDirectory);
+  const packages = trackedFiles("package.json", "**/package.json").map(asDirectory);
   assert.ok(packages.includes("/"), "sanity: the root package.json must be tracked");
 
   const excluded = new Set(Object.keys(NPM_EXCLUDED).map((d) => `/${d}`));
@@ -198,7 +192,7 @@ function usesIn(doc) {
 test("the broker template pins every action where the hub does", () => {
   const hubFiles = [
     ...readdirSync(join(root, WORKFLOW_DIR)).filter((f) => /\.ya?ml$/.test(f)).map((f) => `${WORKFLOW_DIR}/${f}`),
-    ...tracked("**/action.yml", "**/action.yaml"),
+    ...trackedFiles("**/action.yml", "**/action.yaml"),
   ];
   const hubRefs = new Map();
   for (const file of hubFiles) {

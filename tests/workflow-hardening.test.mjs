@@ -14,10 +14,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+
+import { trackedFiles } from "./repo-files.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -47,13 +48,6 @@ function workflows() {
   return readdirSync(WORKFLOW_DIR)
     .filter((f) => f.endsWith(".yml"))
     .map((f) => ({ file: f, doc: parse(readFileSync(join(WORKFLOW_DIR, f), "utf8")) }));
-}
-
-/** Tracked files matching the pathspecs, relative to the repository root. */
-function tracked(...patterns) {
-  return execFileSync("git", ["ls-files", "-z", "--", ...patterns], { cwd: root, encoding: "utf8" })
-    .split("\0")
-    .filter(Boolean);
 }
 
 /**
@@ -407,7 +401,7 @@ test("no starter template under templates/ ships a deprecated checkout either", 
   // Every tracked file, derived rather than listed, and not only the
   // workflows: a snippet in a template's README is copied as faithfully as the
   // workflow beside it.
-  const files = tracked("templates");
+  const files = trackedFiles("templates");
   assert.ok(
     files.some((f) => /\/\.github\/workflows\/[^/]+\.ya?ml$/.test(f)),
     "sanity: expected at least one workflow under templates/",
