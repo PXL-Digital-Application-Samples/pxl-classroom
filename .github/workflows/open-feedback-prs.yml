@@ -45,7 +45,13 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ inputs.org }}
-          
+          # Every repository: open-feedback-prs.mjs works in the student
+          # repositories named in the records. Contents for the compare and the
+          # control-repo push, pull requests to list and open the Feedback PR
+          # (lib/app-token-scopes.mjs).
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Checkout control repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
