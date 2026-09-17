@@ -204,7 +204,9 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     # The job limit is 6h and the arm window is 4.5h; the script gives up at
-    # 4h45m so it writes its timeline rather than being killed holding it.
+    # 4h45m so it writes its timeline rather than being killed holding it. The
+    # phases below fit inside that: 45 minutes of polling, an idle until 35
+    # minutes before the instant, then the last stretch and the stop.
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -232,6 +234,20 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           path: control
 
+      # A WATCH OUTLIVES ITS CREDENTIAL. An App installation token lives for at
+      # most an hour and this job waits for up to 4h45m, so one token cannot
+      # cover a whole watch: once it expires every poll answers 401, the
+      # credential the control checkout persisted is dead, and the pull AT the
+      # instant fails - which skips Stop writes and leaves the cohort to the
+      # nightly, with the job red. Measured on PXL-Automation-II: runs
+      # 35220220960, 35181092340 and 35120380004, three real deadlines, all of
+      # them armed more than an hour ahead, none of them stopped.
+      #
+      # So the watch runs in phases. This one polls while its token lives and
+      # hands over what it saw; the job then idles with no credential at all and
+      # mints a fresh token for the last stretch, which is where the evidence
+      # matters and where the stop happens. A sentinel armed inside the window
+      # reaches the instant here and there is no second phase.
       - name: Wait for the deadline
         id: sentinel
         env:
@@ -241,10 +257,103 @@ jobs:
           ASSIGNMENT_IDS: ${{ join(matrix.sentinel.assignment_ids, ',') }}
           DEADLINE_AT: ${{ matrix.sentinel.deadline_at }}
           SENTINEL_KEY: ${{ matrix.sentinel.key }}
+          # 45 minutes, inside the token's hour with room for the handover.
+          SENTINEL_PHASE_MS: "2700000"
+          SENTINEL_STATE_FILE: ${{ runner.temp }}/sentinel-handover.json
         run: node scripts/deadline-sentinel.mjs
 
+      # Nothing is polled here, deliberately: there is no credential in the job
+      # to poll with, and the push record that settles a dispute is the one
+      # around the instant, which the next phase takes. `target_at`, not the
+      # matrix's instant, so a deadline moved while phase one watched is waited
+      # out rather than woken for.
+      - name: Idle until the last stretch, holding no credential
+        if: steps.sentinel.outputs.outcome == 'handover'
+        env:
+          TARGET_AT: ${{ steps.sentinel.outputs.target_at }}
+          LEAD_SECONDS: "2100"
+        run: |
+          set -e
+          now=$(date -u +%s)
+          resume=$(( $(date -u -d "$TARGET_AT" +%s) - LEAD_SECONDS ))
+          if [ "$resume" -gt "$now" ]; then
+            echo "Idle for $(( resume - now ))s, until $(date -u -d "@$resume" +%FT%TZ), then a fresh token."
+            sleep "$(( resume - now ))"
+          else
+            echo "Already inside the last stretch - minting the fresh token now."
+          fi
+
+      # The same scope as the token above, because it does the same work
+      # (lib/app-token-scopes.mjs). It is minted here so its hour covers the
+      # last stretch of the watch, the stop, the timeline push and the dispatch.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: token_late
+        if: steps.sentinel.outputs.outcome == 'handover'
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.sentinel.org }}
+          permission-administration: write
+          permission-contents: write
+          permission-metadata: read
+          permission-organization-administration: write
+      # Re-cloned rather than re-credentialled: the checkout action owns how a
+      # token gets into `.git/config` and how it is removed again, and the
+      # handover carries the evidence, so nothing in the working tree is lost.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.sentinel.outputs.outcome == 'handover'
+        with:
+          repository: ${{ matrix.sentinel.org }}/pxl-classroom-control
+          token: ${{ steps.token_late.outputs.token }}
+          path: control
+
+      - name: Wait for the deadline, on the fresh token
+        id: sentinel_late
+        if: steps.sentinel.outputs.outcome == 'handover'
+        env:
+          GITHUB_TOKEN: ${{ steps.token_late.outputs.token }}
+          ORG: ${{ matrix.sentinel.org }}
+          DATA_DIR: control
+          ASSIGNMENT_IDS: ${{ join(matrix.sentinel.assignment_ids, ',') }}
+          # What phase one last read, so a deadline it saw move is not woken for
+          # early - and the instant this sentinel is KEYED on, which is what
+          # decides who shares its group.
+          DEADLINE_AT: ${{ steps.sentinel.outputs.target_at }}
+          SENTINEL_ARMED_AT: ${{ matrix.sentinel.deadline_at }}
+          SENTINEL_KEY: ${{ matrix.sentinel.key }}
+          SENTINEL_STATE_FILE: ${{ runner.temp }}/sentinel-handover.json
+          # This token's hour is all the runway there is. A deadline moved
+          # beyond it gives up cleanly and a later cron firing re-arms.
+          SENTINEL_MAX_RUNTIME_MS: "2700000"
+        run: node scripts/deadline-sentinel.mjs
+
+      # One answer for the steps below, whichever phase reached the instant.
+      # `steps.<id>.outputs.<x>` of a skipped step is the empty string, so the
+      # late phase wins when it ran and the early one answers when it did not.
+      - name: The watch's answer
+        id: watch
+        env:
+          EARLY_FIRED: ${{ steps.sentinel.outputs.fired }}
+          LATE_FIRED: ${{ steps.sentinel_late.outputs.fired }}
+          EARLY_DUE: ${{ steps.sentinel.outputs.due_assignment_ids }}
+          LATE_DUE: ${{ steps.sentinel_late.outputs.due_assignment_ids }}
+        run: |
+          set -e
+          fired=false
+          due=""
+          if [ "$LATE_FIRED" = "true" ]; then
+            fired=true
+            due="$LATE_DUE"
+          elif [ "$EARLY_FIRED" = "true" ]; then
+            fired=true
+            due="$EARLY_DUE"
+          fi
+          echo "fired=$fired" >> "$GITHUB_OUTPUT"
+          echo "due_assignment_ids=$due" >> "$GITHUB_OUTPUT"
+          echo "fired=$fired, due=${due:-none}"
+
       - name: Pick up extensions granted while we waited
-        if: steps.sentinel.outputs.fired == 'true'
+        if: steps.watch.outputs.fired == 'true'
         run: git -C control pull --rebase --autostash
 
       # Phase 1 only, once per assignment sharing this instant. No lockdown
@@ -271,13 +380,15 @@ jobs:
       # failed. Giving up at the first failure left the rest of the group
       # writable until the nightly.
       - name: Stop writes
-        if: steps.sentinel.outputs.fired == 'true' && steps.sentinel.outputs.due_assignment_ids != ''
+        if: steps.watch.outputs.fired == 'true' && steps.watch.outputs.due_assignment_ids != ''
         env:
-          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          # The fresh token when the watch handed over, or the first one when it
+          # reached the instant inside its own hour.
+          GITHUB_TOKEN: ${{ steps.token_late.outputs.token || steps.token.outputs.token }}
           ORG: ${{ matrix.sentinel.org }}
           DATA_DIR: control
           STOP_ONLY: "1"
-          ASSIGNMENT_IDS: ${{ steps.sentinel.outputs.due_assignment_ids }}
+          ASSIGNMENT_IDS: ${{ steps.watch.outputs.due_assignment_ids }}
         run: |
           set -e
           failed=""
@@ -305,7 +416,7 @@ jobs:
 
       # Phases 2-4 unhurried, against repositories that can no longer move.
       - name: Finalize now
-        if: steps.sentinel.outputs.fired == 'true'
+        if: steps.watch.outputs.fired == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           TARGET_ORG: ${{ matrix.sentinel.org }}

@@ -44,6 +44,13 @@
 // So every published assignment whose deadline is this sentinel's instant is
 // stopped by this sentinel, whoever armed it (ARCHITECTURE §11.2.3).
 //
+// A watch also outlives its CREDENTIAL: an App installation token lives for at
+// most an hour and the job waits for up to 4h45m. So a watch runs in PHASES -
+// this script is invoked once per phase, polls while its token lives, and hands
+// the next one what it saw (SENTINEL_PHASE_MS, SENTINEL_STATE_FILE). The
+// timeline is written once, by the phase that reaches the instant, so one
+// watch produces one document however many tokens it took.
+//
 // Every failure degrades to the nightly. A dropped cron firing, a killed job, a
 // deadline moved out of reach: all of them fall through to the ordinary pass,
 // which locks on the first nightly after the deadline. Nothing here can make
@@ -76,6 +83,12 @@ const cfg = {
   dataDir: env("DATA_DIR"),
   assignmentIds: (env("ASSIGNMENT_IDS", "") || "").split(",").map((s) => s.trim()).filter(Boolean),
   deadlineAt: env("DEADLINE_AT"),
+  // The instant this sentinel's GROUP is keyed on. A later phase is handed it
+  // separately, because the deadline it waits for may have moved while an
+  // earlier phase watched, and the group it is responsible for is still the one
+  // it was armed for - the concurrency key every other arm for that instant
+  // queues behind. Absent means they are the same, which is the ordinary case.
+  armedAt: env("SENTINEL_ARMED_AT") || env("DEADLINE_AT"),
   key: env("SENTINEL_KEY", "unkeyed"),
   // `positiveNumber`, not `Number(env(...))`. `env()` is `?? default`, so a
   // variable that is SET BUT EMPTY - the ordinary shape of an unset workflow
@@ -90,6 +103,18 @@ const cfg = {
   // cleanly rather than being killed with the evidence still in memory.
   maxRuntimeMs: positiveNumber(env("SENTINEL_MAX_RUNTIME_MS"), 4.75 * 3600_000),
   maxPages: positiveNumber(env("SENTINEL_MAX_PAGES"), 3),
+  // How long THIS invocation may watch before handing over to the next one.
+  // A GitHub App installation token lives for at most an hour and this job waits
+  // for up to 4h45m, so one token cannot cover a whole watch: after it expires
+  // every poll is a 401, the checkout's persisted credential is dead, and the
+  // stop never runs - measured on PXL-Automation-II's test-pe4, run 35220220960,
+  // which polled 401 for an hour and then failed at `git pull` AT the deadline.
+  // Absent means "watch to the target", which is what a single-phase run does.
+  phaseMs: positiveNumber(env("SENTINEL_PHASE_MS"), Infinity),
+  // Where a phase leaves its evidence for the next one. The timeline is written
+  // once, by whichever phase reaches the instant, so the push record spans every
+  // phase rather than starting again with a fresh token.
+  stateFile: env("SENTINEL_STATE_FILE", ""),
   runUrl: `${env("GITHUB_SERVER_URL", "https://github.com")}/${env("GITHUB_REPOSITORY", "_")}` +
           `/actions/runs/${env("GITHUB_RUN_ID", "0")}`,
   runId: env("GITHUB_RUN_ID", "0"),
@@ -111,8 +136,12 @@ function validate() {
   if (!cfg.dataDir) return "DATA_DIR is required";
   if (!cfg.assignmentIds.length) return "ASSIGNMENT_IDS is required";
   for (const id of cfg.assignmentIds) if (!SLUG.test(id)) return `ASSIGNMENT_ID="${id}" is not a valid slug`;
+  // A phase that can hand over with nowhere to hand over TO would throw away
+  // the samples it took and the assignments it found, silently.
+  if (Number.isFinite(cfg.phaseMs) && !cfg.stateFile) return "SENTINEL_PHASE_MS needs SENTINEL_STATE_FILE to hand over to";
   const at = new Date(cfg.deadlineAt ?? "");
   if (Number.isNaN(at.getTime())) return `DEADLINE_AT="${cfg.deadlineAt}" is not a date`;
+  if (Number.isNaN(new Date(cfg.armedAt ?? "").getTime())) return `SENTINEL_ARMED_AT="${cfg.armedAt}" is not a date`;
   return null;
 }
 
@@ -317,6 +346,63 @@ export function memberDeadlines(members, assignments) {
   return { byId, earliest };
 }
 
+/** The handover an earlier phase left, or null - the first phase is handed nothing. */
+async function readState() {
+  if (!cfg.stateFile) return null;
+  try {
+    return JSON.parse(await readFile(cfg.stateFile, "utf8"));
+  } catch {
+    // Absent is the ordinary case, and unreadable costs the earlier samples and
+    // nothing else. Neither is worth failing a watch over.
+    return null;
+  }
+}
+
+async function writeState(state) {
+  if (!cfg.stateFile) return;
+  await writeFile(cfg.stateFile, JSON.stringify(handoverState(state), null, 2) + "\n");
+}
+
+/**
+ * What one phase hands to the next: the evidence so far, and the group as it
+ * stood, so a fresh token continues a watch rather than starting one.
+ *
+ * A phase that hands over writes NO timeline - it has not reached the instant,
+ * and a timeline per phase would split the push record of one watch across two
+ * documents with the same key.
+ */
+export function handoverState({ polls, members, joinedAt, samples }) {
+  return {
+    schema_version: 1,
+    polls,
+    members: members.map((id) => ({ id, ...(joinedAt.get(id) ? { joined_at: joinedAt.get(id) } : {}) })),
+    samples,
+  };
+}
+
+/**
+ * Take up a handover: the members that joined while the previous phase watched,
+ * and the samples it took.
+ *
+ * The armed list is still the start of the group - the state only adds to it,
+ * so a corrupt or absent file costs the earlier evidence and nothing else.
+ */
+export function resumeFrom(state, armedIds) {
+  const members = [...armedIds];
+  const joinedAt = new Map();
+  for (const m of Array.isArray(state?.members) ? state.members : []) {
+    if (typeof m?.id !== "string" || !SLUG.test(m.id)) continue;
+    if (!members.includes(m.id)) members.push(m.id);
+    if (m.joined_at) joinedAt.set(m.id, m.joined_at);
+  }
+  return {
+    members,
+    joinedAt,
+    samples: Array.isArray(state?.samples) ? state.samples : [],
+    polls: Number.isInteger(state?.polls) && state.polls > 0 ? state.polls : 0,
+  };
+}
+
 /**
  * The file this sentinel writes an assignment's timeline to.
  *
@@ -366,14 +452,16 @@ async function main() {
   let target = new Date(cfg.deadlineAt);
   // The group: what this sentinel was armed with, then every assignment that
   // reached its instant after that. Once a member, always a member - one moved
-  // away again is treated exactly like an armed one moved away.
-  const members = [...cfg.assignmentIds];
-  const joinedAt = new Map();
+  // away again is treated exactly like an armed one moved away. An earlier
+  // phase of this same watch may already have found some of them.
+  const resumed = resumeFrom(await readState(), cfg.assignmentIds);
+  const { members, joinedAt } = resumed;
   const watched = await watchedRepos();
-  log(`watching ${watched.size} repository/repositories across ${cfg.assignmentIds.join(", ")} until ${target.toISOString()}`);
+  log(`watching ${watched.size} repository/repositories across ${members.join(", ")} until ${target.toISOString()}`);
+  if (resumed.polls) log(`resuming a handover: ${resumed.polls} poll(s) and ${resumed.samples.length} sample(s) already taken`);
 
-  const samples = [];
-  let polls = 0;
+  const samples = resumed.samples;
+  let polls = resumed.polls;
   let outcome = "fired";
   // Each member's own deadline as last read. Empty until the first poll, so a
   // member never read counts as due against the armed instant. Kept, not
@@ -389,7 +477,7 @@ async function main() {
     const assignments = await readAssignments();
     let moved = null;
     if (assignments) {
-      for (const id of assignmentsAtInstant(assignments, cfg.deadlineAt)) {
+      for (const id of assignmentsAtInstant(assignments, cfg.armedAt)) {
         if (members.includes(id)) continue;
         members.push(id);
         joinedAt.set(id, new Date().toISOString());
@@ -423,6 +511,15 @@ async function main() {
     const now = Date.now();
     if (now >= target.getTime()) break;
 
+    if (now - startedAt >= cfg.phaseMs) {
+      // This phase's token is about to expire. The next one mints a fresh
+      // token and carries on from here; nothing is stopped and no timeline is
+      // written, because the instant has not arrived.
+      outcome = "handover";
+      log(`this phase is out of token - handing over ${samples.length} sample(s) before ${target.toISOString()}`);
+      break;
+    }
+
     if (now - startedAt >= cfg.maxRuntimeMs) {
       // Out of runway. The nightly finalize still locks and reconstructs; the
       // only thing lost is the precision this job exists for.
@@ -440,6 +537,19 @@ async function main() {
     log(`not due at this instant, so not stopped: ${skipped.join(", ")} (deadline moved out)`);
   }
 
+  // A handover writes no timeline: this watch has not reached its instant, and
+  // one document per phase would split a single watch's push record in two.
+  if (outcome === "handover") {
+    await writeState({ polls, members, joinedAt, samples });
+    await setOutput("outcome", outcome);
+    await setOutput("polls", polls);
+    await setOutput("target_at", target.toISOString());
+    await setOutput("fired", "false");
+    await setOutput("due_assignment_ids", "");
+    log(`handover after ${polls} poll(s); target ${target.toISOString()}`);
+    return;
+  }
+
   // Persist the timeline before anything else can fail. It sits beside the
   // lockdown record it explains; nothing globs that directory.
   for (const id of members) {
@@ -455,7 +565,7 @@ async function main() {
       // group's instant against an assignment that no longer has it is the
       // record claiming a freeze at a time that was never its deadline.
       deadline_at: (latestByAssignment.get(id) ?? target).toISOString(),
-      armed_for: cfg.deadlineAt,
+      armed_for: cfg.armedAt,
       // Present only for an assignment this sentinel was NOT armed with: when it
       // was found sharing the instant. Nobody was watching its repositories
       // before then, so the samples start there rather than recording an empty

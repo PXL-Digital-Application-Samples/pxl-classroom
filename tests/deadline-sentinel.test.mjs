@@ -20,7 +20,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdi
 import { tmpdir } from "node:os";
 import { planSentinels, sentinelKey } from "../scripts/find-armable.mjs";
 import {
-  assignmentsAtInstant, dueAssignments, memberDeadlines, positiveNumber, timelineFileName,
+  assignmentsAtInstant, dueAssignments, handoverState, memberDeadlines, positiveNumber, resumeFrom,
+  timelineFileName,
 } from "../scripts/deadline-sentinel.mjs";
 
 // A SET-BUT-EMPTY environment variable is the ordinary shape of an unset
@@ -249,7 +250,10 @@ function makeControlDir(logins = ["alice"]) {
   return dir;
 }
 
-function runSentinel(dir, apiBase, { deadlineAt, pollMs = 40, maxRuntimeMs = 60_000, assignmentIds = "exam", maxPages } = {}) {
+function runSentinel(dir, apiBase, {
+  deadlineAt, pollMs = 40, maxRuntimeMs = 60_000, assignmentIds = "exam", maxPages,
+  phaseMs, stateFile, armedAt,
+} = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn("node", [sentinelScript], {
       env: {
@@ -264,6 +268,9 @@ function runSentinel(dir, apiBase, { deadlineAt, pollMs = 40, maxRuntimeMs = 60_
         POLL_INTERVAL_MS: String(pollMs),
         SENTINEL_MAX_RUNTIME_MS: String(maxRuntimeMs),
         ...(maxPages ? { SENTINEL_MAX_PAGES: String(maxPages) } : {}),
+        ...(phaseMs ? { SENTINEL_PHASE_MS: String(phaseMs) } : {}),
+        ...(stateFile ? { SENTINEL_STATE_FILE: stateFile } : {}),
+        ...(armedAt ? { SENTINEL_ARMED_AT: armedAt } : {}),
         // Pinned rather than inherited: CI sets these, and the timeline's file
         // name falls back to them when one is already there.
         GITHUB_RUN_ID: "999",
@@ -776,6 +783,169 @@ test("a second sentinel for the same instant does not overwrite the first's time
     "the run that fired keeps its record; lockdown.mjs reads every sentinel-*.json",
   );
   assert.match(timelineFileName(key, [`sentinel-${key}.json`], run), /^sentinel-.*\.json$/, "lockdown.mjs's own glob");
+});
+
+// --- a watch outlives its credential -----------------------------------------
+//
+// An App installation token lives for at most an hour; the watch waits for up
+// to 4h45m. Every watch armed more than an hour out therefore polled 401 until
+// the instant and then failed at `git pull`, which skips Stop writes: three
+// real deadlines on PXL-Automation-II (runs 35220220960, 35181092340,
+// 35120380004) went red having stopped nothing. So a watch runs in phases, and
+// what one phase saw has to survive into the next, or the push record starts
+// again from a cohort the new token has never looked at.
+
+test("a phase that runs out of token hands over instead of firing", async () => {
+  const deadline = new Date(Date.now() + 10 * HOUR).toISOString();
+  const dir = makeControlDir();
+  const state = join(dir, "handover.json");
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline, phaseMs: 250, stateFile: state, pollMs: 60 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /outcome=handover/);
+      assert.match(res.outputs, /fired=false/, "it never reached the instant, so it must stop nothing");
+      assert.match(res.outputs, /due_assignment_ids=\n/, "and name nothing as due");
+      assert.equal(res.timeline, null, "no timeline: one watch writes one document, at the instant");
+
+      const handed = JSON.parse(readFileSync(state, "utf8"));
+      assert.ok(handed.samples.length >= 1, `the evidence it took is handed on: ${JSON.stringify(handed)}`);
+      assert.deepEqual(handed.members, [{ id: "exam" }]);
+      assert.ok(handed.polls >= 1);
+    },
+    { deadlineFor: () => deadline },
+  );
+});
+
+test("the next phase continues the same watch, with the earlier evidence in it", async () => {
+  const startedAt = Date.now();
+  const deadline = new Date(startedAt + 1200).toISOString();
+  const dir = makeControlDir();
+  const state = join(dir, "handover.json");
+  const joined = () => Date.now() - startedAt > 150;
+
+  await withStubApi(
+    async (api) => {
+      // Phase one: out of token long before the instant.
+      const first = await runSentinel(dir, api, { deadlineAt: deadline, phaseMs: 250, stateFile: state, pollMs: 60 });
+      assert.match(first.outputs, /outcome=handover/);
+      const handed = JSON.parse(readFileSync(state, "utf8"));
+      assert.ok(
+        handed.members.some((m) => m.id === "late-exam" && m.joined_at),
+        `an assignment found in one phase is still a member in the next: ${JSON.stringify(handed.members)}`,
+      );
+
+      // Phase two, on a fresh token, reaching the instant.
+      const second = await runSentinel(dir, api, { deadlineAt: deadline, stateFile: state, pollMs: 60 });
+      assert.equal(second.status, 0, second.stderr);
+      assert.match(second.outputs, /fired=true/);
+      assert.match(second.outputs, /due_assignment_ids=exam,late-exam\n/, second.outputs);
+      assert.match(second.stdout, /resuming a handover/);
+
+      const timeline = second.timeline;
+      assert.ok(
+        timeline.samples.length > handed.samples.length,
+        `the one timeline spans both phases: ${handed.samples.length} handed over, ${timeline.samples.length} written`,
+      );
+      assert.equal(
+        timeline.samples[0].observed_at,
+        handed.samples[0].observed_at,
+        "and it starts where the first phase started, not where the new token did",
+      );
+      assert.ok(timeline.polls > handed.polls, "the poll count continues rather than restarting");
+    },
+    {
+      ids: ["exam", "late-exam"],
+      // Both share the instant; `late-exam` is published mid-watch.
+      deadlineFor: (id) => (id === "exam" || joined() ? deadline : null),
+      reposFor: (id) => (id === "exam" ? ["alice"] : []),
+    },
+  );
+});
+
+test("a later phase groups by the instant it was ARMED for, not the one it waits for", async () => {
+  // The two come apart exactly when a lecturer moves a deadline while an
+  // earlier phase watches: the group is the concurrency key every other arm for
+  // that instant queues behind, and it does not move with one assignment.
+  const armed = new Date(Date.now() + 9 * HOUR).toISOString();
+  const waitingFor = new Date(Date.now() + 300).toISOString();
+  const dir = makeControlDir();
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: waitingFor, armedAt: armed, maxRuntimeMs: 60_000 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /fired=true/);
+      assert.match(
+        res.outputs,
+        /due_assignment_ids=exam\n/,
+        `only the assignment whose own deadline has arrived is stopped:\n${res.outputs}`,
+      );
+      const other = JSON.parse(readFileSync(join(dir, "lockdowns", "still-at-armed", "sentinel-TESTKEY.json"), "utf8"));
+      assert.ok(other.joined_at, "the assignment still sitting on the armed instant is watched by this sentinel");
+      assert.equal(other.due, false, "but it is not due yet, so it is not stopped");
+      assert.equal(res.timeline.armed_for, armed, "the record names the instant the group is keyed on");
+    },
+    {
+      ids: ["exam", "still-at-armed"],
+      deadlineFor: (id) => (id === "exam" ? waitingFor : armed),
+    },
+  );
+});
+
+test("a phase budget with nowhere to hand over is refused before it holds a runner", async () => {
+  // It would poll for 45 minutes and then throw away every sample it took and
+  // every assignment it found, silently.
+  const deadline = new Date(Date.now() + HOUR).toISOString();
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(makeControlDir(), api, { deadlineAt: deadline, phaseMs: 250 });
+      assert.equal(res.status, 1);
+      assert.match(res.outputs, /outcome=fail:validation/);
+      assert.match(res.stderr, /SENTINEL_STATE_FILE/);
+    },
+    { deadlineFor: () => deadline },
+  );
+});
+
+test("resumeFrom keeps the armed list as the start of the group", () => {
+  const { members, joinedAt, samples, polls } = resumeFrom(
+    {
+      polls: 7,
+      members: [{ id: "exam" }, { id: "joined-one", joined_at: "2026-09-10T20:05:00.000Z" }, { id: "../escape" }],
+      samples: [{ observed_at: "2026-09-10T20:00:00.000Z", pushed_at: {} }],
+    },
+    ["exam", "armed-two"],
+  );
+  assert.deepEqual(members, ["exam", "armed-two", "joined-one"], "armed first, then what an earlier phase found");
+  assert.equal(joinedAt.get("joined-one"), "2026-09-10T20:05:00.000Z");
+  assert.equal(samples.length, 1);
+  assert.equal(polls, 7);
+
+  // A file that is missing or damaged costs the earlier evidence and nothing
+  // else: the watch still knows what it was armed with.
+  for (const bad of [null, undefined, {}, { members: "not a list", samples: 3, polls: -1 }]) {
+    const fallback = resumeFrom(bad, ["exam"]);
+    assert.deepEqual(fallback.members, ["exam"]);
+    assert.deepEqual(fallback.samples, []);
+    assert.equal(fallback.polls, 0);
+  }
+});
+
+test("handoverState carries what the next phase cannot read for itself", () => {
+  const state = handoverState({
+    polls: 3,
+    members: ["exam", "joined-one"],
+    joinedAt: new Map([["joined-one", "2026-09-10T20:05:00.000Z"]]),
+    samples: [{ observed_at: "2026-09-10T20:00:00.000Z", pushed_at: { "exam-alice": "2026-09-10T19:12:00Z" } }],
+  });
+  // Round-tripped through JSON, because that is how it travels.
+  const back = resumeFrom(JSON.parse(JSON.stringify(state)), ["exam"]);
+  assert.deepEqual(back.members, ["exam", "joined-one"]);
+  assert.equal(back.joinedAt.get("joined-one"), "2026-09-10T20:05:00.000Z");
+  assert.equal(back.samples[0].pushed_at["exam-alice"], "2026-09-10T19:12:00Z");
+  assert.equal(back.polls, 3);
 });
 
 test("the duplicate writes its own timeline beside the one already there", async () => {
