@@ -31,7 +31,10 @@ const rosterStatus = (page) => page.locator('.roster-status');
 const gateOn = async (page) =>
   page.locator('select').filter({ hasText: 'only students on the roster' }).first().selectOption('enforced');
 const templateEmpty = (page) => page.locator('.template-empty');
-const templateError = (page) => page.locator('.text-danger', { hasText: 'Failed to load templates' });
+// `.field-error-msg`, the error vocabulary under a field: this used to be a
+// `<small class="text-danger">`, which `.field small { color: var(--text-muted) }`
+// outranks, so the failure rendered in help-text grey (DESIGN.md §7).
+const templateError = (page) => page.locator('.field-error-msg', { hasText: 'Failed to load templates' });
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
 const seedBtn = (page) => page.locator('button', { hasText: 'Seed teams from…' });
 const summary = (page) => page.locator('.validation-errors');
@@ -220,7 +223,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
     await expect(page.locator('.loading-inline')).toBeVisible();
 
     release();
-    await expect(page.locator('text=Found 1 template repositories')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('text=Found 1 template repository')).toBeVisible({ timeout: 5000 });
     await expect(templateEmpty(page)).toHaveCount(0);
   });
 
@@ -312,7 +315,12 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
 
     await expect(templateEmpty(page)).toBeVisible();
     await expect(templateEmpty(page).locator('.btn-primary')).toHaveCount(0);
-    await expect(templateEmpty(page).locator('a.btn-secondary')).toHaveCount(1);
+    // NO BUTTON AT ALL NOW. It used to be an `a.btn-secondary`, and the blank
+    // starter beneath it is a second grey `+ Create …` button four lines away -
+    // two spellings of one action, which is how it read. Going to GitHub is a
+    // link, so it looks like one, and this field has exactly one button.
+    await expect(templateEmpty(page).locator('.btn')).toHaveCount(0);
+    await expect(templateEmpty(page).getByRole('link', { name: /Create one on GitHub/i })).toHaveCount(1);
   });
 });
 

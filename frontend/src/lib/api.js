@@ -897,3 +897,30 @@ export async function validateTemplateRepository(token, owner, repo) {
     htmlUrl: repoData.html_url,
   }
 }
+
+/**
+ * Create a blank starter repository for an assignment with no starter code.
+ *
+ * ONE CALL, because `is_template` and `auto_init` are both parameters on repo
+ * creation - so the repository arrives with the commit `generate` needs and the
+ * checkbox `generate` requires, which are exactly the two things a lecturer
+ * doing this by hand forgets. Measured on the testbed with this very token
+ * kind; frontend/src/lib/blank-starter.js carries the readings and judges what
+ * comes back.
+ *
+ * Private, like every template a course org keeps for itself: only a template
+ * in ANOTHER organization has to be public (lib/template-source.mjs), and this
+ * one is created in the assignment's own.
+ *
+ * Returns the raw `{ ok, status, data }` - there is nothing to interpret here,
+ * and interpreting it in two places is how two surfaces come to disagree.
+ */
+export async function createBlankStarterRepository(token, org, name, description) {
+  return ghApi(token, 'POST', `/orgs/${org}/repos`, {
+    name,
+    description,
+    private: true,
+    auto_init: true,
+    is_template: true,
+  })
+}

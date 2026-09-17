@@ -283,7 +283,7 @@ test.describe('70 - one page is not the list', () => {
 
     await expect(templateEmpty(page), 'we never established that it has none').toHaveCount(0);
     await expect(page.locator('text=Found 100 template repositories')).toHaveCount(0);
-    await expect(page.locator('.text-danger', { hasText: 'Failed to load templates' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.field-error-msg', { hasText: 'Failed to load templates' })).toBeVisible({ timeout: 5000 });
   });
 });
 

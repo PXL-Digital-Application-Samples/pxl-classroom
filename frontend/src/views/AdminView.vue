@@ -577,9 +577,13 @@
               <small v-if="submissionBranchWarning" class="text-warning submission-branch-warning" role="status">
                 {{ submissionBranchWarning }}
               </small>
-              <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
+              <!-- Same trap as the blank starter's failure below, and this one
+                   had been in it: as a `<small class="text-danger">` under
+                   `.field small { color: var(--text-muted) }`, a failed read of
+                   the organization's templates rendered in help-text grey. -->
+              <div v-if="templatesError" class="field-error-msg" role="alert">
                 Failed to load templates: {{ templatesError }}.
-              </small>
+              </div>
               <!-- The first-run wall (ARCHITECTURE §10.4). The old copy - "Create one
                    and mark it as a template in repo Settings" - assumed the
                    reader already knew what a template repository is, and buried
@@ -588,33 +592,83 @@
                    The combobox deliberately stays: typing `owner/repo` is the
                    only way to name a template the org search cannot see, and
                    `checkTemplateValidity` probes it live. -->
+              <!-- ONE BUTTON IN THIS FIELD, and it is the blank starter below.
+                   Going to GitHub is a link, so it looks like one: two grey
+                   `+ Create …` buttons four lines apart read as two spellings
+                   of one action, and the reaction to seeing them was exactly
+                   that. Nothing is lost by demoting it - it opened a new tab
+                   either way.
+                   The copy is three lines now. It was five, because a one-line
+                   version had already failed: a lecturer who does not know what
+                   a template repository is cannot act on it, and the Settings
+                   checkbox is the step everyone misses. Both of those survive
+                   in the sentence; what went was the paragraph repeating the
+                   checkbox and the list of what starter code might be. -->
               <div v-else-if="!loadingTemplates && templates.length === 0" class="template-empty">
                 <strong>This organization has no template repositories yet.</strong>
                 <p>
-                  A template is an ordinary repository - starter code, a README, whatever each
-                  student should begin from. Every student gets their own copy of it.
-                </p>
-                <a
-                  class="btn btn-secondary btn-sm btn-with-icon"
-                  :href="`https://github.com/organizations/${org}/repositories/new`"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Icon name="plus" :size="13" />
-                  <span>Create one on GitHub</span>
-                </a>
-                <p>
-                  Then open its <strong>Settings</strong> and tick <strong>Template repository</strong>.
-                  Come back and press refresh - it will appear in the list.
-                </p>
-                <p class="text-muted">
-                  Already have one? Ticking <strong>Template repository</strong> in its settings is
-                  what makes it show up here.
+                  A template is an ordinary repository. Every student gets their own copy of it.
+                  Have starter code?
+                  <a
+                    :href="`https://github.com/organizations/${org}/repositories/new`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >Create one on GitHub</a>, or open one you already have, then tick
+                  <strong>Template repository</strong> in its <strong>Settings</strong> and press refresh.
                 </p>
               </div>
               <small v-else-if="!loadingTemplates">
-                Found {{ templates.length }} template repositories.
+                Found {{ templates.length }} template {{ templates.length === 1 ? 'repository' : 'repositories' }}.
               </small>
+              <!-- "STUDENTS START FROM NOTHING" IS AN ORDINARY THING TO WANT,
+                   and until now the form had no answer for it: GitHub Classroom
+                   made the template optional, this cannot, and a lecturer acting
+                   on the difference makes a repository with no commits. That
+                   failed provisioning for a whole assignment on 2026-09-17, and
+                   a second lecturer asked the same evening whether the template
+                   could be skipped. The warning badge and the publish preflight
+                   turn that into a refusal; this turns it into a repository.
+                   One call sets both things a hand-made one gets wrong - the
+                   commit and the Template checkbox - and the sentence beside it
+                   is here because the belief, not the four steps on github.com,
+                   is what actually went wrong. -->
+              <!-- AND IT GOES AWAY ONCE THERE IS A TEMPLATE. Left standing, it
+                   offered to create a repository that now exists - the same
+                   button, the same sentence in the present tense, and a second
+                   press would be refused as a name clash. An offer that has
+                   been taken is not an offer (DESIGN.md §1.5). Clearing the
+                   field brings it back. -->
+              <div v-if="isNew && !form.template" class="blank-starter">
+                <div class="blank-starter-row">
+                  <span>Nothing to start from?</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm btn-with-icon"
+                    :disabled="!blankStarterRepo || creatingBlankStarter"
+                    @click="createBlankStarter"
+                  >
+                    <Icon name="plus" :size="13" />
+                    <span>{{ creatingBlankStarter ? 'Creating…' : 'Create a blank starter' }}</span>
+                  </button>
+                </div>
+                <small class="text-muted">
+                  <template v-if="!blankStarterRepo">
+                    Title the assignment first, and this creates the starter repository for you.
+                  </template>
+                  <template v-else>
+                    Makes <code>{{ org }}/{{ blankStarterRepo }}</code> with a README and uses it here.
+                    GitHub cannot copy an empty repository, so one file is the minimum.
+                  </template>
+                </small>
+                <!-- `.field-error-msg`, not a `<small class="text-danger">`:
+                     `.field small` sets `--text-muted` and its scoped selector
+                     outranks the global `.text-danger`, so a failure written
+                     that way renders as help text (DESIGN.md §7). The error
+                     vocabulary under a field already exists; use it. -->
+                <div v-if="blankStarterError" class="field-error-msg" role="alert">
+                  {{ blankStarterError }}
+                </div>
+              </div>
             </div>
 
             <!-- SECOND, BECAUSE PICKING THE TEMPLATE FILLS IT IN. -->
@@ -1606,7 +1660,8 @@ import { assignmentStateLabel } from '../lib/status-labels.js'
 import { TIMEZONE, INSTITUTION_SHORT } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
-import { commitFile, commitFiles, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
+import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
+import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
 import { publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.js'
@@ -2597,6 +2652,89 @@ const templateValidationStatus = ref(null)
 // only the `owner/repo` string, and rebuilding a pin from it is impossible.
 const storedTemplate = ref(null)
 let templateValidationTimer = null
+
+// ----------------------------------------------- "students start from nothing"
+//
+// A lecturer with no starter code still needs a template, because `generate`
+// cannot copy a repository with no commits - and the two ways that has gone
+// wrong are written up in frontend/src/lib/blank-starter.js beside the live
+// readings. This makes the repository they would otherwise make by hand in four
+// steps on github.com, with the commit and the Template checkbox both correct
+// because one API call sets them.
+const creatingBlankStarter = ref(false)
+const blankStarterError = ref('')
+
+// NEW ASSIGNMENTS ONLY. On one that exists this would repoint a live template,
+// and although resolveTemplatePin catches that as a replacement and warns,
+// there is no reason to walk up to it: students may already hold repositories
+// generated from the template being replaced.
+const blankStarterRepo = computed(() => (isNew.value ? blankStarterName(form.value.id) : ''))
+
+async function createBlankStarter() {
+  // Guarded rather than only disabled: a disabled button is a rendering, and
+  // this one is reachable by keyboard the instant the slug appears.
+  if (!blankStarterRepo.value || creatingBlankStarter.value) return
+  const name = blankStarterRepo.value
+  const token = getToken()
+  if (!token) return
+
+  creatingBlankStarter.value = true
+  blankStarterError.value = ''
+  try {
+    const res = await createBlankStarterRepository(
+      token,
+      props.org,
+      name,
+      `Starter repository for ${form.value.title || form.value.id}. Students begin from what is in here.`,
+    )
+    // `.ok`, never a `.catch()` - ghApi resolves on failure and rejects only on
+    // a network error, which the try/finally below owns (tests/button-honesty).
+    const verdict = blankStarterFailure(res, { org: props.org, name })
+    if (!verdict.ok) {
+      blankStarterError.value = verdict.message
+      return
+    }
+    const fullName = res.data?.full_name || `${props.org}/${name}`
+    // It exists now, so it belongs in the list without a refresh - and at the
+    // top, because it is the one the lecturer just made.
+    templates.value = [
+      { full_name: fullName, is_template: true, id: res.data?.id },
+      ...templates.value.filter((t) => t.full_name !== fullName),
+    ]
+    // NOT OVER A TEMPLATE THE LECTURER NAMED WHILE THIS WAS IN FLIGHT. The
+    // offer disappears the moment the field is non-empty, but the request it
+    // started does not, and a create that lands two seconds later must not
+    // replace the repository they picked in the meantime. The repository is
+    // still theirs and is in the list above; nothing is lost by saying so.
+    if (String(form.value.template || '').trim()) {
+      toast.success(`Created ${fullName}. The template field already names ${form.value.template}, so it was left alone.`)
+      return
+    }
+    // Written AFTER the create resolved 201, and through `form.template` alone:
+    // its watcher syncs the combobox text and runs the same live probe a picked
+    // template gets, which is what fills `submission_ref` from the real
+    // `default_branch` and takes the pin. Writing `refs/heads/main` here would
+    // be the master-template trap with a friendlier face.
+    // Written AFTER the create resolved 201, and through `form.template` alone:
+    // its watcher syncs the combobox text and runs the same live probe a picked
+    // template gets, which is what fills `submission_ref` from the real
+    // `default_branch` and takes the pin. Writing `refs/heads/main` here would
+    // be the master-template trap with a friendlier face.
+    form.value.template = fullName
+    touchedFields.value.template = true
+    toast.success(`Created ${fullName} with a README. Students start from that.`)
+  } catch (e) {
+    // NOT "nothing was changed" - this branch cannot know that. The request
+    // failed on the way out or on the way back, and GitHub may well have
+    // created the repository before the answer was lost. Say what is true and
+    // what to do about it (DESIGN.md §1.5).
+    blankStarterError.value =
+      `Could not reach GitHub: ${e.message}. If the request got through, ${props.org}/${name} may ` +
+      `exist already - press refresh and check the list before trying again.`
+  } finally {
+    creatingBlankStarter.value = false
+  }
+}
 
 // Does Submission ref name a branch the student repositories will have? The
 // same judge the publish preflight refuses with. Only on a probe that ANSWERED
@@ -5278,7 +5416,24 @@ details .field { padding: 0 var(--space-sm); }
 .template-empty strong { color: var(--text-primary); }
 .template-empty p { margin: var(--space-xs) 0 var(--space-sm) 0; }
 .template-empty p:last-child { margin-bottom: 0; }
-.template-empty a { margin-bottom: var(--space-xs); }
+
+/* The blank starter, under whichever of the three states above rendered. No
+   well and no border: it is an offer beside the field, not a second wall, and
+   `.template-empty` is already a tonal block that this must not look like a
+   rival to. */
+.blank-starter {
+  margin-top: var(--space-sm);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.blank-starter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.blank-starter small { display: block; margin-top: var(--space-xs); }
+.blank-starter code { font-size: 0.95em; }
 
 /* Roster readiness under "Who may accept". `.status-indicator` owns the dot;
    this only keeps the sentence and its link on one line when there is room. */

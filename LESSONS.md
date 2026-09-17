@@ -2209,6 +2209,33 @@ on an established 409. Same lesson as the foreign private template on
 asked before a student can accept, and "the repository exists and is ticked as
 a template" was two of three.
 
+**And a guard was only half the answer, which the same evening made plain.** A
+second lecturer asked, in as many words, whether an assignment could be created
+without selecting a template at all - GitHub Classroom allowed it, and everyone
+who used Classroom knows it allowed it. So within one day the same belief
+arrived twice, once as a question and once as a published assignment whose every
+acceptance failed. The guard turns the second into a refusal, and a refusal is
+where the lecturer was already standing: they have no starter code, and what the
+form asked them for was a repository containing some. The answer had to be a
+repository, not a better explanation of why they needed one - *Nothing to start
+from?* -> **Create a blank starter**, one `POST /orgs/{org}/repos` with
+`auto_init` and `is_template`, which is the four steps on github.com that a
+lecturer performs while believing the whole errand is pointless. Measured that
+day on the testbed, with the Admin Panel's own `ghu_` token, because a
+user-to-server token reaches only what the App **and** the user can reach and
+nobody had asked whether this was in that intersection: 201, `is_template: true`
+and one commit, no App permission changed.
+
+ARCHITECTURE §10.4 had recorded "it never creates a repository on the lecturer's
+behalf" as considered and rejected three weeks earlier, and both its reasons
+survive: a template is course material with a lifetime in years, and the usual
+reason the list is empty is an unticked checkbox on a repository that already
+exists. Neither reason is about the lecturer who has no course material at all,
+and that is the one who turned up twice. A recorded rejection is a decision with
+its reasoning attached, which is exactly what makes it re-openable: read the
+reasons, check what they were about, and say in the document that the question
+was narrower than the answer.
+
 ### The new default rung inherited the lock and not the demotion, and the test was given an opt-out to stay green.
 
 2026-09-17. `lockdown.mjs` Phase 4 demoted only `if (demoteToo && lock.method
