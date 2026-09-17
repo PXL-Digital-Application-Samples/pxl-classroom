@@ -5,14 +5,22 @@
 // real accounts in .env.test, so a change to the jobs that run an exam can be
 // proven the same day instead of at the next real deadline:
 //
-//   node tests/live/drill.mjs start [--minutes 45]
+//   node tests/live/drill.mjs start [--minutes 45] [--repo-lock]
 //       create and publish drill-<utc stamp> (individual, late work blocked,
-//       lock on), accept it as both students, push one commit each
+//       lock on), accept it as both students with their invitation labels,
+//       push one commit each, have the lecturer refused, retry one student.
+//       --repo-lock locks with repository rulesets and demotion instead.
 //
 //   node tests/live/drill.mjs verify <assignment-id> [--wait] [--timeout 40]
 //       after the deadline: the sentinel stopped writes, the lock method is the
-//       one the org's plan allows, a late push is refused, both submissions are
-//       preserved, the report says on-time, and the broker is closed
+//       one the org's plan and the assignment allow, a late push is refused,
+//       both submissions are preserved, the report says on-time, the broker is
+//       closed, and a retry cannot hand back a locked repository
+//
+//   node tests/live/drill.mjs migrate <assignment-id>
+//       after verify on a --repo-lock drill: run migrate-org-lock for real and
+//       check the organization ruleset, the disabled repository rulesets and
+//       the rewritten record
 //
 // WHY A FRESH ASSIGNMENT EVERY TIME. Finalize locks and preserves an assignment
 // once, so a second drill against the same one proves nothing about a job that
@@ -39,6 +47,8 @@ import { normalizeLogin } from "../../lib/github-login.mjs";
 import { INVITED_LABEL, REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
 import { deadlineIsImminent, SENTINEL_ARM_WINDOW_MS } from "../../lib/sentinel-window.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
+import { usesOrgScope } from "../../lib/lock-scope.mjs";
+import { findOrgSubmissionLock, findSubmissionLock, targetedRepositoryIds } from "../../lib/submission-lock.mjs";
 import {
   accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
   openAcceptanceIssue, reporter, signAcceptance, sleep,
@@ -203,6 +213,10 @@ async function start() {
     lock_down_enabled: true,
     assignment_type: "individual",
     state: "published",
+    // --repo-lock opts out of organization scope, so the deadline is held by one
+    // repository ruleset per student and then demoted - the path assignments
+    // saved with `org_scoped_lock: false` take, and the one `migrate` moves.
+    ...(flag("repo-lock") ? { org_scoped_lock: false } : {}),
   };
   const doc = buildAssignmentDoc(form, { templateRepositoryId: tpl.data.id });
   // A copy: lib/validate.mjs runs Ajv with useDefaults, which writes into the
@@ -374,12 +388,19 @@ async function verify() {
   const { plan } = await checkOrg(ORG, LECTURER, r);
   stopIfFailed();
   if (!plan) die(`cannot read ${ORG}'s plan, so there is no expected lock method to check against`);
-  const expectedLock = plan === "free" ? "demotion" : "org-ruleset";
-  ok(`plan ${plan}: every repository should be stopped by ${expectedLock}`);
 
   const stored = await readControl(`assignments/${id}.yml`);
   if (!stored.ok) die(`assignments/${id}.yml: HTTP ${stored.status}`);
   const doc = parse(stored.text);
+
+  // lib/lock-scope.mjs decides the scope, the plan decides whether a ruleset
+  // can exist at all.
+  const expectedLock = plan === "free"
+    ? "demotion"
+    : usesOrgScope(doc, doc.late_policy === "block") ? "org-ruleset" : "ruleset";
+  // Phase 4 demotes on top of a repository ruleset when lock_down_enabled.
+  const expectDemoted = expectedLock === "ruleset" && doc.lock_down_enabled !== false;
+  ok(`plan ${plan}: every repository should be stopped by ${expectedLock}${expectDemoted ? " and demoted" : ""}`);
   const deadline = new Date(doc.deadline_at);
 
   const early = deadline.getTime() - Date.now();
@@ -451,6 +472,10 @@ async function verify() {
       if (row.lock_method === expectedLock) ok(`${login}: stopped by ${row.lock_method}`);
       else bad(`${login}: stopped by ${row.lock_method}, expected ${expectedLock} - a degraded lock reports success, which is why this is checked per row`);
       if (row.verified === false) bad(`${login}: lock not verified (permission after: ${row.permission_after})`);
+      if (expectDemoted) {
+        if (row.demoted === true) ok(`${login}: demoted as well`);
+        else bad(`${login}: not demoted although lock_down_enabled (permission after: ${row.permission_after})`);
+      }
 
       const lag = (new Date(row.lockdown_at) - deadline) / 1000;
       if (Number.isFinite(lag) && lag >= 0 && lag <= 600) ok(`${login}: locked ${Math.round(lag)}s after the deadline`);
@@ -532,7 +557,58 @@ async function verify() {
   finish();
 }
 
+// --- migrate --------------------------------------------------------------------
+
+// For a drill started with --repo-lock and verified: move its lock to one
+// organization ruleset the way an administrator would, for real, and check
+// what the migration claims - the organization ruleset covers every repository,
+// each repository ruleset is disabled, and the record says org-ruleset.
+async function migrate() {
+  const id = rest.find((a) => !a.startsWith("--"));
+  if (!id) die("usage: node tests/live/drill.mjs migrate <assignment-id>");
+  console.log(`PXL Classroom live drill - MIGRATE ${ORG}/${id} (writes!)`);
+  await checkAccounts(ACCOUNTS, r);
+  stopIfFailed();
+
+  const before = await readControlJson(`lockdowns/${id}/lockdown-record.json`);
+  const rows = (before?.results || []).filter((x) => x.lock_method === "ruleset" && Number.isInteger(x.repo_id));
+  if (rows.length === 0) die(`lockdowns/${id} has no repository-ruleset rows - start the drill with --repo-lock and verify it first`);
+  ok(`${rows.length} repository-ruleset row(s) to migrate`);
+
+  const since = Date.now() - 5_000;
+  if (!(await dispatch("migrate-org-lock.yml", { org: ORG, assignment_id: id, dry_run: "false" }))) finish();
+  const run = await findDispatchedRun("migrate-org-lock.yml", since);
+  const done = run ? await waitForRun(run, { minutes: 20 }) : null;
+  if (done?.conclusion === "success") ok(`migrate run succeeded: ${run.html_url}`);
+  else { bad(`migrate run ${done?.conclusion ?? "did not appear or finish"}${run ? `: ${run.html_url}` : ""}`); finish(); }
+
+  const request = (method, path) => api(path, { token: LECTURER.token, method });
+  const org = await findOrgSubmissionLock(request, { org: ORG, assignmentId: id });
+  const covered = new Set(targetedRepositoryIds(org.ruleset));
+  if (!org.ruleset) bad(`no organization ruleset for ${id} (${org.reason ?? "absent"})`);
+  else if (org.ruleset.enforcement !== "active") bad(`organization ruleset ${org.ruleset.id} is ${org.ruleset.enforcement}`);
+  else ok(`organization ruleset ${org.ruleset.id} is active`);
+
+  for (const row of rows) {
+    const repo = bareRepo(row.repo_name);
+    if (covered.has(row.repo_id)) ok(`${repo} is covered by the organization ruleset`);
+    else bad(`${repo} (#${row.repo_id}) is NOT covered by the organization ruleset`);
+    const own = await findSubmissionLock(request, { org: ORG, repo });
+    const detail = own.ruleset ? await request("GET", `/repos/${ORG}/${repo}/rulesets/${own.ruleset.id}`) : null;
+    if (!own.ok) bad(`${repo}: repository rulesets unreadable (${own.reason})`);
+    else if (detail?.data?.enforcement === "disabled") ok(`${repo}: repository ruleset disabled`);
+    else bad(`${repo}: repository ruleset is ${detail?.data?.enforcement ?? "absent"}, expected disabled`);
+  }
+
+  const after = await readControlJson(`lockdowns/${id}/lockdown-record.json`);
+  const left = (after?.results || []).filter((x) => x.lock_method === "ruleset");
+  if (after && left.length === 0) ok("the lockdown record says org-ruleset for every migrated row");
+  else bad(`the lockdown record still has ${left.length} repository-ruleset row(s)`);
+  finish();
+}
+
 if (command === "start") await start();
 else if (command === "handin") await handinOnly();
 else if (command === "verify") await verify();
-else die("usage: node tests/live/drill.mjs start [--minutes 45] | handin <assignment-id> | verify <assignment-id> [--wait] [--timeout 40]");
+else if (command === "migrate") await migrate();
+else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id>");
