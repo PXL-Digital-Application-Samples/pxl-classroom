@@ -48,6 +48,10 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
+        # Every repository: collect.mjs reads the student repositories named in
+        # the records. Only the reads its calls need (lib/app-token-scopes.mjs).
+        permission-contents: read
+        permission-metadata: read
 
     - name: Set up Node
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
