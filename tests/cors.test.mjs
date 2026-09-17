@@ -13,7 +13,7 @@ const authJsPath = join(libDir, "auth.js");
 
 // auth.js imports these; they have to land in the temp dir alongside it or the
 // import fails before the CORS assertions this file cares about ever run.
-const AUTH_LOCAL_DEPS = ["http.js"];
+const AUTH_LOCAL_DEPS = ["http.js", "auth-storage.js"];
 
 // deployment.js is STUBBED rather than copied, and that is not a shortcut.
 //

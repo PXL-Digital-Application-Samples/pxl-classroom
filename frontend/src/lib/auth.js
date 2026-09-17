@@ -9,8 +9,9 @@
 //   3. Poll POST /login/oauth/access_token until authorized
 //   4. Use access_token to call GitHub API
 //
-// Token storage: sessionStorage only (cleared on tab close).
-// Never localStorage. Never embedded in Pages output.
+// Token storage: localStorage, until the token expires or the user signs out,
+// shared by every tab (auth-storage.js says what that costs). Never refreshed,
+// never kept past expiry, never embedded in Pages output.
 
 // github.com/login/* does NOT send CORS headers - direct browser fetch fails.
 // Route the two device-flow endpoints through a CORS proxy. api.github.com
@@ -45,6 +46,20 @@
 // See ARCHITECTURE.md §10.2.
 import { DEVICE_FLOW_PROXY } from './deployment.js'
 import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
+import { clearStoredAuth, loadStoredAuth, saveStoredAuth } from './auth-storage.js'
+
+// Resolved on use, never at module scope: reading `window.localStorage` can
+// throw where site data is blocked, and a throw here is a blank page.
+function browserStores() {
+  const get = (name) => {
+    try {
+      return globalThis.window?.[name] ?? null
+    } catch {
+      return null
+    }
+  }
+  return { local: get('localStorage'), session: get('sessionStorage') }
+}
 
 // The target URL is appended, so a proxy must end at the parameter that takes
 // it. Three spellings are accepted, and the second is why this is not a single
@@ -196,26 +211,34 @@ let _user = null
 let _tokenExpiresAt = null
 
 /**
- * Initialize auth from sessionStorage (tab persistence).
+ * Initialize auth from the stored sign-in (auth-storage.js).
  */
 export function initAuth() {
-  const stored = sessionStorage.getItem('pxl_auth')
-  if (stored) {
-    try {
-      const data = JSON.parse(stored)
-      if (data.expires_at && new Date(data.expires_at) > new Date()) {
-        _token = data.access_token
-        _user = data.user
-        _tokenExpiresAt = new Date(data.expires_at)
-        return true
-      }
-      // Expired - clear
-      sessionStorage.removeItem('pxl_auth')
-    } catch {
-      sessionStorage.removeItem('pxl_auth')
-    }
-  }
-  return false
+  const data = loadStoredAuth(browserStores())
+  if (!data) return false
+  _token = data.access_token
+  _user = data.user
+  _tokenExpiresAt = new Date(data.expires_at)
+  return true
+}
+
+/**
+ * The token this page is using, WITHOUT reading storage. getToken() re-reads
+ * storage when memory is empty, so it cannot tell whether another tab changed
+ * what is stored - it would answer with the new value.
+ */
+export function tokenInMemory() {
+  return _token
+}
+
+/**
+ * Drop this page's copy only, leaving storage to the tab that changed it.
+ * The next getToken() reads whatever is stored now.
+ */
+export function forgetAuthInMemory() {
+  _token = null
+  _user = null
+  _tokenExpiresAt = null
 }
 
 /**
@@ -261,10 +284,8 @@ export function isAuthenticated() {
  * Clear authentication state.
  */
 export function clearAuth() {
-  _token = null
-  _user = null
-  _tokenExpiresAt = null
-  sessionStorage.removeItem('pxl_auth')
+  forgetAuthInMemory()
+  clearStoredAuth(browserStores())
 }
 
 /**
@@ -339,19 +360,17 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
         ? new Date(Date.now() + data.expires_in * 1000)
         : new Date(Date.now() + 8 * 60 * 60 * 1000) // default 8h
 
-      // Store in memory + sessionStorage
+      // Store in memory + localStorage. GitHub's refresh_token, if the App
+      // issues one, is deliberately not kept (auth-storage.js).
       _token = data.access_token
       _user = user
       _tokenExpiresAt = expiresAt
 
-      sessionStorage.setItem(
-        'pxl_auth',
-        JSON.stringify({
-          access_token: data.access_token,
-          user,
-          expires_at: expiresAt.toISOString(),
-        })
-      )
+      saveStoredAuth(browserStores(), {
+        access_token: data.access_token,
+        user,
+        expires_at: expiresAt.toISOString(),
+      })
 
       return { user, token: data.access_token, expiresAt }
     }

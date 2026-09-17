@@ -66,7 +66,7 @@ test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
     });
 
     await lecturerPage.addInitScript(({ authData }) => {
-      sessionStorage.setItem('pxl_auth', authData);
+      localStorage.setItem('pxl_auth', authData);
     }, { authData: authDataFor(LECTURER) });
 
     // ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
     const student1Page = await student1Context.newPage();
 
     await student1Page.addInitScript(({ authData }) => {
-      sessionStorage.setItem('pxl_auth', authData);
+      localStorage.setItem('pxl_auth', authData);
     }, { authData: authDataFor(STUDENT_1) });
 
     // ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@ test.describe('Multi-User Live Browser Test (1 Lecturer + 2 Students)', () => {
     const student2Page = await student2Context.newPage();
 
     await student2Page.addInitScript(({ authData }) => {
-      sessionStorage.setItem('pxl_auth', authData);
+      localStorage.setItem('pxl_auth', authData);
     }, { authData: authDataFor(STUDENT_2) });
 
     // Setup data proxy so local dev server transparently queries live CDN data or fallback fixture

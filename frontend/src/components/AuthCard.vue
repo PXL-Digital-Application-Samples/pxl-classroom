@@ -23,6 +23,14 @@
     </button>
 
     <DeviceFlowCard v-if="deviceFlow" :flow="deviceFlow" @cancel="cancelLogin" />
+
+    <!-- The sign-in is kept on this computer, not in this tab (auth-storage.js).
+         Somebody at a lab PC needs to know that before they walk away, and this
+         card is the one place every student and lecturer passes through. -->
+    <p class="text-muted text-xs" style="max-width: 420px; line-height: 1.5;">
+      You stay signed in on this computer for up to 8 hours, in every tab.
+      On a shared computer, sign out when you are done.
+    </p>
   </div>
 </template>
 

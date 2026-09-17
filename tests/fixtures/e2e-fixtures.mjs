@@ -228,7 +228,7 @@ export const STUDENT_2 = {
 };
 
 /**
- * Injects authentication into browser sessionStorage before page loads.
+ * Injects authentication into browser localStorage before page loads, where the SPA keeps it.
  */
 // Student pages are reached by invitation token, not by assignment id
 // (ARCHITECTURE §4.3.2). The SPA never verifies the signature - it only matches
@@ -448,7 +448,7 @@ export async function injectAuth(page, user) {
   });
 
   await page.addInitScript(({ data }) => {
-    sessionStorage.setItem('pxl_auth', data);
+    localStorage.setItem('pxl_auth', data);
   }, { data: authData });
 }
 

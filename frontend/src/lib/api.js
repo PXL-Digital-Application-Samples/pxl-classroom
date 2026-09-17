@@ -3,7 +3,8 @@
 // Thin wrapper around fetch() for GitHub API calls. Uses the authenticated
 // user's own token - never a privileged credential.
 
-import { clearAuth } from './auth.js'
+import { clearAuth, forgetAuthInMemory, tokenInMemory } from './auth.js'
+import { authChangeFromOtherTab } from './auth-storage.js'
 import { READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 import { toast } from './toast.js'
 import { teamsDir, acceptancesDir } from '../../../lib/control-layout.mjs'
@@ -27,6 +28,28 @@ function handleSessionExpiry() {
     return
   }
   setTimeout(() => window.location.reload(), 1800)
+}
+
+// ONE SIGN-IN FOR EVERY TAB. The token is kept in localStorage (auth-storage.js),
+// so signing in, signing out or switching account in one tab changes what every
+// other tab would read on its next request - while its screen still shows the
+// old account. Follow it: reload, the same way an expired session does, and for
+// the same reason stay put over unsaved work and say what changed instead.
+// Signing out in one tab therefore signs out the others, which is the point on a
+// shared computer.
+export function followSignInAcrossTabs() {
+  window.addEventListener('storage', (event) => {
+    const change = authChangeFromOtherTab(event, tokenInMemory())
+    if (!change) return
+    forgetAuthInMemory()
+    if (window.pxlHasUnsavedState && window.pxlHasUnsavedState()) {
+      toast.error(change.signedIn
+        ? `You signed in${change.login ? ` as @${change.login}` : ''} in another tab. Saving on this page now uses that account.`
+        : 'You signed out in another tab. Sign in again to save what is on this page.')
+      return
+    }
+    window.location.reload()
+  })
 }
 
 export { READ_TIMEOUT_MS }
