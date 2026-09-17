@@ -22,6 +22,14 @@
 //       check the organization ruleset, the disabled repository rulesets and
 //       the rewritten record
 //
+//   node tests/live/drill.mjs cleanup <assignment-id>... | cleanup --all
+//       delete finished drills the way the Admin Panel deletes an assignment.
+//       One run per organization at a time: a second one is refused while the
+//       lock ref in the control repository is held.
+//
+//   node tests/live/drill.mjs cleanup --break-lock
+//       clear that lock after a cleanup died holding it. Deletes nothing else.
+//
 // WHY A FRESH ASSIGNMENT EVERY TIME. Finalize locks and preserves an assignment
 // once, so a second drill against the same one proves nothing about a job that
 // changed in between. Each run leaves a public broker, two student repositories
@@ -35,6 +43,9 @@
 // free org's drill says out loud that it did not exercise rulesets.
 //
 // Point a worktree at the main checkout's credentials with LIVE_ENV_FILE.
+
+import { hostname } from "node:os";
+import { basename } from "node:path";
 
 import { parse, stringify } from "yaml";
 
@@ -59,6 +70,7 @@ import {
   accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
   openAcceptanceIssue, reporter, signAcceptance, sleep,
 } from "./live-kit.mjs";
+import { CLEANUP_LOCK_REF, acquireCleanupLock, breakCleanupLock, releaseCleanupLock } from "./cleanup-lock.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
@@ -630,20 +642,82 @@ async function migrate() {
 //
 // Only ever an assignment this script created: the id prefix AND the
 // description it writes, so a real assignment named drill-something is refused.
+//
+// ONE CLEANUP AT A TIME PER ORGANIZATION (tests/live/cleanup-lock.mjs). Two
+// sessions ran `cleanup --all` nine seconds apart, split the deletes between
+// them, and retired one drill twice - the second commit rewriting its manifest
+// to say nothing was removed. The lock is taken BEFORE the --all listing,
+// because the listing is what both runs planned from, and released on every
+// way out: `die` and `finish` exit the process, which skips a `finally`, so
+// nothing inside the locked section calls either.
 async function cleanup() {
-  let ids = rest.filter((a) => !a.startsWith("--"));
+  const named = rest.filter((a) => !a.startsWith("--"));
+  if (named.length === 0 && !flag("all") && !flag("break-lock")) {
+    die("usage: node tests/live/drill.mjs cleanup <assignment-id>... | cleanup --all | cleanup --break-lock");
+  }
   console.log(`PXL Classroom live drill - CLEANUP on ${ORG} (deletes repositories!)`);
   await checkAccounts(ACCOUNTS, r);
   stopIfFailed();
-  if (flag("all")) {
-    const dir = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/assignments`, { token: LECTURER.token });
-    ids = (Array.isArray(dir.data) ? dir.data : []).map((f) => assignmentIdFromFile(f.name)).filter((x) => x?.startsWith("drill-"));
+  const request = (method, path, body) => api(path, { token: LECTURER.token, method, body });
+
+  if (flag("break-lock")) {
+    // A person's decision, for a run that died holding the lock. It deletes
+    // nothing else: run the cleanup again afterwards.
+    const res = await breakCleanupLock(request, { org: ORG, repo: CONTROL_REPO });
+    if (!res.ok) bad(res.reason);
+    else if (res.action === "absent") ok("no cleanup lock was held");
+    else ok(`removed the cleanup lock held by ${res.holder ?? "an unreadable holder"} since ${res.since ?? "an unreadable time"}`);
+    finish();
   }
-  if (ids.length === 0) die("usage: node tests/live/drill.mjs cleanup <assignment-id>... | cleanup --all");
+
   const pending = (await runsSince("daily-activity.yml", Date.now() - 3 * 3600_000)).filter((x) => x.status !== "completed");
   if (pending.length) die(`a daily-activity run is still going (${pending[0].html_url}) - clean up once it finishes`);
 
-  const request = (method, path, body) => api(path, { token: LECTURER.token, method, body });
+  const lock = await acquireCleanupLock(request, {
+    org: ORG,
+    repo: CONTROL_REPO,
+    holder: `${LECTURER.login} on ${hostname()} (pid ${process.pid}, ${basename(process.cwd())})`,
+  });
+  if (!lock.ok) {
+    if (lock.held) {
+      const minutes = lock.since ? Math.round((Date.now() - new Date(lock.since).getTime()) / 60_000) : null;
+      bad(`another cleanup is running on ${ORG}: ${lock.holder ?? "holder unreadable"}` +
+        (minutes === null ? "" : `, for ${minutes} minute(s)`) + ". Nothing was deleted.");
+      note("if that run is no longer going, clear its lock with: node tests/live/drill.mjs cleanup --break-lock");
+    } else {
+      bad(`${lock.reason} - nothing was deleted`);
+    }
+    finish();
+  }
+  ok(`took the cleanup lock (refs/${CLEANUP_LOCK_REF})`);
+
+  const release = async () => {
+    const res = await releaseCleanupLock(request, { org: ORG, repo: CONTROL_REPO, sha: lock.sha });
+    if (res.ok) ok(`released the cleanup lock${res.action === "absent" ? " (it was already gone)" : ""}`);
+    else bad(`cleanup lock: ${res.reason}`);
+  };
+  // Ctrl-C mid-cleanup is the ordinary way a run dies, and it must not leave a
+  // lock that refuses every later run until somebody breaks it.
+  const interrupted = async () => { await release(); finish(); };
+  process.once("SIGINT", interrupted);
+  try {
+    await cleanupLocked(named, request);
+  } finally {
+    process.removeListener("SIGINT", interrupted);
+    await release();
+  }
+  finish();
+}
+
+async function cleanupLocked(named, request) {
+  let ids = named;
+  if (flag("all")) {
+    const dir = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/assignments`, { token: LECTURER.token });
+    if (!Array.isArray(dir.data)) { bad(`cannot list assignments (HTTP ${dir.status}) - nothing deleted`); return; }
+    ids = dir.data.map((f) => assignmentIdFromFile(f.name)).filter((x) => x?.startsWith("drill-"));
+    if (ids.length === 0) { ok("no drill assignments left"); return; }
+  }
+
   for (const id of ids) {
     console.log(`\n${id}\n`);
     const stored = await readControl(assignmentPath(id));
@@ -734,7 +808,6 @@ async function cleanup() {
   }
   // The student pages still carry the drill cards until the next regeneration.
   await dispatch("regenerate-dashboard.yml", { org: ORG });
-  finish();
 }
 
 if (command === "start") await start();
@@ -742,4 +815,4 @@ else if (command === "handin") await handinOnly();
 else if (command === "verify") await verify();
 else if (command === "migrate") await migrate();
 else if (command === "cleanup") await cleanup();
-else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all");
+else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");

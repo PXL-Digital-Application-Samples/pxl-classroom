@@ -2219,3 +2219,35 @@ The general form: when a condition picks one value out of a set that is still
 growing, write it as the exclusion it means. And a test that needed a new
 setting to stay green on the day a default changed is a test that has stopped
 testing the default.
+
+### Two cleanups nine seconds apart, and a record that nothing regenerates.
+
+2026-09-17. Two sessions ran `tests/live/drill.mjs cleanup --all` against
+`pxl-classroom-testbed` at 18:04:31Z and 18:04:40Z, with the same credentials.
+Both listed the same eight drills and split the work between them without
+knowing it: one drill was already gone when the second listed, one commit failed
+with `GitRPC::BadObjectState`, one document vanished between a read and a check.
+The damage was `drill-20260917-1519`, retired twice. The second run had read the
+assignment before the first run's commit and the tree after it, found nothing
+left to remove, and `commitWithRebase` rebased its commit onto the new head as
+designed, rewriting `retired/<id>/manifest.json` to say the broker was not
+deleted and no paths were removed. A retired manifest is written once and
+nothing corrects it; it was restored by hand from the first commit.
+
+The lock lives where both runs write: a git ref in the organization's control
+repository, not a file on the machine. The two sessions happened to share a
+machine, but nothing about the script requires that. GitHub documents nothing
+about a ref outside `heads/` and `tags/`, so it was measured first: a create
+answers 201 and makes no branch, a second create answers 422 "Reference already
+exists", five rounds of two creates sent at the same instant gave exactly one
+201 each (and the second request won one round, so they really raced), and
+deleting a ref that is gone answers 422, not 404.
+
+So acquiring is one create, never a read followed by a create, and
+`tests/drill-cleanup-lock.test.mjs` pins that with a fake that interleaves two
+runs on every call. A lock left by a run that died is not taken over
+automatically: two runs judging it stale could each delete the other's fresh
+lock, because GitHub has no compare-and-delete for a ref, so clearing it is
+`cleanup --break-lock`, a person's call. Proven live the same evening: a planted
+lock refused a cleanup by name, the break cleared it, and three rounds of two
+cleanups started together each ran exactly one.
