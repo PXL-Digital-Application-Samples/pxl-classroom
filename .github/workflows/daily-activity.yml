@@ -335,7 +335,16 @@ jobs:
           data-dir: control
           collection-type: deadline
 
+      # Unless cancelled, not only on success. Lockdown reads nothing 1. Collect
+      # writes - the assignment, repository records, teams, overrides, its own
+      # prior record, and each student's state from the API - so a collect that
+      # failed (every repository erroring, say) is no reason to leave the cohort
+      # able to push past the deadline. It had no condition from Wave 8 until
+      # 2026-09-17, when preserve had long since been given one for the same
+      # cascade. `!cancelled()` rather than always(): a run somebody cancels by
+      # hand must not go on to lock a cohort.
       - name: 2. Lockdown
+        if: ${{ !cancelled() }}
         uses: ./lockdown
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}

@@ -111,6 +111,27 @@ test("every job downstream of the per-org collect runs on failure, and checks wh
   assert.match(String(jobs.finalize.if), /needs\.aggregate-finalizable\.result == 'success'/);
 });
 
+test("inside finalize, every step after collect runs past an earlier step's failure", () => {
+  // The same cascade one level down. `2. Lockdown` had no condition, so a
+  // failed `1. Collect` skipped the lock itself - although lockdown reads
+  // nothing collect writes - and `3. Preserve` was given always() only after a
+  // failed lockdown skipped a whole cohort's archive (2026-09-03). A step with
+  // no `if:` inherits every earlier failure; each one here decides explicitly.
+  const steps = jobs.finalize.steps;
+  const collectAt = steps.findIndex((s) => s.uses === "./collect");
+  assert.ok(collectAt >= 0, "sanity: finalize collects first");
+
+  const after = steps.slice(collectAt + 1);
+  assert.ok(after.length >= 5, `sanity: expected lockdown, preserve, report and more, found ${after.length}`);
+  const unguarded = after
+    .filter((s) => !/\balways\(\)|!\s*cancelled\(\)|\bfailure\(\)/.test(String(s.if ?? "")))
+    .map((s) => s.name ?? s.uses ?? s.run?.split("\n")[0]);
+  assert.deepEqual(unguarded, [], "these finalize steps are skipped by any earlier failure in the job");
+
+  const lockdown = after.find((s) => s.uses === "./lockdown");
+  assert.match(String(lockdown.if), /!\s*cancelled\(\)/, "a hand-cancelled run must not go on to lock a cohort");
+});
+
 test("the nightly switches itself off only on a complete count", () => {
   const cond = String(jobs["check-idle"].if);
   assert.match(cond, /needs\.aggregate-finalizable\.outputs\.complete == 'true'/);
