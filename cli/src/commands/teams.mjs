@@ -100,7 +100,7 @@ export function registerTeamsCommand(program, context = {}) {
       const roster = await getRoster(octokit, { org });
 
       if (opts.fromRoster) {
-        sourceTeams = teamsFromRoster(roster?.students || [], { assignmentId: targetAssignment.id });
+        sourceTeams = teamsFromRoster(roster?.students || []);
       } else {
         sourceAssignment = await getAssignment(octokit, { org, assignmentId: opts.from });
         sourceAssignment.id = sourceAssignment.id || opts.from;

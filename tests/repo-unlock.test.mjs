@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from "../lib/repo-unlock.mjs";
 import { releaseSubmissionLock, SUBMISSION_LOCK_NAME } from "../lib/submission-lock.mjs";
@@ -424,6 +425,38 @@ test("a record with no reason is refused by the schema", () => {
     by: "tomcoolpxl", reason: "",
   });
   assert.equal(validateAgainst("unlock-record", doc).valid, false);
+});
+
+test("EVERY method this system can lock with produces a valid record", () => {
+  // THE DEFECT THIS IS FOR, found 2026-09-17 by `npm run typecheck` rather than
+  // by anybody reading: `unlockability` returns whatever the lockdown row's
+  // `lock_method` says, that vocabulary gained `org-ruleset` when the
+  // organization lock landed, and `unlockRecord` writes it straight through -
+  // into a schema whose enum was still `ruleset | demotion`. So reopening an
+  // org-locked repository wrote a document that fails its own schema, silently,
+  // because the SPA commits it without validating.
+  //
+  // Derived from the module's own set rather than a list written here: a fourth
+  // rung added to `LOCKING_METHODS` and not to the schema fails this test,
+  // which is the whole point of asking it this way.
+  const src = readFileSync(new URL("../lib/repo-unlock.mjs", import.meta.url), "utf8");
+  const declared = src.match(/const LOCKING_METHODS = new Set\(\[([^\]]+)\]\)/);
+  assert.ok(declared, "LOCKING_METHODS is not where this test thinks it is");
+  const methods = declared[1].split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+  assert.ok(methods.length >= 3, `expected at least three locking methods, found ${methods.length}`);
+
+  for (const method of methods) {
+    const doc = unlockRecord({
+      assignmentId: "lab-3",
+      login: "ella-dev",
+      repo: `${ORG}/${REPO}`,
+      method,
+      by: "tomcoolpxl",
+      reason: "granted an extension",
+    });
+    const res = validateAgainst("unlock-record", doc);
+    assert.equal(res.valid, true, `${method}: ${JSON.stringify(res.errors)}`);
+  }
 });
 
 test("the path is one file per student, beside the lockdown record", () => {

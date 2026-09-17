@@ -49,8 +49,8 @@
     },
     "lock_method": {
       "type": "string",
-      "enum": ["ruleset", "demotion"],
-      "description": "How the deadline had locked it, and therefore what was undone. lockdown.mjs prefers a ruleset and degrades to demoting the student per repository, so one assignment can hold both - a reader must not have to find the lockdown record to know which."
+      "enum": ["org-ruleset", "ruleset", "demotion"],
+      "description": "How the deadline had locked it, and therefore what was undone. lockdown.mjs prefers a ruleset and degrades to demoting the student per repository, so one assignment can hold both - a reader must not have to find the lockdown record to know which. `org-ruleset` is the third rung and was missing here: lib/repo-unlock.mjs reads the LOCKDOWN row's lock_method, whose vocabulary has carried it since the organization lock landed, and writes it straight into this document - so every reopen of an org-locked repository produced a record that failed this schema. Found 2026-09-17 by the type checker rather than by a reader: the SPA commits the record without validating it, and the one surface that does validate (the e2e control-repo fixture) has no test that reopens an org-locked repository."
     },
     "permission_restored": {
       "type": "string",

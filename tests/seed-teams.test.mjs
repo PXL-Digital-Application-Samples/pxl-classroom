@@ -5,6 +5,7 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
 import { planSeed, planUnseed, teamsFromRoster, DEFAULT_MAX_TEAM_SIZE } from "../lib/seed-teams.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 
 const NOW = "2026-09-01T10:00:00.000Z";
 
@@ -431,15 +432,19 @@ test("teamsFromRoster groups by the course-wide team_slug", () => {
   assert.equal(teams[0].team_name, "Alpha Team");
 });
 
-test("teamsFromRoster prefers the per-assignment mapping over the course-wide one", () => {
-  const teams = teamsFromRoster(
-    [
-      { student_number: "1", full_name: "A", github_login: "alice", team_slug: "alpha", teams: { "netw-2026": "exam-pair-1" } },
-      { student_number: "2", full_name: "B", github_login: "bob", team_slug: "alpha" },
-    ],
-    { assignmentId: "netw-2026" }
-  );
-  assert.deepEqual(teams.map((t) => t.team_slug).sort(), ["alpha", "exam-pair-1"]);
+test("a roster row cannot carry a per-assignment mapping, and none is read", () => {
+  // THIS TEST USED TO ASSERT THE OPPOSITE, over a row the schema forbids.
+  // `students[].teams` is not in roster.schema.json and its rows are
+  // `additionalProperties: false`, so no document this system writes or accepts
+  // can hold one - the read in `teamsFromRoster` was the last survivor of the
+  // sweep that removed the same lookup from `acceptance/accept.mjs`, and this
+  // test was what made it look alive. A fixture the app could never produce
+  // proves nothing (CLAUDE.md, "a mock that accepts anything tests nothing").
+  const row = { student_number: "1", full_name: "A", github_login: "alice", team_slug: "alpha", teams: { "netw-2026": "exam-pair-1" } };
+  assert.equal(validateAgainst("roster", { schema_version: 2, students: [row] }).valid, false);
+
+  const teams = teamsFromRoster([row, { student_number: "2", full_name: "B", github_login: "bob", team_slug: "alpha" }]);
+  assert.deepEqual(teams.map((t) => t.team_slug).sort(), ["alpha"]);
 });
 
 test("teamsFromRoster ignores inactive students, unlinked accounts and ungrouped entries", () => {

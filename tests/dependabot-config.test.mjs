@@ -140,22 +140,20 @@ test("@types/node is held to the Node the hub runs, and Dependabot does not move
   assert.ok(held, "Dependabot must ignore @types/node majors, or it proposes types for a Node the hub does not run");
 });
 
-test("the typecheck's compiler is held below 7, and jsconfig asks for the Node types by name", () => {
-  // TypeScript 7 checks a .js file by TypeScript's rules: JSDoc `object` stops
-  // meaning `any` and a `= {}` default types as `{}`. Measured 2026-09-17, that
-  // is 168 errors of dialect on top of the 63 real findings, in a tool that is
-  // read rather than gated (LESSONS.md, "JSDoc `object` meant `any`"). The
-  // sweep that would fix it is 79 annotations and 22 destructurings in lib/.
+test("the typecheck's compiler is not held back, and jsconfig asks for the Node types by name", () => {
+  // THE HOLD IS GONE, AND THAT IS THE ASSERTION. typescript was pinned below 7
+  // for one day, because 7 checks a .js file by TypeScript's rules and that
+  // turned 63 findings into 231 of dialect. The sweep landed on 2026-09-18:
+  // lib/ types its parameters from schemas/ through the generated
+  // lib/types.d.mts, and both compilers report zero. Re-adding the ignore rule
+  // would silently park the project on a compiler it no longer needs parking on
+  // (LESSONS.md, "JSDoc `object` meant `any`").
   const pkg = JSON.parse(read("package.json"));
   const major = (spec) => Number(/(\d+)/.exec(String(spec))?.[1]);
-  assert.ok(major(pkg.devDependencies?.typescript) < 7, "typescript stays below 7 until lib/'s JSDoc is swept");
+  assert.ok(major(pkg.devDependencies?.typescript) >= 7, "typescript moved to 7 when lib/'s JSDoc was swept");
 
-  const held = (block("npm").ignore ?? []).some(
-    (rule) =>
-      rule["dependency-name"] === "typescript" &&
-      (rule["update-types"] ?? []).includes("version-update:semver-major"),
-  );
-  assert.ok(held, "Dependabot must ignore typescript majors while that sweep is outstanding");
+  const held = (block("npm").ignore ?? []).some((rule) => rule["dependency-name"] === "typescript");
+  assert.equal(held, false, "typescript majors are Dependabot's again - the sweep that held them is done");
 
   // Both halves of what 6 changed, so removing either brings the noise back:
   // `types` no longer defaults to every @types package, and a `//` note inside

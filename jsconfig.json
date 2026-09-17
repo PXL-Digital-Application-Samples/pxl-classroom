@@ -28,7 +28,18 @@
     "`types: [node]` is named because TypeScript 6 stopped including every",
     "@types package by default. Without it, every `Buffer` and every `node:`",
     "import in lib/ is an error telling you to install @types/node, which is",
-    "already a devDependency - 22 of those on 6.0.3."
+    "already a devDependency - 22 of those on 6.0.3.",
+    "",
+    "THE ERROR COUNT IS NOW ZERO, on 6 and on 7, which is what made moving to 7",
+    "possible (2026-09-18). The parameters that used to be `@param {object}` -",
+    "the assignment document, a roster row, a report row, a lockdown record -",
+    "are typed from `lib/types.d.mts`, which scripts/generate-types.mjs derives",
+    "FROM schemas/. `npm run types` rewrites it and tests/generated-types.test.mjs",
+    "fails when it is stale or when a property is in one and not the other.",
+    "",
+    "Still not wired into `npm run lint`. Zero is the right moment to consider",
+    "it and it is a separate decision: CI runs the lint script and nothing else,",
+    "and a fourth check there is a change to what a pull request must pass."
   ],
   "compilerOptions": {
     "target": "ES2022",

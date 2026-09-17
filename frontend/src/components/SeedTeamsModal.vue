@@ -354,7 +354,7 @@ async function computePlan() {
     }
 
     if (sourceKey.value === 'roster') {
-      sourceTeams = teamsFromRoster(roster?.students || [], { assignmentId: props.assignment.id })
+      sourceTeams = teamsFromRoster(roster?.students || [])
     } else if (sourceAssignment.value) {
       sourceTeams = await listTeams(token, props.org, config.controlRepo, sourceAssignment.value.id)
     }
