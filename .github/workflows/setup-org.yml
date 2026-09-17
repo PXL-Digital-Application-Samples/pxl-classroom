@@ -87,6 +87,11 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ inputs.target_org }}
+          # Every repository, because the control repo it creates does not exist
+          # when this is minted. Administration to create it and set its Actions
+          # access, contents to push the scaffold (lib/app-token-scopes.mjs).
+          permission-administration: write
+          permission-contents: write
 
       - name: Create pxl-classroom-control repository
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
