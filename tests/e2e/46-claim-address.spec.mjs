@@ -61,6 +61,26 @@ async function student(page, { emails, emailsStatus = 200, assignment = claimAss
   });
 
   await page.goto(inviteUrl(ORG, ID));
+
+  // WHICH KEY THE PAGE SEALS TO IS THE DEV SERVER'S DECISION, and this spec is
+  // the only one that can tell. `VITE_CLAIM_PUBLIC_KEY` is set in
+  // playwright.config.mjs's `webServer.env` - but `reuseExistingServer` means a
+  // server already listening on 5173, started any other way, is used as it
+  // stands. Without that variable `hubClaimKey()` falls back to
+  // acceptance/claim-keys.json, whose private half nobody here holds, and every
+  // decrypt below fails with `OperationError: Cipher job failed` - which reads
+  // exactly like a broken seam and was diagnosed as one on 2026-09-17, twice,
+  // including once as "pre-existing on main". Ask the page which key it used.
+  const pageKey = await page.evaluate(async () => {
+    const mod = await import('/src/lib/claim.js');
+    return mod.hubClaimKey()?.publicKey ?? null;
+  });
+  expect(
+    pageKey,
+    'the page sealed to a different claim key: the dev server on 5173 was started without ' +
+      'VITE_CLAIM_PUBLIC_KEY, so playwright reused it rather than starting its own. Stop it and re-run.',
+  ).toBe(E2E_CLAIM_KEYPAIR.publicKey);
+
   return bodies;
 }
 
