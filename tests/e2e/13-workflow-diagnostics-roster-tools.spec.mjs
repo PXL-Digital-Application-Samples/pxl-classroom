@@ -12,7 +12,7 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   });
 
-  test('Scenario 1 (Student Access Diagnostics & Account Checker): Detects personal account, evaluates diagnostic checks, and copies report', async ({ page }) => {
+  test('Scenario 1 (Student Access Diagnostics): a personal email is not a problem, the checks run, and the report copies', async ({ page }) => {
     const assignmentId = 'cloud-containers';
     const assignment = {
       id: assignmentId,
@@ -53,9 +53,13 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
     await expect(modal).toBeVisible();
     await expect(modal.getByRole('heading', { name: /Access & Account Diagnostics/i })).toBeVisible();
 
-    // Verify Personal GitHub Account warning is shown
-    await expect(modal.locator('.diag-banner')).toContainText(/Personal GitHub Account Detected/i);
-    await expect(modal).toContainText(/@gmail.com/);
+    // A Gmail address on the GitHub account is NOT a finding. Nothing admits or
+    // refuses a student by it, and this banner used to claim otherwise - in red,
+    // over every other check - which a lecturer testing as a student read as the
+    // reason acceptance failed. This student is on the roster, so nothing blocks.
+    await expect(modal.locator('.diag-banner')).toContainText(/No blocking problem found/i);
+    await expect(modal).not.toContainText(/personal (GitHub account|email)|appears to be personal/i);
+    await expect(modal).toContainText('@student-personal');
 
     // Verify Copy Report action
     await modal.getByRole('button', { name: 'Copy Report' }).click();
@@ -178,6 +182,13 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
     // Test non-template repo
     await templateInput.fill(`${ORG}/non-template-repo`);
     await expect(page.locator('.template-preflight-badge')).toContainText(/Repository exists but is not marked as a GitHub Template/i);
+
+    // An empty repository: GET /repos names a default branch for it, so it
+    // used to read "Valid Template Repository (main branch)" while every
+    // acceptance failed with HTTP 422 in provisioning.
+    await templateInput.fill(`${ORG}/empty-template`);
+    await expect(page.locator('.template-preflight-badge')).toContainText(/is empty/i);
+    await expect(page.locator('.template-preflight-badge')).not.toContainText(/Valid Template Repository/i);
 
     // Test non-existent repo
     await templateInput.fill(`${ORG}/non-existent-xyz`);

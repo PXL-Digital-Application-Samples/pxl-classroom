@@ -45,26 +45,23 @@
         <div class="checks-list flex flex-col gap-sm">
           <h4 class="text-xs text-secondary uppercase font-semibold" style="margin: 0;">Diagnostic Health Checks</h4>
 
-          <!-- Check 1: Auth & Account Domain -->
+          <!-- Check 1: which account is signed in. It judges nothing about the
+               account's email: no rule anywhere admits or refuses a student by
+               the address on their GitHub account. This check used to flag
+               Gmail, Outlook and friends as "Personal GitHub Account Detected"
+               in the red banner, over everything else - and on 17 Sep 2026 a
+               lecturer testing as a student read it as the reason acceptance
+               failed, while provisioning had failed on an empty template. The
+               roster check below is the one that looks at the account, and
+               under `claim` the institutional address is proven on the
+               assignment page, whatever the GitHub account's own email is. -->
           <div class="check-item flex items-start gap-sm">
-            <Icon
-              :name="isPersonalEmail ? 'alert-triangle' : 'check-circle'"
-              :size="16"
-              :class="isPersonalEmail ? 'stat-yellow' : 'stat-green'"
-              style="margin-top: 2px;"
-            />
+            <Icon name="check-circle" :size="16" class="stat-green" style="margin-top: 2px;" />
             <div>
               <div class="text-sm font-semibold">
                 GitHub Identity: <code>@{{ activeUser?.login }}</code>
               </div>
-              <div v-if="isPersonalEmail" class="text-xs text-warning">
-                <!-- The example domain came from this deployment's own
-                     `claim_domains`, not from a literal: a fork showing a
-                     student "@student.pxl.be" is telling them to use somebody
-                     else's institution. -->
-                ⚠️ Account email appears to be personal (<code>{{ userEmail || 'personal domain' }}</code>). If your course requires an official {{ INSTITUTION }} GitHub account (e.g. <code>@{{ exampleDomain }}</code>), switch accounts below.
-              </div>
-              <div v-else class="text-xs text-muted">
+              <div class="text-xs text-muted">
                 Authenticated session active.
               </div>
             </div>
@@ -214,11 +211,6 @@ import { assignmentStateLabel } from '../lib/status-labels.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
-import { CLAIM_DOMAINS, INSTITUTION } from '../lib/deployment.js'
-
-// The first configured domain is the cohort's - deployment.yml says so - so it
-// is the one to show a student as an example.
-const exampleDomain = CLAIM_DOMAINS[0] || 'your-institution.example'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -237,18 +229,6 @@ const activeUser = computed(() => {
 })
 
 const userEmail = computed(() => activeUser.value?.email || '')
-
-const isPersonalEmail = computed(() => {
-  if (!userEmail.value) return false
-  const email = userEmail.value.toLowerCase()
-  return (
-    email.endsWith('@gmail.com') ||
-    email.endsWith('@outlook.com') ||
-    email.endsWith('@hotmail.com') ||
-    email.endsWith('@yahoo.com') ||
-    email.endsWith('@icloud.com')
-  )
-})
 
 // The only invitation state this page can assert. Named once because the
 // template and the summary both used to spell the condition out, and the
@@ -275,13 +255,6 @@ const isCapReached = computed(() => {
 })
 
 const diagnosticsSummary = computed(() => {
-  if (isPersonalEmail.value) {
-    return {
-      hasIssue: true,
-      mainTitle: 'Personal GitHub Account Detected',
-      mainAction: `Your active GitHub account is registered with a personal email. Sign into your ${INSTITUTION} GitHub account.`,
-    }
-  }
   if (props.rosterStatus === 'missing') {
     return {
       hasIssue: true,
@@ -327,7 +300,7 @@ const diagnosticsSummary = computed(() => {
 function handleSwitchAccount() {
   clearAuth()
   emit('switch-account')
-  toast.info(`Signed out. Please sign in with your ${INSTITUTION} GitHub account.`)
+  toast.info('Signed out. Sign in with the GitHub account you want to use for this course.')
   window.location.reload()
 }
 

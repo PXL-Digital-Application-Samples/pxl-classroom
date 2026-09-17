@@ -61,7 +61,7 @@ Done by a lecturer.
 
 1. In your organization, create a new repository whose name starts with `template-` (e.g., `template-automation-pe-1`).
 2. Settings -> General -> tick **Template repository**.
-3. Add starter code, `.github/workflows/` for the student's own CI, and assignment instructions. Anything you commit here becomes the student's starting point.
+3. Add starter code, `.github/workflows/` for the student's own CI, and assignment instructions. Anything you commit here becomes the student's starting point. **It needs at least one commit**, even when students are meant to start from nothing: GitHub cannot create a repository from an empty one, so every acceptance would fail. A README is enough. The form warns about an empty template and publishing refuses it.
 
 **A template in another organization must be PUBLIC.** You can name one by typing `owner/repo` into the template box - a shared starter maintained once and used by several course organizations is a supported setup, and it does not matter who owns it. But it has to be public. PXL Classroom creates student repositories as an app installed on *your* organization, and that app cannot read a private repository anywhere else - not even one you own, and not even when the same app is installed on the other organization too. The form refuses it while you type, and publishing refuses it again; the alternative is a private repository you can see perfectly well and every student's acceptance failing. Make it public, or copy it into your own organization.
 

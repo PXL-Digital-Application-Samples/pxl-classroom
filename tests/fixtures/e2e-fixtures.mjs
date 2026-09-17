@@ -1442,6 +1442,12 @@ export async function setupStandardMockRoutes(page, {
         });
         return;
       } else if (url.includes('/commits') && !url.includes('/check-runs')) {
+        // A repository with no commits: GitHub answers the list with 409, not
+        // an empty array (measured 2026-09-17, lib/template-source.mjs).
+        if (/\/repos\/[^/]+\/[^/]*empty-template[^/]*\/commits/.test(url)) {
+          await route.fulfill({ status: 409, body: JSON.stringify({ message: 'Git Repository is empty.' }) });
+          return;
+        }
         if (url.includes('lab-unstarted')) {
           await route.fulfill({ status: 200, body: JSON.stringify([]) });
           return;

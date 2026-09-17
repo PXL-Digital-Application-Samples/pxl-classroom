@@ -25,6 +25,8 @@ import {
   resolveTemplatePin,
   templatePinMessage,
   submissionBranchProvisioned,
+  templateHasCommits,
+  EMPTY_TEMPLATE,
   BRANCH_NOT_PROVISIONED,
   FOREIGN_PRIVATE,
   NOT_A_TEMPLATE,
@@ -343,4 +345,53 @@ test("the branch message names both branches and the one field to change", () =>
   assert.match(msg, /"master"/);
   assert.match(msg, /Set Submission ref to refs\/heads\/master\./);
   assert.doesNotMatch(msg, /RUNBOOK|ARCHITECTURE|LESSONS|§/);
+});
+
+// --- A template with nothing in it ---------------------------------------------
+//
+// Measured 2026-09-17 on `pxl-werkplekleren/empty-template`, created and never
+// pushed to: `GET /repos` answered `default_branch: main`, `GET .../commits`
+// answered 409 "Git Repository is empty.", and provisioning's `generate` answered
+// 422 "Could not clone: ... is empty." for both acceptances.
+
+test("a template with a commit can be generated from", () => {
+  assert.deepEqual(templateHasCommits({ commitsStatus: 200 }), { ok: true });
+});
+
+test("409 on the commits list is an empty template", () => {
+  const f = templateHasCommits({ commitsStatus: 409 });
+  assert.equal(f.ok, false);
+  assert.equal(f.code, EMPTY_TEMPLATE);
+});
+
+test("a commits read that established nothing is UNKNOWN, never empty and never a pass", () => {
+  for (const commitsStatus of [undefined, null, 0, 401, 403, 404, 500, "200", "409"]) {
+    const f = templateHasCommits({ commitsStatus });
+    assert.equal(f.ok, false, JSON.stringify(commitsStatus));
+    assert.equal(f.code, UNKNOWN, JSON.stringify(commitsStatus));
+  }
+  assert.equal(templateHasCommits().code, UNKNOWN, "no input at all");
+});
+
+test("the empty-template message names the repository and the smallest fix", () => {
+  const msg = templateSourceMessage(templateHasCommits({ commitsStatus: 409 }), {
+    templateOwner: "pxl-werkplekleren",
+    templateRepo: "empty-template",
+    org: "pxl-werkplekleren",
+  });
+  assert.match(msg, /pxl-werkplekleren\/empty-template is empty/);
+  assert.match(msg, /a README is enough/);
+  assert.doesNotMatch(msg, /RUNBOOK|ARCHITECTURE|LESSONS|§/);
+});
+
+test("the publish preflight and the form both ask whether the template has commits", () => {
+  // The preflight is the gate; the form is the early warning. Both must ask the
+  // one judge, or the form goes back to a green badge over an empty repository.
+  const preflight = readFileSync(join(root, "scripts", "check-publish-preflight.mjs"), "utf8");
+  assert.match(preflight, /\/commits\?per_page=1`\)/);
+  assert.match(preflight, /templateHasCommits\(\{ commitsStatus: commits\.status \}\)/);
+  const admin = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
+  assert.match(admin, /templateHasCommits\(\{ commitsStatus: res\.commitsStatus \}\)/);
+  const api = readFileSync(join(root, "frontend", "src", "lib", "api.js"), "utf8");
+  assert.match(api, /\/commits\?per_page=1`\)\)\.status/);
 });

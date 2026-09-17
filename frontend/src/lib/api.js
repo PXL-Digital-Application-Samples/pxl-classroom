@@ -845,8 +845,20 @@ export async function validateTemplateRepository(token, owner, repo) {
     }
   }
   const repoData = res.data || {}
+  // Whether there is anything to generate from. Its STATUS, judged by
+  // templateHasCommits (lib/template-source.mjs): 409 is an empty repository,
+  // which `GET /repos` above cannot show - it names a default branch that does
+  // not exist yet. A read that threw is no answer (`null`), and must not turn a
+  // repository that was just read successfully into "not found".
+  let commitsStatus = null
+  try {
+    commitsStatus = (await ghApi(token, 'GET', `/repos/${owner}/${repo}/commits?per_page=1`)).status
+  } catch {
+    commitsStatus = null
+  }
   return {
     ok: true,
+    commitsStatus,
     // The immutable repository id, pinned onto the assignment so a template
     // deleted and recreated under the same name is caught rather than adopted
     // (lib/template-source.mjs). `null` rather than 0 when GitHub did not give

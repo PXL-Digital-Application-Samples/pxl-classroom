@@ -2078,3 +2078,40 @@ about two minutes after a save the hub enforces the new document while the page
 still shows the old card. The toast says so. Closing the window would mean the
 hub reading the card, or the page reading the control repository, and a student
 can read neither.
+
+### A guess in the red banner outranked the real cause, which nothing had checked.
+
+pxl-werkplekleren, 2026-09-17. A lecturer created `empty-template` at 07:49Z,
+built an open-enrolment `portfolio` assignment on it a minute later, published
+it, and accepted it from a personal GitHub account to see what a student sees.
+The page said the repository had not appeared. The Troubleshoot dialog said, in
+red and above every other check, **Personal GitHub Account Detected** - "Sign
+into your Hogeschool PXL GitHub account". The question that reached us was
+whether PXL Classroom only works for accounts with a PXL address.
+
+It does not, and it never has. No gate reads the email on a GitHub account:
+`enforced` matches the login against the roster, `open` admits anyone under the
+cap, and `claim` proves an institutional address on the assignment page
+whatever the account's own email is. The banner was an `endsWith('@gmail.com')`
+list in the dialog, and it was ranked first, so it replaced the neutral summary
+for exactly the students most likely to be stuck for some other reason. A
+message no branch computed, describing a rule the system does not have, is the
+shape two rules in CLAUDE.md already forbid; this one had simply never been
+read against them. It is gone, not reworded.
+
+Both acceptance runs had failed in provisioning with `generate HTTP 422 Could
+not clone: pxl-werkplekleren/empty-template is empty.` The publish preflight
+had passed it, because it looked at `GET /repos`, which cannot see this: it
+answered `default_branch: main` while `GET .../branches/main` was a 404. The
+Admin Panel's badge said *Valid Template Repository (main branch)*. An empty
+template is not a strange thing to want - "students start from nothing" is
+exactly what the name says - and GitHub cannot copy nothing.
+
+`GET /repos/{owner}/{repo}/commits?per_page=1` answers **409** "Git Repository
+is empty." for such a repository. `templateHasCommits` in
+`lib/template-source.mjs` takes that status rather than a boolean, so empty and
+unreadable stay different answers: publishing refuses both, the form warns only
+on an established 409. Same lesson as the foreign private template on
+2026-09-07, one field over: every property `generate` depends on has to be
+asked before a student can accept, and "the repository exists and is ticked as
+a template" was two of three.

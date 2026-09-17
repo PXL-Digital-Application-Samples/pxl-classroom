@@ -502,6 +502,13 @@
                 <span v-else-if="templateValidationStatus.valid && templateValidationStatus.replaced" class="badge badge-warning flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
                   <Icon name="alert-triangle" :size="13" /> {{ templateValidationStatus.replaced }}
                 </span>
+                <!-- Before the success badge: GET /repos reports a default
+                     branch for an empty repository, so it used to read "Valid
+                     Template Repository (main branch)" over a template GitHub
+                     cannot generate from. -->
+                <span v-else-if="templateValidationStatus.valid && templateValidationStatus.empty" class="badge badge-warning flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
+                  <Icon name="alert-triangle" :size="13" /> {{ templateValidationStatus.empty }}
+                </span>
                 <span v-else-if="templateValidationStatus.valid && templateValidationStatus.isTemplate" class="badge badge-success flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
                   <Icon name="check-circle" :size="13" /> Valid Template Repository ({{ templateValidationStatus.defaultBranch ? `${templateValidationStatus.defaultBranch} branch` : 'default branch unknown' }}{{ templateValidationStatus.isPrivate ? ', private' : '' }})
                 </span>
@@ -1619,7 +1626,9 @@ import {
   resolveTemplatePin,
   templatePinMessage,
   submissionBranchProvisioned,
+  templateHasCommits,
   FOREIGN_PRIVATE,
+  EMPTY_TEMPLATE,
 } from '../../../lib/template-source.mjs'
 import { formatDate } from '../lib/format.js'
 
@@ -2624,8 +2633,17 @@ async function checkTemplateValidity(templateStr) {
         ) {
           form.value.submission_ref = `refs/heads/${res.defaultBranch}`
         }
+        // No commits, so every acceptance would fail in provisioning. A
+        // warning like not-a-template, not a refusal: a draft stays saveable
+        // while the lecturer adds a README, and publishing refuses it. Only
+        // an established "empty" - a read that did not answer says nothing.
+        const content = templateHasCommits({ commitsStatus: res.commitsStatus })
         templateValidationStatus.value = {
           valid: true,
+          empty:
+            content.code === EMPTY_TEMPLATE
+              ? templateSourceMessage(content, { templateOwner: owner, templateRepo: repo, org: props.org })
+              : null,
           isTemplate: res.isTemplate,
           defaultBranch: res.defaultBranch,
           isPrivate: res.isPrivate,

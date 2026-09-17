@@ -8,8 +8,9 @@
 // Two questions, and they fail differently on purpose.
 //
 // 1. CAN THE TEMPLATE PROVISION AT ALL, AND ON THE RIGHT BRANCH? Refuses the
-//    publish. The branch half: student repositories get the template's default
-//    branch only, so `submission_ref` must name it (submissionBranchProvisioned).
+//    publish. It must have a commit (templateHasCommits), and student
+//    repositories get the template's default branch only, so `submission_ref`
+//    must name it (submissionBranchProvisioned).
 //
 //    Measured on the live testbed 2026-09-07 by running the real chain: a
 //    PUBLIC template in another organization works (a stranger's, even - the
@@ -49,6 +50,7 @@ import {
   resolveTemplatePin,
   templatePinMessage,
   submissionBranchProvisioned,
+  templateHasCommits,
 } from "../lib/template-source.mjs";
 import { assignmentFreezePlanFinding, FREE_PLAN } from "../lib/audit.mjs";
 
@@ -115,6 +117,15 @@ async function main() {
   });
   if (!finding.ok) {
     fail(templateSourceMessage(finding, { templateOwner: owner, templateRepo: repo, org }));
+  }
+
+  // Is there anything to generate from? An empty template passes every check
+  // above - GET /repos even names a default branch that does not exist - and
+  // then fails every acceptance with HTTP 422 inside provisioning.
+  const commits = await gh(token, `/repos/${owner}/${repo}/commits?per_page=1`);
+  const content = templateHasCommits({ commitsStatus: commits.status });
+  if (!content.ok) {
+    fail(templateSourceMessage(content, { templateOwner: owner, templateRepo: repo, org }));
   }
 
   // Is this still the repository the assignment was created from? A rename is
