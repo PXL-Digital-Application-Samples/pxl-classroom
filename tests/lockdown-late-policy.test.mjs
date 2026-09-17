@@ -417,6 +417,51 @@ test("AN ASSIGNMENT THAT SAYS NOTHING GETS ORGANIZATION SCOPE", async () => {
   });
 });
 
+test("THE DEFAULT ORGANIZATION SCOPE + lock_down_enabled true takes admin as well", async () => {
+  // The case above opts out with `org_scoped_lock: false`, and it was given that
+  // opt-out when organization scope became the default - which kept it green
+  // while the default path stopped demoting altogether. Phase 4 compared the
+  // run's method with "ruleset", so `block` + "the repository becomes
+  // read-only" left every student admin. This is that combination with the
+  // field absent, as a lecturer's document carries it.
+  await withStubApi(async (api, calls, byRepo, orgRulesets) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: true });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.record.lock_method, "org-ruleset");
+    assert.equal(orgRulesets.length, 1);
+    const alice = rowFor(res.record, "alice");
+    assert.equal(alice.lock_method, "org-ruleset", "the ruleset is still what the reopen releases");
+    assert.equal(alice.demoted, true, "and the demotion is recorded beside it, so the reopen restores that too");
+    assert.deepEqual(demotions(calls).map((c) => c.line), ["PUT /repos/TestOrg/exam-alice/collaborators/alice"]);
+
+    const lines = calls.map((c) => c.line);
+    const ruleset = lines.findIndex((l) => /^POST \/orgs\/[^/]+\/rulesets$/.test(l));
+    const snapshot = lines.findIndex((l) => l.includes("/commits"));
+    const demotion = lines.findIndex((l) => /^PUT .*\/collaborators\//.test(l));
+    assert.ok(ruleset >= 0 && ruleset < snapshot, "stop first");
+    assert.ok(snapshot < demotion, "the snapshot is taken while the student still has their access");
+  });
+});
+
+test("a repository that degraded to a demotion is demoted once, not recorded twice", async () => {
+  // Per repository: phase 1 already took everything, so phase 4 has nothing
+  // left to take, and `demoted: true` beside `lock_method: demotion` would read
+  // as a second thing that happened.
+  await withStubApi(
+    async (api, calls) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: true });
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      const alice = rowFor(res.record, "alice");
+      assert.equal(alice.lock_method, "demotion");
+      assert.equal(alice.demoted, undefined);
+      assert.equal(demotions(calls).length, 1);
+    },
+    { denyRulesets: true },
+  );
+});
+
 test("THE RUN LOG SAYS WHICH MECHANISM APPLIED, and that it was the default", async () => {
   // A default that reinterprets documents nobody edited has to be legible
   // afterwards. `lock_method: org-ruleset` alone cannot tell a lecturer's own

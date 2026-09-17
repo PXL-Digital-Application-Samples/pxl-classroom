@@ -127,6 +127,43 @@ test("no organization ruleset is ABSENT, not a quiet success", async () => {
   assert.match(res.reason, /may already have been removed/);
 });
 
+test("AN ORGANIZATION-RULESET ROW THAT WAS ALSO DEMOTED gets both inverses", async () => {
+  // `block` + `lock_down_enabled: true` under the default scope: the id held the
+  // ref, and phase 4 took admin as well. Removing the id alone reports "can push
+  // again" over a student left at `pull`.
+  const v = unlockability({
+    assignment: { student_permission: "admin" },
+    lockdownRow: {
+      github_login: "ada", repo_name: `${ORG}/${REPO}`, repo_id: REPO_ID,
+      lock_method: "org-ruleset", demoted: true, snapshot_sha: "a", verified: true,
+    },
+    row: { preservation_status: "preserved" },
+  });
+  assert.equal(v.can, true, v.reason);
+  assert.equal(v.permission, "admin");
+
+  const t = transport({ orgRulesets: [orgLock([111, 222])] });
+  const restored = [];
+  const res = await unlock(t, {
+    permission: v.permission,
+    setPermission: async (a) => { restored.push(a); return { ok: true }; },
+  });
+  assert.equal(res.ok, true, res.reason);
+  assert.deepEqual(t.orgRulesets[0].conditions.repository_id.repository_ids, [222]);
+  assert.deepEqual(restored, [{ org: ORG, repo: REPO, login: "ada", permission: "admin" }]);
+});
+
+test("a failed restore after the id was removed can be retried from the same row", async () => {
+  // Released first because the release repeats cleanly: an id already out of
+  // the organization ruleset answers `already`, not `absent`.
+  const t = transport({ orgRulesets: [orgLock([111, 222])] });
+  const first = await unlock(t, { permission: "admin", setPermission: async () => ({ ok: false, reason: "HTTP 502" }) });
+  assert.equal(first.ok, false);
+  assert.match(first.reason, /still read-only/);
+  const retry = await unlock(t, { permission: "admin", setPermission: async () => ({ ok: true }) });
+  assert.equal(retry.ok, true, retry.reason);
+});
+
 test("A LEFTOVER REPOSITORY RULESET IS RELEASED TOO", async () => {
   // The migration window: a cohort locked per repository and then moved to an
   // organization ruleset holds both. Both block, which is harmless until

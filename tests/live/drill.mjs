@@ -53,7 +53,7 @@ import { normalizeLogin } from "../../lib/github-login.mjs";
 import { INVITED_LABEL, REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
 import { deadlineIsImminent, SENTINEL_ARM_WINDOW_MS } from "../../lib/sentinel-window.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
-import { usesOrgScope } from "../../lib/lock-scope.mjs";
+import { usesOrgScope, demotesAfterStop } from "../../lib/lock-scope.mjs";
 import { findOrgSubmissionLock, findSubmissionLock, targetedRepositoryIds } from "../../lib/submission-lock.mjs";
 import {
   accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
@@ -222,8 +222,9 @@ async function start() {
     assignment_type: "individual",
     state: "published",
     // --repo-lock opts out of organization scope, so the deadline is held by one
-    // repository ruleset per student and then demoted - the path assignments
-    // saved with `org_scoped_lock: false` take, and the one `migrate` moves.
+    // repository ruleset per student - the path assignments saved with
+    // `org_scoped_lock: false` take, and the one `migrate` moves. Either way
+    // `lock_down_enabled: true` demotes on top of the ruleset.
     ...(flag("repo-lock") ? { org_scoped_lock: false } : {}),
   };
   const doc = buildAssignmentDoc(form, { templateRepositoryId: tpl.data.id });
@@ -406,8 +407,10 @@ async function verify() {
   const expectedLock = plan === "free"
     ? "demotion"
     : usesOrgScope(doc, doc.late_policy === "block") ? "org-ruleset" : "ruleset";
-  // Phase 4 demotes on top of a repository ruleset when lock_down_enabled.
-  const expectDemoted = expectedLock === "ruleset" && doc.lock_down_enabled !== false;
+  // Phase 4 demotes on top of either ruleset when lock_down_enabled. Asked of
+  // the function lockdown asks: this spelled the rule out again, as "ruleset"
+  // only, and so agreed with the defect instead of catching it.
+  const expectDemoted = demotesAfterStop(doc, expectedLock);
   ok(`plan ${plan}: every repository should be stopped by ${expectedLock}${expectDemoted ? " and demoted" : ""}`);
   const deadline = new Date(doc.deadline_at);
 

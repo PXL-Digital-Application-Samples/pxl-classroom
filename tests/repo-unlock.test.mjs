@@ -282,6 +282,85 @@ test("a failed permission restore is reported", async () => {
   assert.match(res.reason, /403/);
 });
 
+// ------------------------------------- a ruleset AND a demotion on one row
+//
+// `lock_down_enabled` has phase 4 demote on top of the ruleset and record
+// `demoted: true` beside `lock_method: ruleset`. Reopen read `lock_method` alone,
+// so it disabled the ruleset, reported "can push again", and left the student at
+// `pull`.
+
+test("a ruleset row that was ALSO demoted restores the permission", () => {
+  const v = unlockability({
+    row: reportRow(),
+    lockdownRow: lockRow({ lock_method: "ruleset", demoted: true }),
+    assignment: { student_permission: "push" },
+  });
+  assert.equal(v.can, true);
+  assert.equal(v.method, "ruleset", "the ruleset is still what is released");
+  assert.equal(v.permission, "push");
+});
+
+test("a ruleset row that was not demoted restores nothing", () => {
+  for (const demoted of [undefined, null, false]) {
+    const v = unlockability({ row: reportRow(), lockdownRow: lockRow({ demoted }), assignment: { student_permission: "push" } });
+    assert.equal(v.permission, null, `demoted: ${demoted}`);
+  }
+});
+
+test("a demoted ruleset row is released FIRST, then the permission restored", async () => {
+  const t = transport({ rulesets: [activeLock] });
+  const order = [];
+  const request = async (...a) => { order.push(`${a[0]} ${a[1]}`); return t.request(...a); };
+  const res = await applyUnlock({
+    request,
+    releaseLock: releaseSubmissionLock,
+    setPermission: async (a) => { order.push(`restore ${a.login} ${a.permission}`); return { ok: true }; },
+    org: ORG, repo: REPO, login: "ella-dev", method: "ruleset", permission: "admin",
+  });
+  assert.equal(res.ok, true, res.reason);
+  assert.deepEqual(order.slice(-2), [`PUT /repos/${ORG}/${REPO}/rulesets/7`, "restore ella-dev admin"]);
+});
+
+test("a demoted ruleset row whose restore fails is a failure that says the ruleset went", async () => {
+  // Half done is not done: the student still cannot push. And the retry has to
+  // work from the same row, which it does because a disabled ruleset answers
+  // `already`.
+  const t = transport({ rulesets: [activeLock] });
+  const res = await applyUnlock({
+    request: t.request,
+    releaseLock: releaseSubmissionLock,
+    setPermission: async () => ({ ok: false, reason: "HTTP 403" }),
+    org: ORG, repo: REPO, login: "ella-dev", method: "ruleset", permission: "admin",
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.released, true, "so the dialog can say half of it happened");
+  assert.match(res.reason, /released/);
+  assert.match(res.reason, /still read-only/);
+  assert.match(res.reason, /403/);
+
+  const retry = await applyUnlock({
+    request: t.request,
+    releaseLock: releaseSubmissionLock,
+    setPermission: async () => ({ ok: true }),
+    org: ORG, repo: REPO, login: "ella-dev", method: "ruleset", permission: "admin",
+  });
+  assert.equal(retry.ok, true, retry.reason);
+});
+
+test("a demoted ruleset row whose release fails does not restore the permission", async () => {
+  const t = transport({ rulesets: [activeLock], putStatus: 403 });
+  let restored = false;
+  const res = await applyUnlock({
+    request: t.request,
+    releaseLock: releaseSubmissionLock,
+    setPermission: async () => { restored = true; return { ok: true }; },
+    org: ORG, repo: REPO, login: "ella-dev", method: "ruleset", permission: "admin",
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.released, undefined);
+  assert.equal(restored, false, "a failed unlock leaves the row describing what is really there");
+});
+
 test("an unknown method does nothing at all", async () => {
   const res = await applyUnlock({ org: ORG, repo: REPO, method: "sorcery" });
   assert.equal(res.ok, false);

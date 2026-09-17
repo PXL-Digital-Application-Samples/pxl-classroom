@@ -13,7 +13,7 @@
 // organization scope with nobody asking and no way to undo it from the app.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { usesOrgScope, lockScopeNote } from "../lib/lock-scope.mjs";
+import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
 import { buildAssignmentDoc } from "../lib/assignment-doc.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { readFileSync } from "node:fs";
@@ -137,4 +137,63 @@ test("no schema default may reintroduce it, whatever a future edit says", () => 
     false,
     "a `default` here is inserted into every validated document by useDefaults",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Whether the deadline takes access as well, under every rung.
+//
+// Phase 4 demoted only when the run's lock was "ruleset". Organization scope
+// became the default under `block` on 2026-09-09 and the condition was never
+// told, so `block` + `lock_down_enabled: true` locked the ref and left the
+// student admin - the opposite of the answer they gave. The driven check is in
+// tests/lockdown-late-policy.test.mjs; this is the decision itself.
+// ---------------------------------------------------------------------------
+
+/** Every rung a row can record, read off the lockdown-record schema. */
+function recordedLockMethods() {
+  const schema = JSON.parse(
+    readFileSync(new URL("../schemas/lockdown-record.schema.json", import.meta.url), "utf8"),
+  );
+  return schema.properties.results.items.properties.lock_method.enum;
+}
+
+test("`lock_down_enabled` absent reads as the schema's own default", () => {
+  const schema = JSON.parse(
+    readFileSync(new URL("../schemas/assignment.schema.json", import.meta.url), "utf8"),
+  );
+  assert.equal(takesAccessAtDeadline({}), schema.properties.lock_down_enabled.default);
+  assert.equal(takesAccessAtDeadline({ lock_down_enabled: false }), false);
+  assert.equal(takesAccessAtDeadline({ lock_down_enabled: true }), true);
+});
+
+test("ORGANIZATION SCOPE DEMOTES TOO when the assignment takes access", () => {
+  // The regression, by name.
+  assert.equal(demotesAfterStop({ late_policy: "block", lock_down_enabled: true }, "org-ruleset"), true);
+  assert.equal(demotesAfterStop({ late_policy: "block" }, "org-ruleset"), true, "absent is true");
+});
+
+test("EVERY RULESET RUNG the record can hold demotes under lock_down_enabled", () => {
+  // Derived from the schema, not listed, so a rung added later is asked this
+  // question the day it is declared rather than the day somebody notices.
+  const rungs = recordedLockMethods().filter((m) => m && m !== "none" && m !== "demotion");
+  assert.ok(rungs.includes("org-ruleset") && rungs.includes("ruleset"), `schema rungs: ${rungs}`);
+  for (const rung of rungs) {
+    for (const doc of [{ lock_down_enabled: true }, {}]) {
+      assert.equal(demotesAfterStop(doc, rung), true, `${rung} with ${JSON.stringify(doc)}`);
+    }
+    assert.equal(demotesAfterStop({ lock_down_enabled: false }, rung), false, `${rung} with false`);
+  }
+});
+
+test("a repository phase 1 already demoted is not demoted again", () => {
+  // The ladder degrades per repository: a ruleset that could not be applied
+  // fell back to a demotion for that one, which already took everything.
+  assert.equal(demotesAfterStop({ lock_down_enabled: true }, "demotion"), false);
+  assert.equal(demotesAfterStop({}, "demotion"), false);
+});
+
+test("`lock_down_enabled: false` never demotes, whatever held the repository", () => {
+  for (const method of recordedLockMethods()) {
+    assert.equal(demotesAfterStop({ lock_down_enabled: false }, method ?? undefined), false, String(method));
+  }
 });

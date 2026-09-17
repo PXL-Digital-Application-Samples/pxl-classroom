@@ -381,6 +381,48 @@ test.describe('a demoted repository', () => {
   });
 });
 
+test.describe('a ruleset repository that was ALSO made read-only', () => {
+  // `late_policy: block` + `lock_down_enabled: true`: the ruleset held the
+  // branch and phase 4 demoted on top of it, recorded as `demoted: true` beside
+  // `lock_method: ruleset`. Reopen read `lock_method` alone, switched the ruleset
+  // off, said the student could push again, and left them at `pull`.
+  const both = () => lockdownRecord({ lock_method: 'ruleset', demoted: true });
+
+  test('says it restores access too, then does both, ruleset first', async ({ page }) => {
+    const { apiCalls, contentWrites } = await openTracking(page, {
+      record: both(),
+      doc: assignment({ student_permission: 'push' }),
+    });
+    await openActions(page);
+    await expect(unlockSection(page)).toContainText('switched off');
+    await expect(unlockSection(page)).toContainText('Their access was also reduced at the deadline');
+    await unlockSection(page).locator('textarea').fill('Appeal upheld');
+    await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
+
+    await expect.poll(() => unlockWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    const writes = apiCalls.filter((c) => c.method === 'PUT');
+    expect(writes.map((c) => (c.url.includes('/collaborators/') ? 'collaborator' : 'ruleset')))
+      .toEqual(['ruleset', 'collaborator']);
+    expect(writes[1].body).toEqual({ permission: 'push' });
+
+    const doc = JSON.parse(unlockWrite(contentWrites).content);
+    expect(doc.lock_method).toBe('ruleset');
+    expect(doc.permission_restored).toBe('push');
+  });
+
+  test('a restore that fails after the ruleset went says so, and records nothing', async ({ page }) => {
+    const { contentWrites } = await openTracking(page, { record: both(), collaboratorStatus: 403 });
+    await openActions(page);
+    await unlockSection(page).locator('textarea').fill('Appeal upheld');
+    await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
+    const toast = page.locator('.toast, [role="alert"]').filter({ hasText: /Could not finish reopening/i }).first();
+    await expect(toast).toBeVisible({ timeout: 10000 });
+    await expect(toast).toContainText('still read-only');
+    await expect(toast).toContainText(/organization owner can restore their access/i);
+    expect(unlockWrite(contentWrites)).toBeUndefined();
+  });
+});
+
 test.describe('the reason is not optional', () => {
   test('the button is disabled until one is typed', async ({ page }) => {
     // This document is read by somebody who was not there. A reason field

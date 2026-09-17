@@ -39,7 +39,7 @@ import { indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
 import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { usesOrgScope, lockScopeNote } from "../lib/lock-scope.mjs";
+import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -404,6 +404,8 @@ async function demote(t) {
  *
  * `method` decides how, and it is the only place in the file that knows:
  *
+ *   "org-ruleset" - one organization ruleset over the cohort's repository ids,
+ *                degrading per repository to "ruleset" below.
  *   "ruleset"  - flip a repository ruleset to `enforcement: active`. Blocks
  *                push, force-push and deletion of the submission ref and takes
  *                nothing else: the student keeps their Actions, secrets,
@@ -811,9 +813,9 @@ async function main() {
   // `lock_down_enabled` defaults to TRUE for an assignment that does not carry
   // it. That is deliberate: every assignment created before this shipped was
   // demoted at the deadline, and inferring "no lock" from a missing field would
-  // silently stop freezing live cohorts.
+  // silently stop freezing live cohorts. lib/lock-scope.mjs owns that default.
   const blockLate = assignment.late_policy === "block";
-  const demoteToo = assignment.lock_down_enabled ?? true;
+  const demoteToo = takesAccessAtDeadline(assignment);
   log("policy", { ok: true, note: `late_policy=${assignment.late_policy ?? "report"} lock_down_enabled=${demoteToo}` });
 
   // A ruleset the App cannot bypass would lock the system out of the repository
@@ -906,14 +908,20 @@ async function main() {
   // --- Phase 4: DEMOTE -------------------------------------------------------
   // Only when phase 1 did not already do it. Runs after the recording, so the
   // snapshot is taken while the student still has whatever access they had.
+  //
+  // Asked per repository, of whatever rung actually held it. This compared the
+  // RUN's method with "ruleset", so when organization scope became the default
+  // under `block` nothing was demoted any more and nothing said so.
+  // lib/lock-scope.mjs decides.
   const demoted = new Set();
-  if (demoteToo && lock.method === "ruleset") {
-    for (const t of targets) {
+  const toDemote = targets.filter((t) => demotesAfterStop(assignment, lock.byRepo.get(t)?.method));
+  if (toDemote.length) {
+    for (const t of toDemote) {
       const out = await demote(t);
       if (out.locked) demoted.add(t);
       else log(`demote ${t.displayKey}`, { ok: false, note: `permission after=${out.permissionAfter}` });
     }
-    log("phase 4 - demote", { ok: true, note: `${demoted.size}/${targets.length} demoted to pull` });
+    log("phase 4 - demote", { ok: true, note: `${demoted.size}/${toDemote.length} demoted to pull` });
   }
 
   // --- Who could not be frozen because they own the organization -------------
@@ -1094,7 +1102,10 @@ async function main() {
     }
 
     const sha12 = (state.snapshotSha || "-").slice(0, 12);
-    const how = stop.method === "ruleset" ? "ruleset" : stop.method === "demotion" ? "pull" : "not locked";
+    // Named per rung: this used to know "ruleset" and "demotion" only, so a
+    // repository held by the organization ruleset was summarised as not locked.
+    const how = ({ "org-ruleset": "organization ruleset", ruleset: "ruleset", demotion: "pull" }[stop.method] ?? "not locked") +
+      (demoted.has(t) ? " + pull" : "");
     if (state.noSubmission) noSubmissionCount++;
     if (stop.locked || lock.method === "none") {
       if (stop.locked) lockedCount++;

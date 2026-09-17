@@ -63,6 +63,10 @@
             <template v-else>
               Their repository was frozen with a ruleset, which is switched off rather than deleted -
               so the deadline can be re-applied later without rebuilding it.
+              <template v-if="unlock.permission">
+                Their access was also reduced at the deadline, so this restores it to
+                <code>{{ unlock.permission }}</code>.
+              </template>
             </template>
           </p>
           <div class="field">

@@ -2159,3 +2159,50 @@ on an established 409. Same lesson as the foreign private template on
 2026-09-07, one field over: every property `generate` depends on has to be
 asked before a student can accept, and "the repository exists and is ticked as
 a template" was two of three.
+
+### The new default rung inherited the lock and not the demotion, and the test was given an opt-out to stay green.
+
+2026-09-17. `lockdown.mjs` Phase 4 demoted only `if (demoteToo && lock.method
+=== "ruleset")`. The condition was right when it was written: `ruleset` was the
+only ruleset, and the point was "unless phase 1 already demoted". Organization
+scope arrived as a third rung on 2026-09-08 and became the default under `block`
+the next day. The rung list grew, the condition still named one member of it by
+value, and `late_policy: block` + `lock_down_enabled: true` went on locking the
+ref and stopped taking admin away, with nothing in the run saying so.
+ARCHITECTURE §11.2.1's table still said *ruleset, demote*, which was correct and
+no longer true.
+
+Three things that should have caught it agreed with it instead. The driven test
+for that exact combination was given `org_scoped_lock: false` on the day the
+default flipped, because every repository-scoped case was, so it went on testing
+the rung that still demoted. The live drill spelled the rule out a second time
+(`expectedLock === "ruleset" && ...`), so its verify step expected no demotion
+and passed three times on the testbed that afternoon. And the run summary had
+the same shape one line further down: a map of `ruleset` and `demotion` that
+printed an organization-ruleset repository as *not locked*.
+
+Nobody's students were affected: every record with organization-scope rows on a
+`lock_down_enabled` assignment was a testbed drill from the same day. One
+published assignment with a December deadline, `pxl-grpro-csmobile/voorbeeld-project`,
+would have met it. Eight organizations could not be read with the account that
+checked, so that is what was found, not a complete count.
+
+The decision is `demotesAfterStop` in `lib/lock-scope.mjs`, asked per repository
+of the rung that actually held it, and written as an exclusion: demote unless
+phase 1 already demoted. A rung added later then inherits the answer the
+lecturer gave instead of dropping it, which is the direction to fail when the
+field says *take their access*. The drill asks the same function.
+`tests/lock-scope.test.mjs` reads the rungs from the lockdown-record schema's
+enum rather than listing them, so a new one is asked the question the day it is
+declared.
+
+Fixing it exposed the other half. Reopen picked its inverse from `lock_method`
+alone, so on the one row shape that had always carried both, `ruleset` with
+`demoted: true`, it disabled the ruleset, showed "can push again", and left the
+student at `pull`. That row takes both inverses now, the ruleset released first
+because the release is what repeats cleanly on a retry.
+
+The general form: when a condition picks one value out of a set that is still
+growing, write it as the exclusion it means. And a test that needed a new
+setting to stay green on the day a default changed is a test that has stopped
+testing the default.

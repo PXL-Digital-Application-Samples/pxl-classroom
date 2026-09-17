@@ -271,7 +271,7 @@ Two things to tell students honestly:
 
 Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `org-ruleset`, `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Does not count" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor.
 
-**To let one student push again, use Reopen (§6.15) rather than GitHub.** It reads that student's own `lock_method` and applies the matching inverse - an organization ruleset drops their repository id, a repository ruleset is disabled, a demotion restores the assignment's student permission - and it records who did it, when and why. Doing it by hand records nothing.
+**To let one student push again, use Reopen (§6.15) rather than GitHub.** It reads that student's own `lock_method` and applies the matching inverse - an organization ruleset drops their repository id, a repository ruleset is disabled, a demotion restores the assignment's student permission - and a row that also says `demoted: true` (*does not count* with *becomes read-only*) gets the ruleset released and the permission restored. It records who did it, when and why. Doing it by hand records nothing.
 
 **Never delete a `pxl-classroom-deadline` ruleset.** Nothing in this system does, and the reason is that a ruleset re-created later without the App in `bypass_actors` locks *this system* out of the repository along with the student. `enforcement` is a flag; releasing a lock flips it back.
 
@@ -1125,6 +1125,7 @@ It appears only once the deadline has actually frozen something, and only for a 
 | How it was frozen | What reopening does |
 |---|---|
 | Ruleset (the normal case) | Switches the ruleset off. It is not deleted, so the deadline can be re-applied later without rebuilding it. |
+| Ruleset, and the repository became read-only as well | Both: switches the ruleset off, then puts the student back to the assignment's **Student permission**. If the second half fails the dialog says the student is still read-only, and trying again finishes it. |
 | Reduced access (the fallback, per repository) | Puts the student back to the assignment's **Student permission**. |
 
 **A reopened repository stays open.** A finalize run is not once - the nightly re-runs one when preservation is still incomplete, and again when *any other* student's extension expires. It used to re-lock the whole cohort, so reopening one student's repository was undone by granting somebody else more time. It now skips a repository with a reopen record on it, says so in the run, and counts it (`reopened_count`). To close it again, re-run the freeze.

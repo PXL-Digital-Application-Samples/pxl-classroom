@@ -3677,10 +3677,16 @@ async function unlockRepositoryFor(student, { reason }) {
       // ruleset needs admin on it, and a lecturer can be hub-writable without
       // owning the organization. Say who can, rather than "unlock failed".
       const forbidden = /\b403\b/.test(res.reason || '')
+      // `released`: the ruleset is already off and restoring their access is
+      // what failed. "Could not reopen" alone would read as nothing having
+      // changed. Trying again finishes it from the same row.
       toast.error(
-        forbidden
-          ? `Could not reopen ${verdict.repo}: your account cannot change that repository's settings. An organization owner can.`
-          : `Could not reopen ${verdict.repo}: ${res.reason}`,
+        res.released
+          ? `Could not finish reopening ${verdict.repo}: ${res.reason}. ` +
+            (forbidden ? 'An organization owner can restore their access.' : 'Try again to finish.')
+          : forbidden
+            ? `Could not reopen ${verdict.repo}: your account cannot change that repository's settings. An organization owner can.`
+            : `Could not reopen ${verdict.repo}: ${res.reason}`,
       )
       return
     }
