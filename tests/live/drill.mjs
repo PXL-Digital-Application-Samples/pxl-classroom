@@ -1,0 +1,466 @@
+#!/usr/bin/env node
+// PXL Classroom - LIVE deadline drill. Not part of `npm test`.
+//
+// Takes one fresh assignment through its whole life on a real org, with the
+// real accounts in .env.test, so a change to the jobs that run an exam can be
+// proven the same day instead of at the next real deadline:
+//
+//   node tests/live/drill.mjs start [--minutes 45]
+//       create and publish drill-<utc stamp> (individual, late work blocked,
+//       lock on), accept it as both students, push one commit each
+//
+//   node tests/live/drill.mjs verify <assignment-id> [--wait] [--timeout 40]
+//       after the deadline: the sentinel stopped writes, the lock method is the
+//       one the org's plan allows, a late push is refused, both submissions are
+//       preserved, the report says on-time, and the broker is closed
+//
+// WHY A FRESH ASSIGNMENT EVERY TIME. Finalize locks and preserves an assignment
+// once, so a second drill against the same one proves nothing about a job that
+// changed in between. Each run leaves a public broker, two student repositories
+// and an archive on the org; delete them from the Admin Panel.
+//
+// THE PLAN DECIDES WHAT IS PROVEN. A free organization cannot hold a ruleset on
+// a private repository, so lockdown degrades organization ruleset -> repository
+// ruleset -> demotion and still reports `locked`. A narrowed token that lost the
+// ruleset permission degrades the SAME way, silently, on a Team organization.
+// So verify expects `org-ruleset` on Team and `demotion` on free, per row, and a
+// free org's drill says out loud that it did not exercise rulesets.
+//
+// Point a worktree at the main checkout's credentials with LIVE_ENV_FILE.
+
+import { parse, stringify } from "yaml";
+
+import { buildAssignmentDoc, utcToLocalInput } from "../../lib/assignment-doc.mjs";
+import { validateAgainst } from "../../lib/validate.mjs";
+import { brokerRepoName } from "../../lib/broker-repo.mjs";
+import { resolveArchiveRepo, archiveBranchName } from "../../lib/archive-repo.mjs";
+import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
+import { normalizeLogin } from "../../lib/github-login.mjs";
+import { deadlineIsImminent, SENTINEL_ARM_WINDOW_MS } from "../../lib/sentinel-window.mjs";
+import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
+import {
+  accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
+  openAcceptanceIssue, reporter, signAcceptance, sleep,
+} from "./live-kit.mjs";
+
+const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
+const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
+const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
+const ON_TIME_MESSAGE = "drill: on-time submission";
+
+const [command, ...rest] = process.argv.slice(2);
+const flag = (name) => rest.includes(`--${name}`);
+const option = (name, fallback) => {
+  const i = rest.indexOf(`--${name}`);
+  return i >= 0 && rest[i + 1] ? Number(rest[i + 1]) : fallback;
+};
+
+const env = loadEnv();
+const ACCOUNTS = accounts(env);
+const LECTURER = ACCOUNTS.LECTURER;
+const STUDENTS = [ACCOUNTS.STUDENT_A, ACCOUNTS.STUDENT_B];
+const r = reporter();
+const { ok, bad, note } = r;
+
+// A repository record's `repo_name` is `owner/name` (write-repository-record.mjs),
+// the same field lockdown and preserve read with this expression.
+const bareRepo = (repoName) => repoName?.split("/")?.[1] ?? repoName;
+
+const isoSeconds = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, "Z");
+const local = (iso) => new Date(iso).toLocaleString("en-GB", { timeZone: TIMEZONE, dateStyle: "short", timeStyle: "short" });
+
+function finish() {
+  console.log(`\n${r.failures() === 0 ? "All checks passed." : `${r.failures()} check(s) failed.`}\n`);
+  process.exit(r.failures() === 0 ? 0 : 1);
+}
+
+function stopIfFailed() {
+  if (r.failures() > 0) finish();
+}
+
+// --- control repo and hub helpers ---------------------------------------------
+
+async function readControl(path) {
+  const res = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/${path}`, { token: LECTURER.token });
+  return res.ok ? { ok: true, sha: res.data.sha, text: decode(res.data.content) } : { ok: false, status: res.status };
+}
+
+async function readControlJson(path) {
+  const res = await readControl(path);
+  if (!res.ok) return null;
+  try { return JSON.parse(res.text); } catch { return null; }
+}
+
+async function dispatch(workflow, inputs) {
+  const res = await api(`/repos/${HUB}/actions/workflows/${workflow}/dispatches`, {
+    token: LECTURER.token,
+    method: "POST",
+    body: { ref: "main", inputs },
+  });
+  if (res.status === 204) ok(`dispatched ${workflow} ${JSON.stringify(inputs)}`);
+  else bad(`could not dispatch ${workflow}: HTTP ${res.status} ${res.data?.message ?? ""}`);
+  return res.status === 204;
+}
+
+async function runsSince(workflow, since) {
+  const q = new URLSearchParams({ created: `>=${isoSeconds(since)}`, per_page: "50" });
+  const res = await api(`/repos/${HUB}/actions/workflows/${workflow}/runs?${q}`, { token: LECTURER.token });
+  return (res.data?.workflow_runs || []).sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+async function waitForRun(run, { minutes = 10 } = {}) {
+  for (let waited = 0; waited < minutes * 60_000; waited += 10_000) {
+    const res = await api(`/repos/${HUB}/actions/runs/${run.id}`, { token: LECTURER.token });
+    if (res.data?.status === "completed") return res.data;
+    await sleep(10_000);
+  }
+  return null;
+}
+
+// --- start ----------------------------------------------------------------------
+
+async function start() {
+  const minutes = option("minutes", 45);
+  // Long enough for two acceptances and two pushes; short enough that the
+  // publish-time arming reaches it, rather than waiting for the 4-hourly cron.
+  if (!(minutes >= 15 && minutes * 60_000 <= SENTINEL_ARM_WINDOW_MS)) {
+    die(`--minutes must be between 15 and ${SENTINEL_ARM_WINDOW_MS / 60_000}`);
+  }
+
+  console.log(`PXL Classroom live drill - START on ${ORG} (writes!)`);
+
+  console.log("\n1. Preflight\n");
+  await checkAccounts(ACCOUNTS, r);
+  const { plan } = await checkOrg(ORG, LECTURER, r);
+  note(`plan: ${plan ?? "unreadable"}`);
+  stopIfFailed();
+
+  const roster = await readControl("students/roster.yml");
+  const rosterLogins = new Set(
+    roster.ok ? (parse(roster.text)?.students || []).map((s) => normalizeLogin(s.github_login || "")) : [],
+  );
+  for (const s of STUDENTS) {
+    if (rosterLogins.has(normalizeLogin(s.login))) ok(`${s.login} is on the roster`);
+    else bad(`${s.login} is not on ${ORG}'s roster - roster_mode enforced would refuse them`);
+  }
+
+  const tpl = await api(`/repos/${ORG}/${TEMPLATE}`, { token: LECTURER.token });
+  if (!tpl.ok) bad(`template ${ORG}/${TEMPLATE}: HTTP ${tpl.status}`);
+  else ok(`template ${ORG}/${TEMPLATE} #${tpl.data.id}, default branch ${tpl.data.default_branch}`);
+  stopIfFailed();
+
+  console.log("\n2. The assignment, saved the way the Admin Panel saves it\n");
+  const now = Date.now();
+  const stamp = isoSeconds(now).replace(/[-:]/g, "").replace("T", "-").slice(0, 13).toLowerCase();
+  const id = `drill-${stamp}`;
+  const opensAt = new Date(now - 60_000).toISOString();
+  const deadlineAt = new Date(Math.ceil((now + minutes * 60_000) / 60_000) * 60_000).toISOString();
+
+  if ((await readControl(`assignments/${id}.yml`)).ok) die(`assignments/${id}.yml already exists - wait a minute and start again`);
+
+  // The editor's form state, through the SAME builder the Admin Panel uses, so
+  // the drill publishes a document the panel could have written. The `_original`
+  // fields make preserveOrLocal keep the exact instants rather than
+  // round-tripping them through this machine's zone.
+  const form = {
+    id,
+    title: `Deadline drill ${isoSeconds(now).slice(0, 16).replace("T", " ")} UTC`,
+    description: "Automated deadline drill (tests/live/drill.mjs). Safe to delete.",
+    organization: ORG,
+    template: `${ORG}/${TEMPLATE}`,
+    repository_name_pattern: `${id}-{github_login}`,
+    opens_at_local: utcToLocalInput(opensAt),
+    _opens_at_original: opensAt,
+    deadline_at_local: utcToLocalInput(deadlineAt),
+    _deadline_at_original: deadlineAt,
+    timezone: TIMEZONE,
+    submission_ref: `refs/heads/${tpl.data.default_branch}`,
+    student_permission: "admin",
+    acceptance_mode: "self-service",
+    roster_mode: "enforced",
+    late_policy: "block",
+    lock_down_enabled: true,
+    assignment_type: "individual",
+    state: "published",
+  };
+  const doc = buildAssignmentDoc(form, { templateRepositoryId: tpl.data.id });
+  // A copy: lib/validate.mjs runs Ajv with useDefaults, which writes into the
+  // document it validates.
+  const { valid, errors } = validateAgainst("assignment", structuredClone(doc));
+  if (!valid) { bad(`schema refuses the drill document: ${JSON.stringify(errors)}`); finish(); }
+  ok(`${id}: deadline ${deadlineAt} (${local(deadlineAt)} ${TIMEZONE})`);
+
+  const put = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/assignments/${id}.yml`, {
+    token: LECTURER.token,
+    method: "PUT",
+    body: { message: `Create assignment ${id}`, content: Buffer.from(stringify(doc)).toString("base64") },
+  });
+  if (!put.ok) { bad(`could not commit assignments/${id}.yml: HTTP ${put.status} ${put.data?.message ?? ""}`); finish(); }
+  ok(`committed assignments/${id}.yml as ${LECTURER.login}`);
+
+  console.log("\n3. Publish\n");
+  const dispatchedAt = Date.now() - 5_000;
+  // Same order as saveAssignment: arm the sentinel when the deadline is inside
+  // its window, then publish. publish-assignment.yml arms it again afterwards.
+  if (deadlineIsImminent(deadlineAt)) await dispatch("deadline-sentinel.yml", { org: ORG });
+  if (!(await dispatch("publish-assignment.yml", { org: ORG, assignment_id: id, regenerate_invite: "false" }))) finish();
+
+  let publishRun = null;
+  for (let i = 0; i < 12 && !publishRun; i++) {
+    await sleep(5_000);
+    publishRun = (await runsSince("publish-assignment.yml", dispatchedAt))
+      .find((run) => normalizeLogin(run.actor?.login) === normalizeLogin(LECTURER.login));
+  }
+  if (!publishRun) { bad("no publish-assignment run appeared within 60s"); finish(); }
+  note(`watching ${publishRun.html_url}`);
+  const published = await waitForRun(publishRun);
+  if (published?.conclusion !== "success") { bad(`publish run ${published?.conclusion ?? "did not finish in 10 minutes"}: ${publishRun.html_url}`); finish(); }
+  ok("publish run succeeded");
+
+  const stored = await readControl(`assignments/${id}.yml`);
+  const storedDoc = stored.ok ? parse(stored.text) : null;
+  const secret = stored.ok ? linkSecretFrom(parseInviteFields(stored.text)) : null;
+  if (storedDoc?.state !== "published") bad(`state after publish is "${storedDoc?.state}"`);
+  if (!secret) bad("no invitation secret after publish");
+  const broker = brokerRepoName({ assignment: storedDoc, assignmentId: id });
+  const brokerRepo = await api(`/repos/${ORG}/${broker}`, { token: LECTURER.token });
+  if (brokerRepo.ok) ok(`broker ${ORG}/${broker} exists`);
+  else bad(`broker ${ORG}/${broker}: HTTP ${brokerRepo.status}`);
+  stopIfFailed();
+
+  for (const [i, student] of STUDENTS.entries()) {
+    console.log(`\n${4 + i}. ${student.login} accepts and hands in\n`);
+    const title = await signAcceptance({ secret, assignmentId: id, student }, r);
+    if (!title || !(await openAcceptanceIssue({ org: ORG, broker, title, student }, r))) continue;
+
+    // The record is what provisioning writes after the repository exists and
+    // the invitation is sent, so it names the repository rather than this
+    // script guessing from the pattern. Read as the lecturer: until the student
+    // accepts, the private repository is 404 to them.
+    const recordPath = `repositories/${id}/${normalizeLogin(student.login)}.json`;
+    let record = null;
+    for (let waited = 0; waited < 240_000 && !record; waited += 8_000) {
+      await sleep(8_000);
+      record = await readControlJson(recordPath);
+    }
+    if (!record) { bad(`no ${recordPath} after 240s - check the hub's acceptance-handler run`); continue; }
+    ok(`provisioned ${record.repo_url}`);
+
+    await handIn(student, record);
+  }
+
+  if (Date.now() >= new Date(deadlineAt).getTime()) {
+    bad("the deadline passed before both students handed in - start again with a larger --minutes");
+  }
+
+  printNext(id, deadlineAt, plan);
+}
+
+/** Accept the invitation and push the on-time commit, as the student. */
+async function handIn(student, record) {
+  const repo = bareRepo(record.repo_name);
+  await acceptInvitation({ student, repoName: repo }, r);
+
+  let pushed = null;
+  for (let attempt = 0; attempt < 6 && !pushed?.ok; attempt++) {
+    if (attempt) await sleep(5_000);
+    pushed = await api(`/repos/${ORG}/${repo}/contents/drill/${normalizeLogin(student.login)}.md`, {
+      token: student.token,
+      method: "PUT",
+      body: {
+        message: ON_TIME_MESSAGE,
+        content: Buffer.from(`Handed in by ${student.login} at ${new Date().toISOString()}\n`).toString("base64"),
+      },
+    });
+  }
+  if (pushed?.ok) ok(`pushed ${pushed.data.commit.sha.slice(0, 7)} before the deadline`);
+  else bad(`${student.login} could not push: HTTP ${pushed?.status} ${pushed?.data?.message ?? ""}`);
+}
+
+// --- handin ---------------------------------------------------------------------
+
+// Finishes a `start` that provisioned both students but stopped short of the
+// hand-in: accept each invitation and push, for students not yet handed in.
+async function handinOnly() {
+  const id = rest.find((a) => !a.startsWith("--"));
+  if (!id) die("usage: node tests/live/drill.mjs handin <assignment-id>");
+  console.log(`PXL Classroom live drill - HANDIN ${ORG}/${id} (writes!)`);
+  await checkAccounts(ACCOUNTS, r);
+  const stored = await readControl(`assignments/${id}.yml`);
+  if (!stored.ok) die(`assignments/${id}.yml: HTTP ${stored.status}`);
+  const doc = parse(stored.text);
+  if (Date.now() >= new Date(doc.deadline_at).getTime()) die("the deadline has passed - a hand-in now is late; start a new drill");
+
+  for (const student of STUDENTS) {
+    console.log(`\n${student.login}\n`);
+    const record = await readControlJson(`repositories/${id}/${normalizeLogin(student.login)}.json`);
+    if (!record) { bad(`${student.login} has no repository record - they never accepted`); continue; }
+    const q = new URLSearchParams({ per_page: "5" });
+    const commits = (await api(`/repos/${ORG}/${bareRepo(record.repo_name)}/commits?${q}`, { token: LECTURER.token })).data;
+    if (Array.isArray(commits) && commits.some((c) => c.commit?.message === ON_TIME_MESSAGE)) { ok("already handed in"); continue; }
+    await handIn(student, record);
+  }
+  printNext(id, doc.deadline_at, null);
+}
+
+function printNext(id, deadlineAt, plan) {
+  console.log(`\nDeadline ${local(deadlineAt)} ${TIMEZONE}. After it, run:\n`);
+  console.log(`  node tests/live/drill.mjs verify ${id} --wait`);
+  if (plan === "free") {
+    console.log(`\n${ORG} is on the free plan: this drill locks by demotion and does NOT exercise rulesets.`);
+  }
+  finish();
+}
+
+// --- verify ---------------------------------------------------------------------
+
+async function verify() {
+  const id = rest.find((a) => !a.startsWith("--"));
+  if (!id) die("usage: node tests/live/drill.mjs verify <assignment-id> [--wait] [--timeout 40]");
+  console.log(`PXL Classroom live drill - VERIFY ${ORG}/${id} (one late push per student is attempted)`);
+
+  console.log("\n1. Preflight\n");
+  await checkAccounts(ACCOUNTS, r);
+  const { plan } = await checkOrg(ORG, LECTURER, r);
+  stopIfFailed();
+  if (!plan) die(`cannot read ${ORG}'s plan, so there is no expected lock method to check against`);
+  const expectedLock = plan === "free" ? "demotion" : "org-ruleset";
+  ok(`plan ${plan}: every repository should be stopped by ${expectedLock}`);
+
+  const stored = await readControl(`assignments/${id}.yml`);
+  if (!stored.ok) die(`assignments/${id}.yml: HTTP ${stored.status}`);
+  const doc = parse(stored.text);
+  const deadline = new Date(doc.deadline_at);
+
+  const early = deadline.getTime() - Date.now();
+  if (early > 0) {
+    if (!flag("wait")) die(`the deadline is ${Math.ceil(early / 60_000)} minute(s) away (${local(doc.deadline_at)}) - pass --wait to sleep until then`);
+    note(`sleeping ${Math.ceil(early / 60_000)} minute(s) until the deadline`);
+    await sleep(early + 30_000);
+  }
+
+  console.log("\n2. Waiting for finalize to settle\n");
+  const timeout = option("timeout", 40) * 60_000;
+  const isSettled = (s) => ["preserved", "failed", "not-required"].includes(s);
+  let lockdown = null;
+  let report = null;
+  let pendingRuns = [];
+  for (const began = Date.now(); ; ) {
+    lockdown = await readControlJson(`lockdowns/${id}/lockdown-record.json`);
+    report = await readControlJson(`reports/${id}.json`);
+    pendingRuns = (await runsSince("daily-activity.yml", deadline)).filter((run) => run.status !== "completed");
+    const rows = report?.students || [];
+    const settled = lockdown && rows.length >= STUDENTS.length && rows.every((row) => isSettled(row.preservation_status));
+    if (settled && pendingRuns.length === 0) break;
+    if (Date.now() - began > timeout) {
+      bad(`not settled after ${timeout / 60_000} minutes: lockdown record ${lockdown ? "present" : "absent"}, ` +
+        `report rows ${rows.length}, daily-activity runs still going ${pendingRuns.length}`);
+      break;
+    }
+    await sleep(30_000);
+  }
+
+  console.log("\n3. The hub runs since publish\n");
+  const since = new Date(doc.opens_at);
+  for (const workflow of ["deadline-sentinel.yml", "daily-activity.yml"]) {
+    for (const run of await runsSince(workflow, since)) {
+      if (run.status !== "completed") { note(`${workflow} ${run.html_url} still ${run.status}`); continue; }
+      if (run.conclusion === "success") { ok(`${workflow} ${run.event} ${run.conclusion}: ${run.html_url}`); continue; }
+      // A cron run covers every organization, so a failed job may be somebody
+      // else's. Only this org's jobs, or a job that is not per org, fail the drill.
+      const jobs = (await api(`/repos/${HUB}/actions/runs/${run.id}/jobs?per_page=100`, { token: LECTURER.token })).data?.jobs || [];
+      const failed = jobs.filter((j) => j.conclusion === "failure");
+      const ours = failed.filter((j) => j.name.includes(ORG) || !j.name.includes("("));
+      if (ours.length) bad(`${workflow} ${run.conclusion}: ${ours.map((j) => j.name).join(", ")} - ${run.html_url}`);
+      else note(`${workflow} ${run.conclusion} in another org's job (${failed.map((j) => j.name).join(", ") || "none failed"}): ${run.html_url}`);
+    }
+  }
+
+  console.log("\n4. The sentinel stopped writes at the instant\n");
+  const dir = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/lockdowns/${id}`, { token: LECTURER.token });
+  const timelines = (Array.isArray(dir.data) ? dir.data : []).filter((f) => /^sentinel-.*\.json$/.test(f.name));
+  let fired = false;
+  for (const f of timelines) {
+    const t = await readControlJson(f.path);
+    if (t?.outcome === "fired") fired = true;
+    note(`${f.name}: ${t?.outcome ?? "unreadable"}`);
+  }
+  if (fired) ok("a sentinel timeline says fired");
+  else bad("no sentinel fired for this assignment - whatever locked it was the nightly, so the sentinel path was not drilled");
+
+  console.log("\n5. The lock\n");
+  const late = new Map();
+  if (!lockdown) bad(`lockdowns/${id}/lockdown-record.json is absent`);
+  else {
+    if (lockdown.error_count === 0) ok(`lockdown record: ${lockdown.locked_count} locked, 0 errors`);
+    else bad(`lockdown record: ${lockdown.error_count} error(s)`);
+    for (const student of STUDENTS) {
+      const login = normalizeLogin(student.login);
+      const row = (lockdown.results || []).find((x) => normalizeLogin(x.github_login) === login);
+      if (!row) { bad(`${login}: no row in the lockdown record`); continue; }
+      if (row.lock_method === expectedLock) ok(`${login}: stopped by ${row.lock_method}`);
+      else bad(`${login}: stopped by ${row.lock_method}, expected ${expectedLock} - a degraded lock reports success, which is why this is checked per row`);
+      if (row.verified === false) bad(`${login}: lock not verified (permission after: ${row.permission_after})`);
+
+      const lag = (new Date(row.lockdown_at) - deadline) / 1000;
+      if (Number.isFinite(lag) && lag >= 0 && lag <= 600) ok(`${login}: locked ${Math.round(lag)}s after the deadline`);
+      else bad(`${login}: lockdown_at ${row.lockdown_at} is not within 10 minutes of the deadline`);
+
+      const repo = bareRepo(row.repo_name);
+      const q = new URLSearchParams({ sha: doc.submission_ref.replace(/^refs\/heads\//, ""), until: doc.deadline_at, per_page: "1" });
+      const head = (await api(`/repos/${ORG}/${repo}/commits?${q}`, { token: LECTURER.token })).data?.[0];
+      if (head?.commit?.message !== ON_TIME_MESSAGE) bad(`${login}: the last commit before the deadline is not the drill's hand-in (start did not finish?)`);
+      if (row.snapshot_sha && row.snapshot_sha === head?.sha) ok(`${login}: snapshot ${row.snapshot_sha.slice(0, 7)} is the on-time hand-in`);
+      else bad(`${login}: snapshot ${row.snapshot_sha} is not the last commit before the deadline (${head?.sha})`);
+      late.set(login, { student, repo, onTime: head?.sha });
+    }
+  }
+
+  console.log("\n6. A late push is refused\n");
+  for (const [login, { student, repo }] of late) {
+    const res = await api(`/repos/${ORG}/${repo}/contents/drill/${login}-late.md`, {
+      token: student.token,
+      method: "PUT",
+      body: { message: "drill: late push", content: Buffer.from(`late ${new Date().toISOString()}\n`).toString("base64") },
+    });
+    if (res.ok) bad(`${login}: a push AFTER the lock was accepted (${res.data?.commit?.sha?.slice(0, 7)}) - the lock does not hold`);
+    else ok(`${login}: late push refused, HTTP ${res.status}`);
+  }
+
+  console.log("\n7. Preservation and the report\n");
+  for (const [login, { onTime }] of late) {
+    const row = (report?.students || []).find((x) => normalizeLogin(x.github_login) === login);
+    if (!row) { bad(`${login}: no row in reports/${id}.json`); continue; }
+    if (row.submission_status === "on-time") ok(`${login}: report says on-time`);
+    else bad(`${login}: report says ${row.submission_status}`);
+    if (row.preservation_status !== "preserved") { bad(`${login}: preservation ${row.preservation_status}`); continue; }
+    if (row.preserved_sha !== onTime) bad(`${login}: preserved ${row.preserved_sha}, but the hand-in was ${onTime}`);
+    const archive = resolveArchiveRepo({ org: ORG, recorded: row.archive_repo });
+    const branch = archiveBranchName({ assignmentId: id, login, recordedRef: row.archive_ref });
+    // git/ref takes the slashes in `preserved/<id>/<login>` as they are; the
+    // branches endpoint needs them encoded and is inconsistent about it.
+    const ref = await api(`/repos/${archive}/git/ref/heads/${branch}`, { token: LECTURER.token });
+    if (ref.ok && ref.data?.object?.sha === row.preserved_sha) ok(`${login}: ${archive}@${branch} holds ${row.preserved_sha.slice(0, 7)}`);
+    else bad(`${login}: ${archive}@${branch} is HTTP ${ref.status}${ref.ok ? ` at ${ref.data?.object?.sha}` : ""}, not the preserved sha`);
+  }
+
+  console.log("\n8. The broker is closed\n");
+  const broker = brokerRepoName({ assignment: doc, assignmentId: id });
+  const v = await api(`/repos/${ORG}/${broker}/actions/variables/INVITE_ENABLED`, { token: LECTURER.token });
+  const s = await api(`/repos/${ORG}/${broker}/actions/secrets`, { token: LECTURER.token });
+  if (v.ok && String(v.data?.value).toLowerCase() === "false") ok("INVITE_ENABLED is false");
+  else bad(`INVITE_ENABLED is ${v.ok ? v.data?.value : `unreadable (HTTP ${v.status})`}`);
+  const held = s.ok ? (s.data?.secrets || []).map((x) => x.name).filter((n) => n.startsWith("PXL_BROKER_")) : null;
+  if (held && held.length === 0) ok("no broker credential left on the broker");
+  else bad(held ? `the broker still holds ${held.join(", ")}` : `broker secrets unreadable (HTTP ${s.status})`);
+
+  if (plan === "free") {
+    console.log(`\n${ORG} is on the free plan: rulesets were NOT exercised. Lockdown and sentinel token changes need a drill on a Team organization.`);
+  }
+  finish();
+}
+
+if (command === "start") await start();
+else if (command === "handin") await handinOnly();
+else if (command === "verify") await verify();
+else die("usage: node tests/live/drill.mjs start [--minutes 45] | handin <assignment-id> | verify <assignment-id> [--wait] [--timeout 40]");
