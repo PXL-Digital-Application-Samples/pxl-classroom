@@ -95,6 +95,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Lock down student repos at the deadline | **Off by default**, and opt-in on purpose: demoting to `pull` takes Actions, secrets, environments and runners away, which on these courses is the subject being taught. Preservation happens either way (§3.4). |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §6.10) |
 | Autograding | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
+| Submission ref (under **Advanced**) | the branch collected, locked at the deadline and graded. Student repositories are created with the template's **default branch only**, so this must name that branch: a new assignment fills it in from the template (`refs/heads/master` for a `master` template) unless you type your own. A ref naming any other branch shows a warning under the template, and publishing refuses it. |
 
 5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 

@@ -30,7 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
       - run: npm ci --omit=dev
       - name: Compare the live App against the manifest
         env:
@@ -60,7 +63,10 @@ jobs:
         run: |
           echo "::error::This workflow is dispatched by a person or the cron, not a credential."
           exit 1
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
       - run: npm ci --omit=dev
 
       # The App is publicly listed - the hub-and-spoke model requires it, since
@@ -104,7 +110,10 @@ jobs:
         run: |
           echo "::error::This workflow is dispatched by a person or the cron, not a credential."
           exit 1
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
       - run: npm ci --omit=dev
 
       - name: Fetch participating-orgs.yml
@@ -148,7 +157,7 @@ jobs:
           echo "::warning::${ORG}: the App installation lacks 'Organization Administration: read', so Enhanced Billing usage cannot be read. Grant it on the App (Organization permissions -> Administration: Read-only) and have an org owner approve the update - ADMIN.md §6.6. The usage report is skipped for this org."
 
       - name: Checkout control repo
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ matrix.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token || steps.token_degraded.outputs.token }}

@@ -182,14 +182,22 @@ Verify with an App-level JWT: `gh api /app/installations` should show `repositor
 
 ## 5. Branch protection on `main`
 
-`pxl-classroom` is public and its workflows are the highest-value target. The repository is maintained by **direct pushes to `main`** (no pull requests), so PR-review and required-status-check rules are deliberately **not** used - a required status check rejects any direct push, because the pushed commit cannot have a passing check yet. CI still runs on every push and fails loudly.
+`pxl-classroom` is public and its workflows are the highest-value target. The repository is maintained by **direct pushes to `main`** (the only pull requests are Dependabot's, ADMIN.md §8), so PR-review and required-status-check rules are deliberately **not** used - a required status check rejects any direct push, because the pushed commit cannot have a passing check yet. CI still runs on every push and fails loudly.
 
 - Branch rule for `main`: block force-pushes and deletions, **including for administrators**. No PR requirement, no required checks, no signed-commits requirement.
-- Settings → Code security: enable secret scanning **and** push protection.
+- Settings → Code security: enable secret scanning **and** push protection, Dependabot alerts **and** security updates, and CodeQL code scanning in **default setup** (JavaScript/TypeScript, GitHub Actions and Python are detected; it scans on push, on pull requests and weekly, and reports under Security → Code scanning).
+
+The branch rule:
 
 ```bash
 printf '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}' | \
   gh api -X PUT repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection --input -
+```
+
+CodeQL default setup:
+
+```bash
+gh api -X PATCH repos/PXL-Digital-Application-Samples/pxl-classroom/code-scanning/default-setup -f state=configured -f query_suite=default
 ```
 
 ## 6. Protection on the `participating-orgs` branch

@@ -853,7 +853,10 @@ export async function validateTemplateRepository(token, owner, repo) {
     // one: an id nobody read must not become a pin.
     id: Number.isInteger(repoData.id) ? repoData.id : null,
     isTemplate: !!repoData.is_template,
-    defaultBranch: repoData.default_branch || 'main',
+    // `null` when GitHub did not say, never a guessed 'main': the form checks
+    // Submission ref against this, and a made-up 'main' would pass exactly the
+    // assignment whose template uses another branch (lib/template-source.mjs).
+    defaultBranch: typeof repoData.default_branch === 'string' && repoData.default_branch ? repoData.default_branch : null,
     isPrivate: !!repoData.private,
     fullName: repoData.full_name || `${owner}/${repo}`,
     htmlUrl: repoData.html_url,

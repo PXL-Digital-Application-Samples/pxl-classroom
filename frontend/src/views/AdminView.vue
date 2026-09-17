@@ -503,7 +503,7 @@
                   <Icon name="alert-triangle" :size="13" /> {{ templateValidationStatus.replaced }}
                 </span>
                 <span v-else-if="templateValidationStatus.valid && templateValidationStatus.isTemplate" class="badge badge-success flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
-                  <Icon name="check-circle" :size="13" /> Valid Template Repository ({{ templateValidationStatus.defaultBranch }} branch{{ templateValidationStatus.isPrivate ? ', private' : '' }})
+                  <Icon name="check-circle" :size="13" /> Valid Template Repository ({{ templateValidationStatus.defaultBranch ? `${templateValidationStatus.defaultBranch} branch` : 'default branch unknown' }}{{ templateValidationStatus.isPrivate ? ', private' : '' }})
                 </span>
                 <span v-else-if="templateValidationStatus.valid && !templateValidationStatus.isTemplate" class="badge badge-warning flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
                   <Icon name="alert-triangle" :size="13" /> Repository exists but is not marked as a GitHub Template
@@ -519,6 +519,13 @@
                    org's sole template by itself - and a refusal nobody can
                    read is the failure this whole check exists to end. -->
               <div v-if="(touchedFields.template || !isNew || templateValidationStatus?.blocked) && fieldErrors.template" class="field-error-msg">{{ fieldErrors.template }}</div>
+              <!-- Here, not under the Submission ref field: that one lives inside
+                   the collapsed Advanced section, where a warning is unread. A
+                   warning, not a refusal, so a draft stays saveable; publishing
+                   refuses it (scripts/check-publish-preflight.mjs). -->
+              <small v-if="submissionBranchWarning" class="text-warning submission-branch-warning" role="status">
+                {{ submissionBranchWarning }}
+              </small>
               <small v-if="templatesError" class="text-danger" style="display: block; margin-top: var(--space-xs);">
                 Failed to load templates: {{ templatesError }}.
               </small>
@@ -1309,7 +1316,11 @@
             </div>
             <div class="field">
               <label>Submission ref</label>
-              <input v-model="form.submission_ref" placeholder="refs/heads/main" />
+              <input v-model="form.submission_ref" placeholder="refs/heads/main" @input="manualSubmissionRef = true" />
+              <small v-if="templateValidationStatus?.valid && templateValidationStatus.defaultBranch">
+                Student repositories start with the template's default branch only:
+                <code>refs/heads/{{ templateValidationStatus.defaultBranch }}</code>.
+              </small>
             </div>
             <div class="field">
               <label>Timezone (display)</label>
@@ -1607,6 +1618,7 @@ import {
   templateSourceMessage,
   resolveTemplatePin,
   templatePinMessage,
+  submissionBranchProvisioned,
   FOREIGN_PRIVATE,
 } from '../../../lib/template-source.mjs'
 import { formatDate } from '../lib/format.js'
@@ -2267,6 +2279,9 @@ function openRegenerate() {
 }
 
 const manualRepositoryNamePattern = ref(false)
+// Set by typing in Submission ref. Until then a NEW assignment's ref follows
+// the template's default branch, the only branch a student repository gets.
+const manualSubmissionRef = ref(false)
 const templateSearchText = ref('')
 const showTemplateDropdown = ref(false)
 const comboboxContainerEl = ref(null)
@@ -2530,6 +2545,25 @@ const templateValidationStatus = ref(null)
 const storedTemplate = ref(null)
 let templateValidationTimer = null
 
+// Does Submission ref name a branch the student repositories will have? The
+// same judge the publish preflight refuses with. Only on a probe that ANSWERED
+// for the template now in the field, and never on an unknown default branch:
+// this refuses what was established, not what was not - the preflight asks
+// again with the credential that does the work.
+const submissionBranchWarning = computed(() => {
+  const probe = templateValidationStatus.value
+  if (!probe?.valid || !probe.defaultBranch) return ''
+  const asked = String(form.value.template || '').trim()
+  if (String(probe.fullName || '').toLowerCase() !== asked.toLowerCase()) return ''
+  const finding = submissionBranchProvisioned({
+    submissionRef: form.value.submission_ref,
+    templateDefaultBranch: probe.defaultBranch,
+  })
+  if (finding.ok) return ''
+  const [templateOwner, templateRepo] = asked.split('/')
+  return templateSourceMessage(finding, { templateOwner, templateRepo, org: props.org })
+})
+
 async function checkTemplateValidity(templateStr) {
   if (templateValidationTimer) clearTimeout(templateValidationTimer)
   if (!templateStr || !templateStr.includes('/')) {
@@ -2576,6 +2610,20 @@ async function checkTemplateValidity(templateStr) {
           repo,
           probedId: res.id,
         })
+        // A NEW assignment collects from the branch its students will have.
+        // Only while the lecturer has not typed a ref of their own, only for
+        // the template still in the field (this probe is debounced and may be
+        // answering for the previous one), and never on an EXISTING assignment:
+        // writing into the form on probe would make opening it look edited.
+        // An existing one gets submissionBranchWarning instead.
+        if (
+          isNew.value &&
+          !manualSubmissionRef.value &&
+          res.defaultBranch &&
+          String(form.value.template || '').trim().toLowerCase() === `${owner}/${repo}`.toLowerCase()
+        ) {
+          form.value.submission_ref = `refs/heads/${res.defaultBranch}`
+        }
         templateValidationStatus.value = {
           valid: true,
           isTemplate: res.isTemplate,
@@ -2998,6 +3046,7 @@ function newAssignment() {
   storedTemplate.value = null
   manualSlug.value = false
   manualRepositoryNamePattern.value = false
+  manualSubmissionRef.value = false
   slugEditing.value = false
   descriptionOpen.value = false
   templateSearchText.value = ''
@@ -4554,6 +4603,10 @@ watch(
    was a fork with a second chance to drift. */
 
 .btn-with-icon { display: inline-flex; align-items: center; gap: var(--space-xs); }
+
+/* Under the template badge, because Submission ref itself is inside the
+   collapsed Advanced section (lib/template-source.mjs, submissionBranchProvisioned). */
+.submission-branch-warning { display: block; margin-top: var(--space-xs); }
 
 .admin-layout {
   display: grid;
