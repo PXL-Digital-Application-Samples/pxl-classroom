@@ -36,6 +36,7 @@ import { brokerRepoName } from "../../lib/broker-repo.mjs";
 import { resolveArchiveRepo, archiveBranchName } from "../../lib/archive-repo.mjs";
 import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
 import { normalizeLogin } from "../../lib/github-login.mjs";
+import { INVITED_LABEL, REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
 import { deadlineIsImminent, SENTINEL_ARM_WINDOW_MS } from "../../lib/sentinel-window.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 import {
@@ -106,6 +107,26 @@ async function runsSince(workflow, since) {
   const q = new URLSearchParams({ created: `>=${isoSeconds(since)}`, per_page: "50" });
   const res = await api(`/repos/${HUB}/actions/workflows/${workflow}/runs?${q}`, { token: LECTURER.token });
   return (res.data?.workflow_runs || []).sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+/** The run the lecturer's dispatch started, or null after a minute. */
+async function findDispatchedRun(workflow, since) {
+  for (let i = 0; i < 12; i++) {
+    await sleep(5_000);
+    const run = (await runsSince(workflow, since))
+      .find((x) => normalizeLogin(x.actor?.login) === normalizeLogin(LECTURER.login));
+    if (run) return run;
+  }
+  return null;
+}
+
+async function waitForLabel(broker, issue, label, ms) {
+  for (let waited = 0; waited <= ms; waited += 10_000) {
+    const res = await api(`/repos/${ORG}/${broker}/issues/${issue}/labels`, { token: LECTURER.token });
+    if ((res.data || []).some?.((l) => l.name === label)) return true;
+    await sleep(10_000);
+  }
+  return false;
 }
 
 async function waitForRun(run, { minutes = 10 } = {}) {
@@ -205,12 +226,7 @@ async function start() {
   if (deadlineIsImminent(deadlineAt)) await dispatch("deadline-sentinel.yml", { org: ORG });
   if (!(await dispatch("publish-assignment.yml", { org: ORG, assignment_id: id, regenerate_invite: "false" }))) finish();
 
-  let publishRun = null;
-  for (let i = 0; i < 12 && !publishRun; i++) {
-    await sleep(5_000);
-    publishRun = (await runsSince("publish-assignment.yml", dispatchedAt))
-      .find((run) => normalizeLogin(run.actor?.login) === normalizeLogin(LECTURER.login));
-  }
+  const publishRun = await findDispatchedRun("publish-assignment.yml", dispatchedAt);
   if (!publishRun) { bad("no publish-assignment run appeared within 60s"); finish(); }
   note(`watching ${publishRun.html_url}`);
   const published = await waitForRun(publishRun);
@@ -231,7 +247,8 @@ async function start() {
   for (const [i, student] of STUDENTS.entries()) {
     console.log(`\n${4 + i}. ${student.login} accepts and hands in\n`);
     const title = await signAcceptance({ secret, assignmentId: id, student }, r);
-    if (!title || !(await openAcceptanceIssue({ org: ORG, broker, title, student }, r))) continue;
+    const issue = title ? await openAcceptanceIssue({ org: ORG, broker, title, student }, r) : null;
+    if (!issue) continue;
 
     // The record is what provisioning writes after the repository exists and
     // the invitation is sent, so it names the repository rather than this
@@ -246,7 +263,40 @@ async function start() {
     if (!record) { bad(`no ${recordPath} after 240s - check the hub's acceptance-handler run`); continue; }
     ok(`provisioned ${record.repo_url}`);
 
+    // The label step runs with continue-on-error, so a token that cannot label
+    // leaves the run green. The label is the only evidence it worked. It is put
+    // on only when GitHub sent an invitation, which the record says.
+    if (record.access_state === "invited") {
+      if (await waitForLabel(broker, issue, INVITED_LABEL, 60_000)) ok(`#${issue} carries ${INVITED_LABEL}`);
+      else bad(`#${issue} has no ${INVITED_LABEL} label although the record says invited`);
+    }
+
     await handIn(student, record);
+  }
+
+  // The lecturer is not on the roster, and roster_mode is enforced. A refusal
+  // runs the rejection label and the lecturer's notification, neither of which
+  // a successful acceptance reaches.
+  console.log(`\n${4 + STUDENTS.length}. ${LECTURER.login}, who is not on the roster, is refused\n`);
+  const refusedTitle = await signAcceptance({ secret, assignmentId: id, student: LECTURER }, r);
+  const refusedIssue = refusedTitle ? await openAcceptanceIssue({ org: ORG, broker, title: refusedTitle, student: LECTURER }, r) : null;
+  if (refusedIssue) {
+    if (await waitForLabel(broker, refusedIssue, REJECTED_LABEL, 300_000)) ok(`#${refusedIssue} carries ${REJECTED_LABEL}`);
+    else bad(`#${refusedIssue} has no ${REJECTED_LABEL} label after 300s - check the hub's acceptance-handler run`);
+    if (await readControlJson(`repositories/${id}/${normalizeLogin(LECTURER.login)}.json`)) bad(`${LECTURER.login} was provisioned a repository`);
+    else ok(`${LECTURER.login} has no repository`);
+  }
+
+  // What a lecturer reaches for when a student is stuck: wipe the acceptance
+  // and run acceptance and provisioning again. The repository already exists,
+  // so provisioning reuses it.
+  console.log(`\n${5 + STUDENTS.length}. A lecturer retries ${STUDENTS[0].login}'s acceptance\n`);
+  const retryAt = Date.now() - 5_000;
+  if (await dispatch("retry-acceptance.yml", { org: ORG, assignment_id: id, github_login: STUDENTS[0].login })) {
+    const run = await findDispatchedRun("retry-acceptance.yml", retryAt);
+    const done = run ? await waitForRun(run) : null;
+    if (done?.conclusion === "success") ok(`retry run succeeded: ${run.html_url}`);
+    else bad(`retry run ${done?.conclusion ?? "did not appear or finish"}${run ? `: ${run.html_url}` : ""}`);
   }
 
   if (Date.now() >= new Date(deadlineAt).getTime()) {

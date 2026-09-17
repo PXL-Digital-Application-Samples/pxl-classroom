@@ -173,14 +173,17 @@ export async function signAcceptance({ secret, assignmentId, student }, r) {
   }
 }
 
-/** Open the acceptance issue on the broker, exactly as a student's browser does. */
+/**
+ * Open the acceptance issue on the broker, exactly as a student's browser does.
+ * Resolves the issue number, or null when it could not be opened.
+ */
 export async function openAcceptanceIssue({ org, broker, title, student, teamSlug = null, teamName = null }, r) {
   // The team hint is appended AFTER signing - it is a concurrency key, never an
   // authoritative value, and the hub re-derives the real team from the body.
   // read-team-payload.mjs refuses a body that names a different team from the
   // title, so these two must agree.
   const fullTitle = teamSlug ? `${title} team:${teamSlug}` : title;
-  if (fullTitle.length > 256) { r.bad(`title with the team hint is ${fullTitle.length} chars, over GitHub's 256`); return false; }
+  if (fullTitle.length > 256) { r.bad(`title with the team hint is ${fullTitle.length} chars, over GitHub's 256`); return null; }
 
   const res = await api(`/repos/${org}/${broker}/issues`, {
     token: student.token,
@@ -198,9 +201,9 @@ export async function openAcceptanceIssue({ org, broker, title, student, teamSlu
         : "",
     },
   });
-  if (!res.ok) { r.bad(`could not open the broker issue: HTTP ${res.status} ${res.data?.message ?? ""}`); return false; }
+  if (!res.ok) { r.bad(`could not open the broker issue: HTTP ${res.status} ${res.data?.message ?? ""}`); return null; }
   r.ok(`opened ${org}/${broker}#${res.data.number}`);
-  return true;
+  return res.data.number;
 }
 
 /**
