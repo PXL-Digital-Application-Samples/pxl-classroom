@@ -177,6 +177,12 @@ export function cleanChecks(checks) {
  * the line stays `Off` and the note beside it is scoped to what this screen
  * owns rather than asserting something it cannot know (DESIGN.md §1.5).
  */
+/**
+ * @param {object} [assignment] the assignment document, or the form's draft of one
+ * @param {{enabled?: boolean, execution_environment?: string, tests?: unknown[]}} [assignment.autograde]
+ * @param {unknown} [assignment.submissionMarker]
+ * @returns {string}
+ */
 export function summariseGrading({ autograde, submissionMarker } = {}) {
   const configured = autograde?.enabled && (autograde?.tests || []).length > 0
   if (configured) return summariseAutograde(autograde)
@@ -185,6 +191,13 @@ export function summariseGrading({ autograde, submissionMarker } = {}) {
   return 'Off'
 }
 
+/**
+ * @param {object} [block] an `autograde` block
+ * @param {boolean} [block.enabled]
+ * @param {string} [block.execution_environment]
+ * @param {unknown[]} [block.tests]
+ * @returns {string}
+ */
 export function summariseAutograde({ enabled, execution_environment: env, tests } = {}) {
   const count = Array.isArray(tests) ? tests.length : 0
   if (!enabled || count === 0) return 'Off'
