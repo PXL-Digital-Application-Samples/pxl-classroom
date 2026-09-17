@@ -18,6 +18,7 @@ import {
   orgSubmissionLockName,
   SUBMISSION_LOCK_NAME,
 } from "../lib/submission-lock.mjs";
+import { pageOf, splitQuery } from "./fixtures/github-pages.mjs";
 
 const ORG = "PXLAutomation";
 const REPO = "lab-1-ada";
@@ -28,8 +29,8 @@ function transport({ orgRulesets = [], repoRulesets = [] } = {}) {
   const calls = [];
   const request = async (method, path, body) => {
     calls.push({ method, path, body });
-    if (method === "GET" && path === `/orgs/${ORG}/rulesets`) {
-      return { ok: true, status: 200, data: orgRulesets.map((r) => ({ id: r.id, name: r.name })) };
+    if (method === "GET" && splitQuery(path).pathname === `/orgs/${ORG}/rulesets`) {
+      return { ok: true, status: 200, data: pageOf(path, orgRulesets.map((r) => ({ id: r.id, name: r.name }))) };
     }
     if (method === "GET" && path.startsWith(`/orgs/${ORG}/rulesets/`)) {
       const hit = orgRulesets.find((r) => r.id === Number(path.split("/").pop()));
@@ -42,8 +43,8 @@ function transport({ orgRulesets = [], repoRulesets = [] } = {}) {
       if (body.enforcement) hit.enforcement = body.enforcement;
       return { ok: true, status: 200, data: hit };
     }
-    if (method === "GET" && path === `/repos/${ORG}/${REPO}/rulesets`) {
-      return { ok: true, status: 200, data: repoRulesets };
+    if (method === "GET" && splitQuery(path).pathname === `/repos/${ORG}/${REPO}/rulesets`) {
+      return { ok: true, status: 200, data: pageOf(path, repoRulesets) };
     }
     if (method === "PUT" && path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`)) {
       const hit = repoRulesets.find((r) => r.id === Number(path.split("/").pop()));

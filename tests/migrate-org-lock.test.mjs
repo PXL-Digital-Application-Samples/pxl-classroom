@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateAgainst } from "../lib/validate.mjs";
+import { pageOf, splitQuery } from "./fixtures/github-pages.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(root, "scripts", "migrate-org-lock.mjs");
@@ -213,8 +214,9 @@ function fakeApi({ repoRulesets = { "lab-1-ada": [{ id: 7, name: "pxl-classroom-
         res.end(JSON.stringify(data));
       };
 
-      if (req.method === "GET" && url === "/orgs/TestOrg/rulesets") {
-        return send(200, state.org ? [{ id: state.org.id, name: state.org.name }] : []);
+      const { pathname } = splitQuery(url);
+      if (req.method === "GET" && pathname === "/orgs/TestOrg/rulesets") {
+        return send(200, pageOf(url, state.org ? [{ id: state.org.id, name: state.org.name }] : []));
       }
       if (req.method === "POST" && url === "/orgs/TestOrg/rulesets") {
         state.org = { id: 900, ...body };
@@ -223,9 +225,9 @@ function fakeApi({ repoRulesets = { "lab-1-ada": [{ id: 7, name: "pxl-classroom-
       if (req.method === "GET" && url === "/orgs/TestOrg/rulesets/900") {
         return send(200, state.org);
       }
-      const repoList = url.match(/^\/repos\/TestOrg\/([^/]+)\/rulesets$/);
+      const repoList = pathname.match(/^\/repos\/TestOrg\/([^/]+)\/rulesets$/);
       if (req.method === "GET" && repoList) {
-        return send(200, state.repoRulesets[repoList[1]] ?? []);
+        return send(200, pageOf(url, state.repoRulesets[repoList[1]] ?? []));
       }
       const repoPut = url.match(/^\/repos\/TestOrg\/([^/]+)\/rulesets\/(\d+)$/);
       if (req.method === "PUT" && repoPut) {

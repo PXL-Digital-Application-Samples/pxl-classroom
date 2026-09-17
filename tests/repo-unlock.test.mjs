@@ -159,7 +159,7 @@ function transport({ rulesets = [], putStatus = 200, putEnforcement = "disabled"
   const calls = [];
   const request = async (method, path, body) => {
     calls.push({ method, path, body });
-    if (method === "GET" && path.endsWith("/rulesets")) {
+    if (method === "GET" && /\/rulesets\?/.test(path)) {
       return listStatus === 200
         ? { ok: true, status: 200, data: rulesets }
         : { ok: false, status: listStatus, data: { message: "boom" } };

@@ -26,6 +26,7 @@ import {
   removeRepoFromOrgLock,
   liveRepositoryIds,
 } from "../lib/submission-lock.mjs";
+import { pageOf, splitQuery } from "./fixtures/github-pages.mjs";
 
 const APP_ID = 42;
 const ORG = "PXLAutomation";
@@ -56,9 +57,9 @@ function fakeGitHub({ rulesets = [], live = new Set(), deleted = null, failList 
     calls.push({ method, path, body });
     const orgRules = `/orgs/${ORG}/rulesets`;
 
-    if (method === "GET" && path === orgRules) {
+    if (method === "GET" && splitQuery(path).pathname === orgRules) {
       if (failList) return { ok: false, status: 500, data: {} };
-      return { ok: true, status: 200, data: rulesets.map((r) => ({ id: r.id, name: r.name })) };
+      return { ok: true, status: 200, data: pageOf(path, rulesets.map((r) => ({ id: r.id, name: r.name }))) };
     }
     if (method === "GET" && path.startsWith(`${orgRules}/`)) {
       const id = Number(path.split("/").pop());

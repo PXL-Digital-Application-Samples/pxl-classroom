@@ -116,7 +116,18 @@ async function openTracking(page, {
   await page.route(`**/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
     route.fulfill(record ? asContent(record) : NOT_FOUND));
 
-  await page.route(`**/repos/${ORG}/${REPO}/rulesets`, (route) => {
+  // A ruleset unlock also asks whether an organization ruleset holds the
+  // repository, and here none does. Staged as the empty list GitHub answers:
+  // the catch-all's `{}` is not a list, and a rulesets read that is not a list
+  // is unreadable, which refuses the unlock.
+  await page.route(`**/orgs/${ORG}/rulesets?*`, (route) => {
+    apiCalls.push({ method: route.request().method(), url: route.request().url() });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+
+  // `?*`: the list is walked with `per_page` and `page`, and a Playwright glob
+  // must match the whole URL, query included.
+  await page.route(`**/repos/${ORG}/${REPO}/rulesets?*`, (route) => {
     apiCalls.push({ method: route.request().method(), url: route.request().url() });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rulesets) });
   });

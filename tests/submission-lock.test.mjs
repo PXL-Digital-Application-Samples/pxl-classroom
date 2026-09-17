@@ -89,7 +89,7 @@ test("an unreadable App declaration resolves to null rather than guessing", asyn
 
 test("an organization ruleset of the same name is not ours to flip", async () => {
   const { request } = stub([
-    [/^GET .*\/rulesets$/, { status: 200, data: [
+    [/^GET .*\/rulesets\?/, { status: 200, data: [
       { id: 1, name: SUBMISSION_LOCK_NAME, source_type: "Organization", enforcement: "active" },
     ] }],
   ]);
@@ -113,7 +113,7 @@ test("no App id means no ruleset - a lock the system cannot bypass is worse than
 
 test("a repository with no lock yet gets one created at the asked-for enforcement", async () => {
   const { request, calls } = stub([
-    [/^GET .*\/rulesets$/, { status: 200, data: [] }],
+    [/^GET .*\/rulesets\?/, { status: 200, data: [] }],
     [/^POST .*\/rulesets$/, (body) => ({ status: 201, data: { id: 7, enforcement: body.enforcement } })],
   ]);
   const res = await ensureSubmissionLock(request, {
@@ -129,7 +129,7 @@ test("an existing lock is flipped with enforcement alone", async () => {
   // The rules and the bypass list must not be resent: a partial body cannot
   // accidentally rewrite what the lock is while turning it on.
   const { request, calls } = stub([
-    [/^GET .*\/rulesets$/, { status: 200, data: [existing("disabled")] }],
+    [/^GET .*\/rulesets\?/, { status: 200, data: [existing("disabled")] }],
     [/^PUT .*\/rulesets\/99$/, (body) => ({ status: 200, data: { id: 99, enforcement: body.enforcement } })],
   ]);
   const res = await ensureSubmissionLock(request, {
@@ -142,7 +142,7 @@ test("an existing lock is flipped with enforcement alone", async () => {
 
 test("an already-active lock is left alone", async () => {
   const { request, calls } = stub([
-    [/^GET .*\/rulesets$/, { status: 200, data: [existing("active")] }],
+    [/^GET .*\/rulesets\?/, { status: 200, data: [existing("active")] }],
   ]);
   const res = await ensureSubmissionLock(request, {
     org: "o", repo: "r", submissionRef: "refs/heads/main", appId: APP_ID, enforcement: "active",
@@ -156,7 +156,7 @@ test("a flip that did not take is reported as not ok", async () => {
   // The read-back IS the verification that the cohort is stopped. Trusting the
   // 200 would report a lock that is not enforcing.
   const { request } = stub([
-    [/^GET .*\/rulesets$/, { status: 200, data: [existing("disabled")] }],
+    [/^GET .*\/rulesets\?/, { status: 200, data: [existing("disabled")] }],
     [/^PUT .*\/rulesets\/99$/, { status: 200, data: { id: 99, enforcement: "evaluate" } }],
   ]);
   const res = await ensureSubmissionLock(request, {
@@ -168,7 +168,7 @@ test("a flip that did not take is reported as not ok", async () => {
 
 test("a failed create and an unreadable list both report why", async () => {
   const denied = stub([
-    [/^GET .*\/rulesets$/, { status: 200, data: [] }],
+    [/^GET .*\/rulesets\?/, { status: 200, data: [] }],
     [/^POST .*\/rulesets$/, { status: 403, data: { message: "Resource not accessible by integration" } }],
   ]);
   const a = await ensureSubmissionLock(denied.request, {
@@ -178,7 +178,7 @@ test("a failed create and an unreadable list both report why", async () => {
   assert.match(a.reason, /403/);
   assert.match(a.reason, /not accessible/);
 
-  const unreadable = stub([[/^GET .*\/rulesets$/, { status: 500, data: {} }]]);
+  const unreadable = stub([[/^GET .*\/rulesets\?/, { status: 500, data: {} }]]);
   const b = await ensureSubmissionLock(unreadable.request, {
     org: "o", repo: "r", submissionRef: "refs/heads/main", appId: APP_ID, enforcement: "active",
   });

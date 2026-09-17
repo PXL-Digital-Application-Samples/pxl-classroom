@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
-import { isSubmissionLockName } from "../lib/submission-lock.mjs";
+import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
 import { existingRepoVerdict, frozenFromRulesets } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
@@ -1032,9 +1032,11 @@ async function main() {
       // those freezes the repository exactly as a repository-scoped one does -
       // so unlike `findSubmissionLock`, whose job is releasing, we want both.
       // The status reading (a 403 is the plan gate, not a failure) is in
-      // lib/existing-repo.mjs, where a test can run it.
+      // lib/existing-repo.mjs, where a test can run it. Walked, because a lock
+      // on the second page reads as "not frozen" and hands the student a
+      // repository they cannot push to.
       frozen = frozenFromRulesets(
-        await gh("GET", `/repos/${org}/${targetRepo}/rulesets`),
+        await listRulesets(gh, `/repos/${org}/${targetRepo}/rulesets`),
         isSubmissionLockName,
       );
     }
