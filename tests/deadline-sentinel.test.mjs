@@ -162,6 +162,11 @@ test("find-armable prints the armed list and names what it dropped", () => {
  *   `reposFor`       `repositories/<id>/`: logins with a provisioned repository
  *   `listStatus`     an HTTP status for the `assignments/` listing, to make the
  *                    read fail rather than come back empty
+ *
+ * Each of those is handed the count of `assignments/` listings served so far,
+ * which is one per poll. "Published while the sentinel waits" is therefore
+ * expressed as a POLL, not as a wall-clock delay - a test that raced the
+ * sentinel's first iteration would pass here and flake on a loaded runner.
  */
 async function withStubApi(fn, {
   deadlineFor,
@@ -174,6 +179,7 @@ async function withStubApi(fn, {
 } = {}) {
   const calls = [];
   const blobs = new Map();
+  let polls = 0;
   const blobFor = (text) => {
     const sha = createHash("sha1").update(text).digest("hex");
     blobs.set(sha, text);
@@ -197,13 +203,14 @@ async function withStubApi(fn, {
     }
 
     if (/\/contents\/assignments$/.test(path)) {
-      const status = listStatus(calls.length);
+      polls++;
+      const status = listStatus(polls);
       if (status) return send(status, { message: "listing refused" });
       const files = [];
       for (const id of ids) {
-        const deadline = deadlineFor?.(id, calls.length);
+        const deadline = deadlineFor?.(id, polls);
         if (!deadline) continue;
-        const yaml = `state: ${stateFor(id, calls.length)}\ndeadline_at: "${deadline}"\n`;
+        const yaml = `state: ${stateFor(id, polls)}\ndeadline_at: "${deadline}"\n`;
         files.push({ type: "file", name: `${id}.yml`, sha: blobFor(yaml) });
       }
       return send(200, files);
@@ -211,7 +218,7 @@ async function withStubApi(fn, {
 
     const repoDir = path.match(/\/contents\/repositories\/([^/]+)$/);
     if (repoDir) {
-      const logins = reposFor(repoDir[1], calls.length);
+      const logins = reposFor(repoDir[1], polls);
       if (!logins.length) return send(404, { message: "Not Found" });
       return send(200, logins.map((login) => ({
         type: "file",
@@ -408,13 +415,13 @@ test("a listing that fails keeps the deadlines it last read, not the armed insta
   // every member's deadline with it - and an assignment positively read as
   // extended minutes ago would have become due against the armed instant and
   // been locked early. That is the failure this whole file exists to prevent.
-  const original = new Date(Date.now() + 700).toISOString();
+  const original = new Date(Date.now() + 2_000).toISOString();
   const extended = new Date(Date.now() + 8 * HOUR).toISOString();
   const dir = makeControlDir();
 
   await withStubApi(
     async (api) => {
-      const res = await runSentinel(dir, api, { deadlineAt: original, assignmentIds: "exam,exam-two", pollMs: 120 });
+      const res = await runSentinel(dir, api, { deadlineAt: original, assignmentIds: "exam,exam-two", pollMs: 150 });
       assert.equal(res.status, 0, res.stderr);
       assert.match(res.outputs, /fired=true/);
       assert.match(
@@ -427,9 +434,9 @@ test("a listing that fails keeps the deadlines it last read, not the armed insta
     {
       ids: ["exam", "exam-two"],
       deadlineFor: (id) => (id === "exam-two" ? extended : original),
-      // Answers the first listing, then refuses: the deadlines are read once and
+      // Answers the first poll, then refuses: the deadlines are read once and
       // the sentinel waits out the rest of its target with nothing readable.
-      listStatus: (n) => (n > 3 ? 403 : null),
+      listStatus: (poll) => (poll > 1 ? 403 : null),
     },
   );
 });
@@ -698,11 +705,11 @@ test("memberDeadlines answers per member, and omits what it cannot read", () => 
 });
 
 test("an assignment published after the sentinel was armed is stopped at the instant", async () => {
-  const startedAt = Date.now();
-  const deadline = new Date(startedAt + 900).toISOString();
-  // Published while the sentinel waits, sharing its instant. Nothing dispatched
-  // to this run; the only job that can act at the instant is this one.
-  const joined = (_id, _n) => Date.now() - startedAt > 300;
+  const deadline = new Date(Date.now() + 2_000).toISOString();
+  // Published while the sentinel waits, sharing its instant - from its second
+  // poll on. Nothing dispatched to this run; the only job that can act at the
+  // instant is this one.
+  const joined = (poll) => poll >= 2;
   const dir = makeControlDir();
 
   await withStubApi(
@@ -733,8 +740,8 @@ test("an assignment published after the sentinel was armed is stopped at the ins
     },
     {
       ids: ["exam", "late-exam"],
-      deadlineFor: (id, n) => (id === "exam" || joined(id, n) ? deadline : null),
-      reposFor: (id, n) => (id === "exam" ? ["alice"] : joined(id, n) ? ["bob"] : []),
+      deadlineFor: (id, poll) => (id === "exam" || joined(poll) ? deadline : null),
+      reposFor: (id, poll) => (id === "exam" ? ["alice"] : joined(poll) ? ["bob"] : []),
       repos: () => [
         { name: "exam-alice", pushed_at: "2026-09-10T21:12:00Z" },
         { name: "late-exam-bob", pushed_at: "2026-09-10T21:40:00Z" },
@@ -747,13 +754,12 @@ test("a repository provisioned while the sentinel waits is watched from then on"
   // A sentinel armed at publish is running before anyone has accepted. Reading
   // the records once, at job start, is how drill-20260917-1609 polled six times
   // and recorded no push at all for the cohort it was watching.
-  const startedAt = Date.now();
-  const deadline = new Date(startedAt + 700).toISOString();
+  const deadline = new Date(Date.now() + 2_000).toISOString();
   const dir = mkdtempSync(join(tmpdir(), "pxl-sentinel-"));
 
   await withStubApi(
     async (api) => {
-      const res = await runSentinel(dir, api, { deadlineAt: deadline, pollMs: 120 });
+      const res = await runSentinel(dir, api, { deadlineAt: deadline, pollMs: 150 });
       assert.equal(res.status, 0, res.stderr);
       assert.ok(res.timeline, "a timeline is written even though the checkout knew no repositories");
       assert.ok(
@@ -763,8 +769,8 @@ test("a repository provisioned while the sentinel waits is watched from then on"
     },
     {
       deadlineFor: () => deadline,
-      // Nothing in `repositories/exam/` until the student accepts, 300ms in.
-      reposFor: () => (Date.now() - startedAt > 300 ? ["alice"] : []),
+      // Nothing in `repositories/exam/` until the student accepts, one poll in.
+      reposFor: (_id, poll) => (poll >= 2 ? ["alice"] : []),
     },
   );
 });
@@ -819,16 +825,15 @@ test("a phase that runs out of token hands over instead of firing", async () => 
 });
 
 test("the next phase continues the same watch, with the earlier evidence in it", async () => {
-  const startedAt = Date.now();
-  const deadline = new Date(startedAt + 1200).toISOString();
+  const deadline = new Date(Date.now() + 5_000).toISOString();
   const dir = makeControlDir();
   const state = join(dir, "handover.json");
-  const joined = () => Date.now() - startedAt > 150;
+  const joined = (poll) => poll >= 2;
 
   await withStubApi(
     async (api) => {
       // Phase one: out of token long before the instant.
-      const first = await runSentinel(dir, api, { deadlineAt: deadline, phaseMs: 250, stateFile: state, pollMs: 60 });
+      const first = await runSentinel(dir, api, { deadlineAt: deadline, phaseMs: 600, stateFile: state, pollMs: 100 });
       assert.match(first.outputs, /outcome=handover/);
       const handed = JSON.parse(readFileSync(state, "utf8"));
       assert.ok(
@@ -837,7 +842,7 @@ test("the next phase continues the same watch, with the earlier evidence in it",
       );
 
       // Phase two, on a fresh token, reaching the instant.
-      const second = await runSentinel(dir, api, { deadlineAt: deadline, stateFile: state, pollMs: 60 });
+      const second = await runSentinel(dir, api, { deadlineAt: deadline, stateFile: state, pollMs: 100 });
       assert.equal(second.status, 0, second.stderr);
       assert.match(second.outputs, /fired=true/);
       assert.match(second.outputs, /due_assignment_ids=exam,late-exam\n/, second.outputs);
@@ -857,8 +862,8 @@ test("the next phase continues the same watch, with the earlier evidence in it",
     },
     {
       ids: ["exam", "late-exam"],
-      // Both share the instant; `late-exam` is published mid-watch.
-      deadlineFor: (id) => (id === "exam" || joined() ? deadline : null),
+      // Both share the instant; `late-exam` is published during phase one.
+      deadlineFor: (id, poll) => (id === "exam" || joined(poll) ? deadline : null),
       reposFor: (id) => (id === "exam" ? ["alice"] : []),
     },
   );
