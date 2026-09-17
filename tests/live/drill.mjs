@@ -55,7 +55,7 @@ import { brokerRepoName } from "../../lib/broker-repo.mjs";
 import { resolveArchiveRepo, archiveBranchName, reportArchiveRepo } from "../../lib/archive-repo.mjs";
 import {
   ASSIGNMENT_OWNED_DIRS, DASHBOARD_PATH, assignmentIdFromFile, assignmentPath, gradingSummaryPath,
-  reportCsvPath, reportPath, retiredDir,
+  reportCsvPath, reportPath, retiredDir, retiredManifestPath,
 } from "../../lib/control-layout.mjs";
 import { buildRetiredManifest } from "../../lib/retired-manifest.mjs";
 import { commitWithRebase } from "../../lib/gittree.mjs";
@@ -71,6 +71,7 @@ import {
   openAcceptanceIssue, reporter, signAcceptance, sleep,
 } from "./live-kit.mjs";
 import { CLEANUP_LOCK_REF, acquireCleanupLock, breakCleanupLock, releaseCleanupLock } from "./cleanup-lock.mjs";
+import { deletePlanStale } from "./cleanup-plan.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
@@ -740,9 +741,19 @@ async function cleanupLocked(named, request) {
 
     const tree = await request("GET", `/repos/${ORG}/${CONTROL_REPO}/git/trees/main?recursive=1`);
     if (!tree.ok || tree.data?.truncated) { bad(`control tree ${tree.ok ? "truncated" : `HTTP ${tree.status}`} - nothing deleted`); continue; }
-    const owned = (tree.data.tree || [])
-      .filter((e) => e.type === "blob")
-      .map((e) => e.path)
+    const paths = (tree.data.tree || []).filter((e) => e.type === "blob").map((e) => e.path);
+
+    // THE PLAN HAS TO STILL BE TRUE. The document was read before this tree, and
+    // `commitWithRebase` rebases onto whatever head it finds - so an assignment
+    // deleted in between is retired a second time, by a commit whose manifest
+    // says nothing was removed. The lock stops another cleanup; this stops the
+    // Admin Panel in a browser tab, and a Contents read served from before the
+    // delete. tests/live/cleanup-plan.mjs decides, and it asks after the tree
+    // read and before anything is deleted.
+    const stale = deletePlanStale({ paths, assignmentId: id });
+    if (stale) { bad(`${stale.message} - nothing changed`); continue; }
+
+    const owned = paths
       .filter((p) => p === assignmentPath(id) || p === reportPath(id) || p === reportCsvPath(id) ||
         ASSIGNMENT_OWNED_DIRS.some((d) => p.startsWith(`${d}/${id}/`)));
     const studentRepos = [];
@@ -771,7 +782,7 @@ async function cleanupLocked(named, request) {
 
     const changes = [
       {
-        path: `${retiredDir(id)}/manifest.json`,
+        path: retiredManifestPath(id),
         content: JSON.stringify(buildRetiredManifest({
           org: ORG, assignmentId: id, title: doc.title, deletedBy: LECTURER.login,
           brokerRepo: broker, brokerDeleted: brokerRes.ok, removedPaths: owned, students, orgRulesetRemoved,

@@ -1618,6 +1618,7 @@ import {
   reportCsvPath,
   gradingSummaryPath,
   retiredDir,
+  retiredManifestPath,
   DASHBOARD_PATH,
   ASSIGNMENT_OWNED_DIRS,
 } from '../../../lib/control-layout.mjs'
@@ -3800,7 +3801,7 @@ async function checkCollisions(slug, pattern, { fresh = true } = {}) {
   }
 
   try {
-    const raw = await getRepoContent(token, props.org, config.controlRepo, `${retiredDir(slug)}/manifest.json`)
+    const raw = await getRepoContent(token, props.org, config.controlRepo, retiredManifestPath(slug))
     if (raw) {
       try {
         manifest = JSON.parse(raw)
@@ -4474,7 +4475,7 @@ async function deleteAssignment() {
     //    entry off the dashboard.
     const changes = [
       {
-        path: `${retiredDir(id)}/manifest.json`,
+        path: retiredManifestPath(id),
         // The record that outlives the assignment - what went, when, by whom,
         // and where the code still is. lib/retired-manifest.mjs owns its shape,
         // so schemas/retired-manifest.schema.json has one document to describe
