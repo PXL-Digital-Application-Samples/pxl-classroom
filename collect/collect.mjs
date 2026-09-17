@@ -247,7 +247,16 @@ async function main() {
 
         const commitRes = await gh("GET", `/repos/${cfg.org}/${repoName}/commits?sha=${encodeURIComponent(branch)}&per_page=1`);
         if (!commitRes.ok) {
-          log(`snapshot ${login}`, { ok: false, note: `commit HTTP ${commitRes.status}` });
+          // The repository answered 200 a line above, so a 404 here is the
+          // BRANCH: student repositories get the template's default branch
+          // only, and a submission_ref naming any other one reads as
+          // "commit HTTP 404" for every student, every night. Say which.
+          // Still an error: no evidence was recorded. An empty repository is
+          // a 409 and keeps the plain status.
+          const note = commitRes.status === 404
+            ? `branch ${branch} does not exist (the repository's default branch is ${repoRes.data.default_branch}; check submission_ref)`
+            : `commit HTTP ${commitRes.status}`;
+          log(`snapshot ${login}`, { ok: false, note });
           totalErrors++;
           allRows.push(`| ${login} | - | error (commit ${commitRes.status}) |`);
           continue;

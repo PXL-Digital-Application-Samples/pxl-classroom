@@ -7,7 +7,9 @@
 //
 // Two questions, and they fail differently on purpose.
 //
-// 1. CAN THE TEMPLATE PROVISION AT ALL? Refuses the publish.
+// 1. CAN THE TEMPLATE PROVISION AT ALL, AND ON THE RIGHT BRANCH? Refuses the
+//    publish. The branch half: student repositories get the template's default
+//    branch only, so `submission_ref` must name it (submissionBranchProvisioned).
 //
 //    Measured on the live testbed 2026-09-07 by running the real chain: a
 //    PUBLIC template in another organization works (a stranger's, even - the
@@ -46,6 +48,7 @@ import {
   templateSourceMessage,
   resolveTemplatePin,
   templatePinMessage,
+  submissionBranchProvisioned,
 } from "../lib/template-source.mjs";
 import { assignmentFreezePlanFinding, FREE_PLAN } from "../lib/audit.mjs";
 
@@ -127,9 +130,22 @@ async function main() {
   if (!pin.ok) {
     fail(templatePinMessage(pin, { templateOwner: owner, templateRepo: repo }));
   }
+
+  // Will the student repositories have the branch everything downstream reads?
+  // They are generated with the template's default branch only, so any other
+  // `submission_ref` is a collector that 404s every night, a lock on a branch
+  // nobody has and a grading trigger that never fires. Refused here because
+  // this is the last moment before a student's repository is created on it.
+  const branch = submissionBranchProvisioned({
+    submissionRef: doc.submission_ref,
+    templateDefaultBranch: data?.default_branch,
+  });
+  if (!branch.ok) {
+    fail(templateSourceMessage(branch, { templateOwner: owner, templateRepo: repo, org }));
+  }
   console.log(
     `[template] ok - ${full} private=${data.private} is_template=${data.is_template} ` +
-      `id=${data.id}${pin.pinned ? " (pinned)" : " (not pinned)"}`,
+      `id=${data.id}${pin.pinned ? " (pinned)" : " (not pinned)"} default_branch=${data.default_branch}`,
   );
 
   // --- 2. the plan, against what this assignment asked for -----------------

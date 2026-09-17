@@ -307,6 +307,45 @@ test("every App-token step uses one pinned action version, and its inputs", () =
   );
 });
 
+test("every npm install runs on the Node the hub declares, set up before it", () => {
+  // Ten jobs across seven workflows ran `npm ci --omit=dev` straight after
+  // checkout, with no setup-node before it, so it installed on the runner's
+  // own Node (22.23.2 on 2026-09-17) while package.json says `>=24` - an
+  // EBADENGINE warning per package in every nightly, acceptance and weekly
+  // report. The composite actions set Node 24 up afterwards, which is why
+  // nothing failed, and why nothing would have noticed the day a dependency
+  // stopped installing on 22.
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const engine = Number(/(\d+)/.exec(String(pkg.engines?.node))?.[1]);
+  assert.ok(Number.isInteger(engine), "sanity: package.json engines.node must name a major");
+
+  const offenders = [];
+  let installs = 0;
+  const visit = (steps, label) => {
+    let node = null;
+    for (const step of steps ?? []) {
+      const uses = typeof step?.uses === "string" ? step.uses : "";
+      if (uses.startsWith("actions/setup-node@")) {
+        node = Number(/(\d+)/.exec(String(step.with?.["node-version"]))?.[1]);
+        if (node !== engine) offenders.push(`${label}: setup-node ${step.with?.["node-version"]} is not engines ${engine}`);
+      }
+      if (typeof step?.run === "string" && /\bnpm (ci|install)\b/.test(step.run)) {
+        installs++;
+        if (node === null) offenders.push(`${label}: \`${step.run.trim().split("\n")[0]}\` runs before any setup-node`);
+      }
+    }
+  };
+  for (const { file, doc } of workflows()) {
+    for (const [jobId, job] of Object.entries(doc?.jobs ?? {})) visit(job?.steps, `${file}:${jobId}`);
+  }
+  for (const path of COMPOSITE_ACTIONS) {
+    visit(parse(readFileSync(join(root, path), "utf8"))?.runs?.steps, path);
+  }
+
+  assert.ok(installs > 10, `sanity: expected many npm installs, saw ${installs}`);
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+});
+
 test("every hub checkout agrees on one pinned version", () => {
   // The same two workflows the test above is about - sync-starter-code.yml and
   // open-feedback-prs.yml - were also the last two on actions/checkout@v4 while

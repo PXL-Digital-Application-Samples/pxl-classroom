@@ -15,17 +15,24 @@
 // granting on the other org can change.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   templateUsable,
   templateSourceMessage,
   isForeignTemplate,
   resolveTemplatePin,
   templatePinMessage,
+  submissionBranchProvisioned,
+  BRANCH_NOT_PROVISIONED,
   FOREIGN_PRIVATE,
   NOT_A_TEMPLATE,
   TEMPLATE_REPLACED,
   UNKNOWN,
 } from "../lib/template-source.mjs";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const ORG = "pxl-classroom-testbed";
 const ok = (over = {}) => ({ templateOwner: ORG, org: ORG, isPrivate: true, isTemplate: true, ...over });
@@ -272,4 +279,68 @@ test("the mismatch message says what changed, what it cost, and whose call it is
 test("a passing finding has no message", () => {
   assert.equal(templateSourceMessage(templateUsable(ok()), { org: ORG }), "");
   assert.equal(templateSourceMessage(null, { org: ORG }), "");
+});
+
+// --- The branch a student repository gets -------------------------------------
+//
+// Provisioning generates with `include_all_branches: false`, so a student has the
+// template's default branch and nothing else. `java-essentials-2627` collected
+// from `main` over a `master` template and failed its org's nightly leg two
+// nights running with `commit HTTP 404` for every student.
+
+test("provisioning copies the default branch only, which is what this rule rests on", () => {
+  // If provisioning ever copies every branch, a non-default submission branch
+  // becomes reachable and this rule has to be re-asked, not quietly kept.
+  const src = readFileSync(join(root, "provisioning", "provision.mjs"), "utf8");
+  assert.match(src, /\/generate`, \{[^}]*include_all_branches: false/);
+});
+
+test("the submission branch must be the template's default branch", () => {
+  assert.deepEqual(
+    submissionBranchProvisioned({ submissionRef: "refs/heads/master", templateDefaultBranch: "master" }),
+    { ok: true, branch: "master" },
+  );
+  const f = submissionBranchProvisioned({ submissionRef: "refs/heads/main", templateDefaultBranch: "master" });
+  assert.equal(f.ok, false);
+  assert.equal(f.code, BRANCH_NOT_PROVISIONED);
+  assert.equal(f.branch, "main");
+  assert.equal(f.defaultBranch, "master");
+});
+
+test("an absent submission_ref is main, as every reader of it already says", () => {
+  assert.equal(submissionBranchProvisioned({ templateDefaultBranch: "main" }).ok, true);
+  assert.equal(submissionBranchProvisioned({ templateDefaultBranch: "master" }).code, BRANCH_NOT_PROVISIONED);
+});
+
+test("branch names compare exactly, because git compares them exactly", () => {
+  assert.equal(
+    submissionBranchProvisioned({ submissionRef: "refs/heads/Main", templateDefaultBranch: "main" }).code,
+    BRANCH_NOT_PROVISIONED,
+  );
+  assert.equal(
+    submissionBranchProvisioned({ submissionRef: "refs/heads/exam/final", templateDefaultBranch: "exam/final" }).ok,
+    true,
+  );
+});
+
+test("an unreadable default branch is UNKNOWN, never a guessed main", () => {
+  for (const templateDefaultBranch of [undefined, null, "", 0]) {
+    const f = submissionBranchProvisioned({ submissionRef: "refs/heads/main", templateDefaultBranch });
+    assert.equal(f.ok, false, String(templateDefaultBranch));
+    assert.equal(f.code, UNKNOWN, String(templateDefaultBranch));
+  }
+});
+
+test("the branch message names both branches and the one field to change", () => {
+  const f = submissionBranchProvisioned({ submissionRef: "refs/heads/main", templateDefaultBranch: "master" });
+  const msg = templateSourceMessage(f, {
+    templateOwner: "PXL-Java-Essentials",
+    templateRepo: "java-exercises-student-start",
+    org: "PXL-Java-Essentials",
+  });
+  assert.match(msg, /PXL-Java-Essentials\/java-exercises-student-start/);
+  assert.match(msg, /"main"/);
+  assert.match(msg, /"master"/);
+  assert.match(msg, /Set Submission ref to refs\/heads\/master\./);
+  assert.doesNotMatch(msg, /RUNBOOK|ARCHITECTURE|LESSONS|§/);
 });
