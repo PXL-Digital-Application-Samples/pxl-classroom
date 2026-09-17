@@ -90,8 +90,10 @@
             <!-- Only where the account has actually demonstrated it. This was
                  unconditional, so a student who had accepted one assignment
                  was badged Lecturer on a dashboard they have no access to -
-                 the label asserting a role the system had never checked. -->
-            <span v-if="dashState !== 'no-access'" class="lecturer-tag text-muted text-xs">Lecturer</span>
+                 the label asserting a role the system had never checked.
+                 Hub write alone does not earn it either: that is a role on
+                 the hub, and this tag is about the selected organization. -->
+            <span v-if="staffHere" class="lecturer-tag text-muted text-xs">Lecturer</span>
         </div>
       </template>
       <template #actions>
@@ -215,6 +217,52 @@
           </p>
           <div class="flex justify-center gap-sm mt-md">
             <router-link to="/" class="btn btn-primary">My assignments</router-link>
+          </div>
+        </template>
+
+        <!-- SET UP, AND NOT READABLE BY THIS ACCOUNT. An account that can run
+             Setup Organization (write on the hub) but does not own this org.
+             It was shown the onboarding card below and a Set up button, over
+             a course that had been running for days (2026-09-17) - and ran it
+             twice. The hub registry says the org is set up, so the only thing
+             missing is access, and that is granted by the organization. -->
+        <template v-else-if="dashState === 'no-org-access'">
+          <Icon name="lock" :size="48" class="status-icon" />
+          <h2>{{ selectedOrg }} is set up, but not for this account</h2>
+          <p class="text-secondary">
+            Its course data is in a private repository this account can't read. Running
+            Setup Organization again won't change that: access comes from the organization,
+            not from the hub.
+          </p>
+          <p class="text-secondary">
+            To teach this course, ask an owner of <strong>{{ selectedOrg }}</strong> to add you
+            as an owner, then check again.
+            <span v-if="budgetOwner && !budgetOwnerIsViewer">Its budget owner is <strong>@{{ budgetOwner }}</strong>.</span>
+          </p>
+          <div class="flex justify-center gap-sm mt-md">
+            <button class="btn btn-primary btn-with-icon" type="button" @click="loadDashboard()">
+              <Icon name="refresh-cw" :size="14" />
+              <span>Check again</span>
+            </button>
+          </div>
+        </template>
+
+        <!-- The same account, and the registry did not load. Unreadable is not
+             evidence: this may be a course that is not set up or one this
+             account cannot read, so it offers neither Set up nor a refusal. -->
+        <template v-else-if="dashState === 'registry-unknown'">
+          <Icon name="lock" :size="48" class="status-icon" />
+          <h2>Couldn't tell whether {{ selectedOrg }} is set up</h2>
+          <p class="text-secondary">
+            This account can't read {{ selectedOrg }}'s control repository, and the hub's list of
+            set-up organizations didn't load - so this page can't tell a course that isn't set up
+            from one you haven't been given access to.
+          </p>
+          <div class="flex justify-center gap-sm mt-md">
+            <button class="btn btn-primary btn-with-icon" type="button" @click="loadDashboard()">
+              <Icon name="refresh-cw" :size="14" />
+              <span>Check again</span>
+            </button>
           </div>
         </template>
 
@@ -480,7 +528,7 @@
       </div>
 
       <!-- Embedded Resource Usage & Limits Section -->
-      <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo' && dashState !== 'no-access'" :org="selectedOrg" />
+      <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo' && staffHere" :org="selectedOrg" />
 
       <!-- Unified Health Diagnostics Modal -->
       <SystemHealthModal
@@ -508,6 +556,8 @@ import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
 import { APP_INSTALL_URL } from '../../../lib/audit.mjs'
+import { sameLogin } from '../../../lib/github-login.mjs'
+import { classifyUnreadableControlRepo, readOrgRegistration } from '../lib/control-repo-access.js'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -610,9 +660,31 @@ async function loadOrgStatuses(orgList) {
   )
 }
 
-// Why the assignment list is empty: '' | 'no-control-repo' | 'no-dashboard' | 'empty'
+// Why the assignment list is empty: '' | 'no-control-repo' | 'no-access' |
+// 'no-org-access' | 'registry-unknown' | 'onboarding' | 'no-dashboard' | 'empty'
 const dashState = ref('')
+// What an unreadable control repository means, as control-repo-access.js
+// judges it, spelled as the states this view renders.
+const DASH_STATE_FOR_VERDICT = Object.freeze({
+  'not-set-up': 'no-control-repo',
+  'no-access': 'no-access',
+  'no-org-access': 'no-org-access',
+  unknown: 'registry-unknown',
+})
+// The states in which this account has NOT shown it can read this org's course
+// data. The Lecturer tag and the usage panel are both claims about this org, so
+// neither renders in them. `no-control-repo` is not here: an owner's 404 is a
+// course that genuinely has no control repository yet.
+const CANNOT_READ_ORG = new Set(['no-access', 'no-org-access', 'registry-unknown'])
+const staffHere = computed(() => !CANNOT_READ_ORG.has(dashState.value))
 const hubWritable = ref(false)
+// Set with the verdict. Only an owner can watch for the control repository
+// after Setup Organization - anyone else is watching for a repository they will
+// never be able to see - and the registry's budget owner is the one name this
+// page can give a non-member to ask.
+const orgAdminHere = ref(false)
+const budgetOwner = ref(null)
+const budgetOwnerIsViewer = computed(() => sameLogin(budgetOwner.value, user.value?.login))
 const settingUp = ref(false)
 // Set when the lecturer leaves for GitHub's installation page, cleared as soon
 // as an org appears. Without it, "install finished, now what?" has no answer
@@ -697,6 +769,25 @@ async function runSetupOrg() {
         toast.success(`${org} is ready.`)
         await loadDashboard(org)
         return
+      }
+      // A NON-OWNER NEVER SEES THE REPOSITORY APPEAR. Setup creates it inside an
+      // org this account cannot read, so waiting for it ran the full four minutes
+      // and then said Setup was "taking longer than expected" about a run that had
+      // succeeded. Registration is Setup's last step, so it is the finish line an
+      // outsider can see. Not for an owner: re-running Setup to recreate a deleted
+      // control repository leaves the org listed from before, and that must not
+      // end the wait before the repository exists.
+      if (!orgAdminHere.value) {
+        const registration = await readOrgRegistration(
+          (method, path) => ghApi(token, method, path),
+          { org, hubOwner: config.hubOwner, hubRepo: config.hubRepo },
+        )
+        if (generation !== setupGeneration) return
+        if (registration.state === 'listed') {
+          toast.success(`${org} is set up.`)
+          await loadDashboard(org)
+          return
+        }
       }
     }
     if (generation !== setupGeneration) return
@@ -972,45 +1063,37 @@ async function loadDashboard(orgArg) {
         // gates the screen - and a lecturer who has just been made an org owner
         // without hub write is told to ask a hub admin, from a state that does
         // not call them Lecturer or offer them a button that would 403.
-        try {
-          const hub = await getRepo(token, config.hubOwner, config.hubRepo)
-          hubWritable.value = Boolean(hub.ok && hub.data?.permissions?.push)
-        } catch {
-          hubWritable.value = false
-        }
-
-        // AND whether this account administers the organization, which is the
-        // signal that keeps a real lecturer out of the refusal.
         //
-        // A lecturer onboarding a NEW org and a student who accepted one
-        // assignment produce the identical 404 above, and neither has hub
-        // write - so hub write alone would have refused the very person the
-        // onboarding screen exists for. GET /orgs/{org} separates them:
-        // `default_repository_permission` is returned to an organization
-        // OWNER and is null to everyone else. Measured 2026-09-03 - "none" for
-        // an org I own, null for one I am not a member of - and lib/audit.mjs
-        // already reads this same field for the base-permission check.
+        // AND whether this account owns the organization, which keeps a real
+        // lecturer out of the refusal: a lecturer onboarding a NEW org has no
+        // hub write and produces the identical 404 a student does.
         //
-        // A POSITIVE signal, so an unreadable or failed call refuses rather
-        // than admits.
-        let orgAdmin = false
-        try {
-          const orgRes = await ghApi(token, 'GET', `/orgs/${org}`)
-          orgAdmin = Boolean(orgRes.ok && orgRes.data?.default_repository_permission != null)
-        } catch {
-          orgAdmin = false
-        }
+        // AND - since 2026-09-17 - HUB WRITE IS NOT STAFF HERE. It means this
+        // account can RUN Setup Organization, and says nothing about whether it
+        // can read this org: an owner of the hub org has it on every course. A
+        // hub admin who was only an outside collaborator on PXL-Java-Essentials
+        // was shown "needs its control repository" and a Set up button over a
+        // course that had been running for days, and ran it twice. For a
+        // non-owner the public hub registry now says whether the org is set up.
+        //
+        // One judge for this and the Admin Panel, every signal positive, and an
+        // unreadable registry is `unknown` rather than "not set up":
+        // frontend/src/lib/control-repo-access.js.
+        const access = await classifyUnreadableControlRepo(
+          (method, path) => ghApi(token, method, path),
+          { org, hubOwner: config.hubOwner, hubRepo: config.hubRepo },
+        )
+        if (superseded()) return
+        hubWritable.value = access.hubWritable
+        orgAdminHere.value = access.orgAdmin
+        budgetOwner.value = access.budgetOwner
 
-        // FAIL CLOSED. An unreadable control repo, no hub write and no org
-        // administration is not a half-configured organization - it is an
-        // account with nothing to do here.
-        const staff = hubWritable.value || orgAdmin
         // The new org's answer replaces the old org's list. Without this the
         // cards from the organization you just switched away from stay on
         // screen under the new one's name.
         assignments.value = []
-        dashState.value = staff ? 'no-control-repo' : 'no-access'
-        orgStatusMap.value.set(org.toLowerCase(), staff ? 'empty' : 'no-access')
+        dashState.value = DASH_STATE_FOR_VERDICT[access.verdict]
+        orgStatusMap.value.set(org.toLowerCase(), access.verdict === 'not-set-up' ? 'empty' : 'no-access')
         return
       }
     }

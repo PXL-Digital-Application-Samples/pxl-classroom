@@ -48,54 +48,66 @@ const code = SRC.replace(/<!--[\s\S]*?-->/g, "")
 test("an unreadable control repo is not treated as an absent one", () => {
   // The whole bug in one line. A 404 may not select the onboarding state on its
   // own, because a student and a fresh organization produce the identical 404.
+  //
+  // The capability checks themselves - owner, hub write, and since 2026-09-17
+  // the hub registry - live in frontend/src/lib/control-repo-access.js and are
+  // RUN by tests/control-repo-access.test.mjs. This guards the wiring.
   const at = code.indexOf("repoRes.status === 404");
   assert.ok(at > 0, "the 404 branch must still exist - update this guard with it");
-  const branch = code.slice(at, at + 2200);
+  const end = code.indexOf("orgStatusMap.value.set", at);
+  assert.ok(end > at, "the 404 branch must still end by recording the org's status");
+  const branch = code.slice(at, end);
 
   assert.match(
     branch,
-    /dashState\.value = staff \? 'no-control-repo' : 'no-access'/,
-    "a 404 must resolve through a capability check, not straight to onboarding",
+    /await classifyUnreadableControlRepo\(/,
+    "a 404 must resolve through the shared judge, not straight to onboarding",
+  );
+  assert.match(
+    branch,
+    /dashState\.value = DASH_STATE_FOR_VERDICT\[access\.verdict\]/,
+    "and the state must be the judge's verdict",
   );
   assert.ok(
-    !/dashState\.value = 'no-control-repo'\s*$/m.test(branch),
-    "an unconditional onboarding state is the defect this test exists for",
+    !/dashState\.value = '[a-z-]+'/.test(branch),
+    "an unconditional state in this branch is the defect this test exists for",
   );
+  const judged = branch.indexOf("classifyUnreadableControlRepo(");
+  const decided = branch.indexOf("dashState.value =");
+  assert.ok(judged < decided, "the judge must run before the state it decides");
 });
 
-test("staff is EITHER hub write OR org administration, and both are positive", () => {
-  // Hub write alone would have refused the persona the onboarding screen exists
-  // for: a lecturer just made an org owner has none, and produces the identical
-  // 404 as a student. GET /orgs/{org} separates them - it returns
-  // `default_repository_permission` to an owner and null to everyone else,
-  // measured 2026-09-03 and already relied on by lib/audit.mjs.
-  const at = code.indexOf("repoRes.status === 404");
-  const branch = code.slice(at, at + 2200);
-
-  assert.match(branch, /const staff = hubWritable\.value \|\| orgAdmin/, "either signal admits");
-  assert.match(
-    branch,
-    /orgAdmin = Boolean\(orgRes\.ok && orgRes\.data\?\.default_repository_permission != null\)/,
-    "org administration is the presence of an owner-only field",
+test("every verdict the judge can return renders a state of its own", async () => {
+  // Two spellings in two files: the verdicts in control-repo-access.js and the
+  // states this template switches on. A verdict with no row renders
+  // `dashState = undefined` - the unexplained "Nothing to show" fallback.
+  const { UNREADABLE_CONTROL_REPO_VERDICTS } = await import("../frontend/src/lib/control-repo-access.js");
+  const map = code.match(/const DASH_STATE_FOR_VERDICT = Object\.freeze\(\{([\s\S]*?)\}\)/);
+  assert.ok(map, "DASH_STATE_FOR_VERDICT must exist");
+  const rows = Object.fromEntries(
+    [...map[1].matchAll(/'?([a-z-]+)'?\s*:\s*'([a-z-]+)'/g)].map((m) => [m[1], m[2]]),
   );
-  // Both must default to false and be set only by a successful read, so an
-  // unreadable answer refuses rather than admits.
-  assert.match(branch, /let orgAdmin = false/, "the org signal must default to refusing");
-  assert.match(branch, /catch \{\s*orgAdmin = false/, "and stay refusing when the read throws");
+  assert.deepEqual(Object.keys(rows).sort(), [...UNREADABLE_CONTROL_REPO_VERDICTS].sort());
+  for (const [verdict, state] of Object.entries(rows)) {
+    assert.match(code, new RegExp(`dashState === '${state}'`), `${verdict} -> ${state} must be rendered`);
+  }
 });
 
-test("the capability checks are read BEFORE the state they decide", () => {
-  // `hubWritable` used to be fetched after the state was set, as decoration for
-  // a button. Both are the gate now, so a state assigned above them would read
-  // the previous value - false on a first load, which fails closed, and stale
-  // on a second, which does not.
-  const at = code.indexOf("repoRes.status === 404");
-  const branch = code.slice(at, at + 2200);
-  const hub = branch.indexOf("hubWritable.value = Boolean");
-  const org = branch.indexOf("orgAdmin = Boolean");
-  const decide = branch.indexOf("const staff =");
-  assert.ok(hub > 0 && org > 0 && decide > 0, "all three must be in this branch");
-  assert.ok(hub < decide && org < decide, "both checks must run before the state they decide");
+test("hub write alone is not staff on an org that is set up", () => {
+  // Reported 2026-09-17: an owner of the hub org, only an outside collaborator
+  // on PXL-Java-Essentials, got the onboarding card and a Set up button over a
+  // running course and ran Setup Organization twice. Its own state must offer
+  // neither the button nor the Lecturer tag.
+  const at = SRC.indexOf(`dashState === 'no-org-access'`);
+  assert.ok(at > 0, "the set-up-but-not-yours state must exist");
+  const block = SRC.slice(at, SRC.indexOf("</template>", at));
+  assert.ok(!/runSetupOrg|Set up \{\{/.test(block), "no Set up button");
+  assert.match(block, /owner of/, "and it says who grants access");
+
+  const unknown = SRC.indexOf(`dashState === 'registry-unknown'`);
+  assert.ok(unknown > 0, "an unreadable registry must have a state of its own");
+  const unknownBlock = SRC.slice(unknown, SRC.indexOf("</template>", unknown));
+  assert.ok(!/runSetupOrg/.test(unknownBlock), "unknown is not an invitation to set up");
 });
 
 test("the Lecturer badge is not asserted for an account with no access", () => {
@@ -104,9 +116,15 @@ test("the Lecturer badge is not asserted for an account with no access", () => {
   // waiting" - a confident statement about something nothing computed.
   assert.match(
     code,
-    /v-if="dashState !== 'no-access'"[^>]*class="lecturer-tag/,
-    "the Lecturer tag must be gated on the account not being refused",
+    /v-if="staffHere"[^>]*class="lecturer-tag/,
+    "the Lecturer tag must be gated on the account being able to read this org",
   );
+  const set = code.match(/const CANNOT_READ_ORG = new Set\(\[([^\]]*)\]\)/);
+  assert.ok(set, "the states that withhold it must be one named set");
+  for (const state of ["no-access", "no-org-access", "registry-unknown"]) {
+    assert.ok(set[1].includes(`'${state}'`), `${state} must withhold the Lecturer tag`);
+  }
+  assert.match(code, /const staffHere = computed\(\(\) => !CANNOT_READ_ORG\.has\(dashState\.value\)\)/);
 });
 
 test("nothing staff-facing renders in the refused state", () => {
@@ -120,14 +138,17 @@ test("nothing staff-facing renders in the refused state", () => {
   );
   const usage = code.match(/<UsagePanel v-if="[^"]+"/);
   assert.ok(usage, "the usage panel must still be conditional");
-  assert.match(usage[0], /dashState !== 'no-access'/, "and hidden from a refused account");
+  assert.match(usage[0], /&& staffHere/, "and hidden from an account that cannot read the org");
 
-  // The refused state must come FIRST in the chain, or the onboarding branch
-  // above it wins and the student sees Setup Organization again.
-  const refused = code.indexOf("dashState === 'no-access'");
+  // The refused states must come FIRST in the chain, or the onboarding branch
+  // above them wins and Setup Organization is offered again.
   const onboarding = code.indexOf("dashState === 'no-control-repo'");
-  assert.ok(refused > 0 && onboarding > 0, "both states must exist");
-  assert.ok(refused < onboarding, "the refusal must be tested before the onboarding card");
+  assert.ok(onboarding > 0, "the onboarding state must exist");
+  for (const state of ["no-access", "no-org-access", "registry-unknown"]) {
+    const refused = code.indexOf(`dashState === '${state}'`);
+    assert.ok(refused > 0, `${state} must exist`);
+    assert.ok(refused < onboarding, `${state} must be tested before the onboarding card`);
+  }
 });
 
 test("the refusal explains why the org is even listed", () => {

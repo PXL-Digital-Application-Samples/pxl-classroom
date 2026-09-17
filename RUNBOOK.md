@@ -18,6 +18,7 @@ What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists �
 | Define the assignment | [§1.2](#12-define-the-assignment-in-the-admin-panel) |
 | Reuse the groups from an earlier group assignment | [§1.3](#13-reuse-the-groups-from-an-earlier-group-assignment) |
 | Publish it, and share the link | [§1.4](#14-publish), [§1.5](#15-share-the-link) |
+| Give a colleague who teaches the course access to it | [ADMIN.md §1.6](ADMIN.md#16-give-a-lecturer-access-to-a-course-organization) |
 | Import a roster, or run without one | [§6.4](#64-importing-a-roster) |
 | Set up autograding | [§6.12](#612-autograding) |
 

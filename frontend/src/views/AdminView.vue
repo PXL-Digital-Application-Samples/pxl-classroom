@@ -98,18 +98,56 @@
              assignment open, the view's job is that assignment and its Save is
              the solid button; with nothing open, this is the only thing to do
              here and gets it. Exactly one, in both states. -->
-        <button :class="['btn', 'new-btn', 'btn-with-icon', editing ? '' : 'btn-primary']" @click="newAssignment">
+        <!-- Disabled, with the card below saying why, while the control
+             repository cannot be read: an assignment is saved INTO it, so the
+             form could only fail at the end. -->
+        <button
+          :class="['btn', 'new-btn', 'btn-with-icon', editing ? '' : 'btn-primary']"
+          :disabled="controlRepoUnreadable"
+          :title="controlRepoUnreadable ? `An assignment is saved in ${org}'s control repository, which this account can't read` : undefined"
+          @click="newAssignment"
+        >
           <Icon name="plus" :size="14" />
           <span>New assignment</span>
         </button>
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
-        <div v-else-if="assignmentsError === 'no-control-repo'" class="list-empty error-state-box">
-          <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} isn't onboarded yet</h4>
-          <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
-            There is no <code>{{ org }}/{{ config.controlRepo }}</code> repository (or you can't see it).
-            A hub admin onboards the org by running the <strong>Setup Organization</strong> workflow.
-          </p>
+        <!-- One card per verdict, from the judge the dashboard uses
+             (control-repo-access.js). It said "isn't onboarded yet ... (or you
+             can't see it)" to everybody, including an owner of the hub org
+             looking at a course that had been running for days. -->
+        <div v-else-if="controlRepoUnreadable" class="list-empty error-state-box">
+          <template v-if="controlRepoAccess?.verdict === 'no-org-access'">
+            <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} is set up, but not for this account</h4>
+            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
+              Its course data is in a private repository this account can't read.
+              Ask an owner of <strong>{{ org }}</strong> to add you as an owner.
+              <span v-if="controlRepoAccess.budgetOwner && !budgetOwnerIsViewer">Its budget owner is <strong>@{{ controlRepoAccess.budgetOwner }}</strong>.</span>
+            </p>
+          </template>
+          <template v-else-if="controlRepoAccess?.verdict === 'unknown'">
+            <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't tell whether {{ org }} is set up</h4>
+            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
+              This account can't read its control repository, and the hub's list of set-up
+              organizations didn't load.
+            </p>
+            <button class="btn btn-sm" @click="loadAssignments">Retry</button>
+          </template>
+          <template v-else-if="controlRepoAccess?.verdict === 'no-access'">
+            <h4 style="margin: 0 0 var(--space-xs) 0;">This account can't read {{ org }}'s course data</h4>
+            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
+              If you teach this course, ask a PXL Classroom administrator to set the organization
+              up and to give you access to its control repository.
+            </p>
+          </template>
+          <template v-else>
+            <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} isn't set up yet</h4>
+            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
+              There is no <code>{{ org }}/{{ config.controlRepo }}</code> repository yet.
+              <template v-if="controlRepoAccess?.hubWritable">Set it up from this organization's overview.</template>
+              <template v-else>A hub admin sets it up by running <strong>Setup Organization</strong>.</template>
+            </p>
+          </template>
         </div>
         <div v-else-if="assignmentsError" class="list-empty error-state-box">
           <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load assignments</h4>
@@ -161,7 +199,13 @@
 
       <!-- RIGHT: editor -->
       <main class="editor-pane">
-        <div v-if="!editing" class="empty-state">
+        <!-- Not an invitation to pick or create while there is nothing to
+             pick from and New assignment is disabled; the card on the left
+             says why. -->
+        <div v-if="!editing && controlRepoUnreadable" class="empty-state">
+          <h3>No assignments to show</h3>
+        </div>
+        <div v-else-if="!editing" class="empty-state">
           <h3>Pick an assignment to edit</h3>
           <p>Or click <strong>+ New assignment</strong> to create one.</p>
         </div>
@@ -1670,6 +1714,8 @@ import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '
 import { classGroupChips, studentInClassGroup, normalizeClassGroup } from '../lib/class-groups.js'
 import { cohortIdentity, rosterIdentities, normalizeCohortEntry, danglingCohortEntries } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
+import { sameLogin } from '../../../lib/github-login.mjs'
+import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 
 const props = defineProps({ org: { type: String, required: true } })
 const route = useRoute()
@@ -1726,6 +1772,10 @@ function onTabKeydown(e) {
 const assignments = ref([])
 const loadingList = ref(true)
 const assignmentsError = ref(null)
+// Why the control repository answered 404, when it did - control-repo-access.js.
+const controlRepoAccess = ref(null)
+const controlRepoUnreadable = computed(() => assignmentsError.value === 'no-control-repo')
+const budgetOwnerIsViewer = computed(() => sameLogin(controlRepoAccess.value?.budgetOwner, user.value?.login))
 const templates = ref([])
 const loadingTemplates = ref(false)
 const templatesError = ref(null)
@@ -2949,6 +2999,14 @@ async function loadAssignments() {
     const repoRes = await getRepo(token, props.org, config.controlRepo)
     if (!repoRes.ok) {
       if (repoRes.status === 404) {
+        // Not "isn't onboarded yet (or you can't see it)" - that sentence was
+        // shown to an owner of the hub org about a course running for days,
+        // under a New assignment button that could only fail. The dashboard
+        // asks the same question of the same judge.
+        controlRepoAccess.value = await classifyUnreadableControlRepo(
+          (method, path) => ghApi(token, method, path),
+          { org: props.org, hubOwner: config.hubOwner, hubRepo: config.hubRepo },
+        )
         assignmentsError.value = 'no-control-repo'
       } else {
         assignmentsError.value = `Failed to load control repository (HTTP ${repoRes.status})`
@@ -3056,6 +3114,8 @@ async function loadTemplates() {
 // ---------------------------------------------------------------- edit flow
 
 function newAssignment() {
+  // The button is disabled for this; `?new=1` reaches here without it.
+  if (controlRepoUnreadable.value) return
   if (!confirmDiscard()) return
   stopPublishWatch()
   editing.value = { __new: true, id: '' }

@@ -128,6 +128,25 @@ orgs:
 
 Schema: `schemas/participating-orgs.schema.json`. See §6 for what `overrides` means and how thresholds are resolved.
 
+### 1.6 Give a lecturer access to a course organization
+
+A lecturer reads a course through that organization: the dashboard, the Admin Panel and the roster all read the private `pxl-classroom-control` repository **with the lecturer's own token**, and the tracking view opens each student's private repository. Access on the hub (§1.4) does not reach any of that. It lets them *publish*, and it is a separate grant.
+
+Done by an **owner of the course organization**:
+
+1. `https://github.com/orgs/<org>/people` -> **Invite member** -> the lecturer's GitHub login -> role **Owner** -> **Send invitation**. The same from a terminal, with a token carrying `admin:org`:
+   ```bash
+   gh api -X PUT orgs/<org>/memberships/<login> -f role=admin
+   ```
+   It answers `"state": "pending"` until the invitation is accepted.
+2. The lecturer accepts at `https://github.com/orgs/<org>/invitation` (GitHub also emails it), then reloads the dashboard. Signing in again is not needed: access is checked on every read.
+
+**Owner, not a collaborator on the control repository.** A collaborator on `pxl-classroom-control` alone sees the dashboard and the roster, but every student repository stays a 404 to them, and reopening a locked repository needs admin on it (RUNBOOK §6.15). Owner is what the lecturers already on a course hold.
+
+**What a lecturer sees before this is done.** The org still appears in their switcher if they have any repository in it, and accepting an assignment to try it out is enough. With write on the hub they are told that the org *"is set up, but not for this account"* and asked to find an owner, with the budget owner from `participating-orgs.yml` named. Without hub write they see the lecturer-view refusal. Neither screen offers Setup Organization: running it again changes nothing, because access comes from the organization and not from the hub.
+
+**One consequence to know about:** an owner cannot be frozen at a deadline, so a lecturer who accepted an assignment to test it keeps push access to that one test repository. System Health reports it, and RUNBOOK §3.5 is the check before an exam.
+
 ---
 
 ## 2. Per-org budget policy
