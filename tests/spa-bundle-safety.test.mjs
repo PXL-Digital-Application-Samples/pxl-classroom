@@ -24,12 +24,13 @@
 // So this test walks the real import graph instead of trusting the build.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, statSync, existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { repoFiles } from "./repo-files.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = join(root, "frontend", "src");
 
 // Node builtins, with and without the `node:` prefix. The bare spellings matter
 // because `import { join } from "path"` bundles just as badly.
@@ -38,16 +39,6 @@ const BUILTINS = new Set([
   "util", "stream", "buffer", "http", "https", "net", "tls", "zlib", "worker_threads",
   "readline", "assert", "events", "module", "vm", "perf_hooks", "timers",
 ]);
-
-function sourceFiles(dir) {
-  const out = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
-    else if (/\.(m?js|vue)$/.test(name)) out.push(full);
-  }
-  return out;
-}
 
 /**
  * STATIC imports only - `import x from "y"` and a bare `import "y"`.
@@ -90,7 +81,7 @@ function bundledOutsideModules() {
   const reached = new Map();
   const queue = [];
 
-  for (const file of sourceFiles(SRC)) {
+  for (const file of repoFiles({ under: "frontend/src", exts: [".mjs", ".js", ".vue"] })) {
     for (const spec of specifiers(readFileSync(file, "utf8"))) {
       if (!spec.startsWith(".")) continue;
       const target = resolveRelative(file, spec);

@@ -13,7 +13,7 @@
 // every seeded team would have been turned away with `rejected:team-full`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +23,7 @@ import {
   maxTeamSize,
   minTeamSize,
 } from "../lib/group-config.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -71,18 +72,7 @@ test("nothing decides the team-size default on its own any more", () => {
   // the one that loses is the student, refused at the button by a server that
   // counted differently from the page they were looking at.
   const dirs = ["lib", "acceptance", "frontend/src", "cli/src", "scripts"];
-  const files = [];
-  for (const d of dirs) {
-    (function walk(p) {
-      let entries;
-      try { entries = readdirSync(p, { withFileTypes: true }); } catch { return; }
-      for (const e of entries) {
-        const full = join(p, e.name);
-        if (e.isDirectory()) { if (!/node_modules|dist/.test(full)) walk(full); }
-        else if (/\.(mjs|js|vue)$/.test(e.name)) files.push(full);
-      }
-    })(join(root, d));
-  }
+  const files = repoFiles({ under: dirs, exts: [".mjs", ".js", ".vue"] });
   assert.ok(files.length > 40, `expected to scan the tree, saw ${files.length} files`);
 
   const offenders = [];

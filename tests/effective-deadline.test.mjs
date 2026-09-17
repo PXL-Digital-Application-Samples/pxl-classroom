@@ -48,29 +48,18 @@ test("nothing re-implements the rule instead of importing it", async () => {
   // Same guard as tests/rate-limit.test.mjs puts on the retry policy: a local
   // `filter(o => o.type === 'deadline_extension')` is the shape of that fork,
   // so it may only live in the module itself.
-  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const { readFileSync } = await import("node:fs");
   const { join, dirname, relative } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
+  const { repoFiles } = await import("./repo-files.mjs");
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-  const walk = (dir, out = []) => {
-    for (const entry of readdirSync(dir)) {
-      // `.claude` holds git worktrees - a full second checkout of this repo,
-      // whose copy of this very module would read as a second implementation.
-      if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools" || entry === ".claude") continue;
-      const p = join(dir, entry);
-      if (statSync(p).isDirectory()) walk(p, out);
-      else if (/\.(mjs|js|vue)$/.test(entry)) out.push(p);
-    }
-    return out;
-  };
 
   const allowed = new Set([
     join(root, "lib", "effective-deadline.mjs"),        // the implementation
     join(root, "tests", "effective-deadline.test.mjs"), // this file
   ]);
 
-  const offenders = walk(root)
+  const offenders = repoFiles({ exts: [".mjs", ".js", ".vue"] })
     .filter((p) => !allowed.has(p) && !p.startsWith(join(root, "tests")))
     .filter((p) => /deadline_extension/.test(readFileSync(p, "utf8")))
     .filter((p) => {

@@ -24,35 +24,25 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 import { parse } from "yaml";
+
+import { repoFiles } from "./repo-files.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
 const deployment = parse(readFileSync(join(root, "deployment.yml"), "utf8"));
 
-/** Every file under `dir` matching `exts`, recursively, skipping build output. */
-function walk(dir, exts, out = []) {
-  const SKIP = new Set(["node_modules", ".git", ".tools", "dist", "test-results", "playwright-report"]);
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP.has(entry.name)) continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, exts, out);
-    else if (exts.some((e) => entry.name.endsWith(e))) out.push(full);
-  }
-  return out;
-}
-
 const SOURCE_DIRS = [
   "acceptance", "cli/src", "collect", "frontend/src", "lib", "lockdown",
   "notify", "pages", "preserve", "provisioning", "registry", "report", "scripts",
 ];
 
-const sourceFiles = SOURCE_DIRS.flatMap((d) => walk(join(root, d), [".mjs", ".js", ".vue"]));
-const workflowFiles = walk(join(root, ".github", "workflows"), [".yml", ".yaml"]);
+const sourceFiles = repoFiles({ under: SOURCE_DIRS, exts: [".mjs", ".js", ".vue"] });
+const workflowFiles = repoFiles({ under: ".github/workflows", exts: [".yml", ".yaml"] });
 
 /**
  * Lines quoting a literal, ignoring comments - a comment naming the value is

@@ -23,24 +23,15 @@
 // catches the sharp shape only.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const DIRS = ["scripts", "lib", "pages", "report", "lockdown", "acceptance", "cli/src"];
-
-function walk(dir, out = []) {
-  let entries;
-  try { entries = readdirSync(dir); } catch { return out; }
-  for (const e of entries) {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (e.endsWith(".mjs") || e.endsWith(".js")) out.push(p);
-  }
-  return out;
-}
 
 test("no login is compared with a raw ===", () => {
   // `something.login === x` / `x === something.login`, and the `github_login`
@@ -52,22 +43,20 @@ test("no login is compared with a raw ===", () => {
   ];
 
   const offenders = [];
-  for (const dir of DIRS) {
-    for (const file of walk(join(root, dir))) {
-      const rel = relative(root, file).replace(/\\/g, "/");
-      if (rel.endsWith("lib/github-login.mjs")) continue; // defines the rule
-      readFileSync(file, "utf8").split("\n").forEach((line, i) => {
-        if (/^\s*(\/\/|\*)/.test(line.trim())) return;
-        if (/toLowerCase\(\)/.test(line)) return; // normalised, if not trimmed
-        // `typeof x.github_login === "string"` is a type check, not a
-        // comparison of two logins. The first draft reported one and it would
-        // have been the reason somebody deleted this test.
-        if (/typeof\s+[\w.?]*\.(github_)?login\s*===/.test(line)) return;
-        if (patterns.some((re) => re.test(line))) {
-          offenders.push(`${rel}:${i + 1} compares a login with === - use sameLogin from lib/github-login.mjs`);
-        }
-      });
-    }
+  for (const file of repoFiles({ under: DIRS, exts: [".mjs", ".js"] })) {
+    const rel = relative(root, file).replace(/\\/g, "/");
+    if (rel.endsWith("lib/github-login.mjs")) continue; // defines the rule
+    readFileSync(file, "utf8").split("\n").forEach((line, i) => {
+      if (/^\s*(\/\/|\*)/.test(line.trim())) return;
+      if (/toLowerCase\(\)/.test(line)) return; // normalised, if not trimmed
+      // `typeof x.github_login === "string"` is a type check, not a
+      // comparison of two logins. The first draft reported one and it would
+      // have been the reason somebody deleted this test.
+      if (/typeof\s+[\w.?]*\.(github_)?login\s*===/.test(line)) return;
+      if (patterns.some((re) => re.test(line))) {
+        offenders.push(`${rel}:${i + 1} compares a login with === - use sameLogin from lib/github-login.mjs`);
+      }
+    });
   }
 
   assert.deepEqual(

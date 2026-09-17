@@ -15,29 +15,20 @@
 // same way.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
+import { repoFiles } from "./repo-files.mjs";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SRC = join(root, "frontend", "src");
-
-function sourceFiles(dir) {
-  const out = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
-    else if (/\.(m?js|vue)$/.test(name)) out.push(full);
-  }
-  return out;
-}
 
 /** Every path outside frontend/ that the SPA imports, repo-relative, POSIX. */
 function outsideImports() {
   const found = new Set();
-  for (const file of sourceFiles(SRC)) {
+  for (const file of repoFiles({ under: "frontend/src", exts: [".mjs", ".js", ".vue"] })) {
     const src = readFileSync(file, "utf8");
     // `import x from '../../../lib/foo.mjs'` and the `export ... from` form.
     for (const m of src.matchAll(/from\s+['"](\.\.[^'"]+)['"]/g)) {

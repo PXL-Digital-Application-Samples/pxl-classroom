@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+
+import { repoFiles } from "./repo-files.mjs";
 
 // Vue <style scoped> does NOT leak. A class used by several components but
 // declared in only one of their scoped blocks silently renders unstyled
@@ -30,16 +32,7 @@ const IGNORED = new Set([
   "flex", "flex-col", "items-center", "justify-between", "sr-only", "badge",
 ]);
 
-async function getVueFiles(dir = FRONTEND_SRC) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...(await getVueFiles(full)));
-    else if (entry.name.endsWith(".vue")) files.push(full);
-  }
-  return files;
-}
+const getVueFiles = () => repoFiles({ under: "frontend/src", exts: [".vue"] });
 
 function splitBlocks(src) {
   const styleStart = src.search(/<style\b/);
@@ -99,7 +92,7 @@ test("Scoped styles: no class is used by a component that cannot see its definit
   const globalCss = await readFile(join(FRONTEND_SRC, "style.css"), "utf8");
   const globalClasses = classesDeclared(globalCss);
 
-  const files = await getVueFiles();
+  const files = getVueFiles();
   const parsed = files.map((file) => {
     const rel = relative(process.cwd(), file);
     return { file, rel, name: basename(file) };

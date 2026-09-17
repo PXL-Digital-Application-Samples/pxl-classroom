@@ -22,9 +22,11 @@
 // goes red HERE, naming itself, instead of going quiet.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -57,18 +59,10 @@ const EXTRA_FILES = [
 
 /** Everything a scanning test might legitimately be looking at. */
 function corpus() {
-  const parts = [];
-  const walk = (dir) => {
-    let entries;
-    try { entries = readdirSync(dir); } catch { return; }
-    for (const name of entries) {
-      if (name === "node_modules" || name === ".git" || name === "dist" || name === ".claude") continue;
-      const full = join(dir, name);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (/\.(mjs|js|vue|yml|yaml|json|css|html)$/.test(name)) parts.push(readFileSync(full, "utf8"));
-    }
-  };
-  for (const d of SRC_DIRS) walk(join(root, d));
+  const parts = repoFiles({
+    under: SRC_DIRS,
+    exts: [".mjs", ".js", ".vue", ".yml", ".yaml", ".json", ".css", ".html"],
+  }).map((full) => readFileSync(full, "utf8"));
   for (const f of EXTRA_FILES) {
     try { parts.push(readFileSync(join(root, f), "utf8")); } catch { /* optional */ }
   }

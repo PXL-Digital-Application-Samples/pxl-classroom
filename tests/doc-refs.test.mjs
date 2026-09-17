@@ -20,32 +20,21 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative, extname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { repoFiles } from "./repo-files.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Documents that own a numbered section space. */
 const DOCS = ["ARCHITECTURE.md", "RUNBOOK.md", "ADMIN.md", "INSTALL.md", "DESIGN.md"];
 
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", ".tools", "dist", "test-results", "playwright-report", "coverage",
-]);
 // `.css` belongs here: style.css is the token file and cites DESIGN.md a dozen
 // times, and it sat outside this guard long enough to accumulate a reference to
 // a §3.3 that DESIGN has never had.
-const EXTS = new Set([".md", ".mjs", ".js", ".vue", ".yml", ".yaml", ".cjs", ".ts", ".css"]);
-
-function walk(dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (SKIP_DIRS.has(name)) continue;
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) walk(full, out);
-    else if (EXTS.has(extname(name))) out.push(full);
-  }
-  return out;
-}
+const EXTS = [".md", ".mjs", ".js", ".vue", ".yml", ".yaml", ".cjs", ".ts", ".css"];
 
 /**
  * Numbered sections a document declares.
@@ -75,7 +64,7 @@ function headingsOf(file) {
 
 const HEADINGS = new Map(DOCS.map((d) => [d, headingsOf(d)]));
 const ANY_HEADING = new Set([...HEADINGS.values()].flatMap((s) => [...s.keys()]));
-const FILES = walk(ROOT);
+const FILES = repoFiles({ exts: EXTS });
 
 // Finding which document a reference names is done in TWO passes, not one
 // regex. A single pattern with an optional leading doc name and a gap before

@@ -14,8 +14,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, extname, dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, relative, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -36,6 +36,7 @@ import {
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 // Owned by the modules that own the documents, not by control-layout.
 import { claimPath, claimAttemptsPath } from "../lib/claim.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -85,24 +86,12 @@ test("ROSTER_PATH agrees with the students directory it lives in", () => {
 
 // ------------------------------------------------- nobody spells them by hand
 
-const SKIP = new Set([
-  "node_modules", ".git", "dist", "test-results", "playwright-report",
-  ".tools", "coverage",
-  // Fixtures assert on the real-world path from outside; routing them through
-  // the builders would make them agree by construction and assert nothing.
-  "tests",
-]);
-const EXTS = new Set([".mjs", ".js", ".vue"]);
-
-function walk(dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (SKIP.has(name)) continue;
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (EXTS.has(extname(p))) out.push(p);
-  }
-  return out;
-}
+// Fixtures assert on the real-world path from outside; routing them through
+// the builders would make them agree by construction and assert nothing. Any
+// `tests` directory, so cli/tests too.
+const sources = () =>
+  repoFiles({ exts: [".mjs", ".js", ".vue"] })
+    .filter((p) => !relative(ROOT, p).split(sep).includes("tests"));
 
 const STARTS_WITH_DIR = new RegExp("^(" + CONTROL_SCAFFOLD_DIRS.join("|") + ")/");
 
@@ -147,7 +136,7 @@ const OWNERS = new Map([
 
 test("no file builds a control-repo path by hand", () => {
   const offenders = [];
-  for (const file of walk(ROOT)) {
+  for (const file of sources()) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
     if (OWNERS.has(rel)) continue;
     if (buildsAPath(readFileSync(file, "utf8"))) offenders.push(rel);

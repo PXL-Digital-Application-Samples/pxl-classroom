@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +24,7 @@ import {
   describeBinding,
 } from "../lib/claim-bindings.mjs";
 import { buildClaimRecord, rosterEntryForEmail } from "../lib/claim.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -188,16 +189,6 @@ test("an array-shaped roster reads as empty rather than throwing", () => {
 
 // --- the rule may not fork ---------------------------------------------------
 
-const walk = (dir, out = []) => {
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools" || entry === ".claude") continue;
-    const p = join(dir, entry);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.(mjs|js|vue)$/.test(entry)) out.push(p);
-  }
-  return out;
-};
-
 // Comments are stripped: the ones this change added quote the old shape by
 // name, so a scan including them fails against its own explanation.
 const codeOf = (p) =>
@@ -217,7 +208,7 @@ test("nothing joins claims to roster entries by hand", () => {
     join(root, "acceptance", "accept.mjs"),
   ]);
 
-  const offenders = walk(root)
+  const offenders = repoFiles({ exts: [".mjs", ".js", ".vue"] })
     .filter((p) => !allowed.has(p) && !p.startsWith(join(root, "tests")))
     .filter((p) => {
       const src = codeOf(p);

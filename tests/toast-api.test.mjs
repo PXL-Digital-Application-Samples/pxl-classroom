@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+
+import { repoFiles } from "./repo-files.mjs";
 
 // `toast` is a plain object literal, so `toast.warning(...)` on a module that
 // only exports success/error/info is a TypeError at the moment the user needed
@@ -19,16 +21,7 @@ import { basename, join, relative } from "node:path";
 const FRONTEND_SRC = join(process.cwd(), "frontend", "src");
 const TOAST_MODULE = join(FRONTEND_SRC, "lib", "toast.js");
 
-async function getSourceFiles(dir = FRONTEND_SRC) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...(await getSourceFiles(full)));
-    else if (/\.(vue|js)$/.test(entry.name)) files.push(full);
-  }
-  return files;
-}
+const getSourceFiles = () => repoFiles({ under: "frontend/src", exts: [".vue", ".js"] });
 
 /** Method names on the exported `toast` object literal. */
 function toastMethods(src) {
@@ -58,7 +51,7 @@ test("Toasts: every toast.<method>() call exists on the toast object", async () 
   const methods = toastMethods(await readFile(TOAST_MODULE, "utf8"));
 
   const offenders = [];
-  for (const file of await getSourceFiles()) {
+  for (const file of getSourceFiles()) {
     if (basename(file) === "toast.js") continue;
     const src = await readFile(file, "utf8");
     for (const m of src.matchAll(/\btoast\.(\w+)\s*\(/g)) {

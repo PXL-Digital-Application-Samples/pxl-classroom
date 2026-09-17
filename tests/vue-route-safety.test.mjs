@@ -1,33 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { repoFiles } from "./repo-files.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
-function findFiles(dir, filter) {
-  let res = [];
-  try {
-    const items = readdirSync(dir);
-    for (const item of items) {
-      // `.claude` holds git worktrees - a full second checkout of this repo.
-      if (item === "node_modules" || item === ".git" || item === "dist" || item === ".claude") continue;
-      const fullPath = join(dir, item);
-      if (statSync(fullPath).isDirectory()) {
-        res = res.concat(findFiles(fullPath, filter));
-      } else if (filter(fullPath, item)) {
-        res.push(fullPath);
-      }
-    }
-  } catch (e) {}
-  return res;
-}
-
 test("every .vue file under frontend/src has useRoute imported when referencing route variable", () => {
-  const viewsDir = join(root, "frontend", "src");
-  const vueFiles = findFiles(viewsDir, (fp, item) => item.endsWith(".vue"));
+  const vueFiles = repoFiles({ under: "frontend/src", exts: [".vue"] });
 
   const errors = [];
 
@@ -70,7 +53,7 @@ test("every .vue file under frontend/src has useRoute imported when referencing 
 // gained `@logout="handleLogout"` when it adopted AppHeader but never defined
 // the handler, leaving a Sign out button that did nothing.
 test("every @event handler referenced in a template is defined in the component", () => {
-  const vueFiles = findFiles(join(root, "frontend", "src"), (p) => p.endsWith(".vue"));
+  const vueFiles = repoFiles({ under: "frontend/src", exts: [".vue"] });
   const offenders = [];
 
   for (const file of vueFiles) {
@@ -154,8 +137,8 @@ test("every route is either linked to from somewhere, or does not ship", () => {
   // engine is shared with the CLI and is where the /setup pointer lives,
   // because "the App does not exist" is the moment anybody needs it.
   const linkSources = [
-    ...findFiles(src, (p) => /\.(vue|js)$/.test(p) && p !== routerFile),
-    ...findFiles(join(root, "lib"), (p) => p.endsWith(".mjs")),
+    ...repoFiles({ under: "frontend/src", exts: [".vue", ".js"] }).filter((p) => p !== routerFile),
+    ...repoFiles({ under: "lib", exts: [".mjs"] }),
   ].map((p) => readFileSync(p, "utf8"));
   const haystack = linkSources.join("\n");
 

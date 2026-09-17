@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { readFile } from "node:fs/promises";
+import { basename, join, relative } from "node:path";
+
+import { repoFiles } from "./repo-files.mjs";
 
 // Guards DESIGN.md §5. The SPA is dual-theme via light-dark(); the token block
 // in style.css is the ONLY place a colour literal may appear. See DESIGN.md §2.
@@ -17,16 +19,8 @@ const THEME_INVARIANT_TOKENS = new Set(["--text-on-emphasis", "--border-on-empha
 
 const COLOUR_LITERAL = /#[0-9a-fA-F]{3,8}\b|rgba?\(\s*\d/;
 
-async function getSourceFiles(dir = FRONTEND_SRC) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...(await getSourceFiles(full)));
-    else if (entry.name.endsWith(".vue") || entry.name === "style.css") files.push(full);
-  }
-  return files;
-}
+const getSourceFiles = () =>
+  repoFiles({ under: "frontend/src" }).filter((p) => p.endsWith(".vue") || basename(p) === "style.css");
 
 /** The `:root { … }` palette block plus the `[data-theme]` switch rules. */
 async function readTokenBlock() {
@@ -126,7 +120,7 @@ test("Theme rule 3: every var(--token) reference resolves to a defined token", a
   const defined = new Set([...css.matchAll(/^\s*(--[a-zA-Z0-9-]+)\s*:/gm)].map((m) => m[1]));
 
   const dangling = new Map();
-  for (const file of await getSourceFiles()) {
+  for (const file of getSourceFiles()) {
     const src = await readFile(file, "utf8");
     src.split("\n").forEach((line, i) => {
       for (const m of line.matchAll(/var\(\s*(--[a-zA-Z0-9-]+)/g)) {
@@ -238,7 +232,7 @@ test("Theme rule 1: no colour literals outside the :root token block", async () 
   const offenders = [];
   const styleCssBody = await readStyleCssBody();
 
-  for (const file of await getSourceFiles()) {
+  for (const file of getSourceFiles()) {
     const rel = relative(process.cwd(), file);
     const raw = file === STYLE_CSS ? styleCssBody : await readFile(file, "utf8");
     stripComments(raw).split("\n").forEach((line, i) => {
@@ -258,7 +252,7 @@ test("Theme rule 2: no var(--token, <literal>) colour fallbacks", async () => {
   const offenders = [];
   const styleCssBody = await readStyleCssBody();
 
-  for (const file of await getSourceFiles()) {
+  for (const file of getSourceFiles()) {
     const rel = relative(process.cwd(), file);
     const raw = file === STYLE_CSS ? styleCssBody : await readFile(file, "utf8");
     stripComments(raw).split("\n").forEach((line, i) => {

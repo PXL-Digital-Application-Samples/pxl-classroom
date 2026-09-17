@@ -23,11 +23,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -37,15 +38,7 @@ const OWNERS = new Set([
   "frontend/src/lib/roster.js",
 ]);
 
-function walk(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    if (["node_modules", "dist", ".git", ".tools", ".claude", "test-results"].includes(entry)) continue;
-    const p = join(dir, entry);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.(mjs|js|vue)$/.test(entry)) out.push(p);
-  }
-  return out;
-}
+const sources = () => repoFiles({ exts: [".mjs", ".js", ".vue"] });
 
 /** Strip comments so prose naming the file is not mistaken for a second copy. */
 function code(source, file) {
@@ -64,7 +57,7 @@ function code(source, file) {
 test("ROSTER_PATH is the path, and it is not spelled out anywhere else", () => {
   const offenders = [];
 
-  for (const file of walk(root)) {
+  for (const file of sources()) {
     const rel = relative(root, file).replace(/\\/g, "/");
     if (OWNERS.has(rel)) continue;
     if (rel.startsWith("tests/")) continue; // fixtures legitimately build trees
@@ -89,7 +82,7 @@ test("ROSTER_PATH is the path, and it is not spelled out anywhere else", () => {
 test("the guard is looking at something", () => {
   // A walk that silently stops matching looks exactly like a clean repo, which
   // is the failure mode the undeclared-classes sweep documents. Floor it.
-  const files = walk(root).map((f) => relative(root, f).replace(/\\/g, "/"));
+  const files = sources().map((f) => relative(root, f).replace(/\\/g, "/"));
   assert.ok(files.length > 200, `expected to scan the SPA and the backend, scanned ${files.length}`);
   assert.ok(files.includes("acceptance/accept.mjs"), "the acceptance gate must be in scope");
   assert.ok(files.includes("report/report.mjs"), "the report must be in scope");

@@ -25,23 +25,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { repoFiles } from "./repo-files.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = join(root, "frontend", "src");
 
-function walk(dir, out = []) {
-  for (const e of readdirSync(dir)) {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (e.endsWith(".vue") || e.endsWith(".js")) out.push(p);
-  }
-  return out;
-}
-
-const files = walk(SRC).map((f) => [relative(root, f).replace(/\\/g, "/"), readFileSync(f, "utf8")]);
+const files = repoFiles({ under: "frontend/src", exts: [".vue", ".js"] }).map((f) => [relative(root, f).replace(/\\/g, "/"), readFileSync(f, "utf8")]);
 
 /**
  * Helpers in frontend/src/lib/api.js that return a ghApi result. They RESOLVE

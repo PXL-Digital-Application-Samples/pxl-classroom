@@ -22,26 +22,18 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, relative, resolve, extname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname, relative, resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { repoFiles } from "./repo-files.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", ".tools", "dist", "test-results", "playwright-report",
-  "coverage", "control-repo-template",
-]);
+const SKIP_DIRS = new Set(["control-repo-template"]);
 
-function walkMarkdown(dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (SKIP_DIRS.has(name)) continue;
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) walkMarkdown(p, out);
-    else if (extname(p) === ".md") out.push(p);
-  }
-  return out;
-}
+const walkMarkdown = () =>
+  repoFiles({ exts: [".md"] }).filter((p) => !relative(ROOT, p).split(sep).some((d) => SKIP_DIRS.has(d)));
 
 /** GitHub's heading slug. Spelled out rather than imported - see doc-refs.test.mjs. */
 function slug(heading) {
@@ -64,7 +56,7 @@ function headingsOf(file) {
   return set;
 }
 
-const FILES = walkMarkdown(ROOT);
+const FILES = walkMarkdown();
 
 /**
  * Blank out code, keeping every other character in place.

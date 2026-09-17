@@ -21,9 +21,11 @@
 // both would be argued with until it was switched off.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(root, "frontend", "src");
@@ -63,14 +65,7 @@ const ROSTER_ROW_FILES = new Map([
   ["frontend/src/components/RosterTab.vue", ROSTER_PROPS],
 ]);
 
-function walk(dir, out = []) {
-  for (const e of readdirSync(dir)) {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (e.endsWith(".vue") || e.endsWith(".js")) out.push(p);
-  }
-  return out;
-}
+const spaFiles = () => repoFiles({ under: "frontend/src", exts: [".vue", ".js"] });
 
 test("the schema still declares the fields this sweep rests on", () => {
   // If report.schema.json ever stops being a closed list, this test proves
@@ -101,7 +96,7 @@ test("no report row is compared on a field the schema does not declare", () => {
   // a comparison against a quoted literal on a property of it is the shape.
   const re = /\bs\.([a-z][a-z0-9_]*)\s*[=!]==\s*['"]|['"]\s*[=!]==\s*\bs\.([a-z][a-z0-9_]*)/g;
 
-  for (const file of walk(SRC)) {
+  for (const file of spaFiles()) {
     const rel = relative(root, file).replace(/\\/g, "/");
     // Checked against the schema the file actually deals in.
     const allowed = ROSTER_ROW_FILES.get(rel) ?? ALLOWED;
@@ -142,7 +137,7 @@ test("clipboard copying goes through lib/clipboard.js", () => {
   // empty clipboard. Six call sites called the API directly; they reported
   // failure honestly and simply failed where the helper succeeds.
   const offenders = [];
-  for (const file of walk(SRC)) {
+  for (const file of spaFiles()) {
     const rel = relative(root, file).replace(/\\/g, "/");
     if (rel.endsWith("lib/clipboard.js")) continue;
     readFileSync(file, "utf8").split("\n").forEach((line, i) => {

@@ -11,11 +11,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { countdownParts, formatDeadlineCountdown } from "../frontend/src/lib/countdown.js";
+import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -26,21 +27,8 @@ test("nothing re-implements the countdown instead of importing it", () => {
   // and tests/rate-limit.test.mjs on the retry policy. Two copies of this
   // existed and drifted only because neither had changed yet; a third was
   // about to be written for the cohort card.
-  const walk = (dir, out = []) => {
-    for (const entry of readdirSync(dir)) {
-      // `.claude` holds git worktrees - a full second checkout of this repo.
-      // Walking into one finds a copy of every module and reports it as a fork,
-      // so the suite goes red because a sibling checkout exists.
-      if (entry === "node_modules" || entry === "dist" || entry === ".git" || entry === ".tools" || entry === ".claude") continue;
-      const p = join(dir, entry);
-      if (statSync(p).isDirectory()) walk(p, out);
-      else if (/\.(mjs|js|vue)$/.test(entry)) out.push(p);
-    }
-    return out;
-  };
-
   const allowed = new Set([join(root, "frontend", "src", "lib", "countdown.js")]);
-  const offenders = walk(root)
+  const offenders = repoFiles({ exts: [".mjs", ".js", ".vue"] })
     .filter((p) => !allowed.has(p) && !p.startsWith(join(root, "tests")))
     // The tell is the string it builds - a bare `Math.floor(diffMs / 60000)`
     // shows up in unrelated duration code, but `${...}d ${...}h` is this.

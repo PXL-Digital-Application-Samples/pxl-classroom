@@ -17,11 +17,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { MANUAL_TOPICS, TOPIC_SUMMARIES, isManualTopic, topicSummary } from "../lib/manual-topics.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(join(ROOT, "MANUAL.md"), "utf8");
@@ -98,24 +99,12 @@ test("internal links point at topics that exist", () => {
 
 // ---------------------------------------------------------------- the UI side
 
-const SKIP = new Set(["node_modules", "dist", ".git", "generated"]);
-
-function vueFiles(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    if (SKIP.has(entry)) continue;
-    const p = join(dir, entry);
-    if (statSync(p).isDirectory()) vueFiles(p, out);
-    else if (entry.endsWith(".vue")) out.push(p);
-  }
-  return out;
-}
-
 /** `<HelpButton topic="who-may-accept" …>` - the only way the UI names a topic. */
 const USAGE = /<HelpButton\b[^>]*\btopic="([^"]+)"/g;
 
 function helpButtonUsages() {
   const found = [];
-  for (const file of vueFiles(join(ROOT, "frontend", "src"))) {
+  for (const file of repoFiles({ under: "frontend/src", exts: [".vue"] })) {
     const src = readFileSync(file, "utf8");
     for (const m of src.matchAll(USAGE)) {
       found.push({ file: relative(ROOT, file).replace(/\\/g, "/"), topic: m[1] });

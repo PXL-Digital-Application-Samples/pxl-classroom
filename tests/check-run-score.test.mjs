@@ -9,10 +9,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, dirname, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseCheckRunScore, pickAutogradeCheckRun } from "../lib/check-run-score.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 // What GitHub actually returns for an Actions-created check run.
 const LIVE_RUN = {
@@ -278,35 +280,22 @@ test("nothing outside the module parses a points string of its own", () => {
   // byte-identical copies of this parser existed - AssignmentDetailView.vue and
   // cli/src/commands/grade.mjs - and both were wrong in the same way, which is
   // exactly what a fork costs.
-  const root = process.cwd();
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const allowed = new Set([
     join(root, "lib", "check-run-score.mjs"),
     join(root, "tests", "check-run-score.test.mjs"),
   ]);
-  // `.claude` holds git worktrees - a full second checkout, whose copy of the
-  // module under test would read as somebody re-implementing it.
-  const skipDirs = new Set(["node_modules", ".git", "dist", ".tools", "test-results", ".claude"]);
   const offenders = [];
 
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir)) {
-      if (skipDirs.has(entry)) continue;
-      const full = join(dir, entry);
-      if (statSync(full).isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!/\.(mjs|js|vue)$/.test(entry)) continue;
-      if (allowed.has(full)) continue;
-      const src = readFileSync(full, "utf8");
-      // The literal `Points` followed by a capture of two numbers is the shape
-      // of the parse; a test fixture that merely CONTAINS "Points 12/20" is not.
-      if (/\/[^\n]*Points\\s\*[^\n]*\//.test(src) || /match\([^)]*Points\\s/.test(src)) {
-        offenders.push(relative(root, full));
-      }
+  for (const full of repoFiles({ exts: [".mjs", ".js", ".vue"] })) {
+    if (allowed.has(full)) continue;
+    const src = readFileSync(full, "utf8");
+    // The literal `Points` followed by a capture of two numbers is the shape
+    // of the parse; a test fixture that merely CONTAINS "Points 12/20" is not.
+    if (/\/[^\n]*Points\\s\*[^\n]*\//.test(src) || /match\([^)]*Points\\s/.test(src)) {
+      offenders.push(relative(root, full));
     }
-  };
-  walk(root);
+  }
 
   assert.deepEqual(
     offenders,

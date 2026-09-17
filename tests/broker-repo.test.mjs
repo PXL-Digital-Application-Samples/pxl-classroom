@@ -12,11 +12,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, relative, extname } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { brokerRepoName } from "../lib/broker-repo.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -61,19 +62,10 @@ test("a blank broker_repo falls back rather than returning empty", () => {
 // exactly how a rename gets caught; routing fixtures through the helper would
 // make them agree with the code by construction and assert nothing. Everything
 // that SHIPS is in scope - including pages/, which the first version of this
-// guard missed.
-const SKIP = new Set(["node_modules", ".git", "dist", "test-results", "playwright-report", ".tools", "coverage", "tests"]);
-const EXTS = new Set([".mjs", ".js", ".vue"]);
-
-function walk(dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (SKIP.has(name)) continue;
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (EXTS.has(extname(p))) out.push(p);
-  }
-  return out;
-}
+// guard missed. Any `tests` directory, so cli/tests too.
+const sources = () =>
+  repoFiles({ exts: [".mjs", ".js", ".vue"] })
+    .filter((p) => !relative(ROOT, p).split(sep).includes("tests"));
 
 test("no file builds a broker repo name by hand", () => {
   // The guard those copies earned. `broker-${...}` anywhere outside the module
@@ -86,7 +78,7 @@ test("no file builds a broker repo name by hand", () => {
   // student's invitation page reads. An allow-list of directories is a guard
   // that only checks where you already looked.
   const offenders = [];
-  for (const file of walk(ROOT)) {
+  for (const file of sources()) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
     if (rel === "lib/broker-repo.mjs") continue;
     const src = readFileSync(file, "utf8");

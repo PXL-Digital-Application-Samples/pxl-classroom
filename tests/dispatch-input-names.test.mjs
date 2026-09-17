@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadYaml } from "../lib/yaml.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 // workflow_dispatch is validated by GitHub, not by us: an undeclared input or a
 // missing required one is a 422 at dispatch time, surfacing as a toast the
@@ -16,17 +17,6 @@ import { loadYaml } from "../lib/yaml.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SRC = join(root, "frontend", "src");
-
-function walk(dir) {
-  const out = [];
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) out.push(...walk(p));
-    else if (name.endsWith(".vue") || name.endsWith(".js")) out.push(p);
-  }
-  return out;
-}
 
 /** Balanced-brace slice starting at the `{` index. */
 function objectAt(src, start) {
@@ -64,7 +54,7 @@ function topLevelKeys(objectSrc) {
 test("every SPA workflow_dispatch matches the target workflow's declared inputs", async () => {
   const problems = [];
 
-  for (const file of walk(SRC)) {
+  for (const file of repoFiles({ under: "frontend/src", exts: [".vue", ".js"] })) {
     const src = readFileSync(file, "utf8");
     const rel = file.slice(root.length + 1).replace(/\\/g, "/");
 

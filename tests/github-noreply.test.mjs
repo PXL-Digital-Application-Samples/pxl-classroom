@@ -8,11 +8,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { join, dirname } from "node:path";
+import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isGitHubNoreplyAddress } from "../lib/github-noreply.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -53,13 +53,9 @@ test("no source file tests for the noreply domain by substring again", () => {
   // That home is excluded because its comment quotes the substring it replaced;
   // this first ran green only while the module was untracked, and failed on
   // itself the moment it was committed.
-  const files = execFileSync(
-    "git",
-    ["ls-files", "-z", "--", "*.mjs", "*.js", "*.vue", ":!tests/**", ":!**/node_modules/**", ":!lib/github-noreply.mjs"],
-    { cwd: root, encoding: "utf8" },
-  )
-    .split("\0")
-    .filter(Boolean);
+  const files = repoFiles({ exts: [".mjs", ".js", ".vue"] })
+    .map((p) => relative(root, p).replace(/\\/g, "/"))
+    .filter((f) => !f.startsWith("tests/") && f !== "lib/github-noreply.mjs");
   assert.ok(files.length > 50, `sanity: expected the source tree, found ${files.length} files`);
 
   const offenders = files.filter((f) =>

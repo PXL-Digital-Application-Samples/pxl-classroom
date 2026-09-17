@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+
+import { repoFiles } from "./repo-files.mjs";
 
 // Icon.vue resolves an unknown name to an empty string:
 //
@@ -26,16 +28,7 @@ import { basename, join, relative } from "node:path";
 const FRONTEND_SRC = join(process.cwd(), "frontend", "src");
 const ICON_COMPONENT = join(FRONTEND_SRC, "components", "Icon.vue");
 
-async function getVueFiles(dir = FRONTEND_SRC) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...(await getVueFiles(full)));
-    else if (entry.name.endsWith(".vue")) files.push(full);
-  }
-  return files;
-}
+const getVueFiles = () => repoFiles({ under: "frontend/src", exts: [".vue"] });
 
 /** Keys of the ICONS object literal - and nothing that follows it. */
 function definedIconNames(src) {
@@ -79,7 +72,7 @@ test('Icons: every <Icon name="…"> resolves to a drawn icon', async () => {
   const defined = definedIconNames(await readFile(ICON_COMPONENT, "utf8"));
 
   const offenders = [];
-  for (const file of await getVueFiles()) {
+  for (const file of getVueFiles()) {
     if (basename(file) === "Icon.vue") continue;
     const rel = relative(process.cwd(), file);
     const src = await readFile(file, "utf8");

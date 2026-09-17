@@ -1,31 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const FRONTEND_SRC = join(process.cwd(), "frontend", "src");
+import { repoFiles } from "./repo-files.mjs";
 
-// Helper to recursively find all .vue files
-async function getVueFiles(dir = FRONTEND_SRC) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await getVueFiles(fullPath)));
-    } else if (entry.isFile() && entry.name.endsWith(".vue")) {
-      files.push(fullPath);
-    }
-  }
-  return files;
-}
+const FRONTEND_SRC = join(process.cwd(), "frontend", "src");
 
 // -----------------------------------------------------------------------------
 // TEST SUITE: Design System Hygiene & E2E UI Contracts
 // -----------------------------------------------------------------------------
 
 test("Design System: All .vue components adhere to token hygiene (no legacy vars)", async () => {
-  const vueFiles = await getVueFiles();
+  const vueFiles = repoFiles({ under: "frontend/src", exts: [".vue"] });
   assert.ok(vueFiles.length >= 8, "Expected at least 8 Vue components");
 
   const legacyVars = [
