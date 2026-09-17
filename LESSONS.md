@@ -1319,6 +1319,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>  -> claude
 
 So the rule is forward-only, and `tests/commit-trailers.test.mjs` enforces it: a co-author address must be a vendor's published noreply address or an `@users.noreply.github.com` one, both of which can only ever mean the tool they name. The allowlist holds **addresses, never domains** - `@google.com` would have permitted the exact trailer this exists to stop. It was verified by committing the bad trailer for real and watching it fail, rather than by asserting that a branch exists.
 
+### A commit pushed to someone else's pull request becomes a `Co-authored-by` trailer when it is squash-merged.
+
+2026-09-17. Dependabot's ESLint 10 pull request (#9) failed lint, so the fix was pushed to its own branch, as ADMIN.md §8 says: a merge of `main` into the branch and one commit, both authored by the git identity on the maintainer's machine, `tom.cool@pxl.be`. CI passed on the pull request and it was squash-merged as `e20beec`. GitHub composed the squash message with a trailer for every commit author on the branch who was not the pull request's author: `Co-authored-by: tomcoolpxl <tom.cool@pxl.be>`. CI on `e20beec` itself failed its unit job on it, in `tests/commit-trailers.test.mjs`.
+
+Nobody was misattributed: the address is the maintainer's own account. But the rule exists because an address is an identity claim, and a real mailbox is exactly what it refuses. The pull request's CI could not have caught it, because on a pull request the trailer does not exist yet: it is written by the merge. `main` blocks force-push, so the commit stays, and it is excused by name - its whole SHA and that one address, with the reason - rather than by widening the allowlist to a person's mailbox, which would let any commit claim that person without the test noticing. An excuse that no longer matches a trailer fails, so the list cannot turn into a second allowlist.
+
+The check that would have caught it runs where the address can still change: on a pull request, the same test lists the branch's own commits between the two parents of GitHub's merge checkout and fails any author email the trailer rule would refuse. Simulated locally both ways before it shipped: the #9 branch fails naming both commits, Dependabot's commit alone passes. The procedure says to author anything pushed to a Dependabot branch with the GitHub noreply address.
+
 ### A job that never ran was worth zero marks.
 
 A colleague's exam template, running live in `PXL-2TIN-CloudEssentials-2627` on the assignment `proef-pe1`, grades **one commit and no others**:

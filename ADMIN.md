@@ -416,13 +416,13 @@ Dependabot creates its branches through its own bypass on the `Block ad-hoc bran
 
 1. **Wait for CI on the pull request.** The unit, end-to-end and lint jobs run on Dependabot's pull requests exactly as on a push to `main`. Do not merge a red one.
 2. **For a major, read the release notes** Dependabot quotes in the pull request. The suite covers what this system does with a dependency, not everything a major can change.
-3. **An action update that fails `tests/dependabot-config.test.mjs`** has moved a hub pin without moving the same one in `acceptance/broker-workflow.yml`. Dependabot normally updates both, through the `/acceptance` directory. Where it has not, copy the new SHA and its version comment from any hub workflow into the template, and push to the pull request's own branch (PowerShell):
+3. **A fix the update needs is pushed to the pull request's own branch**, never to `main` and never on a new branch. Two cases so far: an action update that fails `tests/dependabot-config.test.mjs` has moved a hub pin without the same one in `acceptance/broker-workflow.yml` (Dependabot normally updates both, through `/acceptance`), and a major whose code changes (the ESLint 10 upgrade). **Author every commit you push there, merges included, with your GitHub noreply address** (`<id>+<login>@users.noreply.github.com`, shown under GitHub Settings → Emails). Squash and merge turns each commit's author into a `Co-authored-by` trailer on `main`, which cannot be removed, and `tests/commit-trailers.test.mjs` refuses a real mailbox there; the same test fails the pull request's CI first if you forget. In PowerShell:
 
    ```
    git fetch origin <branch>
    git switch <branch>
-   # edit acceptance/broker-workflow.yml
-   git commit -am 'chore(deps): the broker template follows the hub pins'
+   # make the change
+   git -c user.email=<id>+<login>@users.noreply.github.com commit -am 'chore(deps): <what the fix does>'
    $env:GITHUB_TOKEN=""; git push origin <branch>
    ```
 

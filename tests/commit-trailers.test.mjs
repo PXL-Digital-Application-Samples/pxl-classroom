@@ -56,6 +56,29 @@ const ALLOWED_EMAILS = new Set([
 
 const ALLOWED_SUFFIX = "@users.noreply.github.com";
 
+const allowedAddress = (email) => ALLOWED_EMAILS.has(email) || email.endsWith(ALLOWED_SUFFIX);
+
+/**
+ * Single commits excused by name, each with its reason.
+ *
+ * Not an address and not a pattern: the same address on any other commit still
+ * fails. An excuse that no longer matches a trailer in the history fails too,
+ * so this cannot quietly grow into a second allowlist.
+ */
+const EXCUSED = [
+  {
+    sha: "e20beeccf787f94c602e33cc9c31f56575b4d8f5",
+    email: "tom.cool@pxl.be",
+    why:
+      "The maintainer's own account (tomcoolpxl, id 71908551), so nobody else is credited. GitHub's " +
+      "squash merge of Dependabot pull request #9 added it, because a fix had been pushed to that " +
+      "branch with this author email. main cannot be rewritten; the pull-request check below is what " +
+      "stops the next one.",
+  },
+];
+
+const excused = (c) => EXCUSED.some((e) => e.sha === c.fullSha && e.email === c.email);
+
 function git(args) {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
 }
@@ -82,7 +105,7 @@ function coAuthorsSinceBaseline() {
     const [sha, subject, ...values] = block.split("\n");
     for (const value of values) {
       const m = value.match(/^\s*(.+?)\s*<([^>]+)>\s*$/);
-      if (m) out.push({ sha: sha.slice(0, 8), subject, name: m[1], email: m[2].toLowerCase() });
+      if (m) out.push({ sha: sha.slice(0, 8), fullSha: sha, subject, name: m[1], email: m[2].toLowerCase() });
     }
   }
   return out;
@@ -103,9 +126,7 @@ test("a co-author trailer names an address that can only be the tool it claims",
     );
   }
 
-  const offenders = coAuthorsSinceBaseline().filter(
-    (c) => !ALLOWED_EMAILS.has(c.email) && !c.email.endsWith(ALLOWED_SUFFIX),
-  );
+  const offenders = coAuthorsSinceBaseline().filter((c) => !allowedAddress(c.email) && !excused(c));
 
   assert.deepEqual(
     offenders.map((c) => `${c.sha} ${c.name} <${c.email}> - ${c.subject}`),
@@ -114,6 +135,54 @@ test("a co-author trailer names an address that can only be the tool it claims",
       "`antigravity@google.com` belongs to a stranger and has credited him on seven commits " +
       "since 2026-08-19. Use the tool's published noreply address, or its " +
       "@users.noreply.github.com one, or no trailer at all.",
+  );
+});
+
+test("every excuse names a trailer that is really in the history, and says why", () => {
+  const trailers = coAuthorsSinceBaseline();
+  for (const e of EXCUSED) {
+    assert.match(e.sha, /^[0-9a-f]{40}$/, `${e.sha}: an excuse names a whole commit, not a prefix`);
+    assert.ok(
+      trailers.some((c) => c.fullSha === e.sha && c.email === e.email),
+      `${e.sha} carries no co-author trailer for ${e.email} since ${BASELINE} - remove the excuse`,
+    );
+    assert.ok(!allowedAddress(e.email), `${e.email} is already allowed, so excusing it hides nothing - remove the excuse`);
+    assert.ok(e.why.length > 60, `${e.sha}: an excuse says why`);
+  }
+});
+
+test("on a pull request, no commit on the branch would become a trailer the rule refuses", (t) => {
+  // A squash merge turns the author of every commit on the branch into
+  // `Co-authored-by: <name> <author email>`. The trailer does not exist until the
+  // merge, so the history check above only sees it afterwards, on main, where
+  // it can never be removed. That is how e20beec got its excuse: a fix pushed to
+  // a Dependabot branch with a real mailbox as author. This is the one moment
+  // the address can still be changed.
+  if (process.env.GITHUB_EVENT_NAME !== "pull_request") {
+    t.skip("only a pull request has commits a squash merge will turn into trailers");
+    return;
+  }
+  // A pull_request checkout is GitHub's synthetic merge of the base and the
+  // branch head, so its two parents bound exactly the branch's own commits.
+  const parents = git(["rev-list", "--parents", "-n", "1", "HEAD"]).trim().split(/\s+/);
+  assert.equal(parents.length, 3, `sanity: expected a merge checkout with two parents, got ${parents.join(" ")}`);
+
+  const commits = git(["log", "--format=%h%x09%an%x09%ae%x09%s", `${parents[1]}..${parents[2]}`])
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, name, email, subject] = line.split("\t");
+      return { sha, name, email: email.toLowerCase(), subject };
+    });
+  assert.ok(commits.length > 0, "sanity: a pull request has at least one commit of its own");
+
+  const offenders = commits.filter((c) => !allowedAddress(c.email));
+  assert.deepEqual(
+    offenders.map((c) => `${c.sha} ${c.name} <${c.email}> - ${c.subject}`),
+    [],
+    "A squash merge will credit these authors as co-authors by email, on main, permanently. " +
+      "Re-author them with your GitHub noreply address (git -c user.email=<id>+<login>@users.noreply.github.com), " +
+      "see ADMIN.md §8.",
   );
 });
 
