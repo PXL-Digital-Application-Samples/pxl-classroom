@@ -74,7 +74,17 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ inputs.org }}
-          
+          # Every repository: sync-starter.mjs reads the template and writes into
+          # the student repositories named in the records. Contents for the git
+          # data API and the control-repo push, pull requests and issues for the
+          # PR and the tracking issue, and workflows because a template commit
+          # that touches .github/workflows/ cannot be written without it
+          # (lib/app-token-scopes.mjs).
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
+
       - name: Checkout control repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
