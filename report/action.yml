@@ -60,6 +60,12 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
+        # report.mjs uses the token only for notifyEvent (notify/notify.mjs):
+        # issue calls on the control repo, each caught and logged on failure.
+        # A literal because this action takes no control-repo input; the table
+        # test holds it to deployment.yml (lib/app-token-scopes.mjs).
+        repositories: pxl-classroom-control
+        permission-issues: write
 
     - name: Generate report
       id: report
