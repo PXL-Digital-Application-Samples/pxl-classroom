@@ -31,6 +31,19 @@
 // assignment deadline and lockdown's own planning excludes anyone still
 // extended (ARCHITECTURE §6.2.2).
 //
+// The GROUP is re-read every iteration too, and so are the repositories it
+// watches. ASSIGNMENT_IDS is only where this sentinel starts: it was fixed when
+// the job was queued, and real exams publish several groups with one deadline
+// at different times. A later publish arms another job in the same concurrency
+// group, and that job can only wait behind this one - GitHub keeps ONE pending
+// run per group and the newest ARRIVAL takes the slot, so a cron firing that
+// armed before the publish can replace the arm that knew about it. Measured on
+// the testbed 2026-09-17: drill-20260917-1614 shared 16:35:00 with a running
+// sentinel armed for drill-20260917-1609 alone, both arms that listed it were
+// cancelled in the pending slot, and it was locked by the finalize 143s late.
+// So every published assignment whose deadline is this sentinel's instant is
+// stopped by this sentinel, whoever armed it (ARCHITECTURE §11.2.3).
+//
 // Every failure degrades to the nightly. A dropped cron firing, a killed job, a
 // deadline moved out of reach: all of them fall through to the ordinary pass,
 // which locks on the first nightly after the deadline. Nothing here can make
@@ -41,6 +54,8 @@ import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parseYaml } from "../lib/yaml.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
+import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir } from "../lib/control-layout.mjs";
+import { sentinelInstant } from "../lib/sentinel-window.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -77,6 +92,8 @@ const cfg = {
   maxPages: positiveNumber(env("SENTINEL_MAX_PAGES"), 3),
   runUrl: `${env("GITHUB_SERVER_URL", "https://github.com")}/${env("GITHUB_REPOSITORY", "_")}` +
           `/actions/runs/${env("GITHUB_RUN_ID", "0")}`,
+  runId: env("GITHUB_RUN_ID", "0"),
+  runAttempt: env("GITHUB_RUN_ATTEMPT", "1"),
 };
 
 const log = (msg) => console.log(`[sentinel] ${msg}`);
@@ -99,23 +116,108 @@ function validate() {
   return null;
 }
 
-/** The repositories this sentinel is watching: name -> assignment id. */
+/** The bare repository name a repository record names, or null. */
+function repoNameOf(rec) {
+  const name = rec?.repo_name?.split("/")?.[1] ?? rec?.repo_name;
+  return typeof name === "string" && name ? name : null;
+}
+
+/**
+ * The repositories the checkout already knows about: name -> assignment id.
+ *
+ * Only a starting point. The checkout is as old as this job, and a sentinel
+ * armed at publish is running before anyone has accepted - `refreshWatched`
+ * adds the rest while it waits.
+ */
 async function watchedRepos() {
   const byName = new Map();
   for (const id of cfg.assignmentIds) {
-    const dir = join(cfg.dataDir, "repositories", id);
+    const dir = join(cfg.dataDir, repositoriesDir(id));
     let files;
     try { files = await readdir(dir); } catch { continue; }
     for (const f of files) {
       if (!f.endsWith(".json")) continue;
       try {
-        const rec = JSON.parse(await readFile(join(dir, f), "utf8"));
-        const name = rec.repo_name?.split("/")?.[1] ?? rec.repo_name;
+        const name = repoNameOf(JSON.parse(await readFile(join(dir, f), "utf8")));
         if (name) byName.set(name, id);
       } catch { /* a malformed record is not worth failing a watch over */ }
     }
   }
   return byName;
+}
+
+// Blob text by sha. A blob is immutable, so an entry can never go stale, and a
+// listing whose sha did not change since the last poll costs no second read.
+const blobText = new Map();
+
+/** A control-repo directory's files as the API sees them now. */
+async function listControlDir(dir) {
+  const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/contents/${dir}`);
+  if (!res.ok || !Array.isArray(res.data)) return { ok: false, status: res.status, files: [] };
+  const files = res.data.filter((e) => e?.type === "file" && typeof e.name === "string" && typeof e.sha === "string");
+  return { ok: true, status: res.status, files };
+}
+
+async function readBlob(sha) {
+  if (blobText.has(sha)) return blobText.get(sha);
+  const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/git/blobs/${sha}`);
+  if (!res.ok || res.data?.encoding !== "base64" || typeof res.data.content !== "string") return null;
+  const text = Buffer.from(res.data.content, "base64").toString("utf8");
+  blobText.set(sha, text);
+  return text;
+}
+
+/**
+ * Every assignment in the organization as the control repo holds it now, or
+ * null when the directory could not be listed.
+ *
+ * Over the API, not from the checkout, which is as old as this job. One listing
+ * a poll plus a read for each document that changed since the last one, so
+ * waiting costs a call rather than a call per assignment.
+ *
+ * @returns {Promise<Array<{id: string, doc: unknown}>|null>}
+ */
+async function readAssignments() {
+  const listing = await listControlDir(ASSIGNMENTS_DIR);
+  if (!listing.ok) {
+    log(`${ASSIGNMENTS_DIR}/ unreadable (HTTP ${listing.status}) - keeping the group and deadlines last read`);
+    return null;
+  }
+  const out = [];
+  for (const file of listing.files) {
+    const id = assignmentIdFromFile(file.name);
+    if (!id) continue;
+    const text = await readBlob(file.sha);
+    if (text === null) continue;
+    try {
+      out.push({ id, doc: parseYaml(text) });
+    } catch { /* unparseable: neither a member nor a deadline */ }
+  }
+  return out;
+}
+
+/**
+ * Add the repositories students were given since the last poll.
+ *
+ * Only ever adds. A sentinel read the records once, at job start, so one armed
+ * at publish watched nothing for the whole exam: drill-20260917-1609 polled six
+ * times and recorded no sample, because both students accepted after it began.
+ * An unreadable directory is simply nothing new - `repositories/<id>/` does not
+ * exist until the first acceptance.
+ */
+async function refreshWatched(watched, members) {
+  for (const id of members) {
+    const listing = await listControlDir(repositoriesDir(id));
+    for (const file of listing.files) {
+      if (!file.name.endsWith(".json")) continue;
+      const text = await readBlob(file.sha);
+      if (text === null) continue;
+      try {
+        const name = repoNameOf(JSON.parse(text));
+        if (name && !watched.has(name)) watched.set(name, id);
+      } catch { /* a malformed record is not worth failing a watch over */ }
+    }
+  }
 }
 
 /**
@@ -160,44 +262,80 @@ async function samplePushedAt(watched) {
 }
 
 /**
- * Each assignment's current deadline, read live so a lecturer moving one is
- * honoured without restarting the sentinel.
+ * The assignments that stop at this sentinel's instant, as the control repo
+ * stands now: every one a sentinel armed now would put in this group.
+ *
+ * Asked with the predicate find-armable arms with (`sentinelInstant`), so the
+ * running watch and any arm queued behind it cannot disagree about who shares
+ * the instant. An id that is not a slug is left out: it would reach the stop
+ * step's shell loop, and no assignment the system wrote carries one.
+ *
+ * @param {Array<{id: string, doc: unknown}>} assignments
+ * @param {string} armedAt the instant this sentinel was armed for
+ * @returns {string[]} sorted
+ */
+export function assignmentsAtInstant(assignments, armedAt) {
+  const instant = new Date(armedAt).toISOString();
+  return assignments
+    .filter(({ id, doc }) => SLUG.test(id) && sentinelInstant(doc) === instant)
+    .map(({ id }) => id)
+    .sort();
+}
+
+/**
+ * Each member's current deadline, so a lecturer moving one is honoured without
+ * restarting the sentinel.
  *
  * PER ASSIGNMENT, not just the earliest. A sentinel watches every assignment
- * sharing one instant (find-armable groups them by exact ISO), and this used to
- * return only the minimum - so extending ONE of them did not move the minimum,
- * the sentinel fired at the other's instant, and the stop step locked the whole
- * group. The extended cohort was demoted to `pull` before its new deadline,
- * while this file's own header promised the move would be honoured.
+ * sharing one instant, and this used to return only the minimum - so extending
+ * ONE of them did not move the minimum, the sentinel fired at the other's
+ * instant, and the stop step locked the whole group. The extended cohort was
+ * demoted to `pull` before its new deadline, while this file's own header
+ * promised the move would be honoured.
  *
- * @returns {Promise<{byId: Map<string, Date>, earliest: Date|null}>}
- *   `byId` omits an assignment whose YAML could not be read or parsed.
+ * Not filtered on state: a member stays a member, and what it is owed is decided
+ * by its deadline alone - exactly as it was when the group was only the armed
+ * list.
+ *
+ * @param {string[]} members
+ * @param {Array<{id: string, doc: unknown}>} assignments
+ * @returns {{byId: Map<string, Date>, earliest: Date|null}}
+ *   `byId` omits a member that is absent or has no readable deadline.
  */
-async function currentTargets() {
+export function memberDeadlines(members, assignments) {
+  const docs = new Map(assignments.map(({ id, doc }) => [id, doc]));
   const byId = new Map();
   let earliest = null;
-  for (const id of cfg.assignmentIds) {
-    let doc = null;
-    for (const ext of ["yml", "yaml"]) {
-      const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/contents/assignments/${id}.${ext}`);
-      // An assignment YAML is far below the 1 MB point where the Contents API
-      // starts answering 200 with an empty body, so base64 is safe here.
-      if (res.ok && res.data?.encoding === "base64" && res.data.content) {
-        doc = Buffer.from(res.data.content, "base64").toString("utf8");
-        break;
-      }
-    }
-    // Unreadable: keep the target we were armed with rather than guessing.
-    if (!doc) continue;
-    let at;
-    try {
-      at = new Date(parseYaml(doc)?.deadline_at ?? "");
-    } catch { continue; }
+  for (const id of members) {
+    const raw = docs.get(id)?.deadline_at;
+    if (!raw) continue;
+    const at = new Date(raw);
     if (Number.isNaN(at.getTime())) continue;
     byId.set(id, at);
     if (!earliest || at < earliest) earliest = at;
   }
   return { byId, earliest };
+}
+
+/**
+ * The file this sentinel writes an assignment's timeline to.
+ *
+ * `sentinel-<key>.json`, unless an earlier sentinel of the same group already
+ * wrote it. Arming is not coordinated - a publish, an edit and the cron each arm
+ * one - so a second job for an instant is ordinary, and it queues behind the
+ * first and reaches the instant after it has passed. It wrote the SAME path:
+ * on 2026-09-17 the queued one replaced drill-20260917-1609's timeline from the
+ * sentinel that stopped it (six polls) with its own single poll taken after the
+ * deadline. Every sentinel keeps its own record now; lockdown.mjs reads every
+ * `sentinel-*.json` and credits the earliest that fired.
+ *
+ * @param {string} key
+ * @param {string[]} existing file names already in `lockdowns/<id>/`
+ * @param {{runId: string, runAttempt: string}} run
+ */
+export function timelineFileName(key, existing, { runId, runAttempt }) {
+  const first = `sentinel-${key}.json`;
+  return existing.includes(first) ? `sentinel-${key}-${runId}-${runAttempt}.json` : first;
 }
 
 /**
@@ -226,21 +364,43 @@ async function main() {
 
   const startedAt = Date.now();
   let target = new Date(cfg.deadlineAt);
+  // The group: what this sentinel was armed with, then every assignment that
+  // reached its instant after that. Once a member, always a member - one moved
+  // away again is treated exactly like an armed one moved away.
+  const members = [...cfg.assignmentIds];
+  const joinedAt = new Map();
   const watched = await watchedRepos();
   log(`watching ${watched.size} repository/repositories across ${cfg.assignmentIds.join(", ")} until ${target.toISOString()}`);
 
   const samples = [];
   let polls = 0;
   let outcome = "fired";
-  // Each assignment's own deadline as last read. Empty until the first poll, so
-  // an assignment never re-read counts as due against the armed instant.
+  // Each member's own deadline as last read. Empty until the first poll, so a
+  // member never read counts as due against the armed instant. Kept, not
+  // cleared, when a later read fails: a deadline positively read as moved
+  // minutes ago is better evidence than the armed instant.
   let latestByAssignment = new Map();
 
-  // Sample first, then look at the clock. A sentinel armed close to the instant
-  // still records where the cohort stood when it fired, which is the evidence
-  // the whole job exists to produce - and an empty timeline would be worse than
-  // a short one.
+  // Read the group, then sample, then look at the clock. A sentinel armed close
+  // to the instant still records where the cohort stood when it fired, which is
+  // the evidence the whole job exists to produce - and an empty timeline would
+  // be worse than a short one.
   while (true) {
+    const assignments = await readAssignments();
+    let moved = null;
+    if (assignments) {
+      for (const id of assignmentsAtInstant(assignments, cfg.deadlineAt)) {
+        if (members.includes(id)) continue;
+        members.push(id);
+        joinedAt.set(id, new Date().toISOString());
+        log(`${id} shares this instant and was not armed with this sentinel - it joins, and is stopped with the rest`);
+      }
+      const live = memberDeadlines(members, assignments);
+      latestByAssignment = live.byId;
+      moved = live.earliest;
+    }
+    await refreshWatched(watched, members);
+
     if (watched.size) {
       const sample = await samplePushedAt(watched);
       polls++;
@@ -250,9 +410,6 @@ async function main() {
       polls++;
     }
 
-    const live = await currentTargets();
-    latestByAssignment = live.byId;
-    const moved = live.earliest;
     if (moved && moved.getTime() !== target.getTime()) {
       log(`deadline moved: ${target.toISOString()} -> ${moved.toISOString()}`);
       target = moved;
@@ -277,17 +434,18 @@ async function main() {
     await sleep(Math.min(cfg.pollIntervalMs, target.getTime() - now));
   }
 
-  const due = outcome === "fired" ? dueAssignments(cfg.assignmentIds, latestByAssignment, Date.now()) : [];
-  const skipped = cfg.assignmentIds.filter((id) => !due.includes(id));
-  if (skipped.length) {
+  const due = outcome === "fired" ? dueAssignments(members, latestByAssignment, Date.now()) : [];
+  const skipped = members.filter((id) => !due.includes(id));
+  if (outcome === "fired" && skipped.length) {
     log(`not due at this instant, so not stopped: ${skipped.join(", ")} (deadline moved out)`);
   }
 
   // Persist the timeline before anything else can fail. It sits beside the
   // lockdown record it explains; nothing globs that directory.
-  for (const id of cfg.assignmentIds) {
+  for (const id of members) {
     const dir = join(cfg.dataDir, "lockdowns", id);
     await mkdir(dir, { recursive: true });
+    const joined = joinedAt.get(id);
     const doc = {
       schema_version: 1,
       assignment_id: id,
@@ -298,6 +456,11 @@ async function main() {
       // record claiming a freeze at a time that was never its deadline.
       deadline_at: (latestByAssignment.get(id) ?? target).toISOString(),
       armed_for: cfg.deadlineAt,
+      // Present only for an assignment this sentinel was NOT armed with: when it
+      // was found sharing the instant. Nobody was watching its repositories
+      // before then, so the samples start there rather than recording an empty
+      // map that would read as "nothing was pushed".
+      ...(joined ? { joined_at: joined } : {}),
       outcome,
       // Whether the stop step covers this assignment. A sentinel can fire for
       // the group while one member has been extended past it.
@@ -306,7 +469,7 @@ async function main() {
       observer_run: cfg.runUrl,
       // GitHub's own push timestamps through the critical window. A student can
       // set a commit date; they cannot set these.
-      samples: samples.map((s) => ({
+      samples: samples.filter((s) => !joined || s.observed_at >= joined).map((s) => ({
         observed_at: s.observed_at,
         error: s.error,
         pushed_at: Object.fromEntries(
@@ -314,7 +477,8 @@ async function main() {
         ),
       })),
     };
-    await writeFile(join(dir, `sentinel-${cfg.key}.json`), JSON.stringify(doc, null, 2) + "\n");
+    const existing = await readdir(dir).catch(() => []);
+    await writeFile(join(dir, timelineFileName(cfg.key, existing, cfg)), JSON.stringify(doc, null, 2) + "\n");
   }
 
   await setOutput("outcome", outcome);
@@ -323,8 +487,9 @@ async function main() {
   // Only a sentinel that actually reached its instant should trigger the stop.
   await setOutput("fired", outcome === "fired" ? "true" : "false");
   // The assignments the stop step may lock. The workflow iterates THIS, not the
-  // matrix's full group: an assignment extended past this instant is still
-  // watched and still gets a timeline, but must not be stopped.
+  // matrix's list: an assignment extended past this instant is still watched
+  // and still gets a timeline, but must not be stopped - and one that joined the
+  // instant after arming is in no matrix at all.
   await setOutput("due_assignment_ids", due.join(","));
   log(`${outcome} after ${polls} poll(s); target ${target.toISOString()}; due: ${due.join(", ") || "none"}`);
 }

@@ -5,11 +5,16 @@
 // real accounts in .env.test, so a change to the jobs that run an exam can be
 // proven the same day instead of at the next real deadline:
 //
-//   node tests/live/drill.mjs start [--minutes 45] [--repo-lock]
+//   node tests/live/drill.mjs start [--minutes 45] [--deadline <ISO>] [--repo-lock]
 //       create and publish drill-<utc stamp> (individual, late work blocked,
 //       lock on), accept it as both students with their invitation labels,
 //       push one commit each, have the lecturer refused, retry one student.
 //       --repo-lock locks with repository rulesets and demotion instead.
+//       --deadline pins the instant instead of deriving it from --minutes, so a
+//       second drill started minutes later SHARES it. That is what an exam with
+//       several groups does, and the sentinel that is already waiting has to
+//       stop the later one too: the job it arms can only queue behind the
+//       running one, which is past the instant (ARCHITECTURE §11.2.3).
 //
 //   node tests/live/drill.mjs verify <assignment-id> [--wait] [--timeout 40]
 //       after the deadline: the sentinel stopped writes, the lock method is the
@@ -85,6 +90,10 @@ const flag = (name) => rest.includes(`--${name}`);
 const option = (name, fallback) => {
   const i = rest.indexOf(`--${name}`);
   return i >= 0 && rest[i + 1] ? Number(rest[i + 1]) : fallback;
+};
+const textOption = (name, fallback) => {
+  const i = rest.indexOf(`--${name}`);
+  return i >= 0 && rest[i + 1] ? rest[i + 1] : fallback;
 };
 
 const env = loadEnv();
@@ -173,10 +182,18 @@ async function waitForRun(run, { minutes = 10 } = {}) {
 
 async function start() {
   const minutes = option("minutes", 45);
+  const pinnedDeadline = textOption("deadline", null);
   // Long enough for two acceptances and two pushes; short enough that the
   // publish-time arming reaches it, rather than waiting for the 4-hourly cron.
-  if (!(minutes >= 15 && minutes * 60_000 <= SENTINEL_ARM_WINDOW_MS)) {
-    die(`--minutes must be between 15 and ${SENTINEL_ARM_WINDOW_MS / 60_000}`);
+  // The same two bounds whether the instant is derived or pinned.
+  if (pinnedDeadline && Number.isNaN(Date.parse(pinnedDeadline))) die(`--deadline "${pinnedDeadline}" is not a date`);
+  const away = pinnedDeadline ? Date.parse(pinnedDeadline) - Date.now() : minutes * 60_000;
+  if (!(away >= 15 * 60_000 && away <= SENTINEL_ARM_WINDOW_MS)) {
+    die(
+      pinnedDeadline
+        ? `--deadline must be 15 minutes to ${SENTINEL_ARM_WINDOW_MS / 60_000} minutes away; ${pinnedDeadline} is ${Math.round(away / 60_000)}`
+        : `--minutes must be between 15 and ${SENTINEL_ARM_WINDOW_MS / 60_000}`,
+    );
   }
 
   console.log(`PXL Classroom live drill - START on ${ORG} (writes!)`);
@@ -206,7 +223,9 @@ async function start() {
   const stamp = isoSeconds(now).replace(/[-:]/g, "").replace("T", "-").slice(0, 13).toLowerCase();
   const id = `drill-${stamp}`;
   const opensAt = new Date(now - 60_000).toISOString();
-  const deadlineAt = new Date(Math.ceil((now + minutes * 60_000) / 60_000) * 60_000).toISOString();
+  const deadlineAt = pinnedDeadline
+    ? new Date(pinnedDeadline).toISOString()
+    : new Date(Math.ceil((now + minutes * 60_000) / 60_000) * 60_000).toISOString();
 
   if ((await readControl(`assignments/${id}.yml`)).ok) die(`assignments/${id}.yml already exists - wait a minute and start again`);
 
@@ -390,8 +409,12 @@ async function handinOnly() {
 }
 
 function printNext(id, deadlineAt, plan) {
-  console.log(`\nDeadline ${local(deadlineAt)} ${TIMEZONE}. After it, run:\n`);
+  console.log(`\nDeadline ${local(deadlineAt)} ${TIMEZONE} (${deadlineAt}). After it, run:\n`);
   console.log(`  node tests/live/drill.mjs verify ${id} --wait`);
+  // A second drill on the SAME instant is the only way to drill what a running
+  // sentinel does with an assignment published after it was armed.
+  console.log(`\nA second group on this same instant:\n`);
+  console.log(`  node tests/live/drill.mjs start --deadline ${deadlineAt}`);
   if (plan === "free") {
     console.log(`\n${ORG} is on the free plan: this drill locks by demotion and does NOT exercise rulesets.`);
   }
@@ -474,14 +497,30 @@ async function verify() {
   console.log("\n4. The sentinel stopped writes at the instant\n");
   const dir = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/lockdowns/${id}`, { token: LECTURER.token });
   const timelines = (Array.isArray(dir.data) ? dir.data : []).filter((f) => /^sentinel-.*\.json$/.test(f.name));
-  let fired = false;
+  let stopped = false;
+  const sampled = new Set();
   for (const f of timelines) {
     const t = await readControlJson(f.path);
-    if (t?.outcome === "fired") fired = true;
-    note(`${f.name}: ${t?.outcome ?? "unreadable"}`);
+    // `fired` alone is not a stop: a sentinel fires for its group while one
+    // member has been extended past the instant, and that one carries due: false.
+    if (t?.outcome === "fired" && t?.due !== false) stopped = true;
+    for (const s of t?.samples || []) for (const name of Object.keys(s.pushed_at || {})) sampled.add(name);
+    note(
+      `${f.name}: ${t?.outcome ?? "unreadable"}${t?.due === false ? ", not due" : ""}` +
+      `${t?.joined_at ? `, joined this sentinel at ${t.joined_at}` : ""}, ${t?.samples?.length ?? 0} sample(s)`,
+    );
   }
-  if (fired) ok("a sentinel timeline says fired");
-  else bad("no sentinel fired for this assignment - whatever locked it was the nightly, so the sentinel path was not drilled");
+  if (stopped) ok("a sentinel timeline says fired, with this assignment due");
+  else bad("no sentinel stopped this assignment - whatever locked it was the nightly, so the sentinel path was not drilled");
+
+  // The push timeline is the evidence the whole job exists to produce, and it
+  // was empty for a whole cohort: a sentinel armed at publish is running before
+  // anyone has accepted, and it read the repository records once.
+  const cohortRepos = [...new Set((lockdown?.results || []).map((row) => bareRepo(row.repo_name)).filter(Boolean))];
+  const unseen = cohortRepos.filter((name) => !sampled.has(name));
+  if (!cohortRepos.length) note("no lockdown rows, so there is no cohort to check the push timeline against");
+  else if (unseen.length === 0) ok(`the push timeline covers all ${cohortRepos.length} repository/repositories`);
+  else bad(`the push timeline never recorded ${unseen.join(", ")} - every student who accepted after the sentinel started is missing from the evidence`);
 
   console.log("\n5. The lock\n");
   const late = new Map();

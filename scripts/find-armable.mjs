@@ -19,7 +19,11 @@
 // deadline 3h35m out, still arms, and still acts at 20:00:00.
 //
 // Sentinels are keyed on (org, deadline instant), not on assignment: three
-// assignments sharing a 22:00 deadline share one job.
+// assignments sharing a 22:00 deadline share one job. The list printed here is
+// only where that job STARTS. It is fixed when the job is queued, and an
+// assignment published later with the same instant arms a job that can only
+// wait behind the running one - until after the instant. So the running
+// sentinel re-reads its group while it waits (deadline-sentinel.mjs).
 //
 // Nothing here can make things worse than the nightly. A dropped firing, a
 // killed job or an overrun cap all fall through to the ordinary pass, which
@@ -30,7 +34,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadYaml } from '../lib/yaml.mjs';
-import { SENTINEL_ARM_WINDOW_MS } from '../lib/sentinel-window.mjs';
+import { SENTINEL_ARM_WINDOW_MS, sentinelInstant } from '../lib/sentinel-window.mjs';
+import { ASSIGNMENTS_DIR, assignmentIdFromFile } from '../lib/control-layout.mjs';
 
 // The window itself lives in lib/, because publishing and editing an
 // assignment now arm the sentinel themselves - the cron cannot see a deadline
@@ -61,18 +66,16 @@ export function planSentinels(assignments, { now = Date.now(), window = ARM_WIND
   const byInstant = new Map();
 
   for (const { id, doc } of assignments) {
-    // Only an assignment students could have accepted into. A draft has no
-    // repositories to lock.
-    if (doc?.state !== 'published' && doc?.state !== 'closed') continue;
-    const at = doc?.deadline_at ? new Date(doc.deadline_at) : null;
-    if (!at || Number.isNaN(at.getTime())) continue;
+    // The same question the running sentinel asks when it looks for
+    // assignments that joined its instant later (lib/sentinel-window.mjs).
+    const iso = sentinelInstant(doc);
+    if (!iso) continue;
 
-    const ms = at.getTime();
+    const ms = Date.parse(iso);
     // Already past: the nightly finalize owns it, and a sentinel would only
     // duplicate work that is no longer time-critical.
     if (ms <= now || ms > now + window) continue;
 
-    const iso = at.toISOString();
     if (!byInstant.has(iso)) byInstant.set(iso, []);
     byInstant.get(iso).push(id);
   }
@@ -90,12 +93,15 @@ export function planSentinels(assignments, { now = Date.now(), window = ARM_WIND
 }
 
 async function readAssignments(controlDir) {
-  const dir = path.join(controlDir, 'assignments');
+  const dir = path.join(controlDir, ASSIGNMENTS_DIR);
   if (!fs.existsSync(dir)) return [];
   const out = [];
   for (const file of fs.readdirSync(dir)) {
-    if (!/\.(ya?ml|json)$/.test(file)) continue;
-    const id = file.replace(/\.(ya?ml|json)$/, '');
+    // The inverse of the path assignments are written to, and the rule the
+    // running sentinel lists them by. This accepted `.json` as well, which
+    // nothing writes and nothing else reads.
+    const id = assignmentIdFromFile(file);
+    if (!id) continue;
     try {
       out.push({ id, doc: await loadYaml(path.join(dir, file)) });
     } catch (e) {

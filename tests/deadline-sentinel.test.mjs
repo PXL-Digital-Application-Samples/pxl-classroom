@@ -12,13 +12,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { planSentinels, sentinelKey } from "../scripts/find-armable.mjs";
-import { positiveNumber, dueAssignments } from "../scripts/deadline-sentinel.mjs";
+import {
+  assignmentsAtInstant, dueAssignments, memberDeadlines, positiveNumber, timelineFileName,
+} from "../scripts/deadline-sentinel.mjs";
 
 // A SET-BUT-EMPTY environment variable is the ordinary shape of an unset
 // workflow input threaded through `env:`, and `env()` is `?? default` - so
@@ -144,11 +147,38 @@ test("find-armable prints the armed list and names what it dropped", () => {
 // --- what the sentinel does while it waits -----------------------------------
 
 /**
- * Stub GitHub API. `deadlineFor(id)` is re-read every poll, which is how a
- * lecturer moving the deadline mid-watch is simulated.
+ * Stub GitHub API: the org's repository listing for `pushed_at`, and the control
+ * repo as the sentinel re-reads it while it waits - the `assignments/` and
+ * `repositories/<id>/` listings plus the blobs they name.
+ *
+ * Everything is a function of the call count, so a test can publish an
+ * assignment, move a deadline or provision a student's repository *while the
+ * sentinel is waiting*, which is the whole subject of this file.
+ *
+ *   `ids`            which assignments the control repo holds
+ *   `deadlineFor`    that assignment's `deadline_at`, or null to leave it out
+ *   `stateFor`       its `state`, default `published`
+ *   `reposFor`       `repositories/<id>/`: logins with a provisioned repository
+ *   `listStatus`     an HTTP status for the `assignments/` listing, to make the
+ *                    read fail rather than come back empty
  */
-async function withStubApi(fn, { deadlineFor, pushedAt = () => "2026-09-10T21:12:00Z", repos } = {}) {
+async function withStubApi(fn, {
+  deadlineFor,
+  ids = ["exam"],
+  stateFor = () => "published",
+  reposFor = (id) => (id === "exam" ? ["alice"] : []),
+  listStatus = () => null,
+  pushedAt = () => "2026-09-10T21:12:00Z",
+  repos,
+} = {}) {
   const calls = [];
+  const blobs = new Map();
+  const blobFor = (text) => {
+    const sha = createHash("sha1").update(text).digest("hex");
+    blobs.set(sha, text);
+    return sha;
+  };
+
   const server = createServer((req, res) => {
     const send = (code, body) => {
       res.writeHead(code, { "content-type": "application/json" });
@@ -164,13 +194,38 @@ async function withStubApi(fn, { deadlineFor, pushedAt = () => "2026-09-10T21:12
         { name: "unrelated-repo", pushed_at: "2020-01-01T00:00:00Z" },
       ]);
     }
-    const asgn = path.match(/\/contents\/assignments\/([^/.]+)\.ya?ml$/);
-    if (asgn) {
-      const deadline = deadlineFor?.(asgn[1], calls.length);
-      if (!deadline) return send(404, { message: "Not Found" });
-      const yaml = `state: published\ndeadline_at: "${deadline}"\n`;
-      return send(200, { encoding: "base64", content: Buffer.from(yaml).toString("base64") });
+
+    if (/\/contents\/assignments$/.test(path)) {
+      const status = listStatus(calls.length);
+      if (status) return send(status, { message: "listing refused" });
+      const files = [];
+      for (const id of ids) {
+        const deadline = deadlineFor?.(id, calls.length);
+        if (!deadline) continue;
+        const yaml = `state: ${stateFor(id, calls.length)}\ndeadline_at: "${deadline}"\n`;
+        files.push({ type: "file", name: `${id}.yml`, sha: blobFor(yaml) });
+      }
+      return send(200, files);
     }
+
+    const repoDir = path.match(/\/contents\/repositories\/([^/]+)$/);
+    if (repoDir) {
+      const logins = reposFor(repoDir[1], calls.length);
+      if (!logins.length) return send(404, { message: "Not Found" });
+      return send(200, logins.map((login) => ({
+        type: "file",
+        name: `${login}.json`,
+        sha: blobFor(JSON.stringify({ github_login: login, repo_name: `TestOrg/${repoDir[1]}-${login}` })),
+      })));
+    }
+
+    const blob = path.match(/\/git\/blobs\/([0-9a-f]+)$/);
+    if (blob) {
+      const text = blobs.get(blob[1]);
+      if (text === undefined) return send(404, { message: "Not Found" });
+      return send(200, { encoding: "base64", content: Buffer.from(text).toString("base64") });
+    }
+
     return send(404, { message: "not stubbed: " + path });
   });
 
@@ -209,6 +264,10 @@ function runSentinel(dir, apiBase, { deadlineAt, pollMs = 40, maxRuntimeMs = 60_
         POLL_INTERVAL_MS: String(pollMs),
         SENTINEL_MAX_RUNTIME_MS: String(maxRuntimeMs),
         ...(maxPages ? { SENTINEL_MAX_PAGES: String(maxPages) } : {}),
+        // Pinned rather than inherited: CI sets these, and the timeline's file
+        // name falls back to them when one is already there.
+        GITHUB_RUN_ID: "999",
+        GITHUB_RUN_ATTEMPT: "1",
         GITHUB_OUTPUT: join(dir, "out.env"),
       },
     });
@@ -333,7 +392,38 @@ test("an unreadable assignment keeps the armed target rather than guessing", asy
       assert.equal(res.timeline.deadline_at, new Date(deadline).toISOString());
       assert.match(res.outputs, /fired=true/);
     },
-    { deadlineFor: () => null }, // every contents read 404s
+    { deadlineFor: () => null }, // the assignment is in no listing
+  );
+});
+
+test("a listing that fails keeps the deadlines it last read, not the armed instant", async () => {
+  // The group is read in one listing now, so a single failed read used to take
+  // every member's deadline with it - and an assignment positively read as
+  // extended minutes ago would have become due against the armed instant and
+  // been locked early. That is the failure this whole file exists to prevent.
+  const original = new Date(Date.now() + 700).toISOString();
+  const extended = new Date(Date.now() + 8 * HOUR).toISOString();
+  const dir = makeControlDir();
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: original, assignmentIds: "exam,exam-two", pollMs: 120 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /fired=true/);
+      assert.match(
+        res.outputs,
+        /due_assignment_ids=exam\n/,
+        `exam-two was read as extended before the listing failed:\n${res.outputs}`,
+      );
+      assert.match(res.stdout, /unreadable \(HTTP 403\)/);
+    },
+    {
+      ids: ["exam", "exam-two"],
+      deadlineFor: (id) => (id === "exam-two" ? extended : original),
+      // Answers the first listing, then refuses: the deadlines are read once and
+      // the sentinel waits out the rest of its target with nothing readable.
+      listStatus: (n) => (n > 3 ? 403 : null),
+    },
   );
 });
 
@@ -366,7 +456,7 @@ test("it writes one timeline per watched assignment", async () => {
         );
       }
     },
-    { deadlineFor: () => deadline },
+    { ids: ["exam", "lab-b"], deadlineFor: () => deadline },
   );
 });
 
@@ -492,7 +582,7 @@ test("extending one assignment of a shared-instant group does not lock the other
       const one = JSON.parse(readFileSync(join(dir, "lockdowns", "exam", "sentinel-TESTKEY.json"), "utf8"));
       assert.equal(one.due, true, "exam is due and must still be stopped");
     },
-    { deadlineFor: (id) => (id === "exam-two" ? extended : original) },
+    { ids: ["exam", "exam-two"], deadlineFor: (id) => (id === "exam-two" ? extended : original) },
   );
 });
 
@@ -528,6 +618,185 @@ test("a complete walk is still reported as clean", async () => {
       const sample = res.timeline.samples[0];
       assert.equal(sample.error, undefined, `an ordinary read carries no error: ${JSON.stringify(sample)}`);
       assert.equal(sample.pushed_at["exam-alice"], "2026-09-10T21:12:00Z");
+    },
+    { deadlineFor: () => deadline },
+  );
+});
+
+// --- the armed list is where a sentinel starts, not what it stops -------------
+//
+// `assignment_ids` is fixed when the job is queued. A second group published
+// with the same deadline arms another job in the same concurrency group, and
+// that job can only WAIT behind the running one - past the instant, which is
+// the one moment the sentinel exists for. Worse, GitHub keeps one pending job
+// per group and the newest arrival cancels the one before it, so the list that
+// survives in the queue is not even the freshest.
+//
+// Measured on pxl-classroom-testbed 2026-09-17: drill-20260917-1614 was
+// published 5 minutes after a sentinel had been armed for 16:35:00 with
+// drill-20260917-1609 alone. Both arms that named it were cancelled in the
+// pending slot by a cron firing that had read the control repo BEFORE it
+// existed, and it was locked by the finalize 143 seconds late, with no timeline
+// at all.
+
+test("assignmentsAtInstant is the arming rule, asked of what the org holds now", () => {
+  const instant = "2026-09-10T22:00:00.000Z";
+  const assignments = [
+    { id: "exam", doc: published(instant) },
+    { id: "exam-two", doc: published("2026-09-10T22:00:00Z") },          // same instant, written differently
+    { id: "closed-one", doc: published(instant, "closed") },             // still has repositories to lock
+    { id: "draft-one", doc: published(instant, "draft") },               // nobody could have accepted
+    { id: "archived-one", doc: published(instant, "archived") },
+    { id: "other-hour", doc: published("2026-09-10T23:00:00Z") },
+    { id: "junk", doc: published("next tuesday") },
+    { id: "no-deadline", doc: { state: "published" } },
+    { id: "../escape", doc: published(instant) },                        // not a slug: it would reach a shell loop
+  ];
+  assert.deepEqual(assignmentsAtInstant(assignments, instant), ["closed-one", "exam", "exam-two"]);
+});
+
+test("what a sentinel stops is what arming would have given it", () => {
+  // Two spellings of "which assignments share this instant" is how a running
+  // watch and the arm queued behind it come to disagree about who is due, so
+  // this derives one from the other rather than listing the answer twice.
+  const assignments = [
+    { id: "a", doc: published(at(1)) },
+    { id: "b", doc: published(at(1)) },
+    { id: "c", doc: published(at(2), "closed") },
+    { id: "d", doc: published(at(2), "draft") },
+    { id: "e", doc: published(at(3)) },
+  ];
+  const { armed } = planSentinels(assignments, { now: NOW, org: "TestOrg" });
+  assert.ok(armed.length >= 2);
+  for (const sentinel of armed) {
+    assert.deepEqual(
+      assignmentsAtInstant(assignments, sentinel.deadline_at),
+      [...sentinel.assignment_ids].sort(),
+      `the sentinel armed for ${sentinel.deadline_at} must stop exactly what arming grouped into it`,
+    );
+  }
+});
+
+test("memberDeadlines answers per member, and omits what it cannot read", () => {
+  const assignments = [
+    { id: "exam", doc: published("2026-09-10T22:00:00Z") },
+    { id: "extended", doc: published("2026-09-11T09:00:00Z") },
+    { id: "junk", doc: published("next tuesday") },
+  ];
+  const { byId, earliest } = memberDeadlines(["exam", "extended", "junk", "deleted"], assignments);
+  assert.equal(byId.get("exam").toISOString(), "2026-09-10T22:00:00.000Z");
+  assert.equal(byId.get("extended").toISOString(), "2026-09-11T09:00:00.000Z");
+  assert.ok(!byId.has("junk") && !byId.has("deleted"), "unreadable is not a deadline - dueAssignments calls those due");
+  assert.equal(earliest.toISOString(), "2026-09-10T22:00:00.000Z", "the group wakes at the soonest of its members");
+});
+
+test("an assignment published after the sentinel was armed is stopped at the instant", async () => {
+  const startedAt = Date.now();
+  const deadline = new Date(startedAt + 900).toISOString();
+  // Published while the sentinel waits, sharing its instant. Nothing dispatched
+  // to this run; the only job that can act at the instant is this one.
+  const joined = (_id, _n) => Date.now() - startedAt > 300;
+  const dir = makeControlDir();
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline, pollMs: 150 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.stdout, /late-exam shares this instant/);
+      assert.match(
+        res.outputs,
+        /due_assignment_ids=exam,late-exam\n/,
+        `the assignment that joined must be stopped with the rest:\n${res.outputs}`,
+      );
+
+      const timeline = JSON.parse(readFileSync(join(dir, "lockdowns", "late-exam", "sentinel-TESTKEY.json"), "utf8"));
+      assert.equal(timeline.due, true);
+      assert.equal(timeline.armed_for, deadline, "the instant it was stopped at is still the armed one");
+      assert.ok(timeline.joined_at, "a timeline says when its assignment joined, or it was armed with the sentinel");
+      assert.ok(
+        timeline.samples.every((s) => s.observed_at >= timeline.joined_at),
+        "samples taken before it joined would read as 'nothing was pushed' for a cohort nobody was watching",
+      );
+      assert.ok(
+        timeline.samples.some((s) => s["pushed_at"]["late-exam-bob"]),
+        `its repositories are watched from the moment it joins: ${JSON.stringify(timeline.samples)}`,
+      );
+      const armedOne = JSON.parse(readFileSync(join(dir, "lockdowns", "exam", "sentinel-TESTKEY.json"), "utf8"));
+      assert.equal(armedOne.joined_at, undefined, "the assignment it was armed with did not join anything");
+    },
+    {
+      ids: ["exam", "late-exam"],
+      deadlineFor: (id, n) => (id === "exam" || joined(id, n) ? deadline : null),
+      reposFor: (id, n) => (id === "exam" ? ["alice"] : joined(id, n) ? ["bob"] : []),
+      repos: () => [
+        { name: "exam-alice", pushed_at: "2026-09-10T21:12:00Z" },
+        { name: "late-exam-bob", pushed_at: "2026-09-10T21:40:00Z" },
+      ],
+    },
+  );
+});
+
+test("a repository provisioned while the sentinel waits is watched from then on", async () => {
+  // A sentinel armed at publish is running before anyone has accepted. Reading
+  // the records once, at job start, is how drill-20260917-1609 polled six times
+  // and recorded no push at all for the cohort it was watching.
+  const startedAt = Date.now();
+  const deadline = new Date(startedAt + 700).toISOString();
+  const dir = mkdtempSync(join(tmpdir(), "pxl-sentinel-"));
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline, pollMs: 120 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.ok(res.timeline, "a timeline is written even though the checkout knew no repositories");
+      assert.ok(
+        res.timeline.samples.some((s) => s["pushed_at"]["exam-alice"] === "2026-09-10T21:12:00Z"),
+        `the repository that appeared mid-watch is in the timeline: ${JSON.stringify(res.timeline.samples)}`,
+      );
+    },
+    {
+      deadlineFor: () => deadline,
+      // Nothing in `repositories/exam/` until the student accepts, 300ms in.
+      reposFor: () => (Date.now() - startedAt > 300 ? ["alice"] : []),
+    },
+  );
+});
+
+test("a second sentinel for the same instant does not overwrite the first's timeline", () => {
+  // The duplicate reaches the instant after it has passed and writes a
+  // single-poll record. On 2026-09-17 that replaced the six-poll timeline of the
+  // sentinel that actually stopped the cohort, at the same path.
+  const key = "20260917T163500Z";
+  const run = { runId: "35245195238", runAttempt: "1" };
+  assert.equal(timelineFileName(key, [], run), `sentinel-${key}.json`);
+  assert.equal(timelineFileName(key, ["lockdown-record.json"], run), `sentinel-${key}.json`);
+  assert.equal(
+    timelineFileName(key, [`sentinel-${key}.json`], run),
+    `sentinel-${key}-35245195238-1.json`,
+    "the run that fired keeps its record; lockdown.mjs reads every sentinel-*.json",
+  );
+  assert.match(timelineFileName(key, [`sentinel-${key}.json`], run), /^sentinel-.*\.json$/, "lockdown.mjs's own glob");
+});
+
+test("the duplicate writes its own timeline beside the one already there", async () => {
+  const deadline = new Date(Date.now() + 250).toISOString();
+  const dir = makeControlDir();
+  mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+  const first = join(dir, "lockdowns", "exam", "sentinel-TESTKEY.json");
+  writeFileSync(first, JSON.stringify({ outcome: "fired", polls: 6, observer_run: "the one that stopped them" }));
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline });
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(
+        JSON.parse(readFileSync(first, "utf8")).observer_run,
+        "the one that stopped them",
+        "the timeline of the sentinel that fired at the instant survives",
+      );
+      const mine = join(dir, "lockdowns", "exam", "sentinel-TESTKEY-999-1.json");
+      assert.ok(existsSync(mine), `this run's own timeline: ${readdirSync(join(dir, "lockdowns", "exam")).join(", ")}`);
+      assert.equal(JSON.parse(readFileSync(mine, "utf8")).outcome, "fired");
     },
     { deadlineFor: () => deadline },
   );

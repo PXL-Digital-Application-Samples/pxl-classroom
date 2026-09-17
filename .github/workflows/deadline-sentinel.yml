@@ -192,8 +192,14 @@ jobs:
     concurrency:
       # One sentinel per (org, deadline instant), not per assignment: three
       # assignments sharing a 22:00 deadline share one job. A duplicate armed by
-      # an overlapping firing queues behind it and exits immediately, because by
-      # then the instant has passed.
+      # an overlapping firing queues behind it and reaches the instant only after
+      # it has passed, so it cannot be what stops anything on time - and GitHub
+      # keeps ONE pending job per group, the newest arrival cancelling the one
+      # before, so the duplicate that survives is not even the one armed with
+      # the freshest list. That is why the running sentinel re-reads its group
+      # while it waits and stops every assignment whose deadline is this
+      # instant, not just `assignment_ids` (deadline-sentinel.mjs). The queued
+      # duplicate re-stops the same group idempotently after the instant.
       group: sentinel-${{ matrix.sentinel.org }}-${{ matrix.sentinel.key }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
@@ -256,7 +262,14 @@ jobs:
       # the sentinel still fires. Locking the whole group there demoted the
       # extended cohort to `pull` before its own deadline. lockdown.mjs will not
       # catch it: it deliberately does not second-guess its caller, so that a
-      # lecturer can run a lockdown early on purpose.
+      # lecturer can run a lockdown early on purpose. It also names assignments
+      # that joined the instant after this job was armed, which the matrix
+      # cannot.
+      #
+      # One assignment's failure does not skip the others: every due assignment
+      # is attempted, and the step fails afterwards naming the ones whose stop
+      # failed. Giving up at the first failure left the rest of the group
+      # writable until the nightly.
       - name: Stop writes
         if: steps.sentinel.outputs.fired == 'true' && steps.sentinel.outputs.due_assignment_ids != ''
         env:
@@ -267,9 +280,14 @@ jobs:
           ASSIGNMENT_IDS: ${{ steps.sentinel.outputs.due_assignment_ids }}
         run: |
           set -e
+          failed=""
           for id in $(printf '%s' "$ASSIGNMENT_IDS" | tr ',' ' '); do
-            ASSIGNMENT_ID="$id" node lockdown/lockdown.mjs
+            ASSIGNMENT_ID="$id" node lockdown/lockdown.mjs || failed="$failed $id"
           done
+          if [ -n "$failed" ]; then
+            echo "::error::Stopping writes failed for:$failed - the nightly finalize locks whatever this missed."
+            exit 1
+          fi
 
       - name: Commit the push timeline
         if: always()
