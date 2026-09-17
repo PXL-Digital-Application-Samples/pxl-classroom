@@ -18,7 +18,6 @@ import { MANIFEST_APP_PERMISSIONS } from "../lib/audit.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const LEVEL = { read: 1, write: 2 };
-const STAGES = new Set(["stage 2", "stage 3"]);
 
 /** Every file that can mint a token: hub workflows, composite actions, the broker template. */
 function tokenFiles() {
@@ -162,17 +161,19 @@ test("no row asks for more than its App declares", () => {
   assert.deepEqual(over, [], over.join("\n"));
 });
 
-test("a row left broad says whether that is pending or decided, and a scoped row says neither", () => {
+// `pending` was how a row stayed broad while the narrowing was staged. All three
+// stages landed on 2026-09-17, so a broad row now needs a decision, not a plan.
+test("a row left broad says why, and a scoped row does not", () => {
   const bad = [];
   for (const [key, row] of Object.entries(APP_TOKEN_SCOPES)) {
     const broad = row.repositories === "all" || row.permissions === "all";
-    const markers = ["pending", "reason"].filter((f) => row[f] !== undefined);
+    if (row.pending !== undefined) bad.push(`${key}: "pending" is retired - decide the scope, or give a reason`);
+    if (row.permissions === "all") bad.push(`${key}: every permission the installation holds - name the ones it uses`);
     if (broad) {
-      if (markers.length !== 1) bad.push(`${key}: a broad row carries exactly one of pending or reason, has ${markers.join(", ") || "neither"}`);
-      if (row.pending !== undefined && !STAGES.has(row.pending)) bad.push(`${key}: pending "${row.pending}" is not a stage`);
-      if (row.reason !== undefined && String(row.reason).length < 40) bad.push(`${key}: a reason says why`);
-    } else if (markers.length) {
-      bad.push(`${key}: fully scoped, so ${markers.join(" and ")} is stale`);
+      if (row.reason === undefined) bad.push(`${key}: a broad row carries a reason`);
+      else if (String(row.reason).length < 40) bad.push(`${key}: a reason says why`);
+    } else if (row.reason !== undefined) {
+      bad.push(`${key}: fully scoped, so its reason is stale`);
     }
     if (row.repositories !== "all" && (!Array.isArray(row.repositories) || row.repositories.length === 0)) {
       bad.push(`${key}: repositories is "all" or a non-empty list`);
