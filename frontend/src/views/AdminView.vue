@@ -1619,6 +1619,7 @@ import {
   gradingSummaryPath,
   retiredDir,
   DASHBOARD_PATH,
+  ASSIGNMENT_OWNED_DIRS,
 } from '../../../lib/control-layout.mjs'
 import { archiveRepoName } from '../../../lib/archive-repo.mjs'
 import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
@@ -1638,14 +1639,6 @@ import {
   COLLISION_REMEDY_LEAD,
   COLLISION_WARNING_LEAD,
 } from '../lib/assignment-collision.js'
-
-/**
- * The control-repo directories keyed by assignment id.
- *
- * Listed rather than derived: `students/` and `errors/` are org-wide, and a
- * delete that swept every directory would take the roster with it.
- */
-const OWNED_DIRS = ['acceptances', 'observations', 'repositories', 'lockdowns', 'teams', 'overrides', 'grading']
 import { formatAssignmentValidationError } from '../lib/validation-messages.js'
 import { summariseGrading } from '../lib/autograde.js'
 import { assignmentFacts } from '../../../lib/dashboard-aggregate.mjs'
@@ -4426,7 +4419,7 @@ async function deleteAssignment() {
           p === assignmentPath(id) ||
           p === reportPath(id) ||
           p === reportCsvPath(id) ||
-          OWNED_DIRS.some((d) => p.startsWith(`${d}/${id}/`)),
+          ASSIGNMENT_OWNED_DIRS.some((d) => p.startsWith(`${d}/${id}/`)),
       )
 
     // 3. The broker, before any record is removed.

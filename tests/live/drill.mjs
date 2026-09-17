@@ -41,7 +41,13 @@ import { parse, stringify } from "yaml";
 import { buildAssignmentDoc, utcToLocalInput } from "../../lib/assignment-doc.mjs";
 import { validateAgainst } from "../../lib/validate.mjs";
 import { brokerRepoName } from "../../lib/broker-repo.mjs";
-import { resolveArchiveRepo, archiveBranchName } from "../../lib/archive-repo.mjs";
+import { resolveArchiveRepo, archiveBranchName, reportArchiveRepo } from "../../lib/archive-repo.mjs";
+import {
+  ASSIGNMENT_OWNED_DIRS, DASHBOARD_PATH, assignmentIdFromFile, assignmentPath, gradingSummaryPath,
+  reportCsvPath, reportPath, retiredDir,
+} from "../../lib/control-layout.mjs";
+import { buildRetiredManifest } from "../../lib/retired-manifest.mjs";
+import { commitWithRebase } from "../../lib/gittree.mjs";
 import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
 import { normalizeLogin } from "../../lib/github-login.mjs";
 import { INVITED_LABEL, REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
@@ -58,6 +64,8 @@ const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
 const ON_TIME_MESSAGE = "drill: on-time submission";
+// Written on every drill assignment; cleanup refuses anything without it.
+const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 
 const [command, ...rest] = process.argv.slice(2);
 const flag = (name) => rest.includes(`--${name}`);
@@ -196,7 +204,7 @@ async function start() {
   const form = {
     id,
     title: `Deadline drill ${isoSeconds(now).slice(0, 16).replace("T", " ")} UTC`,
-    description: "Automated deadline drill (tests/live/drill.mjs). Safe to delete.",
+    description: DRILL_DESCRIPTION,
     organization: ORG,
     template: `${ORG}/${TEMPLATE}`,
     repository_name_pattern: `${id}-{github_login}`,
@@ -607,8 +615,128 @@ async function migrate() {
   finish();
 }
 
+// --- cleanup --------------------------------------------------------------------
+
+// Deletes a drill the way the Admin Panel deletes an assignment
+// (AdminView.vue deleteAssignment, from the same lib/ pieces): the broker, the
+// organization ruleset, then ONE commit writing retired/<id>/ and removing the
+// working data and the dashboard entry. Then what the Admin Panel leaves to the
+// lecturer on purpose: the student repositories and the archive. The records go
+// first because a published assignment whose repositories are gone fails the
+// nightly collect with a 404 for every student.
+//
+// Only ever an assignment this script created: the id prefix AND the
+// description it writes, so a real assignment named drill-something is refused.
+async function cleanup() {
+  let ids = rest.filter((a) => !a.startsWith("--"));
+  console.log(`PXL Classroom live drill - CLEANUP on ${ORG} (deletes repositories!)`);
+  await checkAccounts(ACCOUNTS, r);
+  stopIfFailed();
+  if (flag("all")) {
+    const dir = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/assignments`, { token: LECTURER.token });
+    ids = (Array.isArray(dir.data) ? dir.data : []).map((f) => assignmentIdFromFile(f.name)).filter((x) => x?.startsWith("drill-"));
+  }
+  if (ids.length === 0) die("usage: node tests/live/drill.mjs cleanup <assignment-id>... | cleanup --all");
+  const pending = (await runsSince("daily-activity.yml", Date.now() - 3 * 3600_000)).filter((x) => x.status !== "completed");
+  if (pending.length) die(`a daily-activity run is still going (${pending[0].html_url}) - clean up once it finishes`);
+
+  const request = (method, path, body) => api(path, { token: LECTURER.token, method, body });
+  for (const id of ids) {
+    console.log(`\n${id}\n`);
+    const stored = await readControl(assignmentPath(id));
+    const doc = stored.ok ? parse(stored.text) : null;
+    if (!id.startsWith("drill-") || doc?.description !== DRILL_DESCRIPTION) {
+      bad(`${id} is not an assignment this script created - refusing`);
+      continue;
+    }
+    if (Date.now() < new Date(doc.deadline_at).getTime()) {
+      bad(`${id}'s deadline has not passed - refusing to delete a live drill`);
+      continue;
+    }
+
+    // Evidence, and the repositories, read before anything is removed.
+    const reportText = await readControl(reportPath(id));
+    const reportCsv = await readControl(reportCsvPath(id));
+    const grading = await readControl(gradingSummaryPath(id));
+    let students = [];
+    try { students = reportText.ok ? JSON.parse(reportText.text).students || [] : []; } catch { students = []; }
+
+    const tree = await request("GET", `/repos/${ORG}/${CONTROL_REPO}/git/trees/main?recursive=1`);
+    if (!tree.ok || tree.data?.truncated) { bad(`control tree ${tree.ok ? "truncated" : `HTTP ${tree.status}`} - nothing deleted`); continue; }
+    const owned = (tree.data.tree || [])
+      .filter((e) => e.type === "blob")
+      .map((e) => e.path)
+      .filter((p) => p === assignmentPath(id) || p === reportPath(id) || p === reportCsvPath(id) ||
+        ASSIGNMENT_OWNED_DIRS.some((d) => p.startsWith(`${d}/${id}/`)));
+    const studentRepos = [];
+    for (const p of owned.filter((x) => x.startsWith(`repositories/${id}/`))) {
+      const rec = await readControlJson(p);
+      if (rec?.repo_name) studentRepos.push(bareRepo(rec.repo_name));
+    }
+    const archive = reportArchiveRepo({ org: ORG, students });
+
+    const broker = brokerRepoName({ assignment: doc, assignmentId: id });
+    const brokerRes = await request("GET", `/repos/${ORG}/${broker}`);
+    if (brokerRes.ok) {
+      const del = await request("DELETE", `/repos/${ORG}/${broker}`);
+      if (!del.ok && del.status !== 404) { bad(`could not delete ${broker} (HTTP ${del.status}) - nothing else changed`); continue; }
+      ok(`deleted ${ORG}/${broker}`);
+    } else if (brokerRes.status !== 404) { bad(`could not read ${broker} (HTTP ${brokerRes.status}) - nothing deleted`); continue; }
+
+    let orgRulesetRemoved = null;
+    const orgLock = await findOrgSubmissionLock(request, { org: ORG, assignmentId: id });
+    if (orgLock.ok && orgLock.ruleset) {
+      const del = await request("DELETE", `/orgs/${ORG}/rulesets/${orgLock.ruleset.id}`);
+      orgRulesetRemoved = del.ok || del.status === 404;
+      if (orgRulesetRemoved) ok(`deleted organization ruleset ${orgLock.ruleset.id}`);
+      else bad(`organization ruleset ${orgLock.ruleset.id} not removed (HTTP ${del.status})`);
+    }
+
+    const changes = [
+      {
+        path: `${retiredDir(id)}/manifest.json`,
+        content: JSON.stringify(buildRetiredManifest({
+          org: ORG, assignmentId: id, title: doc.title, deletedBy: LECTURER.login,
+          brokerRepo: broker, brokerDeleted: brokerRes.ok, removedPaths: owned, students, orgRulesetRemoved,
+        }), null, 2) + "\n",
+      },
+      ...owned.map((path) => ({ path, content: null })),
+    ];
+    if (reportText.ok) changes.push({ path: `${retiredDir(id)}/report.json`, content: reportText.text });
+    if (reportCsv.ok) changes.push({ path: `${retiredDir(id)}/report.csv`, content: reportCsv.text });
+    if (grading.ok) changes.push({ path: `${retiredDir(id)}/grading.json`, content: grading.text });
+    const dashboard = await readControl(DASHBOARD_PATH);
+    if (dashboard.ok) {
+      try {
+        const parsed = JSON.parse(dashboard.text);
+        if (parsed?.assignments?.[id]) {
+          delete parsed.assignments[id];
+          changes.push({ path: DASHBOARD_PATH, content: JSON.stringify(parsed, null, 2) + "\n" });
+        }
+      } catch { /* a dashboard we cannot parse is not ours to rewrite */ }
+    }
+    try {
+      await commitWithRebase({ token: LECTURER.token, owner: ORG, repo: CONTROL_REPO, branch: "main", message: `Delete assignment ${id}`, changes });
+      ok(`one commit: retired/${id}/ written, ${owned.length} path(s) removed`);
+    } catch (e) {
+      bad(`control commit failed (${e.message}) - the broker is gone, the repositories are untouched`);
+      continue;
+    }
+
+    for (const full of [...new Set([...studentRepos.map((n) => `${ORG}/${n}`), ...(archive ? [archive] : [])])]) {
+      const del = await request("DELETE", `/repos/${full}`);
+      if (del.ok || del.status === 404) ok(`deleted ${full}${del.status === 404 ? " (already gone)" : ""}`);
+      else bad(`could not delete ${full} (HTTP ${del.status})`);
+    }
+  }
+  // The student pages still carry the drill cards until the next regeneration.
+  await dispatch("regenerate-dashboard.yml", { org: ORG });
+  finish();
+}
+
 if (command === "start") await start();
 else if (command === "handin") await handinOnly();
 else if (command === "verify") await verify();
 else if (command === "migrate") await migrate();
-else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id>");
+else if (command === "cleanup") await cleanup();
+else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all");
