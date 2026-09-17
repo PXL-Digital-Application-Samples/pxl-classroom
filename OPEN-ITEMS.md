@@ -295,14 +295,14 @@ node -e "import('./lib/assignment-collision.mjs').then(m => console.log(typeof m
 **Why it is staged rather than fixed at once.** A missing permission is a 403 at the moment of use, and several of these jobs run only at a deadline (sentinel, finalize, lockdown, preservation). Naming a permission an organization has not approved yet fails the token mint itself (HTTP 422). A repository list cannot name a repository that does not exist yet, so provisioning can only be narrowed by permission.
 
 - **Stage 1 (2026-09-17):** the four jobs whose token only checks out (and pushes to) the control repo - `daily-activity` collect and find-finalizable, `deadline-sentinel` arm, `reconcile-registry` - ask for the control repo and `contents` alone.
-- **Stage 2:** the non-exam paths - `notify`, `report`, `registry`, `collect`, dashboard regeneration, starter sync, feedback PRs, org setup, the weekly report's repository list - one per change.
+- **Stage 2:** the non-exam paths - `notify` (done 2026-09-17: its control repo, `issues: write`), then `report`, `registry`, `collect`, dashboard regeneration, starter sync, feedback PRs, org setup, the weekly report's repository list - one per change.
 - **Stage 3:** acceptance, provisioning, publishing, the sentinel's watch, finalize, lockdown and preservation - only when no published assignment has a deadline in the next 14 days. Acceptance cannot be confined to one organization: any student accepting anywhere runs the changed job.
 
 Credentialed workflows run only from `main`, so no stage can be drilled before it merges. Each change is dispatched against `pxl-classroom-testbed` the moment it lands and reverted if that fails, ahead of the scheduled run that reaches every organization.
 
 `lib/app-token-scopes.mjs` is the one record of each step's scope and `tests/app-token-scopes.test.mjs` holds the YAML to it, so a new token step cannot arrive broad unnoticed.
 
-**How to tell it is closed:** no row is still pending (20 on 2026-09-17: 10 at stage 2, 10 at stage 3). A row that stays broad on purpose carries a `reason` instead.
+**How to tell it is closed:** no row is still pending (20 when stage 1 landed on 2026-09-17, 10 per stage; 19 after `notify`). A row that stays broad on purpose carries a `reason` instead.
 
 ```bash
 grep -c "pending:" lib/app-token-scopes.mjs

@@ -47,6 +47,11 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
+        # The one repository it writes to, and the one permission its five calls
+        # need: list and open the tracking issue, list, update and post comments
+        # (lib/app-token-scopes.mjs).
+        repositories: ${{ inputs.control-repo }}
+        permission-issues: write
 
     - name: Set up Node
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
