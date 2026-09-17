@@ -292,12 +292,15 @@ test("an empty cohort stops nothing and still writes a record", async () => {
 // understating the system against them.
 
 /** A fired sentinel timeline beside the record it explains. */
-function writeSentinel(dir, { at, outcome = "fired", key = "k1" } = {}) {
+function writeSentinel(dir, { at, outcome = "fired", key = "k1", due } = {}) {
   const d = join(dir, "lockdowns", "exam");
   mkdirSync(d, { recursive: true });
   writeFileSync(
     join(d, `sentinel-${key}.json`),
-    JSON.stringify({ schema_version: 1, assignment_id: "exam", outcome, deadline_at: at, samples: [] }),
+    JSON.stringify({
+      schema_version: 1, assignment_id: "exam", outcome, deadline_at: at, samples: [],
+      ...(due === undefined ? {} : { due }),
+    }),
   );
 }
 
@@ -325,6 +328,35 @@ test("a sentinel that gave up is not credited", async () => {
     assert.equal(res.status, 0, res.stderr);
     assert.notEqual(res.record.results[0].lockdown_at, DEADLINE);
     assert.ok(res.record.results[0].uncertainty_seconds > 0, "the nightly's delay is real and must show");
+  });
+});
+
+test("a sentinel that fired for the GROUP but skipped this assignment is not credited", async () => {
+  // A sentinel watches every assignment sharing one instant. Extend one of them
+  // and it still fires - for the others. That assignment's timeline says
+  // `fired` with `due: false` and carries its OWN, later deadline, and nothing
+  // stopped it then: crediting it would put `lockdown_at` at an instant when
+  // this cohort was deliberately left writable, which is the number a lecturer
+  // cites in a dispute, wrong in the direction that flatters the system.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir(["alice"]);
+    writeSentinel(dir, { at: DEADLINE, due: false });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.notEqual(res.record.results[0].lockdown_at, DEADLINE, "it was not stopped at that instant");
+    assert.ok(res.record.results[0].uncertainty_seconds > 0, "this run's own delay is the real one");
+  });
+});
+
+test("a timeline from before `due` existed is still credited", async () => {
+  // Absent is not false: every timeline written before the field meant the
+  // assignment was stopped, and reading absence as "not due" would take the
+  // precision back off every cohort the sentinel has ever frozen.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir(["alice"]);
+    writeSentinel(dir, { at: DEADLINE });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.record.results[0].lockdown_at, DEADLINE);
   });
 });
 

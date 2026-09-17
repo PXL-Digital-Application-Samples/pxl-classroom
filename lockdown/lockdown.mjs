@@ -278,6 +278,13 @@ async function readSentinelStop() {
     try {
       const doc = JSON.parse(await readFile(join(dir, name), "utf8"));
       if (doc?.outcome !== "fired" || !doc?.deadline_at) continue;
+      // `fired` is about the sentinel, `due` is about THIS assignment: a
+      // sentinel fires for its group while one member has been extended past
+      // the instant, and that member's timeline records its own later deadline
+      // with `due: false`. Crediting that would claim writes stopped at an
+      // instant where this cohort was deliberately left alone. Absent is a
+      // timeline written before the field existed, when firing did mean stopped.
+      if (doc?.due === false) continue;
       const at = new Date(doc.deadline_at);
       if (Number.isNaN(at.getTime())) continue;
       // A cohort can be armed more than once - a deadline moved forward, say.
