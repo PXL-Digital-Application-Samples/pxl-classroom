@@ -43,7 +43,7 @@
                      `.login` stays inside the loop - move one line out and it
                      renders empty, with no error. -->
                 <div
-                  v-for="orgOption in orgs"
+                  v-for="orgOption in orgsInSwitcher"
                   :key="orgOption.login"
                   class="org-dropdown-item org-choice-item"
                   :class="{ 'is-selected': orgOption.login === selectedOrg }"
@@ -558,6 +558,7 @@ import { toast } from '../lib/toast.js'
 import { APP_INSTALL_URL } from '../../../lib/audit.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { classifyUnreadableControlRepo, readOrgRegistration } from '../lib/control-repo-access.js'
+import { lampRank, orderOrgsForSwitcher } from '../lib/org-order.js'
 import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
@@ -579,7 +580,27 @@ const orgDropdownOpen = ref(false)
 const orgDropdownRef = ref(null)
 const orgStatusMap = ref(new Map())
 
+// Green, then amber, then unlit, A-Z within each (lib/org-order.js).
+//
+// FROZEN WHILE THE MENU IS OPEN. The lamps arrive one fetch per org after the
+// page loads, and the selected org's is rewritten by the dashboard load - so a
+// live sort moves rows under the pointer of someone who opened the menu early,
+// and the click lands on a different organization. The ranks are captured when
+// the menu opens; an org that appears while it is open sorts by its live lamp.
+let menuRanks = null
+const liveRank = (login) => lampRank(getOrgStatus(login))
+const orgsInSwitcher = computed(() => {
+  const open = orgDropdownOpen.value
+  return orderOrgsForSwitcher(orgs.value, (login) => {
+    const key = login.toLowerCase()
+    return open && menuRanks?.has(key) ? menuRanks.get(key) : liveRank(login)
+  })
+})
+
 function toggleOrgDropdown() {
+  if (!orgDropdownOpen.value) {
+    menuRanks = new Map(orgs.value.map((o) => [o.login.toLowerCase(), liveRank(o.login)]))
+  }
   orgDropdownOpen.value = !orgDropdownOpen.value
 }
 

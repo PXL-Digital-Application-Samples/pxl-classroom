@@ -833,7 +833,7 @@ The SPA is dual-theme (dark default / light / system) with every colour declared
 |---|---|---|
 | `/` | `HomeView` | Role-adaptive portal - unauthenticated landing with sign-in & direct lookup; authenticated student "My Assignments" (accepted repos only); lecturer dashboard router |
 | `/:org/i/:inviteToken` | `AssignmentView` | Student - invitation link: resolves the assignment from the token's subject, accept flow, polling, repo link |
-| `/dashboard/:org?` | `DashboardView` | Lecturer - org selector (with live status lights & memory), System Health audit modal, live assignment sync, + Assignment shortcut, and embedded Resource Usage & Limits panel |
+| `/dashboard/:org?` | `DashboardView` | Lecturer - org selector (with live status lights & memory; listed green, then amber, then unlit, A-Z within each, and not reordered while open - `frontend/src/lib/org-order.js`), System Health audit modal, live assignment sync, + Assignment shortcut, and embedded Resource Usage & Limits panel |
 | `/dashboard/:org/admin` | `AdminView` | Lecturer - Admin Panel: create, edit and publish an assignment. A **published or closed** one opens on its cohort (share block, accepted/deadline summary, link to tracking) with the fieldsets behind an *Edit settings* disclosure; a draft opens on the form (§10.1.1) |
 | `/dashboard/:org/:assignmentId` | `AssignmentDetailView` | Lecturer - per-assignment detail + per-student table with smart hover tooltips, amber Admin shortcut, and Export dropdown menu. **Sole home of the per-student operations**: grant a deadline extension, retry a failed acceptance |
 | `/dashboard/:org/usage` | `UsageView` | Lecturer - per-org weekly usage report |
