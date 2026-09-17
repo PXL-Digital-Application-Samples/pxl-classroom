@@ -249,38 +249,54 @@ jobs:
           dedup-key: run-failed-finalizable-${{ matrix.org }}
 
   aggregate-finalizable:
-    needs: find-finalizable
+    needs: [find-orgs, find-finalizable]
+    # ALWAYS, when the scan ran at all. Without it, one organization's failed
+    # collect leg skipped this job - and finalize and check-idle after it - for
+    # EVERY organization, because a failure skips everything downstream through
+    # the whole needs chain, not just the job that needs it directly. It did on
+    # 2026-09-16 and 2026-09-17, leaving two assignments unfinalized. Running on
+    # means a failed leg's organization is merely absent from the plan tonight;
+    # `complete` (scripts/aggregate-finalizable.mjs) is what stops that absence
+    # reading as "nothing active" to check-idle.
+    if: always() && (needs.find-finalizable.result == 'success' || needs.find-finalizable.result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       finalizable: ${{ steps.agg.outputs.finalizable }}
       active_count: ${{ steps.agg.outputs.active_count }}
+      complete: ${{ steps.agg.outputs.complete }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: finalizable-*
           merge-multiple: true
+          path: scan
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: active-*
           merge-multiple: true
+          path: scan
       - id: agg
-        run: |
-          cat finalizable-*.json | jq -s 'flatten' -c > all-finalizable.json
-          echo "finalizable=$(cat all-finalizable.json)" >> "$GITHUB_OUTPUT"
-          
-          # Sum the active counts
-          TOTAL_ACTIVE=0
-          for f in active-*.json; do
-            count=$(jq '.active' < "$f")
-            TOTAL_ACTIVE=$((TOTAL_ACTIVE + count))
-          done
-          echo "active_count=$TOTAL_ACTIVE" >> "$GITHUB_OUTPUT"
+        env:
+          FIND_RESULT: ${{ needs.find-finalizable.result }}
+          EXPECTED_ORGS: ${{ needs.find-orgs.outputs.orgs }}
+        run: node scripts/aggregate-finalizable.mjs scan
 
   finalize:
     environment: provisioning
     needs: aggregate-finalizable
-    if: needs.aggregate-finalizable.outputs.finalizable != '[]' && needs.aggregate-finalizable.outputs.finalizable != ''
+    # always() for the same reason as aggregate-finalizable: without it a failed
+    # collect leg anywhere upstream skips this job for every organization, even
+    # when the aggregate it needs succeeded. The explicit result check is what
+    # keeps a failed or skipped aggregate from finalizing on an empty output.
+    if: >-
+      always() && needs.aggregate-finalizable.result == 'success'
+      && needs.aggregate-finalizable.outputs.finalizable != '[]'
+      && needs.aggregate-finalizable.outputs.finalizable != ''
     strategy:
       matrix:
         assignment: ${{ fromJSON(needs.aggregate-finalizable.outputs.finalizable) }}
@@ -524,8 +540,14 @@ jobs:
     #
     # A scoped run may finalize, collect and report; it may not make a statement
     # about the hub as a whole.
+    #
+    # Nor may an INCOMPLETE one. aggregate-finalizable runs even when a scan leg
+    # failed, and that organization's assignments are then missing from
+    # active_count - so a zero may be a failure, not an idle hub. `complete`
+    # is true only when every organization reported a count.
     if: >-
       always() && needs.aggregate-finalizable.result == 'success'
+      && needs.aggregate-finalizable.outputs.complete == 'true'
       && needs.aggregate-finalizable.outputs.active_count == '0'
       && needs.finalize.result != 'failure'
       && (github.event_name != 'workflow_dispatch' || inputs.org == '')
