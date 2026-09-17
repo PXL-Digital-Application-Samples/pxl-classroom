@@ -179,11 +179,17 @@ export default [
       // guards against colliding with HTML elements, which neither does.
       'vue/multi-word-component-names': 'off',
       // New in ESLint 10's recommended set, and off on purpose. All 38 findings
-      // were one idiom, `let x = null; try { x = await ... } catch { ...exit }`,
-      // where the initial value is never read because every path assigns or
-      // leaves first. Deleting those initialisers changes no behaviour and
-      // makes the code more fragile to edit, and they sat in acceptance and
-      // lockdown code where churn for a style rule is the wrong trade.
+      // on the upgrade were an initial value that every path overwrites, or
+      // leaves by returning or throwing, before anything reads it - each one
+      // read and checked, and none hid a bug. Three shapes: most are
+      // `let x = null; try { x = await ... } catch { ...exit }`; some are an
+      // if/else chain whose every branch assigns (report.mjs `submissionStatus`,
+      // cli teams.mjs `sourceTeams`); the rest are read only after the one
+      // assignment that matters (lockdown.mjs `ownersComplete`, preserve.mjs
+      // `verified`, deadline-sentinel.mjs `latestByAssignment`). Deleting them
+      // changes no behaviour and makes the code more fragile to edit, in
+      // acceptance, lockdown and preservation code where churn for a style rule
+      // is the wrong trade.
       'no-useless-assignment': 'off',
     },
   },
