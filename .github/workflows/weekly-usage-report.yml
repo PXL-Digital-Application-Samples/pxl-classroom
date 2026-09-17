@@ -128,6 +128,10 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.org }}
+          # The control repo is the only repository it touches (checkout, push,
+          # the budget owner's issue); billing is an organization endpoint, which
+          # a repository list does not narrow (lib/app-token-scopes.mjs).
+          repositories: pxl-classroom-control
           permission-contents: write
           permission-issues: write
           permission-metadata: read
@@ -145,6 +149,7 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.org }}
+          repositories: pxl-classroom-control
           permission-contents: write
           permission-issues: write
           permission-metadata: read
