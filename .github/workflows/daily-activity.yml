@@ -319,6 +319,16 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.assignment.org }}
+          # The control repo push, closing the broker (Variables, Secrets) and
+          # reading grading results (Checks). Every repository, because the
+          # broker and the student repositories come from the records. The
+          # composite actions mint their own (lib/app-token-scopes.mjs). The
+          # run log warns about permission-actions-variables; it is applied.
+          permission-actions-variables: write
+          permission-checks: read
+          permission-contents: write
+          permission-metadata: read
+          permission-secrets: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ matrix.assignment.org }}/pxl-classroom-control

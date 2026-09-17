@@ -68,6 +68,13 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
+        # Organization and repository rulesets, demotion, commit reads and the
+        # owners it cannot freeze (lib/app-token-scopes.mjs).
+        permission-administration: write
+        permission-contents: read
+        permission-members: read
+        permission-metadata: read
+        permission-organization-administration: write
 
     - name: Set up Node
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

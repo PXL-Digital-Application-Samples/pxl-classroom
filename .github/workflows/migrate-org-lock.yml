@@ -81,6 +81,13 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.org }}
+          # The organization ruleset, the repository rulesets it replaces, and
+          # the control repo push. Every repository, because the cohort comes
+          # from the lockdown records (lib/app-token-scopes.mjs).
+          permission-administration: write
+          permission-contents: write
+          permission-metadata: read
+          permission-organization-administration: write
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -212,6 +212,14 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.sentinel.org }}
+          # The control repo, the pushed_at poll, and Stop writes: organization
+          # and repository rulesets, with demotion as the fallback. Every
+          # repository, because the cohort comes from the records
+          # (lib/app-token-scopes.mjs).
+          permission-administration: write
+          permission-contents: write
+          permission-metadata: read
+          permission-organization-administration: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ matrix.sentinel.org }}/pxl-classroom-control
