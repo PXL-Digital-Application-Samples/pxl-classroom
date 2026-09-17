@@ -55,7 +55,17 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ inputs.org }}
-          
+          # Every repository, because the broker it creates does not exist when
+          # this is minted. The calls behind each permission are listed in
+          # lib/app-token-scopes.mjs.
+          permission-actions-variables: write
+          permission-administration: write
+          permission-contents: write
+          permission-metadata: read
+          permission-organization-administration: read
+          permission-secrets: write
+          permission-workflows: write
+
       - name: Checkout control repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

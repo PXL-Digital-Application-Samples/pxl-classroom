@@ -171,6 +171,13 @@ async function main() {
   }
   const orgData = await orgRes.json();
   const plan = orgData?.plan?.name;
+  // A 200 WITHOUT A PLAN IS NOT A PLAN. GET /orgs/{org} leaves `plan` out for a
+  // token that may not see it, and falling through printed `is on "undefined",
+  // where rulesets apply` - a reassurance about an answer nobody got.
+  if (!plan) {
+    console.log(`[plan] not checked - GET /orgs/${org} returned no plan for this token`);
+    return;
+  }
   const freeze = assignmentFreezePlanFinding({ plan, assignment: doc, org });
   if (freeze) {
     warn(freeze.message);
