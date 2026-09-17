@@ -17,7 +17,18 @@
     "`submission_status` is `undefined` on every row, and `!== 'x'` is then",
     "always true - which counted a whole roster as having accepted. That needed",
     "its own bespoke test (tests/report-row-fields.test.mjs); a type checker",
-    "reading the same JSDoc would have said so for free."
+    "reading the same JSDoc would have said so for free.",
+    "",
+    "`maxNodeModuleJsDepth: 0` is here because skipLibCheck only skips .d.ts.",
+    "Without it an imported plain-JS dependency is type-checked too, and",
+    "`punycode` alone contributed 16 errors in somebody else's code - noise that",
+    "buries the findings in ours. This note used to sit inside compilerOptions",
+    "as a `//` key, which TypeScript 7 refuses as an unknown option.",
+    "",
+    "`types: [node]` is named because TypeScript 6 stopped including every",
+    "@types package by default. Without it, every `Buffer` and every `node:`",
+    "import in lib/ is an error telling you to install @types/node, which is",
+    "already a devDependency - 22 of those on 6.0.3."
   ],
   "compilerOptions": {
     "target": "ES2022",
@@ -29,12 +40,8 @@
     "strict": false,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "//maxNodeModuleJsDepth": [
-      "skipLibCheck only skips .d.ts. Without this, an imported plain-JS",
-      "dependency is type-checked too, and `punycode` alone contributed 16",
-      "errors in somebody else's code - noise that buries the findings in ours."
-    ],
-    "maxNodeModuleJsDepth": 0
+    "maxNodeModuleJsDepth": 0,
+    "types": ["node"]
   },
   "include": ["lib/**/*.mjs"],
   "exclude": ["node_modules", "frontend", "cli", "tests"]

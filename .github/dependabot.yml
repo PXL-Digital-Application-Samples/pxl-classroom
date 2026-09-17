@@ -43,6 +43,14 @@ updates:
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 is the Go compiler, and it checks JavaScript the way it
+      # checks TypeScript: JSDoc `object` stops meaning `any` and a `= {}`
+      # default types as `{}`. Measured 2026-09-17 on `npm run typecheck`: 63
+      # findings on 6.0.3, 231 on 7.0.2, the same 63 plus 168 of that one
+      # change, across 79 annotations and 22 destructurings in lib/. It moves
+      # by hand, with that sweep (LESSONS.md, "JSDoc `object` meant `any`").
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
