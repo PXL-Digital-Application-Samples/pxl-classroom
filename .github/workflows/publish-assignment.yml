@@ -58,6 +58,11 @@ jobs:
           # Every repository, because the broker it creates does not exist when
           # this is minted. The calls behind each permission are listed in
           # lib/app-token-scopes.mjs.
+          #
+          # The run log warns "Unexpected input(s) 'permission-actions-variables'"
+          # because this action's action.yml does not declare that input. It is
+          # applied all the same: the action reads every INPUT_PERMISSION-* from
+          # the environment, and without it `gh variable set` on the broker fails.
           permission-actions-variables: write
           permission-administration: write
           permission-contents: write
