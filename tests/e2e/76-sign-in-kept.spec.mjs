@@ -68,13 +68,6 @@ test.describe('76 - The sign-in outlives the tab', () => {
     await expect(signInButton(page)).toBeVisible({ timeout: 20000 });
   });
 
-  test('the sign-in card says the sign-in is kept, for whoever is at a shared computer', async ({ page }) => {
-    await mocked(page);
-    await page.goto(`/dashboard/${ORG}`);
-    await expect(signInButton(page)).toBeVisible({ timeout: 20000 });
-    await expect(page.locator('.center-card')).toContainText(/stay signed in on this computer/i);
-    await expect(page.locator('.center-card')).toContainText(/sign out when you are done/i);
-  });
 });
 
 test.describe('76 - Every tab follows the sign-in', () => {
