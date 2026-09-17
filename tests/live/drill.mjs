@@ -504,6 +504,28 @@ async function verify() {
   if (held && held.length === 0) ok("no broker credential left on the broker");
   else bad(held ? `the broker still holds ${held.join(", ")}` : `broker secrets unreadable (HTTP ${s.status})`);
 
+  // LAST, because it wipes this student's acceptance record. accept.mjs reads a
+  // 403 on the rulesets list as the free-plan answer - not frozen - so a token
+  // that cannot read rulesets would hand a locked repository back to a retried
+  // student and say nothing. Only a retry against a repository that IS locked
+  // can tell the two apart, and the refusal is in the run log alone.
+  console.log(`\n9. A retry cannot hand back a locked repository\n`);
+  const frozenStudent = STUDENTS[STUDENTS.length - 1];
+  const retryAt = Date.now() - 5_000;
+  if (await dispatch("retry-acceptance.yml", { org: ORG, assignment_id: id, github_login: frozenStudent.login })) {
+    const run = await findDispatchedRun("retry-acceptance.yml", retryAt);
+    const done = run ? await waitForRun(run) : null;
+    if (!done) bad("the retry run did not appear or finish");
+    else {
+      const jobs = (await api(`/repos/${HUB}/actions/runs/${run.id}/jobs`, { token: LECTURER.token })).data?.jobs || [];
+      let log = "";
+      for (const job of jobs) log += (await api(`/repos/${HUB}/actions/jobs/${job.id}/logs`, { token: LECTURER.token })).data?.raw ?? "";
+      if (/exists and is frozen by/.test(log)) ok(`${frozenStudent.login}: refused, the repository is frozen (${run.html_url})`);
+      else if (/exists and is not frozen/.test(log)) bad(`${frozenStudent.login}: handed back a LOCKED repository as not frozen - the rulesets read failed (${run.html_url})`);
+      else bad(`${frozenStudent.login}: the retry log says nothing about the existing repository (${run.html_url})`);
+    }
+  }
+
   if (plan === "free") {
     console.log(`\n${ORG} is on the free plan: rulesets were NOT exercised. Lockdown and sentinel token changes need a drill on a Team organization.`);
   }
