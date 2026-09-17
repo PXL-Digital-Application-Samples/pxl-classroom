@@ -91,9 +91,11 @@ export default [
       // A component that renders a value it never declared is the bug this
       // config exists for; keep it an error even where the codebase is noisy.
       'no-undef': 'error',
-      // Without this, a <script setup> binding used ONLY in the template reads
-      // as dead code and no-unused-vars would have us delete live UI.
-      'vue/script-setup-uses-vars': 'error',
+      // A <script setup> binding used ONLY in the template must not read as dead
+      // code, or no-unused-vars would have us delete live UI. That used to be
+      // `vue/script-setup-uses-vars`; eslint-plugin-vue 10 removed it because
+      // vue-eslint-parser 9+ marks template use itself. Nothing here says so
+      // any more, so tests/eslint-template-bindings.test.mjs checks it does.
 
       // `no-undef` above stops at </script>. Nothing was checking the TEMPLATE,
       // which is the half that fails silently: a binding to a name that does
@@ -176,6 +178,13 @@ export default [
       // Icon and Toast are deliberate one-word names, used everywhere; the rule
       // guards against colliding with HTML elements, which neither does.
       'vue/multi-word-component-names': 'off',
+      // New in ESLint 10's recommended set, and off on purpose. All 38 findings
+      // were one idiom, `let x = null; try { x = await ... } catch { ...exit }`,
+      // where the initial value is never read because every path assigns or
+      // leaves first. Deleting those initialisers changes no behaviour and
+      // makes the code more fragile to edit, and they sat in acceptance and
+      // lockdown code where churn for a style rule is the wrong trade.
+      'no-useless-assignment': 'off',
     },
   },
 ]

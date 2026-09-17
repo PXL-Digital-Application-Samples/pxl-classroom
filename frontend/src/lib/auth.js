@@ -323,7 +323,7 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
         { timeoutMs: POLL_TIMEOUT_MS, signal },
       )
     } catch (err) {
-      if (signal?.aborted) throw new Error('Cancelled')
+      if (signal?.aborted) throw new Error('Cancelled', { cause: err })
       // A slow tick is not a failed sign-in - the user may still be on the
       // GitHub authorization page. Try again on the next interval.
       if (err instanceof HttpTimeoutError) continue
