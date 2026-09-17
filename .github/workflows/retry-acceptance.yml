@@ -92,6 +92,11 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ inputs.org }}
+          # The control repo only: the checkout, the pushes and GET
+          # /users/{login}, which is public. ./acceptance, ./provisioning and
+          # ./notify mint their own (lib/app-token-scopes.mjs).
+          repositories: pxl-classroom-control
+          permission-contents: write
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

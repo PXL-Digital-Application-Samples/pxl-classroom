@@ -32,6 +32,12 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ github.event.client_payload.org }}
+          # Every repository, because the broker is named by the payload and
+          # validated after this. The control repo push, and reading and
+          # labelling the acceptance issue (lib/app-token-scopes.mjs).
+          permission-contents: write
+          permission-issues: write
+          permission-metadata: read
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.event.client_payload.org }}/pxl-classroom-control

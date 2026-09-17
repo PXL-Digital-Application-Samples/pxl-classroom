@@ -171,6 +171,10 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
+        # Reads only: the student repository and its rulesets, both Metadata
+        # (lib/app-token-scopes.mjs). Every repository, because it usually does
+        # not exist yet.
+        permission-metadata: read
 
     - name: Set up Node
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

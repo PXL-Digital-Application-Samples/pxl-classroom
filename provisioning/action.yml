@@ -105,6 +105,12 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
+        # Every repository, because the student repository does not exist yet.
+        # The calls behind each permission are in lib/app-token-scopes.mjs.
+        permission-administration: write
+        permission-contents: write
+        permission-metadata: read
+        permission-workflows: write
 
     - name: Set up Node
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
