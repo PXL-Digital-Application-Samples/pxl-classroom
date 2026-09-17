@@ -25,7 +25,8 @@ Working conventions for `PXL-Digital-Application-Samples/pxl-classroom`.
 
 ## Linting
 
-- **`npm run lint` is the only lint command, and CI runs exactly it.** `scripts/lint.mjs` owns all three checks (eslint, `scripts/workflow-lint.mjs`, actionlint + shellcheck); `ci.yml` calls nothing else.
+- **`npm run lint` is the only lint command, and CI runs exactly it.** `scripts/lint.mjs` owns all four checks (eslint, the typecheck, `scripts/workflow-lint.mjs`, actionlint + shellcheck); `ci.yml` calls nothing else.
+- **The typecheck is a gate, and it knows the schema field names.** `lib/types.d.mts` is GENERATED from `schemas/` by `npm run types` - never hand-written, because a document's fields in two places is the defect this repository has recorded most often. A parameter that takes a document is typed from it (`import("./types.mjs").Assignment`), so a field spelled wrong is an error rather than a comparison that is silently always true. It was wired into lint on 2026-09-18, the day its count reached zero: ungated it had drifted by four findings in one afternoon, and it had two live defects waiting in it. `tests/generated-types.test.mjs` fails on a stale file and compares names against the schemas on a path that never runs the generator.
 - **actionlint and shellcheck are pinned identically** - a release asset fetched into gitignored `.tools/` and verified against a SHA-256 in `scripts/lint.mjs`. Never from npm, never by piping a script from a branch into bash. A tool that cannot be obtained, or a platform with no pinned digest, **fails** the run. There is no skip flag.
 - **Keep every `run:` block under 3500 bytes.** Over ~4 KB actionlint deadlocks on Windows while CI stays green. Split the step; do not raise the cap.
 - A genuine shellcheck false positive gets `# shellcheck disable=SC<code>` with a comment saying why.

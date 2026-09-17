@@ -159,8 +159,8 @@ jobs:
       # be three steps here and `eslint .` in package.json, so `npm run lint`
       # could pass while this job had been red since 48ed831 over a shellcheck
       # finding nothing local would ever surface. scripts/lint.mjs owns eslint,
-      # workflow-lint and actionlint, and pins actionlint and shellcheck so both
-      # sides report identically. tests/lint-parity.test.mjs stops them
-      # separating again.
+      # the typecheck, workflow-lint and actionlint, and pins actionlint and
+      # shellcheck so both sides report identically.
+      # tests/lint-parity.test.mjs stops them separating again.
       - name: Lint
         run: npm run lint

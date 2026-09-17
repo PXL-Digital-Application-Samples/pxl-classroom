@@ -8,7 +8,9 @@
 //
 // The fix is that both sides run one command. This is what stops them drifting
 // apart again: CI may not lint by any route other than `npm run lint`, and that
-// script has to actually carry all three checks.
+// script has to actually carry all four checks - eslint, the typecheck over
+// lib/'s JSDoc (added 2026-09-18, when its error count reached zero), this
+// repo's workflow rules, and actionlint with shellcheck.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -58,13 +60,25 @@ test("CI does lint, by that route", () => {
   assert.ok(lintSteps.length > 0, "ci.yml must run `npm run lint` somewhere");
 });
 
-test("the entry point carries all three checks", () => {
+test("the entry point carries all four checks", () => {
   // Not a spelling check on the file: each of these is the command the script
   // actually spawns, and dropping one silently is the failure mode.
   assert.match(lintScript, /eslint/, "eslint");
+  assert.match(lintScript, /jsconfig\.json/, "the typecheck over lib/'s JSDoc");
   assert.match(lintScript, /workflow-lint\.mjs/, "this repo's own workflow rules + bash -n");
   assert.match(lintScript, /actionlint/, "actionlint - the only thing running shellcheck on run: blocks");
   assert.match(lintScript, /--max-warnings/, "a warning nobody fails on is a warning nobody reads");
+});
+
+test("the typecheck is the project's own, not a floating one", () => {
+  // Resolved out of node_modules rather than `npx tsc`, which would fetch a
+  // compiler on a machine that has none and lint against a different version
+  // from the one package.json pins - the same drift the pinned actionlint and
+  // shellcheck below exist to prevent. `npm run typecheck` stays as the way to
+  // run it alone.
+  assert.match(lintScript, /node_modules", "typescript", "bin", "tsc"/, "tsc comes from node_modules");
+  const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
+  assert.ok(pkg.devDependencies?.typescript, "typescript is a devDependency, so CI's npm ci installs it");
 });
 
 test("the external tools are pinned, and shellcheck is not the runner's", () => {

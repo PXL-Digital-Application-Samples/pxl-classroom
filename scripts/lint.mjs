@@ -8,11 +8,15 @@
 // change could pass locally, four times over, while CI had been red since
 // 48ed831 for a shellcheck finding nothing local would ever surface.
 //
-// Three checks, in cheapest-first order:
+// Four checks, in cheapest-first order:
 //
 //   eslint         - no-undef above all. The Vue template compiler never sees a
 //                    <script setup> body and the unit suite does not execute
 //                    components, so an undeclared identifier ships silently.
+//   typecheck      - tsc over the JSDoc in lib/ (jsconfig.json). It knows the
+//                    schema field names, because lib/types.d.mts is generated
+//                    from schemas/, so a field spelled wrong is an error here
+//                    rather than a comparison that is silently always true.
 //   workflow-lint  - bash -n over every `run:` block, plus this repo's own
 //                    rules (scripts/workflow-lint.mjs).
 //   actionlint     - workflow schema + expression checking, and shellcheck over
@@ -287,10 +291,30 @@ run("eslint", process.execPath, [
   "0",
 ]);
 
-// 2. This repo's own workflow rules, plus bash -n.
+// 2. The JSDoc types over lib/, which is the check that knows the field names.
+//
+//    WIRED IN ON 2026-09-18, AND THE DATE IS THE ARGUMENT. jsconfig.json had
+//    said for months that this was "a tool to look at, not yet a gate to pass;
+//    wiring it in before the error count is known would mean a red CI on a
+//    system that is working" - which was right at 63 findings and stopped being
+//    right at 0. Left ungated it drifts back by exactly the amount nobody
+//    happens to run it: it gained four findings in one afternoon from one
+//    commit, and two of the zero-day defects it then found (an unlock record
+//    that fails its own schema, a read of a field the schema forbids) had been
+//    sitting in `main` for as long as the tool went unread.
+//
+//    Second cheapest, before the two downloaded binaries: it needs nothing but
+//    node_modules, and a type error is the fastest kind of red to act on.
+run("typecheck", process.execPath, [
+  join(root, "node_modules", "typescript", "bin", "tsc"),
+  "-p",
+  join(root, "jsconfig.json"),
+]);
+
+// 3. This repo's own workflow rules, plus bash -n.
 run("workflow-lint", process.execPath, [join(root, "scripts", "workflow-lint.mjs")]);
 
-// 3. actionlint + shellcheck.
+// 4. actionlint + shellcheck.
 const actionlint = resolveActionlint();
 const shellcheck = resolveShellcheck();
 
