@@ -1443,6 +1443,50 @@ template:
   );
 });
 
+test("a stored acceptance is 'already accepted' only into the team it names", () => {
+  // Removed from their team by the lecturer, then joining another: the old
+  // acceptance sent them down the already-accepted shortcut, which skips the
+  // existing-repository check, so a repository at the new name that this
+  // assignment never made was handed over.
+  probe.setRepos({ "grp-team-b": { rulesets: [] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const acceptances = {
+    "test-asgn": {
+      bob: { schema_version: 1, assignment_id: "test-asgn", github_login: "bob", github_id: 222, accepted_at: "2026-09-10T08:00:00Z", status: "provisioned" },
+    },
+  };
+  const res = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-b", TEAM_ACTION: "create" },
+    { assignmentYaml: yaml, acceptances },
+  );
+  assert.equal(res.outputs.outcome, "rejected:repo-exists", res.stdout + res.stderr);
+
+  // …and the same student re-accepting into the team their record names is
+  // still the idempotent path.
+  probe.setRepos({});
+  const again = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: yaml,
+      acceptances: { "test-asgn": { bob: { ...acceptances["test-asgn"].bob, team_slug: "team-a", team_name: "A" } } },
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: ["bob"], max_members: 4 },
+        },
+      },
+    },
+  );
+  assert.equal(again.outputs.outcome, "already-accepted", again.stdout + again.stderr);
+});
+
 test("both acceptance workflows save the team file whatever provisioning did", () => {
   // `teams/` was staged only inside the created|reused branch, so a failed
   // provisioning discarded the membership accept.mjs had already decided.

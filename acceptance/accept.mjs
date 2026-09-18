@@ -949,7 +949,23 @@ async function main() {
     ? deriveRepoName(assignment.repository_name_pattern, teamSlug, login)
     : deriveRepoName(assignment.repository_name_pattern, login, login);
 
-  if (existsSync(acceptFile) && !previousTeamSlug) {
+  // For a TEAM, an acceptance is "already accepted" only into the team it
+  // names. A lecturer can remove a student from their team (the Teams tab
+  // clears the record's team) or move them, and without this a stored
+  // acceptance sent them down this shortcut into ANY team - skipping step 7,
+  // so a repository at the new name that this assignment never made was handed
+  // over. Anything else falls through as a switch does; step 8 keeps the
+  // original `accepted_at`.
+  let sameAcceptance = existsSync(acceptFile) && !previousTeamSlug;
+  if (sameAcceptance && isGroup) {
+    try {
+      const prior = JSON.parse(await readFile(acceptFile, "utf-8"));
+      sameAcceptance = typeof prior.team_slug === "string" && prior.team_slug.toLowerCase() === teamSlug.toLowerCase();
+    } catch {
+      sameAcceptance = false;
+    }
+  }
+  if (sameAcceptance) {
     const existing = JSON.parse(await readFile(acceptFile, "utf-8"));
     log("idempotent", { ok: true, note: `already accepted at ${existing.accepted_at}` });
 

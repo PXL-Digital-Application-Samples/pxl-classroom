@@ -161,6 +161,53 @@ test.describe('48 - Moving a student between teams', () => {
     expect(beta.repo_id).toBe(4002);
   });
 
+  test("the student's repository record and acceptance move in the SAME commit", async ({ page }) => {
+    // Only the manifests moved, so the collector kept reading alpha's
+    // repository for stud2 and lockdown demoted them there - re-inviting them -
+    // while leaving them admin on beta's after the deadline.
+    const gitCommits = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      assignments: { [ID]: assignment() },
+      reports: { [ID]: report() },
+      controlTeams: { [ID]: [storedAlpha(), storedBeta()] },
+      controlRepositories: {
+        [ID]: [{
+          schema_version: 1, assignment_id: ID, github_login: 'stud2',
+          repo_id: 4001, repo_name: `${ORG}/${ID}-alpha`, repo_url: `https://github.com/${ORG}/${ID}-alpha`,
+          created_at: '2026-08-02T09:00:00Z', student_permission: 'admin', access_state: 'invited',
+          last_checked_at: null, feedback_pr_number: 7, feedback_pr_url: null, feedback_pr_baseline_sha: null,
+          team_slug: 'alpha',
+        }],
+      },
+      controlAcceptances: {
+        [ID]: [{
+          schema_version: 1, assignment_id: ID, github_login: 'stud2', github_id: 2,
+          accepted_at: '2026-08-02T08:59:00Z', status: 'provisioned', team_slug: 'alpha', team_name: 'Alpha',
+        }],
+      },
+      currentUser: LECTURER,
+      gitCommits,
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await page.locator('tr', { hasText: 'Alpha' }).getByRole('button', { name: /Manage/i }).click();
+    page.on('dialog', (d) => d.accept());
+    const modal = page.locator('.modal.card', { hasText: 'Manage: Alpha' });
+    await modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select').selectOption('beta');
+    await expect(page.locator('.toast', { hasText: /moved to "Beta"/i })).toBeVisible();
+
+    const move = gitCommits.find((c) => c.files.some((f) => f.path.endsWith('beta.json')));
+    const files = new Map(move.files.map((f) => [f.path, f.content]));
+    const rec = JSON.parse(files.get(`repositories/${ID}/stud2.json`));
+    expect(rec.repo_name).toBe(`${ORG}/${ID}-beta`);
+    expect(rec.repo_id).toBe(4002);
+    expect(rec.team_slug).toBe('beta');
+    expect(rec.feedback_pr_number).toBeNull();
+    const acc = JSON.parse(files.get(`acceptances/${ID}/stud2.json`));
+    expect(acc.team_slug).toBe('beta');
+    expect(acc.accepted_at).toBe('2026-08-02T08:59:00Z');
+  });
+
   test('repository access follows the student in both directions', async ({ page }) => {
     const captured = { blobs: [], trees: [], collab: [] };
     await openManageAlpha(page, captured);

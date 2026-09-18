@@ -460,7 +460,8 @@
 import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
-import { teamPath } from '../../../lib/control-layout.mjs'
+import { teamPath, repositoryPath, acceptancePath } from '../../../lib/control-layout.mjs'
+import { planMemberRecordChanges } from '../../../lib/team-member-records.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { submissionLabel } from '../lib/status-labels.js'
@@ -899,7 +900,18 @@ async function moveMemberTo(login, targetSlug) {
       }
     }
 
-    // ONE commit for both. Two commits can half-apply; this cannot.
+    // Their repository and acceptance records move with them. Without this the
+    // collector read the old team's repository for them and lockdown demoted
+    // them there (re-inviting them) while leaving admin on the new one.
+    let recordChanges
+    try {
+      recordChanges = await memberRecordChanges(token, login, nextTarget)
+    } catch (e) {
+      toast.error(`Could not read @${login}'s records (${e.message}). Nothing was changed.`)
+      return
+    }
+
+    // ONE commit for all of it. Two commits can half-apply; this cannot.
     const res = await commitFiles(
       token,
       props.org,
@@ -907,6 +919,7 @@ async function moveMemberTo(login, targetSlug) {
       [
         { path: sourcePath, content: JSON.stringify(nextSource, null, 2) + '\n' },
         { path: targetPath, content: JSON.stringify(nextTarget, null, 2) + '\n' },
+        ...recordChanges,
       ],
       `Move ${login} from ${sourceSlug} to ${targetSlug} (${props.assignment.id})`
     )
@@ -958,6 +971,47 @@ async function moveMemberTo(login, targetSlug) {
   } finally {
     saving.value = false
   }
+}
+
+/**
+ * The repository and acceptance records a membership change must rewrite, so
+ * the collector, lockdown and acceptance read what the manifests say
+ * (lib/team-member-records.mjs). Validated here, before anything is written.
+ *
+ * THROWS when a record cannot be read. Absent (404) is an answer; a failed read
+ * is not, and guessing either way leaves a stale record for lockdown to act on
+ * or deletes a real one. The caller has touched nothing yet, so a throw means
+ * nothing changed.
+ */
+async function memberRecordChanges(token, login, toTeam) {
+  const read = async (path) => {
+    const text = await getRepoContent(token, props.org, config.controlRepo, path)
+    return text ? JSON.parse(text) : null
+  }
+  const [repoRecord, acceptance] = await Promise.all([
+    read(repositoryPath(props.assignment.id, login)),
+    read(acceptancePath(props.assignment.id, login)),
+  ])
+  const changes = planMemberRecordChanges({
+    assignmentId: props.assignment.id,
+    org: props.org,
+    login,
+    toTeam,
+    repoRecord,
+    acceptance,
+  })
+  for (const c of changes) {
+    if (c.content === null) continue
+    const schema = c.path.startsWith('repositories/') ? 'repository-record' : 'acceptance'
+    const { valid, errors } = await validateAgainst(schema, JSON.parse(c.content))
+    if (!valid) {
+      throw new Error(
+        `refusing to write an invalid ${c.path}: ` +
+        errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')
+      )
+    }
+  }
+  return changes
 }
 
 /** The stored manifest at `path`, or null when it cannot be read or parsed. */
@@ -1042,6 +1096,20 @@ async function saveTeamMembers() {
     const removed = oldMembers.filter((m) => !newMembers.some((nm) => nm.toLowerCase() === m.toLowerCase()))
     const added = newMembers.filter((m) => !oldMembers.some((om) => om.toLowerCase() === m.toLowerCase()))
 
+    // Records for everyone whose membership changed, planned BEFORE any
+    // collaborator is touched: an unreadable record refuses the whole save.
+    // An added student gets a repository record naming this team's repository,
+    // so lockdown demotes them and the collector reads it; a removed one loses
+    // theirs, so the deadline does not re-invite them to it.
+    const recordChanges = []
+    try {
+      for (const m of added) recordChanges.push(...(await memberRecordChanges(token, m, teamDoc)))
+      for (const m of removed) recordChanges.push(...(await memberRecordChanges(token, m, null)))
+    } catch (e) {
+      toast.error(`Could not read a member's records (${e.message}). Nothing was changed.`)
+      return
+    }
+
     const repoName = managingTeam.value.repo_name ? managingTeam.value.repo_name.split('/').pop() : null
 
     // Sync live GitHub collaborators if the repo exists.
@@ -1073,12 +1141,11 @@ async function saveTeamMembers() {
       }
     }
 
-    const res = await commitFile(
+    const res = await commitFiles(
       token,
       props.org,
       config.controlRepo,
-      path,
-      JSON.stringify(teamDoc, null, 2) + '\n',
+      [{ path, content: JSON.stringify(teamDoc, null, 2) + '\n' }, ...recordChanges],
       `Update members for team ${slug} (${props.assignment.id})`
     )
     if (res.ok) {

@@ -150,7 +150,10 @@ test("both TeamsTable write paths validate before committing", () => {
     const fn = src.slice(src.indexOf(`async function ${name}`));
     const body = fn.slice(0, fn.indexOf("\nasync function "));
     const validateAt = body.indexOf("validateAgainst('team'");
-    const commitAt = body.indexOf("commitFile(");
+    // Either commit helper: the member edit now writes the manifest AND the
+    // members' records in one multi-file commit.
+    const found = [body.indexOf("commitFile("), body.indexOf("commitFiles(")].filter((i) => i >= 0);
+    const commitAt = found.length ? Math.min(...found) : -1;
     assert.ok(validateAt >= 0, `${name} must validate the manifest it writes`);
     assert.ok(commitAt >= 0, `${name} should still commit`);
     assert.ok(validateAt < commitAt, `${name} must validate BEFORE it commits`);

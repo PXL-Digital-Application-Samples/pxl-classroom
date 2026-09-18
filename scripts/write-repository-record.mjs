@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { validateAgainst } from "../lib/validate.mjs";
+import { buildRepositoryRecord } from "../lib/team-member-records.mjs";
 
 const { values } = parseArgs({
   options: {
@@ -56,28 +57,15 @@ if (repoId === null || Number.isNaN(repoId)) {
 }
 
 if (!teamOnly) {
-  const record = {
-    schema_version: 1,
-    assignment_id: assignmentId,
-    github_login: login,
-    repo_id: repoId,
-    repo_name: repoName,
-    repo_url: values["repo-url"],
-    created_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-    provisioned_by_run: values["run-url"] || undefined,
-    student_permission: "admin",
-    access_state: "invited",
-    last_checked_at: null,
-    feedback_pr_number: null,
-    feedback_pr_url: null,
-    feedback_pr_baseline_sha: baselineSha || null,
-    ...(teamSlug ? { team_slug: teamSlug } : {}),
-  };
-
-  // Drop undefined-valued optional keys so additionalProperties:false stays happy.
-  for (const k of Object.keys(record)) {
-    if (record[k] === undefined) delete record[k];
-  }
+  // One builder, shared with the Teams tab (lib/team-member-records.mjs).
+  const record = buildRepositoryRecord({
+    assignmentId,
+    login,
+    repo: { repo_id: repoId, repo_name: repoName, repo_url: values["repo-url"] },
+    teamSlug,
+    runUrl: values["run-url"],
+    baselineSha,
+  });
 
   const { valid, errors } = validateAgainst("repository-record", record);
   if (!valid) {

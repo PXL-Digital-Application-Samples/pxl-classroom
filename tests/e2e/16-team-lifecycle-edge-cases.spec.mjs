@@ -186,27 +186,39 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       },
     };
 
+    // student-dev1's repository record, as provisioning wrote it. Removing them
+    // from the team must delete it, or lockdown demotes - re-invites - them on
+    // this repository at the deadline.
+    const dev1Record = {
+      schema_version: 1,
+      assignment_id: assignmentId,
+      github_login: 'student-dev1',
+      repo_id: 55501,
+      repo_name: `${ORG}/${assignmentId}-team-apollo`,
+      repo_url: `https://github.com/${ORG}/${assignmentId}-team-apollo`,
+      created_at: '2026-08-01T09:00:00Z',
+      student_permission: 'admin',
+      access_state: 'invited',
+      last_checked_at: null,
+      feedback_pr_number: null,
+      feedback_pr_url: null,
+      feedback_pr_baseline_sha: null,
+      team_slug: 'team-apollo',
+    };
+
+    // Capture what actually gets written back: one multi-file commit, so the
+    // manifest and the records can never half-apply.
+    const gitCommits = [];
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       assignments: { [assignmentId]: assignment },
       reports: { [assignmentId]: mockReport },
       controlTeams: { [assignmentId]: [storedApollo] },
+      controlRepositories: { [assignmentId]: [dev1Record] },
       roster: mockRoster,
       currentUser: LECTURER,
+      gitCommits,
     });
-
-    // Capture what actually gets written back.
-    const written = [];
-    await page.route(
-      `**/repos/${ORG}/pxl-classroom-control/contents/teams/${assignmentId}/team-apollo.json`,
-      async (route) => {
-        if (route.request().method() === 'PUT') {
-          const body = route.request().postDataJSON();
-          written.push(JSON.parse(Buffer.from(body.content, 'base64').toString('utf8')));
-        }
-        await route.fallback();
-      },
-    );
 
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
 
@@ -240,8 +252,20 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
     // rebuild from the row. Rebuilding dropped created_by (required by
     // team.schema.json), repo_id, and seeded_from - and losing seeded_from
     // silently removes the team from planUnseed and the "Undo seed" button.
-    expect(written.length).toBeGreaterThan(0);
-    const saved = written[written.length - 1];
+    expect(gitCommits).toHaveLength(1);
+    const files = new Map(gitCommits[0].files.map((f) => [f.path, f.content]));
+    const saved = JSON.parse(files.get(`teams/${assignmentId}/team-apollo.json`));
+
+    // The records travel in the SAME commit. The added student gets a record
+    // naming this repository, so lockdown demotes them and the collector reads
+    // it; the removed one loses theirs.
+    const added = JSON.parse(files.get(`repositories/${assignmentId}/student-dev2.json`));
+    expect(added.repo_name).toBe(`${ORG}/${assignmentId}-team-apollo`);
+    expect(added.repo_id).toBe(55501);
+    expect(added.team_slug).toBe('team-apollo');
+    expect(files.has(`repositories/${assignmentId}/student-dev1.json`)).toBe(true);
+    expect(files.get(`repositories/${assignmentId}/student-dev1.json`)).toBeNull();
+
     expect(saved.members).toEqual(['student-dev2']);
     expect(saved.created_by).toBe('student-dev1');
     expect(saved.repo_id).toBe(55501);

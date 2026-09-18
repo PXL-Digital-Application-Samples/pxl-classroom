@@ -565,6 +565,10 @@ export async function setupStandardMockRoutes(page, {
   // whole payload with garbage left the test green. It is deleted; the name
   // stays distinct so a revived one cannot be silently swallowed here again.
   controlAcceptances = {},
+  // Repository records (repositories/<id>/<login>.json), keyed by assignment
+  // like `controlTeams`. The Teams tab rewrites these when it moves, adds or
+  // removes a member, so a spec about that has to be able to seed one.
+  controlRepositories = {},
   // Claim bindings as they exist in the control repo
   // (students/claims/<github_id>.json). Org-scoped, so a flat array rather than
   // keyed by assignment.
@@ -675,6 +679,11 @@ export async function setupStandardMockRoutes(page, {
         `acceptances/${asgnId}/${record.github_login}.json`,
         JSON.stringify(record, null, 2),
       );
+    }
+  }
+  for (const [asgnId, list] of Object.entries(controlRepositories)) {
+    for (const record of list) {
+      dynamicFiles.set(`repositories/${asgnId}/${record.github_login}.json`, JSON.stringify(record, null, 2));
     }
   }
   if (roster) {
@@ -1263,6 +1272,19 @@ export async function setupStandardMockRoutes(page, {
           await route.fulfill({
             status: 200,
             body: JSON.stringify({ content: Buffer.from(content).toString('base64'), encoding: 'base64', sha: 'acc_sha_1' }),
+          });
+          return;
+        }
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      } else if (/\/pxl-classroom-control\/contents\/repositories\/[^/?#]+\/[^/?#]+\.json/.test(url)) {
+        // One repository record, from whatever was seeded or committed.
+        const match = url.match(/\/contents\/repositories\/([^/?#]+)\/([^/?#]+)\.json/);
+        const content = dynamicFiles.get(`repositories/${match[1]}/${match[2]}.json`);
+        if (content) {
+          await route.fulfill({
+            status: 200,
+            body: JSON.stringify({ content: Buffer.from(content).toString('base64'), encoding: 'base64', sha: 'rec_sha_1' }),
           });
           return;
         }
