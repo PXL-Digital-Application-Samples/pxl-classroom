@@ -647,21 +647,24 @@ async function loadTeams() {
   loadingTeams.value = true
   const token = getToken()
   const brokerRepo = brokerRepoName({ assignment: props.assignment })
-  const maxTeamCap = maxTeamSize.value || 3
+  // The assignment's maximum as it is NOW, for every team, whatever a teams
+  // file says. A team's stored `max_members` is a snapshot from when it was
+  // created, so taking it from the file kept every existing team "Full" after
+  // the lecturer raised the size - the same number accept.mjs now admits on.
+  const maxTeamCap = maxTeamSize.value
   const teamsMap = new Map() // slug -> teamObject
 
   // Helper to upsert team
-  function upsertTeam(slug, name, members = [], maxMembers = maxTeamCap, seededFrom = null) {
+  function upsertTeam(slug, name, members = [], seededFrom = null) {
     if (!slug) return
     const cleanSlug = slug.toLowerCase().trim()
     const existing = teamsMap.get(cleanSlug) || {
       team_slug: cleanSlug,
       team_name: name || cleanSlug,
       members: [],
-      max_members: maxMembers || maxTeamCap,
+      max_members: maxTeamCap,
     }
     if (name && name !== cleanSlug) existing.team_name = name
-    if (maxMembers) existing.max_members = maxMembers
     if (seededFrom && !existing.seeded_from) existing.seeded_from = seededFrom
     for (const m of members) {
       if (m && !existing.members.some(em => em.toLowerCase() === m.toLowerCase())) {
@@ -680,7 +683,7 @@ async function loadTeams() {
     if (res.ok) {
       const data = await res.json()
       for (const t of (data.teams || [])) {
-        upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members, t.seeded_from)
+        upsertTeam(t.team_slug, t.team_name, t.members || [], t.seeded_from)
       }
     }
   } catch (e) {
@@ -695,7 +698,7 @@ async function loadTeams() {
         const raw = atob(ctlRes.data.content.replace(/\n/g, ''))
         const parsed = JSON.parse(raw)
         for (const t of (parsed.teams || [])) {
-          upsertTeam(t.team_slug, t.team_name, t.members || [], t.max_members, t.seeded_from)
+          upsertTeam(t.team_slug, t.team_name, t.members || [], t.seeded_from)
         }
       }
     } catch {
@@ -761,13 +764,13 @@ async function loadTeams() {
           const member = bodyData.github_login || issue.user?.login
           
           if (slug) {
-            upsertTeam(slug, name, member ? [member] : [], maxTeamCap)
+            upsertTeam(slug, name, member ? [member] : [])
           }
         } catch {
           const slug = issue.title.replace(/^team:/, '').trim()
           const member = issue.user?.login
           if (slug) {
-            upsertTeam(slug, slug, member ? [member] : [], maxTeamCap)
+            upsertTeam(slug, slug, member ? [member] : [])
           }
         }
       }

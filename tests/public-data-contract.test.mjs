@@ -291,3 +291,47 @@ test("a deleted assignment's card is pruned from the public site", () => {
   );
   assert.ok(!existsSync(join(outDir, "teams")), "legacy public/teams must be removed");
 });
+
+test("a team's capacity is the assignment's size NOW, not the size when the team was made", () => {
+  // A manifest's `max_members` is written once, at creation, and nothing ever
+  // updates it. The generator read it first, so a lecturer who raised the size
+  // from 3 to 4 saw 3/4 in the Teams tab while students saw every existing
+  // team as "Full". Runs the real generator, not a copy of its loop.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-gen-teamcap-"));
+  mkdirSync(join(dir, "assignments"));
+  const token = mintToken("PXLAutomation", "test-valid");
+  const base = readFileSync(fix("valid-assignment.yml"), "utf8")
+    .replace("repository_name_pattern: test-valid-{github_login}", "repository_name_pattern: test-valid-{team_slug}");
+  writeFileSync(
+    join(dir, "assignments", "test-valid.yml"),
+    `${base}assignment_type: group\ngroup_config:\n  max_team_size: 4\ninvite_token: ${token}\ninvite_nonce: 0badc0de\n`,
+  );
+  mkdirSync(join(dir, "teams", "test-valid"), { recursive: true });
+  writeFileSync(
+    join(dir, "teams", "test-valid", "alpha.json"),
+    JSON.stringify({
+      schema_version: 1, assignment_id: "test-valid", team_slug: "alpha", team_name: "Alpha",
+      members: ["a1", "a2", "a3"], max_members: 3,
+    }),
+  );
+  writeFileSync(
+    join(dir, "teams", "test-valid", "beta.json"),
+    JSON.stringify({
+      schema_version: 1, assignment_id: "test-valid", team_slug: "beta", team_name: "Beta",
+      members: ["b1", "b2", "b3", "b4"], max_members: 5,
+    }),
+  );
+  const outDir = join(dir, "public");
+  const res = spawnSync("node", [generator], {
+    env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir },
+    encoding: "utf8",
+  });
+  assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+  const teams = JSON.parse(readFileSync(join(outDir, "i", `${inviteFileFor(token)}.teams.json`), "utf8")).teams;
+  const alpha = teams.find((t) => t.team_slug === "alpha");
+  assert.equal(alpha.max_members, 4, "the size in force, not the snapshot");
+  assert.equal(alpha.is_full, false, "3 of 4 has room");
+  const beta = teams.find((t) => t.team_slug === "beta");
+  assert.equal(beta.max_members, 4, "a larger snapshot does not win either");
+  assert.equal(beta.is_full, true, "4 of 4 is full");
+});

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { startRepoProbe } from "./fixtures/repo-probe.mjs";
@@ -1015,6 +1015,46 @@ template:
   assert.equal(res.outputs.outcome, "rejected:team-full");
 });
 
+test("raising the team size admits the next student into an EXISTING team", () => {
+  // The manifest's `max_members` is a snapshot from creation and nothing
+  // updates it. The gate read it first, so after the lecturer raised the size
+  // from 2 to 3 every existing team still refused its third student as full.
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "103", TEAM_SLUG: "alpha" },
+    {
+      assignmentYaml: `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  max_team_size: 3
+template:
+  owner: TestOrg
+  repository: tpl`,
+      teams: { "test-asgn": { alpha: { ...SEEDED_ALPHA, max_members: 2 } } },
+    }
+  );
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+});
+
+test("…and lowering it refuses the next one, whatever the manifest recorded", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "103", TEAM_SLUG: "alpha" },
+    {
+      assignmentYaml: `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+group_config:
+  max_team_size: 2
+template:
+  owner: TestOrg
+  repository: tpl`,
+      teams: { "test-asgn": { alpha: { ...SEEDED_ALPHA, max_members: 4 } } },
+    }
+  );
+  assert.equal(res.outputs.outcome, "rejected:team-full");
+});
+
 test("self-service - a seeded team is the default when the payload names none", () => {
   const res = runAccept(
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
@@ -1356,6 +1396,67 @@ template:
   // manifest says so before GitHub is asked at all.
   assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
   assert.equal(res.outputs.target_repo, "grp-team-a");
+});
+
+test("a teammate is admitted after the FIRST member's provisioning failed once the repository existed", () => {
+  // The grant or an empty template fails AFTER the repository is created. The
+  // team manifest was never told, so the next member was refused as
+  // `rejected:repo-exists` over their own team's repository - and the manifest
+  // itself was not even committed, so a self-service team vanished. The
+  // workflows now run the writer in --team-only mode and always stage teams/.
+  probe.setRepos({ "grp-team-a": { rulesets: [] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  let teamOnlyDir = null;
+  const res = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: yaml,
+      teams: {
+        "test-asgn": {
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: ["alice"], max_members: 4 },
+        },
+      },
+      beforeAccept: (dir) => {
+        teamOnlyDir = dir;
+        const w = spawnSync("node", [
+          writeRecordScript, "--team-only",
+          "--assignment-id", "test-asgn", "--org", "TestOrg", "--target-repo", "grp-team-a",
+          "--team-slug", "team-a", "--repo-id", "4242",
+          "--repo-url", "https://github.com/TestOrg/grp-team-a", "--data-dir", dir,
+        ], { encoding: "utf8" });
+        assert.equal(w.status, 0, w.stdout + w.stderr);
+      },
+    },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.ok(
+    !existsSync(join(teamOnlyDir, "repositories", "test-asgn", "alice.json")),
+    "--team-only writes no repository record: alice was never granted access",
+  );
+});
+
+test("both acceptance workflows save the team file whatever provisioning did", () => {
+  // `teams/` was staged only inside the created|reused branch, so a failed
+  // provisioning discarded the membership accept.mjs had already decided.
+  for (const wf of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
+    const src = readFileSync(join(here, "..", ".github", "workflows", wf), "utf8");
+    const step = src.slice(src.indexOf("name: Write repository record"), src.indexOf("name: Trigger dashboard regeneration"));
+    const fi = step.indexOf("\n          fi\n");
+    assert.ok(fi > 0, `${wf}: the created|reused branch is where this test expects it`);
+    const branch = step.slice(0, fi);
+    const after = step.slice(fi);
+    assert.doesNotMatch(branch, /git -C control add "teams\/"/, `${wf}: teams/ is still staged only on success`);
+    assert.match(after, /mkdir -p control\/teams\n\s*git -C control add "teams\/"/, `${wf}: teams/ must be staged on every outcome`);
+    assert.match(branch, /--team-only/, `${wf}: a failure after the repo existed must stamp the team`);
+  }
 });
 
 test("joining a team that went vacant is not a collision either", () => {

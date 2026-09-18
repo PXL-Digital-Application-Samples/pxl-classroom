@@ -48,7 +48,7 @@
     "max_members": {
       "type": "integer",
       "minimum": 1,
-      "description": "Maximum capacity of the team (from assignment group_config)."
+      "description": "The assignment's group_config.max_team_size when this team was created. A snapshot: capacity is always read from the assignment as it is now (lib/group-config.mjs maxTeamSize), never from this field."
     },
     "created_at": {
       "type": "string",

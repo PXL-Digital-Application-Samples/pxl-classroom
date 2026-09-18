@@ -275,9 +275,19 @@ jobs:
               --baseline-sha "$BASELINE_SHA" \
               --run-url "$RUN_URL" \
               --data-dir control
-            mkdir -p control/repositories control/teams
-            git -C control add "repositories/" "teams/"
+            mkdir -p control/repositories
+            git -C control add "repositories/"
+          elif [ -n "$TEAM_SLUG" ] && [ -n "$REPO_ID" ]; then
+            # Failed after the team repo existed: record it on the team only.
+            node scripts/write-repository-record.mjs --team-only \
+              --assignment-id "$ASSIGNMENT_ID" --org "$ORG" \
+              --target-repo "$TARGET_REPO" --team-slug "$TEAM_SLUG" \
+              --repo-id "$REPO_ID" --repo-url "$REPO_URL" --data-dir control
           fi
+          # Every outcome: membership was decided before provisioning ran, and
+          # dropping it on failure hid the team and refused its next member.
+          mkdir -p control/teams
+          git -C control add "teams/"
 
           ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
           if [ -f "control/$ACCEPT_FILE" ]; then

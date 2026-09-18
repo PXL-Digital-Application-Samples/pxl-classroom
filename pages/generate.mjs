@@ -25,6 +25,7 @@ import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.m
 // is the deployment's value and not a literal. This was the fourth copy of
 // `Europe/Brussels` beside a `TIMEZONE` export nothing read.
 import { TIMEZONE } from "../lib/deployment.mjs";
+import { maxTeamSize } from "../lib/group-config.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -336,7 +337,11 @@ async function main() {
           try {
             const tdata = JSON.parse(await readFile(join(teamsDir, tf), "utf-8"));
             if (!tdata.vacant) {
-              const maxMem = tdata.max_members || def.group_config?.max_team_size || 3;
+              // The assignment's maximum as it is NOW. A manifest's
+              // `max_members` is a snapshot from when the team was created, so
+              // reading it first kept every existing team "Full" after the
+              // lecturer raised the size.
+              const maxMem = maxTeamSize(def.group_config);
               publicTeams.push({
                 team_slug: tdata.team_slug,
                 team_name: tdata.team_name,

@@ -897,10 +897,15 @@ async function main() {
         await fail("fail:team-manifest", `teams/${assignmentId}/${teamSlug}.json has no members array`);
       }
       if (!teamData.members.some((m) => String(m).toLowerCase() === login.toLowerCase())) {
-        if (teamData.members.length >= (teamData.max_members || maxTeamSize)) {
+        // The assignment's maximum AS IT IS NOW, never the manifest's
+        // `max_members`. That field is a snapshot taken when the team was
+        // created and nothing ever updates it, so a lecturer who raised the size
+        // from 3 to 4 saw 3/4 in the Teams tab while every existing team kept
+        // refusing its fourth student as full.
+        if (teamData.members.length >= maxTeamSize) {
           await reject(
             "rejected:team-full",
-            `team "${teamSlug}" has reached its capacity (${teamData.members.length}/${teamData.max_members || maxTeamSize})`
+            `team "${teamSlug}" has reached its capacity (${teamData.members.length}/${maxTeamSize})`
           );
         }
         teamData.members.push(login);

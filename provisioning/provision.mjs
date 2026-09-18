@@ -515,6 +515,17 @@ async function main() {
     log("create", { ok: true, note: `id=${repo.id} ${repo.html_url}` });
   }
 
+  // Said AS SOON AS the repository exists, not only at the end. Every failure
+  // below (the grant, an empty template) leaves a repository behind, and a team
+  // manifest that is never told about it makes accept.mjs refuse the next
+  // teammate as `rejected:repo-exists` over their own team's repository. The
+  // success path writes the same three values again; the last write wins.
+  if (repo && !cfg.dryRun) {
+    await setOutput("repo_id", repo.id ?? "");
+    await setOutput("repo_url", repo.html_url ?? "");
+    await setOutput("repo_name", repo.full_name ?? "");
+  }
+
   // 5. Grant the student their role (skip in dry-run).
   if (!cfg.dryRun) {
     const add = await gh("PUT", `/repos/${cfg.org}/${cfg.targetRepo}/collaborators/${cfg.studentLogin}`, { permission: cfg.permission });
