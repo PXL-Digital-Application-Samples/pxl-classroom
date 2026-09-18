@@ -135,6 +135,18 @@
       </a>
     </div>
 
+    <!-- State: Refused. A refusal is not a stall: without this a refused team
+         student watched the spinner, then got a guessed link that 404s. -->
+    <div v-else-if="acceptState === 'rejected'" class="timeout-state text-center">
+      <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
+      <h2>You were not able to join this team</h2>
+      <p class="text-secondary">{{ REJECTION_MESSAGE }}</p>
+      <p v-if="rejectionReference" class="text-muted">
+        Tell them: <strong>{{ rejectionReference }}</strong>
+      </p>
+      <button class="btn btn-primary" @click="backToTeams">Back</button>
+    </div>
+
     <!-- State: Timeout -->
     <div v-else-if="acceptState === 'timeout'" class="timeout-state text-center">
       <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
@@ -402,7 +414,13 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
-import { outcomeFromLabels, announcesInvitation } from '../lib/acceptance-outcome.js'
+import {
+  outcomeFromLabels,
+  announcesInvitation,
+  isRejection,
+  REJECTION_MESSAGE,
+  formatRejectionReference,
+} from '../lib/acceptance-outcome.js'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
@@ -440,7 +458,14 @@ const loadingTeams = ref(true)
 const selectedTeam = ref(null)
 const myCurrentTeam = ref(null)
 const targetTeamName = ref('')
-const acceptState = ref('ready') // ready | pending | provisioned | invited | timeout | error
+const acceptState = ref('ready') // ready | pending | provisioned | invited | rejected | timeout | error
+/** When this attempt was refused. Set beside every `acceptState = 'rejected'`. */
+const rejectedAt = ref(null)
+const rejectionReference = computed(() => formatRejectionReference({
+  title: props.assignment?.title || props.assignment?.id,
+  login: props.user?.login,
+  at: rejectedAt.value,
+}))
 const accepting = ref(false)
 const repoUrl = ref(null)
 const repoFullName = ref(null)
@@ -519,16 +544,35 @@ const filteredTeams = computed(() => {
 
 const openTeamsCount = computed(() => teams.value.filter((t) => !t.is_full).length)
 
+// The slug of the team this student last asked to join from THIS page. Set only
+// once the broker accepted the request, so a failed submit changes nothing.
+const targetTeamSlug = ref('')
+
+/**
+ * The team every repository lookup on this page is about: the one just joined,
+ * else the one the teams list shows them in. One judge, so the invitation link,
+ * "Check again" and the poll cannot point at different repositories.
+ */
+const activeTeamSlug = computed(() => targetTeamSlug.value || myCurrentTeam.value?.team_slug || '')
+
+/** The repository name a team slug produces for this assignment. */
+function teamRepoName(slug) {
+  const pattern = props.assignment.repository_name_pattern || `${props.assignment.id}-{team_slug}`
+  return pattern.replace('{team_slug}', slug).replace('{github_login}', props.user.login)
+}
+
 // A GUESS at the invitation page, and it 404s until the repository exists.
 // Offered whenever no invitation has been PROVEN, because this page cannot see
 // the student's pending invitations - see lib/invitation-evidence.js for the
 // measurement, and AssignmentView for the same reasoning at length.
+//
+// THE TEAM JUST JOINED WINS. This read `myCurrentTeam` first, which after a
+// switch is still the OLD team (the teams list lags the hub), so the link sent
+// the student to the repository they had just been removed from, and it 404'd.
 const invitationUrl = computed(() => {
-  if (!targetTeamName.value && !myCurrentTeam.value) return null
-  const slug = myCurrentTeam.value?.team_slug || selectedTeam.value?.team_slug || computedSlug.value
-  const pattern = props.assignment.repository_name_pattern || `${props.assignment.id}-{team_slug}`
-  const repo = pattern.replace('{team_slug}', slug).replace('{github_login}', props.user.login)
-  return `https://github.com/${props.org}/${repo}/invitations`
+  const slug = activeTeamSlug.value
+  if (!slug) return null
+  return `https://github.com/${props.org}/${teamRepoName(slug)}/invitations`
 })
 
 const invitationProven = ref(false)
@@ -540,6 +584,37 @@ const showInvitationGuess = computed(() =>
 // it is the only surface a student can read - and this page cannot see its own
 // pending invitation any other way.
 const acceptanceIssue = ref(null)
+// When that issue was opened. Only a RECENT refusal is shown on arrival, as on
+// the individual page: an old one would greet a student who has since been
+// sorted out with a refusal they no longer have.
+const acceptanceIssueCreatedAt = ref(null)
+const RECENT_ATTEMPT_MS = 15 * 60 * 1000
+
+function showRejected() {
+  rejectedAt.value = new Date()
+  acceptState.value = 'rejected'
+}
+
+/**
+ * Once a join lands, the page's team IS the one joined, whatever the lagging
+ * teams list says - otherwise the "ready" banner names the team they left.
+ */
+function adoptTargetTeam() {
+  const slug = targetTeamSlug.value
+  if (!slug) return
+  const listed = teams.value.find((t) => t.team_slug === slug)
+  myCurrentTeam.value = listed || {
+    team_slug: slug,
+    team_name: targetTeamName.value || slug,
+    members: [props.user.login],
+  }
+}
+
+/** Back to the team list after a refusal, re-read so it reflects what the hub wrote. */
+async function backToTeams() {
+  acceptState.value = 'ready'
+  await loadTeams()
+}
 
 /** What the hub said, if anything. Null when it has not answered or we cannot read. */
 async function readTeamAcceptanceOutcome() {
@@ -671,7 +746,10 @@ async function loadTeams() {
         i.title.startsWith('pxl-accept:') &&
         sameLogin(i.user?.login, props.user?.login),
     )
-    if (mine) acceptanceIssue.value = mine.number
+    if (mine) {
+      acceptanceIssue.value = mine.number
+      acceptanceIssueCreatedAt.value = mine.created_at || null
+    }
 
     {
       for (const issue of issues) {
@@ -775,17 +853,21 @@ async function checkExistingState() {
   const token = getToken()
   if (!token) return
 
-  if (myCurrentTeam.value) {
-    const pattern = props.assignment.repository_name_pattern || `${props.assignment.id}-{team_slug}`
-    const expectedName = pattern
-      .replace('{team_slug}', myCurrentTeam.value.team_slug)
-      .replace('{github_login}', props.user.login)
+  // The team this page is ABOUT. After a switch that is the team just joined,
+  // not the one the teams list still shows them in: that list is regenerated
+  // after the hub writes, so it lags, and reading the old team here pointed
+  // "Check again" and the invitation link at a repository the student had just
+  // been removed from.
+  const slug = activeTeamSlug.value
+  if (slug) {
+    const expectedName = teamRepoName(slug)
 
     const repo = await getRepo(token, props.org, expectedName)
     if (repo.ok) {
       repoUrl.value = repo.data.html_url
       repoFullName.value = repo.data.full_name
       acceptState.value = 'provisioned'
+      adoptTargetTeam()
       await refreshTeamSubmissionMeta(props.org, expectedName)
       return
     }
@@ -810,6 +892,16 @@ async function checkExistingState() {
     // closed. That student is exactly the one with nothing else to go on.
     if (announcesInvitation(await readTeamAcceptanceOutcome())) {
       acceptState.value = 'invited'
+      return
+    }
+  }
+
+  // Refused in a tab they closed, or while this one was not looking. Only a
+  // recent attempt: see RECENT_ATTEMPT_MS.
+  const opened = Date.parse(acceptanceIssueCreatedAt.value || '')
+  if (Number.isFinite(opened) && Date.now() - opened < RECENT_ATTEMPT_MS) {
+    if (isRejection(await readTeamAcceptanceOutcome())) {
+      showRejected()
       return
     }
   }
@@ -888,6 +980,8 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
     // Which issue the hub will answer on. Without it the announcement below is
     // unreadable and a group student gets nothing an individual student gets.
     acceptanceIssue.value = issueRes.data?.number ?? null
+    acceptanceIssueCreatedAt.value = issueRes.data?.created_at ?? new Date().toISOString()
+    targetTeamSlug.value = teamSlug
 
     acceptState.value = 'pending'
     startPolling(teamSlug)
@@ -902,10 +996,7 @@ function startPolling(teamSlug) {
   pollCount.value = 0
   waitedMs.value = 0
   pollStartedAt = Date.now()
-  const pattern = props.assignment.repository_name_pattern || `${props.assignment.id}-{team_slug}`
-  const expectedName = pattern
-    .replace('{team_slug}', teamSlug)
-    .replace('{github_login}', props.user.login)
+  const expectedName = teamRepoName(teamSlug)
 
   const tick = async () => {
     pollCount.value++
@@ -919,6 +1010,7 @@ function startPolling(teamSlug) {
       repoFullName.value = repo.data.full_name
       acceptState.value = 'provisioned'
       await loadTeams()
+      adoptTargetTeam()
       return
     }
 
@@ -937,9 +1029,16 @@ function startPolling(teamSlug) {
     // Ask the hub, which is the only party that can answer: the call above is
     // expected to come back empty even when an invitation is waiting. Not from
     // tick one - the marker cannot exist before the repository does.
-    if (pollCount.value >= 2 && announcesInvitation(await readTeamAcceptanceOutcome())) {
-      acceptState.value = 'invited'
-      return
+    if (pollCount.value >= 2) {
+      const said = await readTeamAcceptanceOutcome()
+      if (isRejection(said)) {
+        showRejected()
+        return
+      }
+      if (announcesInvitation(said)) {
+        acceptState.value = 'invited'
+        return
+      }
     }
 
     if (pollCount.value > 20) {
@@ -966,6 +1065,7 @@ async function handleAcceptInvitation() {
   if (result.ok) {
     acceptState.value = 'provisioned'
     await loadTeams()
+    adoptTargetTeam()
   } else {
     toast.error(`Could not accept invitation (HTTP ${result.status}). Check github.com/notifications.`)
   }

@@ -64,3 +64,34 @@ export function announcesInvitation(outcome) {
 export function isRejection(outcome) {
   return outcome === REJECTED_LABEL
 }
+
+/**
+ * ONE sentence, because the public channel carries one word.
+ *
+ * The hub tells the page by putting a LABEL on the student's acceptance issue,
+ * that issue is on a PUBLIC repository, and labels are filterable in one click.
+ * Per-reason labels would make a sortable public list of which named students
+ * are not enrolled. So the label says who was refused and never why; the
+ * reason is in the control repository, where the lecturer reads it.
+ *
+ * Here rather than in each page: the team card had no refusal state at all
+ * while the individual page had this, so a refused team student watched a
+ * spinner and then a guessed link that 404s.
+ */
+export const REJECTION_MESSAGE =
+  'Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next.'
+
+/**
+ * What the student can read out to their lecturer: WHICH attempt, never the
+ * reason (the page does not have it and must not guess). Every part is
+ * already public on the student's own acceptance issue.
+ *
+ * @param {{title?: string, login?: string, at?: Date|null}} args
+ * @returns {string}
+ */
+export function formatRejectionReference({ title, login, at } = {}) {
+  const when = at instanceof Date && !Number.isNaN(at.getTime())
+    ? at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : ''
+  return [title || '', login ? `@${login}` : '', when].filter(Boolean).join(' · ')
+}

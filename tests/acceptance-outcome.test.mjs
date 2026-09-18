@@ -39,7 +39,11 @@ import { outcomeLabel } from "../scripts/publish-acceptance-outcome.mjs";
 import { INVITED_LABEL, REJECTED_LABEL, OUTCOME_LABELS } from "../lib/acceptance-labels.mjs";
 // Imported, not re-implemented: the reader decides what the student is shown,
 // and a test that reproduces its logic proves only that it agrees with itself.
-import { outcomeFromLabels } from "../frontend/src/lib/acceptance-outcome.js";
+import {
+  outcomeFromLabels,
+  REJECTION_MESSAGE,
+  formatRejectionReference,
+} from "../frontend/src/lib/acceptance-outcome.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(ROOT, p), "utf8");
@@ -164,9 +168,51 @@ test("the page reads the issue, not its comments", () => {
 test("the student-facing rejection sentence promises no detail it cannot have", () => {
   // Nineteen per-slug sentences lived here and are gone with the per-reason
   // labels. What replaced them must not pretend to know which one applies.
-  const at = VIEW.indexOf("const REJECTION_MESSAGE");
-  assert.ok(at > 0, "there must be one rejection sentence");
-  const line = VIEW.slice(at, VIEW.indexOf("\n\n", at));
-  assert.match(line, /lecturer can see the reason/, "point them at who does know");
-  assert.ok(!/rejected:/.test(line), "no slug may reach the student");
+  assert.match(REJECTION_MESSAGE, /lecturer can see the reason/, "point them at who does know");
+  assert.ok(!/rejected:/.test(REJECTION_MESSAGE), "no slug may reach the student");
+  for (const [src, label] of [[VIEW, "AssignmentView"], [GROUP, "GroupAcceptanceCard"]]) {
+    assert.ok(!/const REJECTION_MESSAGE\s*=/.test(src), `${label}: re-spells the sentence instead of importing it`);
+  }
+});
+
+test("a refused TEAM student is told so, not left on a spinner", () => {
+  // The team card imported `announcesInvitation` and never `isRejection`, and
+  // had no refused state at all: a student turned away from a team watched the
+  // spinner for ~160s, then got a guessed invitation link that 404s. Both
+  // polls and the on-mount read must ask, and the state must render.
+  assert.match(GROUP, /import\s*\{[^}]*\bisRejection\b[^}]*\}\s*from '\.\.\/lib\/acceptance-outcome\.js'/);
+  assert.match(GROUP, /v-else-if="acceptState === 'rejected'"/, "the refused state is rendered");
+  assert.match(GROUP, /\{\{\s*REJECTION_MESSAGE\s*\}\}/, "and says the shared sentence");
+  const tick = GROUP.slice(GROUP.indexOf("const tick = async"), GROUP.indexOf("// Immediately, not at +3s"));
+  assert.match(tick, /isRejection\(/, "the poll asks whether the hub refused");
+  const mount = GROUP.slice(GROUP.indexOf("async function checkExistingState"), GROUP.indexOf("async function confirmJoinTeam"));
+  assert.match(mount, /isRejection\(/, "coming back to the page asks too");
+});
+
+test("after a switch, every repository lookup is about the team JUST JOINED", () => {
+  // `invitationUrl` read `myCurrentTeam` first. After a switch that is the OLD
+  // team - the teams list lags the hub - so the invitation link, "Check again"
+  // and the timeout link all pointed at the repository the student had just
+  // been removed from, and 404'd. One judge now, and it prefers the target.
+  assert.match(
+    GROUP,
+    /const activeTeamSlug = computed\(\(\) => targetTeamSlug\.value \|\| myCurrentTeam\.value\?\.team_slug/,
+    "the team just joined must outrank the lagging list",
+  );
+  const url = GROUP.slice(GROUP.indexOf("const invitationUrl = computed"), GROUP.indexOf("const invitationProven"));
+  assert.match(url, /activeTeamSlug\.value/, "the invitation link asks the one judge");
+  assert.doesNotMatch(url, /myCurrentTeam/, "and never the lagging list directly");
+  const mount = GROUP.slice(GROUP.indexOf("async function checkExistingState"), GROUP.indexOf("async function confirmJoinTeam"));
+  assert.match(mount, /activeTeamSlug\.value/, "Check again asks the one judge");
+  assert.doesNotMatch(mount, /myCurrentTeam\.value\.team_slug/, "and never the lagging list directly");
+  const submit = GROUP.slice(GROUP.indexOf("async function executeTeamAcceptance"), GROUP.indexOf("function startPolling"));
+  assert.match(submit, /targetTeamSlug\.value = teamSlug/, "a submitted join records its target");
+});
+
+test("the reference names the attempt and nothing else", () => {
+  const at = new Date("2026-09-18T09:01:00Z");
+  const ref = formatRejectionReference({ title: "Lab Git", login: "Abrazan", at });
+  assert.match(ref, /^Lab Git · @Abrazan · /);
+  assert.equal(formatRejectionReference({ title: "Lab Git" }), "Lab Git");
+  assert.equal(formatRejectionReference({ title: "Lab Git", at: new Date("nope") }), "Lab Git");
 });

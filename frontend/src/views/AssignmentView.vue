@@ -554,7 +554,13 @@ import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
-import { outcomeFromLabels, announcesInvitation, isRejection } from '../lib/acceptance-outcome.js'
+import {
+  outcomeFromLabels,
+  announcesInvitation,
+  isRejection,
+  REJECTION_MESSAGE,
+  formatRejectionReference,
+} from '../lib/acceptance-outcome.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
@@ -616,25 +622,16 @@ const acceptanceIssue = ref(null)
 const rejectedCategory = ref(null)
 
 /**
- * ONE sentence, because the public channel carries one word.
+ * ONE sentence, because the public channel carries one word (see
+ * lib/acceptance-outcome.js, which the team card shares it from).
  *
  * There were nineteen here - a sentence per rejection slug, written from what a
- * student could DO about each. They are gone, and deliberately: the hub tells
- * the page by putting a LABEL on the student's acceptance issue, that issue is
- * on a PUBLIC repository, and labels are filterable in one click. Per-reason
+ * student could DO about each. They are gone, and deliberately: per-reason
  * labels would have made `outcome:rejected-not-on-roster` a sortable public
  * list of which named students are not enrolled - enrolment data about people
  * who never chose to publish it, and not the same as the student's own
  * acceptance being public.
- *
- * So the label says who was refused and never why. The specific reason is in
- * the control repository, where the lecturer reads it and the student can ask
- * for it - which is the trade this sentence has to carry honestly rather than
- * pretending to know more than it does.
  */
-const REJECTION_MESSAGE =
-  'Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next.'
-
 const rejectionMessage = computed(() => REJECTION_MESSAGE)
 
 /** When this attempt was refused. Set beside every `acceptState = 'rejected'`. */
@@ -656,13 +653,11 @@ const rejectedAt = ref(null)
  * Local time and the student's own locale, deliberately - they are reading it
  * off their own screen to a person in the same room, not filing a bug.
  */
-const rejectionReference = computed(() => {
-  const what = assignment.value?.title || resolvedId.value
-  const when = rejectedAt.value
-    ? rejectedAt.value.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-    : ''
-  return [what, user.value?.login ? `@${user.value.login}` : '', when].filter(Boolean).join(' · ')
-})
+const rejectionReference = computed(() => formatRejectionReference({
+  title: assignment.value?.title || resolvedId.value,
+  login: user.value?.login,
+  at: rejectedAt.value,
+}))
 const repoCopied = ref(false)
 
 // Student Diagnostics & Account Checker State (1.A)
