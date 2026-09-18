@@ -8,7 +8,7 @@ import { authChangeFromOtherTab } from './auth-storage.js'
 import { READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 import { toast } from './toast.js'
 import { teamsDir, acceptancesDir } from '../../../lib/control-layout.mjs'
-import { commitWithRebase } from '../../../lib/gittree.mjs'
+import { commitWithRebase, commitFailureMessage } from '../../../lib/gittree.mjs'
 import { conflictAction, isShaConflict, REFUSE } from '../../../lib/write-conflict.mjs'
 
 const API_BASE = 'https://api.github.com'
@@ -516,7 +516,8 @@ export async function commitFiles(token, owner, repo, changes, message, { branch
     return { ok: true, commitSha: res.commitSha, attempts: res.attempts }
   } catch (e) {
     if (e?.status === 401) handleSessionExpiry()
-    return { ok: false, status: e?.status ?? 0, error: e?.message || 'commit failed' }
+    // Never a bare status: see commitFailureMessage for the "HTTP 0" it ended.
+    return { ok: false, status: e?.status ?? 0, error: commitFailureMessage(e) }
   }
 }
 

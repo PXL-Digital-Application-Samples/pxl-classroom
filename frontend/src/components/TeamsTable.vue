@@ -1170,7 +1170,16 @@ async function saveTeamMembers() {
       managingTeam.value = null
       emit('refresh')
     } else {
-      toast.error(`Could not update team: HTTP ${res.status}`)
+      // `res.error`, never `HTTP ${res.status}`: a commit that ran out of
+      // retries has no status, and this printed "HTTP 0" to a lecturer who had
+      // saved while their previous save's dashboard update was still writing.
+      // Access is synced BEFORE this commit, so say so when it changed:
+      // saving again is what records it.
+      const accessChanged = Boolean(token && repoName && (added.length || removed.length))
+      toast.error(
+        `Could not save the team: ${res.error}.` +
+          (accessChanged ? ' Repository access was already changed on GitHub; save again to record it.' : ''),
+      )
     }
   } catch (e) {
     toast.error(`Error saving team: ${e.message}`)
