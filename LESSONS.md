@@ -2334,3 +2334,47 @@ lock, because GitHub has no compare-and-delete for a ref, so clearing it is
 `cleanup --break-lock`, a person's call. Proven live the same evening: a planted
 lock refused a cleanup by name, the break cleared it, and three rounds of two
 cleanups started together each ran exactly one.
+
+### Every second member of a team was refused over their own team's repository.
+
+2026-09-18. A student joining a team another student had already provisioned was
+refused with `rejected:repo-exists`, three times in a row, while the lecturer's
+page said they "already own a repository with this name". Step 7 of
+`accept.mjs` asks whether the team manifest's `repo_name` is the repository
+about to be handed out, and compared it with `===` to the bare name. The only
+writer, `write-repository-record.mjs`, stores `owner/name`. So it was never
+equal, the repository was probed as a stranger's, and team assignments refuse a
+repository they did not make. It had been live since 2026-09-09.
+
+It was seen on day one and not recognised. The live drill that afternoon showed
+`tomccargo` refused from `liveteam-team-a` with exactly this outcome, and it was
+read as the refusal working. The unit test passed because its fixture wrote
+`repo_name: "grp-team-a"`, a value no production path writes. The test now
+produces the manifest by running the real writer.
+
+An audit of the rest of the team code the same day found six more, all in the
+same family: two halves of the system that each held a copy of one fact.
+
+- The team card had no refused state, so a refused student watched a spinner
+  and then a guessed link that 404s. The individual page had one.
+- After a switch the invitation link read the lagging teams list first, so it
+  pointed at the repository the student had just been removed from.
+- `max_members` was stored on each team at creation and read before the
+  assignment's size, so raising the size reached the lecturer's tab and not the
+  gate or the students.
+- A failed provisioning dropped the team manifest (only a success staged
+  `teams/`) and never stamped the repository it had already created, so the next
+  teammate was refused too.
+- The Teams tab moved students in the manifests only. The collector and lockdown
+  read the repository records, so a moved student's work was read from the old
+  repository and they kept admin on the new one after the deadline.
+- A team's status was read from the alphabetically first member, who in a
+  seeded team is often somebody who has not accepted.
+
+And two outside teams: the lockdown audit read `r.login` (the field is
+`github_login`) and so reported "all demoted" having looked at nobody, and the
+Admin Panel's student permission never reached provisioning.
+
+The general form is the one this file keeps finding: when the same fact lives
+in two places, the test has to derive one from the other, and a fixture has to
+come from the writer, not from the author's idea of it.

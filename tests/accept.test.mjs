@@ -1487,6 +1487,31 @@ template:
   assert.equal(again.outputs.outcome, "already-accepted", again.stdout + again.stderr);
 });
 
+test("the assignment's student permission reaches provisioning", () => {
+  // The Admin Panel offered the setting and nothing passed it on: provisioning
+  // fell back to its own default and every student got admin.
+  const base = `state: published
+repository_name_pattern: "perm-{github_login}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const push = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
+    { assignmentYaml: `${base}\nstudent_permission: push` },
+  );
+  assert.equal(push.outputs.outcome, "accepted", push.stdout + push.stderr);
+  assert.equal(push.outputs.student_permission, "push");
+  const absent = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" }, { assignmentYaml: base });
+  assert.equal(absent.outputs.student_permission, "admin", "absent is what every older assignment was given");
+
+  for (const wf of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
+    const src = readFileSync(join(here, "..", ".github", "workflows", wf), "utf8");
+    const prov = src.slice(src.indexOf("uses: ./provisioning"), src.indexOf("name: Notify on failure"));
+    assert.match(prov, /student-permission: \$\{\{ steps\.accept\.outputs\.student_permission \}\}/, `${wf}: provisioning is not given the setting`);
+    assert.match(src, /--student-permission "\$STUDENT_PERMISSION"/, `${wf}: the record does not say what was granted`);
+  }
+});
+
 test("both acceptance workflows save the team file whatever provisioning did", () => {
   // `teams/` was staged only inside the created|reused branch, so a failed
   // provisioning discarded the membership accept.mjs had already decided.

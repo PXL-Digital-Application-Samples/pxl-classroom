@@ -944,6 +944,14 @@ async function main() {
     }
   }
 
+  // What provisioning grants. The Admin Panel has offered this setting all
+  // along and nothing passed it on, so provisioning fell back to its own
+  // default and every student got `admin` whatever the lecturer chose. Absent
+  // is `admin`, the schema's default and what every assignment without the
+  // field was provisioned with; an invalid value is passed through so
+  // provisioning refuses it rather than silently granting admin.
+  const studentPermission = assignment.student_permission || "admin";
+
   // 6. Check idempotency - already accepted?
   const targetRepo = isGroup
     ? deriveRepoName(assignment.repository_name_pattern, teamSlug, login)
@@ -978,6 +986,7 @@ async function main() {
     await setOutput("team_name", teamName);
     await setOutput("is_first_member", isFirstMember ? "true" : "false");
     await setOutput("previous_repo", previousRepo || "");
+    await setOutput("student_permission", studentPermission);
     await setOutput("template_owner", assignment.template.owner);
     await setOutput("template_repo", assignment.template.repository);
     // The pin, or "" when this assignment predates one. Empty means "not
@@ -1150,6 +1159,7 @@ async function main() {
   await setOutput("team_name", teamName);
   await setOutput("is_first_member", isFirstMember ? "true" : "false");
   await setOutput("previous_repo", previousRepo || "");
+  await setOutput("student_permission", studentPermission);
   await setOutput("template_owner", assignment.template.owner);
   await setOutput("template_repo", assignment.template.repository);
   await setOutput("template_repository_id", assignment.template.repository_id ?? "");

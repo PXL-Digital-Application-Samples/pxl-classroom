@@ -27,6 +27,7 @@ const { values } = parseArgs({
     "repo-url":      { type: "string" },
     "baseline-sha":  { type: "string" },
     "run-url":       { type: "string" },
+    "student-permission": { type: "string" },
     "data-dir":      { type: "string", default: "." },
     "team-only":     { type: "boolean", default: false },
   },
@@ -63,6 +64,10 @@ if (!teamOnly) {
     login,
     repo: { repo_id: repoId, repo_name: repoName, repo_url: values["repo-url"] },
     teamSlug,
+    // What provisioning actually granted. This was the literal "admin" whatever
+    // the assignment said, which was true only because provisioning ignored
+    // the setting too.
+    studentPermission: values["student-permission"] || "admin",
     runUrl: values["run-url"],
     baselineSha,
   });

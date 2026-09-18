@@ -152,6 +152,9 @@ outputs:
   feedback_pr_baseline_branch:
     description: Baseline branch name for the Feedback PR
     value: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
+  student_permission:
+    description: The permission the assignment grants its students (pull | triage | push | maintain | admin)
+    value: ${{ steps.accept.outputs.student_permission }}
 
 runs:
   using: composite

@@ -1215,6 +1215,7 @@ import { acceptanceLabel, assignmentStateLabel, submissionLabel, SCORE_SOURCE_LA
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
+import { teamRepresentative } from '../../../lib/team-representative.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const REFRESH_CONCURRENCY = 6
@@ -3179,10 +3180,10 @@ async function refreshLiveStatus() {
   if (report.value.teams && Array.isArray(report.value.teams)) {
     for (const team of report.value.teams) {
       const members = team.members || []
-      const memberStudents = report.value.students.filter((s) =>
-        members.some((m) => m && s.github_login && m.toLowerCase() === s.github_login.toLowerCase())
-      )
-      const firstMember = memberStudents[0]
+      // The member whose row is ON this team's repository, as report.mjs picks
+      // it - not the alphabetically first, who in a seeded team is often a
+      // student with no repository yet (lib/team-representative.mjs).
+      const firstMember = teamRepresentative(team, report.value.students)
       if (firstMember) {
         team.repo_name = team.repo_name || firstMember.repo_name || null
         team.repo_url = team.repo_url || firstMember.repo_url || null

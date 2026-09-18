@@ -517,6 +517,10 @@ const newTeamForm = ref({
 })
 
 const maxTeamSize = computed(() => teamMaxSize(props.assignment?.group_config))
+// What a grant from this tab gives, which is what provisioning gives: the
+// assignment's setting, absent meaning admin. Both grants here were the literal
+// 'admin' whatever the lecturer had chosen.
+const studentPermission = computed(() => props.assignment?.student_permission || 'admin')
 
 // Same rule as AssignmentDetailView: the Score column keys on grades EXISTING,
 // not on the assignment declaring autograding here. Grades produced by a
@@ -951,7 +955,7 @@ async function moveMemberTo(login, targetSlug) {
       }
     }
     if (targetRepo) {
-      const res = await addCollaborator(token, props.org, targetRepo, login, 'admin')
+      const res = await addCollaborator(token, props.org, targetRepo, login, studentPermission.value)
       if (!res?.ok) problems.push(`grant on ${targetRepo} (HTTP ${res?.status ?? '?'})`)
     }
 
@@ -999,6 +1003,7 @@ async function memberRecordChanges(token, login, toTeam) {
     toTeam,
     repoRecord,
     acceptance,
+    studentPermission: studentPermission.value,
   })
   for (const c of changes) {
     if (c.content === null) continue
@@ -1133,7 +1138,7 @@ async function saveTeamMembers() {
         }
       }
       for (const m of added) {
-        const res = await addCollaborator(token, props.org, repoName, m, 'admin')
+        const res = await addCollaborator(token, props.org, repoName, m, studentPermission.value)
         // 201 is "invitation created", 204 is "already a collaborator".
         if (!res?.ok) {
           accessFailures.push(`could not give @${m} access (HTTP ${res?.status ?? '?'})`)

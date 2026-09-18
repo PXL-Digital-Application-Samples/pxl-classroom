@@ -32,6 +32,7 @@ import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, restrictsCohort } from "../lib/cohort.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
+import { teamRepresentative } from "../lib/team-representative.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -735,10 +736,9 @@ async function main() {
 
   const teamsReport = teams.map((t) => {
     const members = t.members || [];
-    const memberStudents = students.filter((s) =>
-      members.map((m) => m.toLowerCase()).includes(s.github_login.toLowerCase())
-    );
-    const firstMember = memberStudents[0];
+    // The member whose row is ON this team's repository, never simply the
+    // alphabetically first - see lib/team-representative.mjs.
+    const firstMember = teamRepresentative(t, students);
     const underCapacity = assignment.group_config?.min_team_size
       ? members.length < assignment.group_config.min_team_size
       : false;

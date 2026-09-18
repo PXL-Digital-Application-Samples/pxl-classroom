@@ -97,6 +97,7 @@ jobs:
           feedback-pr: ${{ steps.accept.outputs.feedback_pr }}
           feedback-pr-baseline-branch: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
           previous-repo: ${{ steps.accept.outputs.previous_repo }}
+          student-permission: ${{ steps.accept.outputs.student_permission }}
           
       # A rejection used to leave no trace a lecturer could find: nothing was
       # written to the control repo, and the only signal was a red run in the
@@ -266,6 +267,7 @@ jobs:
           REPO_ID: ${{ steps.prov.outputs.repo-id }}
           REPO_URL: ${{ steps.prov.outputs.repo-url }}
           BASELINE_SHA: ${{ steps.prov.outputs.baseline-sha }}
+          STUDENT_PERMISSION: ${{ steps.accept.outputs.student_permission }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -e
@@ -303,6 +305,7 @@ jobs:
               --repo-id "$REPO_ID" \
               --repo-url "$REPO_URL" \
               --baseline-sha "$BASELINE_SHA" \
+              --student-permission "$STUDENT_PERMISSION" \
               --run-url "$RUN_URL" \
               --data-dir control
             mkdir -p control/repositories
