@@ -36,6 +36,28 @@ on:
       # than `scripts/**`, which would deploy on every unrelated script change.
       - 'scripts/fetch-pages-data.mjs'
       - 'pages/scan.mjs'
+
+  # A RELEASE IS A BUILD INPUT, and it was missing here for the same reason
+  # `claim-keys.json` and `MANUAL.md` were missing above: the bundle reads
+  # something this list did not name. "Resolve build identity" below stamps the
+  # version from `git describe --tags`, so what the app says about itself is
+  # decided by which tags existed AT BUILD TIME - and a tag is created after the
+  # commit it names has already deployed.
+  #
+  # Measured on 2026-09-18: the deploy for `affe250` finished at 01:22:17Z and
+  # v1.3.0 was tagged at 01:34:43Z, so the live site advertised `v1.2.1
+  # (affe250)` - a version the release notes say is two days and 53 commits old.
+  # Nothing was red, and nothing would have corrected it until some unrelated
+  # frontend change happened to fire a deploy, at which point the number would
+  # jump without anybody touching the release.
+  #
+  # `release: [published]` rather than a tag push: the path filter above applies
+  # to push events, so `tags:` in the same block would be filtered by it, and
+  # this fires however the release was cut - the workflow, or a human doing it
+  # by hand.
+  release:
+    types: [published]
+
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages

@@ -16,6 +16,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+// PARSED, not grepped: `on:` is the YAML 1.1 boolean `true`, so a string search
+// for "release:" would also match the word inside one of this workflow's
+// comments - of which it has many.
+import { parse } from "yaml";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(join(ROOT, "frontend", "src", "lib", "build-info.js"), "utf8");
@@ -95,4 +99,24 @@ test("the deploy injects exactly what the module reads", () => {
   }
   // And the tags it needs to resolve a version at all.
   assert.match(wf, /fetch-tags:\s*true/, "deploy checkout does not fetch tags, so the version is always empty");
+});
+
+test("a release redeploys, or the version on screen is the one before it", () => {
+  // THE OTHER HALF OF `fetch-tags`. Fetching the tags makes the version
+  // resolvable; this makes it CURRENT. `git describe` runs at build time, and a
+  // tag is created after the commit it names has already deployed - so without
+  // a trigger on the release, the site advertises the previous version until
+  // some unrelated frontend change happens to fire a deploy.
+  //
+  // Measured 2026-09-18: the deploy for affe250 finished at 01:22:17Z, v1.3.0
+  // was tagged at 01:34:43Z, and the live header read `v1.2.1 (affe250)` -
+  // a number 53 commits out of date, with nothing red anywhere.
+  const wf = readFileSync(join(ROOT, ".github", "workflows", "deploy-frontend.yml"), "utf8");
+  const on = parse(wf).on ?? parse(wf).true;
+  assert.ok(on?.release, "deploy-frontend.yml does not run on a release");
+  assert.deepEqual(
+    on.release.types,
+    ["published"],
+    "a release triggers the deploy when it is published, not when it is drafted",
+  );
 });
