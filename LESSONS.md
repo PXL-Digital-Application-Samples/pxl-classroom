@@ -1311,7 +1311,7 @@ Both were written against a live defect and both were checked by re-introducing 
 
 ### JSDoc `object` meant `any`, and TypeScript 7 stopped agreeing.
 
-`npm run typecheck` reads the JSDoc `lib/` already carries. It is deliberately not a CI gate, so the only thing that keeps it useful is the error count staying small enough to read. Dependabot proposed TypeScript 5.9 to 7.0.2 (pull request #7), and measured on 2026-09-17: 64 errors before, 254 after.
+`npm run typecheck` reads the JSDoc `lib/` already carries. At the time this happened it was deliberately not a CI gate - it became one the next day, at the end of this entry - so the only thing keeping it useful was the error count staying small enough to read. Dependabot proposed TypeScript 5.9 to 7.0.2 (pull request #7), and measured on 2026-09-17: 64 errors before, 254 after.
 
 None of the 190 new ones was a new finding. TypeScript 7 is the Go compiler, and its stated aim is that a `.js` file is checked by the same rules as a `.ts` file rather than by the looser JavaScript-only ones. Two of those rules did all the damage here. JSDoc `@param {object} form` used to mean `any` and now means `object`, which has no properties: 147 errors across 79 annotations. A parameter written `({ a, b } = {})` with no JSDoc used to be open and now types as `{}`: 41 errors across 22 lines. Two more were configuration, and both are worth knowing because they hit any project of this shape: TypeScript 6 stopped defaulting `types` to every installed `@types` package, so `Buffer` and every `node:` import failed with "install @types/node" although it was already a devDependency (22 errors), and TypeScript 7 refuses an unknown key inside `compilerOptions`, which is where a `//`-prefixed note had been parked.
 
