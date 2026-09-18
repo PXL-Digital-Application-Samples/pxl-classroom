@@ -263,7 +263,7 @@ sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs 
 
 ## 9. A team repository's name can drop the assignment, and only the form stops it
 
-**Status: open - narrowed to a residual.** Found 2026-09-09; the first version of this entry overstated it and is corrected here.
+**Status: CLOSED 2026-09-18.** Found 2026-09-09; the first version of this entry overstated it, the second narrowed it to a residual, and the residual is now answered at the click. Kept here rather than moved to the table below, because the reasoning about what may and may not block is the useful part and it does not fit a row.
 
 **What is actually true.** A team repository's name comes from `repository_name_pattern`, and `{team_slug}` on its own carries no assignment - so two assignments with a `team-a` would produce the same repository name for different people. Slugs like `team-a` or `de-bende` repeat every year; repeating is what they are for.
 
@@ -276,9 +276,13 @@ sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs 
 
 **Drilled live on 2026-09-09**, through the real broker with a second account: a team assignment on `liveteam-{team_slug}` over a pre-planted `liveteam-team-a`. `team-a` was refused with the team wording, and the lecturer's tracking issue named it; a second acceptance into a fresh `team-zz` was created from the template and provisioned normally. The refusal wrote **nothing**: no acceptance record, no repository record, and no `teams/live-team/team-a.json`, so a turned-away team leaves no state to clean up. The previous team's repository was untouched, still holding only its own file.
 
-**What remains.** Two assignments sharing a pattern is refused only while both are **live** (`clashingAssignments` reads the assignment list). A deleted or archived assignment whose repositories survive is not in that list, so a new assignment may legitimately be created on a colliding pattern - and it is the acceptance-time refusal above, not the form, that catches it. That is a defence in the right place, but it means the lecturer learns at the first acceptance rather than at the click.
+**What remained, and was closed on 2026-09-18.** Two assignments sharing a pattern is refused only while both are **live** (`clashingAssignments` reads the assignment list). A deleted or archived assignment whose repositories survive is not in that list, so a new assignment may legitimately be created on a colliding pattern - and it was the acceptance-time refusal above, not the form, that caught it. A defence in the right place, but the lecturer learned at the first acceptance rather than at the click.
 
-**How to tell it is closed:** a form-level warning exists when a pattern would land on repositories from a *retired* assignment of another id. Today nothing checks that:
+`retiredPatternClash` (`lib/assignment-collision.mjs`) is the click half: of the repositories a pattern would produce, the ones **no assignment that still exists** would produce. It costs no request - the form holds the organization's listing and the assignment list already, and the answer is a subtraction - and it rides in the dialog Save opens rather than under the field, which is where the lecturer is already deciding what happens to a student who owns one.
+
+**It names nothing, deliberately.** Which retired assignment those repositories came from is not knowable here: the manifest records the id, the title and the date, and never the pattern, so attribution would be a guess with a name on it. The sentence says what was computed. And it never blocks, for the reason the head of `lib/assignment-collision.mjs` gives: the deletion record is written by every delete, so refusing on it would refuse "I opened it, nobody joined, starting over".
+
+**How to tell it is closed:**
 
 ```bash
 node -e "import('./lib/assignment-collision.mjs').then(m => console.log(typeof m.retiredPatternClash === 'function' ? 'checked' : 'not checked - still open'))"

@@ -1601,6 +1601,7 @@
     <ExistingReposModal
       v-if="existingReposPrompt"
       :count="existingReposPrompt.count"
+      :orphans="existingReposPrompt.orphans"
       :org="org"
       :pattern="existingReposPrompt.pattern"
       :teams="existingReposPrompt.teams"
@@ -1685,6 +1686,7 @@ import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
 import { findOrgSubmissionLock } from '../../../lib/submission-lock.mjs'
 import {
   collidingRepoNames,
+  retiredPatternClash,
   patternProblem,
   clashingAssignments,
   assignmentCollisions,
@@ -3800,6 +3802,19 @@ const existingRepoNote = (verdict) =>
   (verdict?.clear ? noteFindings(verdict) : []).find((f) => f.kind === 'existing-repos') ?? null
 
 /**
+ * How many of those repositories no assignment that still exists would produce.
+ *
+ * Read off its own finding, the same way and for the same reason. It rides in
+ * the dialog rather than under the field, because that is where the lecturer is
+ * already answering what should happen to a student who owns one, and the form
+ * deliberately renders nothing about existing repositories in place (one
+ * lecturer in the deployment meets this; a permanent line is clutter for
+ * everyone else).
+ */
+const retiredRepoCount = (verdict) =>
+  (verdict?.clear ? noteFindings(verdict) : []).find((f) => f.kind === 'retired-repos')?.count ?? 0
+
+/**
  * The dialog's props while it is open, and null when it is not.
  *
  * `v-if` on the parent, so the component is created fresh each time and there
@@ -3830,8 +3845,8 @@ const existingRepoAnsweredFor = ref('')
  * confirm", and the save would silently stop.
  */
 let existingReposResolve = null
-function askExistingRepos({ count, pattern, teams, confirmLabel }) {
-  existingReposPrompt.value = { count, pattern, teams, confirmLabel }
+function askExistingRepos({ count, orphans = 0, pattern, teams, confirmLabel }) {
+  existingReposPrompt.value = { count, orphans, pattern, teams, confirmLabel }
   return new Promise((resolve) => { existingReposResolve = resolve })
 }
 function answerExistingRepos(policy) {
@@ -3935,7 +3950,10 @@ async function checkCollisions(slug, pattern, { fresh = true } = {}) {
     // form telling a lecturer their own cohort is in the way.
     const own = new Set(collidingRepoNames(stored, names, others))
     const existingRepos = collidingRepoNames(pattern, names, others).filter((n) => !own.has(n))
-    return { message: '', verdict: assignmentCollisions({ existingRepos, clashes }) }
+    // Of those, the ones no live assignment explains. Costs no request: both
+    // lists are already here, and the answer is a subtraction.
+    const orphanRepos = retiredPatternClash(pattern, existingRepos, assignments.value)
+    return { message: '', verdict: assignmentCollisions({ existingRepos, orphanRepos, clashes }) }
   }
 
   try {
@@ -3972,9 +3990,10 @@ async function checkCollisions(slug, pattern, { fresh = true } = {}) {
 
   const others = assignments.value.filter((a) => a.id !== slug)
   const existingRepos = collidingRepoNames(pattern, orgRepos.map((r) => r.name), others)
+  const orphanRepos = retiredPatternClash(pattern, existingRepos, assignments.value)
   const clashes = clashingAssignments(pattern, assignments.value, slug)
 
-  return { message: '', verdict: assignmentCollisions({ existingRepos, clashes, archiveExists, manifest }) }
+  return { message: '', verdict: assignmentCollisions({ existingRepos, orphanRepos, clashes, archiveExists, manifest }) }
 }
 
 /**
@@ -4162,6 +4181,7 @@ async function saveAssignment(stateOverride = null) {
       // already-published path, which is the primary button reading `Save`.
       const answer = await askExistingRepos({
         count: found.count,
+        orphans: retiredRepoCount(verdict),
         pattern,
         teams,
         confirmLabel: stateOverride === 'draft'

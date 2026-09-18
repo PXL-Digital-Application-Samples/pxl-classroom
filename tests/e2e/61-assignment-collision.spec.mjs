@@ -200,6 +200,53 @@ async function saveAnswering(page, answer, button = 'Save as draft') {
   return true;
 }
 
+test.describe('repositories no assignment still explains', () => {
+  // OPEN-ITEMS §9's residual: a pattern shared with a LIVE assignment blocks,
+  // because both are on screen. One landing on the repositories of an
+  // assignment that has since been deleted cannot block - refusing on the
+  // deletion record would refuse "I opened it, nobody joined, starting over" -
+  // so it was left to acceptance, which tells the lecturer at the first student
+  // rather than at the click. This is the click half, and it is a count in the
+  // dialog they already answer.
+
+  test('the dialog says how many are left over, and names nothing', async ({ page }) => {
+    // `lab-3-alice` and `lab-3-bob` exist and no assignment does. `other-2-zoe`
+    // belongs to a live assignment and is not this pattern's business anyway.
+    await openAdmin(page, {
+      orgRepos: ['lab-3-alice', 'lab-3-bob', 'other-2-zoe'],
+      assignments: { 'other-2': { id: 'other-2', title: 'Other', repository_name_pattern: 'other-2-{github_login}' } },
+    });
+    await fillNew(page);
+    await saveDraft(page).click();
+
+    const modal = reposModal(page);
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('2 repositories');
+    await expect(modal).toContainText('2');
+    await expect(modal).toContainText('belong to no assignment that still exists');
+    // Not attribution: the deletion record carries no pattern, so naming the
+    // retired assignment would be a guess with a name on it.
+    await expect(modal).not.toContainText(/retired|deleted/i);
+  });
+
+  // THE OTHER BRANCH IS NOT REACHABLE FROM HERE, and that is worth writing
+  // down rather than contriving a fixture for. A live assignment whose pattern
+  // explains one of these names is a PATTERN CLASH, which blocks - so the save
+  // is refused and this dialog never opens. The only shapes that reach it are
+  // a live assignment more specific than ours (whose repositories
+  // `collidingRepoNames` has already taken out of the count) and one that
+  // overlaps on a real name without overlapping on a probe. Both are logic, and
+  // `tests/assignment-collision.test.mjs` runs them directly.
+
+  test('it is a note: the save goes through once the dialog is answered', async ({ page }) => {
+    const writes = await openAdmin(page, { orgRepos: ['lab-3-alice', 'lab-3-bob'] });
+    await fillNew(page);
+    const asked = await saveAnswering(page, 'reuse');
+    expect(asked).toBe(true);
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBe(1);
+  });
+});
+
 async function expectNoWrite(page, writes) {
   await saveDraft(page).click();
   await page.waitForTimeout(300);

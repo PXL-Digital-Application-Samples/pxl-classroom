@@ -5,6 +5,7 @@ import {
   repoNameMatcher,
   patternSpecificity,
   collidingRepoNames,
+  retiredPatternClash,
   patternProblem,
   clashingAssignments,
   assignmentCollisions,
@@ -611,4 +612,80 @@ test("a group assignment's shared repository is listed once, not once per member
     }),
     ["lab-3-team-alpha", "lab-3-team-beta"],
   );
+});
+
+// ------------------------------------------- repositories nothing live explains
+//
+// OPEN-ITEMS §9's residual: a pattern shared with a LIVE assignment blocks, and
+// one landing on the repositories of an assignment that has since been deleted
+// cannot - the deletion record is written by every delete, so refusing on it
+// would refuse "I opened it, nobody joined, starting over". That was left to
+// acceptance, which works and tells the lecturer at the first student rather
+// than at the click. This is the click half.
+
+test("a repository no live assignment would produce is reported", () => {
+  const found = retiredPatternClash(
+    "lab-3-{github_login}",
+    ["lab-3-alice", "lab-3-bob", "other-thing"],
+    [{ id: "lab-4", repository_name_pattern: "lab-4-{github_login}" }],
+  );
+  assert.deepEqual(found, ["lab-3-alice", "lab-3-bob"]);
+});
+
+test("one a live assignment DOES produce is not reported, whatever its specificity", () => {
+  // Both directions of `collidingRepoNames`' rival rule: the live assignment
+  // here is equally specific, so that function still reports the name as ours -
+  // and this one must not, because an assignment that still exists explains it.
+  const live = [{ id: "lab-3", repository_name_pattern: "lab-3-{team_slug}" }];
+  assert.deepEqual(retiredPatternClash("lab-3-{github_login}", ["lab-3-alice"], live), []);
+
+  const broader = [{ id: "all", repository_name_pattern: "{github_login}" }];
+  assert.deepEqual(retiredPatternClash("lab-3-{github_login}", ["lab-3-alice"], broader), []);
+});
+
+test("THE TRAP: an assignment that exists explains its own repositories", () => {
+  // The first version of this took a `selfId` and excluded that assignment from
+  // the live set - which made an assignment's OWN repositories read as
+  // leftovers the moment anybody edited its pattern. There is no self here: an
+  // assignment that exists is an assignment that exists, and the caller
+  // subtracts what the stored pattern already owns before asking.
+  const live = [{ id: "lab-3", repository_name_pattern: "lab-3-{github_login}" }];
+  assert.deepEqual(retiredPatternClash("lab-3-{github_login}", ["lab-3-alice"], live), []);
+  assert.deepEqual(retiredPatternClash("lab-3-{github_login}", ["lab-3-alice"], []), ["lab-3-alice"]);
+});
+
+test("a pattern with no placeholder yields nothing rather than matching everything", () => {
+  assert.deepEqual(retiredPatternClash("lab-3", ["lab-3", "lab-3-alice"], []), []);
+  assert.deepEqual(retiredPatternClash("", ["lab-3-alice"], []), []);
+  assert.deepEqual(retiredPatternClash("lab-3-{github_login}", null, null), []);
+});
+
+test("the finding is a NOTE, and says only what was computed", () => {
+  const verdict = assignmentCollisions({
+    existingRepos: ["lab-3-alice", "lab-3-bob", "lab-3-carol"],
+    orphanRepos: ["lab-3-alice", "lab-3-bob"],
+  });
+  const note = verdict.findings.find((f) => f.kind === "retired-repos");
+  assert.ok(note, "a retired-repos finding");
+  assert.equal(note.blocking, false, "never blocking - see the 300 portfolios");
+  assert.equal(note.count, 2);
+  assert.match(note.detail, /2 of them belong to no assignment that still exists/);
+  // No attribution: the manifest records no pattern, so naming the retired
+  // assignment would be a guess with a name on it.
+  assert.doesNotMatch(note.detail, /retired|deleted|archiv/i);
+  assert.equal(verdict.clear, true, "a note does not refuse the save");
+});
+
+test("no orphans, no note - and none without the finding it qualifies", () => {
+  const none = assignmentCollisions({
+    existingRepos: ["lab-3-alice"],
+    orphanRepos: [],
+  });
+  assert.equal(none.findings.some((f) => f.kind === "retired-repos"), false);
+
+  // `orphanRepos` is a subset of `existingRepos` by construction. Arriving
+  // without it means the caller computed them from different inputs, and a
+  // count larger than the set it narrows would read as nonsense.
+  const orphanOnly = assignmentCollisions({ existingRepos: [], orphanRepos: ["lab-3-alice"] });
+  assert.equal(orphanOnly.findings.some((f) => f.kind === "retired-repos"), false);
 });

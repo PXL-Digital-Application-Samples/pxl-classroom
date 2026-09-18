@@ -7,6 +7,7 @@ export {
   repoNameMatcher,
   patternSpecificity,
   collidingRepoNames,
+  retiredPatternClash,
   patternProblem,
   clashingAssignments,
   assignmentCollisions,

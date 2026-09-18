@@ -27,6 +27,18 @@
           already {{ count === 1 ? 'matches' : 'match' }} <code>{{ pattern }}</code>.
         </p>
 
+        <!-- WHAT IS LEFT BEHIND, and only ever the count. Which retired
+             assignment these came from is not knowable - the deletion record
+             holds the id, the title and the date, and never the pattern - so
+             naming one would be a guess with a name on it. The sentence says
+             what was computed: no assignment that still exists would produce
+             them (OPEN-ITEMS §9). -->
+        <p v-if="orphans > 0" class="text-sm existing-repos-lede">
+          <strong>{{ orphans }}</strong>
+          of {{ orphans === 1 ? 'them belongs' : 'them belong' }} to no assignment that still
+          exists in this organization.
+        </p>
+
         <!-- A TEAM ASSIGNMENT IS TOLD, NOT ASKED. There is no choice to offer:
              a team slug names a team rather than a student, and the repository
              name carries the slug without the assignment, so a repository
@@ -119,6 +131,14 @@ import { useFocusTrap } from '../composables/useFocusTrap.js'
 defineProps({
   /** How many repositories in the organization the pattern would produce. */
   count: { type: Number, required: true },
+  /**
+   * How many of those no assignment that still exists would produce - a
+   * deleted or archived cohort's leftovers. Optional and defaulting to 0,
+   * because the count is a subtraction the caller may not have made: nothing
+   * here re-derives it (`lib/assignment-collision.mjs` decided it), and an
+   * absent answer renders nothing rather than a zero.
+   */
+  orphans: { type: Number, default: 0 },
   org: { type: String, required: true },
   pattern: { type: String, required: true },
   /**
