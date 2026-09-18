@@ -10,6 +10,29 @@ import { startRepoProbe } from "./fixtures/repo-probe.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const acceptScript = join(here, "..", "acceptance", "accept.mjs");
+const writeRecordScript = join(here, "..", "scripts", "write-repository-record.mjs");
+
+/**
+ * Stamp a team manifest the way production does: the first member's
+ * provisioning runs write-repository-record.mjs, which copies `repo_name` onto
+ * the manifest. A hand-written `repo_name: "grp-team-a"` here hid for a day
+ * that the real value is `TestOrg/grp-team-a`, and every second member of a
+ * team was refused.
+ */
+function provisionTeamRepo(dir, { login, org, repo, teamSlug }) {
+  const res = spawnSync("node", [
+    writeRecordScript,
+    "--assignment-id", "test-asgn",
+    "--login", login,
+    "--org", org,
+    "--target-repo", repo,
+    "--team-slug", teamSlug,
+    "--repo-id", "4242",
+    "--repo-url", `https://github.com/${org}/${repo}`,
+    "--data-dir", dir,
+  ], { encoding: "utf8" });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+}
 
 // accept.mjs step 7 asks GitHub whether the target repository name is already
 // taken. Without something to answer, these tests reached the real
@@ -61,6 +84,10 @@ function runAccept(envOverrides = {}, setupData = null) {
       }
     }
   }
+
+  // Runs a production writer against the data dir, so a fixture is the shape
+  // the app writes rather than one the test invented.
+  if (setupData?.beforeAccept) setupData.beforeAccept(dir);
 
   const res = spawnSync("node", [acceptScript], {
     encoding: "utf8",
@@ -1314,14 +1341,15 @@ template:
   owner: TestOrg
   repository: tpl`;
   const res = runAccept(
-    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "222", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
     {
       assignmentYaml: yaml,
       teams: {
         "test-asgn": {
-          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: ["alice"], max_members: 4, repo_name: "grp-team-a" },
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: ["alice"], max_members: 4 },
         },
       },
+      beforeAccept: (dir) => provisionTeamRepo(dir, { login: "alice", org: "TestOrg", repo: "grp-team-a", teamSlug: "team-a" }),
     },
   );
   // Not even a frozen ruleset stops them: it is THEIR repository, and the
@@ -1346,14 +1374,15 @@ template:
   owner: TestOrg
   repository: tpl`;
   const res = runAccept(
-    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "333", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "dave", GITHUB_ID: "333", TEAM_SLUG: "team-a", TEAM_ACTION: "join" },
     {
       assignmentYaml: yaml,
       teams: {
         "test-asgn": {
-          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: [], max_members: 4, vacant: true, repo_name: "grp-team-a" },
+          "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: [], max_members: 4, vacant: true },
         },
       },
+      beforeAccept: (dir) => provisionTeamRepo(dir, { login: "alice", org: "TestOrg", repo: "grp-team-a", teamSlug: "team-a" }),
     },
   );
   assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);

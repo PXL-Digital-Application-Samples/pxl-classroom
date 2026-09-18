@@ -11,6 +11,7 @@ import {
   existingRepoVerdict,
   frozenFromRulesets,
   normalizeExistingRepoPolicy,
+  teamManifestNamesRepo,
 } from "../lib/existing-repo.mjs";
 import { rejectionReason } from "../lib/rejection-notice.mjs";
 import {
@@ -244,4 +245,18 @@ test("somebody else's ruleset is not ours", () => {
   assert.ok(!isSubmissionLockName(`${SUBMISSION_LOCK_NAME}x`));
   assert.ok(!isSubmissionLockName(undefined));
   assert.ok(!isSubmissionLockName(null));
+});
+
+test("a team manifest names its own repository as owner/name, which is what production writes", () => {
+  // scripts/write-repository-record.mjs stamps `${org}/${repo}` onto the team
+  // manifest. accept.mjs compared that to the bare name with `===`, so every
+  // second member of a team was refused over their own team's repository.
+  assert.equal(teamManifestNamesRepo("PXL-Org/lab01-git-potloodpaarden", "PXL-Org", "lab01-git-potloodpaarden"), true);
+  assert.equal(teamManifestNamesRepo("pxl-org/LAB01-git-potloodpaarden", "PXL-Org", "lab01-git-potloodpaarden"), true);
+  assert.equal(teamManifestNamesRepo("lab01-git-potloodpaarden", "PXL-Org", "lab01-git-potloodpaarden"), true, "the schema allows a bare name");
+  assert.equal(teamManifestNamesRepo("Other-Org/lab01-git-potloodpaarden", "PXL-Org", "lab01-git-potloodpaarden"), false, "another org's repository is not ours");
+  assert.equal(teamManifestNamesRepo("PXL-Org/lab01-git-other", "PXL-Org", "lab01-git-potloodpaarden"), false);
+  assert.equal(teamManifestNamesRepo(undefined, "PXL-Org", "lab01-git-potloodpaarden"), false, "a seeded team nobody accepted into is still probed");
+  assert.equal(teamManifestNamesRepo("", "PXL-Org", "x"), false);
+  assert.equal(teamManifestNamesRepo("PXL-Org/x", undefined, "x"), false, "no org, no owner match");
 });

@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
-import { existingRepoVerdict, frozenFromRulesets } from "../lib/existing-repo.mjs";
+import { existingRepoVerdict, frozenFromRulesets, teamManifestNamesRepo } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
@@ -1010,7 +1010,13 @@ async function main() {
     try {
       const teamPath = join(dataDir, "teams", assignmentId, `${teamSlug}.json`);
       if (existsSync(teamPath)) {
-        ownGroupRepo = JSON.parse(await readFile(teamPath, "utf-8"))?.repo_name === targetRepo;
+        // `owner/name` on disk against a bare `targetRepo`: compared with `===`
+        // this was never true, and every second member of a team was refused.
+        ownGroupRepo = teamManifestNamesRepo(
+          JSON.parse(await readFile(teamPath, "utf-8"))?.repo_name,
+          org,
+          targetRepo,
+        );
       }
     } catch {
       // Unreadable manifest: fall through and ask GitHub, which is the
