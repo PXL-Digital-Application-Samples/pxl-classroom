@@ -124,3 +124,32 @@ test("`prepare` survives the install every production workflow actually runs", (
     `expected the production workflows to install without devDependencies, found ${workflows.length}`,
   );
 });
+
+test("a release sends no mail: it comments on nothing and opens nothing", () => {
+  // CUTTING v1.3.0 SENT SIX EMAILS. `@semantic-release/github` was configured
+  // as a bare string, and its default `successComment` posts "This PR is
+  // included in version X" on every pull request a released commit references -
+  // six merged ones in that release, each comment reaching everyone subscribed
+  // to the thread. The notes already list those pull requests with links, so
+  // the comment adds no fact and arrives in an inbox.
+  //
+  // `failComment`/`failTitle` are the other direction: a failed release opens
+  // an issue and comments on it. This release is dispatched by hand, so whoever
+  // failed it is watching the run.
+  //
+  // Pinned as a test because the regression is invisible: putting the plugin
+  // back as a bare string is a one-word edit that looks like tidying, and
+  // nothing goes red - the mail just starts again at the next release.
+  const plugin = (releaserc.plugins ?? []).find(
+    (p) => p === "@semantic-release/github" || (Array.isArray(p) && p[0] === "@semantic-release/github"),
+  );
+  assert.ok(plugin, "the github plugin is what creates the release");
+  assert.ok(
+    Array.isArray(plugin),
+    "@semantic-release/github as a bare string takes its defaults, and its defaults send mail",
+  );
+  const opts = plugin[1] ?? {};
+  assert.equal(opts.successComment, false, "no comment on the pull requests a release includes");
+  assert.equal(opts.failComment, false, "no comment on a failure issue");
+  assert.equal(opts.failTitle, false, "no failure issue at all");
+});
