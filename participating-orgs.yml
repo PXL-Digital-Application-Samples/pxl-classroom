@@ -50,3 +50,5 @@ orgs:
     budget_owner_login: arnobarzan
   - login: pxl-werkplekleren
     budget_owner_login: WimBervoetsPXL
+  - login: pxl-grpro-csessentials-2627
+    budget_owner_login: WimBervoetsPXL
