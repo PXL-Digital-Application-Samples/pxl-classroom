@@ -52,3 +52,5 @@ orgs:
     budget_owner_login: WimBervoetsPXL
   - login: pxl-grpro-csessentials-2627
     budget_owner_login: WimBervoetsPXL
+  - login: PXL-2TIW-DevOps-2627
+    budget_owner_login: d-ries
