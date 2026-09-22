@@ -269,7 +269,7 @@ The acceptance issue's TITLE carries the signed invitation, so the first student
 
 ### Redaction, deletion and a sweep are all AFTER the fact - the fix was to stop publishing a credential.
 
-The three steps above hide the browsable copy of the title; they cannot touch the `opened` event, which GitHub emits before any of them run and GH Archive mirrors permanently. Measured 2026-08-25: `curl -s https://api.github.com/repos/<org>/<broker>/events`, unauthenticated, returned a full still-valid `pxl-accept:` token on an issue that had **already been deleted**, for a live `roster_mode: open` assignment. Hiding it is not available - every student-initiated trigger on a public repo emits a public event and there is no private transport without self-hosting - so the title had to stop being *sufficient*. The link now carries a **P-256 private key** (`invite_key`, 184 base64url chars, `lib/acceptance-signature.mjs`), the browser signs an assertion naming the student's own account, and both the broker and the hub compare the signed `github_id` to the issue's author. **P-256, not Ed25519**: Ed25519 only reached WebCrypto in Chrome in May 2026, so one student in five could not have signed at all. Load-bearing consequences: **`linkSecretFrom` is the single answer to "which field is the link"** (`invite_key` migrated, `invite_token` not) and is consumed by `pages/generate.mjs`, `AdminView`, `InvitationShare`, `lib/diagnostics.mjs` and the e2e fixture - three independent readers is the shape that forked `diffRosters`; the broker takes the signed path only when it has **both** a title and `INVITE_PUBKEY`, so republishing a broker before a keypair exists cannot reject a whole cohort; and **`PUBLIC_TEXT_RULES` gained a second rule**, because the first is keyed on the token's `<35>.<86>` shape and could not see a key at all - it anchors on the PKCS#8 P-256 header (36 chars, identical in every key ever minted, so a partial paste is caught too) and deliberately does **not** match the public half, which lives on a public broker by design and would be a permanent false positive beside the real findings. `tests/acceptance-signature.test.mjs`, `tests/public-text-token-shape.test.mjs`, ARCHITECTURE §4.3.2.
+The three steps above hide the browsable copy of the title; they cannot touch the `opened` event, which GitHub emits before any of them run and GH Archive mirrors permanently. Measured 2026-08-25: `curl -s https://api.github.com/repos/<org>/<broker>/events`, unauthenticated, returned a full still-valid `pxl-accept:` token on an issue that had **already been deleted**, for a live `roster_mode: open` assignment. Hiding it is not available - every student-initiated trigger on a public repo emits a public event and there is no private transport without self-hosting - so the title had to stop being *sufficient*. The link now carries a **P-256 private key** (`invite_key`, 184 base64url chars, `lib/acceptance-signature.mjs`), the browser signs an assertion naming the student's own account, and **the broker** compares the signed `github_id` to the issue's author. Only the broker: the hub does not re-check it and cannot, because the dispatch carries a login and an id and never the title - see *"Who accepted is ONE field"* below, and OPEN-ITEMS §10 for what that leaves open. This sentence said "both the broker and the hub" for months, four lines above the paragraph that says the opposite correctly. **P-256, not Ed25519**: Ed25519 only reached WebCrypto in Chrome in May 2026, so one student in five could not have signed at all. Load-bearing consequences: **`linkSecretFrom` is the single answer to "which field is the link"** (`invite_key` migrated, `invite_token` not) and is consumed by `pages/generate.mjs`, `AdminView`, `InvitationShare`, `lib/diagnostics.mjs` and the e2e fixture - three independent readers is the shape that forked `diffRosters`; the broker takes the signed path only when it has **both** a title and `INVITE_PUBKEY`, so republishing a broker before a keypair exists cannot reject a whole cohort; and **`PUBLIC_TEXT_RULES` gained a second rule**, because the first is keyed on the token's `<35>.<86>` shape and could not see a key at all - it anchors on the PKCS#8 P-256 header (36 chars, identical in every key ever minted, so a partial paste is caught too) and deliberately does **not** match the public half, which lives on a public broker by design and would be a permanent false positive beside the real findings. `tests/acceptance-signature.test.mjs`, `tests/public-text-token-shape.test.mjs`, ARCHITECTURE §4.3.2.
 
 ### The team hint is appended AFTER signing, so the verifier has to cut it off - and for months it did not.
 
@@ -2378,3 +2378,45 @@ Admin Panel's student permission never reached provisioning.
 The general form is the one this file keeps finding: when the same fact lives
 in two places, the test has to derive one from the other, and a fixture has to
 come from the writer, not from the author's idea of it.
+
+### The gate was on the far side of the person it was meant to stop.
+
+2026-09-22. An outside review reported that `acceptance-handler.yml` mints an App
+token for `client_payload.org` before validating it, and proposed checking the
+org against `participating-orgs.yml`. Both halves were wrong. The mint is
+already the gate against an unknown org: `create-github-app-token` fails unless
+the App is installed there, so every org an attacker would name is in that file
+and the check would block nothing. Its second finding, that the device-flow
+proxy fails over to a third party, was the design, measured and written down in
+`deployment.yml` a month earlier, and its suggested fix was the state the
+project had deliberately moved away from.
+
+The real defect was underneath, and neither finding named it. **The acceptance
+signature is verified on the broker.** Holding the broker App key - one key,
+copied to every broker repo in every course org - means not going through the
+broker at all, so the signature gates nothing for the only principal who can
+dispatch. And `client_payload.org` is bound to nothing: `resolveBrokerIssue`
+confines which *issue* the hub touches, `accept.mjs` never sees `broker_repo`.
+So a lecturer with admin on one org could submit an acceptance into any other.
+
+Three documents said this was impossible. `LESSONS.md` said *"both the broker
+and the hub compare the signed `github_id` to the issue's author"* four lines
+above the paragraph correctly saying the hub does not and cannot - the exact
+failure `lib/acceptance-signature.mjs` already warns about in a comment, which
+is that a claimed second check invites the first to be relaxed.
+
+**The trap in the obvious fix is worth more than the fix.** Having the hub
+verify the title looks like a few lines, and the first shape of it is wrong: the
+signature carries `github_id` and **not** the login, while `accept.mjs` gates the
+roster on `github_login`. Comparing the signature to the payload's id is
+therefore defeated by a title lifted from the public `IssuesEvent` firehose,
+carrying another student's id beside the attacker's own login, which
+`roster_mode: open` then admits. Both identities have to come from the issue
+author read from the API. A fix that stops at the id would have looked complete,
+tested green, and closed nothing.
+
+Accepted rather than fixed (OPEN-ITEMS §10): the principal is a lecturer, who
+already has worse options inside their own org, and the gain is one repository
+from a peer course's template. What did not wait was the documentation. A
+guarantee nobody has is worse than a gap everybody knows about, because the next
+person builds on it.

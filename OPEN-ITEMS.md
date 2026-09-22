@@ -10,9 +10,11 @@ This is a standing register, not a plan: nothing here is scheduled, and an entry
 
 ## 1. The SPA shares a Pages origin with another site
 
-**Status: open.** Verified 2026-08-31.
+**Status: open.** Verified 2026-08-31, amended 2026-09-22.
 
-The SPA holds a lecturer's GitHub access token in `sessionStorage`. Browser storage is scoped to an **origin**, and `pxl-digital-application-samples.github.io` is one origin shared by every Pages site the organization publishes. An XSS in any of them runs same-origin with the SPA and can read that token, which reads the private control repo: roster names, student numbers, institutional email addresses.
+The SPA holds a lecturer's GitHub access token in `localStorage`, through [`frontend/src/lib/auth-storage.js`](frontend/src/lib/auth-storage.js) and nothing else. Browser storage is scoped to an **origin**, and `pxl-digital-application-samples.github.io` is one origin shared by every Pages site the organization publishes. An XSS in any of them runs same-origin with the SPA and can read that token, which reads the private control repo: roster names, student numbers, institutional email addresses.
+
+**This entry said `sessionStorage` until 2026-09-22, and the move widened it.** Per-tab storage meant the token was reachable only while that tab lived; on the computer it now survives tab closes and restarts until GitHub's 8-hour expiry or a sign-out, and every tab shares it. The trade was made deliberately and its costs are written down in [LESSONS.md](LESSONS.md) (*"What the chosen one costs"*) - including the measurement that the only sibling Pages site, `security-flag-validator`, answers 301 to its own domain, and that every member of the hub organization is an owner who could change the SPA itself anyway. What changed here is the exposure window, not the verdict.
 
 The organization currently publishes two Pages sites:
 
@@ -287,6 +289,40 @@ sed -n '/^const REPORT_FIXTURE_EXEMPT/,/^]);/p' tests/fixtures/e2e-fixtures.mjs 
 ```bash
 node -e "import('./lib/assignment-collision.mjs').then(m => console.log(typeof m.retiredPatternClash === 'function' ? 'checked' : 'not checked - still open'))"
 ```
+
+---
+
+## 10. A dispatched acceptance is not bound to the broker that sent it
+
+**Status: open, accepted.** Found and verified 2026-09-22. To be revisited next summer.
+
+`acceptance-handler.yml` mints an App token for `client_payload.org` and acts in that organization. Nothing binds that field to the broker the dispatch came from. `resolveBrokerIssue` ([`lib/broker-issue-target.mjs`](lib/broker-issue-target.mjs)) confines only *which issue* the hub reads and writes - the owner of `broker_repo` must equal `org` - and [`acceptance/accept.mjs`](acceptance/accept.mjs) never sees `broker_repo` at all.
+
+Dispatching needs `contents: write` on the hub, which means the broker App's private key. That is **one key, copied to every broker repo** (`publish-assignment.yml`, step *Create and configure broker repo*), and brokers live in the course orgs. So anyone with admin on **one** participating organization can push a workflow to a broker there, read the key out, and submit an acceptance into **any other** participating organization. The signature check does not stop them: it runs on the *broker*, and holding the key means dispatching directly instead.
+
+**Why this is accepted rather than fixed.** The principal is a lecturer or an organization admin, who already has far more destructive options inside their own org. What this buys is one student repository generated from a peer course's template, plus a slot off its `max_acceptances`. No administration, no secrets, no App key, nothing reachable from the internet. ARCHITECTURE §4.3 and §4.3.4 used to deny it outright; they now say this instead, which was the part that could not wait.
+
+**The shape of the fix.** Have the hub verify the student's signed title itself, against the assignment's `invite_pubkey` in its own control repo, rather than trusting the broker to have done it. A forged dispatch for another org would then need a live invitation link for that org.
+
+**The trap, which is the part worth keeping.** The signature carries `github_id` and **not the login**, while `accept.mjs` gates the roster on `github_login`. So checking the signature against the *payload's* id is not enough: a title lifted from the public `IssuesEvent` firehose, carrying another student's id beside the attacker's own login, passes that check, and `roster_mode: open` then admits the login. Both identities have to come from one authoritative source - the issue author, read from the API - never from the payload.
+
+**Three constraints already measured, so nobody re-derives them:**
+
+- `tests/broker-injection.test.mjs` pins **exactly two** steps reading `github.event.issue.title`. A third read fails it, so the title must be emitted as an output of the verifier that already holds it, canonicalised from its base64url segments (a raw title in `GITHUB_OUTPUT` is the newline-forgery hazard §4.3.1 records).
+- The dispatch already sends **9 of GitHub's 10** permitted `client_payload` top-level properties. Adding `title` means dropping `kind` and deriving the purpose from the signature, which `verifyAcceptanceTitle` already returns.
+- `INVITE_NONCE` is consulted on the **legacy token path only**. On the signed path retirement is keypair regeneration (`scripts/set-assignment-invite.mjs`), so verifying against `invite_pubkey` already honours it and a nonce comparison would check nothing.
+
+**It needs no new App permission.** The acceptance job's existing token already covers the extra issue read, and `tests/app-token-scopes.test.mjs` tracks only token-minting steps. No approval round, no owner emails.
+
+**What it does cost, and why it is summer work.** Hub code runs from `main` for every organization at once, so it has to land observe-only first. Then every published assignment needs one republish, by someone with access in that org, before the check can be enforced - republishing re-pushes the broker template, sends `regenerate_invite: false` and so retires no links, but it is a per-org action nobody can do centrally.
+
+**How to tell it is closed:**
+
+```bash
+grep -c "verify-dispatch-signature" .github/workflows/acceptance-handler.yml
+```
+
+`0` while it is open.
 
 ---
 
