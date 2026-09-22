@@ -421,7 +421,7 @@ import {
   REJECTION_MESSAGE,
   formatRejectionReference,
 } from '../lib/acceptance-outcome.js'
-import { sameLogin } from '../../../lib/github-login.mjs'
+import { teamsFromBrokerIssues, ownAcceptanceIssue } from '../lib/broker-teams.js'
 import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
@@ -690,23 +690,14 @@ async function loadTeams() {
     console.warn('Could not load static teams file:', e.message)
   }
 
-  // 2. Try fetching from control repo public data via GitHub API (if token present)
-  if (token) {
-    try {
-      const ctlRes = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/public/teams/${props.assignment.id}.json`)
-      if (ctlRes.ok && ctlRes.data?.content) {
-        const raw = atob(ctlRes.data.content.replace(/\n/g, ''))
-        const parsed = JSON.parse(raw)
-        for (const t of (parsed.teams || [])) {
-          upsertTeam(t.team_slug, t.team_name, t.members || [], t.seeded_from)
-        }
-      }
-    } catch {
-      // ignore if student does not have read access to control repo
-    }
-  }
+  // There used to be a second source here: `public/teams/<id>.json` in the
+  // control repo. It was removed on 2026-09-22 because it could not answer.
+  // pages/generate.mjs DELETES that directory on every run - "Removed legacy
+  // public/teams - teams now live behind the invitation digest" - so the read
+  // 404'd on every page load for every student, and the catch swallowed it. A
+  // source that can never return anything is not a fallback; it is a request.
 
-  // 3. Reconcile with live issues on public broker repository (Real-time live fallback)
+  // 2. Reconcile with live issues on public broker repository (Real-time live fallback)
   try {
     // ONE PAGE IS NOT THE LIST. This read `per_page=100` and stopped, so on a
     // cohort past a hundred acceptances - and one acceptance is one issue, so
@@ -744,35 +735,23 @@ async function loadTeams() {
     // student who closed the tab and came back can read neither the rejection
     // reason nor the invitation notice. Newest first, so the first match is the
     // current attempt.
-    const mine = issues.find(
-      (i) => typeof i.title === 'string' &&
-        i.title.startsWith('pxl-accept:') &&
-        sameLogin(i.user?.login, props.user?.login),
-    )
+    // Matched on the AUTHOR, not the title - frontend/src/lib/broker-teams.js
+    // carries why, and is where a test can reach it.
+    const mine = ownAcceptanceIssue(issues, props.user?.login)
     if (mine) {
       acceptanceIssue.value = mine.number
       acceptanceIssueCreatedAt.value = mine.created_at || null
     }
 
     {
-      for (const issue of issues) {
-        if (!issue.title || !issue.title.startsWith('team:')) continue
-        try {
-          const bodyData = typeof issue.body === 'string' ? JSON.parse(issue.body) : (issue.body || {})
-          const slug = bodyData.team_slug || issue.title.replace(/^team:/, '').trim()
-          const name = bodyData.team_name || slug
-          const member = bodyData.github_login || issue.user?.login
-          
-          if (slug) {
-            upsertTeam(slug, name, member ? [member] : [])
-          }
-        } catch {
-          const slug = issue.title.replace(/^team:/, '').trim()
-          const member = issue.user?.login
-          if (slug) {
-            upsertTeam(slug, slug, member ? [member] : [])
-          }
-        }
+      // Read from the issue BODY, which the broker never redacts, not the
+      // title, which it rewrites seconds after dispatching. That title match is
+      // why this fallback reconciled zero teams for months and why four people
+      // each created their own team inside 90 seconds on 2026-09-22 -
+      // frontend/src/lib/broker-teams.js carries the whole story, and holds the
+      // logic somewhere a test can call it.
+      for (const row of teamsFromBrokerIssues(issues)) {
+        upsertTeam(row.team_slug, row.team_name, row.members)
       }
     }
   } catch (e) {
