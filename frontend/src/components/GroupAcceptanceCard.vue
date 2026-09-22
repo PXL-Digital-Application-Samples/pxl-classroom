@@ -421,7 +421,11 @@ import {
   REJECTION_MESSAGE,
   formatRejectionReference,
 } from '../lib/acceptance-outcome.js'
-import { teamsFromBrokerIssues, ownAcceptanceIssue } from '../lib/broker-teams.js'
+import {
+  teamsFromBrokerIssues,
+  ownAcceptanceIssue,
+  RECENT_ATTEMPT_MS as SHARED_RECENT_ATTEMPT_MS,
+} from '../lib/broker-teams.js'
 import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
@@ -588,7 +592,9 @@ const acceptanceIssue = ref(null)
 // the individual page: an old one would greet a student who has since been
 // sorted out with a refusal they no longer have.
 const acceptanceIssueCreatedAt = ref(null)
-const RECENT_ATTEMPT_MS = 15 * 60 * 1000
+// One spelling, shared with AssignmentView's in-flight check, which had the
+// same 15 minutes written out as a bare expression.
+const RECENT_ATTEMPT_MS = SHARED_RECENT_ATTEMPT_MS
 
 function showRejected() {
   rejectedAt.value = new Date()

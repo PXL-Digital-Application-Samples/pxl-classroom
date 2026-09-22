@@ -21,6 +21,8 @@ import { dirname, join } from "node:path";
 import {
   teamsFromBrokerIssues,
   ownAcceptanceIssue,
+  recentAttempt,
+  RECENT_ATTEMPT_MS,
 } from "../frontend/src/lib/broker-teams.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -149,4 +151,51 @@ test("the newest attempt wins, because the list is newest first", () => {
     { number: 2, title: "Acceptance (processed)", user: { login: "sam" } },
   ];
   assert.equal(ownAcceptanceIssue(issues, "sam").number, 9);
+});
+
+// --- the attempt still in flight ------------------------------------------
+//
+// Same defect as above, on the individual assignment page: it required the
+// title to start with `pxl-accept:`, which the broker has already rewritten by
+// the time the returning student this branch exists for comes back.
+
+test("a returning student's attempt is found although the title was redacted", () => {
+  const now = Date.parse("2026-09-22T15:30:00Z");
+  const issues = [
+    { number: 3, title: "Acceptance (processed)", created_at: "2026-09-22T15:25:00Z" },
+  ];
+  assert.equal(recentAttempt(issues, { now })?.number, 3);
+});
+
+test("an old attempt is not in flight, whatever it is titled", () => {
+  // The cutoff is the half that was always right: we only reach this with no
+  // repository and no invitation, so an old issue is an acceptance that never
+  // completed. The student is offered Accept again rather than dropped into a
+  // three-minute poll for an answer that is not coming.
+  const now = Date.parse("2026-09-22T15:30:00Z");
+  const old = [{ number: 1, title: "Acceptance (processed)", created_at: "2026-09-22T15:00:00Z" }];
+  assert.equal(recentAttempt(old, { now }), null);
+
+  // Still open, still unredacted, still too old.
+  const olderUnredacted = [{ number: 1, title: "pxl-accept:a1.AQID.BAUG", created_at: "2026-09-01T09:00:00Z" }];
+  assert.equal(recentAttempt(olderUnredacted, { now }), null);
+});
+
+test("the boundary is exclusive, and an unreadable date is not in flight", () => {
+  const now = Date.parse("2026-09-22T15:30:00Z");
+  const exactly = new Date(now - RECENT_ATTEMPT_MS).toISOString();
+  assert.equal(recentAttempt([{ number: 1, created_at: exactly }], { now }), null);
+  assert.equal(recentAttempt([{ number: 1, created_at: "not a date" }], { now }), null);
+  assert.equal(recentAttempt([{ number: 1 }], { now }), null);
+  assert.equal(recentAttempt(undefined, { now }), null);
+  assert.equal(recentAttempt([null], { now }), null);
+});
+
+test("the newest attempt is the one in flight", () => {
+  const now = Date.parse("2026-09-22T15:30:00Z");
+  const issues = [
+    { number: 9, title: "Acceptance attempt (rejected)", created_at: "2026-09-22T15:29:00Z" },
+    { number: 8, title: "Acceptance (processed)", created_at: "2026-09-22T15:20:00Z" },
+  ];
+  assert.equal(recentAttempt(issues, { now })?.number, 9);
 });

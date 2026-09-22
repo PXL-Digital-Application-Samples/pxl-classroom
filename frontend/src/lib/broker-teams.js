@@ -88,3 +88,40 @@ export function ownAcceptanceIssue(issues, login) {
   if (!login) return null
   return (issues || []).find((i) => sameLogin(i?.user?.login, login)) || null
 }
+
+/**
+ * How recent an attempt has to be to still be the one in flight.
+ *
+ * One spelling. It was written out twice - `RECENT_ATTEMPT_MS` in
+ * GroupAcceptanceCard.vue and a bare `15 * 60 * 1000` in AssignmentView.vue -
+ * for the same decision about the same issue list.
+ */
+export const RECENT_ATTEMPT_MS = 15 * 60 * 1000
+
+/**
+ * The student's acceptance attempt, if one is still in flight.
+ *
+ * Only a RECENT one counts. We reach this only when there is no repository and
+ * no invitation, so an older issue is an acceptance that never completed and
+ * the student should be offered Accept again rather than dropped into a
+ * three-minute poll for an answer that is not coming.
+ *
+ * DELIBERATELY NOT FILTERED BY TITLE. The caller asks GitHub for
+ * `?creator=<login>`, so the list is already the student's own, and the only
+ * thing a title test could add is the redaction bug: the broker rewrites
+ * `pxl-accept:...` within seconds, so requiring that prefix found the issue
+ * only inside that window - and never for the returning student this exists
+ * for, who is by definition looking later.
+ *
+ * @param {Array<{created_at?: string}>} issues
+ * @param {{now?: number, maxAgeMs?: number}} [opts]
+ */
+export function recentAttempt(issues, { now = Date.now(), maxAgeMs = RECENT_ATTEMPT_MS } = {}) {
+  const cutoff = now - maxAgeMs
+  return (
+    (issues || []).find((issue) => {
+      const at = Date.parse(issue?.created_at ?? '')
+      return Number.isFinite(at) && at > cutoff
+    }) || null
+  )
+}

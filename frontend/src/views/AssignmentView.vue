@@ -563,6 +563,7 @@ import {
 } from '../lib/acceptance-outcome.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
+import { recentAttempt } from '../lib/broker-teams.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
@@ -1026,13 +1027,13 @@ async function checkExistingState() {
     `/repos/${org}/${brokerRepo}/issues?creator=${encodeURIComponent(user.value.login)}&state=all&per_page=5`,
   )
   if (mine.ok && Array.isArray(mine.data)) {
-    const cutoff = Date.now() - 15 * 60 * 1000
-    const inFlight = mine.data.find(
-      (issue) =>
-        typeof issue.title === 'string' &&
-        issue.title.startsWith('pxl-accept:') &&
-        new Date(issue.created_at).getTime() > cutoff,
-    )
+    // NOT FILTERED BY TITLE, and that is the fix rather than an omission. This
+    // required `pxl-accept:`, which the broker rewrites to "Acceptance
+    // (processed)" within seconds of dispatching - so it matched only inside
+    // that window, and never for the returning student the whole branch exists
+    // for. The `creator=` query above already scopes the list to this student.
+    // frontend/src/lib/broker-teams.js carries the rest.
+    const inFlight = recentAttempt(mine.data)
     if (inFlight) {
       // Remember WHICH issue. Without this the hub's answer is unreadable to
       // exactly the student who most needs it: `acceptanceIssue` is otherwise
