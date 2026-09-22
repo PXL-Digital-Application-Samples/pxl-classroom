@@ -52,9 +52,19 @@ on:
   # jump without anybody touching the release.
   #
   # `release: [published]` rather than a tag push: the path filter above applies
-  # to push events, so `tags:` in the same block would be filtered by it, and
-  # this fires however the release was cut - the workflow, or a human doing it
-  # by hand.
+  # to push events, so `tags:` in the same block would be filtered by it.
+  #
+  # IT DOES NOT FIRE FOR A RELEASE CUT BY `release.yml`, AND CANNOT.
+  # semantic-release authenticates with `secrets.GITHUB_TOKEN`, and GitHub
+  # deliberately starts no workflow run from an event that token raises.
+  # Measured 2026-09-22: v1.3.1 was published at 16:56:31Z, no deploy run was
+  # created, and the live site kept advertising v1.3.0 - the very symptom the
+  # trigger was added for. `release.yml` now dispatches this workflow itself,
+  # which is an ordinary `workflow_dispatch` and does start a run.
+  #
+  # This trigger stays for the case it CAN serve: a release cut by hand, or by
+  # anything authenticating as a person rather than as the workflow token.
+  # Both paths are idempotent - a redundant build republishes the same bytes.
   release:
     types: [published]
 
