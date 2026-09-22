@@ -10,6 +10,8 @@ import { generateKeyPairSync } from 'node:crypto'
 import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
 import { linkSecretFrom } from '../../lib/invite-token-format.mjs'
 import { ROSTER_SCHEMA_VERSION } from '../../lib/roster-entries.mjs'
+import { handledTitleFor } from '../../lib/broker-issue-titles.mjs'
+import { REJECTED_LABEL } from '../../lib/acceptance-labels.mjs'
 import { verifyAcceptanceTitle } from '../../lib/acceptance-signature.mjs'
 
 /**
@@ -619,11 +621,34 @@ export async function setupStandardMockRoutes(page, {
   // "selected" reproduces an install scoped to a repository list, which cannot
   // see student repos created after the fact.
   installationRepositorySelection = undefined,
+  // THE MOCKED BROKER REWRITES TITLES, BECAUSE THE REAL ONE DOES.
+  //
+  // A broker redacts `pxl-accept:<signature>` to "Acceptance (processed)"
+  // within seconds of dispatching, so no reader ever sees the raw title - the
+  // hub's own run takes longer than that. Specs were handing the SPA the raw
+  // shape, and a page that can only work against a title production never
+  // produces is a page that passes here and fails in front of students: the
+  // team list read titles and reconciled nothing for months while this suite
+  // stayed green (2026-09-22).
+  //
+  // Set false only to test the seconds BEFORE redaction, and say why.
+  redactBrokerIssueTitles = true,
 } = {}) {
   // BEFORE anything is routed: a report fixture the backend would refuse
   // cannot prove anything about a save, and the spec that staged it is the
   // only place that failure means something.
   assertReportFixtures(reports);
+
+  // Derived from lib/, never spelled here - tests/broker-issue-titles.test.mjs
+  // holds that list to what acceptance/broker-workflow.yml actually writes.
+  const servedBrokerIssues = redactBrokerIssueTitles
+    ? brokerIssues.map((issue) => ({
+        ...issue,
+        title: handledTitleFor(issue?.title, {
+          rejected: (brokerIssueLabels || []).includes(REJECTED_LABEL),
+        }),
+      }))
+    : brokerIssues;
 
   // Schema route mock
   await page.route('**/schemas/*.schema.json*', async (route) => {
@@ -970,7 +995,7 @@ export async function setupStandardMockRoutes(page, {
       }
       await route.fulfill({
         status: 200,
-        body: JSON.stringify(brokerIssues),
+        body: JSON.stringify(servedBrokerIssues),
       });
     } else if (url.includes('/issues') && method === 'POST') {
       // THE MOCKED BROKER VERIFIES, because a broker that accepts anything

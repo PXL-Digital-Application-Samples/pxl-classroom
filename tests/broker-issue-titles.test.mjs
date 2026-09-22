@@ -13,7 +13,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { isAcceptanceIssueTitle, HANDLED_ISSUE_TITLES } from "../lib/broker-issue-titles.mjs";
+import {
+  isAcceptanceIssueTitle,
+  HANDLED_ISSUE_TITLES,
+  HANDLED_TITLE_BY_PURPOSE,
+  REJECTED_ISSUE_TITLE,
+  handledTitleFor,
+} from "../lib/broker-issue-titles.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = readFileSync(join(ROOT, "acceptance/broker-workflow.yml"), "utf8");
@@ -74,4 +80,26 @@ test("an issue somebody else opened is not ours", () => {
 
 test("surrounding whitespace does not make one of ours a stranger", () => {
   assert.ok(isAcceptanceIssueTitle("  Acceptance (processed)  "));
+});
+
+test("what a handled issue becomes is one of the titles the broker writes", () => {
+  // The purpose -> title map is a third spelling of the same strings, so it is
+  // checked against the derived set rather than trusted. The e2e fixture uses
+  // it to rewrite titles the way the real broker does.
+  const written = titlesTheBrokerWrites();
+  for (const [purpose, title] of Object.entries(HANDLED_TITLE_BY_PURPOSE)) {
+    assert.ok(written.has(title), `${purpose} -> ${JSON.stringify(title)} is not a title the broker writes`);
+  }
+  assert.ok(written.has(REJECTED_ISSUE_TITLE));
+
+  assert.equal(handledTitleFor("pxl-accept:a1.AQID.BAUG"), "Acceptance (processed)");
+  assert.equal(handledTitleFor("pxl-accept:a1.AQID.BAUG team:rojaro"), "Acceptance (processed)");
+  assert.equal(handledTitleFor("pxl-confirm:a1.AQID.BAUG"), "Email confirmation (processed)");
+  assert.equal(handledTitleFor("pxl-accept:a1.AQID.BAUG", { rejected: true }), REJECTED_ISSUE_TITLE);
+
+  // Anything already handled, or never ours, is left exactly as it is - so a
+  // spec that seeds a redacted title gets that title back.
+  assert.equal(handledTitleFor("Acceptance (processed)"), "Acceptance (processed)");
+  assert.equal(handledTitleFor("Please help"), "Please help");
+  assert.equal(handledTitleFor(undefined), "");
 });

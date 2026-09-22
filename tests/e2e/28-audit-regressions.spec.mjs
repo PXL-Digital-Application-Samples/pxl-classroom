@@ -36,13 +36,14 @@ const brokerRepo = {
   html_url: `https://github.com/${ORG}/broker-${ID}`,
 };
 
-async function openTroubleshoot(page, brokerIssues) {
+async function openTroubleshoot(page, brokerIssues, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
     assignments: { [ID]: publishedAssignment() },
     userRepos: [brokerRepo],
     brokerIssues,
+    ...opts,
   });
   await page.goto(`/dashboard/${ORG}/admin`);
   await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
@@ -65,10 +66,19 @@ test.describe('28 - Audit regressions in the browser', () => {
     // Closing and locking an issue on a public repo hides nothing. The broker
     // redacts the title and the hub deletes the issue - but deletion needs
     // admin, so this is the check that catches an App that does not have it.
-    const overlay = await openTroubleshoot(page, [
-      { number: 7, title: `pxl-accept:${inviteToken(ORG, ID)}`, state: 'closed' },
-      { number: 8, title: 'Acceptance (processed)', state: 'closed' },
-    ]);
+    // THE ONE SPEC THAT NEEDS A RAW TITLE, and it needs it because an
+    // unredacted title IS the finding. The mocked broker otherwise rewrites
+    // titles the way the real one does, so that no other spec can pass over a
+    // shape no reader encounters - see `redactBrokerIssueTitles`. Here the
+    // redaction is precisely what did not happen.
+    const overlay = await openTroubleshoot(
+      page,
+      [
+        { number: 7, title: `pxl-accept:${inviteToken(ORG, ID)}`, state: 'closed' },
+        { number: 8, title: 'Acceptance (processed)', state: 'closed' },
+      ],
+      { redactBrokerIssueTitles: false },
+    );
 
     await expect(overlay).toContainText(/Invitation Exposure/i, { timeout: 20000 });
     await expect(overlay, 'it must name the issue to delete').toContainText(/#7/);
