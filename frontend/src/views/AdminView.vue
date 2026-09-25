@@ -254,7 +254,7 @@
                 <span class="badge badge-success" style="margin-left: auto; font-size: 0.75rem;">Ready to Share</span>
               </div>
               <p class="published-desc">
-                Verified on GitHub and Pages. You can safely share the student invitation link below on Canvas, Toledo, or email. Students who open it will be prompted to accept the assignment and will automatically receive their provisioned repository.
+                Verified on GitHub and Pages. You can safely share the student invitation link below on Blackboard, Canvas, Toledo, or email. Students who open it will be prompted to accept the assignment and will automatically receive their provisioned repository.
               </p>
               <!-- :resolve="false" - the form is the authority here. Rotating
                    clears form.invite_token on purpose, and re-reading the YAML
