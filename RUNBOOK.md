@@ -1090,7 +1090,7 @@ Press **Sync again** on that line, or run it again from **··· More**. Each st
 
 #### Changed the assignment's template after students accepted
 
-Changing **Template repository** in the Admin Panel, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then on the assignment page choose **··· More → Sync Starter Code**. Those students are brought up to the new template from their own first commit: every file of the new template arrives, a file of the old starter they never touched is replaced or removed, and a file they changed arrives as a pull request. The dialog says how many repositories were created from a different template.
+Changing **Template repository** in the Admin Panel, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then sync. After the save the Admin Panel says how many students already have a repository from the previous template, with a **Sync Starter Code** button that opens the sync on the assignment page (it is also under **··· More** there). Those students are brought up to the new template from their own first commit: every file of the new template arrives, a file of the old starter they never touched is replaced or removed, and a file they changed arrives as a pull request. The dialog says how many repositories were created from a different template.
 
 #### Syncing up to a commit that is not the newest
 

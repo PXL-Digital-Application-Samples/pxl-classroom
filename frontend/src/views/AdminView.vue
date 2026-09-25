@@ -244,6 +244,36 @@
             </div>
           </div>
 
+          <!-- The template changed under students who already accepted: their
+               repositories keep the old files until a starter sync, and
+               publishing again does not do it. lib/template-change.js. -->
+          <div
+            v-if="!isNew && templateNotice && templateNotice.id === form.id"
+            class="published-info-card is-warning"
+            role="status"
+          >
+            <div class="published-header">
+              <Icon name="refresh-cw" :size="16" class="text-yellow" />
+              <h4>Existing repositories still have the old template</h4>
+            </div>
+            <p class="published-desc">
+              <template v-if="templateNotice.count !== null">
+                {{ templateNotice.count }} student{{ templateNotice.count === 1 ? ' has' : 's have' }} a repository
+              </template>
+              <template v-else>Students who already accepted have repositories</template>
+              made from the previous template. The new one, <code>{{ templateNotice.template }}</code>, is used for
+              students who accept from now on; publishing again does not change existing repositories.
+              Sync Starter Code brings them up to the new template, and shows every change before it is sent.
+            </p>
+            <div class="cohort-actions">
+              <router-link
+                class="btn btn-secondary btn-sm"
+                :to="{ name: 'assignment-detail', params: { org, assignmentId: templateNotice.id }, query: { sync: '1' } }"
+              >Sync Starter Code</router-link>
+              <button type="button" class="btn-link" @click="templateNotice = null">Dismiss</button>
+            </div>
+          </div>
+
           <!-- PUBLISHED ASSIGNMENT INFO BANNER -->
           <div v-if="!isNew && form.state === 'published'" class="fade-in">
             <!-- 1. LIVE & VERIFIED -->
@@ -1670,8 +1700,10 @@ import { publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.j
 import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { readMaxHandIns } from '../../../lib/submission-marker.mjs'
+import { templateChanged, templateChangeNotice } from '../lib/template-change.js'
 import {
   assignmentPath,
+  repositoriesDir,
   reportPath,
   reportCsvPath,
   gradingSummaryPath,
@@ -3256,6 +3288,7 @@ function newAssignment() {
   if (controlRepoUnreadable.value) return
   if (!confirmDiscard()) return
   stopPublishWatch()
+  templateNotice.value = null
   editing.value = { __new: true, id: '' }
   // Nothing stored yet, so nothing to compare a pin against - and a stale one
   // from the previously open assignment would accuse the wrong template.
@@ -3298,6 +3331,7 @@ function newAssignment() {
 function editAssignment(a) {
   if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
   stopPublishWatch()
+  if (templateNotice.value?.id !== a.id) templateNotice.value = null
   editing.value = { id: a.id }
   // A stored policy was given about the pattern stored beside it, so opening
   // this assignment asks nothing - and changing its pattern asks again, which
@@ -4216,9 +4250,13 @@ async function saveAssignment(stateOverride = null) {
     const path = assignmentPath(form.value.id)
     const doc = buildDoc(stateOverride)
     const yaml = stringifyYaml(doc)
+    const templateBefore = isNew.value ? null : storedTemplate.value
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, isNew.value ? `Create assignment ${form.value.id}` : `Update assignment ${form.value.id}`)
     if (res.ok) {
       toast.success(`Saved ${form.value.id}`)
+      // What the document now says, so the next save compares against it.
+      storedTemplate.value = doc.template || null
+      await noticeTemplateChange(form.value.id, templateBefore, doc.template)
       form.value.state = stateOverride || form.value.state
       snapshotForm()
       // A retitled or rescheduled assignment goes stale on the overview the
@@ -4243,6 +4281,27 @@ async function saveAssignment(stateOverride = null) {
 
 
 
+
+// A template changed on an assignment students have already accepted reaches
+// none of them: their repositories keep what they were created with until a
+// starter sync brings them across, and nothing on this screen said so - a
+// lecturer published again, twice, and went looking. One directory read, only
+// when the template actually changed. lib/template-change.js decides.
+const templateNotice = ref(null)
+
+async function noticeTemplateChange(id, before, after) {
+  if (!templateChanged(before, after)) return
+  let repositoryCount = null
+  try {
+    const files = await listRepoDir(getToken(), props.org, config.controlRepo, repositoriesDir(id))
+    repositoryCount = files.filter((f) => f.type === 'file' && f.name.endsWith('.json')).length
+  } catch (e) {
+    // No directory is nobody has accepted; anything else is unknown.
+    if (e?.status === 404) repositoryCount = 0
+  }
+  const notice = templateChangeNotice({ before, after, repositoryCount })
+  templateNotice.value = notice ? { ...notice, id } : null
+}
 
 async function saveAndPublish() {
   // Save current edits first (with state=published) then trigger publish workflow.

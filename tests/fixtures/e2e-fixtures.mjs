@@ -1302,6 +1302,17 @@ export async function setupStandardMockRoutes(page, {
         }
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
         return;
+      } else if (/\/pxl-classroom-control\/contents\/repositories\/[^/?#]+(\?|$)/.test(url)) {
+        // Directory listing for repositories/<assignment-id>. No record is no
+        // directory, which GitHub answers with a 404, not an empty list.
+        const asgnId = url.match(/\/contents\/repositories\/([^/?#]+)/)[1];
+        const entries = [...dynamicFiles.keys()]
+          .filter((p) => p.startsWith(`repositories/${asgnId}/`) && p.endsWith('.json'))
+          .map((p) => ({ name: p.split('/').pop(), path: p, type: 'file' }));
+        await route.fulfill(entries.length
+          ? { status: 200, body: JSON.stringify(entries) }
+          : { status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
       } else if (/\/pxl-classroom-control\/contents\/repositories\/[^/?#]+\/[^/?#]+\.json/.test(url)) {
         // One repository record, from whatever was seeded or committed.
         const match = url.match(/\/contents\/repositories\/([^/?#]+)\/([^/?#]+)\.json/);

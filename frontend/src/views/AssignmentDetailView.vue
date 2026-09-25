@@ -1197,6 +1197,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '../components/AppHeader.vue'
 import HelpButton from '../components/HelpButton.vue'
 import {
@@ -1272,6 +1273,8 @@ const props = defineProps({
   assignmentId: { type: String, required: true },
 })
 
+const route = useRoute()
+const router = useRouter()
 const user = ref(getUser())
 const loading = ref(true)
 const report = ref(null)
@@ -2853,6 +2856,21 @@ async function loadAll() {
     // dashboard, and the shape is identical here.
     if (!superseded()) loading.value = false
   }
+  if (!superseded()) applySyncIntent()
+}
+
+// `?sync=1` opens Sync Starter Code: the Admin Panel's "the template changed
+// under students who already accepted" notice links here, because this is
+// where the dialog and the cohort it plans for already are. An ACTION, so it
+// is consumed - a refresh must not reopen the dialog. Only once the page has
+// the assignment, and only where the menu would offer it.
+function applySyncIntent() {
+  if (route.query.sync !== '1') return
+  const { sync: _sync, ...rest } = route.query
+  router.replace({ query: rest })
+  if (loadError.value || !assignment.value?.template) return
+  followSyncRun.value = null
+  showStarterSyncModal.value = true
 }
 
 async function fetchRateLimit(token) {
