@@ -103,6 +103,20 @@ test.describe('84 - changing the template under an accepted cohort', () => {
     await expect(page.locator('.modal.card.modal-wide')).toContainText('Sync Starter Code');
   });
 
+  test('BEFORE saving: the field itself warns as soon as the template differs, and goes quiet when put back', async ({ page }) => {
+    const { reads } = await openEditor(page);
+    const warning = page.getByRole('note').filter({ hasText: 'already have a repository from the current template' });
+    await expect(warning).toHaveCount(0);
+    expect(reads, 'no read until the template is actually changed').toHaveLength(0);
+
+    await templateBox(page).fill(`${ORG}/right-template`);
+    await expect(warning).toContainText('2 students already have a repository from the current template');
+    await expect(warning).toContainText('Sync Starter Code sends it to the others');
+
+    await templateBox(page).fill(`${ORG}/wrong-template`);
+    await expect(warning).toHaveCount(0);
+  });
+
   test('one student: singular', async ({ page }) => {
     await openEditor(page, { accepted: [STUDENT_1] });
     await changeTemplateAndSave(page);

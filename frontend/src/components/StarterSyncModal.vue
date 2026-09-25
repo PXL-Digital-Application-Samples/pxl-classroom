@@ -138,10 +138,10 @@
                   </div>
                 </div>
               </template>
-              <p v-if="otherTemplate" class="text-xs text-muted catch-up-note">
-                {{ otherTemplate }} student repositor{{ otherTemplate === 1 ? 'y was' : 'ies were' }} created from a
-                different template. They are brought up to this one from their own first commit: files they never
-                changed are replaced, and files they did change arrive as a pull request.
+              <p v-if="otherTemplate.length" class="text-xs text-muted catch-up-note">
+                The template changed since {{ otherTemplate.join(', ') }} accepted, so the full starter code will be
+                sent: files that are still the starter code are replaced, and files they changed arrive as a pull
+                request.
               </p>
               <p v-if="unknownStart" class="text-xs text-muted catch-up-note">
                 For {{ unknownStart }} student{{ unknownStart === 1 ? '' : 's' }} it is not known which template
@@ -404,9 +404,10 @@ const catchUpFiles = ref([])
 // the newest commit's changes, as every sync did before, and the dialog says so.
 const unknownStart = ref(0)
 // Students whose repository came from a DIFFERENT template - the assignment's
-// template was changed after they accepted. Said, because the sync treats
-// their whole starter as replaceable where they never changed it.
-const otherTemplate = ref(0)
+// template was changed after they accepted. Named, not counted: they are sent
+// the full starter code, and the lecturer who changed the template needs to
+// know whose repositories that is.
+const otherTemplate = ref([])
 
 const templateFullName = computed(() => {
   const owner = props.assignment.template?.owner || props.org
@@ -666,11 +667,11 @@ async function findCatchUpFiles() {
   const wasUnticked = new Set(catchUpFiles.value.filter((f) => !f.selected).map((f) => f.filename))
   const behind = new Map()
   let unknown = 0
-  let other = 0
+  const other = []
   for (const s of (props.students || []).filter((x) => x.repo_name && studentTrees.value.has(x.repo_name))) {
     const { paths, source } = await planFor(s, ['*'])
     if (source === 'unknown') unknown++
-    if (source === 'first-commit') other++
+    if (source === 'first-commit') other.push(s.github_login)
     for (const p of paths) {
       if (listed.has(p)) continue
       behind.set(p, (behind.get(p) || 0) + 1)

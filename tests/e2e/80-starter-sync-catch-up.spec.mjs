@@ -181,7 +181,9 @@ test.describe('80 - Starter sync sends each student what they are missing', () =
     await openStarterSyncModal(page);
     const modal = page.locator('.modal.card.modal-wide');
 
-    await expect(modal.locator('.catch-up-note')).toContainText('1 student repository was created from a different template');
+    // Named, not counted: the lecturer who changed the template needs to know whose.
+    await expect(modal.locator('.catch-up-note')).toContainText(`The template changed since ${STUDENT_1.login} accepted, so the full starter code will be sent`);
+    await expect(modal.locator('.catch-up-note')).not.toContainText(STUDENT_2.login);
     // Every file of this template is missing for them, not just the newest commit's.
     for (const f of ['README.md', 'Lab02/Program.cs', 'Lab03/Program.cs']) {
       await expect(modal.locator('.file-row-box', { hasText: f })).toContainText('missing for 1 student');

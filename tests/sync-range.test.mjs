@@ -379,11 +379,15 @@ const NEW_TREE = new Map([
   [".github/workflows/classroom.yml", "wf"],
   ["PROCEDURE.md", "proc"],
 ]);
-// The newest commit changed only some of them - what the old fallback saw.
-const NEW_PARENT_TREE = new Map([["README.md", "older-readme"], [".gitignore", "gi"], [".gitattributes", "ga"], ["infra/README.md", "infra"]]);
+// The newest commit changed only some of them - what the old fallback saw -
+// including `classroom.yml`, as 69abed3 did on 2026-09-26.
+const NEW_PARENT_TREE = new Map([
+  ["README.md", "older-readme"], [".gitignore", "gi"], [".gitattributes", "ga"], ["infra/README.md", "infra"],
+  [".github/workflows/classroom.yml", "wf-old"],
+]);
 
 /** A planner over a swapped template: the student's first commit is `first`. */
-async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, repo = "Org/labs-swap" } = {}) {
+async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, repo = "Org/labs-swap", records = [] } = {}) {
   const trees = {
     [`Org/tpl@${NEW_HEAD}`]: NEW_TREE,
     [`Org/tpl@${NEW_PARENT}`]: NEW_PARENT_TREE,
@@ -399,7 +403,7 @@ async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, r
     templateFullName: "Org/tpl", headSha: NEW_HEAD, headTree: NEW_TREE,
     // The new template's history holds no commit with the student's first tree.
     templateCommits: [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }, { sha: NEW_PARENT, treeSha: "t8", date: "2026-09-25T19:00:00Z" }],
-    records: [], fallbackSha: NEW_PARENT, selected: ["*"],
+    records, fallbackSha: NEW_PARENT, selected: ["*"],
   });
 }
 
@@ -434,10 +438,105 @@ test("SWAPPED TEMPLATE: an old-starter file removed if untouched, offered if edi
   assert.ok(edited.plan.conflicts.some((c) => c.path === "old-lab.md" && c.action === "delete"));
 });
 
-test("SWAPPED TEMPLATE: a file they created themselves at a template path is kept", async () => {
+test("SWAPPED TEMPLATE: a file at a template path with their own content is a pull request, never kept, never overwritten", async () => {
+  // It used to be "kept" - theirs, left alone for ever. After a switch every
+  // new-template file is "added" relative to their first commit, so that rule
+  // could not tell their work from a file an earlier sync delivered.
   const res = await swapped(new Map([...OLD_FIRST, ["infra/README.md", "their-own"]]));
-  assert.deepEqual(res.plan.kept, ["infra/README.md"]);
+  assert.deepEqual(res.plan.kept, []);
+  assert.ok(res.plan.conflicts.some((c) => c.path === "infra/README.md" && c.action === "write"));
   assert.equal(res.plan.clean.some((c) => c.path === "infra/README.md"), false);
+});
+
+// --- 2026-09-26, run 36202430900: the first-commit sync that "kept" -----------
+//
+// The student had received `.gitignore` and an OLDER `classroom.yml` from the
+// pre-fix sync. The first-commit sync called both "already theirs, left
+// alone", recorded the student as holding 69abed3 - which changed
+// classroom.yml - and every later sync would have started after it.
+
+test("THE REPORT, first half: the first sync after a switch sends the full tree - a file an earlier sync delivered is updated, not kept", async () => {
+  const student = new Map([
+    ...OLD_FIRST,
+    [".gitignore", "gi"],                             // delivered earlier, current
+    [".github/workflows/classroom.yml", "wf-old"],     // delivered earlier, an OLDER template version
+    ["infra/README.md", "their-own"],                  // their own content
+  ]);
+  const res = await swapped(student);
+  assert.equal(res.source, "first-commit");
+  assert.deepEqual(res.plan.kept, [], "nothing is left alone as theirs after a switch");
+  assert.ok(res.plan.upToDate.includes(".gitignore"));
+  // Byte-identical to a version the template once had: untouched starter code, replaced.
+  assert.ok(res.plan.clean.some((c) => c.path === ".github/workflows/classroom.yml" && c.action === "write"));
+  assert.ok(res.plan.conflicts.some((c) => c.path === "infra/README.md"));
+  // And everything else of the new template arrives.
+  for (const f of [".gitattributes", "PROCEDURE.md", "README.md"]) {
+    assert.ok(res.plan.clean.some((c) => c.path === f && c.action === "write"), f);
+  }
+});
+
+test("THE REPORT: the poisoned record - a first-commit sync that KEPT files - is not a starting point", async () => {
+  const poisoned = record({ template_sha: NEW_HEAD }, [{ ...row("swap", "skipped-up-to-date", "first-commit"), files_kept: 2 }]);
+  assert.equal(startingPointFor({ login: "swap", records: [poisoned] }).source, "unknown");
+  // So the next sync compares the whole tree again, and the stale workflow is sent.
+  const res = await swapped(new Map([...OLD_FIRST, [".github/workflows/classroom.yml", "wf-old"]]), { records: [poisoned] });
+  assert.equal(res.source, "first-commit");
+  assert.ok(res.plan.clean.some((c) => c.path === ".github/workflows/classroom.yml"));
+});
+
+test("THE REPORT, second half: after a clean first-commit sync, a later change to a synced file reaches the student", async () => {
+  // The switch sync ran at NEW_PARENT and left nothing behind; the template
+  // then changed classroom.yml in NEW_HEAD.
+  const clean = record({ template_sha: NEW_PARENT }, [{ ...row("swap", "auto-merged", "first-commit"), files_kept: 0 }]);
+  assert.deepEqual(startingPointFor({ login: "swap", records: [clean] }), { sha: NEW_PARENT, source: "synced" });
+  const student = new Map(NEW_PARENT_TREE); // exactly what that sync delivered
+  const res = await swapped(student, { records: [clean] });
+  assert.equal(res.source, "synced");
+  assert.equal(res.from, NEW_PARENT);
+  assert.ok(res.plan.clean.some((c) => c.path === ".github/workflows/classroom.yml" && c.action === "write"));
+  assert.deepEqual(res.plan.kept, []);
+});
+
+test("a first-commit record with no files_kept at all (older writers omit zeros) still counts", () => {
+  const r = record({ template_sha: NEW_HEAD }, [row("swap", "auto-merged", "first-commit")]);
+  assert.equal(startingPointFor({ login: "swap", records: [r] }).source, "synced");
+});
+
+test("the template's history is read ONCE per sync, however many students were switched", async () => {
+  const reads = [];
+  const readTree = async (r, ref) => {
+    reads.push(`${r}@${ref}`);
+    if (r === "Org/tpl" && ref === NEW_HEAD) return NEW_TREE;
+    if (r === "Org/tpl" && ref === NEW_PARENT) return NEW_PARENT_TREE;
+    if (ref === "first-tree") return OLD_FIRST;
+    throw new Error("no tree");
+  };
+  const templateCommits = [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }, { sha: NEW_PARENT, treeSha: "t8", date: "2026-09-25T19:00:00Z" }];
+  for (const login of ["a", "b", "c"]) {
+    await planStudent({
+      login, studentRepo: `Org/labs-${login}`, studentTree: new Map(OLD_FIRST), readTree, root: async () => "first-tree",
+      templateFullName: "Org/tpl", headSha: NEW_HEAD, headTree: NEW_TREE, templateCommits, records: [], fallbackSha: NEW_PARENT, selected: ["*"],
+    });
+  }
+  const historyReads = reads.filter((x) => x.startsWith("Org/tpl@"));
+  assert.equal(historyReads.filter((x) => x === `Org/tpl@${NEW_PARENT}`).length, 1, historyReads.join(" "));
+});
+
+test("a template commit whose tree cannot be read makes a pull request, never an overwrite", async () => {
+  // Without NEW_PARENT's tree, "wf-old" is not known to be starter code.
+  const readTree = async (r, ref) => {
+    if (r === "Org/tpl" && ref === NEW_HEAD) return NEW_TREE;
+    if (ref === "first-tree") return OLD_FIRST;
+    throw new Error("unreadable");
+  };
+  const res = await planStudent({
+    login: "x", studentRepo: "Org/labs-x", studentTree: new Map([...OLD_FIRST, [".github/workflows/classroom.yml", "wf-old"]]),
+    readTree, root: async () => "first-tree", templateFullName: "Org/tpl", headSha: NEW_HEAD, headTree: NEW_TREE,
+    templateCommits: [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }, { sha: NEW_PARENT, treeSha: "t8", date: "2026-09-25T19:00:00Z" }],
+    records: [], fallbackSha: null, selected: ["*"],
+  });
+  assert.equal(res.source, "first-commit");
+  assert.ok(res.plan.conflicts.some((c) => c.path === ".github/workflows/classroom.yml"));
 });
 
 test("SWAPPED TEMPLATE: a first commit that cannot be read falls back to the old behaviour, named", async () => {

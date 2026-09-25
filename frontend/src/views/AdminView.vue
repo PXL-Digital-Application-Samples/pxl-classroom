@@ -613,6 +613,14 @@
                   <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': loadingTemplates }" />
                 </button>
               </div>
+              <!-- Said WHILE the template is being changed, not only after the
+                   save: a changed template reaches only students who accept
+                   from now on, and publishing again does not change that. -->
+              <small v-if="templateSwitchCount" class="form-hint" role="note">
+                {{ templateSwitchCount === 1 ? '1 student already has' : `${templateSwitchCount} students already have` }}
+                a repository from the current template. The new one is used only for students who accept from now on;
+                after saving, Sync Starter Code sends it to the others.
+              </small>
               <!-- Pre-flight Template Validation Badge (2.B) -->
               <div v-if="templateValidationStatus" class="template-preflight-badge" style="margin-top: var(--space-xs);" role="status">
                 <span v-if="templateValidationStatus.checking" class="badge badge-neutral flex items-center gap-xs" style="font-size: 0.8rem; padding: 3px 8px;">
@@ -4374,6 +4382,33 @@ async function saveAssignment(stateOverride = null) {
 // lecturer published again, twice, and went looking. One directory read, only
 // when the template actually changed. lib/template-change.js decides.
 const templateNotice = ref(null)
+
+// The count behind the warning under the Template repository field. Read once
+// per assignment, and only once the field differs from what is saved - an
+// assignment whose template nobody touches costs no request.
+const repositoryCountFor = ref({ id: null, count: null })
+const templateSwitchCount = computed(() => {
+  if (isNew.value || !storedTemplate.value) return 0
+  const [owner, repository] = String(form.value.template || '').split('/')
+  if (!templateChanged(storedTemplate.value, { owner, repository })) return 0
+  return repositoryCountFor.value.id === form.value.id ? (repositoryCountFor.value.count || 0) : 0
+})
+watch(
+  () => !isNew.value && !!storedTemplate.value && String(form.value.template || '').toLowerCase() !==
+    `${storedTemplate.value.owner}/${storedTemplate.value.repository}`.toLowerCase(),
+  async (differs) => {
+    const id = form.value.id
+    if (!differs || repositoryCountFor.value.id === id) return
+    try {
+      const files = await listRepoDir(getToken(), props.org, config.controlRepo, repositoriesDir(id))
+      repositoryCountFor.value = { id, count: files.filter((f) => f.type === 'file' && f.name.endsWith('.json')).length }
+    } catch (e) {
+      // No directory is nobody; anything else stays unsaid - the notice after
+      // the save asks again and says what it could not read.
+      repositoryCountFor.value = { id, count: e?.status === 404 ? 0 : null }
+    }
+  },
+)
 
 // The same shape for `student_permission`: it is read at acceptance, so a
 // change reaches nobody who already has a repository unless it is applied to
