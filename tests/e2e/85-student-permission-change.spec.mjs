@@ -113,6 +113,9 @@ test.describe('85 - changing Student permission after students accepted', () => 
 
     await n.getByRole('button', { name: 'Apply maintain to 2 students' }).click();
     await expect(n).toContainText('2 students now have maintain');
+    // Done is good news, and the card turns green to say it.
+    await expect(n).toHaveClass(/is-success/);
+    await expect(n.locator('.published-header h4')).toHaveText('Student permission applied');
     expect(grants.map((g) => `${g.method} ${g.path}`).sort()).toEqual([
       `PATCH /repos/${ORG}/${ID}-${STUDENT_2.login}/invitations/4242`,
       `PUT /repos/${ORG}/${ID}-${STUDENT_1.login}/collaborators/${STUDENT_1.login}`,
@@ -128,8 +131,8 @@ test.describe('85 - changing Student permission after students accepted', () => 
     });
     await saveAs(page, 'maintain');
     const n = notice(page);
-    await expect(n).toContainText('2 past their deadline are left as they are');
-    await expect(n).toContainText('changing it would unlock it');
+    await expect(n).toContainText('2 students are past their deadline and keep admin');
+    await expect(n).toContainText('changing the permission would unlock it');
     await expect(n.getByRole('button', { name: /Apply/ })).toHaveCount(0);
     expect(grants).toHaveLength(0);
   });

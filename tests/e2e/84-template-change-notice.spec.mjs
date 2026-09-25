@@ -86,6 +86,16 @@ test.describe('84 - changing the template under an accepted cohort', () => {
     await expect(n).toContainText('publishing again does not change existing repositories');
     // Not a second solid button beside Save (DESIGN.md §1.2).
     await expect(n.locator('.btn-primary')).toHaveCount(0);
+    // A warning reads as one: the heading is not the success green.
+    const [heading, yellow] = await n.locator('.published-header h4').evaluate((h) => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--accent-yellow)';
+      document.body.appendChild(probe);
+      const want = getComputedStyle(probe).color;
+      probe.remove();
+      return [getComputedStyle(h).color, want];
+    });
+    expect(heading).toBe(yellow);
 
     await n.getByRole('link', { name: 'Sync Starter Code' }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}$`));

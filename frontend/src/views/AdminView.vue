@@ -279,12 +279,13 @@
                lib/permission-change.mjs decides who and does it. -->
           <div
             v-if="!isNew && permissionNotice && permissionNotice.id === form.id"
-            class="published-info-card is-warning"
+            class="published-info-card"
+            :class="permissionApplied ? 'is-success' : 'is-warning'"
             role="status"
             aria-label="Student permission change"
           >
             <div class="published-header">
-              <Icon name="users" :size="16" class="text-yellow" />
+              <Icon :name="permissionApplied ? 'check-circle' : 'users'" :size="16" :class="permissionApplied ? 'text-green' : 'text-yellow'" />
               <h4 v-if="!permissionNotice.done">Students who already accepted still have {{ permissionNotice.from }}</h4>
               <h4 v-else>Student permission applied</h4>
             </div>
@@ -308,9 +309,9 @@
                 </template>
               </p>
               <p v-if="permissionPastDeadline" class="published-desc">
-                {{ permissionPastDeadline }} past their deadline
-                {{ permissionPastDeadline === 1 ? 'is' : 'are' }}
-                left as they are, because their repository may be locked and changing it would unlock it. Reopening one
+                {{ permissionPastDeadline === 1 ? '1 student is' : `${permissionPastDeadline} students are` }}
+                past their deadline and {{ permissionPastDeadline === 1 ? 'keeps' : 'keep' }} {{ permissionNotice.from }}:
+                their repository may be locked, and changing the permission would unlock it. Reopening a repository
                 gives it {{ permissionNotice.to }}.
               </p>
               <div class="cohort-actions">
@@ -4381,6 +4382,8 @@ const templateNotice = ref(null)
 // pending invitations included.
 const storedStudentPermission = ref(null)
 const permissionNotice = ref(null)
+// Every change landed: the card is good news now, and says so in its colour.
+const permissionApplied = computed(() => !!permissionNotice.value?.done && !permissionNotice.value.done.failed.length)
 const permissionPastDeadline = computed(
   () => (permissionNotice.value?.plan?.skip || []).filter((entry) => entry.reason === 'past-deadline').length,
 )
@@ -5822,6 +5825,15 @@ details .field { padding: 0 var(--space-sm); }
   color: var(--accent-green);
   font-size: 1.05rem;
   font-weight: 600;
+}
+/* The heading follows the card's state. It was green on every card, and the
+   older warning cards each overrode it inline - so a new warning card that did
+   not know to read as good news in green on a yellow wash. */
+.published-info-card.is-warning .published-header h4 {
+  color: var(--accent-yellow);
+}
+.published-info-card.is-error .published-header h4 {
+  color: var(--accent-red);
 }
 .published-desc {
   font-size: 0.9rem;
