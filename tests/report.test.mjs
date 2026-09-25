@@ -676,6 +676,57 @@ test("roster student who didn't accept appears as no-submission", () => {
   assert.equal(dave.full_name, "Dave");
 });
 
+// Under `open` the roster invites nobody, so its students are not this
+// assignment's population (PXL-Automation-II / 2627-pe-1-test-1, 2026-09-26:
+// last year's promoted exam cohort listed as "No submission" on a new open
+// test assignment).
+const OPEN_YAML = BASE_YAML.replace("state: published", "state: published\nroster_mode: open\nmax_acceptances: 50");
+const LAST_YEAR = [
+  { student_number: "01", full_name: "Dave", github_login: "dave-test" },
+  { student_number: "02", full_name: "Tom", github_login: "Tom-PXL" },
+];
+
+test("OPEN: a roster student who never accepted is not listed, and counts nothing", () => {
+  const report = runReport({ assignmentYaml: OPEN_YAML, roster: LAST_YEAR });
+  // Every count on the page is derived from these rows, so none is left to
+  // say "5 no submission".
+  assert.deepEqual(report.students, []);
+});
+
+test("OPEN: a student who accepted is listed once, and still carries their roster name", () => {
+  const report = runReport({
+    assignmentYaml: OPEN_YAML,
+    roster: LAST_YEAR,
+    // GitHub's spelling differs from the roster's: one row, not two.
+    acceptances: [{ github_login: "tom-pxl", status: "accepted" }],
+  });
+  assert.deepEqual(report.students.map((s) => s.github_login), ["tom-pxl"]);
+  assert.equal(report.students[0].full_name, "Tom");
+  assert.equal(report.students[0].student_number, "02");
+});
+
+test("OPEN: a stranger who accepted is listed as always", () => {
+  const report = runReport({
+    assignmentYaml: OPEN_YAML,
+    roster: LAST_YEAR,
+    acceptances: [{ github_login: "stranger", status: "accepted" }],
+  });
+  assert.deepEqual(report.students.map((s) => s.github_login), ["stranger"]);
+});
+
+test("ENFORCED and CLAIM still list every roster student who has not accepted", () => {
+  for (const mode of ["enforced", "claim", null]) {
+    const yaml = mode ? BASE_YAML.replace("state: published", `state: published\nroster_mode: ${mode}`) : BASE_YAML;
+    const report = runReport({ assignmentYaml: yaml, roster: LAST_YEAR });
+    assert.deepEqual(report.students.map((s) => s.acceptance_state), ["not-accepted", "not-accepted"], String(mode));
+  }
+});
+
+test("an unrecognised roster_mode is ENFORCED here too: the roster is listed (fail closed)", () => {
+  const report = runReport({ assignmentYaml: BASE_YAML.replace("state: published", "state: published\nroster_mode: opne"), roster: LAST_YEAR });
+  assert.equal(report.students.length, 2);
+});
+
 test("student with commit_count in observations has commit_count in report", () => {
   const report = runReport({
     assignmentYaml: BASE_YAML,

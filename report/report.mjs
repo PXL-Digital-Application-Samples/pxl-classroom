@@ -30,6 +30,7 @@ import { effectiveDeadlineFor, indexOverrides } from "../lib/effective-deadline.
 // row-doubling this prevents.
 import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
+import { normalizeRosterMode } from "../lib/roster-mode.mjs";
 import { assignmentAdmitsStudent, restrictsCohort } from "../lib/cohort.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import { teamRepresentative } from "../lib/team-representative.mjs";
@@ -233,11 +234,20 @@ async function main() {
   // they used to be two, and the accepted one carried no name or student
   // number. The SHOWN spelling comes from GitHub where we have it, and falls
   // back to the roster's only when the student has not accepted.
+  //
+  // NOT UNDER `open`. There the roster invites nobody - anyone with the link
+  // may accept, and the form offers no cohort for that reason (lib/cohort.mjs)
+  // - so its students are not this assignment's population. Folding them in
+  // listed every student the organization had ever promoted as "Not accepted"
+  // / "No submission" on an open test assignment (PXL-Automation-II,
+  // 2627-pe-1-test-1, 2026-09-26): five of last year's exam cohort, never
+  // invited. The roster still names the students who DID accept, below.
+  const rosterInvites = normalizeRosterMode(assignment.roster_mode) !== "open";
   const displayByLogin = displayLogins(
     acceptances.map((a) => a?.github_login),
     repos.map((r) => r?.github_login),
     obsDirNameByLogin.values(),
-    roster.map((s) => s?.github_login),
+    rosterInvites ? roster.map((s) => s?.github_login) : [],
   );
   const allLogins = new Set(displayByLogin.keys());
 
