@@ -15,6 +15,7 @@ import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 import {
   changedPaths,
   outcomeFor,
@@ -39,7 +40,15 @@ const cfg = {
   actor: env("ACTOR", "lecturer"),
   // Blank syncs the template's newest commit.
   templateCommit: env("TEMPLATE_COMMIT", ""),
+  // How long the sync may spend on students before it stops itself and says
+  // where. Under the job's 45-minute timeout with room for the final record:
+  // a job the timeout kills writes nothing afterwards.
+  budgetMs: Number(env("SYNC_BUDGET_MS", "")) || 38 * 60_000,
 };
+
+// Progress is recorded every FLUSH_EVERY students or FLUSH_MS, whichever first.
+const FLUSH_EVERY = 20;
+const FLUSH_MS = 2 * 60_000;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -212,8 +221,112 @@ async function main() {
 
   const syncId = generateSyncId();
   const results = [];
+  const startedAt = new Date().toISOString();
+  const t0 = Date.now();
+  const runId = Number(process.env.GITHUB_RUN_ID) || null;
+  const runUrl = runId && process.env.GITHUB_REPOSITORY
+    ? `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${process.env.GITHUB_REPOSITORY}/actions/runs/${runId}`
+    : null;
 
-  for (const file of repoFiles) {
+  // THE RECORD IS WRITTEN WHEN THE RUN STARTS, AS IT GOES, AND WHEN IT ENDS.
+  // It used to be written once, at the end, by a later step - so a run the
+  // timeout stopped left no record at all of the students it had already
+  // changed, and nothing on screen could say a sync was running, had stopped,
+  // or how far it got (.NET Advanced, 2026-09-25).
+  const buildRecord = (status, remaining) => ({
+    schema_version: 1,
+    sync_id: syncId,
+    assignment_id: cfg.assignmentId,
+    synced_at: startedAt,
+    synced_by: cfg.actor,
+    status,
+    ...(runId ? { run_id: runId } : {}),
+    ...(runUrl ? { run_url: runUrl } : {}),
+    started_at: startedAt,
+    ...(status === "running" ? {} : { finished_at: new Date().toISOString() }),
+    total_students: repoFiles.length,
+    ...(status === "running" ? {} : { remaining }),
+    template_repo: templateFullName,
+    template_sha: templateSha,
+    ...(parentSha ? { template_base_sha: parentSha } : {}),
+    // The paths actually applied to anyone, not the raw request. `["*"]` used
+    // to be recorded verbatim while the operation merged the whole template
+    // tree regardless of what was ticked.
+    selected_files: [...appliedPaths].sort(),
+    // What makes this record evidence of where each student now is
+    // (lib/starter-sync.mjs `startingPointFor`): ranges were per student, and
+    // nothing in them was left out on purpose. A partial record is evidence
+    // too - for exactly the students in `results`.
+    per_student_range: true,
+    all_files: allFiles,
+    pr_title: syncTitle,
+    pr_body: syncBody,
+    created_issues: cfg.createIssue,
+    summary: summarize(results),
+    results,
+  });
+
+  const recordPath = `syncs/${cfg.assignmentId}/${syncId}.json`;
+  const writeRecord = async (doc, message) => {
+    // Validated before every write: this is what a lecturer reads to see who
+    // got the change, and a document the backend cannot read back is worse
+    // than none.
+    const { valid, errors } = validateAgainst("sync-record", doc);
+    if (!valid) {
+      throw new Error(
+        "sync record does not match sync-record.schema.json: " +
+          errors.slice(0, 4).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; "),
+      );
+    }
+    const body = JSON.stringify(doc, null, 2) + "\n";
+    await commitWithRebase({
+      token: cfg.token,
+      apiBase: process.env.GITHUB_API_URL || undefined,
+      owner: cfg.org,
+      repo: CONTROL_REPO,
+      branch: "main",
+      message,
+      changes: [{ path: recordPath, content: body }],
+    });
+    // And in this checkout, where later steps and the tests read it.
+    await mkdir(join(cfg.dataDir, "syncs", cfg.assignmentId), { recursive: true });
+    await writeFile(join(cfg.dataDir, recordPath), body);
+  };
+
+  // Nothing is sent unless the start can be recorded: a sync nobody can see
+  // is the thing this record exists to end.
+  await writeRecord(buildRecord("running"), `Start starter code sync for ${cfg.assignmentId}`);
+  console.log(`[sync] Recorded the start as ${recordPath}${runUrl ? ` (${runUrl})` : ""}`);
+
+  // Progress, so a run that dies mid-cohort still says who it reached. Best
+  // effort: a failed progress write is logged and the sync goes on - the
+  // students matter more than the tally, and the final write is not optional.
+  // Counted in FINISHED students (`results`), checked before each next one.
+  let lastFlush = Date.now();
+  let flushedAt = 0;
+  const maybeFlush = async () => {
+    const done = results.length;
+    if (done === flushedAt) return;
+    if (done - flushedAt < FLUSH_EVERY && Date.now() - lastFlush < FLUSH_MS) return;
+    try {
+      await writeRecord(buildRecord("running"), `Starter code sync progress for ${cfg.assignmentId}`);
+    } catch (err) {
+      console.log(`[warn] could not record progress: ${err.message}`);
+    }
+    lastFlush = Date.now();
+    flushedAt = done;
+  };
+
+  let remaining = 0;
+  for (const [index, file] of repoFiles.entries()) {
+    // The sync stops ITSELF before the job's timeout does, so that it can say
+    // where it stopped: a job the timeout kills writes nothing afterwards.
+    if (Date.now() - t0 > cfg.budgetMs) {
+      remaining = repoFiles.length - index;
+      console.log(`[stop] time budget reached with ${remaining} student(s) not yet reached - run the sync again to finish them`);
+      break;
+    }
+    await maybeFlush();
     // OUTSIDE the per-student try below, which is what made it fatal: one
     // unreadable repository record threw out of main(), so the run stopped
     // partway and the sync record was never written - after some students had
@@ -390,51 +503,22 @@ async function main() {
     await sleep(300);
   }
 
-  // 4. Write sync record
-  const syncRecord = {
-    schema_version: 1,
-    sync_id: syncId,
-    assignment_id: cfg.assignmentId,
-    synced_at: new Date().toISOString(),
-    synced_by: cfg.actor,
-    template_repo: templateFullName,
-    template_sha: templateSha,
-    ...(parentSha ? { template_base_sha: parentSha } : {}),
-    // The paths actually applied to anyone, not the raw request. `["*"]` used
-    // to be recorded verbatim while the operation merged the whole template
-    // tree regardless of what was ticked.
-    selected_files: [...appliedPaths].sort(),
-    // What makes this record evidence of where each student now is
-    // (lib/starter-sync.mjs `startingPointFor`): ranges were per student, and
-    // nothing in them was left out on purpose.
-    per_student_range: true,
-    all_files: allFiles,
-    pr_title: syncTitle,
-    pr_body: syncBody,
-    created_issues: cfg.createIssue,
-    summary: summarize(results),
-    results,
-  };
-
-  // Validate before writing. The sync record is what a lecturer reads to see
-  // which students got the correction and which need a second look, so a
-  // document the backend cannot read back is worse than no record.
-  {
-    const { valid, errors } = validateAgainst("sync-record", syncRecord);
-    if (!valid) {
-      throw new Error(
-        "sync record does not match sync-record.schema.json: " +
-          errors.slice(0, 4).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
-      );
-    }
-  }
-
-  const syncDir = join(cfg.dataDir, "syncs", cfg.assignmentId);
-  await mkdir(syncDir, { recursive: true });
-  await writeFile(join(syncDir, `${syncId}.json`), JSON.stringify(syncRecord, null, 2) + "\n");
+  // 4. The final record. NOT best effort: this is the one that says the run
+  //    finished and how, and a run whose final record did not land goes red.
+  const status = remaining > 0 ? "stopped" : "completed";
+  const syncRecord = buildRecord(status, remaining);
+  await writeRecord(
+    syncRecord,
+    status === "stopped"
+      ? `Starter code sync for ${cfg.assignmentId} stopped with ${remaining} student(s) to go`
+      : `Record starter code sync for ${cfg.assignmentId}`,
+  );
 
   const s = syncRecord.summary;
-  console.log(`\nSync complete (${syncId}): ${s.auto_merged} updated in place, ${s.pr_opened} pull request(s), ${s.skipped} skipped, ${s.failed} failed.`);
+  console.log(
+    `\nSync ${status} (${syncId}): ${s.auto_merged} updated in place, ${s.pr_opened} pull request(s), ` +
+      `${s.skipped} skipped, ${s.failed} failed${remaining ? `, ${remaining} not reached - run it again` : ""}.`,
+  );
 }
 
 main().catch((e) => {

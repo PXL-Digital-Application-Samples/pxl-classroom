@@ -1064,9 +1064,13 @@ pxl-classroom sync-starter --assignment linux-processes-2026 \
 - **Audit Records:** Complete execution summaries are stored in the control repo at `syncs/<assignment-id>/<sync-id>.json`.
 - **A file the commit adds that a student already has is left alone** and counted as `files_kept` on their row. They received it earlier and have worked in it, so it is theirs; they are not offered a pull request resetting it.
 
+#### Where a sync stands
+
+The assignment page shows a **Starter code** line above the student table: syncing (with how many are done), stopped with how many not reached, done (how many updated, how many already had it), a list of students it could not update, or that the template has changed since the last sync. It is read when you open the page and when you press **Check again** - it does not refresh by itself. **Sync again** opens the sync dialog; **View run** opens the run on GitHub.
+
 #### A sync that stopped part-way
 
-Run it again. Each student is sent what they are missing from where they are, so the students it did not reach get everything - including an earlier update that another sync has been pushed over since - and the ones it did reach are skipped. Its run on the hub's Actions tab reads **cancelled** when it stopped.
+Press **Sync again** on that line, or run it again from **··· More**. Each student is sent what they are missing from where they are, so the students it did not reach get everything - including an earlier update that another sync has been pushed over since - and the ones it did reach are skipped. A sync stops itself after 38 minutes and says how many it did not reach; a very large cohort may need two runs.
 
 #### Syncing up to a commit that is not the newest
 

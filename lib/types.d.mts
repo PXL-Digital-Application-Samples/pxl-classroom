@@ -484,6 +484,13 @@ export type SyncRecord = {
   template_sha?: string;
   template_base_sha?: string;
   selected_files?: string[];
+  status?: "running" | "completed" | "stopped";
+  run_id?: number;
+  run_url?: string;
+  started_at?: string;
+  finished_at?: string;
+  total_students?: number;
+  remaining?: number;
   per_student_range?: boolean;
   all_files?: boolean;
   pr_title?: string;

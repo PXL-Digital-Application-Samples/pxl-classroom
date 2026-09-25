@@ -61,6 +61,38 @@
       },
       "description": "The paths actually applied. Previously the raw request, recorded as ['*'] while the operation merged the entire template tree regardless of what the lecturer had ticked."
     },
+    "status": {
+      "type": "string",
+      "enum": ["running", "completed", "stopped"],
+      "description": "Where the run is. `running` is written when it STARTS, and again as it goes, so a run that is cut off still leaves a record of who it reached; a record left at `running` whose run has ended is a run that died, which lib/sync-status.mjs asks the run itself about. `stopped` is the sync stopping itself at its time budget with `remaining` students not reached. ABSENT on records written before 2026-09-25, which were only ever written at the end, and means `completed`. No default, for the reason `per_student_range` gives."
+    },
+    "run_id": {
+      "type": "integer",
+      "description": "The hub Actions run that did this sync - what a record left at `running` is checked against."
+    },
+    "run_url": {
+      "type": "string",
+      "description": "That run, for a person."
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Absent while running."
+    },
+    "total_students": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Repository records at the start, so a partial record says how far it got: `results` holds the ones reached."
+    },
+    "remaining": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Students not reached when it stopped. 0 on a completed run."
+    },
     "per_student_range": {
       "type": "boolean",
       "description": "true: every student was sent what they were missing between their own starting point (`results[].from_sha`) and `template_sha`, not what one commit changed. Absent on records written before 2026-09-25, which are therefore NOT read as evidence of where a student is: one commit's files arriving is not holding that commit (lib/starter-sync.mjs `startingPointFor`). No default: a default would write `false` into every old record on validation, which is a different answer from absent only in wording, and a different one the day this is read."

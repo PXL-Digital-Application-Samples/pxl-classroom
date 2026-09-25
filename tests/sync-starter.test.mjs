@@ -461,7 +461,7 @@ test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself"
 // so this drives the path that writes nothing: a student whose tree already
 // carries the head blob is `skipped-up-to-date`.
 
-function runSyncStarter({ records, env: extraEnv = {}, requested = [] }) {
+function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWrites = [], controlDenied = false }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-sync-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(
@@ -483,6 +483,27 @@ function runSyncStarter({ records, env: extraEnv = {}, requested = [] }) {
       res.end(JSON.stringify(body));
     };
     requested.push(req.url);
+    // The control repo, written through the Git Data API: the sync record at
+    // its start, as it goes and at its end. Each record written is decoded
+    // into `controlWrites`, in order.
+    const ctl = "/repos/TestOrg/pxl-classroom-control/git";
+    // A permission refusal, which is not retried - the shape a token without
+    // write on the control repository gets.
+    if (controlDenied && path.startsWith(ctl)) return send(403, { message: "Resource not accessible by integration" });
+    if (path === `${ctl}/ref/heads%2Fmain`) return send(200, { object: { sha: "c".repeat(40) } });
+    if (path.startsWith(`${ctl}/commits/`)) return send(200, { sha: "c".repeat(40), tree: { sha: "t".repeat(40) } });
+    if (path === `${ctl}/blobs` && req.method === "POST") {
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", () => {
+        controlWrites.push(JSON.parse(Buffer.from(JSON.parse(body).content, "base64").toString("utf8")));
+        send(201, { sha: "b".repeat(40) });
+      });
+      return;
+    }
+    if (path === `${ctl}/trees` && req.method === "POST") return send(201, { sha: "t".repeat(40) });
+    if (path === `${ctl}/commits` && req.method === "POST") return send(201, { sha: "d".repeat(40) });
+    if (path === `${ctl}/refs/heads%2Fmain` && req.method === "PATCH") return send(200, { object: { sha: "d".repeat(40) } });
     if (path === "/repos/TestOrg/tpl/commits") return send(200, [{ sha: HEAD_SHA }]);
     // GitHub resolves an abbreviated sha to the commit, as this does: any
     // prefix of HEAD_SHA of at least 7 characters.
@@ -707,6 +728,98 @@ test("the workflow passes the field through env, and the record permits files_ke
   assert.equal(/node scripts\/sync-starter\.mjs[^\n]*inputs\./.test(wf), false, "never composed into the script");
   const schema = JSON.parse(readFileSync(join(here, "..", "schemas", "sync-record.schema.json"), "utf8"));
   assert.ok("files_kept" in schema.properties.results.items.properties);
+});
+
+// -----------------------------------------------------------------------------
+// The record: written when the run starts, as it goes, and when it ends
+//
+// It used to be written once, at the end, by a later workflow step - so the
+// runs the timeout stopped on 2026-09-25 left no record of the students they
+// had already changed, and nothing could say a sync was running or had stopped.
+// -----------------------------------------------------------------------------
+
+const student = (login) => [`${login}.json`, JSON.stringify({ github_login: login, repo_name: `TestOrg/exam-${login}` })];
+
+test("the start is recorded BEFORE any student is touched, and the end after", async () => {
+  const controlWrites = [];
+  const requested = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice"), student("bob")]),
+    env: { GITHUB_RUN_ID: "4242", GITHUB_REPOSITORY: "Hub/pxl-classroom", GITHUB_SERVER_URL: "https://github.com" },
+    controlWrites,
+    requested,
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.equal(controlWrites.length, 2, "start and end, no progress write for two students");
+  const [start, end] = controlWrites;
+
+  assert.equal(start.status, "running");
+  assert.equal(start.total_students, 2);
+  assert.deepEqual(start.results, []);
+  assert.equal(start.run_id, 4242);
+  assert.equal(start.run_url, "https://github.com/Hub/pxl-classroom/actions/runs/4242");
+  assert.equal("finished_at" in start, false);
+  assert.equal("remaining" in start, false);
+
+  assert.equal(end.status, "completed");
+  assert.equal(end.remaining, 0);
+  assert.ok(end.finished_at);
+  assert.equal(end.sync_id, start.sync_id, "one record, rewritten");
+  assert.equal(end.results.length, 2);
+  for (const doc of controlWrites) assert.equal(validateSyncRecord(doc), true, JSON.stringify(validateSyncRecord.errors));
+
+  // Ordering against the students: the start record's commit precedes the
+  // first read of a student repository.
+  const firstStudent = requested.findIndex((u) => u.includes("/exam-"));
+  const firstRecord = requested.findIndex((u) => u.includes("pxl-classroom-control/git/blobs"));
+  assert.ok(firstRecord >= 0 && firstRecord < firstStudent, requested.join("\n"));
+  // The checkout copy is the final one.
+  assert.equal(res.record.status, "completed");
+});
+
+test("a sync that cannot record its start sends NOTHING", async () => {
+  const requested = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    requested,
+    controlDenied: true,
+  });
+  assert.notEqual(res.status, 0);
+  assert.equal(requested.some((u) => u.includes("/exam-")), false, "no student repository was read");
+});
+
+test("at its time budget the sync STOPS ITSELF and records who is left", async () => {
+  const controlWrites = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice"), student("bob"), student("carol")]),
+    // Spent before the first student: the start record alone takes longer.
+    env: { SYNC_BUDGET_MS: "1" },
+    controlWrites,
+  });
+  assert.equal(res.status, 0, "stopping at the budget is an outcome, not a failure");
+  assert.match(res.stdout, /time budget reached with 3 student\(s\) not yet reached - run the sync again/);
+  const end = controlWrites.at(-1);
+  assert.equal(end.status, "stopped");
+  assert.equal(end.remaining, 3);
+  assert.equal(end.total_students, 3);
+  assert.deepEqual(end.results, []);
+});
+
+test("progress is recorded as it goes, so a run that dies still says who it reached", async () => {
+  const controlWrites = [];
+  const logins = Array.from({ length: 22 }, (_, i) => `s${String(i).padStart(2, "0")}`);
+  const res = await runSyncStarter({ records: Object.fromEntries(logins.map(student)), controlWrites });
+  assert.equal(res.status, 0, res.stderr);
+  const progress = controlWrites.filter((d) => d.status === "running" && d.results.length > 0);
+  assert.equal(progress.length, 1, "one progress write after 20 students");
+  assert.equal(progress[0].results.length, 20);
+  assert.equal(controlWrites.at(-1).results.length, 22);
+});
+
+test("the workflow no longer commits the record in a later step", () => {
+  const wf = readFileSync(join(here, "..", ".github", "workflows", "sync-starter-code.yml"), "utf8");
+  assert.doesNotMatch(wf, /name: Commit sync records/);
+  assert.match(wf, /concurrency:\n\s+group: sync-starter-\$\{\{ inputs\.org \}\}-\$\{\{ inputs\.assignment_id \}\}\n\s+cancel-in-progress: false/);
 });
 
 test("a notification issue that could not be created is recorded, not just logged", () => {

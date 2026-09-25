@@ -39,6 +39,14 @@ on:
 permissions:
   contents: read
 
+# One sync of an assignment at a time: two at once work the same students in
+# parallel (a double click did exactly this on 2026-09-25). A second waits
+# rather than cancelling the first - a sync half-done is worse than one late.
+# GitHub keeps ONE waiting run per group, so a third replaces the second.
+concurrency:
+  group: sync-starter-${{ inputs.org }}-${{ inputs.assignment_id }}
+  cancel-in-progress: false
+
 jobs:
   sync-starter:
     environment: provisioning
@@ -125,24 +133,9 @@ jobs:
           CREATE_ISSUE: ${{ inputs.create_issue }}
           TEMPLATE_COMMIT: ${{ inputs.template_commit }}
           ACTOR: ${{ github.actor }}
+        # The script writes its own record - when it starts, as it goes and
+        # when it ends - through the Git Data API. A record committed by a
+        # later step was never written at all when the timeout stopped the
+        # sync, so nothing could say who had been reached.
         run: |
           node scripts/sync-starter.mjs
-
-      - name: Commit sync records
-        working-directory: control
-        env:
-          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
-        run: |
-          git config user.name "PXL Classroom Provisioner"
-          git config user.email "pxl-classroom@users.noreply.github.com"
-          if [ -n "$(git status --porcelain syncs/)" ]; then
-            mkdir -p syncs
-            git add syncs/
-            git commit -m "Record starter code sync for ${ASSIGNMENT_ID}"
-            # See open-feedback-prs.yml: a bare push loses to any concurrent
-            # write to this control repo, and this workflow is dispatch-only
-            # so it runs precisely when other things are also writing.
-            ../scripts/git-push-with-retry.sh
-          else
-            echo "No sync records to commit."
-          fi

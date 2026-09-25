@@ -228,6 +228,19 @@
           </div>
         </div>
 
+        <!-- Where the last starter sync stands - running, stopped part-way,
+             done, or behind the template. ABOVE the table: under it, a cohort
+             of 111 pushes it off the screen. Nothing said so on 2026-09-25,
+             when two syncs were cut off and 43 students were left without a
+             lab. -->
+        <StarterSyncStatus
+          v-if="assignment && assignment.template"
+          :org="org"
+          :assignment="assignment"
+          :refresh-key="syncStatusKey"
+          @sync="showStarterSyncModal = true"
+        />
+
         <!-- Actions bar -->
         <div class="actions-bar flex items-center justify-between flex-wrap gap-sm">
           <div class="flex items-center gap-md flex-wrap">
@@ -1135,7 +1148,7 @@
         :assignment="assignment"
         :org="org"
         :students="report?.students || []"
-        @close="showStarterSyncModal = false"
+        @close="showStarterSyncModal = false; syncStatusKey++"
         @synced="loadAll"
       />
 
@@ -1169,6 +1182,7 @@ import Icon from '../components/Icon.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
+import StarterSyncStatus from '../components/StarterSyncStatus.vue'
 import PromoteRosterModal from '../components/PromoteRosterModal.vue'
 import AutogradeResultsModal from '../components/AutogradeResultsModal.vue'
 import StudentActionsModal from '../components/StudentActionsModal.vue'
@@ -1611,6 +1625,8 @@ async function bumpCapacity(delta) {
 }
 
 const showStarterSyncModal = ref(false)
+// Bumped when the sync dialog closes, so the status line reads again.
+const syncStatusKey = ref(0)
 const showPromoteRosterModal = ref(false)
 
 // Offered only under `open`, and only once somebody has accepted. Under

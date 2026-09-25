@@ -117,8 +117,10 @@ test("usage-fetch validates limits and limits-overrides", () => {
 
 test("sync-starter validates the record before writing it", () => {
   const src = read("scripts/sync-starter.mjs");
+  // Every write - at the start, as it goes and at the end - goes through one
+  // writer that validates first and then commits through the Git Data API.
   const validateAt = src.indexOf('validateAgainst("sync-record"');
-  const writeAt = src.indexOf('writeFile(join(syncDir', validateAt < 0 ? 0 : validateAt);
+  const writeAt = src.indexOf("await commitWithRebase({", validateAt < 0 ? 0 : validateAt);
   assert.ok(validateAt > 0, "the sync record must be validated");
   assert.ok(writeAt > validateAt, "and validated before it is written");
 });
