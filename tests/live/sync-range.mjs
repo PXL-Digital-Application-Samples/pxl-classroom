@@ -21,6 +21,11 @@
 //   4 not lost   a plain sync. Round 3 left something out, so it is not
 //                evidence: starts are lab 5 again, and B.cs arrives.
 //   5 backwards  everyone holds lab 6; a sync NAMING lab 5 takes nothing away.
+//   6 cut off    a run cancelled part-way: its START record is on GitHub before
+//                the cancel, stays `running` with partial results after it, and
+//                lib/sync-status.mjs reads it as a run that ended unfinished.
+//
+// Every round also checks the record names its run and closed itself.
 //
 // Every fixture is reset each run and the probe's earlier sync records are
 // cleared, so the run is repeatable. The probe assignment is a draft. No issue
@@ -124,6 +129,12 @@ async function syncAndWait(label, inputs = {}) {
   if (!newest) die(`${label}: no sync record`);
   const v = validateAgainst("sync-record", newest);
   if (!v.valid) r.bad(`${label}: record fails its schema: ${JSON.stringify(v.errors)}`);
+  // The record the run wrote about itself, and closed.
+  if (newest.run_id === id && newest.status === "completed" && newest.remaining === 0 && newest.finished_at) {
+    r.ok(`${label}: record names run ${id}, completed, 0 remaining`);
+  } else {
+    r.bad(`${label}: record run_id ${newest.run_id} status ${newest.status} remaining ${newest.remaining}`);
+  }
   return newest;
 }
 
@@ -260,6 +271,54 @@ async function main() {
     if (same) r.ok(`5 never backwards: ${who} lost nothing (${now.size} files)`);
     else r.bad(`5 never backwards: ${who} changed - ${beforeBack[who].size} -> ${now.size} files`);
   }
+
+  // --- 6: cut off --------------------------------------------------------------------
+  // The NetAdv case: a run that dies part-way. PAD more records (all pointing
+  // at `late`, so each is a quick skip, ~0.8s) make the run long enough to
+  // cancel after its START record has landed - which is what must survive it.
+  // 40 was not: the run finished and closed its record before the cancel.
+  const PAD = 150;
+  const TOTAL = PAD + 3;
+  const extra = Array.from({ length: PAD }, (_, i) => ({
+    schema_version: 1, assignment_id: ID, github_login: `pad-${String(i).padStart(2, "0")}`, repo_id: repos.late.id,
+    repo_name: `${org}/${STUDENTS.late}`, repo_url: `https://github.com/${org}/${STUDENTS.late}`,
+  }));
+  await controlCommit(`Live test fixture: ${ID} padding`, extra.map((x) => ({ path: `repositories/${ID}/${x.github_login}.json`, content: JSON.stringify(x, null, 2) + "\n" })));
+  const known = new Set((await records()).map((x) => x.doc.sync_id));
+  const cutRes = await api(`/repos/${HUB}/actions/workflows/sync-starter-code.yml/dispatches`, {
+    token, method: "POST",
+    body: { ref: "main", inputs: { org, assignment_id: ID, create_issue: false }, return_run_details: true },
+  });
+  const cutId = cutRes.data?.workflow_run_id;
+  if (!cutId) die(`6 cut off: dispatch gave no run id (HTTP ${cutRes.status})`);
+  let started = null;
+  for (let waited = 0; waited < 5 * 60_000 && !started; waited += 3_000) {
+    await sleep(3_000);
+    started = (await records()).find((x) => !known.has(x.doc.sync_id))?.doc || null;
+  }
+  if (started?.status === "running" && started.run_id === cutId && started.total_students === TOTAL) {
+    r.ok(`6 cut off: the start was recorded while the run was going (${TOTAL} students, run ${cutId})`);
+  } else {
+    r.bad(`6 cut off: no running start record for run ${cutId}: ${JSON.stringify(started && { status: started.status, run_id: started.run_id, total: started.total_students })}`);
+  }
+  await api(`/repos/${HUB}/actions/runs/${cutId}/cancel`, { token, method: "POST" });
+  let cutRun;
+  for (let waited = 0; waited < 5 * 60_000; waited += 5_000) {
+    await sleep(5_000);
+    cutRun = (await api(`/repos/${HUB}/actions/runs/${cutId}`, { token })).data;
+    if (cutRun?.status === "completed") break;
+  }
+  const left = (await records()).find((x) => x.doc.sync_id === started?.sync_id)?.doc;
+  if (cutRun?.conclusion === "cancelled" && left?.status === "running" && left.results.length < TOTAL) {
+    r.ok(`6 cut off: cancelled; the record stayed "running" with ${left.results.length} of ${TOTAL} reached`);
+  } else {
+    r.bad(`6 cut off: run ${cutRun?.conclusion}, record ${left?.status} with ${left?.results?.length} results`);
+  }
+  const { describeSyncStatus } = await import("../../lib/sync-status.mjs");
+  const said = describeSyncStatus({ record: left, run: cutRun });
+  if (said?.state === "died" && said.action === "sync-again") r.ok(`6 cut off: the page would say "${said.title}" - ${said.detail}`);
+  else r.bad(`6 cut off: the page would say ${JSON.stringify(said)}`);
+  await controlCommit(`Live test fixture: ${ID} padding removed`, extra.map((x) => ({ path: `repositories/${ID}/${x.github_login}.json`, content: null })));
 
   console.log(`\n${r.failures() ? `${r.failures()} FAILED` : "all good"}\n`);
   process.exit(r.failures() ? 1 : 0);

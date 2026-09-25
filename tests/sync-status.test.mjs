@@ -77,6 +77,8 @@ test("COMPLETED with failures names every student and why", () => {
   assert.equal(v.tone, "danger");
   assert.equal(v.action, "sync-again");
   assert.equal(v.title, "The last sync of aaaaaaa by @wesleyhendrikx could not update 2 students");
+  // "The other", never "3 of 3 handled" under "could not update 2".
+  assert.equal(v.detail, "The other 1 of 3 were handled. Sync again to retry these:");
   assert.deepEqual(v.failed, [{ login: "ada", error: "could not read main (HTTP 404)" }, { login: "cy", error: "failed" }]);
 });
 

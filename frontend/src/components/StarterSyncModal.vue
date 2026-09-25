@@ -43,7 +43,7 @@
             <div class="file-selector-box">
               <div class="flex justify-between items-center mb-xs">
                 <span class="text-xs font-semibold uppercase text-secondary">
-                  Files this commit changed ({{ selectedFileCount }}/{{ templateFiles.length + catchUpFiles.length }} selected)
+                  Files this commit changed ({{ templateFiles.filter((f) => f.selected).length }}/{{ templateFiles.length }} selected)
                 </span>
                 <div class="flex gap-xs">
                   <button type="button" class="btn-link text-xs" @click="selectAllFiles(true)">Select all</button>
@@ -99,7 +99,8 @@
                    student's repository. -->
               <template v-if="catchUpFiles.length">
                 <span class="text-xs font-semibold uppercase text-secondary catch-up-head">
-                  Earlier template changes some students are still missing ({{ catchUpFiles.length }})
+                  Earlier template changes some students are still missing
+                  ({{ catchUpFiles.filter((f) => f.selected).length }}/{{ catchUpFiles.length }} selected)
                 </span>
                 <div class="file-list-scrollable flex flex-col gap-xs">
                   <div
@@ -110,11 +111,11 @@
                     style="padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-default);"
                   >
                     <div class="file-row flex items-center justify-between">
-                      <label class="flex items-center gap-sm" style="cursor: pointer; margin: 0;">
+                      <label class="flex items-center gap-sm catch-up-path" style="cursor: pointer; margin: 0;">
                         <input type="checkbox" v-model="file.selected" @change="onFilesChanged" />
-                        <code class="file-path">{{ file.filename }}</code>
+                        <code class="file-path" :title="file.filename">{{ file.filename }}</code>
                       </label>
-                      <span class="text-xs text-muted">
+                      <span class="text-xs text-muted catch-up-count">
                         {{ file.status === 'removed' ? 'removed from the template' : 'missing' }} for
                         {{ file.students }} student{{ file.students === 1 ? '' : 's' }}
                       </span>
@@ -708,6 +709,25 @@ onMounted(() => {
 
 .catch-up-note {
   margin: var(--space-xs) 0 0;
+}
+
+/* A long path gives way, never the count beside it: "missing for 1 student"
+   wrapped onto two lines under a deep Lab03_Mvc path. */
+.catch-up-path {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.catch-up-path .file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catch-up-count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  margin-left: var(--space-sm);
 }
 
 .sync-section {

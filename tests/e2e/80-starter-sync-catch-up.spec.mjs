@@ -124,7 +124,9 @@ test.describe('80 - Starter sync sends each student what they are missing', () =
     // The newest commit's file, as before.
     await expect(modal.locator('.file-path', { hasText: 'Lab04/Program.cs' })).toBeVisible();
     // And what one student is behind on from before it.
-    await expect(modal.locator('.catch-up-head')).toContainText('Earlier template changes some students are still missing (1)');
+    await expect(modal.locator('.catch-up-head')).toContainText('Earlier template changes some students are still missing (1/1 selected)');
+    // The newest commit's own count stays its own: 1 file, not 1 + the catch-up.
+    await expect(modal.locator('.file-selector-box')).toContainText('Files this commit changed (1/1 selected)');
     const catchUp = modal.locator('.file-row-box', { hasText: 'Lab03/Program.cs' });
     await expect(catchUp).toContainText('missing for 1 student');
 
