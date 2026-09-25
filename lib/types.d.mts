@@ -550,6 +550,7 @@ export type SyncRecord = {
     issue_number?: number;
     issue_url?: string;
     error?: string;
+    issue_assignees?: string[];
     issue_error?: string;
   }>;
 };

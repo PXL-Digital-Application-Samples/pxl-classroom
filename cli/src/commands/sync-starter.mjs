@@ -18,6 +18,7 @@ import { withConcurrency } from "../lib/worker-pool.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { listTemplateCommits, planStudent, rootTreeSha, treeReader } from "../../../lib/starter-sync-cohort.mjs";
+import { issueAssignees, loginsByRepo } from "../../../lib/sync-issue.mjs";
 import {
   changedPaths,
   outcomeFor,
@@ -130,6 +131,7 @@ export function registerSyncStarterCommand(program) {
       };
 
       const records = await listRepoRecords(octokit, { org, assignmentId: opts.assignment });
+      const byRepo = loginsByRepo(records.map((r) => r.doc));
       if (records.length === 0) {
         process.stdout.write(`No student repository records found for assignment ${opts.assignment}.\n`);
         return;
@@ -252,7 +254,7 @@ export function registerSyncStarterCommand(program) {
           }
 
           if (opts.issue) {
-            await octokit.rest.issues.create({
+            const { data: issue } = await octokit.rest.issues.create({
               owner: org,
               repo: repoName,
               title: plan.conflicts.length
@@ -262,6 +264,13 @@ export function registerSyncStarterCommand(program) {
                 ? `A starter code update is available in Pull Request [#${row.prNumber}](${row.prUrl}). Please review and merge it.`
                 : `The starter code was updated from template commit \`${templateSha.slice(0, 7)}\`.\n\nRun \`git pull\` in your workspace to get it.`,
             });
+            // Assigned in a second call, so an account that cannot be assigned
+            // never costs the issue. Assigned is emailed; watching is optional.
+            const assignees = issueAssignees({ login, repoName: `${org}/${repoName}`, byRepo });
+            if (assignees.length) {
+              await octokit.rest.issues.addAssignees({ owner: org, repo: repoName, issue_number: issue.number, assignees })
+                .catch((e) => process.stdout.write(`  ! ${login}: issue not assigned (${e.status || e.message})\n`));
+            }
           }
 
           return row;

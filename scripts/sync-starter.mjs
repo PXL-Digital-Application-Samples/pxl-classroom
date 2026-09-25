@@ -26,6 +26,8 @@ import {
   selectionIsAll,
 } from "../lib/starter-sync.mjs";
 import { listTemplateCommits, planStudent, rootTreeSha, treeReader } from "../lib/starter-sync-cohort.mjs";
+import { issueAssignees, loginsByRepo } from "../lib/sync-issue.mjs";
+import { sameLogin } from "../lib/github-login.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -218,6 +220,12 @@ async function main() {
   } catch {
     console.log(`[sync] No repositories directory for ${cfg.assignmentId}`);
   }
+  // Who shares each repository, for assigning its tracking issue: a group
+  // repository has a record per member. Read once, up front; a record that
+  // cannot be read here fails in the loop below, where it is reported.
+  const byRepo = loginsByRepo(await Promise.all(
+    repoFiles.map((f) => readFile(join(reposDir, f), "utf8").then(JSON.parse).catch(() => null)),
+  ));
 
   const syncId = generateSyncId();
   const results = [];
@@ -415,6 +423,7 @@ async function main() {
       if (plan.clean.length > 0) {
         const commit = await commitWithRebase({
           token: cfg.token,
+          apiBase: process.env.GITHUB_API_URL || undefined,
           owner: cfg.org,
           repo: repoName,
           branch: "main",
@@ -454,6 +463,7 @@ async function main() {
 
         await commitWithRebase({
           token: cfg.token,
+          apiBase: process.env.GITHUB_API_URL || undefined,
           owner: cfg.org,
           repo: repoName,
           branch: branchName,
@@ -487,6 +497,22 @@ async function main() {
         if (issueRes.ok) {
           row.issue_number = issueRes.data.number;
           row.issue_url = issueRes.data.html_url;
+          // A SECOND call, so an account that cannot be assigned (removed from
+          // the repository, renamed) can never cost the issue itself. What
+          // GitHub answers with is who was actually assigned - that, not the
+          // list asked for, is what the record keeps.
+          const wanted = issueAssignees({ login, repoName: studentFullName, byRepo });
+          if (wanted.length) {
+            const assignRes = await gh("POST", `/repos/${studentFullName}/issues/${row.issue_number}/assignees`, { assignees: wanted }, { token: cfg.token });
+            if (assignRes.ok) {
+              row.issue_assignees = (assignRes.data?.assignees || []).map((a) => a.login);
+              const missed = wanted.filter((w) => !row.issue_assignees.some((a) => sameLogin(a, w)));
+              if (missed.length) console.log(`[warn] ${login}: could not assign ${missed.join(", ")} - they are emailed only if they watch the repository`);
+            } else {
+              row.issue_assignees = [];
+              console.log(`[warn] ${login}: the issue could not be assigned (HTTP ${assignRes.status}) - they are emailed only if they watch the repository`);
+            }
+          }
         } else {
           // The issue IS the notification - without it a student is not told a
           // pull request is waiting for them. Failing it silently left the row

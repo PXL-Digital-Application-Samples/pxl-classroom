@@ -1054,6 +1054,8 @@ Spotted a mistake in the assignment, or publishing the next lab? Change the **te
    Ticking and unticking files re-sorts the cohort instantly; it does not re-scan.
 4. **Customize & Dispatch:** adjust the commit/PR title, the student-facing instructions, and whether to open a tracking issue. Click **Apply Starter Update**.
 
+**Who gets an email.** A change committed straight to a student's `main` sends none on its own. The tracking issue is **assigned** to the student (every member, on a group repository), and GitHub emails whoever is assigned, whether or not they watch their repository - unless they have switched GitHub's email notifications off. The pull request emails only those who watch the repository. Untick *Open tracking issue* and nobody is emailed. The sync record keeps who each issue was actually assigned to; an account GitHub will not assign (no longer on the repository) is left off and the issue is still opened.
+
 The split is **per file**: a student who edited one of four corrected files still gets the other three directly, and a PR for the one. That is why a sync record can say `merged-and-pr` for the same student.
 
 #### Option B: CLI Companion

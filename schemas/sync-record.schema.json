@@ -237,6 +237,11 @@
               "null"
             ]
           },
+          "issue_assignees": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Who the tracking issue was actually assigned to, as GitHub answered - the students whose records name this repository, so a group's members too (lib/sync-issue.mjs). Being assigned is what emails a student who does not watch their repository. Empty: the assignment call failed, and they are emailed only if they watch it. Absent: no issue, or a record from before 2026-09-26, when issues were not assigned."
+          },
           "issue_error": {
             "type": "string",
             "description": "Why the notification issue could not be created. The issue IS how a student learns a starter-code pull request is waiting, so a failure to open one has to reach the record a lecturer reads - not just the run log."

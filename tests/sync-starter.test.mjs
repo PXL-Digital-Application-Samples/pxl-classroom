@@ -461,7 +461,7 @@ test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself"
 // so this drives the path that writes nothing: a student whose tree already
 // carries the head blob is `skipped-up-to-date`.
 
-function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWrites = [], controlDenied = false }) {
+function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWrites = [], controlDenied = false, behind = false, issues = [], assign = null, issueStatus = 201 }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-sync-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(
@@ -521,8 +521,46 @@ function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWr
     if (path.startsWith("/repos/TestOrg/tpl/git/blobs/")) {
       return send(200, { content: Buffer.from("hello").toString("base64"), encoding: "base64" });
     }
-    // Every student already carries the head blob, so nothing is written.
-    if (/^\/repos\/TestOrg\/[^/]+\/git\/trees\/main$/.test(path)) return send(200, tree("blob-new"));
+    // Every student already carries the head blob, so nothing is written -
+    // unless `behind`, where they carry the base blob untouched and the
+    // correction is committed to their main and announced in an issue.
+    if (/^\/repos\/TestOrg\/[^/]+\/git\/trees\/main$/.test(path)) return send(200, tree(behind ? "blob-old" : "blob-new"));
+    const stu = path.match(/^\/repos\/TestOrg\/(exam-[^/]+)\/(.*)$/);
+    if (stu && behind) {
+      const [, repo, rest] = stu;
+      const readBody = (then) => {
+        let body = "";
+        req.on("data", (d) => (body += d));
+        req.on("end", () => then(body ? JSON.parse(body) : {}));
+      };
+      if (rest === "git/ref/heads%2Fmain") return send(200, { object: { sha: "c".repeat(40) } });
+      if (rest.startsWith("git/commits/")) return send(200, { sha: "c".repeat(40), tree: { sha: "t".repeat(40) } });
+      // The inline scratch tree reads back as nothing, so the verification
+      // falls back to blobs - the path that is certain to be correct.
+      if (rest === "git/trees" && req.method === "POST") return send(201, { sha: "s".repeat(40) });
+      if (rest.startsWith("git/trees/")) return send(200, { truncated: false, tree: [] });
+      if (rest === "git/blobs" && req.method === "POST") return send(201, { sha: "e".repeat(40) });
+      if (rest === "git/commits" && req.method === "POST") return send(201, { sha: "f".repeat(40) });
+      if (rest === "git/refs/heads%2Fmain" && req.method === "PATCH") return send(200, { object: { sha: "f".repeat(40) } });
+      if (rest === "issues" && req.method === "POST") {
+        return readBody((b) => {
+          if (issueStatus >= 300) return send(issueStatus, { message: "Issues are disabled for this repo" });
+          issues.push({ repo, ...b, assigned: null });
+          send(201, { number: issues.length, html_url: `https://github.com/TestOrg/${repo}/issues/${issues.length}` });
+        });
+      }
+      const asg = rest.match(/^issues\/(\d+)\/assignees$/);
+      if (asg && req.method === "POST") {
+        return readBody((b) => {
+          const issue = issues[Number(asg[1]) - 1];
+          const answer = assign ? assign(b.assignees) : { status: 201, assignees: b.assignees };
+          if (issue) issue.assigned = b.assignees;
+          send(answer.status, answer.status < 300
+            ? { number: Number(asg[1]), assignees: answer.assignees.map((login) => ({ login })) }
+            : { message: "Validation Failed" });
+        });
+      }
+    }
     return send(404, { message: `not stubbed: ${path}` });
   });
 
@@ -822,20 +860,95 @@ test("the workflow no longer commits the record in a later step", () => {
   assert.match(wf, /concurrency:\n\s+group: sync-starter-\$\{\{ inputs\.org \}\}-\$\{\{ inputs\.assignment_id \}\}\n\s+cancel-in-progress: false/);
 });
 
-test("a notification issue that could not be created is recorded, not just logged", () => {
+test("a notification issue that could not be created is recorded, not just logged", async () => {
   // The issue IS how a student learns a pull request is waiting. `if (ok)` with
   // no else left the row looking like a clean sync, and the record is what a
-  // lecturer reads to see who still needs a second look.
-  const src = readFileSync(join(here, "..", "scripts", "sync-starter.mjs"), "utf8");
-  const at = src.indexOf("issueRes.ok");
-  assert.ok(at > 0, "the issue creation must still be there");
-  const after = src.slice(at, at + 700);
-  assert.match(after, /else \{/, "a failed issue creation must have an else branch");
-  assert.match(after, /issue_error/, "and must record why on the row");
+  // lecturer reads to see who still needs a second look. Run, not grepped: a
+  // source match cannot tell the branch is reachable.
+  const issues = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    env: { CREATE_ISSUE: "true" }, behind: true, issues, issueStatus: 410,
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const row = res.record.results[0];
+  assert.equal(row.outcome, "auto-merged");
+  assert.match(row.issue_error, /^HTTP 410/);
+  assert.equal("issue_assignees" in row, false, "no issue, nothing to assign");
+  assert.equal(validateSyncRecord(res.record), true, JSON.stringify(validateSyncRecord.errors));
+});
 
-  const schema = JSON.parse(readFileSync(join(here, "..", "schemas", "sync-record.schema.json"), "utf8"));
-  assert.ok(
-    "issue_error" in schema.properties.results.items.properties,
-    "and the schema must permit it - results items are additionalProperties:false",
-  );
+// --- the tracking issue is ASSIGNED, so it is emailed ------------------------
+//
+// 2026-09-25: an unassigned issue emails only people who watch the repository,
+// and a lecturer who had accepted their own assignment got nothing.
+
+test("the issue is assigned to the student whose repository it is, and the record says so", async () => {
+  const issues = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice"), student("bob")]),
+    env: { CREATE_ISSUE: "true" }, behind: true, issues,
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.deepEqual(issues.map((i) => [i.repo, i.assigned]), [["exam-alice", ["alice"]], ["exam-bob", ["bob"]]]);
+  // Created WITHOUT assignees, then assigned: a bad assignee can never cost the issue.
+  assert.ok(issues.every((i) => !("assignees" in i)), "the create call carries no assignees");
+  for (const row of res.record.results) assert.deepEqual(row.issue_assignees, [row.github_login]);
+  assert.equal(validateSyncRecord(res.record), true, JSON.stringify(validateSyncRecord.errors));
+});
+
+test("a group repository's issue is assigned to every member, once", async () => {
+  const team = (login) => [`${login}.json`, JSON.stringify({ github_login: login, team_slug: "t1", repo_name: "TestOrg/exam-t1" })];
+  const issues = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([team("ann"), team("ben"), team("cas")]),
+    env: { CREATE_ISSUE: "true" }, behind: true, issues,
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  // The stub does not remember the first commit, so each member's record syncs
+  // the shared repository again; every issue it opens names the whole team,
+  // with the record's own member first.
+  assert.ok(issues.length >= 1);
+  assert.deepEqual([...issues[0].assigned].sort(), ["ann", "ben", "cas"]);
+  assert.equal(issues[0].assigned[0], "ann");
+});
+
+test("an account GitHub will not assign is left off, the issue stands, and the log says who", async () => {
+  const issues = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    env: { CREATE_ISSUE: "true" }, behind: true, issues,
+    // GitHub answers 201 and simply does not add an account without access.
+    assign: () => ({ status: 201, assignees: [] }),
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const row = res.record.results[0];
+  assert.ok(row.issue_url, "the issue exists");
+  assert.equal(row.issue_error, undefined);
+  assert.deepEqual(row.issue_assignees, []);
+  assert.match(res.stdout, /could not assign alice/);
+});
+
+test("the assign call failing outright is not a failed sync either", async () => {
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    env: { CREATE_ISSUE: "true" }, behind: true,
+    assign: () => ({ status: 422 }),
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const row = res.record.results[0];
+  assert.equal(row.outcome, "auto-merged");
+  assert.ok(row.issue_url);
+  assert.deepEqual(row.issue_assignees, []);
+  assert.match(res.stdout, /could not be assigned \(HTTP 422\)/);
+});
+
+test("with issues off, nobody is assigned anything", async () => {
+  const issues = [];
+  const requested = [];
+  const res = await runSyncStarter({ records: Object.fromEntries([student("alice")]), behind: true, issues, requested });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.equal(issues.length, 0);
+  assert.equal(requested.some((u) => u.includes("/assignees")), false);
+  assert.equal("issue_assignees" in res.record.results[0], false);
 });
