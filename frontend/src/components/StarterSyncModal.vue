@@ -263,21 +263,20 @@
              Starter code line takes over from there, and can reopen this.
              The words come from lib/sync-status.mjs `describeFollow`. -->
         <section v-else class="sync-section follow-panel" :data-state="followView?.state || 'starting'" aria-live="polite">
-          <h4 class="section-title">Syncing starter code</h4>
+          <h4 class="section-title">{{ followView?.done ? 'Starter code sync' : 'Syncing starter code' }}</h4>
           <p v-if="!followView" class="text-sm text-secondary">Checking the run…</p>
           <template v-else>
             <span class="status-indicator follow-headline">
               <span :class="['status-dot', followDot]"></span>
-              <strong>{{ followView.title }}</strong>
+              <!-- The sha in monospace (DESIGN.md §2), cut out of the sentence
+                   lib/sync-status.mjs wrote, never a second sentence. -->
+              <strong><template v-for="(part, i) in followTitleParts" :key="i"><code v-if="part.code">{{ part.text }}</code><template v-else>{{ part.text }}</template></template></strong>
             </span>
             <p v-if="followView.detail" class="text-sm text-secondary follow-detail">{{ followView.detail }}</p>
-            <div v-if="followView.progress && followView.progress.total" class="follow-progress">
-              <div class="progress-bar-container">
-                <div class="progress-bar-fill" :style="{ width: `${followPercent}%` }"></div>
-              </div>
-              <span class="text-xs text-muted">
-                {{ followView.progress.reached }} of {{ followView.progress.total }} students at the last count
-              </span>
+            <!-- While it runs only; the sentence above already carries the
+                 count, so the bar has no caption of its own. -->
+            <div v-if="!followView.done && followView.progress && followView.progress.total" class="progress-bar-container">
+              <div class="progress-bar-fill" :style="{ width: `${followPercent}%` }"></div>
             </div>
             <ul v-if="followView.failed.length" class="follow-failed text-sm">
               <li v-for="f in followView.failed" :key="f.login"><code>@{{ f.login }}</code>: {{ f.error }}</li>
@@ -779,6 +778,17 @@ const followDot = computed(() => ({
   success: 'dot-success', warning: 'dot-warning', danger: 'dot-danger', neutral: 'dot-neutral',
 })[followView.value?.tone] || 'dot-neutral')
 
+const followTitleParts = computed(() => {
+  const { title = '', commit = '' } = followView.value || {}
+  const at = commit ? title.indexOf(commit) : -1
+  if (at < 0) return [{ text: title }]
+  return [
+    { text: title.slice(0, at) },
+    { text: commit, code: true },
+    { text: title.slice(at + commit.length) },
+  ]
+})
+
 const followPercent = computed(() => {
   const p = followView.value?.progress
   return p?.total ? Math.round((p.reached / p.total) * 100) : 0
@@ -918,12 +928,6 @@ onUnmounted(() => {
   display: flex;
   gap: var(--space-md);
   flex-wrap: wrap;
-}
-
-.follow-progress {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
 }
 
 .follow-failed {

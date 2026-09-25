@@ -82,7 +82,8 @@ test.describe('82 - The sync dialog follows the run it started', () => {
     state.rec = record({ results: res(40) });
     await tick(page);
     await expect(panel(page)).toHaveAttribute('data-state', 'running');
-    await expect(panel(page)).toContainText('40 of 111 students at the last count');
+    await expect(panel(page)).toContainText('40 of 111 students done at the last count.');
+    await expect(panel(page).locator('.progress-bar-fill')).toBeVisible();
 
     state.run = { status: 'completed', conclusion: 'success' };
     state.rec = record({ status: 'completed', remaining: 0, results: [...res(43), ...Array.from({ length: 68 }, (_, i) => ({ github_login: `k${i}`, repo_name: `${ORG}/k${i}`, outcome: 'skipped-up-to-date' }))] });
@@ -90,6 +91,11 @@ test.describe('82 - The sync dialog follows the run it started', () => {
     await expect(panel(page)).toHaveAttribute('data-state', 'completed');
     await expect(panel(page)).toContainText('43 updated, 68 already had it.');
     await expect(panel(page)).toContainText('Finished checking at');
+    // The sync just watched, not "the last sync"; and no bar once it is over.
+    await expect(panel(page).locator('h4')).toHaveText('Starter code sync');
+    await expect(panel(page).locator('strong')).toHaveText(`The sync of ${SHA.slice(0, 7)} finished: all 111 students handled`);
+    await expect(panel(page).locator('strong code')).toHaveText(SHA.slice(0, 7));
+    await expect(panel(page).locator('.progress-bar-fill')).toHaveCount(0);
 
     const settled = state.calls;
     await page.clock.runFor(60_000);
@@ -179,7 +185,7 @@ test.describe('82 - The sync dialog follows the run it started', () => {
     const treesBefore = state.trees;
     await line.getByRole('button', { name: 'Follow' }).click();
     await expect(panel(page)).toHaveAttribute('data-state', 'running');
-    await expect(panel(page)).toContainText('12 of 111 students at the last count');
+    await expect(panel(page)).toContainText('12 of 111 students done at the last count.');
     expect(state.trees, 'following reads the run, not 111 repositories').toBe(treesBefore);
   });
 });

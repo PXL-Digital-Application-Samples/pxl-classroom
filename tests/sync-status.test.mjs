@@ -224,6 +224,8 @@ test("FOLLOW: progress while running, and done when the record closes", () => {
 
   const closed = describeFollow({ run: { status: "completed", conclusion: "success" }, record: record() });
   assert.equal(closed.state, "completed");
+  // The sync just watched - not "Last sync", the status line's word.
+  assert.equal(closed.title, "The sync of aaaaaaa finished: all 3 students handled");
   assert.equal(closed.done, true);
   assert.deepEqual(closed.progress, { reached: 3, total: 3 });
 
