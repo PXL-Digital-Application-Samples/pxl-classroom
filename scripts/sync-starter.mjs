@@ -23,6 +23,7 @@ import {
   summarize,
   syncMarker,
   findExistingSyncPr,
+  readTemplateCommit,
 } from "../lib/starter-sync.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -36,6 +37,8 @@ const cfg = {
   prBody: env("PR_BODY", ""),
   createIssue: env("CREATE_ISSUE", "true") === "true",
   actor: env("ACTOR", "lecturer"),
+  // Blank syncs the template's newest commit.
+  templateCommit: env("TEMPLATE_COMMIT", ""),
 };
 
 function sleep(ms) {
@@ -99,15 +102,32 @@ async function main() {
   const templateFullName = `${tplOwner}/${tplRepo}`;
   console.log(`[sync] Template repository: ${templateFullName}`);
 
-  // 2. The commit being synced, and the one before it.
-  const tplCommits = await gh("GET", `/repos/${templateFullName}/commits?per_page=1`, null, { token: cfg.token });
-  if (!tplCommits.ok || !tplCommits.data?.[0]) {
-    throw new Error(`Could not fetch commits from template ${templateFullName} (HTTP ${tplCommits.status})`);
+  // 2. The commit being synced, and the one before it. The newest, unless the
+  //    lecturer named one (lib/starter-sync.mjs `readTemplateCommit` says why).
+  const chosen = readTemplateCommit(cfg.templateCommit);
+  if (chosen && typeof chosen === "object") throw new Error(chosen.error);
+
+  let requestedSha = chosen;
+  if (!requestedSha) {
+    const tplCommits = await gh("GET", `/repos/${templateFullName}/commits?per_page=1`, null, { token: cfg.token });
+    if (!tplCommits.ok || !tplCommits.data?.[0]) {
+      throw new Error(`Could not fetch commits from template ${templateFullName} (HTTP ${tplCommits.status})`);
+    }
+    requestedSha = tplCommits.data[0].sha;
   }
 
-  const templateSha = tplCommits.data[0].sha;
-  const detail = await gh("GET", `/repos/${templateFullName}/commits/${templateSha}`, null, { token: cfg.token });
-  if (!detail.ok) throw new Error(`Could not read template commit ${templateSha.slice(0, 7)} (HTTP ${detail.status})`);
+  const detail = await gh("GET", `/repos/${templateFullName}/commits/${requestedSha}`, null, { token: cfg.token });
+  if (!detail.ok) {
+    throw new Error(
+      chosen
+        ? `Template ${templateFullName} has no commit ${chosen} (HTTP ${detail.status}) - check the sha on the template's commit list`
+        : `Could not read template commit ${requestedSha.slice(0, 7)} (HTTP ${detail.status})`,
+    );
+  }
+  // The FULL sha from here on, whatever length was typed: the pull request
+  // marker and the record key on it.
+  const templateSha = detail.data.sha;
+  if (chosen) console.log(`[sync] Syncing the named commit ${templateSha.slice(0, 7)}, not the newest.`);
 
   const commitMsgTitle = (detail.data.commit?.message || "").split("\n")[0] || "Update starter code";
   const parentSha = detail.data.parents?.[0]?.sha || null;
@@ -210,9 +230,14 @@ async function main() {
       row.outcome = outcome;
       row.files_merged = plan.clean.length;
       row.files_conflicted = plan.conflicts.length;
+      if (plan.kept.length) row.files_kept = plan.kept.length;
 
       if (outcome === "skipped-up-to-date") {
-        console.log(`[skip] ${login}: already has every selected change`);
+        console.log(
+          plan.kept.length
+            ? `[skip] ${login}: already has every selected change (${plan.kept.length} added file(s) already theirs, left alone)`
+            : `[skip] ${login}: already has every selected change`,
+        );
         results.push(row);
         await sleep(200);
         continue;

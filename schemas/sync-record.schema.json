@@ -146,6 +146,11 @@
             "minimum": 0,
             "description": "Files the student had changed, offered as a pull request instead."
           },
+          "files_kept": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Files this commit ADDS that the student already has with other content - received earlier and worked in since - left alone rather than offered back as the starter version (lib/starter-sync.mjs `kept`)."
+          },
           "commit_sha": {
             "type": [
               "string",

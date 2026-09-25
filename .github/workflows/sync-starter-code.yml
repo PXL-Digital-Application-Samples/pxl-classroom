@@ -30,6 +30,11 @@ on:
         required: false
         type: boolean
         default: true
+      template_commit:
+        description: "Template commit to sync (sha, e.g. 1e7f714). Empty = the newest commit."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -118,6 +123,7 @@ jobs:
           PR_TITLE: ${{ inputs.pr_title }}
           PR_BODY: ${{ inputs.pr_body }}
           CREATE_ISSUE: ${{ inputs.create_issue }}
+          TEMPLATE_COMMIT: ${{ inputs.template_commit }}
           ACTOR: ${{ github.actor }}
         run: |
           node scripts/sync-starter.mjs

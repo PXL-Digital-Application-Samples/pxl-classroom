@@ -33,6 +33,7 @@ import {
   summarize,
   syncMarker,
   findExistingSyncPr,
+  readTemplateCommit,
 } from "../lib/starter-sync.mjs";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -301,11 +302,25 @@ test("added, deleted and renamed paths are planned correctly", () => {
   ]);
   assert.deepEqual(plan.conflicts, []);
 
-  // A student who wrote their own file at the path the template is adding must
-  // not have it silently overwritten.
+  // A student who already has a file at the path the template is adding must
+  // not have it overwritten - and is not offered a pull request resetting it
+  // either. The ordinary way to be here is to have RECEIVED it (an earlier
+  // sync that got that far, or a repository generated after the commit) and
+  // worked in it since; a pull request would offer to undo that work. It is
+  // theirs, and counted as kept (2026-09-25, lab 3 re-sent to 43 students of
+  // .NET Advanced while 68 already had it).
   const collides = new Map([["new.py", "student-wrote-this"]]);
   const plan2 = planStarterSync({ headTree, baseTree, studentTree: collides, paths: ["new.py"] });
-  assert.deepEqual(plan2.conflicts, [{ path: "new.py", action: "write" }]);
+  assert.deepEqual(plan2.clean, [], "never overwritten");
+  assert.deepEqual(plan2.conflicts, [], "and not offered back as the starter version");
+  assert.deepEqual(plan2.kept, ["new.py"]);
+  assert.equal(outcomeFor(plan2), "skipped-up-to-date");
+  // Modified or deleted by the commit is still the student's edit against
+  // what they were given, and still a pull request.
+  const edited = new Map([["gone.py", "student-changed-this"]]);
+  const plan4 = planStarterSync({ headTree, baseTree, studentTree: edited, paths: ["gone.py"] });
+  assert.deepEqual(plan4.conflicts, [{ path: "gone.py", action: "delete" }]);
+  assert.deepEqual(plan4.kept, []);
 
   // A file the commit deletes that this student never had is nothing to do,
   // not a deletion to apply.
@@ -441,7 +456,7 @@ test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself"
 // so this drives the path that writes nothing: a student whose tree already
 // carries the head blob is `skipped-up-to-date`.
 
-function runSyncStarter({ records }) {
+function runSyncStarter({ records, env: extraEnv = {}, requested = [] }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-sync-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(
@@ -462,8 +477,12 @@ function runSyncStarter({ records }) {
       res.writeHead(code, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
+    requested.push(req.url);
     if (path === "/repos/TestOrg/tpl/commits") return send(200, [{ sha: HEAD_SHA }]);
-    if (path === `/repos/TestOrg/tpl/commits/${HEAD_SHA}`) {
+    // GitHub resolves an abbreviated sha to the commit, as this does: any
+    // prefix of HEAD_SHA of at least 7 characters.
+    const named = path.match(/^\/repos\/TestOrg\/tpl\/commits\/([0-9a-f]{7,40})$/);
+    if (named && HEAD_SHA.startsWith(named[1])) {
       return send(200, {
         sha: HEAD_SHA,
         commit: { message: "Fix a typo in the brief" },
@@ -495,6 +514,7 @@ function runSyncStarter({ records }) {
           ASSIGNMENT_ID: "exam",
           DATA_DIR: dir,
           CREATE_ISSUE: "false",
+          ...extraEnv,
         },
       });
       let stdout = "";
@@ -561,6 +581,121 @@ test("the sync record still validates with a failed row in it", () => {
     ],
   };
   assert.equal(validateSyncRecord(doc), true, JSON.stringify(validateSyncRecord.errors));
+});
+
+// -----------------------------------------------------------------------------
+// Syncing a NAMED commit, not the newest
+//
+// 2026-09-25, PXL-2TIN-NetAdv-26-27: the lab 3 sync (81 added files) reached 31
+// of 111 students before the job timed out, and lab 4 was synced over it. A
+// sync only ever took the newest commit, so nothing could send lab 3 to the
+// other 43 again.
+// -----------------------------------------------------------------------------
+
+test("readTemplateCommit takes a hex sha and nothing that could move", () => {
+  assert.equal(readTemplateCommit(""), null);
+  assert.equal(readTemplateCommit("   "), null);
+  assert.equal(readTemplateCommit(undefined), null);
+  assert.equal(readTemplateCommit("1e7f714"), "1e7f714");
+  assert.equal(readTemplateCommit(" 1E7F714 "), "1e7f714");
+  assert.equal(readTemplateCommit("a".repeat(40)), "a".repeat(40));
+  // A branch or tag would resolve too, and move under the lecturer.
+  for (const bad of ["main", "v1.0", "1e7f71", "a".repeat(41), "1e7f714; rm -rf /", "HEAD~1", "1e7f71g"]) {
+    assert.match(readTemplateCommit(bad).error, /not a commit sha/, bad);
+  }
+});
+
+test("THE LAB 3 RE-SYNC: the 43 get every file, the 68 are skipped, an edit is kept", () => {
+  // lab 2 (base) -> lab 3 adds three files (head). Lab 4 came after and is
+  // irrelevant here: it touched none of lab 3's paths.
+  const baseTree = new Map([["Lab02/Program.cs", "l2"]]);
+  const headTree = new Map([
+    ["Lab02/Program.cs", "l2"],
+    ["Lab03/Program.cs", "l3a"],
+    ["Lab03/Tests.cs", "l3b"],
+    ["Lab03/Lab03.csproj", "l3c"],
+  ]);
+  const paths = ["Lab03/Program.cs", "Lab03/Tests.cs", "Lab03/Lab03.csproj"];
+  const lab4 = [["Lab04/Program.cs", "l4"]];
+
+  // Missed lab 3, got lab 4, has edited lab 2.
+  const missed = new Map([["Lab02/Program.cs", "their-lab2"], ...lab4]);
+  const p1 = planStarterSync({ headTree, baseTree, studentTree: missed, paths });
+  assert.deepEqual(p1.clean.map((c) => c.path), paths);
+  assert.equal(outcomeFor(p1), "auto-merged");
+
+  // Got lab 3 this morning, untouched.
+  const got = new Map([...headTree, ...lab4]);
+  const p2 = planStarterSync({ headTree, baseTree, studentTree: got, paths });
+  assert.equal(outcomeFor(p2), "skipped-up-to-date");
+  assert.deepEqual(p2.kept, []);
+
+  // Got lab 3 and has already worked in Program.cs.
+  const working = new Map([...headTree, ["Lab03/Program.cs", "their-lab3"], ...lab4]);
+  const p3 = planStarterSync({ headTree, baseTree, studentTree: working, paths });
+  assert.equal(outcomeFor(p3), "skipped-up-to-date", "no pull request offering to reset their work");
+  assert.deepEqual(p3.kept, ["Lab03/Program.cs"]);
+  assert.deepEqual(p3.conflicts, []);
+});
+
+test("the script syncs the NAMED commit and never asks for the newest", async () => {
+  const requested = [];
+  const res = await runSyncStarter({
+    records: { "alice.json": JSON.stringify({ github_login: "alice", repo_name: "TestOrg/exam-alice" }) },
+    env: { TEMPLATE_COMMIT: "aaaaaaa" },
+    requested,
+  });
+  assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
+  assert.match(res.stdout, /Syncing the named commit aaaaaaa, not the newest/);
+  assert.equal(requested.some((u) => u.startsWith("/repos/TestOrg/tpl/commits?")), false, requested.join("\n"));
+  assert.ok(requested.includes("/repos/TestOrg/tpl/commits/aaaaaaa"));
+  // Recorded under the FULL sha, which is what the pull request marker keys on.
+  assert.equal(res.record.template_sha, "a".repeat(40));
+});
+
+test("blank still means the newest commit", async () => {
+  const requested = [];
+  const res = await runSyncStarter({
+    records: { "alice.json": JSON.stringify({ github_login: "alice", repo_name: "TestOrg/exam-alice" }) },
+    env: { TEMPLATE_COMMIT: "" },
+    requested,
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(requested.some((u) => u.startsWith("/repos/TestOrg/tpl/commits?per_page=1")));
+});
+
+test("a sha that is not in the template stops the run before any student is touched", async () => {
+  const requested = [];
+  const res = await runSyncStarter({
+    records: { "alice.json": JSON.stringify({ github_login: "alice", repo_name: "TestOrg/exam-alice" }) },
+    env: { TEMPLATE_COMMIT: "bbbbbbb" },
+    requested,
+  });
+  assert.notEqual(res.status, 0);
+  assert.match(res.stdout + res.stderr, /has no commit bbbbbbb/);
+  assert.equal(requested.some((u) => u.includes("exam-alice")), false, "no student repository was read");
+  assert.equal(res.record, null);
+});
+
+test("something that is not a sha is refused without asking GitHub anything", async () => {
+  const requested = [];
+  const res = await runSyncStarter({
+    records: { "alice.json": JSON.stringify({ github_login: "alice", repo_name: "TestOrg/exam-alice" }) },
+    env: { TEMPLATE_COMMIT: "main" },
+    requested,
+  });
+  assert.notEqual(res.status, 0);
+  assert.match(res.stdout + res.stderr, /not a commit sha/);
+  assert.equal(requested.some((u) => u.includes("/commits")), false, requested.join("\n"));
+});
+
+test("the workflow passes the field through env, and the record permits files_kept", () => {
+  const wf = readFileSync(join(here, "..", ".github", "workflows", "sync-starter-code.yml"), "utf8");
+  assert.match(wf, /template_commit:\n\s+description:/);
+  assert.match(wf, /TEMPLATE_COMMIT: \$\{\{ inputs\.template_commit \}\}/);
+  assert.equal(/node scripts\/sync-starter\.mjs[^\n]*inputs\./.test(wf), false, "never composed into the script");
+  const schema = JSON.parse(readFileSync(join(here, "..", "schemas", "sync-record.schema.json"), "utf8"));
+  assert.ok("files_kept" in schema.properties.results.items.properties);
 });
 
 test("a notification issue that could not be created is recorded, not just logged", () => {

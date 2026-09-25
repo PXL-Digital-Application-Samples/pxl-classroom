@@ -1064,6 +1064,17 @@ pxl-classroom sync-starter --assignment linux-processes-2026 \
 - **Re-running is safe.** A second run of the same sync skips students who already have the change and reuses the pull request it already opened, rather than adding another.
 - `--dry-run` reads only. No commits, no branches, no pull requests, no issues.
 - **Audit Records:** Complete execution summaries are stored in the control repo at `syncs/<assignment-id>/<sync-id>.json`.
+- **A file the commit adds that a student already has is left alone** and counted as `files_kept` on their row. They received it earlier and have worked in it, so it is theirs; they are not offered a pull request resetting it.
+
+#### A sync that stopped part-way, after a newer commit was pushed
+
+A sync sends what ONE template commit changed, and the dialog always takes the newest. If a sync stopped before reaching every student (its run on the hub's Actions tab reads **cancelled**, and the students after a point in the alphabet are missing the files) and you have pushed another commit since, that earlier commit has to be named:
+
+1. On the template repository's commit list, copy the short sha of the commit that did not reach everyone (e.g. `1e7f714`).
+2. In `PXL-Digital-Application-Samples/pxl-classroom` -> **Actions** -> **Sync Starter Code** -> **Run workflow**, fill in **Organization**, **Assignment ID**, and **Template commit** with that sha. Leave the rest as it is; untick *Open tracking issue* if the students should not be emailed.
+3. Students who already have it are skipped, including those who have edited it since. Only the ones who missed it receive a commit and, if ticked, an issue.
+
+CLI: `pxl-classroom sync-starter --assignment <id> --commit 1e7f714`.
 
 ### 6.14 Pre-Flight Diagnostics, System Health & 1-Click Auto-Fixes
 

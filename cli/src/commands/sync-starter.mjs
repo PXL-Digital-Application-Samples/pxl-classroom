@@ -23,6 +23,7 @@ import {
   outcomeFor,
   syncMarker,
   findExistingSyncPr,
+  readTemplateCommit,
 } from "../../../lib/starter-sync.mjs";
 
 const CONCURRENCY = 4;
@@ -69,6 +70,7 @@ export function registerSyncStarterCommand(program) {
     .option("--issue", "Create tracking issue in student repositories", true)
     .option("--no-issue", "Do not create tracking issues")
     .option("--dry-run", "Preview which student repos would be updated in place vs get a PR", false)
+    .option("--commit <sha>", "Sync this template commit instead of the newest (7-40 hex characters)")
     .action(async (opts) => {
       const org = resolveOrg(opts.org);
       const octokit = makeOctokit();
@@ -84,24 +86,37 @@ export function registerSyncStarterCommand(program) {
 
       process.stdout.write(`Template repository: ${tplOwner}/${tplRepo}\n`);
 
-      // 1. The commit being synced, and the one before it.
-      const { data: tplCommits } = await octokit.rest.repos.listCommits({
-        owner: tplOwner,
-        repo: tplRepo,
-        per_page: 1,
-      });
-
-      if (!tplCommits || tplCommits.length === 0) {
-        process.stderr.write(`No commits found on template repository ${tplOwner}/${tplRepo}.\n`);
+      // 1. The commit being synced, and the one before it. The newest unless
+      //    --commit names one (lib/starter-sync.mjs `readTemplateCommit`).
+      const chosen = readTemplateCommit(opts.commit);
+      if (chosen && typeof chosen === "object") {
+        process.stderr.write(`${chosen.error}\n`);
         process.exit(1);
       }
+      let requestedSha = chosen;
+      if (!requestedSha) {
+        const { data: tplCommits } = await octokit.rest.repos.listCommits({
+          owner: tplOwner,
+          repo: tplRepo,
+          per_page: 1,
+        });
+        if (!tplCommits || tplCommits.length === 0) {
+          process.stderr.write(`No commits found on template repository ${tplOwner}/${tplRepo}.\n`);
+          process.exit(1);
+        }
+        requestedSha = tplCommits[0].sha;
+      }
 
-      const templateSha = tplCommits[0].sha;
-      const { data: detail } = await octokit.rest.repos.getCommit({
-        owner: tplOwner,
-        repo: tplRepo,
-        ref: templateSha,
-      });
+      let detail;
+      try {
+        ({ data: detail } = await octokit.rest.repos.getCommit({ owner: tplOwner, repo: tplRepo, ref: requestedSha }));
+      } catch (e) {
+        if (!chosen) throw e;
+        process.stderr.write(`Template ${tplOwner}/${tplRepo} has no commit ${chosen} (HTTP ${e.status}).\n`);
+        process.exit(1);
+      }
+      // The full sha whatever was typed: the PR marker and the record key on it.
+      const templateSha = detail.sha;
 
       const commitHeadline = (detail.commit?.message || "").split("\n")[0] || "Update starter code";
       const parentSha = detail.parents?.[0]?.sha || null;

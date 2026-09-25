@@ -501,6 +501,7 @@ export type SyncRecord = {
     outcome?: "auto-merged" | "pr-opened" | "merged-and-pr" | "skipped-up-to-date" | "skipped-no-repo" | "failed";
     files_merged?: number;
     files_conflicted?: number;
+    files_kept?: number;
     commit_sha?: string;
     pr_number?: number;
     pr_url?: string;
