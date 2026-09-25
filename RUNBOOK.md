@@ -1070,7 +1070,7 @@ Run it again. Each student is sent what they are missing from where they are, so
 
 #### Syncing up to a commit that is not the newest
 
-When the template already holds something students must not have yet (next week's lab), name the commit to sync up to: `PXL-Digital-Application-Samples/pxl-classroom` -> **Actions** -> **Sync Starter Code** -> **Run workflow**, with **Organization**, **Assignment ID**, and **Template commit** set to its short sha from the template's commit list (e.g. `1e7f714`). Students are still brought up from their own starting point, to that commit and no further. Untick *Open tracking issue* if the students should not be emailed.
+When the template already holds something students must not have yet (next week's lab), name the commit to sync up to: `PXL-Digital-Application-Samples/pxl-classroom` -> **Actions** -> **Sync Starter Code** -> **Run workflow**, with **Organization**, **Assignment ID**, and **Template commit** set to its short sha from the template's commit list (e.g. `1e7f714`). Students are still brought up from their own starting point, to that commit and no further; a student who is already past it (their repository was created later) is sent nothing, never taken back. Untick *Open tracking issue* if the students should not be emailed.
 
 CLI: `pxl-classroom sync-starter --assignment <id> --commit 1e7f714`.
 

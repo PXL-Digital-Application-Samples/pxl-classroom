@@ -315,6 +315,48 @@ test("a starting commit the template no longer holds falls back to the old behav
   assert.deepEqual(res.plan.clean.map((c) => c.path), ["Lab04/Program.cs"]);
 });
 
+test("A SYNC NEVER MOVES A STUDENT BACKWARDS: syncing to an older commit sends a later starter nothing", async () => {
+  // A lecturer names lab 3 (`template_commit`) while a student was generated
+  // at lab 4. Their range would run lab 4 -> lab 3: Lab04/Program.cs is in the
+  // start and not the target, untouched, so it would be a CLEAN DELETE. On
+  // 2026-09-25 that is 37 students of .NET Advanced losing lab 4.
+  const { get } = fakeGitHub({ roots: { "labs-hal": "tree-4" }, commitCounts: { "labs-hal": 4 } });
+  const res = await planStudent({
+    login: "hal", studentTree: TREES[LAB4], readTree: treeReader(get), root: () => rootTreeSha(get, "Org/labs-hal", "main"),
+    templateFullName: "Org/tpl", headSha: LAB3, headTree: TREES[LAB3], templateCommits: COMMITS,
+    records: [], fallbackSha: LAB2, selected: ["*"],
+  });
+  assert.equal(res.from, LAB4);
+  assert.deepEqual(res.paths, [], "nothing is in range");
+  assert.deepEqual(res.plan.clean, [], "and above all, nothing is deleted");
+  assert.equal(outcomeFor(res.plan), "skipped-up-to-date");
+
+  // The same from a RECORD: synced to lab 4, then a sync named lab 3.
+  const records = [record({ template_sha: LAB4 }, [row("ivy")])];
+  const viaRecord = await planStudent({
+    login: "ivy", studentTree: TREES[LAB4], readTree: treeReader(get), root: async () => null,
+    templateFullName: "Org/tpl", headSha: LAB3, headTree: TREES[LAB3], templateCommits: COMMITS,
+    records, fallbackSha: LAB2, selected: ["*"],
+  });
+  assert.deepEqual(viaRecord.plan.clean, []);
+});
+
+test("an order that cannot be established falls back to the old behaviour, never a guess", async () => {
+  // The start is not in the template's listed history (a record older than
+  // the 1,000 commits listed, or the listing failed): which way the range runs
+  // is unknown, so it is not run at all.
+  const { get } = fakeGitHub({});
+  const records = [record({ template_sha: LAB4 }, [row("jo")])];
+  const res = await planStudent({
+    login: "jo", studentTree: TREES[LAB3], readTree: treeReader(get), root: async () => null,
+    templateFullName: "Org/tpl", headSha: LAB3, headTree: TREES[LAB3], templateCommits: [],
+    records, fallbackSha: LAB2, selected: ["*"],
+  });
+  assert.equal(res.source, "unknown");
+  assert.equal(res.from, LAB2);
+  assert.deepEqual(res.plan.clean, [], "lab 3 is already there - and lab 4 was never a candidate for deletion");
+});
+
 test("a template file DELETED since their start is removed if untouched, offered if edited", async () => {
   const LAB5 = sha("5");
   TREES[LAB5] = new Map([...TREES[LAB4]].filter(([p]) => p !== "Lab02/Program.cs"));

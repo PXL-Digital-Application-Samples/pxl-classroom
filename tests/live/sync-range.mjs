@@ -20,6 +20,7 @@
 //                arrives, and the record says `all_files: false`.
 //   4 not lost   a plain sync. Round 3 left something out, so it is not
 //                evidence: starts are lab 5 again, and B.cs arrives.
+//   5 backwards  everyone holds lab 6; a sync NAMING lab 5 takes nothing away.
 //
 // Every fixture is reset each run and the probe's earlier sync records are
 // cleared, so the run is repeatable. The probe assignment is a draft. No issue
@@ -244,6 +245,20 @@ async function main() {
   for (const who of ["early", "late", "edited"]) {
     expectRow("4 not lost", r4, who, { outcome: "auto-merged", merged: 1, from: c5, source: "synced" });
     await expectFiles("4 not lost", who, LAB[6]);
+  }
+
+  // --- 5: never backwards ---------------------------------------------------------
+  // Everyone holds lab 6. Syncing to lab 5 by name must take nothing away -
+  // a range run backwards would delete every lab 6 file as "untouched".
+  const beforeBack = {};
+  for (const who of Object.keys(STUDENTS)) beforeBack[who] = await treeOf(STUDENTS[who]);
+  const r5 = await syncAndWait("5 never backwards", { template_commit: c5.slice(0, 7) });
+  for (const who of Object.keys(STUDENTS)) {
+    expectRow("5 never backwards", r5, who, { outcome: "skipped-up-to-date" });
+    const now = await treeOf(STUDENTS[who]);
+    const same = now.size === beforeBack[who].size && [...beforeBack[who]].every(([p, s]) => now.get(p) === s);
+    if (same) r.ok(`5 never backwards: ${who} lost nothing (${now.size} files)`);
+    else r.bad(`5 never backwards: ${who} changed - ${beforeBack[who].size} -> ${now.size} files`);
   }
 
   console.log(`\n${r.failures() ? `${r.failures()} FAILED` : "all good"}\n`);
