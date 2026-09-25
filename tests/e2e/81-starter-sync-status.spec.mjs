@@ -107,7 +107,9 @@ test.describe('81 - The assignment page says where the last starter sync stands'
     });
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(line(page)).toHaveAttribute('data-state', 'died');
-    await expect(line(page)).toContainText('ended (cancelled) before it finished');
+    await expect(line(page)).toContainText('was cancelled before it finished');
+    // The sha is set in monospace (DESIGN.md §2).
+    await expect(line(page).locator('strong code')).toHaveText('aaaaaaa');
     await expect(line(page)).toContainText('31 of 111 students reached');
     await expect(line(page).getByRole('link', { name: 'View run' })).toHaveAttribute('href', 'https://github.com/Hub/pxl-classroom/actions/runs/777');
     await expect(line(page).locator('.status-dot.dot-warning')).toBeVisible();
@@ -120,7 +122,7 @@ test.describe('81 - The assignment page says where the last starter sync stands'
     });
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(line(page)).toHaveAttribute('data-state', 'running');
-    await expect(line(page)).toContainText('0 of 111 students done so far.');
+    await expect(line(page)).toContainText('0 of 111 students done at the last count.');
     expect(calls.runs).toBe(1);
     await page.waitForTimeout(1500);
     expect(calls.runs, 'no polling').toBe(1);

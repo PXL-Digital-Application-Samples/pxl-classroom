@@ -475,7 +475,7 @@ excluded, or everything looks styled). What it found:
 | Why it needs no rule | Examples |
 | :--- | :--- |
 | A scoped rule styles the **tag** | `.advanced` on `<details>`, `.col-ci`/`.col-score` on `<th>`/`<td>` |
-| The **element default** is the intent | `.team-name` on `<strong>`, `.file-path` on `<code>` |
+| The **element default** is the intent | `.team-name` on `<strong>` |
 | A **sibling** does the work | `.org-item-text` - `.org-dropdown-item` is flex and `.check-icon` carries `margin-left: auto` |
 | An **ancestor** sets it | `.deadline` inherits size and colour from `.assignment-list .meta` |
 | It carries an **inline style** | `.template-preflight-badge`, `.diff-patch-view-container` |
@@ -489,7 +489,9 @@ worded as *needs a reason*, not *is broken*.
 
 The app declares **no `code` or `pre` rule anywhere**, so every `<code>` renders
 at the browser default. That is consistent rather than accidental, and changing
-it is a decision about type in §2 - not about `.file-path`.
+it is a decision about type in §2. (`.file-path` came off the list on
+2026-09-25: the sync dialog's catch-up rows ellipsise a long path, which is a
+layout rule, not a type one.)
 
 Global vocabulary now includes:
 

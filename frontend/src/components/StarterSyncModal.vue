@@ -60,9 +60,8 @@
                 <div
                   v-for="file in templateFiles"
                   :key="file.filename"
-                  class="file-row-box card"
+                  class="file-row-box"
                   :class="{ selected: file.selected }"
-                  style="padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-default);"
                 >
                   <div class="file-row flex items-center justify-between">
                     <label class="flex items-center gap-sm" style="cursor: pointer; margin: 0;">
@@ -106,9 +105,8 @@
                   <div
                     v-for="file in catchUpFiles"
                     :key="file.filename"
-                    class="file-row-box card"
+                    class="file-row-box"
                     :class="{ selected: file.selected }"
-                    style="padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-default);"
                   >
                     <div class="file-row flex items-center justify-between">
                       <label class="flex items-center gap-sm catch-up-path" style="cursor: pointer; margin: 0;">
@@ -702,6 +700,18 @@ onMounted(() => {
   width: 95vw;
 }
 
+/* A file row is a tonal step, not a box (DESIGN.md §1.1). It sat, outlined,
+   in an outlined scroller in an outlined section in the modal - four boxes.
+   The scroller is now a borderless --bg-canvas well and each row a
+   --bg-surface step up out of it; that pair differs in BOTH themes, where
+   --bg-inset would have been #0d1117 on #0d1117 in dark. Was an inline style
+   on each row, and `.card` besides. */
+.file-row-box {
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+}
+
 .catch-up-head {
   display: block;
   margin: var(--space-sm) 0 var(--space-xs);
@@ -757,7 +767,6 @@ onMounted(() => {
 .file-list-scrollable {
   max-height: 140px;
   overflow-y: auto;
-  border: 1px solid var(--border-muted);
   border-radius: var(--radius-sm);
   padding: var(--space-xs);
   background: var(--bg-canvas);

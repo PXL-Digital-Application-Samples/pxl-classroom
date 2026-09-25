@@ -101,13 +101,23 @@ test("RUNNING and its run is going: progress, and a manual check - never a timer
   assert.equal(v.tone, "neutral");
   assert.equal(v.action, "refresh");
   assert.equal(v.title, "Syncing aaaaaaa by @wesleyhendrikx");
-  assert.equal(v.detail, "40 of 111 students done so far.");
+  // As of the record's last write - every 20 students - not live.
+  assert.equal(v.detail, "40 of 111 students done at the last count.");
   assert.equal(v.runUrl, "https://github.com/Hub/pxl-classroom/actions/runs/36152850724");
 });
 
 test("RUNNING in the record but the run is OVER: it died, and the lecturer is told to run it again", () => {
   // The exact state .NET Advanced was left in: cut off, nothing recorded after.
-  for (const conclusion of ["cancelled", "failure", "timed_out"]) {
+  // GitHub's conclusion is never printed as-is (DESIGN.md §1.7): `timed_out`
+  // on screen is machine output. An unknown one falls back to itself.
+  const said = {
+    cancelled: "was cancelled before it finished",
+    failure: "failed before it finished",
+    timed_out: "timed out before it finished",
+    success: "finished, but its record was not closed",
+    stale: "ended (stale) before it finished",
+  };
+  for (const [conclusion, words] of Object.entries(said)) {
     const v = describeSyncStatus({
       record: record({ status: "running", total_students: 111, results: Array.from({ length: 31 }, (_, i) => res(`s${i}`, "auto-merged")) }),
       run: { status: "completed", conclusion },
@@ -115,9 +125,16 @@ test("RUNNING in the record but the run is OVER: it died, and the lecturer is to
     assert.equal(v.state, "died", conclusion);
     assert.equal(v.tone, "warning");
     assert.equal(v.action, "sync-again");
-    assert.equal(v.title, `The sync of aaaaaaa by @wesleyhendrikx ended (${conclusion}) before it finished`);
+    assert.equal(v.title, `The sync of aaaaaaa by @wesleyhendrikx ${words}`);
+    assert.doesNotMatch(v.title, /_/, "no machine word reaches the screen");
     assert.match(v.detail, /^31 of 111 students reached\. Run the sync again/);
   }
+});
+
+test("the title names its commit so a surface can set it in monospace", () => {
+  const v = describeSyncStatus({ record: record(), templateHeadSha: HEAD });
+  assert.equal(v.commit, "aaaaaaa");
+  assert.ok(v.title.includes(v.commit));
 });
 
 test("RUNNING and its run could not be read: unknown, never 'still going'", () => {

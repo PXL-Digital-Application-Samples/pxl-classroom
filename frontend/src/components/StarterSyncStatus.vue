@@ -6,7 +6,9 @@
   <section v-if="view" :class="['sync-status', 'diag-banner', `tone-${view.tone}`]" :data-state="view.state" aria-live="polite">
     <span :class="['status-dot', dotClass]"></span>
     <div class="sync-status-body">
-      <strong>Starter code: {{ view.title }}</strong>
+      <!-- The sha in monospace (DESIGN.md §2), split out of the sentence the
+           library wrote rather than a second sentence composed here. -->
+      <strong>Starter code: <template v-for="(part, i) in titleParts" :key="i"><code v-if="part.code">{{ part.text }}</code><template v-else>{{ part.text }}</template></template></strong>
       <p v-if="view.detail" class="text-muted text-sm">{{ view.detail }}</p>
       <ul v-if="view.failed.length" class="sync-status-failed text-sm">
         <li v-for="f in view.failed" :key="f.login"><code>@{{ f.login }}</code>: {{ f.error }}</li>
@@ -66,6 +68,17 @@ const unreadable = ref(false)
 const loading = ref(false)
 let generation = 0
 
+const titleParts = computed(() => {
+  const { title = '', commit = '' } = view.value || {}
+  const at = commit ? title.indexOf(commit) : -1
+  if (at < 0) return [{ text: title }]
+  return [
+    { text: title.slice(0, at) },
+    { text: commit, code: true },
+    { text: title.slice(at + commit.length) },
+  ]
+})
+
 const dotClass = computed(() => ({
   success: 'dot-success',
   warning: 'dot-warning',
@@ -123,22 +136,21 @@ defineExpose({ load })
 </script>
 
 <style scoped>
+/* A tonal step off the canvas, no outline (DESIGN.md §1.1): --bg-surface sits
+   above --bg-canvas in both themes, like the summary cards over it. */
 .sync-status {
   margin-bottom: var(--space-md);
-  border: 1px solid var(--border-default);
   background: var(--bg-surface);
 }
 
-/* Needs a look: tinted like the rejections notice beside it. A quiet state
-   stays a plain surface - a success is not news. */
+/* Needs a look: tinted like the rejections notice. A quiet state stays a
+   plain surface - a success is not news. */
 .sync-status.tone-warning {
   background: var(--tint-attention-subtle);
-  border-color: var(--tint-attention-muted);
 }
 
 .sync-status.tone-danger {
   background: var(--tint-danger-subtle);
-  border-color: var(--tint-danger-muted);
 }
 
 /* Level with the first line of text, not the top of the box. */
