@@ -1026,15 +1026,13 @@ A run that finished with no such annotation is recorded from the run's conclusio
 
 ### 6.13 Correcting an assignment after students have accepted
 
-Spotted a mistake in the assignment? Fix it in the **template repository**, commit, and push. The sync distributes **that commit**.
+Spotted a mistake in the assignment, or publishing the next lab? Change the **template repository**, commit, and push. The sync brings **every student from where they are up to your latest template commit**: a student who missed an earlier update (a sync that stopped, a commit you never synced) gets that too, and one who already has everything gets nothing.
 
-> Commit the fix on its own. The sync offers the files your *latest* template commit touched, so a commit that mixes a correction with three unrelated edits offers all four.
->
-> And be careful what the last commit contains: if you have been solving the exercises in the template to check them, the sync will happily offer your solution as the starter code. Solve in a scratch repository, or revert before syncing.
+> Be careful what the template contains: if you have been solving the exercises in it to check them, the sync will happily send your solution as the starter code. Solve in a scratch repository, or revert before syncing.
 
 #### Option A: Web UI (Interactive Modal)
 1. On `AssignmentDetailView`, choose **··· More → Sync Starter Code**.
-2. **Review the commit and pick files.** The modal shows the template's latest commit and the files it changed, each with its diff. Everything is ticked; untick anything you do not want to send.
+2. **Review the changes and pick files.** The modal shows the template's latest commit and the files it changed, each with its diff, and below them **Earlier template changes some students are still missing**, each with how many students lack it. Everything is ticked; untick anything you do not want to send. An unticked file is left out for everyone, and the next sync offers it again.
 3. **Pre-flight.** Each student repository is read once and sorted into:
    - **Updated in place** - they have not touched these files, so the new version is committed straight to their `main` and arrives on their next `git pull`.
    - **Pull request** - they have changed at least one of them, so those files arrive as a PR and their work is not overwritten.
@@ -1050,10 +1048,10 @@ The split is **per file**: a student who edited one of four corrected files stil
 # Preview what would be updated across the cohort
 pxl-classroom sync-starter --assignment linux-processes-2026 --dry-run
 
-# Send every file the latest template commit changed
+# Bring every student up to the latest template commit
 pxl-classroom sync-starter --assignment linux-processes-2026
 
-# Selectively sync specific files and customize the message
+# Send only specific files (or "*,!path" for everything except one) and customize the message
 pxl-classroom sync-starter --assignment linux-processes-2026 \
                            --files "tests/test_lab1.py" \
                            --title "Fix assertion in test 3" \
@@ -1066,13 +1064,13 @@ pxl-classroom sync-starter --assignment linux-processes-2026 \
 - **Audit Records:** Complete execution summaries are stored in the control repo at `syncs/<assignment-id>/<sync-id>.json`.
 - **A file the commit adds that a student already has is left alone** and counted as `files_kept` on their row. They received it earlier and have worked in it, so it is theirs; they are not offered a pull request resetting it.
 
-#### A sync that stopped part-way, after a newer commit was pushed
+#### A sync that stopped part-way
 
-A sync sends what ONE template commit changed, and the dialog always takes the newest. If a sync stopped before reaching every student (its run on the hub's Actions tab reads **cancelled**, and the students after a point in the alphabet are missing the files) and you have pushed another commit since, that earlier commit has to be named:
+Run it again. Each student is sent what they are missing from where they are, so the students it did not reach get everything - including an earlier update that another sync has been pushed over since - and the ones it did reach are skipped. Its run on the hub's Actions tab reads **cancelled** when it stopped.
 
-1. On the template repository's commit list, copy the short sha of the commit that did not reach everyone (e.g. `1e7f714`).
-2. In `PXL-Digital-Application-Samples/pxl-classroom` -> **Actions** -> **Sync Starter Code** -> **Run workflow**, fill in **Organization**, **Assignment ID**, and **Template commit** with that sha. Leave the rest as it is; untick *Open tracking issue* if the students should not be emailed.
-3. Students who already have it are skipped, including those who have edited it since. Only the ones who missed it receive a commit and, if ticked, an issue.
+#### Syncing up to a commit that is not the newest
+
+When the template already holds something students must not have yet (next week's lab), name the commit to sync up to: `PXL-Digital-Application-Samples/pxl-classroom` -> **Actions** -> **Sync Starter Code** -> **Run workflow**, with **Organization**, **Assignment ID**, and **Template commit** set to its short sha from the template's commit list (e.g. `1e7f714`). Students are still brought up from their own starting point, to that commit and no further. Untick *Open tracking issue* if the students should not be emailed.
 
 CLI: `pxl-classroom sync-starter --assignment <id> --commit 1e7f714`.
 

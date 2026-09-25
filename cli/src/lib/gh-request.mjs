@@ -15,7 +15,9 @@ export function toRequest(octokit) {
   return async (path) => {
     try {
       const r = await octokit.request(`GET ${path}`);
-      return { status: r.status, data: r.data };
+      // Headers too: a walk that finds the LAST page reads the `link` header,
+      // and without it "the first commit" silently becomes the newest one.
+      return { status: r.status, data: r.data, headers: r.headers ?? {} };
     } catch (err) {
       // The status, not a throw: the caller reports "could not read", never
       // "there was nothing there".

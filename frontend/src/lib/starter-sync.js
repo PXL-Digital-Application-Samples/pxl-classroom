@@ -9,7 +9,13 @@
 
 export {
   changedPaths,
-  resolveSelection,
-  planStarterSync,
   outcomeFor,
 } from '../../../lib/starter-sync.mjs'
+// Each student's plan runs from their OWN starting point, through the same
+// reads the workflow makes (lib/starter-sync-cohort.mjs).
+export {
+  listTemplateCommits,
+  planStudent,
+  rootTreeSha,
+  treeReader,
+} from '../../../lib/starter-sync-cohort.mjs'

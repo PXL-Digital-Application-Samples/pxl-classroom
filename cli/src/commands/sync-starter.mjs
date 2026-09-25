@@ -13,13 +13,13 @@
 
 import { resolveOrg } from "../lib/org.mjs";
 import { makeOctokit } from "../lib/octokit.mjs";
-import { getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
+import { getAssignment, listRepoRecords, listSyncRecords } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
+import { toRequest } from "../lib/gh-request.mjs";
+import { listTemplateCommits, planStudent, rootTreeSha, treeReader } from "../../../lib/starter-sync-cohort.mjs";
 import {
   changedPaths,
-  resolveSelection,
-  planStarterSync,
   outcomeFor,
   syncMarker,
   findExistingSyncPr,
@@ -39,24 +39,6 @@ function pad(str, len) {
   return s.length >= len ? s : s + " ".repeat(len - s.length);
 }
 
-// path -> blob sha for a whole ref, in one request. Blob shas are content
-// addresses, so comparing them compares content without fetching any file.
-async function readTree(octokit, { owner, repo, ref }) {
-  const { data } = await octokit.rest.git.getTree({
-    owner,
-    repo,
-    tree_sha: ref,
-    recursive: "1",
-  });
-  if (data.truncated) {
-    throw new Error(`tree listing for ${owner}/${repo} was truncated - too many files to sync safely`);
-  }
-  const map = new Map();
-  for (const entry of data.tree || []) {
-    if (entry.type === "blob") map.set(entry.path, entry.sha);
-  }
-  return map;
-}
 
 export function registerSyncStarterCommand(program) {
   program
@@ -122,34 +104,30 @@ export function registerSyncStarterCommand(program) {
       const parentSha = detail.parents?.[0]?.sha || null;
       process.stdout.write(`Target commit: ${templateSha.slice(0, 7)} - "${commitHeadline}"\n`);
 
-      // GitHub returns at most 300 entries in `files`. A capped read may not
-      // present itself as a whole one.
-      if ((detail.files || []).length >= 300) {
-        process.stderr.write(
-          "Warning: this commit changed more than 300 files; GitHub lists only the first 300, and only those are synced.\n",
-        );
-      }
-
-      const changed = changedPaths(detail.files);
+      // Each student is sent what they are behind on, from their own starting
+      // point (lib/starter-sync.mjs `startingPointFor`) - the same plan the
+      // workflow and the Admin Panel make, from the same module.
+      const newest = changedPaths(detail.files);
       const requested = opts.files === "*" ? ["*"] : String(opts.files).split(",").map((f) => f.trim());
-      const paths = resolveSelection(changed, requested);
-      process.stdout.write(`${paths.length} of ${changed.length} changed file(s) selected.\n\n`);
+      process.stdout.write(`This commit changed ${newest.length} file(s); each student is sent everything they are behind on.\n\n`);
 
-      const headTree = await readTree(octokit, { owner: tplOwner, repo: tplRepo, ref: templateSha });
-      const baseTree = parentSha
-        ? await readTree(octokit, { owner: tplOwner, repo: tplRepo, ref: parentSha })
-        : new Map();
+      const templateFullName = `${tplOwner}/${tplRepo}`;
+      const get = toRequest(octokit);
+      const readTemplateTree = treeReader(get);
+      const readStudentTree = treeReader(get);
+      const headTree = await readTemplateTree(templateFullName, templateSha);
+      const syncRecords = await listSyncRecords(octokit, { org, assignmentId: opts.assignment });
+      const { commits: templateCommits } = await listTemplateCommits(get, templateFullName);
 
-      // Content fetched once per path, not once per student.
+      // Content fetched once per path, when the first student needs it.
       const contentByPath = new Map();
-      if (!opts.dryRun) {
-        for (const path of paths) {
-          const sha = headTree.get(path);
-          if (!sha) continue; // deletion
-          const { data: blob } = await octokit.rest.git.getBlob({ owner: tplOwner, repo: tplRepo, file_sha: sha });
+      const contentOf = async (path) => {
+        if (!contentByPath.has(path)) {
+          const { data: blob } = await octokit.rest.git.getBlob({ owner: tplOwner, repo: tplRepo, file_sha: headTree.get(path) });
           contentByPath.set(path, Buffer.from(blob.content || "", blob.encoding || "base64"));
         }
-      }
+        return contentByPath.get(path);
+      };
 
       const records = await listRepoRecords(octokit, { org, assignmentId: opts.assignment });
       if (records.length === 0) {
@@ -182,23 +160,38 @@ export function registerSyncStarterCommand(program) {
         }
 
         try {
-          const studentTree = await readTree(octokit, { owner: org, repo: repoName, ref: "main" });
-          const plan = planStarterSync({ headTree, baseTree, studentTree, paths });
+          const studentFullName = `${org}/${repoName}`;
+          const studentTree = await readStudentTree(studentFullName, "main");
+          const { from, source, plan } = await planStudent({
+            login,
+            studentTree,
+            readTree: readTemplateTree,
+            root: () => rootTreeSha(get, studentFullName, "main"),
+            templateFullName,
+            headSha: templateSha,
+            headTree,
+            templateCommits,
+            records: syncRecords,
+            fallbackSha: parentSha,
+            selected: requested,
+          });
           const outcome = outcomeFor(plan);
 
           if (opts.dryRun || outcome === "skipped-up-to-date") {
             // Dry-run is sacred: no API writes, no PRs, no commits. Everything
             // above this line is a read.
-            return { login, outcome, plan, dryRun: opts.dryRun };
+            return { login, outcome, plan, from, source, dryRun: opts.dryRun };
           }
 
-          const toChanges = (entries) =>
-            entries.map(({ path, action }) => ({
-              path,
-              content: action === "delete" ? null : contentByPath.get(path),
-            }));
+          const toChanges = async (entries) => {
+            const out = [];
+            for (const { path, action } of entries) {
+              out.push({ path, content: action === "delete" ? null : await contentOf(path) });
+            }
+            return out;
+          };
 
-          const row = { login, outcome, plan };
+          const row = { login, outcome, plan, from, source };
 
           if (plan.clean.length > 0) {
             const commit = await commitWithRebase(octokit, {
@@ -206,7 +199,7 @@ export function registerSyncStarterCommand(program) {
               repo: repoName,
               branch: "main",
               message: `Update starter code from template: ${commitHeadline}`,
-              changes: toChanges(plan.clean),
+              changes: await toChanges(plan.clean),
             });
             row.sha = commit.commitSha;
           }
@@ -243,7 +236,7 @@ export function registerSyncStarterCommand(program) {
               repo: repoName,
               branch: branchName,
               message: `Starter code update: ${commitHeadline}`,
-              changes: toChanges(plan.conflicts),
+              changes: await toChanges(plan.conflicts),
             });
             const { data: prData } = await octokit.rest.pulls.create({
               owner: org,
@@ -280,7 +273,9 @@ export function registerSyncStarterCommand(program) {
       for (const res of results) {
         if (!res) continue;
         const files = res.plan
-          ? `${res.plan.clean.length} in place, ${res.plan.conflicts.length} in a PR`
+          ? `${res.plan.clean.length} in place, ${res.plan.conflicts.length} in a PR` +
+            `${res.plan.kept?.length ? `, ${res.plan.kept.length} kept` : ""}` +
+            ` - from ${res.from ? res.from.slice(0, 7) : "nothing"}${res.source === "unknown" ? " (start unknown: this commit only)" : ""}`
           : "";
         if (res.outcome === "auto-merged" || res.outcome === "merged-and-pr") autoMerged++;
         if (res.outcome === "pr-opened" || res.outcome === "merged-and-pr") prOpened++;

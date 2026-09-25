@@ -17,14 +17,14 @@ import { commitWithRebase } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import {
   changedPaths,
-  resolveSelection,
-  planStarterSync,
   outcomeFor,
   summarize,
   syncMarker,
   findExistingSyncPr,
   readTemplateCommit,
+  selectionIsAll,
 } from "../lib/starter-sync.mjs";
+import { listTemplateCommits, planStudent, rootTreeSha, treeReader } from "../lib/starter-sync-cohort.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -53,22 +53,38 @@ function generateSyncId() {
   return `sync-${ts}-${rand}`;
 }
 
-// path -> blob sha for every file in a tree. `?recursive=1` is one request for
-// the whole repository instead of one per directory, and the blob shas are all
-// the comparison needs - no file content is fetched for any student.
-async function readTree(repoFullName, ref) {
-  const res = await gh("GET", `/repos/${repoFullName}/git/trees/${ref}?recursive=1`, null, { token: cfg.token });
-  if (!res.ok) throw new Error(`could not read tree ${repoFullName}@${ref.slice(0, 7)} (HTTP ${res.status})`);
-  // A tree over 100k entries comes back truncated. Saying so beats treating a
-  // partial listing as the repository: every unlisted path would look absent,
-  // which reads as "the student deleted it" and would restore files nobody
-  // touched.
-  if (res.data?.truncated) throw new Error(`tree listing for ${repoFullName} was truncated - too many files to sync safely`);
-  const map = new Map();
-  for (const entry of res.data?.tree || []) {
-    if (entry.type === "blob") map.set(entry.path, entry.sha);
+// The transport lib/starter-sync-cohort.mjs reads through: gh() already
+// answers `{ ok, status, headers, data }` and never throws.
+const get = (path) => gh("GET", path, null, { token: cfg.token });
+// A student's own tree, read once, refusing a truncated listing like the
+// template's.
+const readStudentTree = treeReader(get);
+
+// Trees are read through lib/starter-sync-cohort.mjs `treeReader`, which
+// refuses a truncated listing: every unlisted path would look absent, which
+// reads as "the student deleted it" and would restore files nobody touched.
+
+/**
+ * Every sync record already written for this assignment, from the checkout. A
+ * record that does not parse is skipped - it can only make a student start
+ * EARLIER (from their generated commit), which sends more, never less.
+ */
+async function readSyncRecords(dir) {
+  let names = [];
+  try {
+    names = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
   }
-  return map;
+  const out = [];
+  for (const name of names) {
+    try {
+      out.push(JSON.parse(await readFile(join(dir, name), "utf8")));
+    } catch {
+      console.log(`[warn] sync record ${name} is unreadable and is not used as a starting point`);
+    }
+  }
+  return out;
 }
 
 async function main() {
@@ -133,35 +149,46 @@ async function main() {
   const parentSha = detail.data.parents?.[0]?.sha || null;
   console.log(`[sync] Target template commit: ${templateSha.slice(0, 7)} - "${commitMsgTitle}"`);
 
-  // GitHub returns at most 300 entries in `files`. A capped read may not
-  // present itself as a whole one.
-  if ((detail.data.files || []).length >= 300) {
-    console.log("[warn] this commit changed more than 300 files; GitHub lists only the first 300, and only those are synced.");
+  // EACH STUDENT IS SENT WHAT THEY ARE MISSING, from the template commit they
+  // are known to be at up to this one - not what this one commit changed
+  // (lib/starter-sync.mjs `startingPointFor`). The commit's own file list is
+  // only what the log reports as "this commit"; the plan is built from trees.
+  const newest = changedPaths(detail.data.files);
+  console.log(`[sync] This commit changed ${newest.length} file(s); each student is sent everything they are behind on.`);
+  const allFiles = selectionIsAll(requestedFiles);
+  if (!allFiles) console.log(`[sync] Selection: ${JSON.stringify(requestedFiles)}`);
+
+  const readTemplateTree = treeReader(get);
+  const headTree = await readTemplateTree(templateFullName, templateSha);
+
+  // Where students start: sync records first (read from this checkout), then
+  // the template commit whose tree their first commit carries. One listing of
+  // the template's commits serves the whole cohort.
+  const records = await readSyncRecords(join(cfg.dataDir, "syncs", cfg.assignmentId));
+  const listed = await listTemplateCommits(get, templateFullName);
+  if (!listed.ok) {
+    console.log(`[warn] could not list the template's commits (HTTP ${listed.status}) - a student with no sync record starts from this commit's parent`);
+  } else if (!listed.complete) {
+    console.log("[warn] the template has more than 1,000 commits; an older starting point may not be found");
   }
+  const templateCommits = listed.commits;
 
-  const changed = changedPaths(detail.data.files);
-  const paths = resolveSelection(changed, requestedFiles);
-  if (paths.length === 0) {
-    console.log("[sync] The selected files are not part of this commit - nothing to sync.");
-  }
-  console.log(`[sync] ${paths.length} of ${changed.length} changed file(s) selected.`);
-
-  const headTree = await readTree(templateFullName, templateSha);
-  // A root commit has no parent: every path in it is new, so an empty base
-  // makes "the student never touched it" mean "the student does not have it".
-  const baseTree = parentSha ? await readTree(templateFullName, parentSha) : new Map();
-
-  // Content is fetched ONCE per path here, not once per student.
+  // Content is fetched ONCE per path, when the first student needs it.
   const contentByPath = new Map();
-  for (const path of paths) {
-    const sha = headTree.get(path);
-    if (!sha) continue; // deletion - nothing to fetch
-    const blob = await gh("GET", `/repos/${templateFullName}/git/blobs/${sha}`, null, { token: cfg.token });
-    if (!blob.ok) throw new Error(`could not read ${path} from the template (HTTP ${blob.status})`);
-    // Kept as a Buffer so binary starter files (images, fixtures, archives)
-    // survive; gittree base64-encodes a Buffer unchanged.
-    contentByPath.set(path, Buffer.from(blob.data.content || "", blob.data.encoding || "base64"));
-  }
+  const contentOf = async (path) => {
+    if (!contentByPath.has(path)) {
+      const sha = headTree.get(path);
+      const blob = await gh("GET", `/repos/${templateFullName}/git/blobs/${sha}`, null, { token: cfg.token });
+      if (!blob.ok) throw new Error(`could not read ${path} from the template (HTTP ${blob.status})`);
+      // Kept as a Buffer so binary starter files (images, fixtures, archives)
+      // survive; gittree base64-encodes a Buffer unchanged.
+      contentByPath.set(path, Buffer.from(blob.data.content || "", blob.data.encoding || "base64"));
+    }
+    return contentByPath.get(path);
+  };
+  // Every path any student was planned a change for - the record's
+  // `selected_files`, which says what was applied rather than what was offered.
+  const appliedPaths = new Set();
 
   const syncTitle = cfg.prTitle || `Starter Code Update: ${commitMsgTitle}`;
   const syncBody = cfg.prBody || [
@@ -224,30 +251,48 @@ async function main() {
     if (teamSlug) row.team_slug = teamSlug;
 
     try {
-      const studentTree = await readTree(studentFullName, "main");
-      const plan = planStarterSync({ headTree, baseTree, studentTree, paths });
+      const studentTree = await readStudentTree(studentFullName, "main");
+      const { from, source, plan } = await planStudent({
+        login,
+        studentTree,
+        readTree: readTemplateTree,
+        root: () => rootTreeSha(get, studentFullName, "main"),
+        templateFullName,
+        headSha: templateSha,
+        headTree,
+        templateCommits,
+        records,
+        fallbackSha: parentSha,
+        selected: requestedFiles,
+      });
       const outcome = outcomeFor(plan);
       row.outcome = outcome;
+      row.from_sha = from || null;
+      row.from_source = source;
       row.files_merged = plan.clean.length;
       row.files_conflicted = plan.conflicts.length;
       if (plan.kept.length) row.files_kept = plan.kept.length;
+      for (const e of [...plan.clean, ...plan.conflicts]) appliedPaths.add(e.path);
+      const fromNote = `from ${from ? from.slice(0, 7) : "nothing"}${source === "unknown" ? ", start unknown - this commit only" : ""}`;
 
       if (outcome === "skipped-up-to-date") {
         console.log(
           plan.kept.length
-            ? `[skip] ${login}: already has every selected change (${plan.kept.length} added file(s) already theirs, left alone)`
-            : `[skip] ${login}: already has every selected change`,
+            ? `[skip] ${login}: already has every change (${fromNote}; ${plan.kept.length} added file(s) already theirs, left alone)`
+            : `[skip] ${login}: already has every change (${fromNote})`,
         );
         results.push(row);
         await sleep(200);
         continue;
       }
 
-      const toChanges = (entries) =>
-        entries.map(({ path, action }) => ({
-          path,
-          content: action === "delete" ? null : contentByPath.get(path),
-        }));
+      const toChanges = async (entries) => {
+        const out = [];
+        for (const { path, action } of entries) {
+          out.push({ path, content: action === "delete" ? null : await contentOf(path) });
+        }
+        return out;
+      };
 
       // 3a. Files the student never touched go straight onto main.
       if (plan.clean.length > 0) {
@@ -257,10 +302,10 @@ async function main() {
           repo: repoName,
           branch: "main",
           message: `Update starter code from template: ${commitMsgTitle}`,
-          changes: toChanges(plan.clean),
+          changes: await toChanges(plan.clean),
         });
         row.commit_sha = commit.commitSha;
-        console.log(`[auto-merged] ${login}: ${plan.clean.length} file(s) -> ${commit.commitSha.slice(0, 7)}`);
+        console.log(`[auto-merged] ${login}: ${plan.clean.length} file(s) -> ${commit.commitSha.slice(0, 7)} (${fromNote})`);
       }
 
       // 3b. Files they did touch go onto a branch off THEIR OWN main, so no
@@ -296,7 +341,7 @@ async function main() {
           repo: repoName,
           branch: branchName,
           message: `Starter code update: ${commitMsgTitle}`,
-          changes: toChanges(plan.conflicts),
+          changes: await toChanges(plan.conflicts),
         });
 
         const prRes = await gh("POST", `/repos/${studentFullName}/pulls`, {
@@ -355,10 +400,15 @@ async function main() {
     template_repo: templateFullName,
     template_sha: templateSha,
     ...(parentSha ? { template_base_sha: parentSha } : {}),
-    // The paths actually applied, not the raw request. `["*"]` used to be
-    // recorded verbatim while the operation merged the whole template tree
-    // regardless of what was ticked.
-    selected_files: paths,
+    // The paths actually applied to anyone, not the raw request. `["*"]` used
+    // to be recorded verbatim while the operation merged the whole template
+    // tree regardless of what was ticked.
+    selected_files: [...appliedPaths].sort(),
+    // What makes this record evidence of where each student now is
+    // (lib/starter-sync.mjs `startingPointFor`): ranges were per student, and
+    // nothing in them was left out on purpose.
+    per_student_range: true,
+    all_files: allFiles,
     pr_title: syncTitle,
     pr_body: syncBody,
     created_issues: cfg.createIssue,

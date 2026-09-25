@@ -61,6 +61,14 @@
       },
       "description": "The paths actually applied. Previously the raw request, recorded as ['*'] while the operation merged the entire template tree regardless of what the lecturer had ticked."
     },
+    "per_student_range": {
+      "type": "boolean",
+      "description": "true: every student was sent what they were missing between their own starting point (`results[].from_sha`) and `template_sha`, not what one commit changed. Absent on records written before 2026-09-25, which are therefore NOT read as evidence of where a student is: one commit's files arriving is not holding that commit (lib/starter-sync.mjs `startingPointFor`). No default: a default would write `false` into every old record on validation, which is a different answer from absent only in wording, and a different one the day this is read."
+    },
+    "all_files": {
+      "type": "boolean",
+      "description": "Nothing was left out of the selection. Only then does a student this sync reached count as being at `template_sha` - a student who was not sent a file is not at the commit that changed it."
+    },
     "pr_title": {
       "type": "string"
     },
@@ -145,6 +153,16 @@
             "type": "integer",
             "minimum": 0,
             "description": "Files the student had changed, offered as a pull request instead."
+          },
+          "from_sha": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "The template commit this student was synced FROM - their range started here. Null only when the template's head commit had no parent and nothing else was known."
+          },
+          "from_source": {
+            "type": "string",
+            "enum": ["synced", "generated", "unknown"],
+            "description": "How `from_sha` was known: an earlier per-student sync that reached them, the template commit whose tree their repository's first commit carries, or neither - in which case they were sent only this commit's changes, as every sync did before per-student ranges, and this record does not count as evidence of where they are."
           },
           "files_kept": {
             "type": "integer",

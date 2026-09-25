@@ -71,6 +71,37 @@ export async function listRepoRecords(octokit, { org, assignmentId }) {
   return records;
 }
 
+/**
+ * Every `syncs/<id>/*.json`. None is an answer (no sync yet); a record that
+ * does not parse is skipped - it can only make a student start EARLIER, from
+ * the commit they were generated at, which sends more and never less.
+ */
+export async function listSyncRecords(octokit, { org, assignmentId }) {
+  let files = [];
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: `syncs/${assignmentId}`,
+    });
+    files = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    if (e.status === 404) return [];
+    throw e;
+  }
+  const docs = [];
+  for (const f of files) {
+    if (f.type !== "file" || !f.name.endsWith(".json")) continue;
+    try {
+      const r = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+        owner: org, repo: CONTROL_REPO, path: f.path,
+      });
+      docs.push(JSON.parse(Buffer.from(r.data.content, "base64").toString("utf8")));
+    } catch {
+      /* skipped - see above */
+    }
+  }
+  return docs;
+}
+
 export async function listTeams(octokit, { org, assignmentId }) {
   let files = [];
   try {

@@ -484,6 +484,8 @@ export type SyncRecord = {
   template_sha?: string;
   template_base_sha?: string;
   selected_files?: string[];
+  per_student_range?: boolean;
+  all_files?: boolean;
   pr_title?: string;
   pr_body?: string;
   created_issues?: boolean;
@@ -501,6 +503,8 @@ export type SyncRecord = {
     outcome?: "auto-merged" | "pr-opened" | "merged-and-pr" | "skipped-up-to-date" | "skipped-no-repo" | "failed";
     files_merged?: number;
     files_conflicted?: number;
+    from_sha?: string;
+    from_source?: "synced" | "generated" | "unknown";
     files_kept?: number;
     commit_sha?: string;
     pr_number?: number;

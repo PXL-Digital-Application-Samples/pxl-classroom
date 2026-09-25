@@ -427,7 +427,12 @@ test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself"
   ];
   for (const file of consumers) {
     const src = readFileSync(join(process.cwd(), file), "utf8");
-    assert.match(src, /planStarterSync/, `${file} must plan through lib/starter-sync.mjs`);
+    // Through the PER-STUDENT planner, and never around it: a direct
+    // planStarterSync call with one commit's parent as the base is the
+    // single-commit sync that left lab 3 of .NET Advanced with 43 students who
+    // could never be sent it again.
+    assert.match(src, /planStudent/, `${file} must plan through lib/starter-sync-cohort.mjs planStudent`);
+    assert.doesNotMatch(stripComments(src), /planStarterSync\s*\(/, `${file} must not plan a single commit for itself`);
     assert.doesNotMatch(
       // Comments stripped first: every one of these files explains the removed
       // `POST /merges` by quoting it, and a scanner that reads the explanation
@@ -592,6 +597,10 @@ test("the sync record still validates with a failed row in it", () => {
 // other 43 again.
 // -----------------------------------------------------------------------------
 
+// The request for the newest commit alone - exactly `per_page=1`, which
+// `per_page=100` (the commit LIST starting points are read from) is not.
+const NEWEST_ONLY = /^\/repos\/TestOrg\/tpl\/commits\?per_page=1(&|$)/;
+
 test("readTemplateCommit takes a hex sha and nothing that could move", () => {
   assert.equal(readTemplateCommit(""), null);
   assert.equal(readTemplateCommit("   "), null);
@@ -647,7 +656,9 @@ test("the script syncs the NAMED commit and never asks for the newest", async ()
   });
   assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
   assert.match(res.stdout, /Syncing the named commit aaaaaaa, not the newest/);
-  assert.equal(requested.some((u) => u.startsWith("/repos/TestOrg/tpl/commits?")), false, requested.join("\n"));
+  // The template's commit LIST is read (it is where starting points come from,
+  // 100 a page); the newest commit alone (`per_page=1`) is never asked for.
+  assert.equal(requested.some((u) => NEWEST_ONLY.test(u)), false, requested.join("\n"));
   assert.ok(requested.includes("/repos/TestOrg/tpl/commits/aaaaaaa"));
   // Recorded under the FULL sha, which is what the pull request marker keys on.
   assert.equal(res.record.template_sha, "a".repeat(40));
@@ -661,7 +672,7 @@ test("blank still means the newest commit", async () => {
     requested,
   });
   assert.equal(res.status, 0, res.stderr);
-  assert.ok(requested.some((u) => u.startsWith("/repos/TestOrg/tpl/commits?per_page=1")));
+  assert.ok(requested.some((u) => NEWEST_ONLY.test(u)), requested.join("\n"));
 });
 
 test("a sha that is not in the template stops the run before any student is touched", async () => {

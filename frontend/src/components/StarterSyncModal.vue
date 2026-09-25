@@ -43,7 +43,7 @@
             <div class="file-selector-box">
               <div class="flex justify-between items-center mb-xs">
                 <span class="text-xs font-semibold uppercase text-secondary">
-                  Files this commit changed ({{ selectedFileCount }}/{{ templateFiles.length }} selected)
+                  Files this commit changed ({{ selectedFileCount }}/{{ templateFiles.length + catchUpFiles.length }} selected)
                 </span>
                 <div class="flex gap-xs">
                   <button type="button" class="btn-link text-xs" @click="selectAllFiles(true)">Select all</button>
@@ -53,7 +53,7 @@
               </div>
 
               <p v-if="truncatedCommit" class="text-xs stat-yellow" style="margin: 0 0 var(--space-xs) 0;">
-                This commit changed more than 300 files; GitHub lists only the first 300. Only the files below can be synced.
+                This commit changed more than 300 files, and GitHub lists only the first 300 here. Every changed file is still sent.
               </p>
 
               <div class="file-list-scrollable flex flex-col gap-xs">
@@ -91,6 +91,41 @@
                   </div>
                 </div>
               </div>
+
+              <!-- EARLIER CHANGES SOME STUDENTS ARE STILL MISSING. Each student
+                   is sent everything between where they are and this commit,
+                   so a sync that stopped part-way, or a commit never synced,
+                   is caught up here - listed, so it is not a surprise in a
+                   student's repository. -->
+              <template v-if="catchUpFiles.length">
+                <span class="text-xs font-semibold uppercase text-secondary catch-up-head">
+                  Earlier template changes some students are still missing ({{ catchUpFiles.length }})
+                </span>
+                <div class="file-list-scrollable flex flex-col gap-xs">
+                  <div
+                    v-for="file in catchUpFiles"
+                    :key="file.filename"
+                    class="file-row-box card"
+                    :class="{ selected: file.selected }"
+                    style="padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-default);"
+                  >
+                    <div class="file-row flex items-center justify-between">
+                      <label class="flex items-center gap-sm" style="cursor: pointer; margin: 0;">
+                        <input type="checkbox" v-model="file.selected" @change="onFilesChanged" />
+                        <code class="file-path">{{ file.filename }}</code>
+                      </label>
+                      <span class="text-xs text-muted">
+                        {{ file.status === 'removed' ? 'removed from the template' : 'missing' }} for
+                        {{ file.students }} student{{ file.students === 1 ? '' : 's' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <p v-if="unknownStart" class="text-xs text-muted catch-up-note">
+                For {{ unknownStart }} student{{ unknownStart === 1 ? '' : 's' }} it is not known which template
+                version they started from, so they are sent only this commit's changes.
+              </p>
             </div>
           </div>
         </section>
@@ -244,8 +279,10 @@ import { ref, computed, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
-import { ghApi, triggerWorkflow } from '../lib/api.js'
-import { changedPaths, planStarterSync, outcomeFor } from '../lib/starter-sync.js'
+import { ghApi, getRepoContent, triggerWorkflow } from '../lib/api.js'
+import {
+  changedPaths, outcomeFor, listTemplateCommits, planStudent, rootTreeSha, treeReader,
+} from '../lib/starter-sync.js'
 import { toast } from '../lib/toast.js'
 
 const props = defineProps({
@@ -276,14 +313,26 @@ const scanResults = ref({
   failed: [],
 })
 
-// The two template trees and every student tree, read once per open. Blob shas
-// only - no file content is fetched for any student repository.
+// Every tree read once per open - the template's at each starting point, and
+// each student's - blob shas only. Each student is planned from where THEY
+// are (lib/starter-sync.mjs `startingPointFor`), exactly as the workflow will
+// plan them; a single-commit preview is what hid lab 3 from 43 students.
 const baseSha = ref(null)
 const headTree = ref(new Map())
-const baseTree = ref(new Map())
 const studentTrees = ref(new Map())
 const unreadable = ref(new Map())
 const truncatedCommit = ref(false)
+// Plain values, not refs: caches, never rendered.
+let readTemplateTree = null
+let syncRecords = []
+let allTemplateCommits = []
+const rootCache = new Map()
+// Files some student is behind on that the newest commit did not change,
+// found by the scan. Tickable like the others; see `catchUpFiles`.
+const catchUpFiles = ref([])
+// Students whose starting point could not be established: they are sent only
+// the newest commit's changes, as every sync did before, and the dialog says so.
+const unknownStart = ref(0)
 
 const templateFullName = computed(() => {
   const owner = props.assignment.template?.owner || props.org
@@ -306,7 +355,9 @@ const targetCommitDate = computed(() => {
   return templateCommits.value[0].commit?.author?.date || null
 })
 
-const selectedFileCount = computed(() => templateFiles.value.filter((f) => f.selected).length)
+const selectedFileCount = computed(
+  () => [...templateFiles.value, ...catchUpFiles.value].filter((f) => f.selected).length,
+)
 const scanPercent = computed(() => {
   if (!scanProgress.value.total) return 0
   return Math.round((scanProgress.value.current / scanProgress.value.total) * 100)
@@ -354,9 +405,10 @@ function formatPatchLines(patch) {
 }
 
 function selectAllFiles(val) {
-  for (const f of templateFiles.value) {
+  for (const f of [...templateFiles.value, ...catchUpFiles.value]) {
     f.selected = val
   }
+  classifyStudents()
 }
 
 function onFilesChanged() {
@@ -366,18 +418,35 @@ function onFilesChanged() {
   classifyStudents()
 }
 
-// path -> blob sha for a whole ref, in one request. Blob shas are content
-// addresses, identical across repositories for identical bytes, so this
-// compares content without fetching any file.
-async function readTree(token, repoFullName, ref) {
-  const res = await ghApi(token, 'GET', `/repos/${repoFullName}/git/trees/${ref}?recursive=1`)
-  if (!res.ok) throw new Error(`Could not read ${repoFullName}@${String(ref).slice(0, 7)} (HTTP ${res.status})`)
-  if (res.data?.truncated) throw new Error(`${repoFullName} has too many files to scan safely`)
-  const map = new Map()
-  for (const entry of res.data?.tree || []) {
-    if (entry.type === 'blob') map.set(entry.path, entry.sha)
+// The transport lib/starter-sync-cohort.mjs reads through. ghApi resolves
+// `{ ok, status, data, headers }` and never throws, which is what it expects.
+const get = (path) => ghApi(getToken(), 'GET', path)
+
+/**
+ * Every sync record already written for this assignment - where each student
+ * starts. A record that cannot be read is skipped: it can only make a student
+ * start EARLIER, which sends more, never less.
+ */
+async function loadSyncRecords() {
+  const res = await get(`/repos/${props.org}/${config.controlRepo}/contents/syncs/${props.assignment.id}`)
+  if (!res.ok || !Array.isArray(res.data)) return []
+  const out = []
+  for (const f of res.data.filter((x) => x.type === 'file' && x.name.endsWith('.json'))) {
+    try {
+      const text = await getRepoContent(getToken(), props.org, config.controlRepo, f.path)
+      if (text) out.push(JSON.parse(text))
+    } catch {
+      /* skipped - see above */
+    }
   }
-  return map
+  return out
+}
+
+/** The selection, exactly as the workflow will read it (lib/starter-sync.mjs
+ *  `resolveSelection`): everything, minus what was unticked. */
+function selectionPayload() {
+  const unticked = [...templateFiles.value, ...catchUpFiles.value].filter((f) => !f.selected).map((f) => `!${f.filename}`)
+  return ['*', ...unticked]
 }
 
 async function fetchTemplateData() {
@@ -434,11 +503,17 @@ async function fetchTemplateData() {
       }
     })
 
-    // 3. The two template trees the plan compares against. Read once, here,
-    //    and reused for every student and every change of selection.
+    // 3. What every student's plan is built from, read once per open: the
+    //    template at the newest commit, its commit list (where a student with
+    //    no sync record starts is the commit whose tree their first commit
+    //    carries), and the sync records. Starting-point trees are read, and
+    //    cached, as students need them.
     baseSha.value = detailRes.data.parents?.[0]?.sha || null
-    headTree.value = await readTree(token, `${owner}/${repo}`, latest.sha)
-    baseTree.value = baseSha.value ? await readTree(token, `${owner}/${repo}`, baseSha.value) : new Map()
+    readTemplateTree = treeReader(get)
+    headTree.value = await readTemplateTree(`${owner}/${repo}`, latest.sha)
+    const [listed, records] = await Promise.all([listTemplateCommits(get, `${owner}/${repo}`), loadSyncRecords()])
+    allTemplateCommits = listed.commits
+    syncRecords = records
 
     // 4. Trigger initial scan
     await runPreFlightScan()
@@ -456,9 +531,12 @@ async function fetchTemplateData() {
 // preview said "everyone conflicts" whatever the cohort had actually done.
 async function runPreFlightScan() {
   scanning.value = true
-  const token = getToken()
   const activeStudents = (props.students || []).filter((s) => s.repo_name)
   scanProgress.value = { current: 0, total: activeStudents.length }
+  // A re-scan reads the repositories again: what they hold may have changed.
+  studentTrees.value = new Map()
+  unreadable.value = new Map()
+  const readStudentTree = treeReader(get)
 
   const CONCURRENCY = 4
   let cursor = 0
@@ -467,7 +545,7 @@ async function runPreFlightScan() {
     while (cursor < activeStudents.length) {
       const s = activeStudents[cursor++]
       try {
-        studentTrees.value.set(s.repo_name, await readTree(token, s.repo_name, 'main'))
+        studentTrees.value.set(s.repo_name, await readStudentTree(s.repo_name, 'main'))
       } catch (err) {
         // Unreadable is its own answer, and it is not "no changes needed".
         unreadable.value.set(s.repo_name, err.message)
@@ -478,14 +556,68 @@ async function runPreFlightScan() {
 
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, activeStudents.length) }, worker))
 
-  classifyStudents()
+  await findCatchUpFiles()
+  await classifyStudents()
   scanning.value = false
 }
 
-// Pure, from data already in hand - no requests, so the lecturer can tick and
-// untick files and watch the split move.
-function classifyStudents() {
-  const paths = templateFiles.value.filter((f) => f.selected).map((f) => f.filename)
+/** One student's plan under `selected`, through the planner the workflow uses. */
+function planFor(s, selected) {
+  const repo = s.repo_name
+  if (!rootCache.has(repo)) rootCache.set(repo, rootTreeSha(get, repo, 'main'))
+  return planStudent({
+    login: s.github_login,
+    studentTree: studentTrees.value.get(repo),
+    readTree: readTemplateTree,
+    root: () => rootCache.get(repo),
+    templateFullName: templateFullName.value,
+    headSha: targetSha.value,
+    headTree: headTree.value,
+    templateCommits: allTemplateCommits,
+    records: syncRecords,
+    fallbackSha: baseSha.value,
+    selected,
+  })
+}
+
+/**
+ * Files some student is behind on that the newest commit did NOT change - an
+ * earlier sync that stopped part-way, or a commit pushed and never synced.
+ * They are sent with everything else, so they are listed where the lecturer
+ * can see them and untick them, not discovered in a student's repository.
+ */
+async function findCatchUpFiles() {
+  const listed = new Set(templateFiles.value.map((f) => f.filename))
+  const wasUnticked = new Set(catchUpFiles.value.filter((f) => !f.selected).map((f) => f.filename))
+  const behind = new Map()
+  let unknown = 0
+  for (const s of (props.students || []).filter((x) => x.repo_name && studentTrees.value.has(x.repo_name))) {
+    const { paths, source } = await planFor(s, ['*'])
+    if (source === 'unknown') unknown++
+    for (const p of paths) {
+      if (listed.has(p)) continue
+      behind.set(p, (behind.get(p) || 0) + 1)
+    }
+  }
+  unknownStart.value = unknown
+  catchUpFiles.value = [...behind.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([filename, students]) => ({
+      filename,
+      students,
+      status: headTree.value.has(filename) ? 'catch-up' : 'removed',
+      selected: !wasUnticked.has(filename),
+    }))
+}
+
+// From data already in hand - trees and starting points are cached, so the
+// lecturer can tick and untick files and watch the split move without a
+// request. `classifyRun` drops the answer of a classification a newer tick
+// has already replaced.
+let classifyRun = 0
+async function classifyStudents() {
+  const run = ++classifyRun
+  const selected = selectionPayload()
   const clean = []
   const conflicted = []
   const skipped = []
@@ -496,15 +628,14 @@ function classifyStudents() {
       failed.push({ ...s, reason: unreadable.value.get(s.repo_name) })
       continue
     }
-    const studentTree = studentTrees.value.get(s.repo_name)
-    if (!studentTree) continue
-
-    const plan = planStarterSync({
-      headTree: headTree.value,
-      baseTree: baseTree.value,
-      studentTree,
-      paths,
-    })
+    if (!studentTrees.value.has(s.repo_name)) continue
+    let plan
+    try {
+      ;({ plan } = await planFor(s, selected))
+    } catch (err) {
+      failed.push({ ...s, reason: err.message })
+      continue
+    }
     const outcome = outcomeFor(plan)
     if (outcome === 'skipped-up-to-date') skipped.push(s)
     // A student can be in both: three corrections land in place and the fourth
@@ -513,6 +644,7 @@ function classifyStudents() {
     if (plan.conflicts.length) conflicted.push(s)
   }
 
+  if (run !== classifyRun) return
   scanResults.value = { autoMerged: clean, conflicts: conflicted, skipped, failed }
 }
 
@@ -522,9 +654,9 @@ async function handleDispatchSync() {
   const token = getToken()
 
   try {
-    const selectedFilesPayload = JSON.stringify(
-      templateFiles.value.filter((f) => f.selected).map((f) => f.filename)
-    )
+    // Everything, minus what was unticked - the same selection the scan
+    // previewed. An inclusion list could not carry a student's catch-up files.
+    const selectedFilesPayload = JSON.stringify(selectionPayload())
 
     const inputs = {
       org: props.org,
@@ -567,6 +699,15 @@ onMounted(() => {
 .modal-wide {
   max-width: 720px;
   width: 95vw;
+}
+
+.catch-up-head {
+  display: block;
+  margin: var(--space-sm) 0 var(--space-xs);
+}
+
+.catch-up-note {
+  margin: var(--space-xs) 0 0;
 }
 
 .sync-section {
