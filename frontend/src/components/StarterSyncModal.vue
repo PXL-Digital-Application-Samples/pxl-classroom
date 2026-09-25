@@ -189,7 +189,7 @@
                  The scan used to fold every failed request into the conflict
                  bucket, so an unreachable repo looked like a student who had
                  edited the file. -->
-            <div v-if="scanResults.failed.length" class="preflight-card">
+            <div v-if="scanResults.failed.length" class="preflight-card unreadable">
               <span class="preflight-count stat-red">{{ scanResults.failed.length }}</span>
               <span class="status-indicator" style="margin-top: 4px;">
                 <span class="status-dot dot-danger"></span>
@@ -753,10 +753,11 @@ onMounted(() => {
   margin: 0;
 }
 
+/* A --bg-canvas well in a --bg-surface section: the tone separates it in both
+   themes, so no outline (DESIGN.md §1.1 - it was the third nested box). */
 .commit-summary-box {
   padding: var(--space-xs) var(--space-sm);
   background: var(--bg-canvas);
-  border: 1px solid var(--border-muted);
   border-radius: var(--radius-sm);
 }
 
@@ -797,12 +798,15 @@ onMounted(() => {
   margin-top: var(--space-sm);
 }
 
+/* The outcome cards are TINTS, not boxes (DESIGN.md §1.1): each already says
+   what it is by its wash and its dot, and an outline on top made the third
+   nested box - modal, section, card. Every tint differs from the section's
+   --bg-surface in both themes (solid in light, a wash in dark). */
 .preflight-card {
   display: flex;
   flex-direction: column;
   padding: var(--space-sm);
   background: var(--bg-surface-hover);
-  border: 1px solid var(--border-muted);
   border-radius: var(--radius-sm);
 }
 
@@ -815,19 +819,21 @@ onMounted(() => {
    turning a card inside a modal into a third box. */
 .preflight-card.clean {
   background: var(--tint-success-subtle);
-  border-color: var(--tint-success-emphasis);
 }
 
 .preflight-card.conflict {
   background: var(--tint-attention-subtle);
-  border-color: var(--tint-attention-emphasis);
 }
 
 /* Neutral, deliberately: "nothing to do" is not a warning. An empty population
    is not a failure (DESIGN.md §4). */
 .preflight-card.skipped {
   background: var(--tint-neutral-subtle);
-  border-color: var(--tint-neutral-emphasis);
+}
+
+/* A repository that could not be read: something did not happen (§4). */
+.preflight-card.unreadable {
+  background: var(--tint-danger-subtle);
 }
 
 .preflight-count {
