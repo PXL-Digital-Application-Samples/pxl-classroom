@@ -115,7 +115,7 @@ test.describe('81 - The assignment page says where the last starter sync stands'
     await expect(line(page).locator('.status-dot.dot-warning')).toBeVisible();
   });
 
-  test('running: progress, and Check again reads once more - nothing reads on its own', async ({ page }) => {
+  test('running: progress and Follow - and the page itself reads nothing on its own', async ({ page }) => {
     const calls = await setup(page, {
       rec: record({ status: 'running', remaining: undefined, total_students: 111, results: [] }),
       run: { status: 'in_progress' },
@@ -123,9 +123,22 @@ test.describe('81 - The assignment page says where the last starter sync stands'
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(line(page)).toHaveAttribute('data-state', 'running');
     await expect(line(page)).toContainText('0 of 111 students done at the last count.');
+    // Following is the dialog's job (tests/e2e/82); the line offers it.
+    await expect(line(page).getByRole('button', { name: 'Follow' })).toBeVisible();
     expect(calls.runs).toBe(1);
     await page.waitForTimeout(1500);
     expect(calls.runs, 'no polling').toBe(1);
+  });
+
+  test('a run that cannot be read: unknown, and Check again reads once more', async ({ page }) => {
+    const calls = await setup(page, {
+      rec: record({ status: 'running', remaining: undefined, total_students: 111, results: [] }),
+      run: null,
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(line(page)).toHaveAttribute('data-state', 'running-unknown');
+    await expect(line(page)).toContainText('whether it is still going is unknown');
+    expect(calls.runs).toBe(1);
     await line(page).getByRole('button', { name: 'Check again' }).click();
     await expect.poll(() => calls.runs).toBe(2);
   });

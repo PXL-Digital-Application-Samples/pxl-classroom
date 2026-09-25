@@ -19,6 +19,14 @@
           Sync again
         </button>
         <button
+          v-if="view.action === 'follow'"
+          type="button"
+          class="btn-link"
+          @click="$emit('follow', { runId: view.runId, htmlUrl: view.runUrl })"
+        >
+          Follow
+        </button>
+        <button
           v-if="view.action === 'refresh'"
           type="button"
           class="btn-link"
@@ -61,7 +69,9 @@ const props = defineProps({
   /** Bumped by the parent after a sync is dispatched, to read again. */
   refreshKey: { type: Number, default: 0 },
 })
-defineEmits(['sync'])
+// `sync`: open the sync dialog. `follow`: open it following the run that is
+// going ({ runId, htmlUrl }).
+defineEmits(['sync', 'follow'])
 
 const view = ref(null)
 const unreadable = ref(false)

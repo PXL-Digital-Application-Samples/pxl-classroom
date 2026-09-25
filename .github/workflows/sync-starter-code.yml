@@ -1,4 +1,8 @@
 name: Sync Starter Code
+# Names the assignment, so the sync dialog can tell a sync of THIS assignment
+# that is already running or queued - before it has written any record - from
+# one of another. A run name is a title, not a script.
+run-name: "Sync Starter Code: ${{ inputs.assignment_id }} (${{ inputs.org }})"
 on:
   workflow_dispatch:
     inputs:

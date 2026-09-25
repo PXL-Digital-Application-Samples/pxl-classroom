@@ -1066,7 +1066,9 @@ pxl-classroom sync-starter --assignment linux-processes-2026 \
 
 #### Where a sync stands
 
-The assignment page shows a **Starter code** line above the student table: syncing (with how many are done), stopped with how many not reached, done (how many updated, how many already had it), a list of students it could not update, or that the template has changed since the last sync. It is read when you open the page and when you press **Check again** - it does not refresh by itself. **Sync again** opens the sync dialog; **View run** opens the run on GitHub.
+The assignment page shows a **Starter code** line above the student table: syncing (with how many are done), stopped with how many not reached, done (how many updated, how many already had it), a list of students it could not update, or that the template has changed since the last sync. It is read when you open the page - it does not refresh by itself. **Sync again** opens the sync dialog; **View run** opens the run on GitHub; **Follow** (while a sync is going) opens the dialog on it.
+
+After **Apply Starter Update** the dialog follows the sync: waiting to start, how many students are done, then the outcome. It checks every 10 seconds while it is open; closing it only stops the checking - the sync carries on, and **Follow** on the assignment page picks it up again. If a sync of the assignment is already running when you open the dialog, it says so and offers to follow that one; starting another waits until it ends.
 
 #### A sync that stopped part-way
 

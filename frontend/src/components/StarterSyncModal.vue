@@ -12,6 +12,23 @@
       </header>
 
       <div class="modal-body flex flex-col gap-lg">
+        <template v-if="!following">
+        <!-- A sync of THIS assignment already running or queued, found from
+             the hub's run list by its run-name - the only thing that knows
+             about one before it has written a record. On 2026-09-25 two were
+             started 14 seconds apart, the second by a lecturer unsure the
+             first had gone. -->
+        <div v-if="activeRun" class="dispatch-banner info" data-banner="active-sync">
+          <span>
+            A sync of this assignment is already {{ activeRun.status === 'in_progress' ? 'running' : 'waiting to start' }}
+            (started {{ formatRelativeDate(activeRun.created_at) }}{{ activeRun.actor?.login ? ` by @${activeRun.actor.login}` : '' }}).
+            Starting another now waits until it ends.
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm" @click="startFollowing({ runId: activeRun.id, htmlUrl: activeRun.html_url })">
+            Follow it
+          </button>
+        </div>
+
         <!-- Step 1: Template Changes & File Selector -->
         <section class="sync-section card">
           <div class="section-header flex justify-between items-center">
@@ -239,6 +256,41 @@
             </label>
           </div>
         </section>
+        </template>
+
+        <!-- FOLLOWING ONE RUN. Checked every 10 seconds while this dialog is
+             open and not at all once it closes - the assignment page's
+             Starter code line takes over from there, and can reopen this.
+             The words come from lib/sync-status.mjs `describeFollow`. -->
+        <section v-else class="sync-section follow-panel" :data-state="followView?.state || 'starting'" aria-live="polite">
+          <h4 class="section-title">Syncing starter code</h4>
+          <p v-if="!followView" class="text-sm text-secondary">Checking the run…</p>
+          <template v-else>
+            <span class="status-indicator follow-headline">
+              <span :class="['status-dot', followDot]"></span>
+              <strong>{{ followView.title }}</strong>
+            </span>
+            <p v-if="followView.detail" class="text-sm text-secondary follow-detail">{{ followView.detail }}</p>
+            <div v-if="followView.progress && followView.progress.total" class="follow-progress">
+              <div class="progress-bar-container">
+                <div class="progress-bar-fill" :style="{ width: `${followPercent}%` }"></div>
+              </div>
+              <span class="text-xs text-muted">
+                {{ followView.progress.reached }} of {{ followView.progress.total }} students at the last count
+              </span>
+            </div>
+            <ul v-if="followView.failed.length" class="follow-failed text-sm">
+              <li v-for="f in followView.failed" :key="f.login"><code>@{{ f.login }}</code>: {{ f.error }}</li>
+            </ul>
+          </template>
+          <p class="text-xs text-muted follow-meta">
+            <a v-if="following.htmlUrl" :href="following.htmlUrl" target="_blank" rel="noopener">View run</a>
+            <span v-if="followView && !followView.done">
+              Checked {{ lastChecked }}. Checks every 10 seconds while this is open; you can close it and follow it again from the assignment page.
+            </span>
+            <span v-else-if="followView?.done">Finished checking at {{ lastChecked }}.</span>
+          </p>
+        </section>
 
         <!-- Live Dispatch Status Banner -->
         <div v-if="dispatchStatus" class="dispatch-banner" :class="dispatchStatus.type">
@@ -255,7 +307,13 @@
         </div>
       </div>
 
-      <footer class="modal-foot flex justify-between items-center">
+      <!-- Following: closing is the only action, and it stops nothing but the
+           checking - the sync runs on GitHub either way. No primary button:
+           there is no decision left to make here. -->
+      <footer v-if="following" class="modal-foot flex justify-end items-center">
+        <button class="btn btn-secondary" type="button" @click="$emit('close')">Close</button>
+      </footer>
+      <footer v-else class="modal-foot flex justify-between items-center">
         <button class="btn btn-secondary" type="button" @click="$emit('close')" :disabled="dispatching">
           Cancel
         </button>
@@ -274,11 +332,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
-import { ghApi, getRepoContent, triggerWorkflow } from '../lib/api.js'
+import { ghApi, getRepoContent, dispatchWorkflowRun } from '../lib/api.js'
+import { activeSyncRun, describeFollow } from '../../../lib/sync-status.mjs'
 import {
   changedPaths, outcomeFor, listTemplateCommits, planStudent, rootTreeSha, treeReader,
 } from '../lib/starter-sync.js'
@@ -288,9 +347,17 @@ const props = defineProps({
   assignment: { type: Object, required: true },
   org: { type: String, required: true },
   students: { type: Array, default: () => [] },
+  /**
+   * `{ runId, htmlUrl }` to open straight into following that run - the
+   * assignment page's Follow on a sync that is going. Null for the ordinary
+   * dialog.
+   */
+  followRun: { type: Object, default: null },
 })
 
-const emit = defineEmits(['close', 'synced'])
+// `settled`: the run being followed has finished and its outcome is known, so
+// the assignment page reads its status line again.
+const emit = defineEmits(['close', 'synced', 'settled'])
 
 const loadingTemplate = ref(true)
 const templateError = ref(null)
@@ -666,18 +733,25 @@ async function handleDispatchSync() {
       create_issue: String(createIssue.value),
     }
 
-    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'sync-starter-code.yml', inputs)
+    const res = await dispatchWorkflowRun(token, config.hubOwner, config.hubRepo, 'sync-starter-code.yml', inputs)
     if (!res.ok) {
-      throw new Error(`Failed to dispatch sync workflow: ${res.error || 'Unknown error'}`)
+      throw new Error(`Failed to dispatch sync workflow: ${res.error || res.data?.message || `HTTP ${res.status}`}`)
     }
+    emit('synced')
 
+    // FOLLOW IT. "Dispatched successfully" and then nothing was the whole of
+    // what a lecturer saw on 2026-09-25 while two syncs were cut off.
+    if (res.runId) {
+      startFollowing({ runId: res.runId, htmlUrl: res.htmlUrl })
+      return
+    }
+    // GitHub started it without saying which run it is. Say so, rather than
+    // follow a run guessed from a list.
     dispatchStatus.value = {
       type: 'success',
-      message: 'Starter code synchronization workflow dispatched successfully.',
+      message: 'The sync was started, but GitHub did not say which run it is, so it cannot be followed here. The assignment page shows it once it has started.',
       workflowUrl: `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/sync-starter-code.yml`,
     }
-    toast.success('Starter sync workflow dispatched.')
-    emit('synced')
   } catch (err) {
     dispatchStatus.value = {
       type: 'error',
@@ -689,8 +763,115 @@ async function handleDispatchSync() {
   }
 }
 
+// --- following one run -------------------------------------------------------
+
+const FOLLOW_EVERY_MS = 10_000
+const following = ref(null) // { runId, htmlUrl }
+const followView = ref(null)
+const lastChecked = ref('')
+const activeRun = ref(null)
+let followTimer = null
+let followStopped = false
+// Once this run's record is found, its path is read directly each time.
+let followRecordPath = null
+
+const followDot = computed(() => ({
+  success: 'dot-success', warning: 'dot-warning', danger: 'dot-danger', neutral: 'dot-neutral',
+})[followView.value?.tone] || 'dot-neutral')
+
+const followPercent = computed(() => {
+  const p = followView.value?.progress
+  return p?.total ? Math.round((p.reached / p.total) * 100) : 0
+})
+
+/** This run's record, found by `run_id` among the newest few - or null. */
+async function findRunRecord(runId) {
+  if (followRecordPath) {
+    try {
+      const text = await getRepoContent(getToken(), props.org, config.controlRepo, followRecordPath)
+      return text ? JSON.parse(text) : null
+    } catch {
+      return null
+    }
+  }
+  const listing = await get(`/repos/${props.org}/${config.controlRepo}/contents/syncs/${props.assignment.id}`)
+  if (!listing.ok || !Array.isArray(listing.data)) return null
+  const newest = listing.data
+    .filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+    .sort((a, b) => b.name.localeCompare(a.name))
+    .slice(0, 3)
+  for (const f of newest) {
+    try {
+      const doc = JSON.parse(await getRepoContent(getToken(), props.org, config.controlRepo, f.path))
+      if (doc?.run_id === runId) {
+        followRecordPath = f.path
+        return doc
+      }
+    } catch {
+      /* not this one */
+    }
+  }
+  return null
+}
+
+async function followTick() {
+  followTimer = null
+  if (followStopped || !following.value) return
+  const { runId } = following.value
+  // A request can THROW - the API client times out by rejecting - and one that
+  // escaped here would end the following for good with the dialog still saying
+  // "Checking the run…". Any failure is "could not read it this time", and the
+  // next check is still scheduled.
+  let run = null
+  let record = null
+  try {
+    const runRes = await get(`/repos/${config.hubOwner}/${config.hubRepo}/actions/runs/${runId}`)
+    run = runRes.ok ? runRes.data : null
+    record = await findRunRecord(runId)
+  } catch {
+    run = null
+  }
+  if (followStopped) return
+  followView.value = describeFollow({ run, record })
+  lastChecked.value = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  if (followView.value.done) {
+    emit('settled')
+    return
+  }
+  followTimer = setTimeout(followTick, FOLLOW_EVERY_MS)
+}
+
+function startFollowing(run) {
+  following.value = run
+  followView.value = null
+  followRecordPath = null
+  followStopped = false
+  if (followTimer) clearTimeout(followTimer)
+  followTick()
+}
+
+/** Is a sync of this assignment already going? One read, when the dialog opens. */
+async function checkActiveSync() {
+  const res = await get(`/repos/${config.hubOwner}/${config.hubRepo}/actions/workflows/sync-starter-code.yml/runs?per_page=20`)
+  if (!res.ok) return
+  activeRun.value = activeSyncRun(res.data?.workflow_runs, props.org, props.assignment.id)
+}
+
 onMounted(() => {
+  // Opened FROM a running sync (the assignment page's Follow): no template
+  // read and no scan of every student repository - just the run.
+  if (props.followRun) {
+    startFollowing(props.followRun)
+    return
+  }
   fetchTemplateData()
+  checkActiveSync()
+})
+
+onUnmounted(() => {
+  // Closing stops the checking, and only the checking.
+  followStopped = true
+  if (followTimer) clearTimeout(followTimer)
 })
 </script>
 
@@ -710,6 +891,44 @@ onMounted(() => {
   padding: 6px 10px;
   background: var(--bg-surface);
   border-radius: var(--radius-sm);
+}
+
+.dispatch-banner.info {
+  background: var(--tint-accent-subtle);
+  color: var(--text-primary);
+  gap: var(--space-sm);
+}
+
+.follow-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.follow-headline {
+  gap: var(--space-sm);
+}
+
+.follow-detail,
+.follow-meta {
+  margin: 0;
+}
+
+.follow-meta {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.follow-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.follow-failed {
+  margin: 0;
+  padding-left: var(--space-md);
 }
 
 .catch-up-head {

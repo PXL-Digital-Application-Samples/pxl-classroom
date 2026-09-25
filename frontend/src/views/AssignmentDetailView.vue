@@ -238,7 +238,8 @@
           :org="org"
           :assignment="assignment"
           :refresh-key="syncStatusKey"
-          @sync="showStarterSyncModal = true"
+          @sync="followSyncRun = null; showStarterSyncModal = true"
+          @follow="followSyncRun = $event; showStarterSyncModal = true"
         />
 
         <!-- Actions bar -->
@@ -1148,8 +1149,10 @@
         :assignment="assignment"
         :org="org"
         :students="report?.students || []"
-        @close="showStarterSyncModal = false; syncStatusKey++"
+        :follow-run="followSyncRun"
+        @close="showStarterSyncModal = false; followSyncRun = null; syncStatusKey++"
         @synced="loadAll"
+        @settled="syncStatusKey++"
       />
 
       <!-- Freeze and preserve the whole cohort now, and what that costs. -->
@@ -1625,8 +1628,11 @@ async function bumpCapacity(delta) {
 }
 
 const showStarterSyncModal = ref(false)
-// Bumped when the sync dialog closes, so the status line reads again.
+// Bumped when the sync dialog closes or its followed run settles, so the
+// status line reads again.
 const syncStatusKey = ref(0)
+// `{ runId, htmlUrl }` when the dialog was opened to follow a running sync.
+const followSyncRun = ref(null)
 const showPromoteRosterModal = ref(false)
 
 // Offered only under `open`, and only once somebody has accepted. Under

@@ -666,6 +666,32 @@ export async function triggerWorkflow(token, owner, repo, workflowId, inputsOrRe
 }
 
 /**
+ * Dispatch a workflow AND learn which run it started.
+ *
+ * `return_run_details: true` makes GitHub answer 200 with the run's id and
+ * URLs instead of 204 (GitHub changelog, 2026-02-19; measured on the hub the
+ * same day this was written). Without it a caller has to guess its run from a
+ * list - which is what `getWorkflowRunByRequestId` exists for, and what the
+ * sync dialog cannot afford when two lecturers dispatch within a minute.
+ *
+ * Resolves `{ ok, status, runId, runUrl, htmlUrl, data }`; `runId` is null
+ * when GitHub answered without details, and the caller must say it could not
+ * follow the run rather than guess one.
+ */
+export async function dispatchWorkflowRun(token, owner, repo, workflowId, inputs = {}, ref = 'main') {
+  const body = { ref, return_run_details: true }
+  if (inputs && Object.keys(inputs).length > 0) body.inputs = inputs
+  const res = await ghApi(token, 'POST', `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, body)
+  const runId = Number(res.data?.workflow_run_id) || null
+  return {
+    ...res,
+    runId,
+    runUrl: res.data?.run_url || null,
+    htmlUrl: res.data?.html_url || null,
+  }
+}
+
+/**
  * List workflow runs for a specific workflow file.
  */
 export async function getWorkflowRuns(token, owner, repo, workflowId) {

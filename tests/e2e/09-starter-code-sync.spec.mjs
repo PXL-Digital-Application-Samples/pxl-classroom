@@ -71,10 +71,12 @@ test.describe('09 - Starter Code Update & Synchronization Flows', () => {
     await expect(applyBtn).toBeVisible();
     await applyBtn.click();
 
-    // 7. Verify Success Banner & Workflow Run Link
+    // 7. The fixture's dispatch answers 204 - no run details - so the dialog
+    //    cannot follow the run and says so, with the workflow link, rather
+    //    than following a run guessed from a list (tests/e2e/82 follows one).
     const successBanner = modal.locator('.dispatch-banner.success');
     await expect(successBanner).toBeVisible();
-    await expect(successBanner).toContainText('Starter code synchronization workflow dispatched successfully');
+    await expect(successBanner).toContainText('The sync was started, but GitHub did not say which run it is');
     await expect(modal.locator('.workflow-link')).toBeVisible();
   });
 

@@ -36,6 +36,7 @@ import { commitWithRebase } from "../../lib/gittree.mjs";
 import { validateAgainst } from "../../lib/validate.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME } from "../../lib/deployment.mjs";
 import { api, decode, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
+import { activeSyncRun, describeFollow, describeSyncStatus, syncRunTitle } from "../../lib/sync-status.mjs";
 
 const env = loadEnv();
 // Named, never TEST_ORG: this creates repositories (see inline-commit.mjs).
@@ -130,6 +131,9 @@ async function syncAndWait(label, inputs = {}) {
   const v = validateAgainst("sync-record", newest);
   if (!v.valid) r.bad(`${label}: record fails its schema: ${JSON.stringify(v.errors)}`);
   // The record the run wrote about itself, and closed.
+  // The run's title is what the dialog matches a running sync by.
+  if (run.display_title === syncRunTitle(org, ID)) r.ok(`${label}: the run is titled "${run.display_title}"`);
+  else r.bad(`${label}: the run is titled "${run.display_title}", the dialog looks for "${syncRunTitle(org, ID)}"`);
   if (newest.run_id === id && newest.status === "completed" && newest.remaining === 0 && newest.finished_at) {
     r.ok(`${label}: record names run ${id}, completed, 0 remaining`);
   } else {
@@ -301,6 +305,16 @@ async function main() {
   } else {
     r.bad(`6 cut off: no running start record for run ${cutId}: ${JSON.stringify(started && { status: started.status, run_id: started.run_id, total: started.total_students })}`);
   }
+  // What the sync dialog does on opening: list the hub's runs, and find a sync
+  // of this assignment that is going - by its title, from the real API.
+  const listedRuns = await api(`/repos/${HUB}/actions/workflows/sync-starter-code.yml/runs?per_page=20`, { token });
+  const active = activeSyncRun(listedRuns.data?.workflow_runs, org, ID);
+  if (active?.id === cutId) r.ok(`6 cut off: the dialog's check finds the running sync (run ${cutId}, ${active.status})`);
+  else r.bad(`6 cut off: the dialog's check found ${active ? `run ${active.id}` : "nothing"}, not run ${cutId}`);
+  // And what it says while following it, from the same reads.
+  const followNow = describeFollow({ run: (await api(`/repos/${HUB}/actions/runs/${cutId}`, { token })).data, record: started });
+  if (followNow.state === "running" && !followNow.done) r.ok(`6 cut off: following it reads "${followNow.title}" - ${followNow.detail}`);
+  else r.bad(`6 cut off: following it reads ${JSON.stringify({ state: followNow.state, done: followNow.done })}`);
   await api(`/repos/${HUB}/actions/runs/${cutId}/cancel`, { token, method: "POST" });
   let cutRun;
   for (let waited = 0; waited < 5 * 60_000; waited += 5_000) {
@@ -314,7 +328,6 @@ async function main() {
   } else {
     r.bad(`6 cut off: run ${cutRun?.conclusion}, record ${left?.status} with ${left?.results?.length} results`);
   }
-  const { describeSyncStatus } = await import("../../lib/sync-status.mjs");
   const said = describeSyncStatus({ record: left, run: cutRun });
   if (said?.state === "died" && said.action === "sync-again") r.ok(`6 cut off: the page would say "${said.title}" - ${said.detail}`);
   else r.bad(`6 cut off: the page would say ${JSON.stringify(said)}`);
