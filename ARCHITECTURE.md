@@ -416,7 +416,12 @@ opens_at: 2026-09-21T06:00:00Z        # ISO 8601 UTC
 deadline_at: 2026-10-05T21:59:59Z
 timezone: Europe/Brussels
 submission_ref: refs/heads/main
-student_permission: admin             # pull|triage|push|maintain|admin
+student_permission: maintain          # pull|triage|push|maintain|admin. Read at
+                                       # acceptance; absent = admin (every older
+                                       # assignment), a NEW one starts at maintain.
+                                       # A change is applied to students who already
+                                       # accepted only from the Admin Panel, never
+                                       # past their deadline (lib/permission-change.mjs).
 acceptance_mode: self-service         # self-service is the only implemented mode
 roster_mode: open                     # open|enforced - who may accept (§15).
 # cohort: [num:0123456, login:ella-dev] # optional; absent = every roster student.

@@ -274,6 +274,60 @@
             </div>
           </div>
 
+          <!-- student_permission is read at acceptance, so a change reaches
+               nobody who already has a repository unless it is applied.
+               lib/permission-change.mjs decides who and does it. -->
+          <div
+            v-if="!isNew && permissionNotice && permissionNotice.id === form.id"
+            class="published-info-card is-warning"
+            role="status"
+            aria-label="Student permission change"
+          >
+            <div class="published-header">
+              <Icon name="users" :size="16" class="text-yellow" />
+              <h4 v-if="!permissionNotice.done">Students who already accepted still have {{ permissionNotice.from }}</h4>
+              <h4 v-else>Student permission applied</h4>
+            </div>
+            <p v-if="permissionNotice.unreadable" class="published-desc">
+              Could not read which students already have a repository, so nothing can be changed from here.
+              {{ permissionNotice.to }} applies to students who accept from now on.
+            </p>
+            <template v-else>
+              <p v-if="!permissionNotice.done" class="published-desc">
+                <template v-if="permissionNotice.plan.apply.length">
+                  {{ permissionNotice.plan.apply.length }} student{{ permissionNotice.plan.apply.length === 1 ? '' : 's' }}
+                  accepted before this change.
+                </template>
+                The new permission, {{ permissionNotice.to }}, is given to students who accept from now on.
+              </p>
+              <p v-else class="published-desc">
+                {{ permissionNotice.done.changed }} student{{ permissionNotice.done.changed === 1 ? ' now has' : 's now have' }}
+                {{ permissionNotice.to }}.
+                <template v-if="permissionNotice.done.failed.length">
+                  Not changed: {{ permissionNotice.done.failed.join(', ') }}.
+                </template>
+              </p>
+              <p v-if="permissionPastDeadline" class="published-desc">
+                {{ permissionPastDeadline }} past their deadline
+                {{ permissionPastDeadline === 1 ? 'is' : 'are' }}
+                left as they are, because their repository may be locked and changing it would unlock it. Reopening one
+                gives it {{ permissionNotice.to }}.
+              </p>
+              <div class="cohort-actions">
+                <button
+                  v-if="!permissionNotice.done && permissionNotice.plan.apply.length"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="permissionNotice.running"
+                  @click="applyPermissionChange"
+                >{{ permissionNotice.running
+                  ? `Applying… ${permissionNotice.progress} of ${permissionNotice.plan.apply.length}`
+                  : `Apply ${permissionNotice.to} to ${permissionNotice.plan.apply.length} student${permissionNotice.plan.apply.length === 1 ? '' : 's'}` }}</button>
+                <button type="button" class="btn-link" :disabled="permissionNotice.running" @click="permissionNotice = null">Dismiss</button>
+              </div>
+            </template>
+          </div>
+
           <!-- PUBLISHED ASSIGNMENT INFO BANNER -->
           <div v-if="!isNew && form.state === 'published'" class="fade-in">
             <!-- 1. LIVE & VERIFIED -->
@@ -1442,12 +1496,27 @@
             <div class="field">
               <label>Student permission</label>
               <select v-model="form.student_permission">
-                <option value="admin">admin (recommended: required for Actions/runners exercises)</option>
+                <option value="admin">admin</option>
                 <option value="maintain">maintain</option>
                 <option value="push">push</option>
                 <option value="triage">triage</option>
                 <option value="pull">pull</option>
               </select>
+              <!-- Each sentence is a measurement, not a reading of GitHub's
+                   docs: tests/live/permission-probe.mjs, 2026-09-26. -->
+              <small v-if="form.student_permission === 'admin'">
+                Students can also register self-hosted runners, create environments, change the repository's
+                settings and rulesets, and add other people to their repository.
+              </small>
+              <small v-else-if="form.student_permission === 'maintain' || form.student_permission === 'push'">
+                Students can push and create Actions secrets and variables. They cannot register self-hosted runners,
+                create environments, change the repository's settings or add other people. Choose admin for an
+                exercise that needs a runner or an environment.
+              </small>
+              <small v-else>Students cannot push to their repository.</small>
+              <small v-if="!isNew && storedStudentPermission && form.student_permission !== storedStudentPermission">
+                Students who already accepted keep {{ storedStudentPermission }} until you apply the change to them after saving.
+              </small>
             </div>
             <div class="field">
               <label>Submission ref</label>
@@ -1701,9 +1770,12 @@ import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { readMaxHandIns } from '../../../lib/submission-marker.mjs'
 import { templateChanged, templateChangeNotice } from '../lib/template-change.js'
+import { planPermissionApply, applyStudentPermission } from '../../../lib/permission-change.mjs'
 import {
   assignmentPath,
   repositoriesDir,
+  overridesDir,
+  unlockedDir,
   reportPath,
   reportCsvPath,
   gradingSummaryPath,
@@ -3008,7 +3080,12 @@ function emptyForm() {
     _deadline_at_original: '',
     timezone: TIMEZONE,
     submission_ref: 'refs/heads/main',
-    student_permission: 'admin',
+    // `maintain` for a NEW assignment since 2026-09-26: a student can still
+    // push and create Actions secrets and variables, and can no longer add
+    // other people to their repository or change its settings (measured,
+    // tests/live/permission-probe.mjs). An existing assignment keeps what it
+    // stores, and an absent field is still `admin` everywhere that reads it.
+    student_permission: 'maintain',
     // One enum value, so there is nothing to choose and no control for it.
     // The field stays because the schema and the public card still carry it.
     acceptance_mode: 'self-service',
@@ -3289,6 +3366,8 @@ function newAssignment() {
   if (!confirmDiscard()) return
   stopPublishWatch()
   templateNotice.value = null
+  permissionNotice.value = null
+  storedStudentPermission.value = null
   editing.value = { __new: true, id: '' }
   // Nothing stored yet, so nothing to compare a pin against - and a stale one
   // from the previously open assignment would accuse the wrong template.
@@ -3332,6 +3411,7 @@ function editAssignment(a) {
   if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
   stopPublishWatch()
   if (templateNotice.value?.id !== a.id) templateNotice.value = null
+  if (permissionNotice.value?.id !== a.id) permissionNotice.value = null
   editing.value = { id: a.id }
   // A stored policy was given about the pattern stored beside it, so opening
   // this assignment asks nothing - and changing its pattern asks again, which
@@ -3342,6 +3422,8 @@ function editAssignment(a) {
   // the `owner/repo` string. Not folded into `editing.value`, which other code
   // compares as an identity.
   storedTemplate.value = a.template || null
+  // Absent is what every older assignment was provisioned with.
+  storedStudentPermission.value = a.student_permission || 'admin'
   manualSlug.value = true // existing assignments - never auto-rewrite the slug
   manualRepositoryNamePattern.value = true
   // Never editable on an existing assignment - changing it orphans the YAML -
@@ -4251,12 +4333,15 @@ async function saveAssignment(stateOverride = null) {
     const doc = buildDoc(stateOverride)
     const yaml = stringifyYaml(doc)
     const templateBefore = isNew.value ? null : storedTemplate.value
+    const permissionBefore = isNew.value ? null : storedStudentPermission.value
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, isNew.value ? `Create assignment ${form.value.id}` : `Update assignment ${form.value.id}`)
     if (res.ok) {
       toast.success(`Saved ${form.value.id}`)
       // What the document now says, so the next save compares against it.
       storedTemplate.value = doc.template || null
+      storedStudentPermission.value = doc.student_permission || 'admin'
       await noticeTemplateChange(form.value.id, templateBefore, doc.template)
+      await noticePermissionChange(form.value.id, permissionBefore, doc)
       form.value.state = stateOverride || form.value.state
       snapshotForm()
       // A retitled or rescheduled assignment goes stale on the overview the
@@ -4288,6 +4373,80 @@ async function saveAssignment(stateOverride = null) {
 // lecturer published again, twice, and went looking. One directory read, only
 // when the template actually changed. lib/template-change.js decides.
 const templateNotice = ref(null)
+
+// The same shape for `student_permission`: it is read at acceptance, so a
+// change reaches nobody who already has a repository unless it is applied to
+// them. lib/permission-change.mjs decides who may be changed (nobody past
+// their deadline, whose repository may be locked) and does the change,
+// pending invitations included.
+const storedStudentPermission = ref(null)
+const permissionNotice = ref(null)
+const permissionPastDeadline = computed(
+  () => (permissionNotice.value?.plan?.skip || []).filter((entry) => entry.reason === 'past-deadline').length,
+)
+
+async function readJsonDir(token, dir) {
+  let files
+  try {
+    files = await listRepoDir(token, props.org, config.controlRepo, dir)
+  } catch (e) {
+    if (e?.status === 404) return { ok: true, docs: [] }
+    return { ok: false, docs: [] }
+  }
+  const docs = []
+  for (const f of files.filter((x) => x.type === 'file' && x.name.endsWith('.json'))) {
+    try {
+      const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+      if (text) docs.push(JSON.parse(text))
+    } catch {
+      return { ok: false, docs }
+    }
+  }
+  return { ok: true, docs }
+}
+
+async function noticePermissionChange(id, before, doc) {
+  const after = doc.student_permission || 'admin'
+  if (!before || before === after) return
+  const token = getToken()
+  const records = await readJsonDir(token, repositoriesDir(id))
+  if (!records.ok) {
+    permissionNotice.value = { id, from: before, to: after, unreadable: true, plan: null, done: null }
+    return
+  }
+  if (!records.docs.length) return
+  // Unreadable extensions or reopenings leave students at the base deadline
+  // and not reopened: that only skips more of them, the safe direction.
+  const overrides = await readJsonDir(token, overridesDir(id))
+  const reopened = await readJsonDir(token, unlockedDir(id))
+  const plan = planPermissionApply({
+    records: records.docs,
+    assignment: doc,
+    overrides: overrides.docs,
+    reopened: reopened.docs.map((d) => d?.github_login).filter(Boolean),
+  })
+  permissionNotice.value = { id, from: before, to: after, unreadable: false, plan, done: null, progress: 0 }
+}
+
+async function applyPermissionChange() {
+  const n = permissionNotice.value
+  if (!n?.plan || n.running) return
+  n.running = true
+  const token = getToken()
+  const request = (method, path, body) => ghApi(token, method, path, body)
+  const failed = []
+  let changed = 0
+  for (const s of n.plan.apply) {
+    const res = await applyStudentPermission(request, { repo: s.repo, login: s.login, permission: n.to })
+    if (res.ok) changed++
+    else failed.push(`${s.login} (${res.status ? `HTTP ${res.status}` : res.message || 'no answer'})`)
+    n.progress++
+  }
+  n.running = false
+  n.done = { changed, failed }
+  if (failed.length) toast.error(`Could not change ${failed.length} student${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}`)
+  else toast.success(`${changed} student${changed === 1 ? ' now has' : 's now have'} ${n.to}.`)
+}
 
 async function noticeTemplateChange(id, before, after) {
   if (!templateChanged(before, after)) return

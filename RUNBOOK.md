@@ -1094,6 +1094,21 @@ Press **Sync again** on that line, or run it again from **··· More**. Each st
 
 Changing **Template repository** in the Admin Panel, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then sync. After the save the Admin Panel says how many students already have a repository from the previous template, with a **Sync Starter Code** button that opens the sync on the assignment page (it is also under **··· More** there). Those students are brought up to the new template from their own first commit: every file of the new template arrives, a file of the old starter they never touched is replaced or removed, and a file they changed arrives as a pull request. The dialog says how many repositories were created from a different template.
 
+#### Changed the Student permission after students accepted
+
+**Edit settings → Advanced → Student permission** is what a student is given when they accept. A new assignment starts at `maintain`; one without the setting is `admin`. Measured on GitHub, with a student's own account:
+
+| A student can… | push / maintain | admin |
+|---|---|---|
+| push, create Actions secrets and variables | yes | yes |
+| register a self-hosted runner, create an environment | no | yes |
+| change the repository's settings, Actions permissions, rulesets, webhooks | no | yes |
+| add other people to their repository | no | yes |
+
+Choose `admin` for an exercise that needs a runner or an environment.
+
+Changing it and saving applies to students who accept from then on. For students who already have a repository, the Admin Panel then says how many still have the old one, with **Apply … to N students**. A student who has not accepted their repository invitation yet gets the new permission on the invitation. **Nobody past their own deadline is changed**: their repository may be locked, and a changed permission would unlock it (a student at `admin` can switch off a repository-level lock). Reopening one (§6.15) gives it the assignment's current permission.
+
 #### Syncing up to a commit that is not the newest
 
 When the template already holds something students must not have yet (next week's lab), name the commit to sync up to: `PXL-Digital-Application-Samples/pxl-classroom` -> **Actions** -> **Sync Starter Code** -> **Run workflow**, with **Organization**, **Assignment ID**, and **Template commit** set to its short sha from the template's commit list (e.g. `1e7f714`). Students are still brought up from their own starting point, to that commit and no further; a student who is already past it (their repository was created later) is sent nothing, never taken back. Untick *Open tracking issue* if the students should not be emailed.
