@@ -38,7 +38,11 @@ jobs:
   sync-starter:
     environment: provisioning
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 20 stopped a real 93-file sync after 30 of its students, when every file
+    # was its own blob request. Text files now go in one tree request
+    # (lib/gittree.mjs), so a cohort takes minutes - this is headroom, and it
+    # stays under the App token's one-hour life, which the job does not re-mint.
+    timeout-minutes: 45
     steps:
       # A lecturer dispatches this as themselves, through the SPA or the Actions
       # tab. The only other thing that can reach workflow_dispatch here is an App

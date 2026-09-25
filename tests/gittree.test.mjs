@@ -114,7 +114,9 @@ test("commitWithRebase: multi-file with one delete (null content)", async () => 
 
   const blobPosts = calls.filter((c) => c.path.endsWith("/git/blobs"));
   assert.equal(blobPosts.length, 2, "delete must not POST a blob");
-  const treeCall = calls.find((c) => c.path.endsWith("/git/trees"));
+  // The LAST tree POST is the commit's; an earlier one is the scratch tree the
+  // inline shortcut writes (here it cannot be read back, so both went as blobs).
+  const treeCall = calls.filter((c) => c.path.endsWith("/git/trees") && c.method === "POST").at(-1);
   const stale = treeCall.body.tree.find((e) => e.path === "stale.txt");
   assert.equal(stale.sha, null, "null sha encodes delete");
 });

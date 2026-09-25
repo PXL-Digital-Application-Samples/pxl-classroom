@@ -2420,3 +2420,11 @@ already has worse options inside their own org, and the gain is one repository
 from a peer course's template. What did not wait was the documentation. A
 guarantee nobody has is worse than a gap everybody knows about, because the next
 person builds on it.
+
+### A job that loops over students costs students x whatever it does per student - time it at the real size, against the job's own timeout.
+
+2026-09-25. A lecturer syncing lab 4 into .NET Advanced saw every run end part-way: `[auto-merged]` for thirty students, then `The operation was canceled.` Re-running continued, because a student who already has the change is skipped, so it looked like a flaky workflow. It was the job's own `timeout-minutes: 20`: every run was cancelled 20m18s after it started. `lib/gittree.mjs` uploaded each changed file as its own blob request, one after another, so 93 files were ~40 seconds per student, and the job's cost grew with students times files. Nobody had timed it at that size: every earlier sync carried a handful of files.
+
+The Git Data API writes a text file's blob itself from a tree entry's `content`, so the text files now go in one request. GitHub's documentation says nothing about how that string is encoded, and a .NET starter is exactly the case that would show it: a UTF-8 BOM and CRLF on every file. So nothing trusts it. The inlined files are written as a scratch tree, read back, and each blob sha is compared with git's own hash of the original bytes; a mismatch goes up as a blob, as before. Measured the same day on `pxl-classroom-testbed` (`tests/live/inline-commit.mjs`): BOM, CRLF, non-ASCII, tabs and a missing final newline all byte-identical, one blob request for the binary file beside them. A shortcut that verified by trusting itself would have been silent in exactly the case it could get wrong.
+
+Raising the timeout alone would have moved the cliff, not removed it, and past 60 minutes the App token dies mid-run - the sentinel's lesson. It went to 45 as headroom after the cost fell.
