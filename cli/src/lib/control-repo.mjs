@@ -11,7 +11,9 @@
 import { parse as yamlParse } from "yaml";
 import { CONTROL_REPO } from "../../../lib/deployment.mjs";
 import { ROSTER_PATH } from "../../../lib/roster-entries.mjs";
-import { assignmentPath, reportPath, repositoriesDir, teamsDir, acceptancesDir } from "../../../lib/control-layout.mjs";
+import {
+  assignmentPath, reportPath, repositoriesDir, teamsDir, acceptancesDir, overridesDir,
+} from "../../../lib/control-layout.mjs";
 import { claimPath, claimAttemptsPath } from "../../../lib/claim.mjs";
 
 export { CONTROL_REPO };
@@ -98,6 +100,34 @@ export async function listSyncRecords(octokit, { org, assignmentId }) {
     } catch {
       /* skipped - see above */
     }
+  }
+  return docs;
+}
+
+/**
+ * Every `overrides/<id>/<login>.json`. A missing directory is none; any other
+ * failure THROWS - unlike the sync records above, where skipping one only
+ * sends more. A hand-in allowance that could not be read would grade as if it
+ * had never been granted, ignoring the hand-ins a lecturer said should count.
+ */
+export async function listOverrides(octokit, { org, assignmentId }) {
+  let files = [];
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: overridesDir(assignmentId),
+    });
+    files = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    if (e.status === 404) return [];
+    throw e;
+  }
+  const docs = [];
+  for (const f of files) {
+    if (f.type !== "file" || !f.name.endsWith(".json")) continue;
+    const r = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: f.path,
+    });
+    docs.push(JSON.parse(Buffer.from(r.data.content, "base64").toString("utf8")));
   }
   return docs;
 }

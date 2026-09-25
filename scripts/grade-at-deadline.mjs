@@ -29,16 +29,17 @@
 // that cannot be completed must not fail a finalize that has already locked the
 // cohort and pushed its submissions to the archive.
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gradeCohort } from "../lib/grade-cohort.mjs";
 import { buildGradingSummary } from "../lib/grading-summary.mjs";
-import { readSubmissionMarker, submissionBranch } from "../lib/submission-marker.mjs";
+import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../lib/submission-marker.mjs";
 import { gradesInCi } from "../lib/autograde-source.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { assignmentPath, gradingSummaryPath } from "../lib/control-layout.mjs";
+import { assignmentPath, gradingSummaryPath, overridesDir } from "../lib/control-layout.mjs";
 
 const cfg = {
   dataDir: process.env.DATA_DIR || "control",
@@ -53,6 +54,31 @@ async function readJson(path) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Every override document for this assignment. `ok: false` only for a read
+ * that failed; a directory that does not exist is `ok` and empty. A single
+ * file that does not parse fails the read too - it may be the one grant that
+ * matters, and skipping it would grade as if it had never been made.
+ */
+export async function readOverrides(dir) {
+  let names;
+  try {
+    names = await readdir(dir);
+  } catch (e) {
+    if (e?.code === "ENOENT") return { ok: true, docs: [] };
+    return { ok: false, error: e?.message || String(e) };
+  }
+  const docs = [];
+  for (const name of names.filter((n) => n.endsWith(".json"))) {
+    try {
+      docs.push(JSON.parse(await readFile(join(dir, name), "utf8")));
+    } catch (e) {
+      return { ok: false, error: `${name}: ${e?.message || String(e)}` };
+    }
+  }
+  return { ok: true, docs };
 }
 
 /** Has a person already produced this summary? */
@@ -107,12 +133,24 @@ async function main() {
 
   const fallbackTotal = (assignment.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
 
+  // A hand-in cap is raised per student in `overrides/`. Unreadable is not
+  // "nobody was granted anything": reading it that way would ignore exactly the
+  // hand-ins a lecturer said should count, so under a cap a failed read writes
+  // nothing. An absent directory is an answer - nobody was granted anything.
+  let overrides = [];
+  if (marker?.maxHandIns != null) {
+    const read = await readOverrides(join(cfg.dataDir, overridesDir(cfg.assignmentId)));
+    if (!read.ok) return log(true, `not written: could not read the hand-in allowances (${read.error})`);
+    overrides = read.docs;
+  }
+
   const res = await gradeCohort(gh, {
     students,
     marker,
     markerBranch: submissionBranch(assignment),
     fallbackTotal,
     concurrency: 4,
+    overrides,
   });
 
   // Every refusal is REPORTED AND SURVIVED. This job has already locked the
@@ -156,9 +194,16 @@ async function main() {
       (existing ? " (replacing this job's own earlier reading)" : ""),
   );
   for (const f of res.failed.slice(0, 20)) console.log(`       ${f.login}: ${f.reason}`);
+  // Never silent: every hand-in the cap or the deadline left out, by name.
+  for (const row of [...res.graded, ...res.failed]) {
+    for (const item of row.hand_ins?.ignored || []) {
+      console.log(`       ${row.login}: ${describeIgnoredHandIn(item, { allowed: row.hand_ins.allowed })}`);
+    }
+  }
 }
 
-main().catch((e) => {
+// Importable for the tests without running against a checkout.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((e) => {
   // Same reasoning as every refusal above: the lock and the archive are done.
   console.log(`[ok] grade ${cfg.assignmentId} - not written: ${e.message}`);
 });

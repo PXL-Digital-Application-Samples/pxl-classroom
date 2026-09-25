@@ -160,7 +160,18 @@ Optional. Tests that run against a student's work and give you a score per stude
 - **On every push.** Scores come from each student's last commit.
 - **Only on a hand-in commit.** Scores come from the commit carrying the message you name. Type it exactly as you asked students for it.
 - **They may hand in more than once** is on. The last hand-in before the deadline counts, so a student who fixes something and hands in again is graded on the fix. Off, the first one counts.
+- **Maximum hand-ins per student** (optional, empty is no limit). With 5, only the first 5 hand-ins before the deadline count and the 5th is graded. Each hand-in is a full run of your workflow, so on a cloud exam this keeps deploys and Actions minutes in check.
+- The limit is on what is graded. Pushes are never blocked: a sixth hand-in still runs, it just does not count.
+- Every hand-in that does not count is listed by name with the reason, under the results. The results and the CSV show each student's count, like **6 / 5**.
 - A hand-in after the deadline is never graded. That student is listed by name with the time.
+
+### One student may hand in more
+
+- On the student's row, **⋯ → Hand-ins**: give them extra hand-ins on top of the limit, and a reason. Optionally extend their deadline too, for a late hand-in that should count.
+- Their score is read again straight away, so a hand-in that was over the limit counts at once.
+- Your name, the time and the reason are kept, and appear in the CSV export.
+- **Revoke the extra hand-ins** takes it back, with its own reason. A deadline extension given with it stays.
+- In a group, the team shares one count, and the largest extra any member was given applies to the whole team.
 
 ### If you define them here
 

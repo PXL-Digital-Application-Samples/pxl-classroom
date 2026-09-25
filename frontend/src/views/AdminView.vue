@@ -1619,6 +1619,7 @@
       }"
       :submission-marker="form.submission_marker_value || ''"
       :submission-marker-multiple="form.submission_marker_multiple !== false"
+      :submission-marker-max-hand-ins="readMaxHandIns(Number(form.submission_marker_max_hand_ins))"
       :template-grades="form.template_grades"
       :template="templateWorkflow"
       @check-template="checkTemplateWorkflow"
@@ -1668,6 +1669,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
+import { readMaxHandIns } from '../../../lib/submission-marker.mjs'
 import {
   assignmentPath,
   reportPath,
@@ -3046,6 +3048,8 @@ function emptyForm() {
     // Handing in again is allowed unless somebody says otherwise, which is the
     // same direction `readSubmissionMarker` takes for an absent field.
     submission_marker_multiple: true,
+    // '' is no limit, which is what an assignment without the field means.
+    submission_marker_max_hand_ins: '',
     assignment_type: 'individual',
     group_config: {
       max_team_size: DEFAULT_MAX_TEAM_SIZE,
@@ -3397,6 +3401,9 @@ function editAssignment(a) {
     // `!== false`, so a hand-written YAML that omits it loads the way
     // `readSubmissionMarker` reads it rather than the way a truthy check would.
     submission_marker_multiple: a.submission_marker?.multiple !== false,
+    // Read through the grader's own judge, so a hand-edited `0` or "5" shows
+    // as no limit here exactly as it grades.
+    submission_marker_max_hand_ins: readMaxHandIns(a.submission_marker?.max_hand_ins) ?? '',
     assignment_type: a.assignment_type || 'individual',
     group_config: {
       max_team_size: teamMaxSize(a.group_config),
@@ -3483,6 +3490,10 @@ const autogradeSummary = computed(() =>
       tests: form.value.autograde_tests,
     },
     submissionMarker: form.value.submission_marker_value,
+    // Only while "more than once" is on - the save drops it otherwise.
+    maxHandIns: form.value.submission_marker_multiple !== false
+      ? readMaxHandIns(Number(form.value.submission_marker_max_hand_ins))
+      : null,
   }),
 )
 
@@ -3631,6 +3642,7 @@ function applyAutograde(config) {
   // survives the screen that was meant to clear it.
   form.value.submission_marker_value = config.submissionMarker ?? ''
   form.value.submission_marker_multiple = config.submissionMarkerMultiple !== false
+  form.value.submission_marker_max_hand_ins = config.submissionMarkerMaxHandIns ?? ''
   showAutogradeModal.value = false
 }
 
@@ -3646,6 +3658,7 @@ function clearAutograde() {
   // the button said it had been removed.
   form.value.submission_marker_value = ''
   form.value.submission_marker_multiple = true
+  form.value.submission_marker_max_hand_ins = ''
 }
 
 // ---------------------------------------------------------------- YAML generation + validation

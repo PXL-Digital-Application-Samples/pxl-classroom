@@ -18,13 +18,19 @@ point a PXL Classroom assignment at it.
    ```
 
 2. Do the exercise in their own account.
-3. Commit and push with the message **`einde examen`** — exactly that, nothing
+3. Commit and push with the message **`einde examen`**: exactly that, nothing
    before or after it. That is what runs the checks.
 
 They can hand in more than once: the newest hand-in commit on or before the
 deadline is the one that counts, unless you turned that off on the assignment.
 Anything else they push does not re-run the checks and does not replace the
 score.
+
+If the assignment has a **hand-in limit**, only their first hand-ins up to that
+number count, and the last of those is graded. Each hand-in still runs the
+checks - a deploy in their lab and Actions minutes - so tell them the limit
+before the exam. A hand-in over the limit is not graded, and you see it listed
+by name.
 
 ## What you do
 
@@ -37,9 +43,14 @@ score.
   workflow gates on. The dashboard then reads each student's score from their
   hand-in commit; without it, a student who pushed anything afterwards is
   reported as having no grading run.
+- Optionally set **Maximum hand-ins per student** on the assignment. Every
+  hand-in is a full run of this workflow against the student's account, about
+  25 Actions minutes on this template. The limit decides what is graded; it
+  does not stop a push. A student who needs more (a lab that crashed) can be
+  given extra hand-ins from their row, with a reason that is kept.
 - After the exam, use **Read scores from GitHub Actions** in the dashboard.
-  Students whose hand-in commit is missing are listed by name — they are not
-  scored zero.
+  Students whose hand-in commit is missing are listed by name: they are not
+  scored zero. Hand-ins over the limit, or after the deadline, are listed too.
 
 ## Why the checks are not re-run afterwards
 

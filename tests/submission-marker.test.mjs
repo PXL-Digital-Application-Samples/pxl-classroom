@@ -48,7 +48,7 @@ test("an empty or unknown-typed marker is no marker", () => {
 
 test("the marker is read whole and trimmed", () => {
   const marker = readSubmissionMarker({ submission_marker: { type: "commit_message", value: " einde examen " } });
-  assert.deepEqual(marker, { type: "commit_message", value: "einde examen", multiple: true });
+  assert.deepEqual(marker, { type: "commit_message", value: "einde examen", multiple: true, maxHandIns: null });
 });
 
 test("handing in again is allowed unless the assignment says otherwise", () => {
@@ -324,7 +324,7 @@ test("a marker saved by the Admin Panel validates and round-trips", () => {
   assert.deepEqual(doc.submission_marker, { type: "commit_message", value: "einde examen", multiple: true });
   const { valid, errors } = validateAgainst("assignment", doc);
   assert.equal(valid, true, `the saved document must validate: ${JSON.stringify(errors)}`);
-  assert.deepEqual(readSubmissionMarker(doc), { ...MARKER, multiple: true });
+  assert.deepEqual(readSubmissionMarker(doc), { ...MARKER, multiple: true, maxHandIns: null });
 });
 
 test("only-once survives the save, which is the whole point of writing it down", () => {

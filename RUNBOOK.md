@@ -1024,6 +1024,20 @@ A check run created by GitHub Actions has an empty output body. The reporter emi
 
 A run that finished with no such annotation is recorded from the run's conclusion instead - full marks or zero - and marked `score_source: "conclusion"`, so it can be told apart from a measured score. A run that **never ran** is not scored at all.
 
+#### A hand-in limit, and one student who may hand in more
+
+On an assignment graded on a hand-in commit, **Autograding → Maximum hand-ins per student** (only while *They may hand in more than once* is ticked) caps how many hand-ins count. The first N on or before each student's own deadline are valid and the last of those is graded; every other hand-in is listed under the Autograder results by name and reason, and the results and **Export CSV** show a count like **6 / 5**. It limits what is graded: pushes and workflow runs are never blocked, so an over-limit hand-in still costs its minutes. Tell students the limit before the exam.
+
+To let one student hand in more - a lab that crashed, an approved retake:
+
+1. Their row → **⋯** → **Hand-ins**.
+2. **Extra hand-ins for this student**: the number on top of the limit (it replaces an earlier grant, it does not add to it). Optionally **Also extend their deadline to**, for a late hand-in that should count.
+3. A **Reason**, then **Allow extra hand-ins**. It is recorded in `overrides/<id>/<login>.json` with your login and the time, appears in the CSV export, and their score is read again at once - so a hand-in that was over the limit counts now.
+
+**Revoke the extra hand-ins** in the same place takes it back with its own reason; the grant stays on record beside it, and a deadline extension given with it is not taken back. In a group the team shares one count and the most generous member's extra applies to all of them.
+
+If scores cannot be read because *the students' extra hand-ins could not be read*, reload: under a limit, nothing is graded over an exception file that failed to load, because a grant that was not read would count against the student.
+
 ### 6.13 Correcting an assignment after students have accepted
 
 Spotted a mistake in the assignment, or publishing the next lab? Change the **template repository**, commit, and push. The sync brings **every student from where they are up to your latest template commit**: a student who missed an earlier update (a sync that stopped, a commit you never synced) gets that too, and one who already has everything gets nothing.

@@ -37,6 +37,70 @@
         </button>
       </section>
 
+      <!-- HAND-INS, only under a hand-in cap. The numbers arrive decided
+           (lib/hand-in-allowance.mjs, the grading summary): this dialog shows
+           them and collects the lecturer's answer, the way the extension above
+           leaves "later than the current deadline" to its module. -->
+      <section v-if="handIns" class="modal-section" data-section="hand-ins">
+        <h4>Hand-ins</h4>
+        <p class="text-secondary">
+          <template v-if="handIns.count">
+            {{ handIns.count.used }} made on or before the deadline, of which
+            {{ Math.min(handIns.count.used, handIns.count.allowed) }} count.
+          </template>
+          <template v-else>Not counted yet: the count appears once their score has been read.</template>
+          The limit is {{ handIns.base }} for everyone<template v-if="handIns.extra">, plus {{ handIns.extra }} for
+          {{ handIns.grantedTo && handIns.grantedTo !== ownLogin ? `their team (granted to @${handIns.grantedTo})` : 'this student' }}</template>.
+        </p>
+        <p v-if="handIns.allowance && handIns.allowance.extra > 0" class="text-secondary text-sm">
+          +{{ handIns.allowance.extra }} granted by @{{ handIns.allowance.by }}
+          on {{ formatDate(handIns.allowance.at) }}: "{{ handIns.allowance.reason }}"
+        </p>
+        <p v-else-if="handIns.allowance" class="text-secondary text-sm">
+          An earlier grant was revoked by @{{ handIns.allowance.by }}
+          on {{ formatDate(handIns.allowance.at) }}: "{{ handIns.allowance.reason }}"
+        </p>
+
+        <div class="field">
+          <label for="hand-in-extra">Extra hand-ins for this student</label>
+          <input id="hand-in-extra" v-model="hand.extra" type="number" min="1" max="50" step="1" class="hand-in-extra" />
+          <small>On top of the limit of {{ handIns.base }}. This replaces any earlier grant rather than adding to it.</small>
+        </div>
+        <div class="field">
+          <label for="hand-in-deadline">Also extend their deadline to (optional)</label>
+          <input id="hand-in-deadline" v-model="hand.deadline_local" type="datetime-local" />
+          <small>For a hand-in made after the deadline that should count too.</small>
+        </div>
+        <div class="field">
+          <label for="hand-in-reason">Reason (recorded, and in the CSV export)</label>
+          <textarea id="hand-in-reason" v-model="hand.reason" rows="2" placeholder="Lab environment crashed during the exam / approved by the program coordinator"></textarea>
+        </div>
+        <p v-if="hand.reason.trim() && handProblem" class="field-error-msg">{{ handProblem }}</p>
+        <div class="hand-in-actions">
+          <button
+            class="btn"
+            type="button"
+            :disabled="busy || !!handProblem"
+            @click="emit('grant-hand-ins', { extra: Number(hand.extra), reason: hand.reason.trim(), deadline_local: hand.deadline_local })"
+          >
+            {{ savingHandIns ? 'Saving…' : 'Allow extra hand-ins' }}
+          </button>
+          <button
+            v-if="handIns.allowance && handIns.allowance.extra > 0"
+            class="btn btn-danger-outline"
+            type="button"
+            :disabled="busy || !hand.reason.trim()"
+            @click="emit('revoke-hand-ins', { reason: hand.reason.trim() })"
+          >
+            Revoke the extra hand-ins
+          </button>
+        </div>
+        <p class="text-secondary text-sm">
+          Their score is read again right away, so a hand-in that was over the limit can count.
+          Revoking keeps any deadline extension.
+        </p>
+      </section>
+
       <section class="modal-section">
         <h4>Retry acceptance</h4>
         <p class="text-secondary">Wipes the half-done state and re-runs the full pipeline. Use when a student's acceptance got stuck (e.g. rate-limit during a burst).</p>
@@ -146,6 +210,7 @@ import Icon from './Icon.vue'
 import { formatDate } from '../lib/format.js'
 import { utcToLocalInput } from '../lib/assignment-doc.js'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
+import { allowanceProblem } from '../../../lib/hand-in-allowance.mjs'
 
 const props = defineProps({
   student: { type: Object, required: true },
@@ -173,9 +238,18 @@ const props = defineProps({
    */
   regrade: { type: Object, default: null },
   regrading: { type: Boolean, default: false },
+  /**
+   * The hand-in limit for this student, already decided, or null when the
+   * assignment has no cap (the section does not appear):
+   * `{ base, extra, limit, grantedTo, allowance, count }` - `allowance` from
+   * lib/hand-in-allowance.mjs (`extra: 0` is a revoked grant), `count` from
+   * the grading summary (null until a score has been read).
+   */
+  handIns: { type: Object, default: null },
+  savingHandIns: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade'])
+const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins'])
 
 // The dialog's own state, not the view's: it is created when the dialog opens
 // and meaningless when it is closed (DESIGN.md §6).
@@ -192,11 +266,24 @@ const ext = reactive({
   reason: '',
 })
 
+// The hand-in grant form, seeded with the grant in force so a lecturer edits
+// it rather than retyping it. The number is what they will have, not an
+// increment: the stored entry is the extra in force (lib/hand-in-allowance.mjs).
+const hand = reactive({
+  extra: String(props.handIns?.allowance?.extra > 0 ? props.handIns.allowance.extra : 1),
+  deadline_local: '',
+  reason: '',
+})
+// Asked of the module that judges it, so the disabled button and the refusal
+// cannot disagree.
+const handProblem = computed(() => allowanceProblem({ extra: hand.extra, reason: hand.reason }))
+const ownLogin = computed(() => String(props.student.github_login || '').toLowerCase())
+
 // A computed, not a function: the template binds `:disabled="busy"`, and a bare
 // function reference there is an object - always truthy, so every control would
 // render permanently disabled.
 const busy = computed(
-  () => props.extending || props.retrying || props.unlocking || props.regrading,
+  () => props.extending || props.retrying || props.unlocking || props.regrading || props.savingHandIns,
 )
 
 function requestClose() {
@@ -208,6 +295,16 @@ function requestClose() {
 </script>
 
 <style scoped>
+.hand-in-extra {
+  max-width: 10ch;
+}
+
+.hand-in-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
 /* Was an inline style on the anchor. A link styled as a button still needs its
    underline removed and its icon aligned. */
 .archive-open-link {

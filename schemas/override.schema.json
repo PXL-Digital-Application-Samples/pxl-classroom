@@ -34,6 +34,18 @@
         "type": "object",
         "required": ["type", "reason", "overridden_by", "overridden_at"],
         "additionalProperties": false,
+        "if": { "properties": { "type": { "const": "hand_in_allowance" } } },
+        "then": {
+          "required": ["value"],
+          "properties": {
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 50,
+              "description": "EXTRA hand-ins on top of the assignment's `submission_marker.max_hand_ins`, not a new total, so a later change to the cap still composes. 0 revokes an earlier grant; the list is append-only and the last entry is in force (lib/hand-in-allowance.mjs)."
+            }
+          }
+        },
         "properties": {
           "type": {
             "type": "string",
@@ -42,6 +54,7 @@
               "acceptance_state",
               "repository",
               "deadline_extension",
+              "hand_in_allowance",
               "submission_sha",
               "late_status",
               "exemption",

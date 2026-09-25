@@ -22,4 +22,5 @@ export {
   readSubmissionMarker,
   submissionBranch,
   findMarkedCommit,
+  describeIgnoredHandIn,
 } from '../../../lib/submission-marker.mjs'

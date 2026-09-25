@@ -50,7 +50,8 @@
             "type": "string",
             "enum": ["annotation-json", "points", "conclusion"],
             "description": "Where the number came from. `conclusion` means no reporter annotation was found and the grade is all-or-nothing, which is not the same kind of fact as a parsed score."
-          }
+          },
+          "hand_ins": { "$ref": "#/definitions/hand_ins" }
         }
       }
     },
@@ -62,7 +63,39 @@
         "additionalProperties": false,
         "properties": {
           "login": { "type": "string", "minLength": 1 },
-          "reason": { "type": "string", "minLength": 1 }
+          "reason": { "type": "string", "minLength": 1 },
+          "hand_ins": { "$ref": "#/definitions/hand_ins" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "hand_ins": {
+      "type": "object",
+      "description": "The hand-in count under `submission_marker.max_hand_ins`, as lib/submission-marker.mjs `selectHandIn` decided it at `graded_at`. Absent when the assignment has no cap. On a failed row too: a student whose graded hand-in has no run still used 3 of 2.",
+      "required": ["used", "allowed", "ignored"],
+      "additionalProperties": false,
+      "properties": {
+        "used": { "type": "integer", "minimum": 0, "description": "Hand-ins on or before this student's deadline. May exceed `allowed` - that is the fact." },
+        "allowed": { "type": "integer", "minimum": 1, "description": "The assignment's cap plus this student's (or their team's most generous) allowance." },
+        "extra": { "type": "integer", "minimum": 0, "description": "How much of `allowed` is a per-student allowance." },
+        "graded_sha": { "type": ["string", "null"] },
+        "graded_number": { "type": ["integer", "null"], "minimum": 1 },
+        "ignored": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["sha", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "sha": { "type": "string", "minLength": 1 },
+              "date": { "type": ["string", "null"], "description": "The commit's own timestamp." },
+              "pushed_at": { "type": ["string", "null"], "description": "When GitHub started the first run for it - server time." },
+              "on_branch": { "type": "boolean", "description": "false: known only from the run history, because the branch was rewritten. Still counted." },
+              "number": { "type": ["integer", "null"], "minimum": 1, "description": "Its position among the on-time hand-ins; null for a late one." },
+              "reason": { "type": "string", "enum": ["over-limit", "late"] }
+            }
+          }
         }
       }
     }

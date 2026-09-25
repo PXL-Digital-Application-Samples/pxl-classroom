@@ -440,11 +440,37 @@ jobs:
       # re-queue all of that to fix something a lecturer can read with one
       # button, and every retry burns an attempt from the ceiling that stops
       # find-finalizable looping.
+      # ITS OWN TOKEN, allowed to fail. A hand-in cap counts from the push run
+      # history, which needs Actions (read) - a permission no other finalize
+      # step asks for. Were it on the finalize token above, an installation
+      # that never approved Actions would fail that mint and skip lockdown and
+      # preservation for the whole organization. Here a failed mint skips only
+      # this read, which is already non-fatal and says why.
+      - name: 6a. Token for reading scores
+        id: gradetoken
+        if: always()
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.assignment.org }}
+          # Commits and check runs in the student repositories, and the push
+          # run history a hand-in cap counts from (lib/app-token-scopes.mjs).
+          permission-actions: read
+          permission-checks: read
+          permission-contents: read
+          permission-metadata: read
+
+      # Falls back to the finalize token when 6a could not be minted: every
+      # assignment WITHOUT a hand-in cap is read exactly as before, and one
+      # with a cap reports that the run history could not be read (HTTP 403)
+      # and writes nothing - never a count taken from the branch alone.
       - name: 6. Read autograding scores
         if: always()
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.gradetoken.outputs.token || steps.token.outputs.token }}
           ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
           DATA_DIR: control
         run: node scripts/grade-at-deadline.mjs

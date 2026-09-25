@@ -1043,6 +1043,9 @@
                   <th>Login</th>
                   <th class="num">Earned</th>
                   <th class="num">Total</th>
+                  <!-- Only under a hand-in cap: the column is a count against
+                       a limit, and with no limit there is nothing to count. -->
+                  <th v-if="handInsShown" class="num" title="Hand-ins made on or before the deadline, of how many count">Hand-ins</th>
                   <th v-if="summaryIsCiBased">CI status</th>
                   <th>Last graded</th>
                 </tr>
@@ -1052,6 +1055,15 @@
                   <td><a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a></td>
                   <td class="num">{{ row.earned_points }}</td>
                   <td class="num">{{ row.total_points }}</td>
+                  <td v-if="handInsShown" class="num">
+                    <!-- "6 / 5" is the fact; clamping it to 5 would hide the
+                         one that was ignored. Named below. -->
+                    <span v-if="row.hand_ins" :class="{ 'stat-yellow': row.hand_ins.used > row.hand_ins.allowed }"
+                          :title="row.hand_ins.extra ? `${row.hand_ins.allowed} allowed, ${row.hand_ins.extra} of them granted to this student` : null">
+                      {{ row.hand_ins.used }} / {{ row.hand_ins.allowed }}{{ row.hand_ins.extra ? ` (+${row.hand_ins.extra})` : '' }}
+                    </span>
+                    <span v-else>-</span>
+                  </td>
                   <td v-if="summaryIsCiBased">
                     <!-- The run's own conclusion where it was recorded. Deriving
                          "passed / partial / failed" from the score alone reads a
@@ -1073,6 +1085,16 @@
             <strong>{{ autogradeSummary.failed.length }} grading failure(s):</strong>
             <ul>
               <li v-for="f in autogradeSummary.failed" :key="f.login"><code>{{ f.login }}</code>: {{ f.reason }}</li>
+            </ul>
+          </div>
+          <!-- EVERY hand-in the limit or the deadline left out, by name and
+               with why - never dropped silently. The sentence is
+               lib/submission-marker.mjs `describeIgnoredHandIn`, the same one
+               the nightly log and the CLI print. -->
+          <div v-if="ignoredHandIns.length" class="autograde-failed autograde-ignored">
+            <strong>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? '' : 's' }} not graded:</strong>
+            <ul>
+              <li v-for="i in ignoredHandIns" :key="`${i.login}-${i.sha}`"><code>{{ i.login }}</code>: {{ i.text }}</li>
             </ul>
           </div>
         </section>
@@ -1110,6 +1132,10 @@
         @retry="retryAcceptanceFor(actionStudent)"
         @unlock="unlockRepositoryFor(actionStudent, $event)"
         @regrade="regradeStudent(actionStudent)"
+        :hand-ins="actionHandIns"
+        :saving-hand-ins="actionHandInsSaving"
+        @grant-hand-ins="grantHandInsFor(actionStudent, $event)"
+        @revoke-hand-ins="revokeHandInsFor(actionStudent, $event)"
       />
 
       <!-- Open a draft Feedback PR per eligible student repository. -->
@@ -1220,13 +1246,17 @@ import { validateAgainst } from '../lib/validate.js'
 // `findMarkedCommit` were imported here to drive the score reading inline. That
 // orchestration is lib/grade-cohort.mjs now - the workflow needs the same
 // answers - and this view only asks it questions.
-import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun } from '../lib/check-run-score.js'
+import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
-import { gradeCohort, gradeStudent, gradingCommitFor } from '../lib/grade-cohort.js'
+import { gradeCohort, gradeStudent, gradingCommitFor, teamOf } from '../lib/grade-cohort.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
+import { normalizeLogin } from '../../../lib/github-login.mjs'
+import {
+  allowanceEntry, allowanceFrom, allowanceProblem, handInLimitFor,
+} from '../../../lib/hand-in-allowance.mjs'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { acceptanceLabel, assignmentStateLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
@@ -1957,6 +1987,26 @@ const totalGradesToSync = ref(0)
 // points - display them as such instead of implying granular grading.
 const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'github_actions')
 
+// The Hand-ins column exists only where the summary carries a count - which is
+// only under a hand-in cap (lib/grade-cohort.mjs `resolveHandIn`).
+const handInsShown = computed(() => (autogradeSummary.value?.students || []).some((s) => s.hand_ins))
+
+// Every hand-in the cap or the deadline left out, from graded and failed rows
+// alike: a student whose graded hand-in had no run still made the ignored ones.
+const ignoredHandIns = computed(() => {
+  const out = []
+  for (const row of [...(autogradeSummary.value?.students || []), ...(autogradeSummary.value?.failed || [])]) {
+    for (const item of row.hand_ins?.ignored || []) {
+      out.push({
+        login: row.login,
+        sha: item.sha,
+        text: describeIgnoredHandIn(item, { allowed: row.hand_ins.allowed, formatTime: fmt }),
+      })
+    }
+  }
+  return out
+})
+
 /**
  * Who produced the scores on screen, and when.
  *
@@ -2029,6 +2079,9 @@ const gradingProvenance = computed(() => {
 // login -> override doc from overrides/<assignment>/<login>.json, so granted
 // extensions are visible (and inspectable before granting again).
 const overridesByLogin = ref(new Map())
+// Why the override documents could not all be read, or null. Only grading
+// under a hand-in cap depends on it (loadOverrides).
+const overridesProblem = ref(null)
 const rosterByLogin = ref(new Map())
 const roster = computed(() => Array.from(rosterByLogin.value.values()))
 const userProfilesByLogin = ref(new Map())
@@ -2151,6 +2204,14 @@ const tableColumnCount = computed(() =>
 function extensionFor(login) {
   const ext = extensionFrom(overridesByLogin.value.get(login))
   return ext ? { value: ext.at.toISOString(), reason: ext.reason } : null
+}
+
+/** A student's override document, matched on the login lowercased
+ *  (lib/github-login.mjs) - the map is keyed by whatever the file said. */
+function overridesForLogin(login) {
+  const want = normalizeLogin(login)
+  for (const [key, doc] of overridesByLogin.value) if (normalizeLogin(key) === want) return doc
+  return null
 }
 
 // THERE IS NO WARNINGS COLUMN, and this is the whole of what replaced it.
@@ -2819,8 +2880,12 @@ onUnmounted(() => {
   }
 })
 
-// Best-effort: surface granted deadline extensions in the table + modal.
+// Best-effort for SHOWING extensions in the table and the modal - but not for
+// grading under a hand-in cap, where a grant that was not read grades the
+// student as if it had never been made. So what could not be read is recorded
+// (`overridesProblem`), and a capped grade refuses rather than guess.
 async function loadOverrides(token) {
+  let problem = null
   try {
     const files = await listRepoDir(token, props.org, config.controlRepo, overridesDir(props.assignmentId))
     const jsonFiles = (files || []).filter((f) => f.type === 'file' && f.name.endsWith('.json'))
@@ -2831,12 +2896,19 @@ async function loadOverrides(token) {
       try {
         const doc = JSON.parse(text)
         if (doc?.github_login) map.set(doc.github_login, doc)
-      } catch { /* malformed */ }
+      } catch {
+        problem = `${f.name} is not valid JSON`
+      }
     }))
     overridesByLogin.value = map
   } catch (e) {
     console.error('Failed to load overrides:', e)
+    problem = e.message || String(e)
   }
+  overridesProblem.value = problem
+  // The exception columns are joined from these; a merge that ran before they
+  // arrived would have left them empty.
+  mergeGradesIntoReport()
 }
 
 // Walks repositories/<assignment-id>/*.json and stitches feedback_pr_number
@@ -2963,6 +3035,9 @@ function exportCSV() {
     toast.info('No students in the report to export.')
     return
   }
+  // The joined columns (score, hand-ins, the exception) from what is loaded
+  // NOW, not from whenever the last merge happened to run.
+  mergeGradesIntoReport()
   const rows = [CSV_HEADERS.join(',')]
   for (const s of students) {
     rows.push(CSV_HEADERS.map((h) => csvCell(s[h])).join(','))
@@ -3290,6 +3365,15 @@ const DISPLAY_ONLY_ROW_FIELDS = [
   // to assign it, which is what that test is for.
   'score_source',
   'graded_at',
+  // The hand-in count and its exception, joined for the CSV export from the
+  // grading summary and `overrides/` - both of which already hold them.
+  'hand_ins_used',
+  'hand_ins_allowed',
+  'hand_ins_ignored',
+  'hand_in_extra',
+  'hand_in_exception_reason',
+  'hand_in_exception_by',
+  'hand_in_exception_at',
 ]
 
 /**
@@ -3330,6 +3414,10 @@ function mergeGradesIntoReport() {
   for (const row of autogradeSummary.value?.students || []) {
     if (row?.login) byLogin.set(String(row.login).toLowerCase(), row)
   }
+  const failedByLogin = new Map()
+  for (const row of autogradeSummary.value?.failed || []) {
+    if (row?.login) failedByLogin.set(String(row.login).toLowerCase(), row)
+  }
 
   for (const s of rows) {
     const g = s.github_login ? byLogin.get(String(s.github_login).toLowerCase()) : null
@@ -3345,6 +3433,20 @@ function mergeGradesIntoReport() {
     // the join simply dropped it, so nothing could ever show it.
     s.score_source = g?.score_source ?? null
     s.graded_at = g?.graded_at ?? null
+
+    // The hand-in count under a cap - from a failed row too, where the graded
+    // hand-in had no run but the count is still the count - and the exception
+    // behind it from `overrides/`, its record (lib/report-csv.mjs).
+    const key = String(s.github_login || '').toLowerCase()
+    const count = g?.hand_ins ?? failedByLogin.get(key)?.hand_ins ?? null
+    s.hand_ins_used = count?.used ?? null
+    s.hand_ins_allowed = count?.allowed ?? null
+    s.hand_ins_ignored = count ? count.ignored.length : null
+    const allowance = allowanceFrom(overridesForLogin(s.github_login))
+    s.hand_in_extra = allowance ? allowance.extra : null
+    s.hand_in_exception_reason = allowance?.reason ?? null
+    s.hand_in_exception_by = allowance?.by ?? null
+    s.hand_in_exception_at = allowance?.at ?? null
   }
 
   // A group shares one repository, so its grade is its first member's - the
@@ -3358,6 +3460,21 @@ function mergeGradesIntoReport() {
   }
 }
 
+/**
+ * Under a hand-in cap, a grade depends on every allowance granted in
+ * `overrides/` - so it is not read over a list that could not be read whole.
+ * Says why and returns false; true when there is no cap or nothing is missing.
+ */
+function capAllowancesReadable() {
+  const marker = readSubmissionMarker(assignment.value)
+  if (marker?.maxHandIns == null || !overridesProblem.value) return true
+  toast.error(
+    `Could not read the students' extra hand-ins (${overridesProblem.value}), so no score was read: ` +
+      'with this assignment\'s hand-in limit, a grant that was not read would count against the student. Reload and try again.',
+  )
+  return false
+}
+
 async function syncGradesFromGitHub() {
   const token = getToken()
   if (!token || !report.value || !assignment.value) return
@@ -3369,6 +3486,7 @@ async function syncGradesFromGitHub() {
     )
     return
   }
+  if (!capAllowancesReadable()) return
 
   totalGradesToSync.value = queue.length
   syncedGradesCount.value = 0
@@ -3386,6 +3504,8 @@ async function syncGradesFromGitHub() {
       markerBranch: submissionBranch(assignment.value),
       fallbackTotal: autogradeTotalPoints.value,
       onProgress: () => { syncedGradesCount.value++ },
+      // Per-student hand-in allowances, read only under a cap.
+      overrides: overridesByLogin.value,
     })
 
     if (!res.ok) {
@@ -3462,6 +3582,7 @@ async function saveGradingSummary(token, summaryDoc, message) {
 async function regradeStudent(student) {
   const token = getToken()
   if (!token || !student || actionRegrading.value) return
+  if (!capAllowancesReadable()) return
   actionRegrading.value = true
   try {
     const outcome = await gradeStudent((method, path, body) => ghApi(token, method, path, body), {
@@ -3469,12 +3590,21 @@ async function regradeStudent(student) {
       marker: readSubmissionMarker(assignment.value),
       markerBranch: submissionBranch(assignment.value),
       fallbackTotal: autogradeTotalPoints.value,
+      overrides: overridesByLogin.value,
+      // A team shares one repository and so one count, and the most generous
+      // member's allowance (lib/hand-in-allowance.mjs).
+      team: teamOf(student, report.value?.students || []),
     })
 
     if (outcome.verdict !== 'graded') {
       // Not a zero and not a failure of this button: it looked and there was no
-      // score there. Say which, and change nothing.
-      toast.error(`No score read for ${student.github_login}: ${outcome.reason}`)
+      // score there. Say which, and change nothing. Under a cap the count it
+      // found is still news - it is what a lecturer who just granted extra
+      // hand-ins needs to see.
+      const count = outcome.handIns?.allowed
+        ? ` They made ${outcome.handIns.used} hand-in${outcome.handIns.used === 1 ? '' : 's'} of ${outcome.handIns.allowed} allowed.`
+        : ''
+      toast.error(`No score read for ${student.github_login}: ${outcome.reason}.${count} Their earlier result is unchanged.`)
       return
     }
 
@@ -3483,6 +3613,7 @@ async function regradeStudent(student) {
       parsed: outcome.parsed,
       run: outcome.run,
       fallbackTotal: autogradeTotalPoints.value,
+      handIns: outcome.handIns,
     })
     const prev = autogradeSummary.value
     const login = String(student.github_login).toLowerCase()
@@ -3573,7 +3704,7 @@ function openActions(student) {
 }
 
 function closeActions() {
-  if (actionExtending.value || actionRetrying.value || actionUnlocking.value) return
+  if (actionExtending.value || actionRetrying.value || actionUnlocking.value || actionHandInsSaving.value) return
   actionStudent.value = null
   actionLockdown.value = null
 }
@@ -3753,6 +3884,134 @@ async function unlockRepositoryFor(student, { reason }) {
 function localToUtc(localStr) {
   if (!localStr) return ''
   return new Date(localStr).toISOString()
+}
+
+// --- a per-student hand-in allowance ---------------------------------------
+
+const actionHandInsSaving = ref(false)
+
+/**
+ * The hand-in limit for the open student, decided - or null without a cap, and
+ * the section does not appear. The limit and the grant come from
+ * lib/hand-in-allowance.mjs (a team pools its most generous member's), the
+ * count from the grading summary: only a read of their score establishes it.
+ */
+const actionHandIns = computed(() => {
+  const student = actionStudent.value
+  const marker = readSubmissionMarker(assignment.value)
+  if (!student || marker?.maxHandIns == null) return null
+  const limit = handInLimitFor(marker, student.github_login, {
+    overrides: overridesByLogin.value,
+    team: teamOf(student, report.value?.students || []),
+  })
+  const login = normalizeLogin(student.github_login)
+  const summaryRow = [...(autogradeSummary.value?.students || []), ...(autogradeSummary.value?.failed || [])]
+    .find((r) => normalizeLogin(r.login) === login)
+  return { ...limit, count: summaryRow?.hand_ins ?? null }
+})
+
+/**
+ * Append override entries for one student and commit them. The document is
+ * read FRESH and appended to - never rebuilt from what this screen holds - so
+ * an extension granted on another tab survives (CLAUDE.md: merge, never
+ * replace). Validated before it is written. Resolves true when it landed.
+ */
+async function appendOverrides(student, entries, message) {
+  const token = getToken()
+  const path = overridePath(props.assignmentId, student.github_login)
+  let existing = []
+  try {
+    const text = await getRepoContent(token, props.org, config.controlRepo, path)
+    if (text) existing = JSON.parse(text).overrides || []
+  } catch (e) {
+    // Not "there is none": writing over a document that could not be read
+    // would erase whatever it held.
+    toast.error(`Could not read ${student.github_login}'s existing exceptions (${e.message}), so nothing was changed.`)
+    return false
+  }
+  const doc = {
+    schema_version: 1,
+    assignment_id: props.assignmentId,
+    github_login: student.github_login,
+    overrides: [...existing, ...entries],
+  }
+  const { valid, errors } = await validateAgainst('override', doc)
+  if (!valid) {
+    toast.error('The exception failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
+    return false
+  }
+  const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(doc, null, 2) + '\n', message)
+  if (!res.ok) {
+    toast.error(`Saving the exception failed: ${res.data?.message || 'unknown error'}`)
+    return false
+  }
+  overridesByLogin.value.set(student.github_login, doc)
+  overridesByLogin.value = new Map(overridesByLogin.value)
+  return true
+}
+
+/**
+ * Raise one student's hand-in limit, optionally with a later deadline, then
+ * read their score again - "granting re-evaluates immediately", so a hand-in
+ * that was over the limit counts now rather than at the next grading run.
+ */
+async function grantHandInsFor(student, { extra, reason, deadline_local }) {
+  const problem = allowanceProblem({ extra, reason })
+  if (problem) {
+    toast.error(problem)
+    return
+  }
+  const by = user.value?.login || getUser()?.login || 'unknown'
+  const at = new Date().toISOString()
+  const entries = [allowanceEntry({ extra: Number(extra), reason, by, at })]
+  let newDeadline = null
+  if (deadline_local) {
+    newDeadline = localToUtc(deadline_local)
+    // The same rule the extension section applies: only ever later.
+    const current = extensionFor(student.github_login)?.value || student.effective_deadline_at || assignment.value?.deadline_at
+    if (current && new Date(newDeadline) <= new Date(current)) {
+      toast.error(`The new deadline must be after the current one (${fmt(current)}).`)
+      return
+    }
+    entries.push({ type: 'deadline_extension', value: newDeadline, reason, overridden_by: by, overridden_at: at })
+  }
+  actionHandInsSaving.value = true
+  try {
+    const ok = await appendOverrides(
+      student, entries, `Allow ${student.github_login} ${extra} extra hand-in(s) on ${props.assignmentId}`,
+    )
+    if (!ok) return
+    if (newDeadline) student.effective_deadline_at = newDeadline
+    toast.success(`${student.github_login} may hand in ${extra} more time(s)${newDeadline ? `, until ${fmt(newDeadline)}` : ''}. Reading their score again…`)
+  } finally {
+    actionHandInsSaving.value = false
+  }
+  await regradeStudent(student)
+}
+
+/**
+ * Take a grant back. Recorded as `+0` with its own reason - the list is
+ * append-only, so a dispute can still read what was granted and when - and the
+ * score is read again. A deadline extension granted alongside stays: an
+ * extension only ever extends (lib/effective-deadline.mjs).
+ */
+async function revokeHandInsFor(student, { reason }) {
+  if (!String(reason || '').trim()) {
+    toast.error('A reason is required.')
+    return
+  }
+  const by = user.value?.login || getUser()?.login || 'unknown'
+  actionHandInsSaving.value = true
+  try {
+    const ok = await appendOverrides(
+      student, [allowanceEntry({ extra: 0, reason, by })], `Revoke ${student.github_login}'s extra hand-ins on ${props.assignmentId}`,
+    )
+    if (!ok) return
+    toast.success(`${student.github_login}'s extra hand-ins are revoked. Reading their score again…`)
+  } finally {
+    actionHandInsSaving.value = false
+  }
+  await regradeStudent(student)
 }
 
 async function grantExtensionFor(student, ext) {
@@ -4152,6 +4411,13 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
   margin-bottom: var(--space-md);
 }
 .autograde-banner code { font-size: 0.85rem; }
+/* A hand-in the limit or the deadline left out is the assignment working as
+   set up, not a failure: amber, "needs a look" (DESIGN.md §4), not red. */
+.autograde-failed.autograde-ignored {
+  background: var(--tint-attention-subtle);
+  border-left-color: var(--accent-yellow);
+}
+
 .autograde-failed {
   margin-top: var(--space-md);
   padding: var(--space-sm) var(--space-md);

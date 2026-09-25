@@ -52,6 +52,7 @@ export type Assignment = {
     type?: "commit_message";
     value?: string;
     multiple?: boolean;
+    max_hand_ins?: number;
   };
   student_permission?: "pull" | "triage" | "push" | "maintain" | "admin";
   acceptance_mode?: "self-service";
@@ -187,10 +188,40 @@ export type GradingSummary = {
     ci_status?: string;
     ci_run_url?: string;
     score_source?: "annotation-json" | "points" | "conclusion";
+    hand_ins?: {
+      used?: number;
+      allowed?: number;
+      extra?: number;
+      graded_sha?: string;
+      graded_number?: number;
+      ignored?: Array<{
+        sha?: string;
+        date?: string;
+        pushed_at?: string;
+        on_branch?: boolean;
+        number?: number;
+        reason?: "over-limit" | "late";
+      }>;
+    };
   }>;
   failed?: Array<{
     login?: string;
     reason?: string;
+    hand_ins?: {
+      used?: number;
+      allowed?: number;
+      extra?: number;
+      graded_sha?: string;
+      graded_number?: number;
+      ignored?: Array<{
+        sha?: string;
+        date?: string;
+        pushed_at?: string;
+        on_branch?: boolean;
+        number?: number;
+        reason?: "over-limit" | "late";
+      }>;
+    };
   }>;
 };
 
@@ -302,7 +333,7 @@ export type Override = {
   assignment_id?: string;
   github_login?: string;
   overrides?: Array<{
-    type?: "github_login" | "acceptance_state" | "repository" | "deadline_extension" | "submission_sha" | "late_status" | "exemption" | "annotation";
+    type?: "github_login" | "acceptance_state" | "repository" | "deadline_extension" | "hand_in_allowance" | "submission_sha" | "late_status" | "exemption" | "annotation";
     value?: unknown;
     reason?: string;
     overridden_by?: string;

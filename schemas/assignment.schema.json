@@ -195,6 +195,12 @@
           "type": "boolean",
           "default": true,
           "description": "May a student hand in more than once? `true` (the default, and what an absent field means) grades the LAST hand-in on or before that student's deadline, so a student who spots a mistake and hands in again is graded on the fix. `false` grades the FIRST one: once they have handed in, a later one does not replace it. Either way a hand-in after the deadline is never graded."
+        },
+        "max_hand_ins": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "At most this many hand-ins count, per student (per repository on a group assignment). The first N on or before that student's deadline are valid and the last of them is graded; every later one is listed as ignored, with why, and never dropped silently. ABSENT MEANS UNLIMITED, and NO `default` HERE ON PURPOSE: lib/validate.mjs runs Ajv with `useDefaults: true`, so a default would write a cap into every assignment it validated. Read only when `multiple` is not `false`. A lecturer raises it for one student with a `hand_in_allowance` override. Enforced when scores are read (lib/submission-marker.mjs `selectHandIn`); pushes and workflows are never blocked, so it limits what is GRADED, not what a student can spend."
         }
       }
     },

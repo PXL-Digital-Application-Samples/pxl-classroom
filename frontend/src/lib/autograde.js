@@ -181,13 +181,17 @@ export function cleanChecks(checks) {
  * @param {object} [assignment] the assignment document, or the form's draft of one
  * @param {{enabled?: boolean, execution_environment?: string, tests?: unknown[]}} [assignment.autograde]
  * @param {unknown} [assignment.submissionMarker]
+ * @param {number|null} [assignment.maxHandIns]  the cap, already read (readMaxHandIns)
  * @returns {string}
  */
-export function summariseGrading({ autograde, submissionMarker } = {}) {
+export function summariseGrading({ autograde, submissionMarker, maxHandIns = null } = {}) {
   const configured = autograde?.enabled && (autograde?.tests || []).length > 0
   if (configured) return summariseAutograde(autograde)
   const marker = String(submissionMarker ?? '').trim()
-  if (marker) return `From your template · graded on "${marker}"`
+  // A cap is shown where the setting is summarised, or it is a limit nobody
+  // sees until a student's sixth hand-in is ignored.
+  const cap = maxHandIns ? ` · at most ${maxHandIns} hand-in${maxHandIns === 1 ? '' : 's'}` : ''
+  if (marker) return `From your template · graded on "${marker}"${cap}`
   return 'Off'
 }
 

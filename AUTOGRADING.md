@@ -45,12 +45,33 @@ Then:
 1. **They come with my template** → **Only on a hand-in commit**.
 2. Type the same words in **Commit message**. Matched exactly. `Einde examen` and `einde examen!` do not count.
 3. **They may hand in more than once** is on. The last hand-in before the deadline is graded, so a student who fixes something and hands in again is graded on the fix. Turn it off and the first one counts.
+4. Optional: **Maximum hand-ins per student**. Empty is no limit. With 5, only a student's first 5 hand-ins before the deadline count and the 5th is graded. Every hand-in costs a full run of your workflow - on a cloud exam, a deploy in the student's lab and about 25 Actions minutes - so a limit keeps that in check.
 
-Tell students the exact words to type.
+Tell students the exact words to type, and the limit if you set one.
 
 What this changes: the score is read from the hand-in commit, not from their last commit. Pushing something afterwards does not lose the score and does not replace it.
 
 A hand-in after the deadline is never graded. That student appears by name with the time they did it, so you can decide what to do.
+
+### The hand-in limit
+
+The limit decides what is **graded**, not what a student can do: pushes and workflow runs are never blocked, so hand-in 6 of 5 still runs and still costs its minutes. It is simply not the one that counts.
+
+- Hand-ins are counted on or before **that student's** deadline, extensions included, in the order they were pushed. A late one does not use up a place.
+- Every hand-in that does not count is listed under the Autograder results by name, with the reason: *hand-in 6 of 5 at 11:42 (a1b2c3d) ignored: over the limit*, or *after the deadline*. Nothing is dropped silently.
+- The results table and **Export CSV** show each student's count: **6 / 5** means six hand-ins, five counted.
+- A student cannot reset the count by rewriting their branch. Hand-ins are also counted from GitHub's record of the pushes, so one removed from the branch still counts and is listed as *no longer on the branch*. Only deleting those records too would hide it - on purpose, and visibly in the repository's history.
+
+**One student may hand in more.** Open their row → **Hand-ins**:
+
+1. **Extra hand-ins for this student**: how many on top of the limit. It replaces an earlier grant rather than adding to it.
+2. Optionally **Also extend their deadline to**, for a hand-in made after the deadline that should count too.
+3. A **Reason**. It is stored with your name and the time, and appears in the CSV export.
+4. **Allow extra hand-ins**. Their score is read again straight away, so a hand-in that was over the limit counts now.
+
+**Revoke the extra hand-ins** takes a grant back (again with a reason) and reads the score again. The grant stays on record beside its revocation. A deadline extension given with it is not taken back.
+
+On a group assignment the team shares one repository and so one count, and the most generous extra that any member was given applies to the whole team.
 
 ## 3. Template does not grade yet
 
@@ -156,6 +177,8 @@ They are listed by name in the Autograder panel with the reason. They are **not*
 | the grading workflow was skipped at `abc1234` | The workflow did not run on that commit. With a hand-in message set, they never handed in with those exact words. |
 | the only "einde examen" commit is after the deadline | They handed in late. The time is in the message. |
 | no commit says "einde examen" | They never handed in. |
+| could not read this repository's Actions run history | With a hand-in limit, hand-ins are also counted from GitHub's record of the pushes, and that could not be read. Nobody is graded on a count that might be short; read the scores again later. |
+| Could not read the students' extra hand-ins | With a hand-in limit, one student's exception file could not be read, so no score was read at all - a grant that was not read would count against that student. Reload the page. |
 | no autograding run at commit `abc1234` | No workflow produced a grading check run there. Check the template still has one, and that the student did not delete it. |
 | could not read the score annotations | The run exists, its results could not be read. Try again; if it persists, open the run. |
 

@@ -442,6 +442,93 @@ test.describe('35 - What the lecturer configured is what the YAML says', () => {
     });
   });
 
+  // A cap on hand-ins (`submission_marker.max_hand_ins`): on a cloud exam every
+  // hand-in is a full deploy and ~25 Actions minutes. Enforced when scores are
+  // read, never by blocking a push.
+  async function handInBranch(page, title) {
+    const contentWrites = [];
+    await openNewForm(page, { contentWrites });
+    await fillMinimum(page, title);
+    await openAutogradeModal(page);
+    await page.getByRole('radio', { name: /They come with my template/ }).check();
+    await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+    await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+    return contentWrites;
+  }
+  const maxField = (page) => page.getByLabel('Maximum hand-ins per student');
+
+  test('A hand-in limit reaches the document and the summary line', async ({ page }) => {
+    const contentWrites = await handInBranch(page, 'Cloud Exam');
+    await expect(maxField(page)).toHaveValue('');
+    await expect(modal(page)).toContainText('Leave empty for no limit.');
+    await maxField(page).fill('5');
+    await expect(modal(page)).toContainText('Only the first 5 hand-ins on or before the deadline count');
+    // Never promising what the system does not do (DESIGN.md §1.5): pushes are
+    // not blocked, so the limit is on what is graded.
+    await expect(modal(page)).toContainText('Pushes are never blocked');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+
+    await expect(summaryText(page)).toHaveText('From your template · graded on "einde examen" · at most 5 hand-ins');
+    await saveDraft(page).click();
+    await expect.poll(() => committed(contentWrites, 'cloud-exam'), { timeout: 10000 }).toBeTruthy();
+    const doc = committed(contentWrites, 'cloud-exam');
+    expect(doc.submission_marker).toEqual({ type: 'commit_message', value: 'einde examen', multiple: true, max_hand_ins: 5 });
+    const { valid, errors } = validateAgainst('assignment', doc);
+    expect(valid, JSON.stringify(errors)).toBe(true);
+  });
+
+  test('The limit is only asked while more than one hand-in is allowed, and not saved without it', async ({ page }) => {
+    const contentWrites = await handInBranch(page, 'Once Capped');
+    await maxField(page).fill('3');
+    await page.getByRole('checkbox', { name: /hand in more than once/ }).uncheck();
+    // With one hand-in counting there is nothing to cap.
+    await expect(maxField(page)).toHaveCount(0);
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(summaryText(page)).toHaveText('From your template · graded on "einde examen"');
+    await saveDraft(page).click();
+    await expect.poll(() => committed(contentWrites, 'once-capped'), { timeout: 10000 }).toBeTruthy();
+    expect(committed(contentWrites, 'once-capped').submission_marker).toEqual({
+      type: 'commit_message', value: 'einde examen', multiple: false,
+    });
+  });
+
+  test('A limit the grader would ignore cannot be saved, and says why', async ({ page }) => {
+    await handInBranch(page, 'Bad Limit');
+    const save = modal(page).getByRole('button', { name: 'Save', exact: true });
+    // 0, a fraction, a negative: each would read as "no limit" when graded.
+    for (const bad of ['0', '2.5', '-1']) {
+      await maxField(page).fill(bad);
+      await expect(modal(page)).toContainText('A whole number of at least 1, or leave it empty for no limit.');
+      await expect(save).toBeDisabled();
+    }
+    await maxField(page).fill('1001');
+    await expect(modal(page)).toContainText('At most 1000.');
+    await expect(save).toBeDisabled();
+    await maxField(page).fill('1');
+    await expect(modal(page)).toContainText('Only the first 1 hand-in on or before the deadline count');
+    await expect(save).toBeEnabled();
+  });
+
+  test('Clearing the limit removes it from the document', async ({ page }) => {
+    const contentWrites = await handInBranch(page, 'Uncapped');
+    await maxField(page).fill('4');
+    await maxField(page).fill('');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+    await saveDraft(page).click();
+    await expect.poll(() => committed(contentWrites, 'uncapped'), { timeout: 10000 }).toBeTruthy();
+    // Absent, not 0 and not null: absent IS no limit, and a schema default
+    // here would write one into every assignment (tests/schema-defaults...).
+    expect(committed(contentWrites, 'uncapped').submission_marker).not.toHaveProperty('max_hand_ins');
+  });
+
+  test('A saved limit comes back into the modal', async ({ page }) => {
+    await handInBranch(page, 'Reopened Cap');
+    await maxField(page).fill('7');
+    await modal(page).getByRole('button', { name: 'Save', exact: true }).click();
+    await openAutogradeModal(page);
+    await expect(maxField(page)).toHaveValue('7');
+  });
+
   // ============================ the starter workflow written into the template
 
   const TEMPLATE = `${ORG}/starter-template`;

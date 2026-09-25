@@ -92,6 +92,32 @@
                 : 'The first hand-in counts. A later one does not replace it.' }}
               A hand-in after the deadline is never graded.
             </span>
+
+            <!-- Only while handing in again is allowed: with one hand-in
+                 counting there is nothing to cap. Empty is no limit, which is
+                 what every assignment before this field means. -->
+            <template v-if="draft.markerMultiple">
+              <label class="ag-marker-label" for="ag-marker-max">Maximum hand-ins per student</label>
+              <input
+                id="ag-marker-max"
+                v-model="draft.markerMax"
+                class="ag-marker-max"
+                type="number"
+                min="1"
+                max="1000"
+                step="1"
+                inputmode="numeric"
+                placeholder="No limit"
+                :aria-invalid="!!maxProblem"
+                aria-describedby="ag-marker-max-hint"
+              />
+              <span id="ag-marker-max-hint" :class="['ag-marker-hint', { 'text-danger': maxProblem }]">
+                {{ maxProblem || (maxValue
+                  ? `Only the first ${maxValue} hand-in${maxValue === 1 ? '' : 's'} on or before the deadline count, and the last of those is graded. Later ones are listed as ignored. You can allow one student more from their row.`
+                  : 'Leave empty for no limit.') }}
+                Pushes are never blocked, so this limits what is graded, not what a student can run.
+              </span>
+            </template>
           </div>
 
           <!-- WHETHER THE TEMPLATE ACTUALLY HAS ONE. Last, because the starter
@@ -298,6 +324,7 @@ import { computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import Icon from './Icon.vue'
 import HelpButton from './HelpButton.vue'
 import { CHECK_PRESETS, newCheck, checkProblems, totalPoints } from '../lib/autograde.js'
+import { readMaxHandIns } from '../../../lib/submission-marker.mjs'
 
 const props = defineProps({
   // { execution_environment, tests }
@@ -310,6 +337,9 @@ const props = defineProps({
   /** May a student hand in more than once? The assignment's answer, defaulting
    *  the way `readSubmissionMarker` defaults an absent field. */
   submissionMarkerMultiple: { type: Boolean, default: true },
+  /** At most this many hand-ins count per student; null for no limit - what
+   *  every assignment before the field means (`readMaxHandIns`). */
+  submissionMarkerMaxHandIns: { type: Number, default: null },
   /**
    * What the parent found in the template repository, and nothing this dialog
    * worked out for itself. AdminView holds the token and does the reading and
@@ -412,11 +442,28 @@ const draft = reactive({
   markerMode: props.submissionMarker ? 'hand-in' : 'every-push',
   markerValue: props.submissionMarker || '',
   markerMultiple: props.submissionMarkerMultiple !== false,
+  // A string while it is being typed: '' is no limit.
+  markerMax: props.submissionMarkerMaxHandIns ? String(props.submissionMarkerMaxHandIns) : '',
   execution_environment: props.config.execution_environment || 'lecturer_local',
   // A whole-object copy, not a field list: `timeout_s` has no control here and
   // must still survive an edit. Rebuilding a record from the fields a form
   // happens to show is how buildDoc used to delete invitation tokens.
   tests: JSON.parse(JSON.stringify(props.config.tests || [])),
+})
+
+// The cap as typed: a whole number of at least 1, or nothing. Judged by the
+// same `readMaxHandIns` the grader reads it with, so the form cannot accept a
+// value the grader would ignore (a `0`, a `2.5`) and then grade with no cap.
+const maxValue = computed(() => {
+  const raw = String(draft.markerMax ?? '').trim()
+  return raw === '' ? null : readMaxHandIns(Number(raw))
+})
+const maxProblem = computed(() => {
+  const raw = String(draft.markerMax ?? '').trim()
+  if (!draft.markerMultiple || raw === '') return null
+  if (maxValue.value == null) return 'A whole number of at least 1, or leave it empty for no limit.'
+  if (maxValue.value > 1000) return 'At most 1000.'
+  return null
 })
 
 const problems = computed(() => checkProblems(draft.tests))
@@ -437,7 +484,8 @@ const canSave = computed(() => {
   // schema refuses anyway - loudly, at the end, instead of here.
   if (!draft.source) return false
   if (draft.source === 'template') {
-    return draft.markerMode !== 'hand-in' || !!draft.markerValue.trim()
+    if (draft.markerMode !== 'hand-in') return true
+    return !!draft.markerValue.trim() && !maxProblem.value
   }
   return draft.tests.length > 0 && problems.value.every((p) => !p)
 })
@@ -518,6 +566,7 @@ function removeAll() {
     tests: [],
     submissionMarker: '',
     submissionMarkerMultiple: true,
+    submissionMarkerMaxHandIns: null,
   })
 }
 
@@ -534,6 +583,9 @@ function save() {
       tests: [],
       submissionMarker: draft.markerMode === 'hand-in' ? draft.markerValue.trim() : '',
       submissionMarkerMultiple: draft.markerMultiple,
+      // Only beside "more than once": with one hand-in counting there is
+      // nothing to cap (lib/assignment-doc.mjs drops it there too).
+      submissionMarkerMaxHandIns: draft.markerMode === 'hand-in' && draft.markerMultiple ? maxValue.value : null,
     })
     return
   }
@@ -544,6 +596,7 @@ function save() {
     tests: draft.tests,
     submissionMarker: '',
     submissionMarkerMultiple: true,
+    submissionMarkerMaxHandIns: null,
   })
 }
 
@@ -702,6 +755,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   padding-top: 8px;
   font-size: 0.85rem;
+}
+
+/* A number of a few digits, sized to it rather than to the message field
+   above (DESIGN.md §1.8: size a fixed-length input to its content). */
+.ag-marker .ag-marker-max {
+  max-width: 12ch;
 }
 
 .ag-marker-again {

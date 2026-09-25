@@ -21,7 +21,7 @@ import { requireToken } from "../lib/auth.mjs";
 import { runDocker } from "../lib/runner-docker.mjs";
 import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
-import { CONTROL_REPO, getAssignment, getReport } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, getReport, listOverrides } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
 // The shape of grading/<id>/summary.json, shared with the Admin Panel.
@@ -31,7 +31,8 @@ import {
   buildGradingSummary,
 } from "../../../lib/grading-summary.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
-import { readSubmissionMarker, submissionBranch, findMarkedCommit } from "../../../lib/submission-marker.mjs";
+import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
+import { resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 import { sameLogin } from "../../../lib/github-login.mjs";
@@ -220,6 +221,12 @@ export function registerGradeCommand(program) {
       const marker = readSubmissionMarker(assignment);
       const markerBranch = submissionBranch(assignment);
       const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
+      // Per-student hand-in allowances, only where a cap exists. A read that
+      // fails throws and stops the run: grading without them would ignore the
+      // very hand-ins a lecturer granted.
+      const overrides = marker?.maxHandIns != null
+        ? await listOverrides(octokit, { org, assignmentId: opts.assignment })
+        : [];
 
       // ONE commit's worth of reading, so it can be done twice - at the
       // preserved commit, and again at the hand-in commit when the first says
@@ -275,6 +282,8 @@ export function registerGradeCommand(program) {
         // Null on the local runners, where there is no check run to describe
         // and the summary row is legitimately sparser.
         let ciRow = null;
+        // The hand-in count under a cap, carried to the summary row.
+        let handIns = null;
         if (s.team_slug && teamResultsCache.has(s.team_slug)) {
           const cached = teamResultsCache.get(s.team_slug);
           result = {
@@ -292,30 +301,23 @@ export function registerGradeCommand(program) {
             // read never did.
             let outcome;
             if (marker) {
-              const found = await findMarkedCommit(toRequest(octokit), {
-                repoFullName: s.repo_name,
-                branch: markerBranch,
+              // The same decision the Admin Panel and the nightly make - which
+              // hand-in counts, under the cap and this student's allowance -
+              // from lib/grade-cohort.mjs rather than a third walk written here.
+              const found = await resolveHandIn(toRequest(octokit), {
+                row: s,
                 marker,
-                until: s.effective_deadline_at || null,
+                markerBranch,
+                overrides,
+                team: teamOf(s, eligible),
               });
-              const refuse = (reason) => {
-                process.stderr.write(`  ! ${s.github_login}: ${reason}\n`);
-                summary.failed.push({ login: s.github_login, reason });
-              };
-              if (!found.ok) {
-                refuse(`could not read this repository's commits to find the "${marker.value}" commit`);
-                return;
+              handIns = found.handIns;
+              for (const item of handIns?.ignored || []) {
+                process.stderr.write(`  - ${s.github_login}: ${describeIgnoredHandIn(item, { allowed: handIns.allowed })}\n`);
               }
-              if (!found.complete) {
-                refuse(`could not finish looking for the "${marker.value}" commit - stopped after ${found.scanned} commits`);
-                return;
-              }
-              if (!found.commit) {
-                refuse(
-                  found.lateCommit
-                    ? `the only "${marker.value}" commit is after the deadline (${found.lateCommit.sha.slice(0, 7)}, ${found.lateCommit.date})`
-                    : `no commit says "${marker.value}", so nothing was handed in`,
-                );
+              if (found.verdict !== "found") {
+                process.stderr.write(`  ! ${s.github_login}: ${found.reason}\n`);
+                summary.failed.push({ login: s.github_login, reason: found.reason, ...(handIns ? { hand_ins: handIns } : {}) });
                 return;
               }
               outcome = await readScoreAtCommit(s, found.commit.sha);
@@ -448,6 +450,7 @@ export function registerGradeCommand(program) {
                   run: ciRow.run,
                   fallbackTotal: totalFallback,
                   gradedAt: result.graded_at,
+                  handIns,
                 })
               : gradedRowFromLocalRun({
                   login: s.github_login,
