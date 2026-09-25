@@ -367,6 +367,7 @@ async function main() {
       const studentTree = await readStudentTree(studentFullName, "main");
       const { from, source, plan } = await planStudent({
         login,
+        studentRepo: studentFullName,
         studentTree,
         readTree: readTemplateTree,
         root: () => rootTreeSha(get, studentFullName, "main"),
@@ -386,7 +387,10 @@ async function main() {
       row.files_conflicted = plan.conflicts.length;
       if (plan.kept.length) row.files_kept = plan.kept.length;
       for (const e of [...plan.clean, ...plan.conflicts]) appliedPaths.add(e.path);
-      const fromNote = `from ${from ? from.slice(0, 7) : "nothing"}${source === "unknown" ? ", start unknown - this commit only" : ""}`;
+      const fromNote =
+        source === "first-commit"
+          ? "from their own first commit - created from a different template"
+          : `from ${from ? from.slice(0, 7) : "nothing"}${source === "unknown" ? ", start unknown - this commit only" : ""}`;
 
       if (outcome === "skipped-up-to-date") {
         console.log(

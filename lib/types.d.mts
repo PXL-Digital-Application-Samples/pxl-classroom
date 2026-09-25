@@ -542,7 +542,7 @@ export type SyncRecord = {
     files_merged?: number;
     files_conflicted?: number;
     from_sha?: string;
-    from_source?: "synced" | "generated" | "unknown";
+    from_source?: "synced" | "generated" | "first-commit" | "unknown";
     files_kept?: number;
     commit_sha?: string;
     pr_number?: number;

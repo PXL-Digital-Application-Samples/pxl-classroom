@@ -189,12 +189,12 @@
           "from_sha": {
             "type": ["string", "null"],
             "pattern": "^[0-9a-f]{40}$",
-            "description": "The template commit this student was synced FROM - their range started here. Null only when the template's head commit had no parent and nothing else was known."
+            "description": "The template commit this student was synced FROM - their range started here. Null when the range started from their repository's own first commit (`first-commit`), or when the template's head commit had no parent and nothing else was known."
           },
           "from_source": {
             "type": "string",
-            "enum": ["synced", "generated", "unknown"],
-            "description": "How `from_sha` was known: an earlier per-student sync that reached them, the template commit whose tree their repository's first commit carries, or neither - in which case they were sent only this commit's changes, as every sync did before per-student ranges, and this record does not count as evidence of where they are."
+            "enum": ["synced", "generated", "first-commit", "unknown"],
+            "description": "How the start was known: an earlier per-student sync that reached them; the template commit whose tree their repository's first commit carries; `first-commit` - no commit of THIS template matches (the assignment's template was changed after they accepted), so the range started from their own first commit's files; or `unknown` - not even that could be read, they were sent only this commit's changes, and this record does not count as evidence of where they are."
           },
           "files_kept": {
             "type": "integer",

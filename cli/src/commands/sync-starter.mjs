@@ -164,6 +164,7 @@ export function registerSyncStarterCommand(program) {
           const studentTree = await readStudentTree(studentFullName, "main");
           const { from, source, plan } = await planStudent({
             login,
+            studentRepo: studentFullName,
             studentTree,
             readTree: readTemplateTree,
             root: () => rootTreeSha(get, studentFullName, "main"),
@@ -275,7 +276,9 @@ export function registerSyncStarterCommand(program) {
         const files = res.plan
           ? `${res.plan.clean.length} in place, ${res.plan.conflicts.length} in a PR` +
             `${res.plan.kept?.length ? `, ${res.plan.kept.length} kept` : ""}` +
-            ` - from ${res.from ? res.from.slice(0, 7) : "nothing"}${res.source === "unknown" ? " (start unknown: this commit only)" : ""}`
+            (res.source === "first-commit"
+              ? " - from their own first commit (created from a different template)"
+              : ` - from ${res.from ? res.from.slice(0, 7) : "nothing"}${res.source === "unknown" ? " (start unknown: this commit only)" : ""}`)
           : "";
         if (res.outcome === "auto-merged" || res.outcome === "merged-and-pr") autoMerged++;
         if (res.outcome === "pr-opened" || res.outcome === "merged-and-pr") prOpened++;

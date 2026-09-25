@@ -29,9 +29,16 @@ const TREE_SHA = { [LAB2]: 'tree-lab2', [LAB3]: 'tree-lab3', [LAB4]: 'tree-lab4'
 
 // STUDENT_1 was generated at lab 2 and received lab 4, never lab 3.
 // STUDENT_2 was generated at lab 4.
-const ROOT = { [repoOf(STUDENT_1)]: 'tree-lab2', [repoOf(STUDENT_2)]: 'tree-lab4' };
+const BASE_ROOT = { [repoOf(STUDENT_1)]: 'tree-lab2', [repoOf(STUDENT_2)]: 'tree-lab4' };
+let ROOT = BASE_ROOT;
 
-async function setup(page) {
+// `swapped`: STUDENT_1 was created from a DIFFERENT template - the assignment's
+// template was changed after they accepted - so their first commit matches no
+// commit of this one (2026-09-25, PXL-Automation-II / 2627-pe-1-test-1).
+const OLD_STARTER = { 'README.md': 'old-readme', 'old-notes.md': 'o' };
+
+async function setup(page, { swapped = false } = {}) {
+  ROOT = swapped ? { ...BASE_ROOT, [repoOf(STUDENT_1)]: 'tree-old' } : BASE_ROOT;
   const workflowDispatches = [];
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -41,7 +48,8 @@ async function setup(page) {
       [`${ORG}/${TPL}@${LAB2}`]: T[LAB2],
       [`${ORG}/${TPL}@${LAB3}`]: T[LAB3],
       [`${ORG}/${TPL}@${LAB4}`]: T[LAB4],
-      [`${ORG}/${repoOf(STUDENT_1)}@main`]: { ...T[LAB2], 'Lab02/Program.cs': 'their-work', 'Lab04/Program.cs': 'b4' },
+      [`${ORG}/${repoOf(STUDENT_1)}@main`]: swapped ? OLD_STARTER : { ...T[LAB2], 'Lab02/Program.cs': 'their-work', 'Lab04/Program.cs': 'b4' },
+      [`${ORG}/${repoOf(STUDENT_1)}@tree-old`]: OLD_STARTER,
       [`${ORG}/${repoOf(STUDENT_2)}@main`]: T[LAB4],
     },
     assignments: {
@@ -165,5 +173,27 @@ test.describe('80 - Starter sync sends each student what they are missing', () =
     await expect(modal.locator('.dispatch-banner.success')).toBeVisible();
     const sent = workflowDispatches.find((d) => d.workflow === 'sync-starter-code.yml');
     expect(JSON.parse(sent.inputs.selected_files)).toEqual(['*', '!Lab03/Program.cs']);
+  });
+
+  test('a repository created from a different template is brought up to this one whole, and the dialog says so', async ({ page }) => {
+    const { workflowDispatches } = await setup(page, { swapped: true });
+    await page.goto(`/dashboard/${ORG}/lab-catchup`);
+    await openStarterSyncModal(page);
+    const modal = page.locator('.modal.card.modal-wide');
+
+    await expect(modal.locator('.catch-up-note')).toContainText('1 student repository was created from a different template');
+    // Every file of this template is missing for them, not just the newest commit's.
+    for (const f of ['README.md', 'Lab02/Program.cs', 'Lab03/Program.cs']) {
+      await expect(modal.locator('.file-row-box', { hasText: f })).toContainText('missing for 1 student');
+    }
+    // Untouched old starter: replaced and removed in place, no pull request.
+    await expect(modal.locator('.preflight-card.clean .preflight-count')).toHaveText('1');
+    await expect(modal.locator('.preflight-card.conflict .preflight-count')).toHaveText('0');
+    await expect(modal.locator('.preflight-card.skipped .preflight-count')).toHaveText('1');
+
+    await modal.locator('button', { hasText: /Apply Starter Update \(1 repos\)/i }).click();
+    await expect(modal.locator('.dispatch-banner.success')).toBeVisible();
+    const sent = workflowDispatches.find((d) => d.workflow === 'sync-starter-code.yml');
+    expect(JSON.parse(sent.inputs.selected_files)).toEqual(['*']);
   });
 });

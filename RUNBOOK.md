@@ -1088,6 +1088,10 @@ After **Apply Starter Update** the dialog follows the sync: waiting to start, ho
 
 Press **Sync again** on that line, or run it again from **··· More**. Each student is sent what they are missing from where they are, so the students it did not reach get everything - including an earlier update that another sync has been pushed over since - and the ones it did reach are skipped. A sync stops itself after 38 minutes and says how many it did not reach; a very large cohort may need two runs.
 
+#### Changed the assignment's template after students accepted
+
+Changing **Template repository** in the Admin Panel, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then on the assignment page choose **··· More → Sync Starter Code**. Those students are brought up to the new template from their own first commit: every file of the new template arrives, a file of the old starter they never touched is replaced or removed, and a file they changed arrives as a pull request. The dialog says how many repositories were created from a different template.
+
 #### Syncing up to a commit that is not the newest
 
 When the template already holds something students must not have yet (next week's lab), name the commit to sync up to: `PXL-Digital-Application-Samples/pxl-classroom` -> **Actions** -> **Sync Starter Code** -> **Run workflow**, with **Organization**, **Assignment ID**, and **Template commit** set to its short sha from the template's commit list (e.g. `1e7f714`). Students are still brought up from their own starting point, to that commit and no further; a student who is already past it (their repository was created later) is sent nothing, never taken back. Untick *Open tracking issue* if the students should not be emailed.

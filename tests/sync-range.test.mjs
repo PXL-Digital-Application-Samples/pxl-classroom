@@ -357,6 +357,112 @@ test("an order that cannot be established falls back to the old behaviour, never
   assert.deepEqual(res.plan.clean, [], "lab 3 is already there - and lab 4 was never a candidate for deletion");
 });
 
+// -----------------------------------------------------------------------------
+// The template was CHANGED after the student accepted
+//
+// 2026-09-25, PXL-Automation-II / 2627-pe-1-test-1: published on the wrong
+// template (a README only), accepted, then switched to 2627-aut2-pe1. The
+// student's first commit matches nothing in the new template's history, the
+// start fell back to "the newest commit's parent", and only the 7 files that
+// commit changed were considered - `.gitignore`, `.gitattributes` and
+// `infra/README.md`, from earlier commits of the new template, never arrived.
+// -----------------------------------------------------------------------------
+
+const OLD_FIRST = new Map([["README.md", "old-readme"]]);
+const NEW_PARENT = sha("8");
+const NEW_HEAD = sha("9");
+const NEW_TREE = new Map([
+  ["README.md", "new-readme"],
+  [".gitignore", "gi"],
+  [".gitattributes", "ga"],
+  ["infra/README.md", "infra"],
+  [".github/workflows/classroom.yml", "wf"],
+  ["PROCEDURE.md", "proc"],
+]);
+// The newest commit changed only some of them - what the old fallback saw.
+const NEW_PARENT_TREE = new Map([["README.md", "older-readme"], [".gitignore", "gi"], [".gitattributes", "ga"], ["infra/README.md", "infra"]]);
+
+/** A planner over a swapped template: the student's first commit is `first`. */
+async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, repo = "Org/labs-swap" } = {}) {
+  const trees = {
+    [`Org/tpl@${NEW_HEAD}`]: NEW_TREE,
+    [`Org/tpl@${NEW_PARENT}`]: NEW_PARENT_TREE,
+    [`${repo}@first-tree`]: firstReadable ? first : null,
+  };
+  const readTree = async (r, ref) => {
+    const t = trees[`${r}@${ref}`];
+    if (!t) throw new Error(`no tree ${r}@${ref}`);
+    return t;
+  };
+  return planStudent({
+    login: "swap", studentRepo: repo, studentTree, readTree, root: async () => "first-tree",
+    templateFullName: "Org/tpl", headSha: NEW_HEAD, headTree: NEW_TREE,
+    // The new template's history holds no commit with the student's first tree.
+    templateCommits: [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }, { sha: NEW_PARENT, treeSha: "t8", date: "2026-09-25T19:00:00Z" }],
+    records: [], fallbackSha: NEW_PARENT, selected: ["*"],
+  });
+}
+
+test("SWAPPED TEMPLATE: every file of the new template arrives, not just the newest commit's", async () => {
+  const res = await swapped(OLD_FIRST);
+  assert.equal(res.source, "first-commit");
+  assert.equal(res.from, null);
+  const sent = res.plan.clean.map((c) => `${c.action} ${c.path}`).sort();
+  assert.deepEqual(sent, [
+    "write .gitattributes",
+    "write .github/workflows/classroom.yml",
+    "write .gitignore",
+    "write PROCEDURE.md",
+    // Untouched since their first commit, so the old starter's README is replaced.
+    "write README.md",
+    "write infra/README.md",
+  ]);
+  assert.deepEqual(res.plan.conflicts, []);
+});
+
+test("SWAPPED TEMPLATE: a file they changed since is a pull request, not overwritten", async () => {
+  const res = await swapped(new Map([["README.md", "their-notes"]]));
+  assert.deepEqual(res.plan.conflicts, [{ path: "README.md", action: "write" }]);
+  assert.ok(res.plan.clean.some((c) => c.path === ".gitignore"));
+});
+
+test("SWAPPED TEMPLATE: an old-starter file removed if untouched, offered if edited", async () => {
+  const first = new Map([["README.md", "old-readme"], ["old-lab.md", "old"]]);
+  const untouched = await swapped(new Map(first), { first });
+  assert.ok(untouched.plan.clean.some((c) => c.path === "old-lab.md" && c.action === "delete"));
+  const edited = await swapped(new Map([...first, ["old-lab.md", "their-work"]]), { first });
+  assert.ok(edited.plan.conflicts.some((c) => c.path === "old-lab.md" && c.action === "delete"));
+});
+
+test("SWAPPED TEMPLATE: a file they created themselves at a template path is kept", async () => {
+  const res = await swapped(new Map([...OLD_FIRST, ["infra/README.md", "their-own"]]));
+  assert.deepEqual(res.plan.kept, ["infra/README.md"]);
+  assert.equal(res.plan.clean.some((c) => c.path === "infra/README.md"), false);
+});
+
+test("SWAPPED TEMPLATE: a first commit that cannot be read falls back to the old behaviour, named", async () => {
+  const res = await swapped(OLD_FIRST, { firstReadable: false });
+  assert.equal(res.source, "unknown");
+  assert.equal(res.from, NEW_PARENT);
+});
+
+test("SWAPPED TEMPLATE: THE OLD FALLBACK would have missed exactly the three files", async () => {
+  // The regression guard, written against the reproduction: what the parent
+  // fallback considers is the newest commit's changes only.
+  const res = await swapped(OLD_FIRST, { firstReadable: false });
+  const considered = new Set(res.paths);
+  for (const missed of [".gitignore", ".gitattributes", "infra/README.md"]) {
+    assert.equal(considered.has(missed), false, `${missed} was out of range under the old fallback`);
+  }
+  const fixed = await swapped(OLD_FIRST);
+  for (const f of [".gitignore", ".gitattributes", "infra/README.md"]) assert.ok(fixed.paths.includes(f), f);
+});
+
+test("a sync from their first commit reached everything, so it is evidence next time", () => {
+  const r = record({ template_sha: NEW_HEAD }, [row("swap", "merged-and-pr", "first-commit")]);
+  assert.deepEqual(startingPointFor({ login: "swap", records: [r] }), { sha: NEW_HEAD, source: "synced" });
+});
+
 test("a template file DELETED since their start is removed if untouched, offered if edited", async () => {
   const LAB5 = sha("5");
   TREES[LAB5] = new Map([...TREES[LAB4]].filter(([p]) => p !== "Lab02/Program.cs"));

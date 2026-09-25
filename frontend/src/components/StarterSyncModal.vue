@@ -138,6 +138,11 @@
                   </div>
                 </div>
               </template>
+              <p v-if="otherTemplate" class="text-xs text-muted catch-up-note">
+                {{ otherTemplate }} student repositor{{ otherTemplate === 1 ? 'y was' : 'ies were' }} created from a
+                different template. They are brought up to this one from their own first commit: files they never
+                changed are replaced, and files they did change arrive as a pull request.
+              </p>
               <p v-if="unknownStart" class="text-xs text-muted catch-up-note">
                 For {{ unknownStart }} student{{ unknownStart === 1 ? '' : 's' }} it is not known which template
                 version they started from, so they are sent only this commit's changes.
@@ -398,6 +403,10 @@ const catchUpFiles = ref([])
 // Students whose starting point could not be established: they are sent only
 // the newest commit's changes, as every sync did before, and the dialog says so.
 const unknownStart = ref(0)
+// Students whose repository came from a DIFFERENT template - the assignment's
+// template was changed after they accepted. Said, because the sync treats
+// their whole starter as replaceable where they never changed it.
+const otherTemplate = ref(0)
 
 const templateFullName = computed(() => {
   const owner = props.assignment.template?.owner || props.org
@@ -632,6 +641,7 @@ function planFor(s, selected) {
   if (!rootCache.has(repo)) rootCache.set(repo, rootTreeSha(get, repo, 'main'))
   return planStudent({
     login: s.github_login,
+    studentRepo: repo,
     studentTree: studentTrees.value.get(repo),
     readTree: readTemplateTree,
     root: () => rootCache.get(repo),
@@ -656,15 +666,18 @@ async function findCatchUpFiles() {
   const wasUnticked = new Set(catchUpFiles.value.filter((f) => !f.selected).map((f) => f.filename))
   const behind = new Map()
   let unknown = 0
+  let other = 0
   for (const s of (props.students || []).filter((x) => x.repo_name && studentTrees.value.has(x.repo_name))) {
     const { paths, source } = await planFor(s, ['*'])
     if (source === 'unknown') unknown++
+    if (source === 'first-commit') other++
     for (const p of paths) {
       if (listed.has(p)) continue
       behind.set(p, (behind.get(p) || 0) + 1)
     }
   }
   unknownStart.value = unknown
+  otherTemplate.value = other
   catchUpFiles.value = [...behind.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([filename, students]) => ({
