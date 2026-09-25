@@ -188,12 +188,21 @@ test("the invitation announcement is wired all three ways", () => {
     "the handler must gate the student comment on it",
   );
 
-  // And it must be set from the grant's status code, not from the outcome -
-  // 201 is "an invitation was created", which is the only thing that makes the
-  // announcement true.
+  // And it must be set from the grant's answer, not from the outcome - GitHub's
+  // 201 is "an invitation exists", which is the only thing that makes the
+  // announcement true. The grant goes through lib/permission-change.mjs, which
+  // may PATCH that invitation afterwards, so its `via` carries the 201 rather
+  // than the last status.
   assert.match(
     script,
-    /grantInvited = add\.status === 201/,
-    "the flag is the 201, not a proxy for it",
+    /grantInvited = add\.via === "invitation"/,
+    "the flag is the invitation GitHub reported, not a proxy for it",
   );
+});
+
+test("the helper's `via: invitation` is exactly GitHub's 201", async () => {
+  const { applyStudentPermission } = await import("../lib/permission-change.mjs");
+  const answer = (status, data) => async () => ({ ok: status < 300, status, data });
+  assert.equal((await applyStudentPermission(answer(201, { id: 1, permissions: "admin" }), { repo: "o/r", login: "a", permission: "admin" })).via, "invitation");
+  assert.equal((await applyStudentPermission(answer(204, null), { repo: "o/r", login: "a", permission: "admin" })).via, "collaborator");
 });

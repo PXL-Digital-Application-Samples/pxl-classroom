@@ -155,6 +155,16 @@ test("a refused grant is reported with its status, never thrown", async () => {
   assert.match(throwing.message, /offline/);
 });
 
+test("provisioning grants through the helper, never with a bare PUT that leaves an invitation stale", async () => {
+  // A retry after a changed Student permission re-grants to a student who may
+  // still hold the first invitation; a bare PUT answers 201 with it unchanged.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../provisioning/provision.mjs", import.meta.url), "utf8");
+  assert.match(src, /import \{ applyStudentPermission \} from "\.\.\/lib\/permission-change\.mjs"/);
+  assert.match(src, /await applyStudentPermission\(/);
+  assert.doesNotMatch(src, /gh\("PUT", `\/repos\/[^`]*\/collaborators\//, "a bare collaborator PUT is back in provisioning");
+});
+
 test("a value that is not a permission never reaches GitHub", async () => {
   const gh = fakeGitHub();
   const res = await applyStudentPermission(gh.request, { repo: "Org/r", login: "ann", permission: "owner" });

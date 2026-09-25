@@ -141,7 +141,7 @@ export function registerSyncStarterCommand(program) {
       const syncBody = opts.message || [
         "### Starter Code Update",
         "",
-        `A correction from the starter template \`${tplOwner}/${tplRepo}\` (commit \`${templateSha.slice(0, 7)}\`).`,
+        `An update from the starter template \`${tplOwner}/${tplRepo}\` (commit \`${templateSha.slice(0, 7)}\`).`,
         "",
         "You changed these files, so they were not overwritten. Review the diff and merge when you are ready.",
       ].join("\n");

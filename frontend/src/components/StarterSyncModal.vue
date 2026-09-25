@@ -545,7 +545,7 @@ async function fetchTemplateData() {
     const latest = commitsRes.data[0]
     targetSha.value = latest.sha
     customPrTitle.value = `Starter Code Update: ${latest.commit?.message?.split('\n')[0] || 'Template fixes'}`
-    customPrBody.value = `### Starter Code Update\n\nA correction from \`${owner}/${repo}\` (commit \`${latest.sha.slice(0, 7)}\`).\n\nYou changed these files, so they were not overwritten. Review the diff and merge when you are ready.`
+    customPrBody.value = `### Starter Code Update\n\nAn update from the starter template \`${owner}/${repo}\` (commit \`${latest.sha.slice(0, 7)}\`).\n\nYou changed these files, so they were not overwritten. Review the diff and merge when you are ready.`
 
     // 2. Fetch commit details for changed files
     const detailRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/commits/${latest.sha}`)

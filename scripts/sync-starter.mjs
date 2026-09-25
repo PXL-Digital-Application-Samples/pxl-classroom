@@ -205,7 +205,9 @@ async function main() {
   const syncBody = cfg.prBody || [
     "### Starter Code Update",
     "",
-    `A correction from the starter template (\`${templateFullName}\`) is available.`,
+    // "An update", not "a correction": the same sync ships a new lab each
+    // week on a semester-long assignment, where nothing was wrong.
+    `An update from the starter template (\`${templateFullName}\`) is available.`,
     "",
     `- **Commit:** \`${templateSha.slice(0, 7)}\` - ${commitMsgTitle}`,
     "",

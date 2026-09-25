@@ -14,6 +14,7 @@ import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
+import { applyStudentPermission } from "../lib/permission-change.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
 import { resolveTemplatePin } from "../lib/template-source.mjs";
 // The branch grading reads from. One decision, one implementation - the
@@ -528,9 +529,16 @@ async function main() {
 
   // 5. Grant the student their role (skip in dry-run).
   if (!cfg.dryRun) {
-    const add = await gh("PUT", `/repos/${cfg.org}/${cfg.targetRepo}/collaborators/${cfg.studentLogin}`, { permission: cfg.permission });
-    if (!(add.status === 201 || add.status === 204)) await fail("fail:grant", `grant HTTP ${add.status} ${add.data?.message ?? ""}`);
-    log("grant", { ok: true, note: add.status === 201 ? `invitation created (${cfg.permission})` : `already a collaborator (${cfg.permission})` });
+    // Through the shared helper, because a plain PUT to a student who still
+    // has an invitation answers 201 with THAT invitation at its OLD
+    // permission (measured 2026-09-26): a retry after the lecturer changed
+    // Student permission would leave them on the old one, reporting success.
+    const add = await applyStudentPermission(
+      (method, path, body) => gh(method, path, body),
+      { repo: `${cfg.org}/${cfg.targetRepo}`, login: cfg.studentLogin, permission: cfg.permission },
+    );
+    if (!add.ok) await fail("fail:grant", `grant HTTP ${add.status} ${add.message ?? ""}`);
+    log("grant", { ok: true, note: add.via === "invitation" ? `invitation (${cfg.permission})` : `already a collaborator (${cfg.permission})` });
 
     // 201 means GitHub SENT AN INVITATION, and this is the only place in the
     // system that knows. The student's browser cannot find out: measured
@@ -547,7 +555,7 @@ async function main() {
     // "unknown", which is the rule the page already follows, and a 204 needs no
     // help anyway: the repository is immediately readable and the page moves to
     // `provisioned` on its own.
-    grantInvited = add.status === 201;
+    grantInvited = add.via === "invitation";
 
     // 5.1 If student switched teams, remove collaborator access and cancel pending invitations on previous repository
     if (cfg.previousRepo && cfg.previousRepo !== cfg.targetRepo) {
