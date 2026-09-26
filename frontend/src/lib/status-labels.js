@@ -70,6 +70,7 @@ export const SCORE_SOURCE_LABELS = Object.freeze({
   "annotation-json": "Reported by the grader",
   points: "Reported by the grader",
   conclusion: "From the run's outcome - no score was reported",
+  manual: "Set by hand by a lecturer",
 });
 
 /** Whether a grade was measured, or inferred from whether the run went green. */

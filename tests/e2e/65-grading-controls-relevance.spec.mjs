@@ -158,7 +158,7 @@ test.describe('65 - re-grading one student', () => {
   test('THE ROW OFFERS A RE-GRADE, so chasing one student is not re-grading forty', async ({ page }) => {
     await openDetail(page, { ...base, template_grades: true });
     await openRowActions(page);
-    await expect(page.getByRole('button', { name: 'Re-grade this student' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Read score again' })).toBeVisible();
     // And it says which commit the score will come from, so the lecturer is not
     // guessing what they are about to read.
     await expect(page.locator('.modal-overlay')).toContainText(/commit aaaaaaa/);
@@ -167,7 +167,7 @@ test.describe('65 - re-grading one student', () => {
   test('and does not, on an assignment that grades nothing', async ({ page }) => {
     await openDetail(page, { ...base, template_grades: false });
     await openRowActions(page);
-    await expect(page.getByRole('button', { name: 'Re-grade this student' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Read score again' })).toHaveCount(0);
     // Not a disabled control with an explanation either: there is no grading
     // here at all, so the section is absent rather than "not yet".
     await expect(page.locator('.modal-overlay')).not.toContainText('Re-grade');
@@ -188,7 +188,7 @@ test.describe('65 - re-grading one student', () => {
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
     await openRowActions(page);
-    await expect(page.getByRole('button', { name: 'Re-grade this student' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Read score again' })).toHaveCount(0);
     await expect(page.locator('.modal-overlay')).toContainText(/no repository yet/i);
   });
 });
@@ -248,7 +248,7 @@ test.describe('65 - the per-student re-grade actually writes', () => {
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
     await page.getByRole('button', { name: /Actions for student-one/i }).click();
-    await page.getByRole('button', { name: 'Re-grade this student' }).click();
+    await page.getByRole('button', { name: 'Read score again' }).click();
 
     await expect(page.locator('.toast', { hasText: /17\/20/ })).toBeVisible();
     expect(writes).toHaveLength(1);
@@ -281,7 +281,7 @@ test.describe('65 - the per-student re-grade actually writes', () => {
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
     await page.getByRole('button', { name: /Actions for student-one/i }).click();
-    await page.getByRole('button', { name: 'Re-grade this student' }).click();
+    await page.getByRole('button', { name: 'Read score again' }).click();
 
     await expect(page.locator('.toast', { hasText: /No score read for student-one/ })).toBeVisible();
     expect(writes).toHaveLength(0);

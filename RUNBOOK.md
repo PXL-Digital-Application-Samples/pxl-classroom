@@ -966,10 +966,20 @@ It never replaces a reading **you** made. A summary carrying your login, or one 
 
 | | Where | What it does |
 |---|---|---|
-| **One student** | Roster & progress → their row → **⋯** → *Re-grade this student* | Reads that student's run again and replaces their row. Nobody else's score moves. This is the one to reach for - chasing one student is the ordinary case. |
+| **One student** | Roster & progress → their row → **⋯** → **Grading** → *Read score again* | Reads that student's run again and replaces their row. Nobody else's score moves. This is the one to reach for - chasing one student is the ordinary case. |
 | **The whole cohort** | **More** → *Re-grade all N*, or the button on the Autograding panel | Reads every student again and replaces the results. Slow on a large cohort, and it is not on Refresh for that reason: Refresh is a cheap read of commit state. |
 
 A student whose commit has **no grading run** is listed by name with the reason, never counted as a zero. Nothing at all is written when no student could be read - a summary of nobody would replace real marks with none.
+
+#### Grading one student differently from the rules
+
+The same **Grading** section of the student's **⋯** dialog has two decisions that overrule the rules for that student. Both need a reason, are recorded with who and when, show on the score badge (*· chosen*, *· by hand*) and in the Autograding panel, and are kept by every later *Read score again*, *Re-grade all*, the nightly and `pxl-classroom grade` - until you undo them with **Go back to the rules** / **Remove the score set by hand**, which asks for its own reason.
+
+- **Re-grade a commit…** lists every hand-in (with a hand-in message) or every commit on the submission branch (without one), newest first, each with the result its grading run produced - *late*, *over the limit* and *graded now* labelled. Late and over-the-limit hand-ins almost always have a result: every hand-in push was graded, and the rules only decide which one counts. Pick one and **Grade on #4 (20/20)**. On a team repository it applies to the whole team.
+- A commit **with no result** says why. Where GitHub can still help it offers **Run grading again**: a run exists for that exact commit, it is not a hand-in-gated run that skipped (it would skip again - measured), and it is under 30 days old. It re-runs the tests **as they were at that commit**, costs its usual Actions minutes, and on a cloud exam whose sandbox is gone the result will be a fail. Where nothing can run, use a score by hand.
+- **Set score by hand** is a score and a total with a reason. It wins over any run.
+
+The local runner (`pxl-classroom grade --runner docker|host`) grades the preserved submission only, so for a student with a chosen commit it refuses by name rather than grade something else; read that commit's result on the page instead.
 
 **The YAML the panel writes.** Edit it by hand only for something the panel does not offer:
 

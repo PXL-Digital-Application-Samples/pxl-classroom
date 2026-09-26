@@ -156,20 +156,95 @@
            one was the only thing on offer. The verdict arrives decided, like
            the reopen above: lib/autograde-source.mjs owns "does this assignment
            grade in CI at all", so this dialog never asks it a second way. -->
-      <section v-if="regrade" class="modal-section">
-        <h4>Re-grade this student</h4>
-        <p v-if="!regrade.can" class="text-secondary">{{ regrade.reason }}</p>
-        <template v-else>
-          <p class="text-secondary">
-            Reads this student's grading run again and replaces their row in the results. Nobody
-            else's score is touched, and nothing in their repository changes - the run has already
-            happened, this only reads it.
-            <template v-if="regrade.commitNote">{{ regrade.commitNote }}</template>
-          </p>
-          <button class="btn" type="button" @click="emit('regrade')" :disabled="busy">
-            {{ regrading ? 'Reading…' : 'Re-grade this student' }}
-          </button>
-        </template>
+      <!-- GRADING: three actions that answer three different questions
+           (2026-09-26). Read score again - the rules, unchanged. Re-grade a
+           commit - YOU pick the commit (late, over the limit, before a
+           mistake). Set score by hand - a score, no run. The last two are
+           stored per student (lib/grade-override.mjs) and outrank the rules
+           until removed; what is in force is said first. -->
+      <section v-if="regrade" class="modal-section" data-section="grading">
+        <h4>Grading</h4>
+        <p class="text-secondary">
+          <template v-if="grading && grading.current">
+            Now <strong>{{ grading.current.earned_points }}/{{ grading.current.total_points }}</strong><template v-if="grading.current.graded_sha">,
+              on commit <code class="mono">{{ grading.current.graded_sha.slice(0, 7) }}</code></template>.
+          </template>
+          <template v-else>No score has been read for this student yet.</template>
+          <template v-if="!decision"> Graded by the rules.</template>
+        </p>
+        <p v-if="decision" class="text-secondary text-sm" data-decision>
+          <template v-if="decision.kind === 'score'">
+            Score <strong>{{ decision.earned }}/{{ decision.total }}</strong> set by hand
+          </template>
+          <template v-else>
+            Graded on commit <code class="mono">{{ decision.sha.slice(0, 7) }}</code>, chosen
+          </template>
+          by @{{ decision.by }} on {{ formatDate(decision.at) }}: "{{ decision.reason }}"
+        </p>
+
+        <!-- Where there is nothing to read, the reason REPLACES the buttons
+             (DESIGN.md §1.5): a disabled control explains nothing. A score by
+             hand below still works - it reads nothing. -->
+        <div v-if="regrade.can || student.repo_name" class="grading-actions">
+          <button
+            v-if="regrade.can"
+            class="btn"
+            type="button"
+            :disabled="busy"
+            @click="emit('regrade')"
+          >{{ regrading ? 'Reading…' : 'Read score again' }}</button>
+          <button
+            v-if="student.repo_name"
+            class="btn"
+            type="button"
+            :disabled="busy"
+            @click="emit('choose-commit')"
+          >Re-grade a commit…</button>
+        </div>
+        <p v-if="!regrade.can" class="text-secondary text-sm">{{ regrade.reason }}</p>
+        <p v-else class="text-secondary text-sm">
+          <strong>Read score again</strong> reads the grading run again<template v-if="!decision"> by the rules</template>
+          <template v-else>, keeping your decision</template>; nothing in their repository changes.
+          <template v-if="regrade.commitNote && !decision">{{ regrade.commitNote }}</template>
+        </p>
+
+        <details class="manual-score" :open="decision?.kind === 'score'">
+          <summary>Set score by hand</summary>
+          <div class="manual-score-fields">
+            <label class="field">
+              <span>Score</span>
+              <input v-model="manual.earned" type="number" min="0" step="any" class="form-control manual-number" aria-label="Score" />
+            </label>
+            <label class="field">
+              <span>out of</span>
+              <input v-model="manual.total" type="number" min="0" step="any" class="form-control manual-number" aria-label="Out of" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Reason (recorded with the score)</span>
+            <textarea v-model="manual.reason" rows="2" placeholder="Oral defence / the grading run failed for a reason outside the student's control"></textarea>
+          </label>
+          <p v-if="manual.reason.trim() && manualProblem" class="form-hint text-danger">{{ manualProblem }}</p>
+          <button
+            class="btn"
+            type="button"
+            :disabled="busy || !!manualProblem"
+            @click="emit('decide', { type: 'manual_score', value: { earned: Number(manual.earned), total: Number(manual.total) }, reason: manual.reason.trim() })"
+          >Set score</button>
+        </details>
+
+        <!-- Undoing a decision is its own act with its own reason, recorded
+             like the decision was. -->
+        <div v-if="decision" class="field">
+          <label>Reason for going back</label>
+          <input v-model="undoReason" type="text" class="form-control" placeholder="Decided after the appeal" />
+          <button
+            class="btn-link"
+            type="button"
+            :disabled="busy || !undoReason.trim()"
+            @click="emit('decide', { type: decision.kind === 'score' ? 'manual_score' : 'submission_sha', value: null, reason: undoReason.trim() })"
+          >{{ decision.kind === 'score' ? 'Remove the score set by hand' : 'Go back to the rules' }}</button>
+        </div>
       </section>
 
       <section
@@ -211,6 +286,7 @@ import { formatDate } from '../lib/format.js'
 import { utcToLocalInput } from '../lib/assignment-doc.js'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
 import { allowanceProblem } from '../../../lib/hand-in-allowance.mjs'
+import { decisionProblem } from '../../../lib/grade-override.mjs'
 
 const props = defineProps({
   student: { type: Object, required: true },
@@ -247,9 +323,33 @@ const props = defineProps({
    */
   handIns: { type: Object, default: null },
   savingHandIns: { type: Boolean, default: false },
+  /**
+   * What this student's grade is now and who decided it, already decided:
+   * `{ current, decision, defaultTotal }` - `current` the grading summary row
+   * (or null), `decision` from lib/grade-override.mjs (null = the rules).
+   */
+  grading: { type: Object, default: null },
+  deciding: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins'])
+const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins', 'choose-commit', 'decide'])
+
+const decision = computed(() => props.grading?.decision || null)
+
+// The score-by-hand form, seeded with the score in force or the total the
+// assignment grades out of, so a lecturer edits rather than retypes.
+const manual = reactive({
+  earned: String(decision.value?.kind === 'score' ? decision.value.earned : (props.grading?.current?.earned_points ?? '')),
+  total: String(decision.value?.kind === 'score' ? decision.value.total : (props.grading?.current?.total_points || props.grading?.defaultTotal || '')),
+  reason: '',
+})
+// The module that refuses it decides, so the disabled button and the refusal agree.
+const manualProblem = computed(() => decisionProblem({
+  type: 'manual_score',
+  value: { earned: manual.earned === '' ? NaN : Number(manual.earned), total: manual.total === '' ? NaN : Number(manual.total) },
+  reason: manual.reason,
+}))
+const undoReason = ref('')
 
 // The dialog's own state, not the view's: it is created when the dialog opens
 // and meaningless when it is closed (DESIGN.md §6).
@@ -283,7 +383,7 @@ const ownLogin = computed(() => String(props.student.github_login || '').toLower
 // function reference there is an object - always truthy, so every control would
 // render permanently disabled.
 const busy = computed(
-  () => props.extending || props.retrying || props.unlocking || props.regrading || props.savingHandIns,
+  () => props.extending || props.retrying || props.unlocking || props.regrading || props.savingHandIns || props.deciding,
 )
 
 function requestClose() {
@@ -296,6 +396,22 @@ function requestClose() {
 
 <style scoped>
 .hand-in-extra {
+  max-width: 10ch;
+}
+.grading-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.manual-score {
+  margin-top: var(--space-sm);
+}
+.manual-score-fields {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-end;
+}
+.manual-number {
   max-width: 10ch;
 }
 

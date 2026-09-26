@@ -782,10 +782,14 @@
                   >
                     {{ s.earned_points }}/{{ s.total_points }} pts<!--
                     --><span
-                      v-if="s.score_source && !scoreWasReported(s.score_source)"
+                      v-if="scoreWasInferred(s.score_source)"
                       class="score-inferred"
                       aria-hidden="true"
-                    >*</span>
+                    >*</span><!--
+                    A lecturer's decision, visible on the badge itself: the
+                    number is not what the rules would give. Title says who/why.
+                    --><span v-if="s.grade_decided_by" class="score-decided">
+                      {{ s.grade_decided_by.kind === 'score' ? ' · by hand' : ' · chosen' }}</span>
                   </button>
                   <span v-else class="text-muted text-xs">-</span>
                 </td>
@@ -1075,7 +1079,14 @@
               </thead>
               <tbody>
                 <tr v-for="row in autogradeSummary.students" :key="row.login">
-                  <td><a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a></td>
+                  <td>
+                    <a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a>
+                    <span
+                      v-if="row.decided_by"
+                      class="text-xs text-muted"
+                      :title="`${row.decided_by.kind === 'score' ? 'Set by hand' : `Graded on ${String(row.graded_sha || '').slice(0, 7)}`} by @${row.decided_by.by} on ${fmt(row.decided_by.at)}: ${row.decided_by.reason}`"
+                    > · {{ row.decided_by.kind === 'score' ? 'by hand' : `chosen ${String(row.graded_sha || '').slice(0, 7)}` }}</span>
+                  </td>
                   <td class="num">{{ row.earned_points }}</td>
                   <td class="num">{{ row.total_points }}</td>
                   <td v-if="handInsShown" class="num">
@@ -1159,6 +1170,26 @@
         :saving-hand-ins="actionHandInsSaving"
         @grant-hand-ins="grantHandInsFor(actionStudent, $event)"
         @revoke-hand-ins="revokeHandInsFor(actionStudent, $event)"
+        :grading="actionGrading"
+        :deciding="actionDeciding"
+        @choose-commit="showRegradeCommit = true"
+        @decide="decideGrade(actionStudent, $event)"
+      />
+
+      <!-- Which commit counts, chosen by the lecturer (lib/grade-override.mjs). -->
+      <RegradeCommitModal
+        v-if="showRegradeCommit && actionStudent"
+        :student="actionStudent"
+        :marker="readSubmissionMarker(assignment)"
+        :limit="actionHandInLimit"
+        :branch="submissionBranch(assignment)"
+        :fallback-total="autogradeTotalPoints"
+        :current-sha="actionGrading?.current?.graded_sha || null"
+        :team-size="teamMembersOf(actionStudent).length"
+        :saving="actionDeciding"
+        @close="showRegradeCommit = false"
+        @manual="showRegradeCommit = false"
+        @choose="decideGrade(actionStudent, { type: 'submission_sha', value: $event.sha, reason: $event.reason })"
       />
 
       <!-- Open a draft Feedback PR per eligible student repository. -->
@@ -1240,6 +1271,8 @@ import StarterSyncStatus from '../components/StarterSyncStatus.vue'
 import PromoteRosterModal from '../components/PromoteRosterModal.vue'
 import AutogradeResultsModal from '../components/AutogradeResultsModal.vue'
 import StudentActionsModal from '../components/StudentActionsModal.vue'
+import RegradeCommitModal from '../components/RegradeCommitModal.vue'
+import { MANUAL_SCORE, decisionEntry, decisionProblem, gradeDecisionFor } from '../../../lib/grade-override.mjs'
 import FeedbackPrModal from '../components/FeedbackPrModal.vue'
 import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
 
@@ -1753,10 +1786,21 @@ function openAutogradeModal(item) {
  * Absent `score_source` means a summary written before the field was joined
  * through; saying nothing is right there, because nothing was established.
  */
+// The "*" on a score badge: a number inferred from the run's outcome. Not for a
+// score a lecturer set by hand, which is neither measured nor inferred.
+function scoreWasInferred(source) {
+  return !!source && source !== 'manual' && !scoreWasReported(source)
+}
+
 function scoreTitle(s) {
   const base = 'Click to view the score and open the CI run'
   const label = SCORE_SOURCE_LABELS[s?.score_source]
-  return label ? `${label}. ${base}` : base
+  // A lecturer's decision is said first: it is why this number is not the rules'.
+  const d = s?.grade_decided_by
+  const decided = d
+    ? (d.kind === 'score' ? `Set by hand by @${d.by}: "${d.reason}". ` : `Graded on commit ${String(s.graded_sha || '').slice(0, 7)}, chosen by @${d.by}: "${d.reason}". `)
+    : ''
+  return decided + (label && s?.score_source !== 'manual' ? `${label}. ${base}` : base)
 }
 
 function closeAutogradeModal() {
@@ -3462,6 +3506,10 @@ const DISPLAY_ONLY_ROW_FIELDS = [
   // to assign it, which is what that test is for.
   'score_source',
   'graded_at',
+  // A lecturer's grading decision (lib/grade-override.mjs), joined for the
+  // badge; the grading summary is where it lives.
+  'graded_sha',
+  'grade_decided_by',
   // The hand-in count and its exception, joined for the CSV export from the
   // grading summary and `overrides/` - both of which already hold them.
   'hand_ins_used',
@@ -3530,6 +3578,9 @@ function mergeGradesIntoReport() {
     // the join simply dropped it, so nothing could ever show it.
     s.score_source = g?.score_source ?? null
     s.graded_at = g?.graded_at ?? null
+    // Which commit, and whether a lecturer - not the rules - decided it.
+    s.graded_sha = g?.graded_sha ?? null
+    s.grade_decided_by = g?.decided_by ?? null
 
     // The hand-in count under a cap - from a failed row too, where the graded
     // hand-in had no run but the count is still the count - and the exception
@@ -3681,6 +3732,76 @@ async function saveGradingSummary(token, summaryDoc, message) {
  * not be read - survive. Rebuilding from what this screen happens to hold is
  * how a document loses whatever nobody listed.
  */
+// --- a lecturer's grading decisions (lib/grade-override.mjs) -------------------
+
+const showRegradeCommit = ref(false)
+const actionDeciding = ref(false)
+
+/** Everyone who shares this student's repository: the team, or just them. */
+function teamMembersOf(student) {
+  if (!student?.team_slug) return [student]
+  const mates = (report.value?.students || []).filter((s) => s.team_slug === student.team_slug)
+  return mates.length ? mates : [student]
+}
+
+// What is graded now and who decided it, for the dialog - decided here, shown there.
+const actionGrading = computed(() => {
+  const student = actionStudent.value
+  if (!student) return null
+  const login = String(student.github_login).toLowerCase()
+  return {
+    current: (autogradeSummary.value?.students || []).find((s) => String(s.login).toLowerCase() === login) || null,
+    decision: gradeDecisionFor(student.github_login, {
+      overrides: overridesByLogin.value,
+      team: teamOf(student, report.value?.students || []),
+    }),
+    defaultTotal: autogradeTotalPoints.value,
+  }
+})
+
+// The hand-in limit in force for this student (null without a cap), so the
+// picker labels "over the limit" the way grading would.
+const actionHandInLimit = computed(() => {
+  const student = actionStudent.value
+  const marker = readSubmissionMarker(assignment.value)
+  if (!student || marker?.maxHandIns == null) return null
+  return handInLimitFor(marker, student.github_login, {
+    overrides: overridesByLogin.value,
+    team: teamOf(student, report.value?.students || []),
+  }).limit
+})
+
+/**
+ * Record a decision - a chosen commit, a score by hand, or going back to the
+ * rules - on the student (every member of a team: one repository, one
+ * submission), then read their grade again so it shows at once.
+ */
+async function decideGrade(student, { type, value, reason }) {
+  if (!student || actionDeciding.value) return
+  const problem = decisionProblem({ type, value, reason })
+  if (problem) {
+    toast.error(problem)
+    return
+  }
+  if (!capAllowancesReadable()) return
+  const by = user.value?.login || getUser()?.login || 'unknown'
+  const at = new Date().toISOString()
+  const entry = decisionEntry({ type, value, reason, by, at })
+  const what = value === null ? 'Back to the rules' : type === MANUAL_SCORE ? `Score by hand ${value.earned}/${value.total}` : `Grade on ${String(value).slice(0, 7)}`
+  actionDeciding.value = true
+  try {
+    const members = teamMembersOf(student)
+    for (const m of members) {
+      if (!(await appendOverrides(m, [entry], `${what} for ${m.github_login} on ${props.assignmentId}: ${reason}`))) return
+    }
+    showRegradeCommit.value = false
+  } finally {
+    actionDeciding.value = false
+  }
+  // Read again through the one judge, which now honours the decision.
+  for (const m of teamMembersOf(student)) await regradeStudent(m)
+}
+
 async function regradeStudent(student) {
   const token = getToken()
   if (!token || !student || actionRegrading.value) return
@@ -4327,6 +4448,11 @@ main { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
 .score-inferred {
   margin-left: 2px;
   opacity: 0.8;
+}
+/* "· chosen" / "· by hand": a lecturer, not the rules, produced this number. */
+.score-decided {
+  font-weight: 400;
+  opacity: 0.85;
 }
 
 
