@@ -162,7 +162,8 @@ const { el, onKeydown } = useFocusTrap()
 const request = (method, path, body) => ghApi(getToken(), method, path, body)
 const get = async (path) => {
   const r = await request('GET', path)
-  return { status: r.status, data: r.data }
+  // Headers too: the push log pages by the cursor in its Link header.
+  return { status: r.status, data: r.data, headers: r.headers }
 }
 const repo = computed(() => props.student.repo_name)
 
@@ -201,7 +202,7 @@ function commitRow(c, extra = {}) {
 async function loadHandIns() {
   const students = props.teamLogins.length ? props.teamLogins : [props.student.github_login].filter(Boolean)
   const listed = await listHandIns(get, { repoFullName: repo.value, branch: props.branch, marker: props.marker, withRuns: true, students })
-  if (!listed.ok) throw new Error(`Could not read their ${listed.failedRead === 'runs' ? 'run history' : 'commits'} (HTTP ${listed.status}).`)
+  if (!listed.ok) throw new Error(`Could not read their ${({ runs: 'run history', activity: 'push history' })[listed.failedRead] || 'commits'} (HTTP ${listed.status}).`)
   // A walk that hit its cap returns no hand-ins - which is NOT "they handed
   // nothing in". Said as what it is.
   if (!listed.complete) throw new Error(`They have more commits than can be read here (${listed.scanned} read), so their hand-ins cannot be listed. Set a score by hand instead.`)

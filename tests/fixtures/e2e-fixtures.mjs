@@ -1052,6 +1052,13 @@ export async function setupStandardMockRoutes(page, {
         body: JSON.stringify({ id: 101, number: 1, state: 'open' }),
       });
     } else if (url.includes('/repos/')) {
+      // The push log (GET /repos/{o}/{r}/activity), which the hand-in count
+      // reads beside the runs. Empty by default: a spec's runs already name
+      // every push it staged. A 404 here would read as an unreadable history.
+      if (method === 'GET' && /\/repos\/[^/]+\/[^/]+\/activity(\?|$)/.test(url)) {
+        await route.fulfill({ status: 200, body: '[]' });
+        return;
+      }
       if (method === 'DELETE' && url.includes('/contents/')) {
         const match = url.match(/\/contents\/(.+)$/);
         const path = match ? decodeURIComponent(match[1]) : 'file';

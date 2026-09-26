@@ -63,7 +63,17 @@ const marker = (over = {}) => ({ type: "commit_message", value: MSG, multiple: t
  * Hand-in n is a commit at minute `min` whose grading run scores n/100. Other
  * commits (`noise`) sit between them the way real work does.
  */
-function world({ handIns = [], noise = 3, repo = REPO, runsStatus = 200, commitsStatus = 200, extraRuns = [] } = {}) {
+/** The push log a set of push runs implies: one entry per head on main, newest first. */
+function pushLog(runs) {
+  const seen = new Map();
+  for (const r of runs) {
+    if ((r.head_branch ?? "main") !== "main" || !r.head_sha) continue;
+    if (!seen.has(r.head_sha)) seen.set(r.head_sha, { activity_type: "push", ref: "refs/heads/main", after: r.head_sha, timestamp: r.created_at });
+  }
+  return [...seen.values()];
+}
+
+function world({ handIns = [], noise = 3, repo = REPO, runsStatus = 200, commitsStatus = 200, activityStatus = 200, extraRuns = [] } = {}) {
   const calls = [];
   const branch = [];
   const runs = [...extraRuns];
@@ -96,6 +106,12 @@ function world({ handIns = [], noise = 3, repo = REPO, runsStatus = 200, commits
     if (path.startsWith(`/repos/${repo}/actions/runs?`)) {
       if (runsStatus !== 200) return { ok: false, status: runsStatus, data: null };
       return { ok: true, status: 200, data: { total_count: runs.length, workflow_runs: byPage(runs, path) } };
+    }
+    // The push log: every commit a push ended on - here, every head a push
+    // run names on main (a push starts its runs for its last commit).
+    if (path.startsWith(`/repos/${repo}/activity?`)) {
+      if (activityStatus !== 200) return { ok: false, status: activityStatus, data: null };
+      return { ok: true, status: 200, data: pushLog(runs) };
     }
     const cr = path.match(new RegExp(`^/repos/${repo}/commits/([0-9a-z]+)/check-runs$`));
     if (cr) {
@@ -784,10 +800,12 @@ function dispatchWorld({ branchHandIns = [], dispatches = [], pushRuns = true } 
     triggering_actor: { login: d.by },
     head_sha: "f".repeat(40),
   }));
+  const log = pushLog(push);
   return async (path) => {
     if (path.includes("/commits?")) return { status: 200, data: branch };
     if (path.includes("event=workflow_dispatch")) return { status: 200, data: { workflow_runs: dispatch } };
     if (path.includes("event=push")) return { status: 200, data: { workflow_runs: push } };
+    if (path.includes("/activity?")) return { status: 200, data: log };
     return { status: 404, data: null };
   };
 }
@@ -811,21 +829,51 @@ test("A GRADING RUN THE STUDENT STARTED counts as a hand-in: it uses a slot and 
   assert.equal(none.handIns.length, 2);
 });
 
-test("A HAND-IN IS A COMMIT THAT STARTED A GRADING RUN: one that was not the newest of its push uses no place (2026-09-27)", async () => {
+/** `get` with hand-in 2's push runs gone, and optionally its push-log entry too. */
+const withoutTwo = (get, { fromLog = false } = {}) => async (path) => {
+  const res = await get(path);
+  if (path.includes("event=push")) return { ...res, data: { workflow_runs: res.data.workflow_runs.filter((r) => r.head_sha !== sha(2)) } };
+  if (fromLog && path.includes("/activity?")) return { ...res, data: res.data.filter((a) => a.after !== sha(2)) };
+  return res;
+};
+
+test("A HAND-IN IS A COMMIT A PUSH ENDED ON: one that was not the last of its push uses no place (2026-09-27)", async () => {
   // Hand-in 2 carries the message but was pushed together with a later
-  // commit, so GitHub never ran the workflow for it.
-  const get = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 2, min: 20 }, { n: 3, min: 30 }] });
-  const withoutTwo = async (path) => {
-    const res = await get(path);
-    if (path.includes("event=push")) return { ...res, data: { workflow_runs: res.data.workflow_runs.filter((r) => r.head_sha !== sha(2)) } };
-    return res;
-  };
-  const listed = await listHandIns(withoutTwo, { repoFullName: REPO, branch: "main", marker: marker() });
+  // commit: no run, and no push ended on it.
+  const get = withoutTwo(dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 2, min: 20 }, { n: 3, min: 30 }] }), { fromLog: true });
+  const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
   assert.deepEqual(listed.handIns.map((h) => h.sha), [sha(1), sha(3)]);
   const r = selectHandIn(listed.handIns, { until: DEADLINE, limit: 2 });
-  assert.equal(r.commit.sha, sha(3), "hand-in 3 is the second that ran, so it is inside a limit of 2");
+  assert.equal(r.commit.sha, sha(3), "hand-in 3 is the second that was pushed, so it is inside a limit of 2");
   // Without the run history the branch is all there is, as before.
-  assert.equal((await listHandIns(withoutTwo, { repoFullName: REPO, branch: "main", marker: marker(), withRuns: false })).handIns.length, 3);
+  assert.equal((await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker(), withRuns: false })).handIns.length, 3);
+});
+
+test("DELETING A HAND-IN'S RUNS DOES NOT HIDE IT: the push log still names it (2026-09-27)", async () => {
+  // The loophole the user refused: runs can be deleted by a repository admin,
+  // the push log cannot.
+  const get = withoutTwo(dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 2, min: 20 }, { n: 3, min: 30 }] }));
+  const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
+  assert.deepEqual(listed.handIns.map((h) => h.sha), [sha(1), sha(2), sha(3)]);
+  assert.equal(listed.handIns[1].pushedAt, at(20), "timed by the push log");
+  assert.equal(selectHandIn(listed.handIns, { until: DEADLINE, limit: 2 }).commit.sha, sha(2));
+});
+
+test("ERASED FROM THE BRANCH AND ITS RUNS DELETED: still counted, from the push log and the commit itself", async () => {
+  const base = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 2, min: 20 }] });
+  const get = async (path) => {
+    // Hand-in 1 force-pushed away, its runs deleted; GitHub still has the commit.
+    if (path.includes("/commits?")) return { status: 200, data: [commitRow(sha(2), MSG, at(20))] };
+    if (path.includes("event=push")) return { status: 200, data: { workflow_runs: [runRow(sha(2), MSG, at(20), { id: 2 })] } };
+    if (path.endsWith(`/commits/${sha(1)}`)) return { status: 200, data: { sha: sha(1), commit: { message: MSG, committer: { date: at(10) } } } };
+    return base(path);
+  };
+  const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
+  assert.deepEqual(listed.handIns.map((h) => [h.sha, h.onBranch]), [[sha(1), false], [sha(2), true]]);
+  // An unreadable push log is a failed read, named - never a count from the runs alone.
+  const down = await listHandIns(async (p) => (p.includes("/activity?") ? { status: 502, data: null } : get(p)), { repoFullName: REPO, branch: "main", marker: marker() });
+  assert.equal(down.ok, false);
+  assert.equal(down.failedRead, "activity");
 });
 
 test("a dispatch is never the graded hand-in, even when it is the last valid one", () => {

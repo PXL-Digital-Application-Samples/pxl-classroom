@@ -107,6 +107,10 @@ function fakeApi({ runsStatus = 200 } = {}) {
         .reverse();
       return send(200, { total_count: runs.length, workflow_runs: runs });
     }
+    // The push log: each hand-in was pushed on its own, so each is a push head.
+    if (req.url.startsWith(`/repos/${REPO}/activity?`)) {
+      return send(200, handIns.map((n) => ({ activity_type: "push", ref: "refs/heads/main", after: sha(n), timestamp: at(n * 10) })).reverse());
+    }
     const cr = req.url.match(/\/commits\/(\w+)\/check-runs$/);
     if (cr) {
       const n = handIns.find((x) => sha(x) === cr[1]);

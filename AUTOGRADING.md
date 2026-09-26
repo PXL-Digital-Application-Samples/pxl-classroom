@@ -61,8 +61,8 @@ The limit decides what is **graded**, not what a student can do: pushes and work
 - **A grading run the student starts themselves counts as a hand-in.** The grading workflow can be started from the repository's Actions tab, and a student is usually admin of their own repository. Each such run uses a place and is never the one graded, and it is listed as *a grading run the student started*. Runs you start with **Grade this commit now** are yours and count for nothing.
 - Every hand-in that does not count is listed under the Autograder results by name, with the reason: *hand-in 6 of 5 at 11:42 (a1b2c3d) ignored: over the limit*, or *after the deadline*. Nothing is dropped silently.
 - The results table and **Export CSV** show each student's count: **6 / 5** means six on-time hand-ins were made and the limit is five, so the sixth was not counted. Late ones are not in the first number.
-- **A hand-in is a commit that started a grading run.** GitHub runs the workflow only for the newest commit of a push, so a hand-in message on an earlier commit of the same push was never graded and does not use a place.
-- A student cannot reset the count by rewriting their branch: hand-ins are counted from GitHub's record of the runs, so one removed from the branch still counts and is listed as *no longer on the branch*. Deleting a hand-in's runs does make it stop counting - accepted, because counting commits that were never graded cost students places for nothing.
+- **A hand-in is a commit a push ended on.** GitHub runs the workflow only for the last commit of a push, so a hand-in message on an earlier commit of the same push was never graded and does not use a place.
+- A student cannot reset the count. Hand-ins are counted from GitHub's record of the pushes and of the runs, neither of which rewriting the branch changes: one removed from the branch still counts and is listed as *no longer on the branch*, and deleting a hand-in's runs does not hide it either, because the push record stays.
 
 **One student may hand in more.** Open their row → **Hand-ins**:
 
@@ -206,6 +206,7 @@ They are listed by name in the Autograder panel with the reason. They are **not*
 | the only "einde examen" commit is after the deadline | They handed in late. The time is in the message. |
 | no commit says "einde examen" | They never handed in. |
 | could not read this repository's Actions run history | With a hand-in limit, hand-ins are also counted from GitHub's record of the pushes, and that could not be read. Nobody is graded on a count that might be short; read the scores again later. |
+| could not read this repository's push history | With a hand-in limit, hand-ins are also counted from GitHub's record of the pushes, and that could not be read. Nobody is graded on a count that might be short; read the scores again later. |
 | Could not read the students' overrides | On ANY assignment: one of the files holding extra hand-ins and your grading decisions (a chosen commit, a score by hand) could not be read, so no score was read at all - a grant that was not read would count against that student, and a decision that was not read would be overwritten. Reload the page. |
 | no autograding run at commit `abc1234` | No workflow produced a grading check run there. Check the template still has one, and that the student did not delete it. |
 | could not read the score annotations | The run exists, its results could not be read. Try again; if it persists, open the run. |
