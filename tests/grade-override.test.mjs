@@ -151,6 +151,19 @@ test("a CANCELLED hand-in is not explained by the hand-in gate; a SKIPPED run is
   assert.match(skipped.reason, /skipped at commit aaaaaaa - it only runs on a commit whose message is "hand in"/);
 });
 
+test("pxl-classroom grade queues a score by hand with NO preserved submission - its summary replaces the file (review 2026-09-26)", async () => {
+  const { archiveGradeQueue } = await import("../lib/grade-cohort.mjs");
+  const students = [
+    { github_login: "kim", preservation_status: "preserved", preserved_sha: SHA_A },
+    { github_login: "lee" },
+    { github_login: "mo", preservation_status: "pending" },
+  ];
+  const queue = archiveGradeQueue(students, [doc("lee", [score(15, 20)])]);
+  assert.deepEqual(queue.map((s) => s.github_login), ["kim", "lee"], "mo has neither, and is not queued");
+  const { readFileSync } = await import("node:fs");
+  assert.match(readFileSync(new URL("../cli/src/commands/grade.mjs", import.meta.url), "utf8"), /archiveGradeQueue\(report\.students, overrides\)/);
+});
+
 test("without a decision nothing changes, except that the graded commit is now recorded", async () => {
   const out = await gradeStudent(fakeGitHub(), { row: { ...row, latest_observed_sha: SHA_A }, overrides: [] });
   const { graded } = rowFromOutcome("kim", out, 10);

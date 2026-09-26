@@ -121,6 +121,9 @@ const SEALED = {
   aliceNamed: await seal("alice.peeters@student.pxl.be"),
   aliceNumber: await seal("12345678@student.pxl.be"),
   offDomain: await seal("alice@gmail.com"),
+  // On no roster: a number-form guess, and a well-formed address.
+  offRosterNumber: await seal("10000001@student.pxl.be"),
+  offRoster: await seal("mal.lory@student.pxl.be"),
   replayed: await seal("victim@student.pxl.be", 111111),
 };
 
@@ -393,9 +396,21 @@ test("CLAIM MODE: a number-form address is refused with its OWN reason, not as a
   assert.equal(res.outputs.outcome, "rejected:claim-format");
   assert.match(res.stdout + res.stderr, /does not say who you are\. Use the firstname\.lastname@ form/);
   assert.ok(!existsSync(join(dir, "students", "claims", `${GITHUB_ID}.json`)), "nothing bound");
-  // The form is public, so this refusal reveals nothing about the roster -
-  // and under `claim` the page offers every address, so it must not cost one.
-  assert.ok(!existsSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`)), "not counted");
+  // COUNTED: whether an address reaches this refusal depends on the roster (a
+  // registered number-form address passes), so an uncounted refusal let
+  // sequential student numbers be guessed for free (review 2026-09-26).
+  assert.ok(existsSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`)), "counted");
+});
+
+test("THE FREE ORACLE (review 2026-09-26): number-form guesses are counted, and the account is blocked before a registered one binds", () => {
+  const dir = makeDir({ over: claimMode, roster: numberRoster });
+  for (let i = 0; i < 5; i++) {
+    const miss = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.offRosterNumber });
+    assert.equal(miss.outputs.outcome, "rejected:claim-format");
+  }
+  const hit = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNumber });
+  assert.equal(hit.outputs.outcome, "rejected:claim-blocked", "five misses spend the attempts; the registered address never binds");
+  assert.ok(!existsSync(join(dir, "students", "claims", `${GITHUB_ID}.json`)));
 });
 
 test("CLAIM MODE: a stale number-form binding is asked again, and the name form replaces it", () => {
@@ -431,11 +446,63 @@ test("REUSE: bound and in the cohort is accepted without asking again (the ordin
   assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
 });
 
-test("REUSE: bound, on the roster, NOT in this assignment's cohort is refused - and nothing counted", () => {
+test("REUSE: bound, on the roster, NOT in this assignment's cohort is refused - and COUNTED", () => {
+  // Counted since review 2026-09-26: the binding may have been written by the
+  // confirm link precisely to ask this.
   const dir = makeDir({ over: { ...claimMode, cohort: ["num:0888"] }, roster: namedRoster, claims: [namedBinding()] });
   const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
   assert.equal(res.outputs.outcome, "rejected:not-in-cohort");
-  assert.ok(!existsSync(join(dir, "students", "claim-attempts")), "not a guess, so not counted");
+  assert.ok(existsSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`)), "counted");
+});
+
+test("THE CONFIRM-THEN-ACCEPT LOOP (review 2026-09-26): each probe costs an attempt, and a spent account stays blocked", () => {
+  // Confirm an address, accept with no payload, read the outcome: that was a
+  // free roster oracle, and it let an account with spent attempts in.
+  const spent = { schema_version: 1, failures: 5, first_at: "2026-09-26T00:00:00Z", last_at: "2026-09-26T00:00:00Z" };
+  const dir = makeDir({ over: claimMode, roster: namedRoster });
+  mkdirSync(join(dir, "students", "claim-attempts"), { recursive: true });
+  writeFileSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`), JSON.stringify(spent));
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed })).outputs.outcome, "confirmed", "the link itself still records");
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:claim-blocked", "a registered, in-cohort binding does not get a spent account in");
+
+  const fresh = makeDir({ over: claimMode, roster: namedRoster });
+  run(fresh, confirm({ CLAIM_PAYLOAD: SEALED.offRoster }));
+  assert.equal(run(fresh, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:no-claim");
+  const attempts = JSON.parse(readFileSync(join(fresh, "students", "claim-attempts", `${GITHUB_ID}.json`), "utf8"));
+  assert.equal(attempts.failures, 1, "asking again on top of an unregistered binding is counted");
+});
+
+test("TAKEN asks who was FIRST among every holder, and a tie has exactly one winner", () => {
+  // Review 2026-09-26: compared against whichever file readdir listed first,
+  // a later holder was admitted when an even later one sorted ahead of the
+  // real one; and equal timestamps refused both accounts.
+  const holder = (id, login, at) => ({ ...namedBinding(), github_id: id, github_login: login, claimed_at: at });
+  const three = [holder(900, "real", "2026-01-01T00:00:00.000Z"), holder(150, "third", "2026-03-01T00:00:00.000Z"), holder(GITHUB_ID, LOGIN, "2026-02-01T00:00:00.000Z")];
+  assert.equal(run(makeDir({ over: claimMode, roster: namedRoster, claims: three }), { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:claim-taken");
+  // A tie: the lower github_id is first. GITHUB_ID (424242) loses to 7, wins over 999999.
+  const tieLoses = [holder(7, "low", "2026-02-01T00:00:00.000Z"), holder(GITHUB_ID, LOGIN, "2026-02-01T00:00:00.000Z")];
+  assert.equal(run(makeDir({ over: claimMode, roster: namedRoster, claims: tieLoses }), { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:claim-taken");
+  const tieWins = [holder(999999, "high", "2026-02-01T00:00:00.000Z"), holder(GITHUB_ID, LOGIN, "2026-02-01T00:00:00.000Z")];
+  assert.equal(run(makeDir({ over: claimMode, roster: namedRoster, claims: tieWins }), { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
+});
+
+test("THE CONFIRM LINK accepts a number-form address the ROSTER registers, as acceptance does", () => {
+  // Review 2026-09-26: the page offers it under `claim`, acceptance admits
+  // it, and the confirm link refused it for its form.
+  const dir = makeDir({ over: claimMode, roster: numberRoster });
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber })).outputs.outcome, "confirmed");
+  assert.equal(readClaim(dir).email, "12345678@student.pxl.be");
+});
+
+test("re-confirming the SAME address, now VERIFIED, upgrades the record and keeps when it was first claimed", () => {
+  const typed = namedBinding({ claim_verified: false, claimed_at: "2026-09-01T00:00:00.000Z" });
+  const dir = makeDir({ claims: [typed] });
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed })).outputs.outcome, "already-confirmed", "unverified again: nothing to change");
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed, CLAIM_VERIFIED: "true" })).outputs.outcome, "confirmed");
+  const rec = readClaim(dir);
+  assert.equal(rec.claim_verified, true);
+  assert.equal(rec.claimed_at, "2026-09-01T00:00:00.000Z", "first-holder priority is kept");
+  assert.equal(rec.replaces, undefined, "not a replacement of itself");
 });
 
 test("REUSE: bound by the confirm link to an address NOT on the roster is asked again, never admitted", () => {

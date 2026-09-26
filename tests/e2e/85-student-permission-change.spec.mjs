@@ -8,7 +8,7 @@
 // 2026-09-26). lib/permission-change.mjs decides; tests/permission-change.test.mjs
 // covers it; this is the wiring.
 
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
 
@@ -45,7 +45,7 @@ const record = (s) => ({
 
 const brokerRepo = { name: `broker-${ID}`, full_name: `${ORG}/broker-${ID}`, html_url: `https://github.com/${ORG}/broker-${ID}` };
 
-async function openEditor(page, { assignment = liveAssignment(), accepted = [STUDENT_1, STUDENT_2] } = {}) {
+async function openEditor(page, { assignment = liveAssignment(), accepted = [STUDENT_1, STUDENT_2], gone = [] } = {}) {
   const writes = [];
   const grants = [];
   await injectAuth(page, LECTURER);
@@ -60,9 +60,20 @@ async function openEditor(page, { assignment = liveAssignment(), accepted = [STU
     (route) => route.fulfill({ status: 204, body: '' }));
   // STUDENT_1 is a collaborator; STUDENT_2 has not accepted the invitation,
   // which GitHub leaves at its old permission on a second grant.
+  // Asked first (onlyIfPresent): STUDENT_1 answers 204 as a collaborator,
+  // STUDENT_2 404 - and is in the repository's pending invitations. `gone`
+  // logins are neither, like a student removed in GitHub's settings.
+  await page.route(/\/repos\/[^/]+\/[^/]+\/invitations(\?.*)?$/, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({ status: 200, body: JSON.stringify([{ id: 4242, invitee: { login: STUDENT_2.login }, permissions: 'admin' }].filter((i) => !gone.includes(i.invitee.login))) });
+  });
   await page.route(/\/repos\/[^/]+\/[^/]+\/(collaborators\/[^/?]+|invitations\/\d+)(\?.*)?$/, async (route) => {
     const req = route.request();
     const url = new URL(req.url());
+    if (req.method() === 'GET' && url.pathname.includes('/collaborators/')) {
+      const login = decodeURIComponent(url.pathname.split('/').pop());
+      return route.fulfill({ status: login === STUDENT_1.login && !gone.includes(login) ? 204 : 404, body: '' });
+    }
     if (!['PUT', 'PATCH'].includes(req.method())) return route.fallback();
     grants.push({ method: req.method(), path: url.pathname, body: req.postDataJSON() });
     if (req.method() === 'PUT' && url.pathname.endsWith(`/collaborators/${STUDENT_2.login}`)) {
@@ -123,6 +134,35 @@ test.describe('85 - changing Student permission after students accepted', () => 
     ].sort());
     expect(grants.find((g) => g.method === 'PATCH').body).toEqual({ permissions: 'maintain' });
     for (const g of grants.filter((x) => x.method === 'PUT')) expect(g.body).toEqual({ permission: 'maintain' });
+  });
+
+  test('a student REMOVED in GitHub\'s own settings (the record still says invited) is not re-invited - review 2026-09-26', async ({ page }) => {
+    const { grants } = await openEditor(page, { gone: [STUDENT_2.login] });
+    await saveAs(page, 'maintain');
+    const n = notice(page);
+    await n.getByRole('button', { name: 'Apply maintain to 2 students' }).click();
+    await expect(n).toContainText('1 student now has maintain');
+    await expect(n).toContainText(`No longer in their repository, so not re-invited: ${STUDENT_2.login}`);
+    expect(grants.map((g) => `${g.method} ${g.path}`)).toEqual([`PUT /repos/${ORG}/${ID}-${STUDENT_1.login}/collaborators/${STUDENT_1.login}`]);
+  });
+
+  test('a deadline moved EARLIER after the notice appeared: Apply re-reads the saved assignment and changes nobody', async ({ page }) => {
+    // Review 2026-09-26: the notice kept the document from when it appeared,
+    // so a later save that moved the deadline earlier was judged against the
+    // old, later one - and students past the saved deadline were granted.
+    const { grants } = await openEditor(page);
+    await saveAs(page, 'maintain');
+    const n = notice(page);
+    await expect(n.getByRole('button', { name: 'Apply maintain to 2 students' })).toBeVisible();
+    const earlier = { ...liveAssignment({ deadline_at: new Date(Date.now() - 3600_000).toISOString() }), student_permission: 'maintain' };
+    await page.route(new RegExp(`/pxl-classroom-control/contents/assignments/${ID}\\.yml`), (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(stringify(earlier)).toString('base64'), encoding: 'base64', sha: 's2' }) });
+    });
+    await n.getByRole('button', { name: 'Apply maintain to 2 students' }).click();
+    await expect(page.locator('.toast', { hasText: 'Nobody was changed' }).first()).toBeVisible();
+    expect(grants).toHaveLength(0);
+    await expect(n).not.toHaveClass(/is-success/);
   });
 
   test('past the deadline nobody is changed, and the notice says why', async ({ page }) => {

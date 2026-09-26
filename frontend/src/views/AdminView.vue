@@ -307,6 +307,9 @@
                 <template v-if="permissionNotice.done.failed.length">
                   Not changed: {{ permissionNotice.done.failed.join(', ') }}.
                 </template>
+                <template v-if="permissionNotice.done.gone?.length">
+                  No longer in their repository, so not re-invited: {{ permissionNotice.done.gone.join(', ') }}.
+                </template>
               </p>
               <p v-if="permissionPastDeadline" class="published-desc">
                 {{ permissionPastDeadline === 1 ? '1 student is' : `${permissionPastDeadline} students are` }}
@@ -4478,18 +4481,37 @@ async function readJsonDir(token, dir) {
  * Unreadable extensions or reopenings leave students at the base deadline and
  * not reopened: that only skips more of them, the safe direction. An
  * unreadable LOCK RECORD is not safe that way - a lock with a later deadline
- * is exactly what it is read for - so it refuses. Absent is no lock.
+ * is exactly what it is read for - so it refuses. Absent is no lock; a file
+ * that is there but cannot be decoded is NOT absent.
+ *
+ * `doc` is the document just saved; without it (the click) the SAVED
+ * assignment is read again - a notice kept open across a later save that moved
+ * the deadline earlier judged students against the old, later one.
  */
-async function readPermissionPlan(id, doc) {
+async function readPermissionPlan(id, doc = null) {
   const token = getToken()
+  let assignmentDoc = doc
+  if (!assignmentDoc) {
+    try {
+      const text = await getRepoContent(token, props.org, config.controlRepo, assignmentPath(id))
+      assignmentDoc = text ? parseYaml(text) : null
+    } catch {
+      assignmentDoc = null
+    }
+    if (!assignmentDoc) return { ok: false }
+  }
   const records = await readJsonDir(token, repositoriesDir(id))
   if (!records.ok) return { ok: false }
   let lockRecord = null
-  try {
-    const text = await getRepoContent(token, props.org, config.controlRepo, lockdownRecordPath(id))
-    if (text) lockRecord = JSON.parse(text)
-  } catch {
-    return { ok: false }
+  const lock = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(id)}`)
+  if (lock.status !== 404) {
+    if (!lock.ok || !lock.data?.content) return { ok: false }
+    try {
+      const bin = atob(String(lock.data.content).replace(/\n/g, ''))
+      lockRecord = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))))
+    } catch {
+      return { ok: false }
+    }
   }
   const overrides = await readJsonDir(token, overridesDir(id))
   const reopened = await readJsonDir(token, unlockedDir(id))
@@ -4498,7 +4520,7 @@ async function readPermissionPlan(id, doc) {
     empty: !records.docs.length,
     plan: planPermissionApply({
       records: records.docs,
-      assignment: doc,
+      assignment: assignmentDoc,
       overrides: overrides.docs,
       reopened: reopened.docs.map((d) => d?.github_login).filter(Boolean),
       lockRecord,
@@ -4515,35 +4537,49 @@ async function noticePermissionChange(id, before, doc) {
     return
   }
   if (read.empty) return
-  permissionNotice.value = { id, from: before, to: after, unreadable: false, plan: read.plan, done: null, progress: 0, doc }
+  permissionNotice.value = { id, from: before, to: after, unreadable: false, plan: read.plan, done: null, progress: 0 }
 }
 
 async function applyPermissionChange() {
   const n = permissionNotice.value
   if (!n?.plan || n.running) return
   n.running = true
-  // Planned again at the click, not trusted from when the notice appeared.
-  const fresh = await readPermissionPlan(n.id, n.doc)
+  // Planned again at the click, from the SAVED assignment - not trusted from
+  // when the notice appeared.
+  const fresh = await readPermissionPlan(n.id)
   if (!fresh.ok) {
     n.running = false
-    toast.error('Could not read who has a repository or which are locked, so nothing was changed.')
+    toast.error('Could not read the assignment, who has a repository or which are locked, so nothing was changed.')
     return
   }
+  const promised = n.plan.apply.length
   n.plan = fresh.plan
+  if (!n.plan.apply.length) {
+    // Not a success: the button promised N and nobody may be changed NOW (the
+    // deadline passed, or a lock landed, since the notice appeared).
+    n.running = false
+    toast.error(`Nobody was changed: the ${promised} student${promised === 1 ? '' : 's'} this offered to change ${promised === 1 ? 'is' : 'are'} now past their deadline or locked.`)
+    return
+  }
   const token = getToken()
   const request = (method, path, body) => ghApi(token, method, path, body)
   const failed = []
+  const gone = []
   let changed = 0
   for (const s of n.plan.apply) {
-    const res = await applyStudentPermission(request, { repo: s.repo, login: s.login, permission: n.to })
+    // onlyIfPresent: a student removed from the repository in GitHub's own
+    // settings is skipped, not re-invited (lib/permission-change.mjs).
+    const res = await applyStudentPermission(request, { repo: s.repo, login: s.login, permission: n.to, onlyIfPresent: true })
     if (res.ok) changed++
+    else if (res.skipped) gone.push(s.login)
     else failed.push(`${s.login} (${res.status ? `HTTP ${res.status}` : res.message || 'no answer'})`)
     n.progress++
   }
   n.running = false
-  n.done = { changed, failed }
-  if (failed.length) toast.error(`Could not change ${failed.length} student${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}`)
-  else toast.success(`${changed} student${changed === 1 ? ' now has' : 's now have'} ${n.to}.`)
+  n.done = { changed, failed, gone }
+  const goneNote = gone.length ? ` ${gone.length} no longer ${gone.length === 1 ? 'has' : 'have'} access and ${gone.length === 1 ? 'was' : 'were'} not re-invited: ${gone.join(', ')}.` : ''
+  if (failed.length) toast.error(`Could not change ${failed.length} student${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}.${goneNote}`)
+  else toast.success(`${changed} student${changed === 1 ? ' now has' : 's now have'} ${n.to}.${goneNote}`)
 }
 
 async function noticeTemplateChange(id, before, after) {

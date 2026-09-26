@@ -128,8 +128,13 @@ test("the claim gate refuses before it spends anything", () => {
   // binding, not a guess, and it costs a read of a local file.
   assert.ok(at("claimAttemptsExhausted") < at("rosterEntryForEmail(roster, opened.email)"),
     "the attempt ceiling must be checked before the roster is consulted");
-  assert.ok(at("existing?.email") < at("claimAttemptsExhausted"),
-    "an already-bound student must not touch the counter at all");
+  // THE COUNTER COMES BEFORE THE REUSE TOO (review 2026-09-26): a binding the
+  // confirm link wrote is a guess, and "confirm X, then accept" was a free
+  // oracle - and a way past a spent counter. An already-bound student in good
+  // standing reads the counter (none: a success deletes it) and never writes
+  // it - tests/confirm-accept.test.mjs, REUSE.
+  assert.ok(at("claimAttemptsExhausted") < at("const existingEntry"),
+    "the attempt ceiling must be checked before a binding is reused");
   assert.ok(at("decryptClaim") < at("domainAllowed(opened.email"),
     "nothing can be domain-checked before it is decrypted");
   assert.ok(at("domainAllowed(opened.email") < at("rosterEntryForEmail(roster, opened.email)"),
@@ -146,8 +151,13 @@ test("a missing payload and a missing hub key never spend a student's attempts",
 
   // The no-payload branch: between finding no payload and rejecting, nothing
   // may increment.
+  // ONE exception, and it is not a deployment fault: no payload on top of a
+  // binding the roster does not hold is the second half of the confirm-link
+  // probe (review 2026-09-26), and the page always sends an address.
   const noPayload = body.slice(body.indexOf("if (!payload)"), body.indexOf("const privateKeys"));
-  assert.ok(!noPayload.includes("countFailure"), "a missing claim payload must not count as an attempt");
+  const counted = noPayload.split("countFailure").length - 1;
+  assert.equal(counted, 1, "exactly one counted case in the no-payload branch");
+  assert.match(noPayload, /if \(replacing\) await countFailure\(\);/, "and only on top of an unregistered binding");
 
   // The hub holds a LIST of keys since rotation became possible, so "no key" is
   // an empty list rather than a falsy string. Same branch, same rule.

@@ -211,6 +211,12 @@ test("listTemplateCommits walks every page and says when it stopped", async () =
   assert.equal(res.commits[102].treeSha, "t102");
   const many = fakeGitHub({ templateCommitPages: Array.from({ length: 11 }, (_, i) => pageOf(100, i * 100)) });
   assert.equal((await listTemplateCommits(many.get, "Org/tpl")).complete, false);
+  // EXACTLY the cap is complete: one more read says nothing follows (review
+  // 2026-09-26 - an incomplete listing now disables the switched path).
+  const exact = fakeGitHub({ templateCommitPages: [...Array.from({ length: 10 }, (_, i) => pageOf(100, i * 100)), []] });
+  const exactRes = await listTemplateCommits(exact.get, "Org/tpl");
+  assert.equal(exactRes.complete, true);
+  assert.equal(exactRes.commits.length, 1000);
   const down = await listTemplateCommits(async () => ({ ok: false, status: 500 }), "Org/tpl");
   assert.equal(down.ok, false);
 });
@@ -441,6 +447,48 @@ test("SWITCHED TWICE (A -> B -> C): planned from B's commit - B's own files remo
   assert.ok(clean.includes("write PROCEDURE.md"));
   assert.deepEqual(res.plan.conflicts, [{ path: "lab.md", action: "delete" }], "their edited B file: offered, never removed on main");
   assert.ok(!res.paths.includes(".gitignore"), "identical in B and C: nothing to do");
+});
+
+test("A RENAMED TEMPLATE IS NOT ANOTHER TEMPLATE: a record under the old name whose commit is in this history is an ordinary start", async () => {
+  // Review 2026-09-26: after a rename every record names "another" template;
+  // the other-template branch skipped never-backwards (a sync to an OLDER
+  // commit rewound main) and the keep-your-own-file rule.
+  const trees = { [`Org/tpl@${NEW_HEAD}`]: NEW_TREE, [`Org/tpl@${NEW_PARENT}`]: NEW_PARENT_TREE, [`Org/old-name@${NEW_HEAD}`]: NEW_TREE };
+  const readTree = async (r, ref) => {
+    const t = trees[`${r}@${ref}`];
+    if (!t) throw new Error(`no tree ${r}@${ref}`);
+    return t;
+  };
+  const record = {
+    per_student_range: true, all_files: true, template_repo: "Org/old-name", template_sha: NEW_HEAD, synced_at: "2026-09-20T00:00:00Z",
+    results: [{ github_login: "swap", outcome: "auto-merged", from_source: "synced" }],
+  };
+  // Syncing BACK to NEW_PARENT: they are at NEW_HEAD, so nothing is sent.
+  const res = await planStudent({
+    login: "swap", studentRepo: "Org/labs-swap", studentTree: new Map(NEW_TREE), readTree, root: async () => null,
+    templateFullName: "Org/tpl", headSha: NEW_PARENT, headTree: NEW_PARENT_TREE,
+    templateCommits: [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }, { sha: NEW_PARENT, treeSha: "t8", date: "2026-09-25T19:00:00Z" }],
+    records: [record], fallbackSha: null, selected: ["*"], historyComplete: true,
+  });
+  assert.equal(res.source, "synced");
+  assert.deepEqual(res.plan.clean, [], "never backwards: nothing rewound on main");
+});
+
+test("an earlier template that CANNOT BE READ for a transient reason fails the student, not silently re-plans", async () => {
+  const readTree = async (r, ref) => {
+    if (r === "Org/tplB") throw new Error(`could not read the tree of ${r}@${String(ref).slice(0, 7)} (HTTP 502)`);
+    return NEW_TREE;
+  };
+  const record = {
+    per_student_range: true, all_files: true, template_repo: "Org/tplB", template_sha: "b".repeat(40), synced_at: "2026-09-20T00:00:00Z",
+    results: [{ github_login: "swap", outcome: "auto-merged", from_source: "synced" }],
+  };
+  await assert.rejects(planStudent({
+    login: "swap", studentRepo: "Org/labs-swap", studentTree: new Map(), readTree, root: async () => null,
+    templateFullName: "Org/tpl", headSha: NEW_HEAD, headTree: NEW_TREE,
+    templateCommits: [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }],
+    records: [record], fallbackSha: null, selected: ["*"], historyComplete: true,
+  }), /HTTP 502/);
 });
 
 test("a sync record from another template counts as evidence next time, on the same terms as first-commit", async () => {

@@ -35,7 +35,7 @@ import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mj
 import { readRunScore, withoutDispatchedRuns } from "../../../lib/grade-dispatch.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { archiveGradeQueue, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 import { sameLogin } from "../../../lib/github-login.mjs";
@@ -163,9 +163,15 @@ export function registerGradeCommand(program) {
       assignment.id = assignment.id || opts.assignment;
 
       const report = await getReport(octokit, { org, assignmentId: opts.assignment });
-      const eligible = (report.students || []).filter(
-        (s) => s.preservation_status === "preserved" && s.preserved_sha && s.github_login,
-      );
+      // Read ALWAYS, not only under a cap: a lecturer's decision (a chosen
+      // commit, a score by hand - lib/grade-override.mjs) lives here too, and a
+      // CLI run that ignored one would overwrite it in the summary. Read BEFORE
+      // choosing whom to grade: a score by hand needs no preserved submission
+      // (an oral exam, no repository), and the summary this run writes
+      // replaces the whole file - so a student it skipped lost their score
+      // (review 2026-09-26). A read that fails throws and stops the run.
+      const overrides = await listOverrides(octokit, { org, assignmentId: opts.assignment });
+      const eligible = archiveGradeQueue(report.students, overrides);
       // `sameLogin`: --login is typed by a lecturer, and a casing difference read as
       // "No preserved submission for X" - for a student who has one.
       const queue = opts.login ? eligible.filter((s) => sameLogin(s.github_login, opts.login)) : eligible;
@@ -224,13 +230,8 @@ export function registerGradeCommand(program) {
       const marker = readSubmissionMarker(assignment);
       const markerBranch = submissionBranch(assignment);
       const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
-      // Per-student hand-in allowances, only where a cap exists. A read that
-      // fails throws and stops the run: grading without them would ignore the
-      // very hand-ins a lecturer granted.
-      // Read ALWAYS now, not only under a cap: a lecturer's decision (a chosen
-      // commit, a score by hand - lib/grade-override.mjs) lives here too, and a
-      // CLI run that ignored one would overwrite it in the summary.
-      const overrides = await listOverrides(octokit, { org, assignmentId: opts.assignment });
+      // (`overrides`, read above, also carries the hand-in allowances a cap
+      // is raised by.)
       // The lib's `request(method, path)` shape, for the reads it does (GET only).
       const readPath = toRequest(octokit);
       const readRequest = async (_method, path) => {

@@ -162,6 +162,11 @@ async function main() {
   // `claim` the roster registered it and the gate admits it whatever its form;
   // under `enforced` no address was asked for. Flagging either would prompt a
   // lecturer to chase students the gate never asks again.
+  // The domains likewise, except under `enforced`, where no address is asked
+  // for and the flag is true (nothing to flag) - judged against the default
+  // domains there, a binding made on an assignment with `claim_domains: []`
+  // read "outside the allowed domains" on one that never asked.
+  const addressAsked = normalizeRosterMode(assignment.roster_mode) !== "enforced";
   const claimDomains = resolveClaimDomains(assignment, CLAIM_DOMAINS);
   const addressFormat = normalizeRosterMode(assignment.roster_mode) === "open"
     ? resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT)
@@ -641,7 +646,7 @@ async function main() {
       // Null, not true, when there is no claim: "inside the allowed domains" is
       // a statement about an address, and there is no address to make it about.
       claim_domain_allowed: (currentClaim?.email ?? acceptance?.claimed_email)
-        ? domainAllowed(currentClaim?.email ?? acceptance.claimed_email, claimDomains)
+        ? (!addressAsked || domainAllowed(currentClaim?.email ?? acceptance.claimed_email, claimDomains))
         : null,
       // Whether that address has the FORM deployment.yml asks for (firstname.lastname
       // at PXL). Computed now, against today's rule, so a binding confirmed

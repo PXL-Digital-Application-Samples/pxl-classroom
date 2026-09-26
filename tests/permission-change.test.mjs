@@ -116,13 +116,50 @@ test("TEAM: reopening for one member reopened the one repository for every membe
   assert.deepEqual(plan.apply.map((x) => x.login), ["ann", "ben"]);
 });
 
-test("a REVOKED or DELETED record is never re-granted - that would re-invite, and email, a removed student", () => {
+test("a REMOVED record (the schema's word) - or revoked/deleted (reconcile's) - is never re-granted", () => {
   const plan = planPermissionApply({
-    records: [rec("ann", { access_state: "revoked" }), rec("ben", { access_state: "deleted" }), rec("cas", { access_state: "active" })],
+    records: [rec("ann", { access_state: "removed" }), rec("ben", { access_state: "revoked" }), rec("dee", { access_state: "deleted" }), rec("cas", { access_state: "active" })],
     assignment: A(), now: NOW,
   });
   assert.deepEqual(plan.apply.map((x) => x.login), ["cas"]);
-  assert.deepEqual(plan.skip.map((x) => x.reason), ["no-access", "no-access"]);
+  assert.deepEqual(plan.skip.map((x) => x.reason), ["no-access", "no-access", "no-access"]);
+});
+
+test("ONLY IF PRESENT: a student removed in GitHub's settings (record still 'invited') is skipped, not re-invited - review 2026-09-26", async () => {
+  const { applyStudentPermission, studentPresence } = await import("../lib/permission-change.mjs");
+  const calls = [];
+  const gh = (collab, invitees) => async (method, path) => {
+    calls.push(`${method} ${path}`);
+    if (method === "GET" && path.includes("/collaborators/")) return { ok: collab, status: collab ? 204 : 404, data: null };
+    if (method === "GET" && path.includes("/invitations")) return { ok: true, status: 200, data: invitees.map((l) => ({ invitee: { login: l } })) };
+    if (method === "PUT") return { ok: true, status: 204, data: null };
+    return { ok: false, status: 500 };
+  };
+  assert.equal(await studentPresence(gh(true, []), { repo: "Org/r", login: "ann" }), "collaborator");
+  assert.equal(await studentPresence(gh(false, ["ANN"]), { repo: "Org/r", login: "ann" }), "invited", "login case is not identity");
+  assert.equal(await studentPresence(gh(false, ["ben"]), { repo: "Org/r", login: "ann" }), "gone");
+  assert.equal(await studentPresence(async () => ({ ok: false, status: 502 }), { repo: "Org/r", login: "ann" }), "unreadable");
+
+  calls.length = 0;
+  const skipped = await applyStudentPermission(gh(false, []), { repo: "Org/r", login: "ann", permission: "maintain", onlyIfPresent: true });
+  assert.equal(skipped.skipped, true);
+  assert.ok(!calls.some((c) => c.startsWith("PUT")), "no PUT: nothing re-invited");
+  const unreadable = await applyStudentPermission(async () => ({ ok: false, status: 502 }), { repo: "Org/r", login: "ann", permission: "maintain", onlyIfPresent: true });
+  assert.equal(unreadable.ok, false);
+  assert.notEqual(unreadable.skipped, true, "unreadable is a failure, never a quiet skip");
+  // Provisioning grants on purpose: without the flag, nothing is asked first.
+  calls.length = 0;
+  const granted = await applyStudentPermission(gh(false, []), { repo: "Org/r", login: "ann", permission: "maintain" });
+  assert.equal(granted.ok, true);
+  assert.deepEqual(calls, ["PUT /repos/Org/r/collaborators/ann"]);
+});
+
+test("the Admin Panel's Apply asks for presence, provisioning does not", async () => {
+  const { readFileSync } = await import("node:fs");
+  const admin = readFileSync(new URL("../frontend/src/views/AdminView.vue", import.meta.url), "utf8");
+  const prov = readFileSync(new URL("../provisioning/provision.mjs", import.meta.url), "utf8");
+  assert.match(admin, /applyStudentPermission\([^)]*onlyIfPresent: true/);
+  assert.doesNotMatch(prov, /onlyIfPresent/);
 });
 
 test("the plan is a function of NOW: made before the deadline, re-planned after it, nobody is changed", () => {

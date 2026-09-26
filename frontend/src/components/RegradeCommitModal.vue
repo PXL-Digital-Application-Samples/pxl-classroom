@@ -261,8 +261,19 @@ const sentence = (s) => {
 
 async function rerun(row) {
   row.result = { state: 'running' }
-  const current = await get(`/repos/${repo.value}/actions/runs/${row.rerun.runId}`)
-  const before = current.status === 200 ? (current.data?.run_attempt ?? 1) : 0
+  // The attempt BEFORE the re-run: without it the old, completed attempt
+  // would be read as the new result at once, so an unreadable one stops here.
+  let current = null
+  try {
+    current = await get(`/repos/${repo.value}/actions/runs/${row.rerun.runId}`)
+  } catch {
+    current = null
+  }
+  if (current?.status !== 200) {
+    row.result = { state: 'none', reason: `Could not read the run before starting it again (HTTP ${current?.status ?? 0}). Try again.` }
+    return
+  }
+  const before = current.data?.run_attempt ?? 1
   const res = await request('POST', `/repos/${repo.value}/actions/runs/${row.rerun.runId}/rerun`)
   if (!res.ok) {
     row.result = {
@@ -292,8 +303,23 @@ function whenDone(runId, then, row, afterAttempt = 0) {
   let polls = 0
   const poll = async () => {
     if (!open) return
-    const r = await get(`/repos/${repo.value}/actions/runs/${runId}`)
-    if (r.status === 200 && r.data?.status === 'completed' && (r.data.run_attempt ?? 1) > afterAttempt) return then()
+    // A read that THROWS (a timeout, a network blip) used to reject this
+    // function and end polling silently, leaving "grading…" for ever - the
+    // one thing MAX_POLLS exists to stop. A thrown read is a missed poll.
+    let r = null
+    try {
+      r = await get(`/repos/${repo.value}/actions/runs/${runId}`)
+    } catch {
+      r = null
+    }
+    if (r?.status === 200 && r.data?.status === 'completed' && (r.data.run_attempt ?? 1) > afterAttempt) {
+      try {
+        return await then()
+      } catch (e) {
+        if (row) row.result = { state: 'error', reason: `The run finished, but its result could not be read: ${e.message}.` }
+        return
+      }
+    }
     if (++polls >= MAX_POLLS) {
       if (row) row.result = { state: 'none', reason: `The run has not finished after 30 minutes (run ${runId}). Close this and pick the commit again later.` }
       return
@@ -307,7 +333,12 @@ function whenDone(runId, then, row, afterAttempt = 0) {
 
 async function gradeNow(row) {
   row.result = { state: 'running' }
-  const res = await dispatchGrading(request, { repo: repo.value, workflowId: grader.value.workflowId, sha: row.sha, branch: props.branch })
+  let res
+  try {
+    res = await dispatchGrading(request, { repo: repo.value, workflowId: grader.value.workflowId, sha: row.sha, branch: props.branch })
+  } catch (e) {
+    res = { ok: false, reason: `could not start the run: ${e.message}` }
+  }
   if (!res.ok) {
     row.result = { state: 'none', reason: sentence(res.reason) }
     return

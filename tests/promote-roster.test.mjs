@@ -947,6 +947,20 @@ test("FOLLOW is HELD when the new address is outside the allowed domains", () =>
   assert.match(plan.readdressHeld[0].reason, /outside the allowed domains/);
 });
 
+test("FOLLOW still happens when ANOTHER account's replaces names the row's old address (review 2026-09-26)", () => {
+  // An old duplicate, or someone who confirmed the address and moved on: their
+  // `replaces` said nothing about this row, and stopped it following its own
+  // account - silently stale.
+  const other = currentClaim({ github_login: "mallory", github_id: 99, email: "mal.lory@student.pxl.be", replaces: { email: "11111111@student.pxl.be", claimed_at: "2026-09-12T00:00:00.000Z" } });
+  for (const claims of [
+    [currentClaim({ replaces: null }), other],
+    [currentClaim({ replaces: null }), other, { ...other, github_login: "eve", github_id: 98, email: "e.ve@student.pxl.be" }],
+  ]) {
+    const plan = planClaimPromotion({ roster: { schema_version: 2, students: [claimRow] }, claims, verifiedOnly: true });
+    assert.equal(plan.nextRoster.students[0].email, "alice.peeters@student.pxl.be");
+  }
+});
+
 test("FOLLOW never moves an address a PERSON set, nor one another account's claim names", () => {
   const typed = planClaimPromotion({ roster: { schema_version: 2, students: [{ ...claimRow, email_source: undefined }] }, claims: [currentClaim()] });
   assert.equal(typed.nextRoster.students[0].email, "11111111@student.pxl.be");

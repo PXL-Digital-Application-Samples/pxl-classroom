@@ -3692,9 +3692,12 @@ async function syncGradesFromGitHub() {
           // A 403 here is not transient, and "try again later" is advice that
           // can never come true: both check-run endpoints are gated by the
           // App's Checks permission.
+          // Checks (every score), or Actions (a hand-in cap, or a commit graded
+          // on request) - the refusal says which reads, and for whom.
           permission:
-            'GitHub refused to show CI results: the PXL Classroom App needs the "Checks" permission (read), ' +
-            'and an owner of this organization has to approve it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
+            `GitHub refused a read (HTTP 403)${(res.unreadable || []).length ? ` for ${res.unreadable.slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}` : ''}: ` +
+            'the PXL Classroom App needs the "Checks" permission (read), and "Actions" (read) for a hand-in limit or a commit graded on request. ' +
+            'An owner of this organization approves it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
           'api-errors': `CI results could not be read for ${res.apiFailedCount} student(s): ${(res.unreadable || []).slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}${res.apiFailedCount > 3 ? '; …' : ''}. Nothing was saved.`,
           'nothing-graded':
             'Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.',
@@ -3860,7 +3863,8 @@ async function regradeStudent(student, { afterDecision = false } = {}) {
     // decision just undone - must not stay on record as if it were still in
     // force: it is replaced by the reason. A read that FAILED is never that
     // answer; it changes nothing.
-    const replaceWithReason = !hasScore && afterDecision && outcome.verdict !== 'api-failed'
+    const failedRead = ['api-failed', 'unreadable', 'lookup-failed'].includes(outcome.verdict)
+    const replaceWithReason = !hasScore && afterDecision && !failedRead
     if (!hasScore && !replaceWithReason) {
       // Not a zero and not a failure of this button: it looked and there was no
       // score there. Say which, and change nothing. Under a cap the count it
@@ -4213,6 +4217,11 @@ async function appendOverrides(student, entries, message) {
       toast.error(`Saving the exception failed: ${res.data?.message || 'unknown error'}`)
       return false
     }
+    // A conflict can also be a STALE read (the Contents API is eventually
+    // consistent right after a write - two quick decisions on one student),
+    // which answers again at once with the same old version. A pause lets
+    // the read catch up before the next attempt.
+    await new Promise((resolve) => setTimeout(resolve, 800 * attempt))
   }
   toast.error(`${student.github_login}'s exceptions kept changing while this was saved - someone else is editing them. Nothing was changed; try again.`)
   return false

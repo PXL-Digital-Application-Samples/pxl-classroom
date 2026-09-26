@@ -2551,3 +2551,14 @@ The version was a date literal in eight places, and the CLI - the client that wa
 
 The live proof found one more thing, unrelated to the version: a commit to the testbed control repository failed with a bare 422 "Reference cannot be updated" while a drill was writing to the same repository. Measured separately, a fast-forward and a non-fast-forward behave identically under both versions, so it was the race - and `commitWithRebase` retried only "Update is not a fast forward", so a concurrent write made it give up where re-reading would have succeeded (the retry did). The bare message now re-reads like a non-fast-forward; one carrying a reason ("...: malformed ref") is still a refusal.
 
+### The fixes of a review are reviewed too - each was written to close one hole, and opened the one beside it.
+
+2026-09-26, evening. The afternoon's review fixes had tests, e2e and live probes, all green. A second review of just those fixes found, again reproduced with the real code, that several had opened the hole next to the one they closed:
+
+- **Claim.** To stop a roster that registers `12345678@` from being a dead end, form refusals stopped counting - which made number-form addresses guessable for free, since a registered one passed on and bound. And letting the confirm link correct an address made "confirm X, then accept" a free roster oracle, because the reuse branch it fed refused *uncounted* and ran before the counter; a spent account got in the same way. The rule that fits both: a refusal whose *occurrence* depends on secret data is counted, however public its own rule is. The taken check compared against one duplicate of an address, not the first of all of them.
+- **Sync.** The second-switch branch keyed on the template's NAME, so a renamed template made every student "switched" - past never-backwards, rewinding `main` on a sync to an older commit. The commit, not the name, says which template it is.
+- **Permission.** "Never re-invite a removed student" checked values the schema does not allow, and nothing updates the record when a lecturer removes a collaborator by hand - so GitHub is asked at the click. The re-plan at the click used the document from when the notice appeared.
+- **Grading.** A rate-limit 403 was read as "no Actions permission", keeping the dispatched run and so its score; the CLI grader still dropped a score by hand for anyone without a preserved submission.
+
+None of these could have been caught by the tests written with the fixes: each test encoded the fix's own reasoning. What caught them was a reader told to attack the fix, with a script to prove it.
+

@@ -109,16 +109,51 @@ test("a run that does not name this commit, or was pushed, is NOT accepted as ha
 test("a DELETED run is a named refusal for that student, never an API failure that blocks the cohort", async () => {
   // Review: a 404 on the recorded run made gradeCohort count an unnamed API
   // failure, so Re-grade all and the nightly refused for ever without saying who.
-  const gone = async (_m, path) => (path.endsWith("/actions/runs/77") ? { ok: false, status: 404, data: { message: "Not Found" } } : fakeGitHub().request(_m, path));
+  const gone = async (_m, path) => {
+    if (path.endsWith("/actions/runs/77")) return { ok: false, status: 404, data: { message: "Not Found" } };
+    if (path === "/repos/Org/r") return { ok: true, status: 200, data: { full_name: "Org/r" } };
+    return fakeGitHub().request(_m, path);
+  };
   const out = await readRunScore(gone, { repoFullName: "Org/r", runId: 77, sha: SHA });
   assert.equal(out.verdict, "no-run");
   assert.match(out.reason, /no longer exists - grade that commit again, or go back to the rules/);
+  // ...but a REPOSITORY that is gone (or outside this token) answers 404 for
+  // the run too, and that is a failed read, never "the run no longer exists".
+  const repoGone = async (_m, path) => (path.includes("/repos/Org/r") ? { ok: false, status: 404, data: { message: "Not Found" } } : fakeGitHub().request(_m, path));
+  assert.equal((await readRunScore(repoGone, { repoFullName: "Org/r", runId: 77, sha: SHA })).verdict, "api-failed");
 
   const doc = { schema_version: 1, assignment_id: "x", github_login: "kim", overrides: [decisionEntry({ type: CHOSEN_COMMIT, value: SHA, reason: "r", by: "l", runId: 77 })] };
   const { gradeCohort } = await import("../lib/grade-cohort.mjs");
   const res = await gradeCohort(gone, { students: [{ github_login: "kim", repo_name: "Org/r" }], overrides: [doc], fallbackTotal: 10 });
   assert.equal(res.apiFailedCount, 0);
   assert.deepEqual(res.failed.map((f) => f.login), ["kim"]);
+});
+
+test("a RATE-LIMIT 403 on the dispatch list is a failed read, never 'no permission' (review 2026-09-26)", async () => {
+  // Read as no permission, it kept the dispatched run - newest - and the old
+  // commit's score was written for the tip.
+  const { withoutDispatchedRuns } = await import("../lib/grade-dispatch.mjs");
+  const two = [{ id: 1, check_suite: { id: 5 } }, { id: 2, check_suite: { id: 6 } }];
+  const secondary = async () => ({ ok: false, status: 403, data: { message: "You have exceeded a secondary rate limit." } });
+  assert.deepEqual(await withoutDispatchedRuns(secondary, { repoFullName: "Org/r", sha: TIP, checkRuns: two }), { ok: false, status: 403 });
+  const primary = async () => ({ ok: false, status: 403, data: { message: "API rate limit exceeded" }, headers: new Headers({ "x-ratelimit-remaining": "0" }) });
+  assert.equal((await withoutDispatchedRuns(primary, { repoFullName: "Org/r", sha: TIP, checkRuns: two })).ok, false);
+  const permission = async () => ({ ok: false, status: 403, data: { message: "Resource not accessible by integration" } });
+  assert.equal((await withoutDispatchedRuns(permission, { repoFullName: "Org/r", sha: TIP, checkRuns: two })).ok, true);
+});
+
+test("the entry must GRADE on a dispatch: a blocking hand-in gate, or a checkout in another job, is not available", () => {
+  const wf = (jobs) => stringify({
+    "run-name": "${{ github.event_name == 'workflow_dispatch' && format('Grade {0} (PXL Classroom)', inputs.grade_sha) || github.event.head_commit.message }}",
+    on: { push: null, workflow_dispatch: { inputs: { grade_sha: null } } },
+    jobs,
+  });
+  const checkout = { uses: "actions/checkout@v7", with: { ref: "${{ inputs.grade_sha || github.sha }}" } };
+  const reporter = { uses: "classroom-resources/autograding-grading-reporter@v1" };
+  assert.equal(hasGradeDispatch(wf({ grade: { steps: [checkout, reporter] } })), true, "a bare `grade_sha:` input is declared");
+  assert.equal(hasGradeDispatch(wf({ grade: { if: "github.event.head_commit.message == 'hand in'", steps: [checkout, reporter] } })), false, "the gate skips the dispatch");
+  assert.equal(hasGradeDispatch(wf({ grade: { if: "github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'hand in'", steps: [checkout, reporter] } })), true);
+  assert.equal(hasGradeDispatch(wf({ build: { steps: [checkout] }, grade: { steps: [{ uses: "actions/checkout@v7" }, reporter] } })), false, "the grading job checks out the tip");
 });
 
 test("an UNREADABLE student is named in the refusal", async () => {

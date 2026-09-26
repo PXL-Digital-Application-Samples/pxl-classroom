@@ -712,6 +712,14 @@ test("NOT flagged where no address is asked for (enforced) or the roster registe
   }
 });
 
+test("the DOMAIN is not flagged where no address is asked for (enforced) - review 2026-09-26", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML + "roster_mode: enforced\n",
+    acceptances: [{ ...numberAcceptance, claimed_email: "kim.peeters@gmail.com" }],
+  });
+  assert.equal(report.students.find((s) => s.github_login === "kim").claim_domain_allowed, true);
+});
+
 test("the DOMAIN is judged against this assignment today, not the flag the binding was written with", () => {
   // A binding made under an assignment with claim_domains: [] is stored as
   // allowed; on an assignment that asks for the institution's domain it is not.

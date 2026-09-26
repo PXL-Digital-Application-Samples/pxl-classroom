@@ -157,32 +157,13 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     domains: resolveClaimDomains(assignment, CLAIM_DOMAINS),
     format: resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT),
   };
-  const existingEntry = existing?.email ? rosterEntryForEmail(roster, existing.email) : null;
-  if (existingEntry && domainAllowed(existing.email, rules.domains)) {
-    if (!assignmentAdmitsStudent(assignment, existingEntry)) {
-      // Not counted: this is not a guess, it is the student's own binding.
-      await reject(
-        CLAIM_REJECTIONS.NOT_IN_COHORT,
-        `${existing.email} is registered for this course, but this assignment is not for them. ` +
-          `Ask your lecturer which assignment you should use.`,
-      );
-    }
-    const earlier = await findClaimForEmail(dataDir, existing.email, githubId);
-    if (earlier && String(earlier.claimed_at ?? "") <= String(existing.claimed_at ?? "")) {
-      await reject(
-        CLAIM_REJECTIONS.TAKEN,
-        `${existing.email} has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.`,
-      );
-    }
-    log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
-    // domainAllowed is true by construction on this path. Stated rather than
-    // left undefined so both gates return the same shape.
-    return { email: existing.email, verified: Boolean(existing.claim_verified), domainAllowed: true, reused: true };
-  }
-  const replacing = existing?.email ? existing : null;
-  if (replacing) log("claim", { ok: true, note: `@${login} was claimed as ${replacing.email}, which is not a registered address for this assignment - asking again` });
-
-  // 2. The counter, before any work at all.
+  // 2. THE COUNTER, BEFORE THE REUSE BELOW TOO. A binding can be written by
+  //    the confirm link, which checks no roster and costs nothing - so
+  //    "confirm X, then accept" is a guess at X, and a refusal on the reuse
+  //    path answers it (on the roster? in this cohort? taken?). Unchecked and
+  //    uncounted, that was a free roster oracle, and an account that had spent
+  //    its attempts got in by the same loop (review 2026-09-26). A student who
+  //    ever claimed successfully has no counter: a success deletes it.
   const attempts = await readJson(attemptsFile);
   if (claimAttemptsExhausted(attempts)) {
     await reject(
@@ -196,12 +177,46 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     await writeFile(attemptsFile, JSON.stringify(recordFailedAttempt(attempts, iso), null, 2) + "\n");
   };
 
+  const existingEntry = existing?.email ? rosterEntryForEmail(roster, existing.email) : null;
+  if (existingEntry && domainAllowed(existing.email, rules.domains)) {
+    if (!assignmentAdmitsStudent(assignment, existingEntry)) {
+      // Counted, like step 7b: the binding may have been written by the
+      // confirm link to probe exactly this.
+      await countFailure();
+      await reject(
+        CLAIM_REJECTIONS.NOT_IN_COHORT,
+        `${existing.email} is registered for this course, but this assignment is not for them. ` +
+          `Ask your lecturer which assignment you should use.`,
+      );
+    }
+    // FIRST HOLDER wins, among every binding of this address (holdersOf).
+    const first = (await holdersOf(dataDir, existing.email))[0];
+    if (first && first.github_id !== githubId) {
+      await countFailure();
+      await reject(
+        CLAIM_REJECTIONS.TAKEN,
+        `${existing.email} has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.`,
+      );
+    }
+    log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
+    // domainAllowed is true by construction on this path. Stated rather than
+    // left undefined so both gates return the same shape.
+    return { email: existing.email, verified: Boolean(existing.claim_verified), domainAllowed: true, reused: true };
+  }
+  const replacing = existing?.email ? existing : null;
+  if (replacing) log("claim", { ok: true, note: `@${login} was claimed as ${replacing.email}, which is not a registered address for this assignment - asking again` });
+
   // 3. No payload at all. Deliberately does NOT count against the limit: this
   //    is a link issued before the assignment moved to `claim`, or a client
   //    that never showed the prompt, and burning a student's attempts for a
   //    deployment fault is the `no-nonce` mistake in a new place.
   const payload = env("CLAIM_PAYLOAD", "").trim();
   if (!payload) {
+    // EXCEPT on top of a binding the roster does not hold: that answer
+    // ("asked again") says the confirmed address is not registered, which is
+    // the probe the counter exists to limit (the page always sends an
+    // address under `claim`, so a legitimate acceptance does not land here).
+    if (replacing) await countFailure();
     await reject(
       CLAIM_REJECTIONS.NO_CLAIM,
       `this assignment needs your ${INSTITUTION} email address, and the acceptance did not carry one. Open the invitation link again and confirm your address.`,
@@ -264,11 +279,15 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   //     `firstname.lastname@`. NOT for an address the roster registers: the
   //     roster says who that is, and refusing the one address a lecturer
   //     registered leaves the student nothing that can get in (the name form
-  //     is not on the roster). NOT COUNTED: the form is public, so a refusal
-  //     on it tells a guesser nothing about the roster - and the page, which
-  //     cannot see the roster, offers every address under `claim`.
+  //     is not on the roster). Whether an address reaches this refusal
+  //     depends on the roster, so it is counted like the roster miss below.
   const entry = rosterEntryForEmail(roster, opened.email);
   if (!entry && !addressFormatAllowed(opened.email, format)) {
+    // COUNTED. Uncounted, a miss cost nothing while a registered number-form
+    // address passed on - so number-form addresses (sequential student
+    // numbers) could be guessed for free until one bound (review 2026-09-26).
+    // A registered address never reaches this, so no student pays for it.
+    await countFailure();
     await reject(
       CLAIM_REJECTIONS.FORMAT,
       `${opened.email} does not say who you are. Use the ${format.example}@ form of your address - the one with your name in it.`,
@@ -410,7 +429,14 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   if (existing?.email && bindingMeetsRules(existing, rules) && !correcting) return reuse();
   const replacing = existing?.email ? existing : null;
   if (replacing && !env("CLAIM_PAYLOAD", "").trim() && !required) return reuse();
-  if (replacing) log("claim", { ok: true, note: `@${login} was bound to ${replacing.email}, which no longer meets the rules - asking again` });
+  if (replacing) {
+    log("claim", {
+      ok: true,
+      note: correcting && bindingMeetsRules(existing, rules)
+        ? `@${login} was bound to ${replacing.email} and is confirming an address again - a correction`
+        : `@${login} was bound to ${replacing.email}, which no longer meets the rules - asking again`,
+    });
+  }
 
   // `required` is `require_claim` under `open` - off by default, because `open`
   // exists for a cohort nobody listed up front and making an exam identify
@@ -487,15 +513,26 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
     return null;
   }
 
-  // Detection, not prevention: recorded either way, and the report is where a
-  // lecturer sees it. The FORM too (report.mjs `claim_format_allowed`); the
-  // page already refuses to send one that fails it.
-  // The SAME address confirmed again is idempotent, not a replacement.
-  if (existing?.email && normalizeEmail(opened.email) === normalizeEmail(existing.email) && bindingMeetsRules(existing, rules)) {
+  // Under `open`, detection, not prevention: recorded either way, and the
+  // report is where a lecturer sees it - the FORM too (report.mjs
+  // `claim_format_allowed`). A confirmation refuses both (below).
+  //
+  // The SAME address confirmed again is idempotent, not a replacement - unless
+  // it now arrives VERIFIED where the record says it was typed: then it is
+  // rewritten, or `claim_verified: false` would stay for ever and the
+  // unattended nightly (verifiedOnly) would keep holding that roster row.
+  const sameAddress = existing?.email && normalizeEmail(opened.email) === normalizeEmail(existing.email);
+  const nowVerified = env("CLAIM_VERIFIED", "") === "true" && existing?.claim_verified !== true;
+  if (sameAddress && bindingMeetsRules(existing, rules) && !nowVerified) {
     return reuse();
   }
 
   const domainOk = domainAllowed(opened.email, rules.domains);
+  // The roster, when it holds this address: it supplies the student number,
+  // and it exempts the address from the FORM, as it does at the claim gate -
+  // under `claim` the page offers a registered `12345678@` address, and the
+  // hub refusing it here disagreed with the page and with acceptance.
+  const entry = rosterEntryForEmail(roster, opened.email);
 
   // A CONFIRMATION has no repository behind it: the address is the whole
   // outcome, so one outside the rules is refused rather than recorded and
@@ -509,7 +546,7 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
         `${opened.email} is not an accepted address here. Confirm your ${rules.domains.join(" or ")} address.`,
       );
     }
-    if (!addressFormatAllowed(opened.email, rules.format)) {
+    if (!entry && !addressFormatAllowed(opened.email, rules.format)) {
       await reject(
         CLAIM_REJECTIONS.FORMAT,
         `${opened.email} does not say who you are. Confirm the ${rules.format.example}@ form of your address - the one with your name in it.`,
@@ -519,8 +556,8 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
 
   // A roster is optional under `open` but often present - it stops deciding who
   // may accept without stopping being a roster. When the address is on it, the
-  // student number comes along; when it is not, that is not an error here.
-  const entry = rosterEntryForEmail(roster, opened.email);
+  // student number comes along (`entry`, above); when it is not, that is not
+  // an error here.
 
   // Deliberately NOT refused when another account already holds this address.
   // The second record is written under its own github_id, so both survive and
@@ -535,9 +572,11 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
     claimVerified: env("CLAIM_VERIFIED", "") === "true",
     studentNumber: entry?.student_number ?? null,
     assignmentId,
-    now: iso,
+    // The same address re-confirmed (now verified) keeps WHEN it was first
+    // claimed: that time is who-was-first for a duplicated address (holdersOf).
+    now: sameAddress ? (existing.claimed_at || iso) : iso,
     domainAllowed: domainOk,
-    replaces: replacing ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
+    replaces: replacing && !sameAddress ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
@@ -556,21 +595,35 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
 
 /** Is this address already bound to a DIFFERENT account? */
 async function findClaimForEmail(dataDir, email, exceptGithubId) {
+  return (await holdersOf(dataDir, email)).find((rec) => rec.github_id !== exceptGithubId) ?? null;
+}
+
+/**
+ * Every binding holding `email`, FIRST HOLDER FIRST: earliest `claimed_at`, a
+ * missing one last, and the lower github_id on a tie - so exactly one account
+ * is first. Duplicates exist by design (open enrolment and the confirm link
+ * record them rather than refuse), so "is it taken" asks who was first among
+ * ALL of them: comparing against whichever file readdir listed first admitted
+ * a later holder whenever an even later one sorted ahead of the real one, and
+ * `<=` on equal timestamps refused both accounts (review 2026-09-26).
+ */
+async function holdersOf(dataDir, email) {
   const dir = join(dataDir, "students", "claims");
-  if (!existsSync(dir)) return null;
+  if (!existsSync(dir)) return [];
+  const out = [];
   for (const name of await readdir(dir)) {
     if (!name.endsWith(".json")) continue;
-    if (name === `${exceptGithubId}.json`) continue;
     try {
       const rec = JSON.parse(await readFile(join(dir, name), "utf8"));
-      if (normalizeEmail(rec?.email) === email) return rec;
+      if (normalizeEmail(rec?.email) === normalizeEmail(email)) out.push(rec);
     } catch {
       // A record we cannot read cannot be shown to hold this address. It is
       // reported by the orphan diagnostic rather than silently blocking a
       // student who has done nothing wrong.
     }
   }
-  return null;
+  const at = (r) => (typeof r?.claimed_at === "string" && r.claimed_at ? r.claimed_at : "￿");
+  return out.sort((a, b) => at(a).localeCompare(at(b)) || (Number(a.github_id) || 0) - (Number(b.github_id) || 0));
 }
 
 /**

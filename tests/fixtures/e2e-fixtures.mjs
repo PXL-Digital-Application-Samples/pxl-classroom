@@ -194,8 +194,12 @@ if (existsSync('.env.test')) {
   } catch {}
 }
 
-export const ORG = process.env.TEST_ORG || 'PXL-2TIN-CloudEssentials-2627';
-export const ASSIGNMENT_ID = process.env.TEST_ASSIGNMENT_ID || 'test-groepsopdracht-2';
+// FIXED, never read from .env.test. The specs spell this organization
+// themselves, and TEST_ORG is the LIVE probes' target (tests/live/): pointing
+// it at the testbed for a smoke run failed 17 mocked specs locally, and passed
+// in CI, where there is no .env.test (2026-09-26).
+export const ORG = 'PXL-2TIN-CloudEssentials-2627';
+export const ASSIGNMENT_ID = 'test-groepsopdracht-2';
 
 // Each persona carries a DISTINCT numeric id, because the acceptance signature
 // names one and the anti-replay check is "is this the account that signed".
@@ -1390,6 +1394,18 @@ export async function setupStandardMockRoutes(page, {
           }
         }
         await route.fulfill({ status: 200, body: JSON.stringify(fileList) });
+        return;
+      } else if (/\/pxl-classroom-control\/contents\/lockdowns\/[^/?#]+\/lockdown-record\.json/.test(url)) {
+        // Like GitHub: the record a spec wrote, or 404. The catch-all's `200 {}`
+        // is a file that exists and cannot be read - which the Admin Panel's
+        // permission plan rightly refuses on (review 2026-09-26).
+        const path = decodeURIComponent(url.match(/\/contents\/([^?#]+)/)[1]);
+        const written = dynamicFiles.get(path);
+        if (written == null) {
+          await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+          return;
+        }
+        await route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(written).toString('base64'), encoding: 'base64', sha: 'lock-sha' }) });
         return;
       } else if (url.includes('/pxl-classroom-control/contents/overrides/')) {
         const match = url.match(/\/overrides\/([^/?#]+)(?:\/([^/?#]+)\.json)?/);
