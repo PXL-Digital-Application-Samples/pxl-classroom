@@ -1150,6 +1150,22 @@
               </small>
             </div>
 
+            <!-- THE FORM OF THE ADDRESS, wherever one is asked for. The rule
+                 itself is deployment.yml's (firstname.lastname at PXL); this
+                 only switches it off for one assignment. Ticked is the
+                 deployment's rule, so nothing is written for it. -->
+            <div v-if="CLAIM_ADDRESS_FORMAT && (form.roster_mode === 'claim' || (form.roster_mode === 'open' && form.require_claim))" class="field checkbox">
+              <label>
+                <input type="checkbox" v-model="requireNamedAddress" />
+                Only accept the {{ CLAIM_ADDRESS_FORMAT.example }}@ form of the address
+              </label>
+              <small v-if="requireNamedAddress">
+                An address like 12345678@ does not say who the student is, so it is not accepted. A student who
+                confirmed one earlier is asked again.
+              </small>
+              <small v-else>Any address in the allowed domains is accepted.</small>
+            </div>
+
             <!-- WHICH SECTION THIS ASSIGNMENT IS FOR.
                  The roster is org-wide, so a course running two groups has one
                  gate for both unless an assignment narrows it. Nothing ticked
@@ -1767,7 +1783,7 @@ import { config } from '../lib/config.js'
 import { assignmentStateLabel } from '../lib/status-labels.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
-import { TIMEZONE, INSTITUTION_SHORT } from '../lib/deployment.js'
+import { TIMEZONE, INSTITUTION_SHORT, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
@@ -3499,6 +3515,9 @@ function editAssignment(a) {
     // opt-out from a lecturer who never set one. Loaded purely so the save
     // carries it back out - there is no control for it.
     claim_domains: Array.isArray(a.claim_domains) ? a.claim_domains : undefined,
+    // Tri-state, read as stored: false is the opt-out, anything else the
+    // deployment's rule. Not defaulted, or a load would write an answer.
+    claim_address_format: a.claim_address_format === false ? false : undefined,
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
     // The configuration's existence is the flag (ARCHITECTURE §11.6), so
@@ -4382,6 +4401,13 @@ async function saveAssignment(stateOverride = null) {
 // lecturer published again, twice, and went looking. One directory read, only
 // when the template actually changed. lib/template-change.js decides.
 const templateNotice = ref(null)
+
+// `claim_address_format` is tri-state and only its opt-out is ever written:
+// ticked leaves the field absent (the deployment's rule), unticked is false.
+const requireNamedAddress = computed({
+  get: () => form.value.claim_address_format !== false,
+  set: (on) => { form.value.claim_address_format = on ? undefined : false },
+})
 
 // The count behind the warning under the Template repository field. Read once
 // per assignment, and only once the field differs from what is saved - an

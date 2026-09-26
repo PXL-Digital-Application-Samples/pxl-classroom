@@ -222,6 +222,11 @@ async function main() {
       // These are domains, not addresses - public by nature, and the scanner's
       // email-address rule needs an `@`, so a bare domain cannot trip it.
       claim_domains: Array.isArray(def.claim_domains) ? def.claim_domains : undefined,
+      // The same reason, for the address FORM: the page filters and refuses by
+      // it, so an assignment that switched it off must say so on the wire or
+      // the browser enforces the deployment's rule the hub no longer does.
+      // Only the opt-out is published; absent is the deployment default.
+      claim_address_format: def.claim_address_format === false ? false : undefined,
       // WHETHER THE STUDENT IS ASKED FOR AN ADDRESS AT ALL, under `open`.
       //
       // `accept.mjs` enforces this and the page decides whether to show the

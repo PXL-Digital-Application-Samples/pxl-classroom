@@ -38,7 +38,9 @@ import {
 } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'cloud-lab-3';
-const ADDRESS = 'student1@student.pxl.be';
+// The firstname.lastname form deployment.yml asks for; a number-form address
+// is filtered out of the list (spec 86).
+const ADDRESS = 'student.one@student.pxl.be';
 
 const assignment = (over = {}) => ({
   schema_version: 1,
@@ -326,7 +328,7 @@ test.describe('64 - the edges', () => {
     const { acceptanceTitles } = await openConfirm(page, { user: STUDENT_2 });
     await page.getByText('@', { exact: false }).first().waitFor({ timeout: 15000 });
     const box = page.getByPlaceholder(/@/).first();
-    if (await box.count()) await box.fill('student2@student.pxl.be');
+    if (await box.count()) await box.fill('student.two@student.pxl.be');
     await submit(page).click();
     await expect(page.locator('main')).toContainText("that's all we needed", { timeout: 15000 });
     expect(acceptanceTitles[0].ok, acceptanceTitles[0].reason).toBe(true);

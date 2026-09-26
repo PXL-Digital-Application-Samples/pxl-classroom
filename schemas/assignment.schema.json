@@ -263,6 +263,11 @@
       "$comment": "ABSENT and EMPTY are different answers. Omit the field to get the deployment default (CLAIM_DEFAULT_DOMAINS in lib/claim.mjs, shipped here as student.pxl.be and pxl.be); set it to [] to deliberately opt out of any domain restriction. A truthy check would turn that opt-out back into the default.",
       "description": "Email domains a claimed address may belong to, matched on the whole domain label and case-insensitively - never as a suffix, since anyone can register notstudent.pxl.be. Omit for the deployment default; set to [] for no restriction. Under 'claim' the roster match is the real gate and this is a cheap early filter; the honest limit is that nothing checks the address EXISTS, so it buys detection and one-address-one-repo accounting rather than prevention."
     },
+    "claim_address_format": {
+      "type": "boolean",
+      "$comment": "NO default, deliberately: ABSENT means deployment.yml's claim_address_format applies, false switches it off, and a schema default would write an answer nobody gave (tests/schema-defaults-are-writers).",
+      "description": "Whether a confirmed address must have the form deployment.yml's claim_address_format describes (firstname.lastname@ at PXL, so that 12345678@student.pxl.be - which does not say who the student is - is not accepted). Absent: the deployment's rule. false: any form. A binding confirmed before the rule, or under an assignment without it, that fails it is asked again (lib/claim.mjs bindingMeetsRules)."
+    },
     "late_policy": {
       "type": "string",
       "enum": [

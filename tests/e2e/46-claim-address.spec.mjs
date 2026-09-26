@@ -99,14 +99,14 @@ test.describe('46 - Confirming a verified address', () => {
   test('the address GitHub verified is offered, sealed, and marked verified', async ({ page }) => {
     const bodies = await student(page, {
       emails: [
-        { email: 'alice@student.pxl.be', verified: true, primary: true },
+        { email: 'alice.peeters@student.pxl.be', verified: true, primary: true },
         { email: 'alice@gmail.com', verified: true, primary: false },
       ],
     });
 
     // Only the institutional one is offered - the personal address is theirs
     // and verified, and still none of this course's business.
-    await expect(page.getByText('alice@student.pxl.be')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('alice.peeters@student.pxl.be')).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('alice@gmail.com')).toHaveCount(0);
     await expect(page.getByText('Verified by GitHub')).toBeVisible();
 
@@ -115,7 +115,7 @@ test.describe('46 - Confirming a verified address', () => {
 
     expect(bodies).toHaveLength(1);
     const claim = await openClaim(bodies[0]);
-    expect(claim.email).toBe('alice@student.pxl.be');
+    expect(claim.email).toBe('alice.peeters@student.pxl.be');
     expect(claim.verified).toBe(true);
     expect(claim.assignmentId).toBe(ID);
     // Bound to the account that made it - this is the anti-replay property.
@@ -126,7 +126,7 @@ test.describe('46 - Confirming a verified address', () => {
     // The body lands in a public event GH Archive keeps forever. Only sealed
     // bytes may travel - that is the entire reason this is encrypted.
     const bodies = await student(page, {
-      emails: [{ email: 'alice@student.pxl.be', verified: true, primary: true }],
+      emails: [{ email: 'alice.peeters@student.pxl.be', verified: true, primary: true }],
     });
     await page.getByRole('button', { name: /Accept assignment/i }).click();
     await expect(page.locator('.pending-state')).toBeVisible({ timeout: 15000 });
@@ -140,7 +140,7 @@ test.describe('46 - Confirming a verified address', () => {
     // GitHub having the address is not GitHub having CHECKED it, and the
     // difference is the only thing claim_verified means.
     await student(page, {
-      emails: [{ email: 'alice@student.pxl.be', verified: false, primary: true }],
+      emails: [{ email: 'alice.peeters@student.pxl.be', verified: false, primary: true }],
     });
     await expect(page.getByPlaceholder(/you@student\.pxl\.be/i)).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('Verified by GitHub')).toHaveCount(0);
@@ -229,7 +229,7 @@ test.describe('46 - A non-claim assignment is untouched', () => {
   test('enforced mode asks for no address and posts an empty body', async ({ page }) => {
     const bodies = await student(page, {
       assignment: claimAssignment({ roster_mode: 'enforced' }),
-      emails: [{ email: 'alice@student.pxl.be', verified: true, primary: true }],
+      emails: [{ email: 'alice.peeters@student.pxl.be', verified: true, primary: true }],
     });
 
     await expect(page.getByRole('button', { name: /Accept assignment/i })).toBeEnabled({ timeout: 15000 });

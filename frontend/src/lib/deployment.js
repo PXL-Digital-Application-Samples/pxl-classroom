@@ -22,6 +22,15 @@ const config = parse(raw) ?? {}
 export const CLAIM_DOMAINS = Object.freeze([...(config.claim_domains ?? [])])
 
 /**
+ * The form a claimed address must take before the @, or null for any form.
+ * Validated by lib/deployment.mjs, which fails CI on a bad pattern - this
+ * reader must not throw at module scope.
+ */
+export const CLAIM_ADDRESS_FORMAT = config.claim_address_format
+  ? Object.freeze({ pattern: String(config.claim_address_format.pattern ?? ''), example: String(config.claim_address_format.example ?? '') })
+  : null
+
+/**
  * The institution's name, long and short, as a student reads it.
  *
  * Both forms come from the file rather than being trimmed from one another: a

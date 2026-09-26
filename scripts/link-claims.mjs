@@ -37,7 +37,7 @@ import { join } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { loadYaml } from "../lib/yaml.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
-import { planClaimPromotion } from "../lib/promote-roster.mjs";
+import { claimPromotionChangesAnything, planClaimPromotion } from "../lib/promote-roster.mjs";
 
 function arg(name, fallback = "") {
   const i = process.argv.indexOf(`--${name}`);
@@ -91,17 +91,24 @@ async function main() {
     return;
   }
 
-  const { updated, unverified, conflicts, ambiguous } = plan;
-  const held = unverified.length + conflicts.length + ambiguous.length;
+  const { updated, identified, readdressed, unverified, conflicts, ambiguous } = plan;
+  const held = unverified.length + conflicts.length + ambiguous.length + plan.readdressHeld.length;
+  const changes = updated.length + identified.length + readdressed.length;
 
-  if (updated.length === 0) {
+  // ALL THREE DIRECTIONS, through the one predicate that says so. This checked
+  // `updated` alone, so a run that only gave promoted rows their address
+  // (`identified`) computed the roster and wrote nothing - while RUNBOOK said
+  // the nightly folds a verified address straight into the matching row.
+  if (!claimPromotionChangesAnything(plan)) {
     process.stdout.write(`link-claims: nothing to link${held ? `, ${held} waiting for review` : ""}.\n`);
   } else if (dryRun) {
-    process.stdout.write(`link-claims: would link ${updated.length} student(s) (--dry-run).\n`);
+    process.stdout.write(`link-claims: would change ${changes} roster row(s) (--dry-run).\n`);
   } else {
     await writeFile(rosterPath, yamlStringify(plan.nextRoster), "utf8");
-    process.stdout.write(`link-claims: linked ${updated.length} student(s).\n`);
+    process.stdout.write(`link-claims: changed ${changes} roster row(s).\n`);
     for (const s of updated) process.stdout.write(`    ${s.email} -> @${s.github_login}\n`);
+    for (const s of identified) process.stdout.write(`    @${s.github_login} -> ${s.email}\n`);
+    for (const s of readdressed) process.stdout.write(`    ${s.previous_email} -> ${s.email} (confirmed again)\n`);
   }
 
   // Held cases are the output a lecturer acts on, so name them rather than

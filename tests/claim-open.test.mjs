@@ -254,8 +254,10 @@ test("nothing under open ever spends an attempt", () => {
 
 test("a student already bound is not re-prompted or rewritten", () => {
   // Claims are org-scoped: a second assignment in the same org recognises them.
+  // A binding that MEETS today's rules (the firstname.lastname form
+  // deployment.yml asks for) - one that does not is asked again, below.
   const prior = buildClaimRecord({
-    githubLogin: LOGIN, githubId: GITHUB_ID, email: "alice@student.pxl.be",
+    githubLogin: LOGIN, githubId: GITHUB_ID, email: "alice.peeters@student.pxl.be",
     claimVerified: true, studentNumber: "0123456", assignmentId: "earlier",
     now: "2026-08-01T00:00:00.000Z",
   });
@@ -264,6 +266,6 @@ test("a student already bound is not re-prompted or rewritten", () => {
 
   assert.equal(res.status, 0, res.stdout);
   const rec = readClaim(dir, GITHUB_ID);
-  assert.equal(rec.email, "alice@student.pxl.be", "the existing binding wins");
+  assert.equal(rec.email, "alice.peeters@student.pxl.be", "the existing binding wins");
   assert.equal(rec.claimed_via, "earlier", "and is not rewritten by a later assignment");
 });

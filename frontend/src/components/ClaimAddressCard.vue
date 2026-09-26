@@ -40,6 +40,15 @@
            card's own loading line says "verified" one paragraph above. The
            stronger claim would have been wrong for exactly the students it is
            hardest on. -->
+      <!-- They HAVE a verified institutional address, just not one that says
+           who they are. "No verified address found" would be false for them. -->
+      <template v-else-if="wrongForm.length">
+        <p class="text-sm claim-line claim-note">
+          Your GitHub account has {{ wrongForm.join(', ') }} verified, but that address does not say who
+          you are. Use the {{ format.example }}@ form of your {{ INSTITUTION_SHORT }} address: add it to
+          your GitHub account and verify it, or type it below.
+        </p>
+      </template>
       <template v-else>
         <!-- The institution, not the domain list. A student does not think of
              themselves as having "a student.pxl.be address"; the domains stay
@@ -94,8 +103,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { getUserEmails } from '../lib/api.js'
-import { domainAllowed, normalizeEmail, resolveClaimDomains } from '../lib/claim.js'
-import { CLAIM_DOMAINS, INSTITUTION, INSTITUTION_SHORT } from '../lib/deployment.js'
+import { addressFormatAllowed, domainAllowed, normalizeEmail, resolveAddressFormat, resolveClaimDomains } from '../lib/claim.js'
+import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION, INSTITUTION_SHORT } from '../lib/deployment.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
@@ -139,8 +148,23 @@ const placeholder = computed(() =>
   domains.value.length ? `you@${domains.value[0]}` : 'you@example.com',
 )
 
+// The address FORM, when deployment.yml asks for one (firstname.lastname at
+// PXL) and this assignment has not switched it off - the same rule the hub
+// refuses by (lib/claim.mjs), applied before anything is sealed.
+const format = computed(() => resolveAddressFormat(props.assignment, CLAIM_ADDRESS_FORMAT))
+
 const matching = computed(() =>
-  addresses.value.filter((a) => domainAllowed(a, domains.value)),
+  addresses.value.filter((a) => domainAllowed(a, domains.value) && addressFormatAllowed(a, format.value)),
+)
+
+// Verified addresses in the right domain that FAIL the form: a student whose
+// GitHub account carries `12345678@student.pxl.be` and nothing else. Named, so
+// they learn what to add instead of reading "no verified address found" about
+// an account that plainly has one.
+const wrongForm = computed(() =>
+  format.value
+    ? addresses.value.filter((a) => domainAllowed(a, domains.value) && !addressFormatAllowed(a, format.value))
+    : [],
 )
 
 // Only ever shown for something the student has actually typed, so an empty
@@ -153,6 +177,9 @@ const typedProblem = computed(() => {
   if (!email) return 'That does not look like an email address.'
   if (!domainAllowed(email, domains.value)) {
     return `This assignment only accepts ${domainPhrase.value}.`
+  }
+  if (!addressFormatAllowed(email, format.value)) {
+    return `Use the ${format.value.example}@ form of your address - the one with your name in it.`
   }
   return ''
 })

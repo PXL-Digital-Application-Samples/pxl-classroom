@@ -27,6 +27,20 @@ claim_domains:
   - student.pxl.be
   - pxl.be
 
+# The FORM a claimed address must take, on top of its domain, when an
+# assignment does not switch it off.
+#
+# A student address exists in two forms, `12345678@student.pxl.be` and
+# `firstname.lastname@student.pxl.be`, and only the second tells a lecturer who
+# the student is. `pattern` is a regular expression tested against the part
+# BEFORE the @; "contains a dot" is enough to rule out the number form and
+# still admits `jan.van.den.broeck`, `an-sofie.de-wit` and the `jan.peeters2`
+# PXL issues when two students share a name. `example` is what the messages
+# show a student. Delete the whole block to accept any form.
+claim_address_format:
+  pattern: '^[^.@]+\.[^@]+$'
+  example: firstname.lastname
+
 # The institution's name, as a student or lecturer reads it.
 #
 # TWO forms, because the sentences need both. The long one names the

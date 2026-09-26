@@ -60,6 +60,7 @@ export type Assignment = {
   cohort?: string[];
   roster_mode?: "enforced" | "claim" | "open";
   claim_domains?: string[];
+  claim_address_format?: boolean;
   late_policy?: "report" | "block";
   existing_repo_policy?: "reuse" | "refuse";
   state?: "draft" | "published" | "closed" | "archived";
@@ -103,6 +104,10 @@ export type Claim = {
   student_number?: string;
   claimed_at?: string;
   claimed_via?: string;
+  replaces?: {
+    email?: string;
+    claimed_at?: string;
+  };
 };
 
 /** The cross-assignment roll-up at reports/dashboard.json, and the only file the org overview reads (schemas/dashboard.schema.json) */
@@ -401,6 +406,7 @@ export type Report = {
     claimed_email?: string;
     claim_verified?: boolean;
     claim_domain_allowed?: boolean;
+    claim_format_allowed?: boolean;
     repo_id?: number;
     repo_name?: string;
     repo_url?: string;

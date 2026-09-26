@@ -64,7 +64,7 @@ test("a GitHub-verified claim is folded into the roster", () => {
   });
 
   const out = run(dir);
-  assert.match(out, /linked 1 student/);
+  assert.match(out, /changed 1 roster row/);
 
   const [alice] = rosterOf(dir).students;
   assert.equal(alice.github_login, "alice-pxl");
@@ -83,7 +83,7 @@ test("a TYPED address is held, and the roster is left alone", () => {
   });
 
   const out = run(dir);
-  assert.doesNotMatch(out, /linked \d+ student/);
+  assert.doesNotMatch(out, /changed \d+ roster row/);
   assert.match(out, /typed by the student/, "and it says why, and where to act");
   assert.equal(rosterOf(dir).students[0].github_login ?? null, null);
 });
@@ -121,7 +121,7 @@ test("--dry-run writes nothing at all", () => {
   const before = readFileSync(join(dir, "students", "roster.yml"), "utf8");
 
   const out = run(dir, "--dry-run");
-  assert.match(out, /would link 1 student/, "and it still reports what it would do");
+  assert.match(out, /would change 1 roster row/, "and it still reports what it would do");
   assert.equal(readFileSync(join(dir, "students", "roster.yml"), "utf8"), before);
 });
 
@@ -137,7 +137,69 @@ test("running it twice changes nothing the second time", () => {
   const afterFirst = readFileSync(join(dir, "students", "roster.yml"), "utf8");
   const out = run(dir);
   assert.equal(readFileSync(join(dir, "students", "roster.yml"), "utf8"), afterFirst);
-  assert.doesNotMatch(out, /linked \d+ student/);
+  assert.doesNotMatch(out, /changed \d+ roster row/);
+  assert.match(out, /nothing to link/, "the negative above is not vacuous: this is what it says instead");
+});
+
+// --- rows that gain an ADDRESS, and rows that follow a re-confirmation --------
+
+/** A roster whose rows carry a login and whatever address fields are given. */
+function controlRaw({ rosterYaml, claims = [] }) {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-link-claims-"));
+  mkdirSync(join(dir, "students", "claims"), { recursive: true });
+  writeFileSync(join(dir, "students", "roster.yml"), rosterYaml);
+  for (const c of claims) writeFileSync(join(dir, "students", "claims", `${c.github_id}.json`), JSON.stringify(c));
+  return dir;
+}
+
+test("THE LATENT ONE: a row with a login and no address GAINS it - the nightly used to compute it and write nothing", () => {
+  const dir = controlRaw({
+    rosterYaml: "schema_version: 2\nstudents:\n  - github_login: kim-pxl\n    github_id: 77\n    active: true\n",
+    claims: [claim("kim-pxl", 77, "kim.peeters@student.pxl.be")],
+  });
+  const out = run(dir);
+  assert.match(out, /changed 1 roster row/);
+  assert.equal(rosterOf(dir).students[0].email, "kim.peeters@student.pxl.be");
+});
+
+test("RE-CONFIRMED: a row whose address came from the OLD confirmation follows the student to the new one", () => {
+  const dir = controlRaw({
+    rosterYaml: "schema_version: 2\nstudents:\n  - github_login: kim-pxl\n    github_id: 77\n    email: 12345678@student.pxl.be\n    email_source: claim\n    active: true\n",
+    claims: [claim("kim-pxl", 77, "kim.peeters@student.pxl.be", {
+      replaces: { email: "12345678@student.pxl.be", claimed_at: "2026-09-10T08:00:00.000Z" },
+    })],
+  });
+  const out = run(dir);
+  assert.match(out, /12345678@student\.pxl\.be -> kim\.peeters@student\.pxl\.be \(confirmed again\)/);
+  const [row] = rosterOf(dir).students;
+  assert.equal(row.email, "kim.peeters@student.pxl.be");
+  assert.equal(row.email_source, "claim");
+  assert.equal("previous_email" in row, false, "the report's field never reaches the roster");
+});
+
+test("RE-CONFIRMED, but a PERSON set the old address: held, never overwritten", () => {
+  const dir = controlRaw({
+    rosterYaml: "schema_version: 2\nstudents:\n  - github_login: kim-pxl\n    github_id: 77\n    email: 12345678@student.pxl.be\n    active: true\n",
+    claims: [claim("kim-pxl", 77, "kim.peeters@student.pxl.be", {
+      replaces: { email: "12345678@student.pxl.be", claimed_at: "2026-09-10T08:00:00.000Z" },
+    })],
+  });
+  const out = run(dir);
+  assert.match(out, /kept the old one: 12345678@student\.pxl\.be -> kim\.peeters@student\.pxl\.be \(the current address was set by a person/);
+  assert.equal(rosterOf(dir).students[0].email, "12345678@student.pxl.be");
+});
+
+test("RE-CONFIRMED, but the new address was only TYPED: the unattended nightly holds it", () => {
+  const dir = controlRaw({
+    rosterYaml: "schema_version: 2\nstudents:\n  - github_login: kim-pxl\n    github_id: 77\n    email: 12345678@student.pxl.be\n    email_source: claim\n    active: true\n",
+    claims: [claim("kim-pxl", 77, "kim.peeters@student.pxl.be", {
+      claim_verified: false,
+      replaces: { email: "12345678@student.pxl.be", claimed_at: "2026-09-10T08:00:00.000Z" },
+    })],
+  });
+  const out = run(dir);
+  assert.match(out, /typed, not verified by GitHub/);
+  assert.equal(rosterOf(dir).students[0].email, "12345678@student.pxl.be");
 });
 
 test("no roster, no claims, and an unreadable claim are all survivable", () => {

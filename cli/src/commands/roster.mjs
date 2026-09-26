@@ -384,6 +384,9 @@ export function registerRosterCommand(program) {
         // separately because "linked an account" and "learned an address" are
         // different events, and one count for both says neither.
         for (const s of plan.identified) process.stdout.write(`    + ${describeRosterEntry(s)} -> ${s.email}\n`);
+        // A student who confirmed again because the old address stopped
+        // meeting the rules: the row follows them.
+        for (const s of plan.readdressed) process.stdout.write(`    ~ ${describeRosterEntry(s)}: ${s.previous_email} -> ${s.email}\n`);
         for (const c of plan.conflicts) {
           process.stdout.write(
             c.reason

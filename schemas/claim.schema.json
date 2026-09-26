@@ -54,6 +54,16 @@
     "claimed_via": {
       "type": "string",
       "description": "The assignment whose acceptance produced the binding. The binding itself is org-scoped; this records where it came from."
+    },
+    "replaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["email", "claimed_at"],
+      "properties": {
+        "email": { "type": "string" },
+        "claimed_at": { "type": "string", "format": "date-time" }
+      },
+      "description": "The binding this one replaced, when the student confirmed again because their earlier address no longer met the rules (lib/claim.mjs `bindingMeetsRules` - a `12345678@` address once deployment.yml asks for `firstname.lastname@`). Kept so the history of who this account said it was survives the rewrite, and so the roster can follow a row whose address came from the replaced claim. Absent on a first binding."
     }
   }
 }

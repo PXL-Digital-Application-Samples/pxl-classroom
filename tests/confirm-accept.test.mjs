@@ -116,6 +116,10 @@ const seal = async (email, githubId = GITHUB_ID) =>
 
 const SEALED = {
   alice: await seal("alice@student.pxl.be"),
+  // The form deployment.yml asks for; `alice@` above has no dot, so it is the
+  // NUMBER-FORM stand-in for the re-identification tests at the end.
+  aliceNamed: await seal("alice.peeters@student.pxl.be"),
+  aliceNumber: await seal("12345678@student.pxl.be"),
   offDomain: await seal("alice@gmail.com"),
   replayed: await seal("victim@student.pxl.be", 111111),
 };
@@ -146,9 +150,10 @@ test("a second confirmation is idempotent, and SAYS which it was", () => {
   // Org-scoped, exactly as under `claim`: a student bound on an earlier
   // assignment is not asked again. `already-confirmed` mirrors
   // `already-accepted` so a lecturer reading a run log does not have to guess.
+  // A binding that MEETS the rules; one that does not is asked again (below).
   const dir = makeDir();
-  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.alice })).outputs.outcome, "confirmed");
-  const again = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.alice }));
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed })).outputs.outcome, "confirmed");
+  const again = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed }));
   assert.equal(again.outputs.outcome, "already-confirmed");
   assert.equal(readdirSync(join(dir, "students", "claims")).length, 1);
 });
@@ -315,4 +320,81 @@ test("a confirmation never produces an outcome the provisioning step fires on", 
       `confirm produced ${outcome}, which provisions`,
     );
   }
+});
+
+// ------------------------------------------------ re-identification (2026-09-26)
+//
+// 16 of 111 students of .NET Advanced had confirmed `<number>@student.pxl.be`,
+// which does not tell a lecturer who they are. Before this, a binding was
+// final: every later link and acceptance said "already confirmed" and ignored
+// what the student sent. A binding that fails TODAY's rules (the
+// firstname.lastname form deployment.yml asks for) is now asked again.
+
+const numberBinding = () => ({
+  schema_version: 1, github_login: LOGIN, github_id: GITHUB_ID, email: "12345678@student.pxl.be",
+  domain_allowed: true, claim_verified: true, student_number: null,
+  claimed_at: "2026-09-10T08:00:00.000Z", claimed_via: "earlier",
+});
+
+test("THE CASE: a number-form binding is REPLACED by a name-form confirmation, and what it replaced is kept", () => {
+  const dir = makeDir({ claims: [numberBinding()] });
+  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed, CLAIM_VERIFIED: "true" }));
+  assert.equal(res.status, 0, res.stdout);
+  assert.equal(res.outputs.outcome, "confirmed", "not already-confirmed: the old one no longer counts");
+  const rec = readClaim(dir);
+  assert.equal(rec.email, "alice.peeters@student.pxl.be");
+  assert.deepEqual(rec.replaces, { email: "12345678@student.pxl.be", claimed_at: "2026-09-10T08:00:00.000Z" });
+  assert.match(res.stdout, /no longer meets the rules/);
+});
+
+test("a name-form binding is NOT asked again - nobody is re-asked for a rule they already meet", () => {
+  const dir = makeDir({ claims: [{ ...numberBinding(), email: "alice.peeters@student.pxl.be" }] });
+  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber }));
+  assert.equal(res.outputs.outcome, "already-confirmed");
+  assert.equal(readClaim(dir).email, "alice.peeters@student.pxl.be", "a valid binding is not overwritten by a worse one");
+  assert.equal(readClaim(dir).replaces, undefined);
+});
+
+test("a confirm link opened with NOTHING sent still refuses - and names the address that no longer counts", () => {
+  const dir = makeDir({ claims: [numberBinding()] });
+  const res = run(dir, confirm());
+  assert.equal(res.outputs.outcome, "rejected:no-claim");
+  assert.match(res.stdout + res.stderr, /12345678@student\.pxl\.be, which no longer counts - the firstname\.lastname@ form is required/);
+  assert.equal(readClaim(dir).email, "12345678@student.pxl.be", "nothing was lost");
+});
+
+// Under `roster_mode: claim` the address IS the gate, so the form refuses.
+const claimMode = { roster_mode: "claim", max_acceptances: 50 };
+const namedRoster = { schema_version: 2, students: [{ student_number: "0999", full_name: "Alice Peeters", email: "alice.peeters@student.pxl.be" }] };
+
+test("CLAIM MODE: a number-form address is refused with its OWN reason, not as a wrong domain", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNumber });
+  assert.equal(res.outputs.outcome, "rejected:claim-format");
+  assert.match(res.stdout + res.stderr, /does not say who you are\. Use the firstname\.lastname@ form/);
+  assert.ok(!existsSync(join(dir, "students", "claims", `${GITHUB_ID}.json`)), "nothing bound");
+});
+
+test("CLAIM MODE: a stale number-form binding is asked again, and the name form replaces it", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [numberBinding()] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNamed, CLAIM_VERIFIED: "true" });
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  const rec = readClaim(dir);
+  assert.equal(rec.email, "alice.peeters@student.pxl.be");
+  assert.equal(rec.student_number, "0999");
+  assert.equal(rec.replaces.email, "12345678@student.pxl.be");
+});
+
+test("CLAIM MODE: sending the number form again after being asked is refused, and the old binding stays", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [numberBinding()] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNumber });
+  assert.equal(res.outputs.outcome, "rejected:claim-format");
+  assert.equal(readClaim(dir).email, "12345678@student.pxl.be");
+});
+
+test("an assignment that switched the form OFF keeps treating the number form as done", () => {
+  const dir = makeDir({ over: { claim_address_format: false }, claims: [numberBinding()] });
+  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed }));
+  assert.equal(res.outputs.outcome, "already-confirmed");
+  assert.equal(readClaim(dir).email, "12345678@student.pxl.be");
 });

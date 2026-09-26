@@ -32,7 +32,8 @@ import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { normalizeRosterMode } from "../lib/roster-mode.mjs";
 import { assignmentAdmitsStudent, restrictsCohort } from "../lib/cohort.mjs";
-import { CONTROL_REPO } from "../lib/deployment.mjs";
+import { CLAIM_ADDRESS_FORMAT, CONTROL_REPO } from "../lib/deployment.mjs";
+import { addressFormatAllowed, resolveAddressFormat } from "../lib/claim.mjs";
 import { teamRepresentative } from "../lib/team-representative.mjs";
 
 async function setOutput(name, value) {
@@ -147,6 +148,14 @@ async function main() {
     join(dataDir, "acceptances", assignmentId)
   );
   const acceptanceByLogin = indexByLogin(acceptances);
+
+  // Every student's CURRENT address binding, org-wide (students/claims/), by
+  // github_id and by login. What they confirmed last outranks the copy their
+  // acceptance froze: a re-confirmation is how a stale address gets fixed.
+  const claims = await readDirJsonFiles(join(dataDir, "students", "claims"));
+  const claimById = new Map(claims.filter((c) => Number.isInteger(c?.github_id)).map((c) => [c.github_id, c]));
+  const claimByLogin = indexByLogin(claims);
+  const addressFormat = resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT);
 
   // Load repository records
   const repos = await readDirJsonFiles(
@@ -263,6 +272,8 @@ async function main() {
     // `key` looks things up; `login` is what a lecturer reads.
     const login = displayByLogin.get(key) ?? key;
     const acceptance = acceptanceByLogin.get(key);
+    const currentClaim =
+      (Number.isInteger(acceptance?.github_id) ? claimById.get(acceptance.github_id) : null) ?? claimByLogin.get(key) ?? null;
     const repo = repoByLogin.get(key);
     const observations = observationsByLogin.get(key) || [];
     const studentTeam = teamByMemberLogin.get(key) || (acceptance?.team_slug ? teamBySlug.get(acceptance.team_slug) : null);
@@ -601,11 +612,25 @@ async function main() {
       // is true, so `=== true` is the read - `?? null` would report every
       // ordinary acceptance as unknown.
       reused_existing_repo: acceptance ? acceptance.reused_existing_repo === true : null,
-      claimed_email: acceptance?.claimed_email ?? null,
-      claim_verified: acceptance?.claim_verified ?? null,
+      // THE STUDENT'S CURRENT BINDING first (students/claims/, org-wide), the
+      // acceptance's copy second. The acceptance record froze the address at
+      // the moment of accepting, so a student who confirmed again - because
+      // their `12345678@` address no longer met the rules - still showed the
+      // old one, flagged, for ever. The binding is what they said LAST.
+      claimed_email: currentClaim?.email ?? acceptance?.claimed_email ?? null,
+      claim_verified: currentClaim ? Boolean(currentClaim.claim_verified) : (acceptance?.claim_verified ?? null),
       // Null, not true, when there is no claim: "inside the allowed domains" is
       // a statement about an address, and there is no address to make it about.
-      claim_domain_allowed: acceptance?.claimed_email ? acceptance.claim_domain_allowed !== false : null,
+      claim_domain_allowed: currentClaim
+        ? currentClaim.domain_allowed !== false
+        : (acceptance?.claimed_email ? acceptance.claim_domain_allowed !== false : null),
+      // Whether that address has the FORM deployment.yml asks for (firstname.lastname
+      // at PXL). Computed now, against today's rule, so a binding confirmed
+      // before the rule is flagged without rewriting anything. Null with no
+      // address, and TRUE where no form is required - nothing to flag.
+      claim_format_allowed: (currentClaim?.email ?? acceptance?.claimed_email)
+        ? addressFormatAllowed(currentClaim?.email ?? acceptance.claimed_email, addressFormat)
+        : null,
       effective_deadline_at: effectiveDeadline?.toISOString() ?? null,
       // "an extension moved this student's deadline", not "an override document
       // exists" - the columns sit beside effective_deadline_at and an

@@ -969,6 +969,29 @@
              system doing exactly what the assignment says. So `.dot-warning`,
              which DESIGN.md §4 defines as "needs a look, not an alarm", and
              never `.dot-danger`. -->
+        <!-- WHO STILL HAS TO SAY WHO THEY ARE. A confirmed address in the right
+             domain that does not name the student (`12345678@` where
+             deployment.yml asks for firstname.lastname@). The confirm-email
+             link asks them again; the flag clears once they confirm. Same
+             block and dot as the refusals below: a look, not an alarm. -->
+        <section v-if="unnamedAddresses.length" class="rejections diag-banner" aria-label="Addresses without a name">
+          <span class="status-dot dot-warning"></span>
+          <div class="rejections-body">
+            <strong>
+              {{ unnamedAddresses.length === 1 ? '1 student confirmed' : `${unnamedAddresses.length} students confirmed` }}
+              an address without their name in it.
+            </strong>
+            <p class="text-muted text-sm">
+              Send them the <strong>Confirm-email link</strong> (under <strong>Invite link</strong>): they will be asked
+              for the address with their name, and this clears once they confirm it.
+            </p>
+            <p class="text-sm">
+              <span class="rejections-who text-muted">{{ unnamedAddresses.map((l) => '@' + l).join(', ') }}</span>
+              <button type="button" class="btn-link" @click="copyUnnamedLogins">Copy logins</button>
+            </p>
+          </div>
+        </section>
+
         <section v-if="rejectionsUnreadable || rejections.length" class="rejections diag-banner">
           <span class="status-dot dot-warning"></span>
           <div class="rejections-body">
@@ -2153,12 +2176,38 @@ const hasClaimedEmails = computed(() =>
  * `/user/emails` needs the student's own token - so nothing here is ever proof
  * of anything, in either direction.
  */
+// Students whose CURRENT confirmed address does not name them (report.mjs
+// `claim_format_allowed`, judged against today's rule). Empty when no form is
+// required, and for a student with no address at all - that is a different
+// question, and the address column already answers it.
+const unnamedAddresses = computed(() =>
+  (report.value?.students || []).filter((s) => s.claim_format_allowed === false).map((s) => s.github_login),
+)
+
+// Straight into the gesture, no await before the write (CLAUDE.md: Firefox
+// drops a clipboard write the engine no longer attributes to the click).
+function copyUnnamedLogins() {
+  copyText(unnamedAddresses.value.map((l) => '@' + l).join(' ')).then((ok) => {
+    if (ok) toast.success(`${unnamedAddresses.value.length} login${unnamedAddresses.value.length === 1 ? '' : 's'} copied`)
+    else toast.error('Could not copy the logins')
+  })
+}
+
 function claimNote(s) {
   if (s.claim_domain_allowed === false) {
     return {
       dot: 'dot-warning',
       label: 'Outside allowed domains',
       title: 'Not one of the email domains this course accepts. It was recorded rather than refused, because open enrolment does not use the address to decide who may accept.',
+    }
+  }
+  // Right domain, but an address that does not say who the student is
+  // (`12345678@`). They are asked again by the confirm-email link.
+  if (s.claim_format_allowed === false) {
+    return {
+      dot: 'dot-warning',
+      label: 'No name in the address',
+      title: 'This address does not say who the student is. Send them the confirm-email link: they will be asked for the address with their name in it, and this flag clears once they confirm it.',
     }
   }
   if (s.claim_verified === true) {

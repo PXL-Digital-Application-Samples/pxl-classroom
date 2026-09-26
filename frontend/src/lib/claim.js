@@ -10,6 +10,8 @@
 export {
   CLAIM_PUBLIC_KEY_LENGTH,
   encryptClaim,
+  addressFormatAllowed,
+  resolveAddressFormat,
   domainAllowed,
   emailDomain,
   hasWebCrypto,

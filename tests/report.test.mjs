@@ -32,6 +32,7 @@ function runReport({
   overrides = [],
   teams = [],
   roster = [],
+  claims = [],
   lockdown = null,
   unlocked = [],
   csv = false,
@@ -54,6 +55,13 @@ function runReport({
           )
           .join("")
     );
+  }
+
+  // students/claims/<github_id>.json - the org-wide binding, what a student
+  // confirmed LAST.
+  if (claims.length) {
+    mkdirSync(join(dir, "students", "claims"), { recursive: true });
+    for (const c of claims) writeFileSync(join(dir, "students", "claims", `${c.github_id}.json`), JSON.stringify(c));
   }
 
   if (acceptances.length) {
@@ -674,6 +682,46 @@ test("roster student who didn't accept appears as no-submission", () => {
   assert.equal(dave.acceptance_state, "not-accepted");
   assert.equal(dave.submission_status, "no-submission");
   assert.equal(dave.full_name, "Dave");
+});
+
+// --- the address FORM (deployment.yml claim_address_format) ------------------
+//
+// 16 of 111 students of .NET Advanced confirmed `<number>@student.pxl.be`,
+// which does not say who they are.
+
+const numberAcceptance = { github_login: "kim", github_id: 77, status: "provisioned", claimed_email: "12345678@student.pxl.be", claim_verified: true, claim_domain_allowed: true };
+
+test("a number-form address is FLAGGED, judged against today's rule", () => {
+  const report = runReport({ assignmentYaml: BASE_YAML, acceptances: [numberAcceptance] });
+  const kim = report.students.find((s) => s.github_login === "kim");
+  assert.equal(kim.claimed_email, "12345678@student.pxl.be");
+  assert.equal(kim.claim_format_allowed, false);
+});
+
+test("a re-confirmation CLEARS the flag: the current binding outranks the acceptance's copy", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [numberAcceptance],
+    claims: [{
+      schema_version: 1, github_login: "kim", github_id: 77, email: "kim.peeters@student.pxl.be",
+      domain_allowed: true, claim_verified: true, student_number: null,
+      claimed_at: "2026-09-26T10:00:00.000Z", claimed_via: "confirm",
+      replaces: { email: "12345678@student.pxl.be", claimed_at: "2026-09-10T08:00:00.000Z" },
+    }],
+  });
+  const kim = report.students.find((s) => s.github_login === "kim");
+  assert.equal(kim.claimed_email, "kim.peeters@student.pxl.be");
+  assert.equal(kim.claim_format_allowed, true);
+});
+
+test("an assignment that switched the form off flags nothing", () => {
+  const report = runReport({ assignmentYaml: BASE_YAML + "claim_address_format: false\n", acceptances: [numberAcceptance] });
+  assert.equal(report.students.find((s) => s.github_login === "kim").claim_format_allowed, true);
+});
+
+test("no address, no statement about its form", () => {
+  const report = runReport({ assignmentYaml: BASE_YAML, acceptances: [{ github_login: "lee", status: "provisioned" }] });
+  assert.equal(report.students.find((s) => s.github_login === "lee").claim_format_allowed, null);
 });
 
 // THE SCREENSHOT, 2026-09-26: Refresh saw d5bcbae, an unrelated save rebuilt

@@ -22,9 +22,12 @@ import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.m
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
-import { CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
+import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
+  addressFormatAllowed,
+  bindingMeetsRules,
+  resolveAddressFormat,
   buildClaimRecord,
   claimAttemptsExhausted,
   claimAttemptsPath,
@@ -134,14 +137,24 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   };
 
   // 1. Already bound. Org-scoped, so a second assignment never re-prompts.
+  //    ONLY WHILE IT STILL MEETS THE RULES. A binding made before this
+  //    assignment's domains or deployment.yml's address form - a `12345678@`
+  //    address once `firstname.lastname@` is required - is not "done": the
+  //    student confirms again, and the new record replaces it (`replaces`).
   const existing = await readJson(claimFile);
-  if (existing?.email) {
+  const rules = {
+    domains: resolveClaimDomains(assignment, CLAIM_DOMAINS),
+    format: resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT),
+  };
+  if (existing?.email && bindingMeetsRules(existing, rules)) {
     log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
     // domainAllowed is true by construction on this path: under `claim` an
     // address outside the list never reaches a record. Stated rather than left
     // undefined so both gates return the same shape.
     return { email: existing.email, verified: Boolean(existing.claim_verified), domainAllowed: true, reused: true };
   }
+  const replacing = existing?.email ? existing : null;
+  if (replacing) log("claim", { ok: true, note: `@${login} was claimed as ${replacing.email}, which no longer meets the rules - asking again` });
 
   // 2. The counter, before any work at all.
   const attempts = await readJson(attemptsFile);
@@ -211,12 +224,23 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
 
   // 6. Domain. Absent claim_domains means the deployment default; an explicit
   //    [] means the lecturer opted out.
-  const domains = resolveClaimDomains(assignment, CLAIM_DOMAINS);
+  const { domains, format } = rules;
   if (!domainAllowed(opened.email, domains)) {
     await countFailure();
     await reject(
       CLAIM_REJECTIONS.DOMAIN,
       `${opened.email} is not an accepted address for this assignment. Use your ${domains.join(" or ")} address.`,
+    );
+  }
+
+  // 6b. Form. Right domain, but an address that does not name the student -
+  //     `12345678@student.pxl.be` where deployment.yml asks for
+  //     `firstname.lastname@`. Counted like any other failed attempt.
+  if (!addressFormatAllowed(opened.email, format)) {
+    await countFailure();
+    await reject(
+      CLAIM_REJECTIONS.FORMAT,
+      `${opened.email} does not say who you are. Use the ${format.example}@ form of your address - the one with your name in it.`,
     );
   }
 
@@ -269,6 +293,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     studentNumber: entry.student_number ?? null,
     assignmentId,
     now: iso,
+    replaces: replacing ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
@@ -328,9 +353,18 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   };
 
   // Org-scoped, exactly as under `claim`: a student who bound on an earlier
-  // assignment is not asked again.
+  // assignment is not asked again - WHILE THAT BINDING MEETS THE RULES. One
+  // that does not (a `12345678@` address once `firstname.lastname@` is asked
+  // for) is replaced by a new confirmation when one arrives; when none does,
+  // it is kept, because a stale binding is still more than no binding - unless
+  // one is REQUIRED, where "you confirmed something that no longer counts" is
+  // the refusal below.
   const existing = await readJson(claimFile);
-  if (existing?.email) {
+  const rules = {
+    domains: resolveClaimDomains(assignment, CLAIM_DOMAINS),
+    format: resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT),
+  };
+  const reuse = () => {
     log("claim", { ok: true, note: `@${login} is already bound to ${existing.email}` });
     return {
       email: existing.email,
@@ -338,7 +372,11 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
       domainAllowed: existing.domain_allowed !== false,
       reused: true,
     };
-  }
+  };
+  if (existing?.email && bindingMeetsRules(existing, rules)) return reuse();
+  const replacing = existing?.email ? existing : null;
+  if (replacing && !env("CLAIM_PAYLOAD", "").trim() && !required) return reuse();
+  if (replacing) log("claim", { ok: true, note: `@${login} was bound to ${replacing.email}, which no longer meets the rules - asking again` });
 
   // `required` is `require_claim` under `open` - off by default, because `open`
   // exists for a cohort nobody listed up front and making an exam identify
@@ -351,10 +389,12 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
     if (required) {
       await reject(
         CLAIM_REJECTIONS.NO_CLAIM,
-        say(
-          `this assignment asks you to confirm your institutional email address before accepting.`,
-          `no address was sent, so there was nothing to confirm. Open the link again and pick an address.`,
-        ),
+        replacing
+          ? `you confirmed ${replacing.email}, which no longer counts${rules.format ? ` - the ${rules.format.example}@ form is required` : ""}. Open the link again and confirm the address with your name in it.`
+          : say(
+            `this assignment asks you to confirm your institutional email address before accepting.`,
+            `no address was sent, so there was nothing to confirm. Open the link again and pick an address.`,
+          ),
       );
     }
     log("claim", { ok: true, note: "no address confirmed - open enrolment does not require one" });
@@ -412,9 +452,9 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   }
 
   // Detection, not prevention: recorded either way, and the report is where a
-  // lecturer sees it.
-  const domains = resolveClaimDomains(assignment, CLAIM_DOMAINS);
-  const domainOk = domainAllowed(opened.email, domains);
+  // lecturer sees it. The FORM too (report.mjs `claim_format_allowed`); the
+  // page already refuses to send one that fails it.
+  const domainOk = domainAllowed(opened.email, rules.domains);
 
   // A roster is optional under `open` but often present - it stops deciding who
   // may accept without stopping being a roster. When the address is on it, the
@@ -436,6 +476,7 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
     assignmentId,
     now: iso,
     domainAllowed: domainOk,
+    replaces: replacing ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");

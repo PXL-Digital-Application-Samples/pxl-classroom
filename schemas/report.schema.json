@@ -259,6 +259,13 @@
             ],
             "description": "Whether the confirmed address was inside claim_domains. Null when there is no address to say it about. Under open this is detection: an address outside the list is recorded, never refused."
           },
+          "claim_format_allowed": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the confirmed address has the form deployment.yml's claim_address_format asks for (firstname.lastname@ at PXL), judged against TODAY's rule when the report is built, so an address confirmed before the rule is flagged without rewriting anything. True where no form is required. Null when there is no address. The address is the student's CURRENT binding (students/claims/), so it clears once they confirm again."
+          },
           "repo_id": {
             "type": [
               "integer",
