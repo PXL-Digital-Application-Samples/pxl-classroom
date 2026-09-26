@@ -41,6 +41,7 @@ import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../
 import { validateAgainst } from "../lib/validate.mjs";
 import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
 import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
+import { applyStudentPermission } from "../lib/permission-change.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -286,7 +287,9 @@ async function readSentinelStop() {
       console.error(`Unreadable sentinel timeline ${name}: ${e.message}`);
     }
   }
-  return sentinelStoppedAt(timelines);
+  // CONFIRMED stops only: crediting the instant for a stop that failed
+  // understated how long writes stayed open.
+  return sentinelStoppedAt(timelines, { confirmedOnly: true });
 }
 
 // --- Phase 0: plan -----------------------------------------------------------
@@ -381,11 +384,23 @@ async function demote(t) {
   // until a verification actually answers.
   let permAfter = null;
   for (const m of t.members) {
-    const res = await gh("PUT", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}`, { permission: "pull" });
-    if (!(res.status === 204 || res.status === 201)) {
-      log(`demote ${m}`, { ok: false, note: `HTTP ${res.status}` });
+    // Through the one writer that knows a PENDING INVITATION is not changed by
+    // granting again (lib/permission-change.mjs, measured): a 201 answers with
+    // the SAME invitation at the OLD permission, and reading that as success
+    // left a student who had not accepted yet free to accept after the
+    // deadline and push (third review, 2026-09-26). The invitation itself is
+    // lowered to read, and the answer checked.
+    const res = await applyStudentPermission((method, path, body) => gh(method, path, body), { repo: `${cfg.org}/${t.repoName}`, login: m, permission: "pull" });
+    if (!res.ok) {
+      log(`demote ${m}`, { ok: false, note: res.status ? `HTTP ${res.status}` : res.message });
       allLocked = false;
-      permAfter = `error-${res.status}`;
+      permAfter = `error-${res.status || "invitation"}`;
+      continue;
+    }
+    if (res.via === "invitation") {
+      // Not a collaborator yet, so the permission read below says `none`. The
+      // invitation now grants read, and accepting it gives exactly that.
+      permAfter = "read";
       continue;
     }
     const verify = await gh("GET", `/repos/${cfg.org}/${t.repoName}/collaborators/${m}/permission`);

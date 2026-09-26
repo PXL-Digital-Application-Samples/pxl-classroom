@@ -575,6 +575,10 @@ async function main() {
       // Whether the stop step covers this assignment. A sentinel can fire for
       // the group while one member has been extended past it.
       due: outcome === "fired" ? due.includes(id) : false,
+      // Whether the stop HELD is not known yet: this is written before the stop
+      // step runs, and `scripts/mark-sentinel-stop.mjs` sets `done` or `failed`
+      // after it (lib/sentinel-window.mjs `sentinelStoppedAt`).
+      ...(outcome === "fired" && due.includes(id) ? { stop: "pending" } : {}),
       polls,
       observer_run: cfg.runUrl,
       // GitHub's own push timestamps through the critical window. A student can

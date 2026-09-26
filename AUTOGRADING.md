@@ -205,7 +205,7 @@ They are listed by name in the Autograder panel with the reason. They are **not*
 | the only "einde examen" commit is after the deadline | They handed in late. The time is in the message. |
 | no commit says "einde examen" | They never handed in. |
 | could not read this repository's Actions run history | With a hand-in limit, hand-ins are also counted from GitHub's record of the pushes, and that could not be read. Nobody is graded on a count that might be short; read the scores again later. |
-| Could not read the students' extra hand-ins | With a hand-in limit, one student's exception file could not be read, so no score was read at all - a grant that was not read would count against that student. Reload the page. |
+| Could not read the students' overrides | On ANY assignment: one of the files holding extra hand-ins and your grading decisions (a chosen commit, a score by hand) could not be read, so no score was read at all - a grant that was not read would count against that student, and a decision that was not read would be overwritten. Reload the page. |
 | no autograding run at commit `abc1234` | No workflow produced a grading check run there. Check the template still has one, and that the student did not delete it. |
 | could not read the score annotations | The run exists, its results could not be read. Try again; if it persists, open the run. |
 

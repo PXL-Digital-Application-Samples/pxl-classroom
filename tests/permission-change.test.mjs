@@ -101,6 +101,26 @@ test("THE SENTINEL'S STOP is a lock: before the nightly writes a lock record, an
   }
 });
 
+test("THE SENTINEL'S STOP is PER STUDENT: one it deferred (extension running at the instant) is not held (third review, 2026-09-26)", () => {
+  const fired = { outcome: "fired", deadline_at: "2026-09-30T00:00:00Z" };
+  // Ben's extension was granted 09-29, before the stop: the stop deferred him.
+  const before = { ...ext("ben", "2026-10-05T00:00:00Z") };
+  before.overrides[0].overridden_at = "2026-09-29T00:00:00Z";
+  const plan = planPermissionApply({
+    records: [rec("ann"), rec("ben")], assignment: A("2026-09-30T00:00:00Z"),
+    overrides: [before], sentinelTimelines: [fired], now: NOW,
+  });
+  assert.deepEqual(plan.apply.map((x) => x.login), ["ben"], "deferred at the instant, still working: the change reaches him");
+  assert.deepEqual(plan.skip, [{ login: "ann", repo: "Org/pe-ann", reason: "locked" }]);
+  // An extension granted AFTER the stop does not unstop anyone.
+  const after = ext("ben", "2026-10-05T00:00:00Z");
+  after.overrides[0].overridden_at = "2026-09-30T06:00:00Z";
+  const late = planPermissionApply({
+    records: [rec("ben")], assignment: A("2026-09-30T00:00:00Z"), overrides: [after], sentinelTimelines: [fired], now: NOW,
+  });
+  assert.deepEqual(late.skip, [{ login: "ben", repo: "Org/pe-ben", reason: "locked" }]);
+});
+
 test("a lock and a deadline moved LATER: locked, not applied", () => {
   const plan = planPermissionApply({
     records: [rec("ann")], assignment: A("2026-12-01T00:00:00Z"),

@@ -366,6 +366,15 @@ test("FILE MODES: an executable stays executable, a symlink a link, and a mode-o
   }
 });
 
+test("a superseded sync PR is closed only when the new one carries ALL its files, and only while it is still only ours", () => {
+  // Closing on the marker alone closed a lab 3 PR when the lab 5 sync offered
+  // other files - withdrawing the only offer of lab 3.
+  const src = readFileSync(join(process.cwd(), "scripts/sync-starter.mjs"), "utf8");
+  const block = src.slice(src.indexOf("const offered = new Set(plan.conflicts"), src.indexOf("[pr-closed]"));
+  assert.match(block, /detailRes\.data\?\.commits !== 1\) continue/, "one commit: the sync's own");
+  assert.match(block, /oldFiles\.every\(\(f\) => offered\.has\(f\?\.filename\)\)\) continue/, "every file it offered is offered again");
+});
+
 test("every sync surface reads and writes the SUBMISSION branch, never a hard-coded main (third review)", () => {
   for (const file of ["scripts/sync-starter.mjs", "cli/src/commands/sync-starter.mjs", "frontend/src/components/StarterSyncModal.vue"]) {
     const src = stripComments(readFileSync(join(process.cwd(), file), "utf8"));

@@ -11,6 +11,7 @@ import { teamsDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { commitWithRebase, commitFailureMessage } from '../../../lib/gittree.mjs'
 import { conflictAction, isShaConflict, REFUSE } from '../../../lib/write-conflict.mjs'
 import { GITHUB_API_VERSION } from '../../../lib/github-api-version.mjs'
+import { applyStudentPermission } from '../../../lib/permission-change.mjs'
 
 const API_BASE = 'https://api.github.com'
 
@@ -124,9 +125,18 @@ export function totalFromLinkHeader(headers, fallbackArray) {
 
 /**
  * Add a collaborator to a repository with specific permission (e.g. admin, pull, push).
+ *
+ * Through lib/permission-change.mjs `applyStudentPermission`: a second grant to
+ * somebody with a PENDING invitation answers 201 with that invitation at its
+ * OLD permission (measured), which a bare PUT reported as success (third
+ * review, 2026-09-26). Resolves `{ ok, status, data: { message } }` as before.
  */
 export async function addCollaborator(token, owner, repo, username, permission = 'admin') {
-  return ghApi(token, 'PUT', `/repos/${owner}/${repo}/collaborators/${username}`, { permission })
+  const res = await applyStudentPermission(
+    (method, path, body) => ghApi(token, method, path, body),
+    { repo: `${owner}/${repo}`, login: username, permission },
+  )
+  return { ok: res.ok, status: res.status, via: res.via, data: { message: res.message } }
 }
 
 /**

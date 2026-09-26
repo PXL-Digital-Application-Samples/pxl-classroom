@@ -286,7 +286,11 @@
           >
             <div class="published-header">
               <Icon :name="permissionApplied ? 'check-circle' : 'users'" :size="16" :class="permissionApplied ? 'text-green' : 'text-yellow'" />
-              <h4 v-if="!permissionNotice.done">Students who already accepted still have {{ permissionNotice.from }}</h4>
+              <!-- Not "still have {from}": `from` is the previous SAVED value,
+                   and after two saves nobody applied students hold neither
+                   (third review, 2026-09-26). What they hold is what they
+                   were given when they accepted. -->
+              <h4 v-if="!permissionNotice.done">Students who already accepted keep the permission they were given</h4>
               <h4 v-else>Student permission applied</h4>
             </div>
             <p v-if="permissionNotice.unreadable" class="published-desc">
@@ -313,8 +317,8 @@
               </p>
               <p v-if="permissionPastDeadline" class="published-desc">
                 {{ permissionPastDeadline === 1 ? '1 student is' : `${permissionPastDeadline} students are` }}
-                past their deadline or locked, and {{ permissionPastDeadline === 1 ? 'keeps' : 'keep' }} {{ permissionNotice.from }}:
-                changing the permission of a locked repository would unlock it.
+                past their deadline or locked, and {{ permissionPastDeadline === 1 ? 'keeps' : 'keep' }} what they have:
+                after the deadline, changing a student's permission would give back the access the deadline took.
               </p>
               <div class="cohort-actions">
                 <button
@@ -1542,7 +1546,7 @@
               </small>
               <small v-else>Students cannot push to their repository.</small>
               <small v-if="!isNew && storedStudentPermission && form.student_permission !== storedStudentPermission">
-                Students who already accepted keep {{ storedStudentPermission }} until you apply the change to them after saving.
+                Students who already accepted keep the permission they were given until you apply the change to them after saving.
               </small>
             </div>
             <div class="field">
@@ -4535,17 +4539,24 @@ async function readPermissionPlan(id, doc = null) {
   }
   const overrides = await readJsonDir(token, overridesDir(id))
   const reopened = await readJsonDir(token, unlockedDir(id))
+  // The same plan at any moment - Apply asks it again per student, because a
+  // cohort takes over a minute and a deadline can pass inside the loop.
+  const replan = (now = new Date()) => planPermissionApply({
+    records: records.docs,
+    assignment: assignmentDoc,
+    overrides: overrides.docs,
+    reopened: reopened.docs.map((d) => d?.github_login).filter(Boolean),
+    lockRecord,
+    sentinelTimelines,
+    now,
+  })
   return {
     ok: true,
     empty: !records.docs.length,
-    plan: planPermissionApply({
-      records: records.docs,
-      assignment: assignmentDoc,
-      overrides: overrides.docs,
-      reopened: reopened.docs.map((d) => d?.github_login).filter(Boolean),
-      lockRecord,
-      sentinelTimelines,
-    }),
+    // What is SAVED, so Apply sends that and not what the notice remembered.
+    permission: assignmentDoc.student_permission || 'admin',
+    plan: replan(),
+    replan,
   }
 }
 
@@ -4573,6 +4584,15 @@ async function applyPermissionChange() {
     toast.error('Could not read the assignment, who has a repository or which are locked, so nothing was changed.')
     return
   }
+  // THE SAVED PERMISSION, not the one this notice was raised for: another tab
+  // or another lecturer may have saved a different one since, and applying
+  // the old value gave every student a permission the document did not say
+  // (third review, 2026-09-26).
+  if (fresh.permission !== n.to) {
+    n.running = false
+    toast.error(`Nothing was changed: the assignment now says ${fresh.permission}, not ${n.to} - it was saved again since this appeared. Save it again to be offered the change.`)
+    return
+  }
   const promised = n.plan.apply.length
   n.plan = fresh.plan
   if (!n.plan.apply.length) {
@@ -4586,8 +4606,17 @@ async function applyPermissionChange() {
   const request = (method, path, body) => ghApi(token, method, path, body)
   const failed = []
   const gone = []
+  const lateNow = []
   let changed = 0
   for (const s of n.plan.apply) {
+    // ASKED AGAIN AT THE MOMENT: a cohort costs several requests a student,
+    // and a deadline that passes inside the loop must stop the grant there -
+    // past it, a grant is an unlock (third review, 2026-09-26).
+    if (!fresh.replan(new Date()).apply.some((a) => a.login === s.login)) {
+      lateNow.push(s.login)
+      n.progress++
+      continue
+    }
     // onlyIfPresent: a student removed from the repository in GitHub's own
     // settings is skipped, not re-invited (lib/permission-change.mjs).
     const res = await applyStudentPermission(request, { repo: s.repo, login: s.login, permission: n.to, onlyIfPresent: true })
@@ -4598,7 +4627,8 @@ async function applyPermissionChange() {
   }
   n.running = false
   n.done = { changed, failed, gone }
-  const goneNote = gone.length ? ` ${gone.length} no longer ${gone.length === 1 ? 'has' : 'have'} access and ${gone.length === 1 ? 'was' : 'were'} not re-invited: ${gone.join(', ')}.` : ''
+  const goneNote = (gone.length ? ` ${gone.length} no longer ${gone.length === 1 ? 'has' : 'have'} access and ${gone.length === 1 ? 'was' : 'were'} not re-invited: ${gone.join(', ')}.` : '') +
+    (lateNow.length ? ` ${lateNow.length} reached their deadline while this ran and ${lateNow.length === 1 ? 'was' : 'were'} left as ${lateNow.length === 1 ? 'it was' : 'they were'}: ${lateNow.join(', ')}.` : '')
   if (failed.length) toast.error(`Could not change ${failed.length} student${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}.${goneNote}`)
   else toast.success(`${changed} student${changed === 1 ? ' now has' : 's now have'} ${n.to}.${goneNote}`)
 }

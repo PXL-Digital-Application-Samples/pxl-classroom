@@ -1059,7 +1059,7 @@ To let one student hand in more - a lab that crashed, an approved retake:
 
 **Revoke the extra hand-ins** in the same place takes it back with its own reason; the grant stays on record beside it, and a deadline extension given with it is not taken back. In a group the team shares one count and the most generous member's extra applies to all of them.
 
-If scores cannot be read because *the students' extra hand-ins could not be read*, reload: under a limit, nothing is graded over an exception file that failed to load, because a grant that was not read would count against the student.
+If scores cannot be read because *the students' overrides could not be read*, reload: on any assignment, nothing is graded over an override file that failed to load, because a grant that was not read would count against the student and a grading decision that was not read would be overwritten.
 
 ### 6.13 Correcting an assignment after students have accepted
 

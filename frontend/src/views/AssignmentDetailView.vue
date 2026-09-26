@@ -1297,7 +1297,7 @@ import { isGitHubNoreplyAddress } from '../../../lib/github-noreply.mjs'
 import { buildGradingSummary } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
-import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
+import { addCollaborator, getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
@@ -4118,9 +4118,13 @@ async function unlockRepositoryFor(student, { reason }) {
       request: (method, path, body) => ghApi(token, method, path, body),
       releaseLock: releaseSubmissionLock,
       releaseOrgLock: removeRepoFromOrgLock,
+      // The demotion's inverse, through the one writer that updates a PENDING
+      // invitation too: a bare PUT answered 201 with the invitation still at
+      // `read`, and the reopen reported a student who still could not push
+      // (third review, 2026-09-26).
       setPermission: async ({ org, repo, login, permission }) => {
-        const r = await ghApi(token, 'PUT', `/repos/${org}/${repo}/collaborators/${login}`, { permission })
-        return { ok: r.ok, reason: r.ok ? null : `HTTP ${r.status} ${r.data?.message ?? ''}`.trim() }
+        const r = await addCollaborator(token, org, repo, login, permission)
+        return { ok: r.ok, reason: r.ok ? null : `${r.status ? `HTTP ${r.status} ` : ''}${r.data?.message ?? ''}`.trim() }
       },
       org: owner,
       repo: name,

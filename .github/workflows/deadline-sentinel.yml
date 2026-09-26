@@ -380,6 +380,7 @@ jobs:
       # failed. Giving up at the first failure left the rest of the group
       # writable until the nightly.
       - name: Stop writes
+        id: stop
         if: steps.watch.outputs.fired == 'true' && steps.watch.outputs.due_assignment_ids != ''
         env:
           # The fresh token when the watch handed over, or the first one when it
@@ -399,6 +400,18 @@ jobs:
             echo "::error::Stopping writes failed for:$failed - the nightly finalize locks whatever this missed."
             exit 1
           fi
+
+      # Whether the stop HELD, on the timelines this run wrote before it ran
+      # (`stop: pending`). "Fired" alone was read as "writes stopped at the
+      # instant" even when the stop failed or was skipped, and lockdown credited
+      # the instant for writes nobody stopped. Skipped counts as failed: the
+      # pull before it failed, so nothing was stopped.
+      - name: Record whether the stop held
+        if: always() && steps.watch.outputs.fired == 'true'
+        env:
+          DATA_DIR: control
+          RESULT: ${{ steps.stop.outcome == 'success' && 'done' || 'failed' }}
+        run: node scripts/mark-sentinel-stop.mjs
 
       - name: Commit the push timeline
         if: always()

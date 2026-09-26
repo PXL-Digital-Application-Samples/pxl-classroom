@@ -107,7 +107,7 @@ test.describe('85 - changing Student permission after students accepted', () => 
     await expect(field).toContainText('register self-hosted runners');
     await select(page).selectOption('maintain');
     await expect(field).toContainText('They cannot register self-hosted runners');
-    await expect(field).toContainText('Students who already accepted keep admin until you apply the change to them after saving.');
+    await expect(field).toContainText('Students who already accepted keep the permission they were given until you apply the change to them after saving.');
   });
 
   test('saving maintain offers to apply it; applying updates a collaborator AND a pending invitation', async ({ page }) => {
@@ -117,7 +117,7 @@ test.describe('85 - changing Student permission after students accepted', () => 
     expect(parse(saved.content).student_permission).toBe('maintain');
 
     const n = notice(page);
-    await expect(n).toContainText('Students who already accepted still have admin');
+    await expect(n).toContainText('Students who already accepted keep the permission they were given');
     await expect(n).toContainText('2 students accepted before this change');
     await expect(n.locator('.btn-primary')).toHaveCount(0);
     expect(grants, 'nothing is changed before the button').toHaveLength(0);
@@ -177,7 +177,7 @@ test.describe('85 - changing Student permission after students accepted', () => 
       route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(timeline)).toString('base64'), encoding: 'base64', sha: 't1' }) }));
     await saveAs(page, 'maintain');
     const n = notice(page);
-    await expect(n).toContainText('2 students are past their deadline or locked, and keep admin');
+    await expect(n).toContainText('2 students are past their deadline or locked, and keep what they have');
     await expect(n.getByRole('button', { name: /Apply/ })).toHaveCount(0);
     expect(grants).toHaveLength(0);
   });
@@ -188,10 +188,25 @@ test.describe('85 - changing Student permission after students accepted', () => 
     });
     await saveAs(page, 'maintain');
     const n = notice(page);
-    await expect(n).toContainText('2 students are past their deadline or locked, and keep admin');
-    await expect(n).toContainText('changing the permission of a locked repository would unlock it');
+    await expect(n).toContainText('2 students are past their deadline or locked, and keep what they have');
+    await expect(n).toContainText("changing a student's permission would give back the access the deadline took");
     await expect(n.getByRole('button', { name: /Apply/ })).toHaveCount(0);
     expect(grants).toHaveLength(0);
+  });
+
+  test('APPLY SENDS WHAT IS SAVED: saved again elsewhere since the notice appeared, nobody is changed (third review, 2026-09-26)', async ({ page }) => {
+    const { grants } = await openEditor(page);
+    await saveAs(page, 'maintain');
+    await expect(notice(page)).toContainText('2 students accepted before this change');
+    // Another tab saves push in the meantime: the stored document says push.
+    const b64 = (s) => Buffer.from(s).toString('base64');
+    await page.route((url) => url.href.includes(`/contents/assignments/${ID}.yml`), (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, body: JSON.stringify({ content: b64(stringify(liveAssignment({ student_permission: 'push' }))), encoding: 'base64', sha: 'elsewhere' }) });
+    });
+    await notice(page).getByRole('button', { name: 'Apply maintain to 2 students' }).click();
+    await expect(page.locator('.toast', { hasText: 'the assignment now says push, not maintain' })).toBeVisible();
+    expect(grants.filter((g) => g.method === 'PUT' || g.method === 'PATCH'), 'nothing granted').toHaveLength(0);
   });
 
   test('a save that does not change the permission says nothing', async ({ page }) => {

@@ -17,9 +17,54 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { SENTINEL_ARM_WINDOW_MS, deadlineIsImminent } from "../lib/sentinel-window.mjs";
+import { SENTINEL_ARM_WINDOW_MS, deadlineIsImminent, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 
 const NOW = Date.parse("2026-09-07T10:00:00.000Z");
+
+test("A STOP THAT FAILED is not a stop; one not yet confirmed is one only where not unlocking matters (third review, 2026-09-26)", () => {
+  const t = (stop) => ({ outcome: "fired", deadline_at: "2026-09-30T00:00:00.000Z", ...(stop ? { stop } : {}) });
+  const at = "2026-09-30T00:00:00.000Z";
+  // Lockdown's credit: confirmed stops, and timelines from before the field.
+  assert.equal(sentinelStoppedAt([t("done")], { confirmedOnly: true }), at);
+  assert.equal(sentinelStoppedAt([t()], { confirmedOnly: true }), at, "absent: written before the field, when fired meant stopped");
+  assert.equal(sentinelStoppedAt([t("pending")], { confirmedOnly: true }), null);
+  assert.equal(sentinelStoppedAt([t("failed")], { confirmedOnly: true }), null);
+  // The permission plan: anything that may have held is held.
+  assert.equal(sentinelStoppedAt([t("pending")]), at);
+  assert.equal(sentinelStoppedAt([t("failed")]), null);
+});
+
+test("the workflow confirms the stop after it runs, on this run's timelines only", () => {
+  const wf = readFileSync(fileURLToPath(new URL("../.github/workflows/deadline-sentinel.yml", import.meta.url)), "utf8");
+  const stop = wf.indexOf("- name: Stop writes");
+  const mark = wf.indexOf("- name: Record whether the stop held");
+  const commit = wf.indexOf("- name: Commit the push timeline");
+  assert.ok(stop > 0 && stop < mark && mark < commit, "stop, then record it, then commit");
+  assert.match(wf.slice(mark, commit), /RESULT: \$\{\{ steps\.stop\.outcome == 'success' && 'done' \|\| 'failed' \}\}/);
+  const src = readFileSync(fileURLToPath(new URL("../scripts/mark-sentinel-stop.mjs", import.meta.url)), "utf8");
+  assert.match(src, /doc\?\.observer_run !== runUrl/, "never relabels another run's timeline");
+});
+
+test("mark-sentinel-stop, run: marks this run's pending timelines and nothing else", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "pxl-mark-"));
+  mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+  const mine = "https://github.com/Hub/pxl/actions/runs/77";
+  const put = (name, doc) => writeFileSync(join(dir, "lockdowns", "exam", name), JSON.stringify(doc));
+  put("sentinel-a.json", { outcome: "fired", stop: "pending", observer_run: mine });
+  put("sentinel-b.json", { outcome: "fired", stop: "pending", observer_run: "https://github.com/Hub/pxl/actions/runs/1" });
+  const res = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/mark-sentinel-stop.mjs", import.meta.url))], {
+    encoding: "utf8",
+    env: { ...process.env, DATA_DIR: dir, RESULT: "failed", GITHUB_SERVER_URL: "https://github.com", GITHUB_REPOSITORY: "Hub/pxl", GITHUB_RUN_ID: "77" },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const read = (n) => JSON.parse(readFileSync(join(dir, "lockdowns", "exam", n), "utf8"));
+  assert.equal(read("sentinel-a.json").stop, "failed");
+  assert.equal(read("sentinel-b.json").stop, "pending", "another run's timeline is left as it was");
+});
 const at = (ms) => new Date(NOW + ms).toISOString();
 const HOUR = 3600_000;
 

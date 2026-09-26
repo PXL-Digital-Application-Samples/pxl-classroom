@@ -1,7 +1,8 @@
 // A release redeploys, and a DRY RUN redeploys nothing.
 //
-// `deploy-frontend.yml` listens for `release: [published]` so the site
-// restamps itself with the version just cut. That trigger cannot fire from
+// `deploy-frontend.yml` listened for `release: [published]` so the site
+// restamps itself with the version just cut (the trigger is gone - see the
+// last test). It could not fire from
 // `release.yml`: semantic-release authenticates with `secrets.GITHUB_TOKEN`,
 // and GitHub starts no workflow run from an event that token raises. Measured
 // 2026-09-22 - v1.3.1 published at 16:56:31Z, no deploy run created, live site
@@ -87,13 +88,12 @@ test("the dispatch action is pinned to a SHA, like every other action here", () 
   );
 });
 
-test("deploy-frontend still carries the release trigger, and says why it is not enough", () => {
+test("deploy-frontend carries NO release trigger, and says why (third review, 2026-09-26)", () => {
+  // Kept "for a release cut by hand", it could never deploy: a release event
+  // runs on the tag ref, and both environments admit branch `main` only.
   const deploySrc = readFileSync(join(ROOT, ".github/workflows/deploy-frontend.yml"), "utf8");
   const deploy = parseYaml(deploySrc);
-  assert.deepEqual(deploy.on.release?.types, ["published"], "kept for a release cut by hand");
-  assert.match(
-    deploySrc,
-    /GITHUB_TOKEN/,
-    "and the comment must keep saying why it cannot fire for a workflow-cut release",
-  );
+  assert.equal(deploy.on.release, undefined);
+  assert.match(deploySrc, /GITHUB_TOKEN/, "the comment says why a release cannot start it");
+  assert.match(deploySrc, /admit branch `main` only/, "and why a release trigger could not deploy either");
 });

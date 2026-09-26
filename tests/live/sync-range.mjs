@@ -12,7 +12,9 @@
 //                received lab 4 but never lab 3 (.NET Advanced, 2026-09-25);
 //                `late` was generated at lab 4; `edited` was generated at lab 2,
 //                has everything, and has worked in lab 3. Only `early` gets
-//                anything - lab 3 - and every start is found from the student's
+//                anything on main - lab 3 - and `edited` is offered their lab 3
+//                file as a pull request (from a known start it is not proof
+//                they received it); every start is found from the student's
 //                first commit (`generated`).
 //   2 evidence   lab 5 is pushed. Everyone gets it, and every start is round
 //                1's record (`synced`, from lab 4) - no first-commit lookup.
@@ -220,7 +222,11 @@ async function main() {
   else r.bad(`1 catch-up: per_student_range ${r1.per_student_range}, all_files ${r1.all_files}`);
   expectRow("1 catch-up", r1, "early", { outcome: "auto-merged", merged: 2, from: c2, source: "generated" });
   expectRow("1 catch-up", r1, "late", { outcome: "skipped-up-to-date", from: c4, source: "generated" });
-  expectRow("1 catch-up", r1, "edited", { outcome: "skipped-up-to-date", kept: 1, from: c2, source: "generated" });
+  // From a KNOWN start (generated at lab 2) their lab 3 file cannot have come
+  // from the template, so it is offered as a pull request they close if it is
+  // theirs - "kept" meant the template's never arrived (third review,
+  // 2026-09-26). Main is untouched either way (checked below).
+  expectRow("1 catch-up", r1, "edited", { outcome: "pr-opened", kept: 0, from: c2, source: "generated" });
   const early1 = await expectFiles("1 catch-up", "early", LAB[3]);
   const tpl4 = await treeOf(TPL, c4);
   if (early1.get("Lab03/Program.cs") === tpl4.get("Lab03/Program.cs")) r.ok("1 catch-up: early's lab 3 is the template's, byte for byte");
@@ -277,15 +283,18 @@ async function main() {
   }
 
   // --- 6: cut off --------------------------------------------------------------------
-  // The NetAdv case: a run that dies part-way. PAD more records (all pointing
-  // at `late`, so each is a quick skip, ~0.8s) make the run long enough to
-  // cancel after its START record has landed - which is what must survive it.
-  // 40 was not: the run finished and closed its record before the cancel.
+  // The NetAdv case: a run that dies part-way. PAD more records make the run
+  // long enough to cancel after its START record has landed - which is what
+  // must survive it. 40 was not: the run finished before the cancel. Each
+  // names its OWN repository, one that does not exist (a quick failed read):
+  // pointed at one shared repository they were one plan since the workflow
+  // plans a repository once (third review, 2026-09-26), and the run finished
+  // in seconds.
   const PAD = 150;
   const TOTAL = PAD + 3;
   const extra = Array.from({ length: PAD }, (_, i) => ({
     schema_version: 1, assignment_id: ID, github_login: `pad-${String(i).padStart(2, "0")}`, repo_id: repos.late.id,
-    repo_name: `${org}/${STUDENTS.late}`, repo_url: `https://github.com/${org}/${STUDENTS.late}`,
+    repo_name: `${org}/pxl-range-probe-pad-${String(i).padStart(3, "0")}`, repo_url: `https://github.com/${org}/pxl-range-probe-pad-${String(i).padStart(3, "0")}`,
   }));
   await controlCommit(`Live test fixture: ${ID} padding`, extra.map((x) => ({ path: `repositories/${ID}/${x.github_login}.json`, content: JSON.stringify(x, null, 2) + "\n" })));
   const known = new Set((await records()).map((x) => x.doc.sync_id));

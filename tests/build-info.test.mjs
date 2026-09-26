@@ -111,12 +111,15 @@ test("a release redeploys, or the version on screen is the one before it", () =>
   // Measured 2026-09-18: the deploy for affe250 finished at 01:22:17Z, v1.3.0
   // was tagged at 01:34:43Z, and the live header read `v1.2.1 (affe250)` -
   // a number 53 commits out of date, with nothing red anywhere.
+  //
+  // The release DISPATCHES the deploy (release.yml, tests/release-redeploy.test.mjs):
+  // a `release:` trigger never fired for a workflow-cut release, and could not
+  // deploy for a hand-cut one - it runs on the tag, and the environments admit
+  // `main` only (third review, 2026-09-26).
   const wf = readFileSync(join(ROOT, ".github", "workflows", "deploy-frontend.yml"), "utf8");
   const on = parse(wf).on ?? parse(wf).true;
-  assert.ok(on?.release, "deploy-frontend.yml does not run on a release");
-  assert.deepEqual(
-    on.release.types,
-    ["published"],
-    "a release triggers the deploy when it is published, not when it is drafted",
-  );
+  assert.equal(on?.release, undefined, "a release trigger runs on the tag ref, which the environments refuse");
+  assert.ok("workflow_dispatch" in (on || {}), "release.yml dispatches it");
+  const rel = readFileSync(join(ROOT, ".github", "workflows", "release.yml"), "utf8");
+  assert.match(rel, /workflow_id: 'deploy-frontend\.yml'/);
 });

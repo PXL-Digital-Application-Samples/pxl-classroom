@@ -520,16 +520,19 @@ async function main() {
         row.pr_url = prRes.data.html_url;
         console.log(`[pr-opened] ${login}: #${prRes.data.number} for ${plan.conflicts.length} file(s) (${prRes.data.html_url})`);
 
-        // An OLDER sync's pull request is superseded by this one - this range
-        // starts from where the student is and carries every file that one did
-        // at a newer version. Left open, the two touched the same files and
-        // conflicted (third review, 2026-09-26). Closed only where it is still
-        // only ours: one commit, the sync's own. One the student pushed to is
-        // their work and stays.
+        // An OLDER sync's pull request is superseded by this one WHERE THIS ONE
+        // CARRIES EVERY FILE IT DID, at a newer version. Left open, the two
+        // touched the same files and conflicted (third review, 2026-09-26).
+        // Closed only then, and only where it is still only ours: one commit,
+        // the sync's own. One the student pushed to is their work and stays;
+        // one with a file this range does not reach still offers something.
+        const offered = new Set(plan.conflicts.map((c) => c.path));
         for (const old of openPulls) {
           if (!/<!-- pxl-starter-sync: [0-9a-f]{40} -->/.test(old?.body || "") || old.number === prRes.data.number) continue;
           const detailRes = await gh("GET", `/repos/${studentFullName}/pulls/${old.number}`, null, { token: cfg.token });
           if (!detailRes.ok || detailRes.data?.commits !== 1) continue;
+          const oldFiles = await ghAll(`/repos/${studentFullName}/pulls/${old.number}/files?per_page=100`, { token: cfg.token }).catch(() => null);
+          if (!Array.isArray(oldFiles) || !oldFiles.every((f) => offered.has(f?.filename))) continue;
           await gh("POST", `/repos/${studentFullName}/issues/${old.number}/comments`, { body: `Superseded by #${prRes.data.number}, which carries the newer starter code.` }, { token: cfg.token });
           const closed = await gh("PATCH", `/repos/${studentFullName}/pulls/${old.number}`, { state: "closed" }, { token: cfg.token });
           if (closed.ok) console.log(`[pr-closed] ${login}: #${old.number} superseded by #${prRes.data.number}`);
