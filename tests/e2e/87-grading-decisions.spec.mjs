@@ -41,7 +41,9 @@ const summary = {
 const overridePath = `overrides/${ID}/${LOGIN}.json`;
 const summaryPath = `grading/${ID}/summary.json`;
 
-async function setup(page, { overrides = null } = {}) {
+// `cancelAll`: every run cancelled, so the rules can grade nothing.
+// `startSummary`: the summary on record when the page opens.
+async function setup(page, { overrides = null, cancelAll = false, startSummary = summary } = {}) {
   const contentWrites = [];
   const reruns = [];
   let rerunDone = false;
@@ -49,7 +51,7 @@ async function setup(page, { overrides = null } = {}) {
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER, contentWrites,
     assignments: { [ID]: assignment }, reports: { [ID]: report },
-    gradingSummaries: { [ID]: summary },
+    gradingSummaries: { [ID]: startSummary },
     controlOverrides: overrides ? { [ID]: { [LOGIN]: { schema_version: 1, assignment_id: ID, github_login: LOGIN, overrides } } } : {},
   });
   const esc = REPO.replace('/', '\\/');
@@ -75,10 +77,12 @@ async function setup(page, { overrides = null } = {}) {
     return route.fulfill({ status: 201, body: '' });
   });
   await page.route(new RegExp(`/repos/${esc}/actions/runs/(\\d+)$`), (route) =>
-    route.fulfill({ status: 200, body: JSON.stringify({ id: 103, status: rerunDone ? 'completed' : 'in_progress' }) }));
+    // A re-run keeps the id and raises the attempt; the picker waits for a
+    // NEWER attempt, since the old one still reads "completed" at first.
+    route.fulfill({ status: 200, body: JSON.stringify({ id: 103, status: 'completed', run_attempt: rerunDone ? 2 : 1 }) }));
   await page.route(new RegExp(`/repos/${esc}/commits/([0-9a-f]{40})/check-runs`), (route) => {
     const n = Number(route.request().url().match(/commits\/(\d\d)a/)[1]);
-    const cancelled = n === 3 && !rerunDone;
+    const cancelled = cancelAll || (n === 3 && !rerunDone);
     return route.fulfill({ status: 200, body: JSON.stringify({ check_runs: [{ id: n, name: 'run-autograding-tests', status: 'completed', conclusion: cancelled ? 'cancelled' : 'success', html_url: `https://x/${n}`, output: { summary: null, annotations_count: cancelled ? 0 : 1 } }] }) });
   });
   await page.route(new RegExp(`/repos/${esc}/check-runs/(\\d+)/annotations`), (route) => {
@@ -204,5 +208,31 @@ test.describe('87 - grading decisions', () => {
     const row = lastSummary(contentWrites).students[0];
     expect(row.earned_points).toBe(5);
     expect(row.decided_by).toBeUndefined();
+  });
+
+  // --- review 2026-09-26 ------------------------------------------------------
+
+  test('WHILE A SCORE BY HAND IS IN FORCE, choosing a commit is replaced by why it would not count', async ({ page }) => {
+    const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
+    await setup(page, { overrides: [manual] });
+    await openActions(page);
+    await expect(grading(page).getByRole('button', { name: 'Re-grade a commit…' })).toHaveCount(0);
+    await expect(grading(page)).toContainText('A score set by hand wins over any commit. Remove it below to grade a commit instead.');
+  });
+
+  test('REMOVING a score by hand when the rules can grade nothing leaves no stale "by hand" row behind', async ({ page }) => {
+    const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
+    const byHand = {
+      ...summary,
+      students: [{ login: LOGIN, earned_points: 7, total_points: 10, ci_status: 'success', score_source: 'manual', graded_at: '2026-10-01T14:00:00.000Z', decided_by: { kind: 'score', by: 'lecturer1', at: '2026-10-01T14:00:00.000Z', reason: 'oral' } }],
+    };
+    const { contentWrites } = await setup(page, { overrides: [manual], cancelAll: true, startSummary: byHand });
+    await openActions(page);
+    await grading(page).getByPlaceholder('Decided after the appeal').fill('Entered by mistake');
+    await grading(page).getByRole('button', { name: 'Remove the score set by hand' }).click();
+    await expect.poll(() => !!lastWrite(contentWrites, summaryPath), { timeout: 15000 }).toBe(true);
+    const doc = lastSummary(contentWrites);
+    expect(doc.students.find((s) => s.login === LOGIN)).toBeUndefined();
+    expect(doc.failed.find((f) => f.login === LOGIN)?.reason).toMatch(/cancelled/);
   });
 });

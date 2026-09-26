@@ -199,14 +199,19 @@
             :disabled="busy"
             @click="emit('regrade')"
           >{{ regrading ? 'Reading…' : 'Read score again' }}</button>
+          <!-- A score by hand outranks any commit, so a commit chosen under it
+               would be stored and never used. The reason replaces the button. -->
           <button
-            v-if="student.repo_name"
+            v-if="student.repo_name && decision?.kind !== 'score'"
             class="btn"
             type="button"
             :disabled="busy"
             @click="emit('choose-commit')"
           >Re-grade a commit…</button>
         </div>
+        <p v-if="student.repo_name && decision?.kind === 'score'" class="text-secondary text-sm">
+          A score set by hand wins over any commit. Remove it below to grade a commit instead.
+        </p>
         <p v-if="!regrade.can" class="text-secondary text-sm">{{ regrade.reason }}</p>
         <p v-else class="text-secondary text-sm">
           <strong>Read score again</strong> reads the grading run again<template v-if="!decision"> by the rules</template>

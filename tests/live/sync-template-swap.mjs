@@ -13,11 +13,16 @@
 // Runs the REAL Sync Starter Code workflow on the hub against
 // pxl-classroom-testbed:
 //
+//   0 trust      the first commit of a repository PROVISIONING generated
+//                reads as generated (rootCommit); the fixtures here, built from
+//                the lecturer's own commits, do not - so this probe runs the
+//                UNTRUSTED path (review 2026-09-26: a force-pushed history).
 //   1 swap       the new template has three commits; the old starter was a
-//                README and a notes file. `fresh` never touched theirs: every
-//                new file arrives, the README is replaced, the notes file is
-//                removed. `worked` edited the README: it arrives as a pull
-//                request, everything else directly. Both start `first-commit`.
+//                README and a notes file. Nothing proves their first commit
+//                was starter code, so: every new file arrives directly, the
+//                README (which no version of THIS template ever had) is a
+//                pull request for both, and notes.md is left alone - never
+//                deleted on main. Both start `first-commit`.
 //   2 evidence   one more template commit. Round 1's record is where they
 //                are now (`synced`), so only the new file is sent.
 //
@@ -26,6 +31,7 @@
 
 import { stringify } from "yaml";
 import { commitWithRebase } from "../../lib/gittree.mjs";
+import { rootCommit } from "../../lib/starter-sync-cohort.mjs";
 import { validateAgainst } from "../../lib/validate.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME } from "../../lib/deployment.mjs";
 import { api, decode, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
@@ -129,9 +135,11 @@ function expectRow(label, record, login, want) {
 }
 
 /** The student's main holds exactly `want`'s paths, each byte-identical to the template's at `tplRef`, except `theirs`. */
-async function expectExactly(label, who, want, tplRef, theirs = []) {
+async function expectExactly(label, who, want, tplRef, theirs = [], leftAlone = []) {
   const [mine, tpl] = [await treeOf(STUDENTS[who]), await treeOf(TPL, tplRef)];
-  const extra = [...mine.keys()].filter((p) => !(p in want));
+  const extra = [...mine.keys()].filter((p) => !(p in want) && !leftAlone.includes(p));
+  const gone = leftAlone.filter((p) => !mine.has(p));
+  if (gone.length) r.bad(`${label}: ${who} lost [${gone}], which no template version proves was starter code`);
   const missing = Object.keys(want).filter((p) => !mine.has(p));
   const differ = Object.keys(want).filter((p) => mine.has(p) && !theirs.includes(p) && mine.get(p) !== tpl.get(p));
   const kept = theirs.filter((p) => mine.get(p) === tpl.get(p));
@@ -188,30 +196,47 @@ async function main() {
   });
   r.ok(`control repo: draft ${ID}${stale.length ? `, ${stale.length} earlier record(s) cleared` : ""}`);
 
+  // --- 0: trust -----------------------------------------------------------------
+  // With headers: rootCommit finds the first commit through the `link` header.
+  const get = async (p) => {
+    const res = await fetch(`https://api.github.com${p}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "pxl-classroom-live" } });
+    return { status: res.status, data: await res.json().catch(() => null), headers: Object.fromEntries(res.headers) };
+  };
+  const provisioned = `${org}/live-smoke-group-smoke-team`; // created by provisioning (smoke.mjs)
+  const real = await rootCommit(get, provisioned, "main");
+  if (real?.generated === true) r.ok(`0 trust: ${provisioned}'s first commit reads as generated`);
+  else r.bad(`0 trust: ${provisioned}'s first commit does not read as generated: ${JSON.stringify(real)}`);
+  for (const name of Object.values(STUDENTS)) {
+    const own = await rootCommit(get, `${org}/${name}`, "main");
+    if (own && own.generated === false) r.ok(`0 trust: ${name} (the lecturer's own commits) is not trusted`);
+    else r.bad(`0 trust: ${name} ${JSON.stringify(own)}`);
+  }
+
   // --- 1: swap ------------------------------------------------------------------
   const r1 = await syncAndWait("1 swap");
-  // fresh: 6 template files written + notes.md deleted, all clean.
-  expectRow("1 swap", r1, "fresh", { outcome: "auto-merged", merged: 7, conflicted: 0, from: null, source: "first-commit" });
-  await expectExactly("1 swap", "fresh", NEW3, n3);
-  const w = expectRow("1 swap", r1, "worked", { outcome: "merged-and-pr", merged: 6, conflicted: 1, from: null, source: "first-commit" });
-  await expectExactly("1 swap", "worked", NEW3, n3, ["README.md"]);
-  if (w?.pr_number) {
-    const files = await must(await api(`/repos/${org}/${STUDENTS.worked}/pulls/${w.pr_number}/files`, { token }), "pr files");
-    if (files.length === 1 && files[0].filename === "README.md") r.ok(`1 swap: worked's pull request #${w.pr_number} carries README.md only`);
-    else r.bad(`1 swap: worked's pull request carries ${files.map((f) => f.filename)}`);
-    await api(`/repos/${org}/${STUDENTS.worked}/pulls/${w.pr_number}`, { token, method: "PATCH", body: { state: "closed" } });
-  } else {
-    r.bad("1 swap: worked has no pull request");
+  // Both: the 5 files they lack written, the old README offered as a pull
+  // request, notes.md left alone.
+  const f = expectRow("1 swap", r1, "fresh", { outcome: "merged-and-pr", merged: 5, conflicted: 1, from: null, source: "first-commit" });
+  await expectExactly("1 swap", "fresh", NEW3, n3, ["README.md"], ["notes.md"]);
+  const w = expectRow("1 swap", r1, "worked", { outcome: "merged-and-pr", merged: 5, conflicted: 1, from: null, source: "first-commit" });
+  await expectExactly("1 swap", "worked", NEW3, n3, ["README.md"], ["notes.md"]);
+  for (const [who, row] of [["fresh", f], ["worked", w]]) {
+    if (!row?.pr_number) { r.bad(`1 swap: ${who} has no pull request`); continue; }
+    const files = await must(await api(`/repos/${org}/${STUDENTS[who]}/pulls/${row.pr_number}/files`, { token }), "pr files");
+    if (files.length === 1 && files[0].filename === "README.md") r.ok(`1 swap: ${who}'s pull request #${row.pr_number} carries README.md only`);
+    else r.bad(`1 swap: ${who}'s pull request carries ${files.map((x) => x.filename)}`);
+    await api(`/repos/${org}/${STUDENTS[who]}/pulls/${row.pr_number}`, { token, method: "PATCH", body: { state: "closed" } });
   }
 
   // --- 2: evidence --------------------------------------------------------------
+  // Round 1 reached them (nothing kept), so it is where they are now.
   const n4 = await commitFiles(TPL, NEW4, [n3], "add main.tf");
   await resetMain(TPL, n4);
   const r2 = await syncAndWait("2 evidence");
   expectRow("2 evidence", r2, "fresh", { outcome: "auto-merged", merged: 1, conflicted: 0, from: n3, source: "synced" });
   expectRow("2 evidence", r2, "worked", { outcome: "auto-merged", merged: 1, conflicted: 0, from: n3, source: "synced" });
-  await expectExactly("2 evidence", "fresh", NEW4, n4);
-  await expectExactly("2 evidence", "worked", NEW4, n4, ["README.md"]);
+  await expectExactly("2 evidence", "fresh", NEW4, n4, ["README.md"], ["notes.md"]);
+  await expectExactly("2 evidence", "worked", NEW4, n4, ["README.md"], ["notes.md"]);
 
   console.log(`\n${r.failures() ? `${r.failures()} FAILED` : "all good"}\n`);
   process.exit(r.failures() ? 1 : 0);

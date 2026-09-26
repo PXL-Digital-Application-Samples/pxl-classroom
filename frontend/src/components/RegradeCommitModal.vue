@@ -198,13 +198,15 @@ function commitRow(c, extra = {}) {
 async function loadHandIns() {
   const listed = await listHandIns(get, { repoFullName: repo.value, branch: props.branch, marker: props.marker, withRuns: true })
   if (!listed.ok) throw new Error(`Could not read their ${listed.failedRead === 'runs' ? 'run history' : 'commits'} (HTTP ${listed.status}).`)
+  // A walk that hit its cap returns no hand-ins - which is NOT "they handed
+  // nothing in". Said as what it is.
+  if (!listed.complete) throw new Error(`They have more commits than can be read here (${listed.scanned} read), so their hand-ins cannot be listed. Set a score by hand instead.`)
   const picked = selectHandIn(listed.handIns, { until: props.student.effective_deadline_at || null, multiple: props.marker.multiple, limit: props.limit })
   const why = new Map(picked.ignored.map((i) => [i.sha, i.reason === 'late' ? 'late' : 'over the limit']))
   const out = listed.handIns.map((h, i) => commitRow(h, {
     number: i + 1,
     flags: [why.get(h.sha), h.onBranch === false ? 'no longer on the branch' : null].filter(Boolean),
   }))
-  if (!listed.complete) hasMore.value = false
   return out.reverse()
 }
 
@@ -259,6 +261,8 @@ const sentence = (s) => {
 
 async function rerun(row) {
   row.result = { state: 'running' }
+  const current = await get(`/repos/${repo.value}/actions/runs/${row.rerun.runId}`)
+  const before = current.status === 200 ? (current.data?.run_attempt ?? 1) : 0
   const res = await request('POST', `/repos/${repo.value}/actions/runs/${row.rerun.runId}/rerun`)
   if (!res.ok) {
     row.result = {
@@ -272,16 +276,28 @@ async function rerun(row) {
   whenDone(row.rerun.runId, async () => {
     row.result = { state: 'loading' }
     await readOne(row)
-  })
+  }, row, before)
 }
 
 // Checked every 10 seconds WHILE THIS DIALOG IS OPEN, and never after: the
 // same rule the starter sync's follow obeys. Closing it leaves the run going.
-function whenDone(runId, then) {
+// Stops after 30 minutes and says so, rather than showing "grading…" for ever
+// over a run stuck in a queue.
+const MAX_POLLS = 180
+//
+// `afterAttempt`: a re-run keeps the run's id, and right after the POST the
+// OLD attempt can still read "completed" - so a re-run is done only once an
+// attempt newer than the one before it has completed.
+function whenDone(runId, then, row, afterAttempt = 0) {
+  let polls = 0
   const poll = async () => {
     if (!open) return
     const r = await get(`/repos/${repo.value}/actions/runs/${runId}`)
-    if (r.status === 200 && r.data?.status === 'completed') return then()
+    if (r.status === 200 && r.data?.status === 'completed' && (r.data.run_attempt ?? 1) > afterAttempt) return then()
+    if (++polls >= MAX_POLLS) {
+      if (row) row.result = { state: 'none', reason: `The run has not finished after 30 minutes (run ${runId}). Close this and pick the commit again later.` }
+      return
+    }
     const t = setTimeout(() => { timers.delete(t); poll() }, 10_000)
     timers.add(t)
   }
@@ -305,7 +321,7 @@ async function gradeNow(row) {
       return
     }
     row.result = { state: out.verdict === 'api-failed' ? 'error' : 'none', reason: sentence(out.reason) }
-  })
+  }, row)
 }
 
 async function findGrader() {

@@ -14,6 +14,9 @@
 //     NAME-form address, and the student already has a NUMBER-form binding
 //   2 accepting with the number form  -> refused, reason rejected:claim-format,
 //     no repository, the old binding untouched
+//   2b the confirm link with a well-formed address NOT on the roster -> bound;
+//     then accepting -> refused, no repository (the reused binding used to
+//     skip the roster: review 2026-09-26)
 //   3 the confirm-email link with the name form -> the binding is replaced and
 //     records what it replaces
 //   4 accepting again -> the (now valid) binding is reused, not asked again, and
@@ -46,6 +49,8 @@ const r = reporter();
 
 const NUMBER = "99999999@student.pxl.be";
 const NAMED = "probe.student-one@student.pxl.be";
+// Well-formed, inside the domains, and on nobody's roster.
+const OFF_ROSTER = "probe.not-registered@student.pxl.be";
 const claimKeys = JSON.parse(readFileSync(new URL("../../acceptance/claim-keys.json", import.meta.url), "utf8"));
 const PUBLIC_KEY = claimKeys.keys[claimKeys.current];
 
@@ -173,6 +178,24 @@ async function main() {
     if (await readControlJson(`repositories/${id}/${STUDENT_A.login.toLowerCase()}.json`)) r.bad("2 a repository was provisioned");
     else r.ok("2 no repository");
 
+    // --- 2b THE BYPASS (review 2026-09-26): confirm an address the roster does
+    //     not hold, then accept. The reused binding skipped the roster check,
+    //     so this provisioned a repository; it must be asked again instead.
+    const offRosterIssue = await openIssue(broker, await signed(PURPOSE.CONFIRM, secret, id), await sealedBody(OFF_ROSTER, id));
+    r.ok(`2b ${STUDENT_A.login} confirms ${OFF_ROSTER} (not on the roster) through the link: #${offRosterIssue}`);
+    const offBound = await waitFor("2b bound to the off-roster address", async () => {
+      const c = await readControlJson(claimFile);
+      return c?.email === OFF_ROSTER ? c : null;
+    });
+    if (offBound?.replaces?.email === NUMBER) r.ok(`2b the confirmation replaced ${NUMBER} - a correction, not "already confirmed"`);
+    const bypass = await openIssue(broker, await signed(PURPOSE.ACCEPT, secret, id), await sealedBody(NUMBER, id));
+    r.ok(`2b ${STUDENT_A.login} accepts, bound to an address the roster does not hold: #${bypass}`);
+    const bypassRefused = await waitFor(`2b #${bypass} ${REJECTED_LABEL}`, async () =>
+      ((await lect(`/repos/${ORG}/${broker}/issues/${bypass}/labels`)).data || []).some?.((l) => l.name === REJECTED_LABEL));
+    if (bypassRefused) r.ok("2b refused - the binding was not reused past the roster");
+    if (await readControlJson(`repositories/${id}/${STUDENT_A.login.toLowerCase()}.json`)) r.bad("2b A REPOSITORY WAS PROVISIONED - the roster was bypassed");
+    else r.ok("2b no repository");
+
     // --- 3 the confirm-email link replaces the stale binding -------------------
     const confirmIssue = await openIssue(broker, await signed(PURPOSE.CONFIRM, secret, id), await sealedBody(NAMED, id));
     r.ok(`3 ${STUDENT_A.login} confirms ${NAMED} through the confirm-email link: #${confirmIssue}`);
@@ -181,7 +204,7 @@ async function main() {
       return c?.email === NAMED ? c : null;
     });
     if (replaced) {
-      if (replaced.replaces?.email === NUMBER) r.ok(`3 bound to ${NAMED}, and it records that it replaces ${NUMBER}`);
+      if (replaced.replaces?.email === OFF_ROSTER) r.ok(`3 bound to ${NAMED}, and it records that it replaces ${OFF_ROSTER}`);
       else r.bad(`3 replaced, but replaces = ${JSON.stringify(replaced.replaces)}`);
       if (validateAgainst("claim", structuredClone(replaced)).valid) r.ok("3 the new binding validates");
       else r.bad("3 the new binding fails its schema");

@@ -196,7 +196,7 @@ scenario("an override file that does not parse writes NOTHING", { cap: 2, badOve
   // ignore exactly the hand-in a lecturer said should count.
   assert.equal(res.status, 0, "and it does not fail the finalize");
   assert.equal(summaryAt(dir), null);
-  assert.match(res.stdout, /could not read the hand-in allowances/);
+  assert.match(res.stdout, /could not read the students' overrides/);
 });
 
 scenario("the run history refused (no Actions permission) names the student and writes nothing", { cap: 2 }, { runsStatus: 403 }, (res, dir) => {
@@ -205,7 +205,9 @@ scenario("the run history refused (no Actions permission) names the student and 
   assert.match(res.stdout, /ada: could not read this repository's Actions run history \(HTTP 403\)/);
 });
 
-scenario("no cap: no run-history read and no overrides read", { cap: null }, {}, (res, dir, state) => {
+// The overrides ARE read without a cap now: they hold a lecturer's grading
+// decisions too (tests/grade-at-deadline.test.mjs).
+scenario("no cap: no run-history read", { cap: null }, {}, (res, dir, state) => {
   const doc = summaryAt(dir);
   assert.equal(doc.students[0].earned_points, 3);
   assert.equal("hand_ins" in doc.students[0], false);

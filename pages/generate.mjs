@@ -226,7 +226,12 @@ async function main() {
       // it, so an assignment that switched it off must say so on the wire or
       // the browser enforces the deployment's rule the hub no longer does.
       // Only the opt-out is published; absent is the deployment default.
-      claim_address_format: def.claim_address_format === false ? false : undefined,
+      // Under `claim` the ROSTER decides, and the hub admits an address it
+      // registers whatever its form - so a page filtering by form would hide
+      // the one address that can get in from a student registered as
+      // `12345678@`. Off on the page; the hub still refuses, uncounted, an
+      // unregistered address without the form.
+      claim_address_format: def.claim_address_format === false || normalizeRosterMode(def.roster_mode) === "claim" ? false : undefined,
       // WHETHER THE STUDENT IS ASKED FOR AN ADDRESS AT ALL, under `open`.
       //
       // `accept.mjs` enforces this and the page decides whether to show the

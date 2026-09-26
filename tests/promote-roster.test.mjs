@@ -907,3 +907,52 @@ test("sibling keys on the roster document survive the fold", () => {
   });
   assert.equal(plan.nextRoster.generated_by, "csv-import");
 });
+
+// --- following a re-confirmation (review 2026-09-26) --------------------------
+
+const claimRow = { full_name: "Alice", github_login: "alice", github_id: 7, email: "11111111@student.pxl.be", email_source: "claim" };
+const currentClaim = (over = {}) => ({
+  schema_version: 1, github_login: "alice", github_id: 7, email: "alice.peeters@student.pxl.be",
+  domain_allowed: true, claim_verified: true, claimed_at: "2026-09-26T10:00:00.000Z",
+  replaces: { email: "11111111@student.pxl.be", claimed_at: "2026-09-10T00:00:00.000Z" }, ...over,
+});
+
+test("FOLLOW: a claim-set address follows the student's re-confirmation", () => {
+  const plan = planClaimPromotion({ roster: { schema_version: 2, students: [claimRow] }, claims: [currentClaim()], verifiedOnly: true });
+  assert.equal(plan.readdressed.length, 1);
+  assert.equal(plan.nextRoster.students[0].email, "alice.peeters@student.pxl.be");
+  assert.equal(claimPromotionChangesAnything(plan), true);
+});
+
+test("FOLLOW, TWO HOPS: re-confirmed twice between runs still reaches the current address", () => {
+  // `replaces` names only the last hop (22222222@), so the row holding the
+  // first (11111111@) matched nothing and was silently left stale.
+  const plan = planClaimPromotion({
+    roster: { schema_version: 2, students: [claimRow] },
+    claims: [currentClaim({ replaces: { email: "22222222@student.pxl.be", claimed_at: "2026-09-20T00:00:00.000Z" } })],
+    verifiedOnly: true,
+  });
+  assert.equal(plan.nextRoster.students[0].email, "alice.peeters@student.pxl.be");
+  assert.equal(plan.readdressed[0].previous_email, "11111111@student.pxl.be");
+});
+
+test("FOLLOW is HELD when the new address is outside the allowed domains", () => {
+  const plan = planClaimPromotion({
+    roster: { schema_version: 2, students: [claimRow] },
+    claims: [currentClaim({ email: "alice.p@gmail.com", domain_allowed: false })],
+    verifiedOnly: true,
+  });
+  assert.equal(plan.readdressed.length, 0);
+  assert.equal(plan.nextRoster.students[0].email, "11111111@student.pxl.be");
+  assert.match(plan.readdressHeld[0].reason, /outside the allowed domains/);
+});
+
+test("FOLLOW never moves an address a PERSON set, nor one another account's claim names", () => {
+  const typed = planClaimPromotion({ roster: { schema_version: 2, students: [{ ...claimRow, email_source: undefined }] }, claims: [currentClaim()] });
+  assert.equal(typed.nextRoster.students[0].email, "11111111@student.pxl.be");
+  const other = planClaimPromotion({
+    roster: { schema_version: 2, students: [claimRow] },
+    claims: [currentClaim({ github_login: "mallory", github_id: 99, replaces: null })],
+  });
+  assert.equal(other.nextRoster.students[0].email, "11111111@student.pxl.be");
+});

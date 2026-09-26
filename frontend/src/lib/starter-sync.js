@@ -16,6 +16,6 @@ export {
 export {
   listTemplateCommits,
   planStudent,
-  rootTreeSha,
+  rootCommit,
   treeReader,
 } from '../../../lib/starter-sync-cohort.mjs'

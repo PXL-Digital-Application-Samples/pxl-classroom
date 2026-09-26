@@ -3340,7 +3340,7 @@ async function refreshOne(token, s) {
         // Without dispatched runs: one started for an older commit is listed
         // on this one (lib/grade-dispatch.mjs).
         const own = checkRes.ok && checkRes.data?.check_runs
-          ? await withoutDispatchedRuns((m, p, b) => ghApi(token, m, p, b), { repoFullName: s.repo_name, sha, checkRuns: checkRes.data.check_runs })
+          ? await withoutDispatchedRuns((m, p, b) => ghApi(token, m, p, b), { repoFullName: s.repo_name, sha, checkRuns: checkRes.data.check_runs, onlyWhenAmbiguous: true })
           : { ok: false }
         if (own.ok) {
           // Shared picker: this had its own `includes('grade')` variant, which
@@ -3685,7 +3685,7 @@ async function syncGradesFromGitHub() {
           permission:
             'GitHub refused to show CI results: the PXL Classroom App needs the "Checks" permission (read), ' +
             'and an owner of this organization has to approve it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
-          'api-errors': `CI results sync failed for ${res.apiFailedCount} student(s) due to API errors. Nothing was saved; try again later.`,
+          'api-errors': `CI results could not be read for ${res.apiFailedCount} student(s): ${(res.unreadable || []).slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}${res.apiFailedCount > 3 ? '; …' : ''}. Nothing was saved.`,
           'nothing-graded':
             'Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.',
         }[res.refusal],
@@ -3807,18 +3807,25 @@ async function decideGrade(student, { type, value, reason, runId = null }) {
   actionDeciding.value = true
   try {
     const members = teamMembersOf(student)
+    const done = []
     for (const m of members) {
-      if (!(await appendOverrides(m, [entry], `${what} for ${m.github_login} on ${props.assignmentId}: ${reason}`))) return
+      if (!(await appendOverrides(m, [entry], `${what} for ${m.github_login} on ${props.assignmentId}: ${reason}`))) {
+        // A team is one submission: say exactly who has the decision now, so
+        // trying again is not a guess.
+        if (done.length) toast.error(`Recorded for ${done.join(', ')}, not for ${members.slice(done.length).map((x) => x.github_login).join(', ')}. Do it again to finish.`)
+        return
+      }
+      done.push(m.github_login)
     }
     showRegradeCommit.value = false
   } finally {
     actionDeciding.value = false
   }
   // Read again through the one judge, which now honours the decision.
-  for (const m of teamMembersOf(student)) await regradeStudent(m)
+  for (const m of teamMembersOf(student)) await regradeStudent(m, { afterDecision: true })
 }
 
-async function regradeStudent(student) {
+async function regradeStudent(student, { afterDecision = false } = {}) {
   const token = getToken()
   if (!token || !student || actionRegrading.value) return
   if (!capAllowancesReadable()) return
@@ -3835,7 +3842,16 @@ async function regradeStudent(student) {
       team: teamOf(student, report.value?.students || []),
     })
 
-    if (outcome.verdict !== 'graded' && outcome.verdict !== 'manual') {
+    const prev = autogradeSummary.value
+    const login = String(student.github_login).toLowerCase()
+    const hasScore = outcome.verdict === 'graded' || outcome.verdict === 'manual'
+    // A DECISION just changed what counts. When the new answer is "no score"
+    // (back to rules that cannot grade them), the old row - carrying the
+    // decision just undone - must not stay on record as if it were still in
+    // force: it is replaced by the reason. A read that FAILED is never that
+    // answer; it changes nothing.
+    const replaceWithReason = !hasScore && afterDecision && outcome.verdict !== 'api-failed'
+    if (!hasScore && !replaceWithReason) {
       // Not a zero and not a failure of this button: it looked and there was no
       // score there. Say which, and change nothing. Under a cap the count it
       // found is still news - it is what a lecturer who just granted extra
@@ -3843,23 +3859,21 @@ async function regradeStudent(student) {
       const count = outcome.handIns?.allowed
         ? ` They made ${outcome.handIns.used} hand-in${outcome.handIns.used === 1 ? '' : 's'} of ${outcome.handIns.allowed} allowed.`
         : ''
-      toast.error(`No score read for ${student.github_login}: ${rowFromOutcome(student.github_login, outcome).failed.reason}.${count} Their earlier result is unchanged.`)
+      toast.error(`No score read for ${student.github_login}: ${outcome.verdict === 'api-failed' ? outcome.reason : rowFromOutcome(student.github_login, outcome).failed.reason}.${count} Their earlier result is unchanged.`)
       return
     }
 
     // The same row the cohort grader writes (lib/grade-cohort.mjs), so a
     // chosen commit or a score by hand is recorded identically by both.
-    const { graded: row } = rowFromOutcome(student.github_login, outcome, autogradeTotalPoints.value)
-    const prev = autogradeSummary.value
-    const login = String(student.github_login).toLowerCase()
+    const { graded: row, failed: why } = rowFromOutcome(student.github_login, outcome, autogradeTotalPoints.value)
     const summaryDoc = buildGradingSummary({
       assignmentId: props.assignmentId,
       gradedBy: user.value?.login,
       runner: 'github_actions',
-      students: [...(prev?.students || []).filter((s) => String(s.login).toLowerCase() !== login), row],
-      // This student now has a score, so a reason recorded against them is
-      // stale. Everybody else's stands.
-      failed: (prev?.failed || []).filter((f) => String(f.login).toLowerCase() !== login),
+      students: [...(prev?.students || []).filter((s) => String(s.login).toLowerCase() !== login), ...(row ? [row] : [])],
+      // This student's reason is replaced either way: by nothing when they now
+      // have a score, by the new reason when they do not. Everybody else's stands.
+      failed: [...(prev?.failed || []).filter((f) => String(f.login).toLowerCase() !== login), ...(why ? [why] : [])],
     })
 
     const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
@@ -3874,7 +3888,8 @@ async function regradeStudent(student) {
       toast.error(`Save failed: ${saved.data?.message}`)
       return
     }
-    toast.success(`${student.github_login}: ${row.earned_points}/${row.total_points}.`)
+    if (row) toast.success(`${student.github_login}: ${row.earned_points}/${row.total_points}.`)
+    else toast.error(`No score for ${student.github_login} by the rules: ${why.reason}. Their earlier score was removed.`)
     closeActions()
   } catch (e) {
     console.error('Failed to re-grade', e)
@@ -4266,48 +4281,22 @@ async function grantExtensionFor(student, ext) {
   }
   actionExtending.value = true
   try {
-    const token = getToken()
-    let overridesList = []
-    try {
-      const existing = await getRepoContent(token, props.org, config.controlRepo, overridePath(props.assignmentId, student.github_login))
-      if (existing) {
-        const doc = JSON.parse(existing)
-        overridesList = doc.overrides || []
-      }
-    } catch { /* ignore and use empty */ }
-
     const newExtValue = localToUtc(ext.deadline_local)
-
-    overridesList.push({
+    // Through appendOverrides, which MERGES and refuses when the existing
+    // document cannot be read. This path used to swallow a failed read and
+    // write the extension alone - erasing a chosen commit, a score by hand or
+    // a hand-in allowance in the same file.
+    const ok = await appendOverrides(student, [{
       type: 'deadline_extension',
       value: newExtValue,
       reason: ext.reason.trim(),
       overridden_by: 'admin-panel',
       overridden_at: new Date().toISOString(),
-    })
-
-    const overrideDoc = {
-      schema_version: 1,
-      assignment_id: props.assignmentId,
-      github_login: student.github_login,
-      overrides: overridesList,
-    }
-    const { valid, errors } = await validateAgainst('override', overrideDoc)
-    if (!valid) {
-      toast.error('Override failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
-      return
-    }
-    const path = overridePath(props.assignmentId, student.github_login)
-    const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(overrideDoc, null, 2) + '\n', `Grant extension to ${student.github_login} on ${props.assignmentId}`)
-    if (res.ok) {
+    }], `Grant extension to ${student.github_login} on ${props.assignmentId}`)
+    if (ok) {
       toast.success(`Extension granted to ${student.github_login} (status updates on the next nightly run or Live Status refresh).`)
-      // Reflect immediately in the table + any re-opened modal.
-      overridesByLogin.value.set(student.github_login, overrideDoc)
-      overridesByLogin.value = new Map(overridesByLogin.value)
       student.effective_deadline_at = newExtValue
       actionStudent.value = null
-    } else {
-      toast.error(`Extension failed: ${res.data?.message || 'unknown error'}`)
     }
   } finally {
     actionExtending.value = false

@@ -131,8 +131,8 @@ test.describe('85 - changing Student permission after students accepted', () => 
     });
     await saveAs(page, 'maintain');
     const n = notice(page);
-    await expect(n).toContainText('2 students are past their deadline and keep admin');
-    await expect(n).toContainText('changing the permission would unlock it');
+    await expect(n).toContainText('2 students are past their deadline or locked, and keep admin');
+    await expect(n).toContainText('changing the permission of a locked repository would unlock it');
     await expect(n.getByRole('button', { name: /Apply/ })).toHaveCount(0);
     expect(grants).toHaveLength(0);
   });

@@ -122,17 +122,17 @@ test("the claim gate refuses before it spends anything", () => {
 
   assert.ok(at("claimAttemptsExhausted") < at("decryptClaim"),
     "the attempt ceiling must be checked before anything is decrypted");
-  assert.ok(at("claimAttemptsExhausted") < at("rosterEntryForEmail"),
+  // The GUESS path - an address the student sent - is what these are about.
+  // The already-bound path reads the roster too (a reused binding passes the
+  // same roster and cohort gates, 2026-09-26), but that is the student's own
+  // binding, not a guess, and it costs a read of a local file.
+  assert.ok(at("claimAttemptsExhausted") < at("rosterEntryForEmail(roster, opened.email)"),
     "the attempt ceiling must be checked before the roster is consulted");
   assert.ok(at("existing?.email") < at("claimAttemptsExhausted"),
     "an already-bound student must not touch the counter at all");
-  // The CALL, not the bare identifier: `domainAllowed` is also a property name
-  // on what the gate returns, and that sits at the top of the function beside
-  // the already-bound early exit. Matching the identifier made this assert on
-  // the position of a return value rather than of the check.
-  assert.ok(at("decryptClaim") < at("domainAllowed("),
+  assert.ok(at("decryptClaim") < at("domainAllowed(opened.email"),
     "nothing can be domain-checked before it is decrypted");
-  assert.ok(at("domainAllowed(") < at("rosterEntryForEmail"),
+  assert.ok(at("domainAllowed(opened.email") < at("rosterEntryForEmail(roster, opened.email)"),
     "the cheap domain filter comes before the roster scan");
 });
 

@@ -218,7 +218,10 @@ export function buildAutogradingWorkflow(assignment, org) {
     // same branch ref as a push; its own group, so the two never cancel each
     // other - a student's next push must not kill the lecturer's run.
     "run-name": GRADE_RUN_NAME,
-    concurrency: { group: `autograde-\${{ github.ref }}-\${{ inputs.${GRADE_DISPATCH_INPUT} || 'push' }}`, "cancel-in-progress": true },
+    // Pushes share one group, newest wins. Each DISPATCH is its own group: a
+    // second one for the same commit (another lecturer, or the student) must
+    // not cancel a run whose id a lecturer may already have recorded.
+    concurrency: { group: `autograde-\${{ github.ref }}-\${{ inputs.${GRADE_DISPATCH_INPUT} && github.run_id || 'push' }}`, "cancel-in-progress": true },
   };
 
   // THERE IS ONE PATH, and there only ever was one that worked.

@@ -115,7 +115,7 @@ const seal = async (email, githubId = GITHUB_ID) =>
   encryptClaim({ publicKey: keys.publicKey, email, githubId, assignmentId: ID });
 
 const SEALED = {
-  alice: await seal("alice@student.pxl.be"),
+  alice: await seal("alice.janssens@student.pxl.be"),
   // The form deployment.yml asks for; `alice@` above has no dot, so it is the
   // NUMBER-FORM stand-in for the re-identification tests at the end.
   aliceNamed: await seal("alice.peeters@student.pxl.be"),
@@ -135,7 +135,7 @@ test("THE FLOW: a confirmation records the binding and provisions nothing", () =
   assert.equal(res.status, 0);
   assert.equal(res.outputs.outcome, "confirmed");
   const rec = readClaim(dir);
-  assert.equal(rec.email, "alice@student.pxl.be");
+  assert.equal(rec.email, "alice.janssens@student.pxl.be");
   assert.equal(rec.github_login, LOGIN);
   assert.equal(rec.claim_verified, true);
 
@@ -162,7 +162,7 @@ test("the roster supplies a student number when it happens to know one", () => {
   const dir = makeDir({
     roster: {
       schema_version: 2,
-      students: [{ student_number: "0123456", full_name: "Alice", email: "alice@student.pxl.be" }],
+      students: [{ student_number: "0123456", full_name: "Alice", email: "alice.janssens@student.pxl.be" }],
     },
   });
   run(dir, confirm({ CLAIM_PAYLOAD: SEALED.alice }));
@@ -252,14 +252,19 @@ test("a MISSING HUB KEY fails red rather than reporting a confirmation nobody ma
   assert.match(res.outputs.outcome, /^fail:/);
 });
 
-test("an off-domain address is RECORDED and flagged, not refused", () => {
-  // Detection, not prevention - the same call `open` makes. Refusing on domain
-  // would be a guessing oracle about which domains exist, and the lecturer's
-  // roster shows the flag beside the address either way.
+test("an off-domain or number-form address is REFUSED by a confirmation, not recorded as confirmed - and not counted", () => {
+  // A confirmation has no repository behind it: the address is the whole
+  // outcome. Recording one outside the rules reported "confirmed" over a
+  // binding the next acceptance asks again for. The allowed domains are
+  // public on the student's page, so refusing reveals nothing. Reviewed
+  // 2026-09-26: a stale page or a hand-made issue got a success outcome.
   const dir = makeDir();
-  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offDomain }));
-  assert.equal(res.outputs.outcome, "confirmed");
-  assert.equal(readClaim(dir).domain_allowed, false);
+  const off = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offDomain }));
+  assert.equal(off.outputs.outcome, "rejected:claim-domain");
+  const num = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber }));
+  assert.equal(num.outputs.outcome, "rejected:claim-format");
+  assert.equal(existsSync(join(dir, "students", "claims", `${GITHUB_ID}.json`)), false, "nothing written");
+  assert.equal(existsSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`)), false, "nothing counted");
 });
 
 test("no attempt counter is touched - nothing is refused on roster grounds", () => {
@@ -349,10 +354,25 @@ test("THE CASE: a number-form binding is REPLACED by a name-form confirmation, a
 
 test("a name-form binding is NOT asked again - nobody is re-asked for a rule they already meet", () => {
   const dir = makeDir({ claims: [{ ...numberBinding(), email: "alice.peeters@student.pxl.be" }] });
-  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber }));
-  assert.equal(res.outputs.outcome, "already-confirmed");
+  // Sending a WORSE address to the link is refused for its form - never
+  // recorded - and the valid binding stands.
+  const worse = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber }));
+  assert.equal(worse.outputs.outcome, "rejected:claim-format");
   assert.equal(readClaim(dir).email, "alice.peeters@student.pxl.be", "a valid binding is not overwritten by a worse one");
   assert.equal(readClaim(dir).replaces, undefined);
+  // The SAME address again is idempotent.
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed })).outputs.outcome, "already-confirmed");
+  assert.equal(readClaim(dir).replaces, undefined);
+});
+
+test("a confirmation of a DIFFERENT valid address CORRECTS the binding - the link could never fix a wrong one", () => {
+  // Review 2026-09-26: bound to a well-formed address the roster does not
+  // hold, the link answered "already confirmed" to every correction.
+  const dir = makeDir({ claims: [{ ...numberBinding(), email: "alice.wrong@student.pxl.be" }] });
+  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed }));
+  assert.equal(res.outputs.outcome, "confirmed");
+  assert.equal(readClaim(dir).email, "alice.peeters@student.pxl.be");
+  assert.equal(readClaim(dir).replaces.email, "alice.wrong@student.pxl.be");
 });
 
 test("a confirm link opened with NOTHING sent still refuses - and names the address that no longer counts", () => {
@@ -373,6 +393,9 @@ test("CLAIM MODE: a number-form address is refused with its OWN reason, not as a
   assert.equal(res.outputs.outcome, "rejected:claim-format");
   assert.match(res.stdout + res.stderr, /does not say who you are\. Use the firstname\.lastname@ form/);
   assert.ok(!existsSync(join(dir, "students", "claims", `${GITHUB_ID}.json`)), "nothing bound");
+  // The form is public, so this refusal reveals nothing about the roster -
+  // and under `claim` the page offers every address, so it must not cost one.
+  assert.ok(!existsSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`)), "not counted");
 });
 
 test("CLAIM MODE: a stale number-form binding is asked again, and the name form replaces it", () => {
@@ -392,9 +415,76 @@ test("CLAIM MODE: sending the number form again after being asked is refused, an
   assert.equal(readClaim(dir).email, "12345678@student.pxl.be");
 });
 
-test("an assignment that switched the form OFF keeps treating the number form as done", () => {
-  const dir = makeDir({ over: { claim_address_format: false }, claims: [numberBinding()] });
-  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed }));
-  assert.equal(res.outputs.outcome, "already-confirmed");
+// --- a REUSED binding passes the same gates a new claim does (review 2026-09-26)
+//
+// The binding is org-wide and written by three paths - the claim gate, open
+// enrolment and the confirm link - and only the claim gate checked the roster
+// and the cohort. Reusing one unchecked admitted, measured by the review:
+// a student outside the cohort, anybody who had confirmed any address by the
+// link, and a second account holding somebody else's address.
+
+const namedBinding = (over = {}) => ({ ...numberBinding(), email: "alice.peeters@student.pxl.be", ...over });
+
+test("REUSE: bound and in the cohort is accepted without asking again (the ordinary case)", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [namedBinding()] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+});
+
+test("REUSE: bound, on the roster, NOT in this assignment's cohort is refused - and nothing counted", () => {
+  const dir = makeDir({ over: { ...claimMode, cohort: ["num:0888"] }, roster: namedRoster, claims: [namedBinding()] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(res.outputs.outcome, "rejected:not-in-cohort");
+  assert.ok(!existsSync(join(dir, "students", "claim-attempts")), "not a guess, so not counted");
+});
+
+test("REUSE: bound by the confirm link to an address NOT on the roster is asked again, never admitted", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [namedBinding({ email: "mal.lory@student.pxl.be" })] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(res.outputs.outcome, "rejected:no-claim");
+  assert.ok(!existsSync(join(dir, "acceptances")), "no acceptance");
+});
+
+test("REUSE: a binding to an address an EARLIER binding holds is refused as taken", () => {
+  const first = { ...namedBinding(), github_login: "the-real-alice", github_id: 1, claimed_at: "2026-09-01T00:00:00.000Z" };
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [first, namedBinding({ claimed_at: "2026-09-20T00:00:00.000Z" })] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(res.outputs.outcome, "rejected:claim-taken");
+});
+
+test("REUSE: ...and the EARLIER holder of a duplicated address is still admitted", () => {
+  const later = { ...namedBinding(), github_login: "mallory", github_id: 2, claimed_at: "2026-09-20T00:00:00.000Z" };
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [later, namedBinding({ claimed_at: "2026-09-01T00:00:00.000Z" })] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+});
+
+// A roster that REGISTERS the number form: the name form is not on it, so
+// refusing the number form left the student with no address that could get in.
+const numberRoster = { schema_version: 2, students: [{ student_number: "0999", full_name: "Alice Peeters", email: "12345678@student.pxl.be" }] };
+
+test("CLAIM MODE: a number-form address the ROSTER registers is admitted - new claim and reused binding", () => {
+  const fresh = makeDir({ over: claimMode, roster: numberRoster });
+  const res = run(fresh, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNumber });
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.equal(readClaim(fresh).student_number, "0999");
+  const bound = makeDir({ over: claimMode, roster: numberRoster, claims: [numberBinding()] });
+  assert.equal(run(bound, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
+});
+
+test("a DOMAIN-only stale binding is told about the domain, not the form", () => {
+  const dir = makeDir({ over: { roster_mode: "open", max_acceptances: 50, require_claim: true }, claims: [namedBinding({ email: "alice.peeters@gmail.com" })] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(res.outputs.outcome, "rejected:no-claim");
+  assert.match(res.stdout + res.stderr, /alice\.peeters@gmail\.com, which is not an accepted address here/);
+  assert.doesNotMatch(res.stdout + res.stderr, /form is required/);
+});
+
+test("an assignment that switched the form OFF keeps treating the number form as done - it is not asked again", () => {
+  // The ACCEPTANCE path, where "asked again" happens: an open assignment that
+  // requires an address reuses the number-form binding without a payload.
+  const dir = makeDir({ over: { claim_address_format: false, roster_mode: "open", max_acceptances: 50, require_claim: true }, claims: [numberBinding()] });
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
   assert.equal(readClaim(dir).email, "12345678@student.pxl.be");
 });

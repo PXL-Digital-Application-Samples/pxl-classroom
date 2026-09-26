@@ -98,7 +98,7 @@ test("the concurrency expression is preserved, not mangled by the serialiser", (
   const yaml = buildAutogradingWorkflow({ id: "lab", autograde: { visibility: "private" } }, "PXLAutomation");
   // With the dispatch's own lane beside the push's (lib/grade-dispatch.mjs),
   // so a student's next push cannot cancel a lecturer's "grade this commit".
-  assert.equal(parse(yaml).concurrency.group, "autograde-${{ github.ref }}-${{ inputs.grade_sha || 'push' }}");
+  assert.equal(parse(yaml).concurrency.group, "autograde-${{ github.ref }}-${{ inputs.grade_sha && github.run_id || 'push' }}");
 });
 
 // --- F16: no credential in a git command line -------------------------------

@@ -17,7 +17,7 @@ import { getAssignment, listRepoRecords, listSyncRecords } from "../lib/control-
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
-import { listTemplateCommits, planStudent, rootTreeSha, treeReader } from "../../../lib/starter-sync-cohort.mjs";
+import { listTemplateCommits, planStudent, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
 import { issueAssignees, loginsByRepo } from "../../../lib/sync-issue.mjs";
 import {
   changedPaths,
@@ -118,7 +118,7 @@ export function registerSyncStarterCommand(program) {
       const readStudentTree = treeReader(get);
       const headTree = await readTemplateTree(templateFullName, templateSha);
       const syncRecords = await listSyncRecords(octokit, { org, assignmentId: opts.assignment });
-      const { commits: templateCommits } = await listTemplateCommits(get, templateFullName);
+      const { commits: templateCommits, ok: listedOk, complete: listedComplete } = await listTemplateCommits(get, templateFullName);
 
       // Content fetched once per path, when the first student needs it.
       const contentByPath = new Map();
@@ -169,7 +169,7 @@ export function registerSyncStarterCommand(program) {
             studentRepo: studentFullName,
             studentTree,
             readTree: readTemplateTree,
-            root: () => rootTreeSha(get, studentFullName, "main"),
+            root: () => rootCommit(get, studentFullName, "main"),
             templateFullName,
             headSha: templateSha,
             headTree,
@@ -177,6 +177,7 @@ export function registerSyncStarterCommand(program) {
             records: syncRecords,
             fallbackSha: parentSha,
             selected: requested,
+            historyComplete: listedOk && listedComplete,
           });
           const outcome = outcomeFor(plan);
 

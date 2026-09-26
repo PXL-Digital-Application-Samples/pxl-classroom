@@ -133,16 +133,15 @@ async function main() {
 
   const fallbackTotal = (assignment.autograde?.tests || []).reduce((acc, t) => acc + (t.points || 0), 0);
 
-  // A hand-in cap is raised per student in `overrides/`. Unreadable is not
-  // "nobody was granted anything": reading it that way would ignore exactly the
-  // hand-ins a lecturer said should count, so under a cap a failed read writes
-  // nothing. An absent directory is an answer - nobody was granted anything.
-  let overrides = [];
-  if (marker?.maxHandIns != null) {
-    const read = await readOverrides(join(cfg.dataDir, overridesDir(cfg.assignmentId)));
-    if (!read.ok) return log(true, `not written: could not read the hand-in allowances (${read.error})`);
-    overrides = read.docs;
-  }
+  // `overrides/` holds a hand-in cap's exceptions AND a lecturer's grading
+  // decisions (a chosen commit, a score by hand - lib/grade-override.mjs), so
+  // it is read on EVERY assignment: read only under a cap, a decision on an
+  // uncapped one was replaced by the rules' score. Unreadable is not "nobody
+  // decided anything", so a failed read writes nothing. An absent directory is
+  // an answer - nobody decided anything.
+  const read = await readOverrides(join(cfg.dataDir, overridesDir(cfg.assignmentId)));
+  if (!read.ok) return log(true, `not written: could not read the students' overrides (${read.error})`);
+  const overrides = read.docs;
 
   const res = await gradeCohort(gh, {
     students,
@@ -158,12 +157,12 @@ async function main() {
   // that to fix a score a lecturer can read with one button.
   if (!res.ok) {
     const why = {
-      permission: "the App cannot read Checks here - an organization owner has to approve the Checks (read) permission",
+      permission: "GitHub refused a read (HTTP 403) - named below; the App needs Checks (read), and Actions (read) for a hand-in cap or a commit graded on request",
       "api-errors": `${res.apiFailedCount} student(s) could not be read - nothing was written rather than a partial summary`,
       "nothing-graded": `no student had a readable grading run (${res.failed.length} named below)`,
     }[res.refusal];
     log(true, `not written: ${why}`);
-    for (const f of res.failed.slice(0, 20)) console.log(`       ${f.login}: ${f.reason}`);
+    for (const f of [...(res.unreadable || []), ...res.failed].slice(0, 20)) console.log(`       ${f.login}: ${f.reason}`);
     return;
   }
 

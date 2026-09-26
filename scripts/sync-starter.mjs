@@ -25,7 +25,7 @@ import {
   readTemplateCommit,
   selectionIsAll,
 } from "../lib/starter-sync.mjs";
-import { listTemplateCommits, planStudent, rootTreeSha, treeReader } from "../lib/starter-sync-cohort.mjs";
+import { listTemplateCommits, planStudent, rootCommit, treeReader } from "../lib/starter-sync-cohort.mjs";
 import { issueAssignees, loginsByRepo } from "../lib/sync-issue.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
 
@@ -380,7 +380,7 @@ async function main() {
         studentRepo: studentFullName,
         studentTree,
         readTree: readTemplateTree,
-        root: () => rootTreeSha(get, studentFullName, "main"),
+        root: () => rootCommit(get, studentFullName, "main"),
         templateFullName,
         headSha: templateSha,
         headTree,
@@ -388,6 +388,7 @@ async function main() {
         records,
         fallbackSha: parentSha,
         selected: requestedFiles,
+        historyComplete: listed.ok && listed.complete,
       });
       const outcome = outcomeFor(plan);
       row.outcome = outcome;

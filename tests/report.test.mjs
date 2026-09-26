@@ -691,16 +691,45 @@ test("roster student who didn't accept appears as no-submission", () => {
 
 const numberAcceptance = { github_login: "kim", github_id: 77, status: "provisioned", claimed_email: "12345678@student.pxl.be", claim_verified: true, claim_domain_allowed: true };
 
-test("a number-form address is FLAGGED, judged against today's rule", () => {
-  const report = runReport({ assignmentYaml: BASE_YAML, acceptances: [numberAcceptance] });
+// The form is judged where the address is the student's own word: `open`
+// (OPEN_YAML, declared below - hoisted, so usable here at run time).
+
+test("a number-form address is FLAGGED on an open assignment, judged against today's rule", () => {
+  const report = runReport({ assignmentYaml: OPEN_YAML, acceptances: [numberAcceptance] });
   const kim = report.students.find((s) => s.github_login === "kim");
   assert.equal(kim.claimed_email, "12345678@student.pxl.be");
   assert.equal(kim.claim_format_allowed, false);
 });
 
+test("NOT flagged where no address is asked for (enforced) or the roster registered it (claim)", () => {
+  // Review 2026-09-26: the org-wide binding reached every assignment's rows,
+  // so an enforced assignment told its lecturer to chase students no gate
+  // there ever asks, and a claim-mode row the roster registers (and the gate
+  // admits) was flagged too.
+  for (const mode of ["enforced", "claim"]) {
+    const report = runReport({ assignmentYaml: BASE_YAML + `roster_mode: ${mode}\n`, acceptances: [numberAcceptance] });
+    assert.equal(report.students.find((s) => s.github_login === "kim").claim_format_allowed, true, mode);
+  }
+});
+
+test("the DOMAIN is judged against this assignment today, not the flag the binding was written with", () => {
+  // A binding made under an assignment with claim_domains: [] is stored as
+  // allowed; on an assignment that asks for the institution's domain it is not.
+  const report = runReport({
+    assignmentYaml: OPEN_YAML,
+    acceptances: [{ ...numberAcceptance, claimed_email: "kim.peeters@gmail.com" }],
+    claims: [{
+      schema_version: 1, github_login: "kim", github_id: 77, email: "kim.peeters@gmail.com",
+      domain_allowed: true, claim_verified: true, student_number: null,
+      claimed_at: "2026-09-26T10:00:00.000Z", claimed_via: "open",
+    }],
+  });
+  assert.equal(report.students.find((s) => s.github_login === "kim").claim_domain_allowed, false);
+});
+
 test("a re-confirmation CLEARS the flag: the current binding outranks the acceptance's copy", () => {
   const report = runReport({
-    assignmentYaml: BASE_YAML,
+    assignmentYaml: OPEN_YAML,
     acceptances: [numberAcceptance],
     claims: [{
       schema_version: 1, github_login: "kim", github_id: 77, email: "kim.peeters@student.pxl.be",
@@ -715,7 +744,8 @@ test("a re-confirmation CLEARS the flag: the current binding outranks the accept
 });
 
 test("an assignment that switched the form off flags nothing", () => {
-  const report = runReport({ assignmentYaml: BASE_YAML + "claim_address_format: false\n", acceptances: [numberAcceptance] });
+  // On an OPEN assignment, where the flag would otherwise be raised.
+  const report = runReport({ assignmentYaml: OPEN_YAML + "claim_address_format: false\n", acceptances: [numberAcceptance] });
   assert.equal(report.students.find((s) => s.github_login === "kim").claim_format_allowed, true);
 });
 

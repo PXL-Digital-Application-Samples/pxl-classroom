@@ -37,7 +37,7 @@ test("the starter workflow, gated and ungated, carries the entry", () => {
 test("the workflow provisioning writes carries the entry, and a push cannot cancel a dispatch", () => {
   const doc = parse(buildAutogradingWorkflow({ id: "x", autograde: { enabled: true, tests: [{ id: "t1", type: "run", command: "true", points: 1 }] } }, "Org"));
   expectEntry("provisioning", doc);
-  assert.match(doc.concurrency.group, /inputs\.grade_sha \|\| 'push'/);
+  assert.match(doc.concurrency.group, /inputs\.grade_sha && github\.run_id \|\| 'push'/, "each dispatch is its own group");
 });
 
 test("both templates this repository ships carry the entry", () => {
@@ -106,6 +106,56 @@ test("a run that does not name this commit, or was pushed, is NOT accepted as ha
   assert.equal(pushed.verdict, "no-run");
 });
 
+test("a DELETED run is a named refusal for that student, never an API failure that blocks the cohort", async () => {
+  // Review: a 404 on the recorded run made gradeCohort count an unnamed API
+  // failure, so Re-grade all and the nightly refused for ever without saying who.
+  const gone = async (_m, path) => (path.endsWith("/actions/runs/77") ? { ok: false, status: 404, data: { message: "Not Found" } } : fakeGitHub().request(_m, path));
+  const out = await readRunScore(gone, { repoFullName: "Org/r", runId: 77, sha: SHA });
+  assert.equal(out.verdict, "no-run");
+  assert.match(out.reason, /no longer exists - grade that commit again, or go back to the rules/);
+
+  const doc = { schema_version: 1, assignment_id: "x", github_login: "kim", overrides: [decisionEntry({ type: CHOSEN_COMMIT, value: SHA, reason: "r", by: "l", runId: 77 })] };
+  const { gradeCohort } = await import("../lib/grade-cohort.mjs");
+  const res = await gradeCohort(gone, { students: [{ github_login: "kim", repo_name: "Org/r" }], overrides: [doc], fallbackTotal: 10 });
+  assert.equal(res.apiFailedCount, 0);
+  assert.deepEqual(res.failed.map((f) => f.login), ["kim"]);
+});
+
+test("an UNREADABLE student is named in the refusal", async () => {
+  const { gradeCohort } = await import("../lib/grade-cohort.mjs");
+  const down = async () => ({ ok: false, status: 502, data: null });
+  const res = await gradeCohort(down, { students: [{ github_login: "kim", repo_name: "Org/r", latest_observed_sha: SHA }], fallbackTotal: 10 });
+  assert.equal(res.refusal, "api-errors");
+  assert.deepEqual(res.unreadable.map((u) => u.login), ["kim"]);
+});
+
+test("the entry is ALL THREE parts: a workflow with the input but no checkout or title is not offered", () => {
+  const whole = buildStarterWorkflow();
+  assert.equal(hasGradeDispatch(whole), true);
+  assert.equal(hasGradeDispatch(whole.replace(/run-name:.*\n/, "")), false, "no title: readRunScore would refuse the run");
+  assert.equal(hasGradeDispatch(whole.replace(/ref: .*\n/, "")), false, "no checkout of the input: it would grade the tip");
+  assert.equal(hasGradeDispatch("on:\n  workflow_dispatch:\n    inputs:\n      grade_sha: {}\n"), false);
+});
+
+test("findGradingWorkflow prefers the one with the entry, then the reporter - never a workflow that merely says 'grading'", async () => {
+  const files = {
+    "lint.yml": "name: lint\n# grading happens elsewhere\non: push\n",
+    "classroom.yml": "name: g\non: push\njobs:\n  x:\n    steps:\n      - uses: classroom-resources/autograding-grading-reporter@v1\n",
+  };
+  const request = async (_m, path) => {
+    if (path.includes("/actions/workflows?")) {
+      return { ok: true, status: 200, data: { workflows: Object.keys(files).map((p, i) => ({ id: i + 1, path: `.github/workflows/${p}`, state: "active" })) } };
+    }
+    const name = Object.keys(files).find((p) => path.includes(`/contents/.github/workflows/${p}`));
+    return name ? { ok: true, status: 200, data: { content: b64(files[name]) } } : { ok: false, status: 404 };
+  };
+  const found = await findGradingWorkflow(request, { repo: "Org/r" });
+  assert.equal(found.path, ".github/workflows/classroom.yml");
+  assert.equal(found.available, false);
+  files["classroom.yml"] = buildStarterWorkflow();
+  assert.equal((await findGradingWorkflow(request, { repo: "Org/r" })).available, true);
+});
+
 test("still going, or a failed read, is never a score", async () => {
   assert.equal((await readRunScore(fakeGitHub({ run: { status: "in_progress" } }).request, { repoFullName: "Org/r", runId: 77, sha: SHA })).verdict, "not-run");
   const cancelled = await readRunScore(fakeGitHub({ checkRuns: [{ id: 1, name: "grading", status: "completed", conclusion: "cancelled", output: {} }] }).request, { repoFullName: "Org/r", runId: 77, sha: SHA });
@@ -138,15 +188,40 @@ test("THE MEASURED CASE: a run dispatched for an old commit is listed on the TIP
   assert.equal(out.run.id, 1);
 });
 
-test("one check suite costs no extra read; an unreadable dispatch list is a failed read, never 'none'", async () => {
+test("a tip whose ONLY suite is a dispatched run reads nothing by the rules, not the old commit's score", async () => {
+  // Review 2026-09-26: `[skip ci]` or a deleted push run leaves the tip with
+  // one suite - the dispatched run's - which a "two suites or more" shortcut kept.
+  const { readScoreAtCommit } = await import("../lib/grade-cohort.mjs");
+  const request = async (_m, path) => {
+    if (path === `/repos/Org/r/commits/${TIP}/check-runs`) {
+      return { ok: true, status: 200, data: { check_runs: [
+        { id: 2, name: "run-autograding-tests", status: "completed", conclusion: "success", check_suite: { id: 98 }, output: { title: "Points 10/10", annotations_count: 0 } },
+      ] } };
+    }
+    if (path.includes("event=workflow_dispatch")) return { ok: true, status: 200, data: { workflow_runs: [{ id: 900, check_suite_id: 98 }] } };
+    return { ok: false, status: 404, data: null };
+  };
+  const out = await readScoreAtCommit(request, { repoFullName: "Org/r", sha: TIP, fallbackTotal: 10 });
+  assert.equal(out.verdict, "no-run");
+});
+
+test("the dispatch list: asked for any suite; only when ambiguous on the cheap path; a 403 keeps every run, a 500 is a failed read", async () => {
   const { withoutDispatchedRuns } = await import("../lib/grade-dispatch.mjs");
   let calls = 0;
-  const count = async () => { calls++; return { ok: false, status: 500 }; };
+  const answer = (status) => async () => { calls++; return { ok: false, status }; };
   const one = [{ id: 1, check_suite: { id: 5 } }, { id: 2, check_suite: { id: 5 } }];
-  assert.deepEqual(await withoutDispatchedRuns(count, { repoFullName: "Org/r", sha: TIP, checkRuns: one }), { ok: true, checkRuns: one });
-  assert.equal(calls, 0);
   const two = [{ id: 1, check_suite: { id: 5 } }, { id: 2, check_suite: { id: 6 } }];
-  assert.deepEqual(await withoutDispatchedRuns(count, { repoFullName: "Org/r", sha: TIP, checkRuns: two }), { ok: false, status: 500 });
+  const none = [{ id: 1 }];
+
+  assert.deepEqual(await withoutDispatchedRuns(answer(500), { repoFullName: "Org/r", sha: TIP, checkRuns: none }), { ok: true, checkRuns: none }, "no suite ids: nothing to ask about");
+  assert.equal(calls, 0);
+  assert.deepEqual(await withoutDispatchedRuns(answer(500), { repoFullName: "Org/r", sha: TIP, checkRuns: one, onlyWhenAmbiguous: true }), { ok: true, checkRuns: one });
+  assert.equal(calls, 0, "the Refresh column's shortcut costs no read on one suite");
+  assert.deepEqual(await withoutDispatchedRuns(answer(500), { repoFullName: "Org/r", sha: TIP, checkRuns: one }), { ok: false, status: 500 });
+  assert.equal(calls, 1, "grading asks even on one suite");
+  // No Actions (read): the App's token cannot list runs, and a lecturer's
+  // page token (capped by the App) cannot have dispatched one either.
+  assert.deepEqual(await withoutDispatchedRuns(answer(403), { repoFullName: "Org/r", sha: TIP, checkRuns: two }), { ok: true, checkRuns: two });
 });
 
 // --- the decision records the run, and every grader reads it --------------------

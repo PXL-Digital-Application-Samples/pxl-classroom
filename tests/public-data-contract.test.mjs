@@ -121,6 +121,14 @@ test("generate.mjs publishes roster_mode on the invitation card, defaulting to e
       "an absent key must be OMITTED so the browser falls back to the deployment default, not to no restriction",
     );
 
+    // The address FORM: off on the page under `claim`, where the roster
+    // decides and the hub admits a registered `12345678@` - a page filtering
+    // by form hid the only address such a student could use (review 2026-09-26).
+    assert.equal(absent.card.claim_address_format, false, "claim: the page does not filter by form");
+    const open = run("\nroster_mode: open\n");
+    assert.ok(!("claim_address_format" in open.card), "open: absent, so the page applies the deployment's form");
+    assert.equal(run("\nroster_mode: open\nclaim_address_format: false\n").card.claim_address_format, false, "the opt-out is published");
+
     // Card-only, exactly like roster_mode and broker_repo: the public index is
     // what every student's portal reads for assignments they have not accepted,
     // and it carries no configuration.

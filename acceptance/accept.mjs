@@ -141,20 +141,46 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   //    assignment's domains or deployment.yml's address form - a `12345678@`
   //    address once `firstname.lastname@` is required - is not "done": the
   //    student confirms again, and the new record replaces it (`replaces`).
+  //
+  //    AND ONLY THROUGH THE SAME GATES A NEW CLAIM PASSES. The binding is
+  //    org-scoped and written by three paths - this gate, open enrolment and
+  //    the confirm link - and only this one checks the roster and the cohort.
+  //    Reusing one unchecked admitted a student outside this assignment's
+  //    cohort, and anyone who had confirmed ANY address by the link. So: on
+  //    the roster (the roster is the gate here), in the cohort, and not an
+  //    address an earlier binding holds. An address the roster registers
+  //    passes the address form whatever it looks like: the roster already
+  //    says who it is, and refusing it left a student whose registered
+  //    address is `12345678@` with no address that could ever get in.
   const existing = await readJson(claimFile);
   const rules = {
     domains: resolveClaimDomains(assignment, CLAIM_DOMAINS),
     format: resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT),
   };
-  if (existing?.email && bindingMeetsRules(existing, rules)) {
+  const existingEntry = existing?.email ? rosterEntryForEmail(roster, existing.email) : null;
+  if (existingEntry && domainAllowed(existing.email, rules.domains)) {
+    if (!assignmentAdmitsStudent(assignment, existingEntry)) {
+      // Not counted: this is not a guess, it is the student's own binding.
+      await reject(
+        CLAIM_REJECTIONS.NOT_IN_COHORT,
+        `${existing.email} is registered for this course, but this assignment is not for them. ` +
+          `Ask your lecturer which assignment you should use.`,
+      );
+    }
+    const earlier = await findClaimForEmail(dataDir, existing.email, githubId);
+    if (earlier && String(earlier.claimed_at ?? "") <= String(existing.claimed_at ?? "")) {
+      await reject(
+        CLAIM_REJECTIONS.TAKEN,
+        `${existing.email} has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.`,
+      );
+    }
     log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
-    // domainAllowed is true by construction on this path: under `claim` an
-    // address outside the list never reaches a record. Stated rather than left
-    // undefined so both gates return the same shape.
+    // domainAllowed is true by construction on this path. Stated rather than
+    // left undefined so both gates return the same shape.
     return { email: existing.email, verified: Boolean(existing.claim_verified), domainAllowed: true, reused: true };
   }
   const replacing = existing?.email ? existing : null;
-  if (replacing) log("claim", { ok: true, note: `@${login} was claimed as ${replacing.email}, which no longer meets the rules - asking again` });
+  if (replacing) log("claim", { ok: true, note: `@${login} was claimed as ${replacing.email}, which is not a registered address for this assignment - asking again` });
 
   // 2. The counter, before any work at all.
   const attempts = await readJson(attemptsFile);
@@ -235,9 +261,14 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
 
   // 6b. Form. Right domain, but an address that does not name the student -
   //     `12345678@student.pxl.be` where deployment.yml asks for
-  //     `firstname.lastname@`. Counted like any other failed attempt.
-  if (!addressFormatAllowed(opened.email, format)) {
-    await countFailure();
+  //     `firstname.lastname@`. NOT for an address the roster registers: the
+  //     roster says who that is, and refusing the one address a lecturer
+  //     registered leaves the student nothing that can get in (the name form
+  //     is not on the roster). NOT COUNTED: the form is public, so a refusal
+  //     on it tells a guesser nothing about the roster - and the page, which
+  //     cannot see the roster, offers every address under `claim`.
+  const entry = rosterEntryForEmail(roster, opened.email);
+  if (!entry && !addressFormatAllowed(opened.email, format)) {
     await reject(
       CLAIM_REJECTIONS.FORMAT,
       `${opened.email} does not say who you are. Use the ${format.example}@ form of your address - the one with your name in it.`,
@@ -245,7 +276,6 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   }
 
   // 7. The roster IS the gate here - a fabricated address matches nothing.
-  const entry = rosterEntryForEmail(roster, opened.email);
   if (!entry) {
     await countFailure();
     await reject(
@@ -373,7 +403,11 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
       reused: true,
     };
   };
-  if (existing?.email && bindingMeetsRules(existing, rules)) return reuse();
+  // A CONFIRMATION of a DIFFERENT address is the student correcting who they
+  // said they were (a wrong but well-formed address, one the roster does not
+  // hold): it replaces the binding. Reused, the link could never fix it.
+  const correcting = voice === "confirm" && env("CLAIM_PAYLOAD", "").trim() !== "";
+  if (existing?.email && bindingMeetsRules(existing, rules) && !correcting) return reuse();
   const replacing = existing?.email ? existing : null;
   if (replacing && !env("CLAIM_PAYLOAD", "").trim() && !required) return reuse();
   if (replacing) log("claim", { ok: true, note: `@${login} was bound to ${replacing.email}, which no longer meets the rules - asking again` });
@@ -390,7 +424,9 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
       await reject(
         CLAIM_REJECTIONS.NO_CLAIM,
         replacing
-          ? `you confirmed ${replacing.email}, which no longer counts${rules.format ? ` - the ${rules.format.example}@ form is required` : ""}. Open the link again and confirm the address with your name in it.`
+          ? !domainAllowed(replacing.email, rules.domains)
+            ? `you confirmed ${replacing.email}, which is not an accepted address here. Open the link again and confirm your ${rules.domains.join(" or ")} address.`
+            : `you confirmed ${replacing.email}, which no longer counts - the ${rules.format?.example}@ form is required. Open the link again and confirm the address with your name in it.`
           : say(
             `this assignment asks you to confirm your institutional email address before accepting.`,
             `no address was sent, so there was nothing to confirm. Open the link again and pick an address.`,
@@ -454,7 +490,32 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   // Detection, not prevention: recorded either way, and the report is where a
   // lecturer sees it. The FORM too (report.mjs `claim_format_allowed`); the
   // page already refuses to send one that fails it.
+  // The SAME address confirmed again is idempotent, not a replacement.
+  if (existing?.email && normalizeEmail(opened.email) === normalizeEmail(existing.email) && bindingMeetsRules(existing, rules)) {
+    return reuse();
+  }
+
   const domainOk = domainAllowed(opened.email, rules.domains);
+
+  // A CONFIRMATION has no repository behind it: the address is the whole
+  // outcome, so one outside the rules is refused rather than recorded and
+  // reported as "confirmed" - the page refuses it too, but a stale page or a
+  // hand-made issue would otherwise write a binding that is asked again at the
+  // next acceptance. Not counted: nothing is being guessed at here.
+  if (voice === "confirm") {
+    if (!domainOk) {
+      await reject(
+        CLAIM_REJECTIONS.DOMAIN,
+        `${opened.email} is not an accepted address here. Confirm your ${rules.domains.join(" or ")} address.`,
+      );
+    }
+    if (!addressFormatAllowed(opened.email, rules.format)) {
+      await reject(
+        CLAIM_REJECTIONS.FORMAT,
+        `${opened.email} does not say who you are. Confirm the ${rules.format.example}@ form of your address - the one with your name in it.`,
+      );
+    }
+  }
 
   // A roster is optional under `open` but often present - it stops deciding who
   // may accept without stopping being a roster. When the address is on it, the

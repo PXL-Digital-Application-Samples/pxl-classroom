@@ -343,7 +343,7 @@ import { getToken } from '../lib/auth.js'
 import { ghApi, getRepoContent, dispatchWorkflowRun } from '../lib/api.js'
 import { activeSyncRun, describeFollow } from '../../../lib/sync-status.mjs'
 import {
-  changedPaths, outcomeFor, listTemplateCommits, planStudent, rootTreeSha, treeReader,
+  changedPaths, outcomeFor, listTemplateCommits, planStudent, rootCommit, treeReader,
 } from '../lib/starter-sync.js'
 import { toast } from '../lib/toast.js'
 
@@ -396,6 +396,9 @@ const truncatedCommit = ref(false)
 let readTemplateTree = null
 let syncRecords = []
 let allTemplateCommits = []
+// Whether that listing was read whole: without it no student is treated as
+// having a repository from another template (lib/starter-sync-cohort.mjs).
+let templateHistoryComplete = false
 const rootCache = new Map()
 // Files some student is behind on that the newest commit did not change,
 // found by the scan. Tickable like the others; see `catchUpFiles`.
@@ -588,6 +591,7 @@ async function fetchTemplateData() {
     headTree.value = await readTemplateTree(`${owner}/${repo}`, latest.sha)
     const [listed, records] = await Promise.all([listTemplateCommits(get, `${owner}/${repo}`), loadSyncRecords()])
     allTemplateCommits = listed.commits
+    templateHistoryComplete = listed.ok && listed.complete
     syncRecords = records
 
     // 4. Trigger initial scan
@@ -639,7 +643,7 @@ async function runPreFlightScan() {
 /** One student's plan under `selected`, through the planner the workflow uses. */
 function planFor(s, selected) {
   const repo = s.repo_name
-  if (!rootCache.has(repo)) rootCache.set(repo, rootTreeSha(get, repo, 'main'))
+  if (!rootCache.has(repo)) rootCache.set(repo, rootCommit(get, repo, 'main'))
   return planStudent({
     login: s.github_login,
     studentRepo: repo,
@@ -653,6 +657,7 @@ function planFor(s, selected) {
     records: syncRecords,
     fallbackSha: baseSha.value,
     selected,
+    historyComplete: templateHistoryComplete,
   })
 }
 

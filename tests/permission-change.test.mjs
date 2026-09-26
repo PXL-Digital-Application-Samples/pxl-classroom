@@ -66,6 +66,74 @@ test("a repository a lecturer REOPENED after the deadline follows the change", (
   assert.deepEqual(plan.skip.map((x) => x.login), ["ann"]);
 });
 
+// --- review 2026-09-26 -------------------------------------------------------
+
+const lockRow = (login, method = "ruleset", extra = {}) => ({ github_login: login, repo_name: `Org/pe-${login}`, lock_method: method, verified: true, ...extra });
+
+test("A LOCK THAT EXISTS WINS over a later deadline: an extension granted after the lock does not unlock by the back door", () => {
+  // Locked at the deadline, then given an extension: lockdown still holds them
+  // (an extension after the lock does not reopen), and a grant would have.
+  for (const method of ["ruleset", "org-ruleset", "demotion"]) {
+    const plan = planPermissionApply({
+      records: [rec("ann"), rec("ben")], assignment: A("2026-09-30T00:00:00Z"),
+      overrides: [ext("ann", "2026-10-05T00:00:00Z")],
+      lockRecord: { results: [lockRow("ann", method)] }, now: NOW,
+    });
+    assert.deepEqual(plan.skip.find((s) => s.login === "ann"), { login: "ann", repo: "Org/pe-ann", reason: "locked" }, method);
+  }
+});
+
+test("a lock and a deadline moved LATER: locked, not applied", () => {
+  const plan = planPermissionApply({
+    records: [rec("ann")], assignment: A("2026-12-01T00:00:00Z"),
+    lockRecord: { results: [lockRow("ann")] }, now: NOW,
+  });
+  assert.equal(plan.skip[0].reason, "locked");
+});
+
+test("a row that is NOT a lock (none, null) does not block; demoted:true does", () => {
+  const rows = { results: [lockRow("ann", "none"), lockRow("ben", null), lockRow("cas", "none", { demoted: true })] };
+  const plan = planPermissionApply({ records: [rec("ann"), rec("ben"), rec("cas")], assignment: A(), lockRecord: rows, now: NOW });
+  assert.deepEqual(plan.apply.map((x) => x.login), ["ann", "ben"]);
+  assert.deepEqual(plan.skip, [{ login: "cas", repo: "Org/pe-cas", reason: "locked" }]);
+});
+
+test("a REOPENED repository follows the change even with a lock row - the reopen is later than the lock", () => {
+  const plan = planPermissionApply({
+    records: [rec("ann")], assignment: A("2026-09-30T00:00:00Z"),
+    lockRecord: { results: [lockRow("ann")] }, reopened: ["ann"], now: NOW,
+  });
+  assert.deepEqual(plan.apply.map((x) => x.login), ["ann"]);
+});
+
+test("TEAM: reopening for one member reopened the one repository for every member", () => {
+  const t = (login) => rec(login, { team_slug: "t1", repo_name: "Org/grp-t1" });
+  const plan = planPermissionApply({
+    records: [t("ann"), t("ben")], assignment: A("2026-09-30T00:00:00Z"),
+    lockRecord: { results: [{ ...lockRow("ann"), repo_name: "Org/grp-t1" }, { ...lockRow("ben"), repo_name: "Org/grp-t1" }] },
+    reopened: ["ann"], now: NOW,
+  });
+  assert.deepEqual(plan.apply.map((x) => x.login), ["ann", "ben"]);
+});
+
+test("a REVOKED or DELETED record is never re-granted - that would re-invite, and email, a removed student", () => {
+  const plan = planPermissionApply({
+    records: [rec("ann", { access_state: "revoked" }), rec("ben", { access_state: "deleted" }), rec("cas", { access_state: "active" })],
+    assignment: A(), now: NOW,
+  });
+  assert.deepEqual(plan.apply.map((x) => x.login), ["cas"]);
+  assert.deepEqual(plan.skip.map((x) => x.reason), ["no-access", "no-access"]);
+});
+
+test("the plan is a function of NOW: made before the deadline, re-planned after it, nobody is changed", () => {
+  // The page re-plans at the click (AdminView readPermissionPlan); this is the
+  // property that makes that safe.
+  const before = planPermissionApply({ records: [rec("ann")], assignment: A(NOW.toISOString()), now: new Date(NOW.getTime() - 60_000) });
+  const after = planPermissionApply({ records: [rec("ann")], assignment: A(NOW.toISOString()), now: new Date(NOW.getTime() + 60_000) });
+  assert.equal(before.apply.length, 1);
+  assert.equal(after.apply.length, 0);
+});
+
 test("no deadline at all never locks, so everyone", () => {
   const plan = planPermissionApply({ records: [rec("ann")], assignment: {}, now: NOW });
   assert.equal(plan.apply.length, 1);

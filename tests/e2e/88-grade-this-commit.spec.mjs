@@ -20,7 +20,15 @@ const DEADLINE = '2026-10-01T12:00:00.000Z';
 const sha = (n) => String(n).padStart(2, '0').padEnd(40, 'a');
 const at = (min) => new Date(Date.parse('2026-10-01T09:00:00Z') + min * 60_000).toISOString();
 const WORKFLOW = '.github/workflows/classroom.yml';
-const withEntry = `name: Grading\non:\n  push:\n  workflow_dispatch:\n    inputs:\n      grade_sha:\n        required: true\n        type: string\njobs:\n  grade:\n    steps:\n      - uses: classroom-resources/autograding-grading-reporter@v1\n`;
+// The WHOLE entry (lib/grade-dispatch.mjs hasGradeDispatch): input, title, checkout.
+const withEntry = [
+  "name: Grading",
+  "run-name: ${{ github.event_name == 'workflow_dispatch' && format('Grade {0} (PXL Classroom)', inputs.grade_sha) || github.event.head_commit.message }}",
+  "on:", "  push:", "  workflow_dispatch:", "    inputs:", "      grade_sha:", "        required: true", "        type: string",
+  "jobs:", "  grade:", "    steps:",
+  "      - uses: actions/checkout@v7", "        with:", "          ref: ${{ inputs.grade_sha || github.sha }}",
+  "      - uses: classroom-resources/autograding-grading-reporter@v1", "",
+].join("\n");
 const withoutEntry = 'name: Grading\non: push\njobs:\n  grade:\n    steps:\n      - uses: classroom-resources/autograding-grading-reporter@v1\n';
 
 const assignment = {

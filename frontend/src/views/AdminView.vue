@@ -310,9 +310,8 @@
               </p>
               <p v-if="permissionPastDeadline" class="published-desc">
                 {{ permissionPastDeadline === 1 ? '1 student is' : `${permissionPastDeadline} students are` }}
-                past their deadline and {{ permissionPastDeadline === 1 ? 'keeps' : 'keep' }} {{ permissionNotice.from }}:
-                their repository may be locked, and changing the permission would unlock it. Reopening a repository
-                gives it {{ permissionNotice.to }}.
+                past their deadline or locked, and {{ permissionPastDeadline === 1 ? 'keeps' : 'keep' }} {{ permissionNotice.from }}:
+                changing the permission of a locked repository would unlock it.
               </p>
               <div class="cohort-actions">
                 <button
@@ -1801,6 +1800,7 @@ import {
   repositoriesDir,
   overridesDir,
   unlockedDir,
+  lockdownRecordPath,
   reportPath,
   reportCsvPath,
   gradingSummaryPath,
@@ -4445,8 +4445,9 @@ const storedStudentPermission = ref(null)
 const permissionNotice = ref(null)
 // Every change landed: the card is good news now, and says so in its colour.
 const permissionApplied = computed(() => !!permissionNotice.value?.done && !permissionNotice.value.done.failed.length)
+// Past their deadline, or held by a lock whatever the deadline says now.
 const permissionPastDeadline = computed(
-  () => (permissionNotice.value?.plan?.skip || []).filter((entry) => entry.reason === 'past-deadline').length,
+  () => (permissionNotice.value?.plan?.skip || []).filter((entry) => entry.reason === 'past-deadline' || entry.reason === 'locked').length,
 )
 
 async function readJsonDir(token, dir) {
@@ -4469,33 +4470,66 @@ async function readJsonDir(token, dir) {
   return { ok: true, docs }
 }
 
+/**
+ * Who may be changed, read NOW. Called when the notice is shown and again at
+ * the click: a plan made at 15:55 for a 16:00 deadline and applied at 16:05
+ * would re-grant every student the sentinel had just locked.
+ *
+ * Unreadable extensions or reopenings leave students at the base deadline and
+ * not reopened: that only skips more of them, the safe direction. An
+ * unreadable LOCK RECORD is not safe that way - a lock with a later deadline
+ * is exactly what it is read for - so it refuses. Absent is no lock.
+ */
+async function readPermissionPlan(id, doc) {
+  const token = getToken()
+  const records = await readJsonDir(token, repositoriesDir(id))
+  if (!records.ok) return { ok: false }
+  let lockRecord = null
+  try {
+    const text = await getRepoContent(token, props.org, config.controlRepo, lockdownRecordPath(id))
+    if (text) lockRecord = JSON.parse(text)
+  } catch {
+    return { ok: false }
+  }
+  const overrides = await readJsonDir(token, overridesDir(id))
+  const reopened = await readJsonDir(token, unlockedDir(id))
+  return {
+    ok: true,
+    empty: !records.docs.length,
+    plan: planPermissionApply({
+      records: records.docs,
+      assignment: doc,
+      overrides: overrides.docs,
+      reopened: reopened.docs.map((d) => d?.github_login).filter(Boolean),
+      lockRecord,
+    }),
+  }
+}
+
 async function noticePermissionChange(id, before, doc) {
   const after = doc.student_permission || 'admin'
   if (!before || before === after) return
-  const token = getToken()
-  const records = await readJsonDir(token, repositoriesDir(id))
-  if (!records.ok) {
+  const read = await readPermissionPlan(id, doc)
+  if (!read.ok) {
     permissionNotice.value = { id, from: before, to: after, unreadable: true, plan: null, done: null }
     return
   }
-  if (!records.docs.length) return
-  // Unreadable extensions or reopenings leave students at the base deadline
-  // and not reopened: that only skips more of them, the safe direction.
-  const overrides = await readJsonDir(token, overridesDir(id))
-  const reopened = await readJsonDir(token, unlockedDir(id))
-  const plan = planPermissionApply({
-    records: records.docs,
-    assignment: doc,
-    overrides: overrides.docs,
-    reopened: reopened.docs.map((d) => d?.github_login).filter(Boolean),
-  })
-  permissionNotice.value = { id, from: before, to: after, unreadable: false, plan, done: null, progress: 0 }
+  if (read.empty) return
+  permissionNotice.value = { id, from: before, to: after, unreadable: false, plan: read.plan, done: null, progress: 0, doc }
 }
 
 async function applyPermissionChange() {
   const n = permissionNotice.value
   if (!n?.plan || n.running) return
   n.running = true
+  // Planned again at the click, not trusted from when the notice appeared.
+  const fresh = await readPermissionPlan(n.id, n.doc)
+  if (!fresh.ok) {
+    n.running = false
+    toast.error('Could not read who has a repository or which are locked, so nothing was changed.')
+    return
+  }
+  n.plan = fresh.plan
   const token = getToken()
   const request = (method, path, body) => ghApi(token, method, path, body)
   const failed = []

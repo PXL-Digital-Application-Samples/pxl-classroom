@@ -169,6 +169,45 @@ test("IT GRADES THE COHORT AND WRITES A VALID SUMMARY", async () => {
   }
 });
 
+test("A LECTURER'S DECISION IS HONOURED ON AN ASSIGNMENT WITH NO HAND-IN CAP - and a score by hand needs no repository", async () => {
+  // Review 2026-09-26: the nightly read overrides/ only under a cap, so a
+  // score by hand on any other assignment was replaced by the rules' score;
+  // and a student with no repository was dropped with their score by hand.
+  const dir = controlDir({
+    assignmentExtra: "template_grades: true",
+    report: {
+      schema_version: 1, assignment_id: ID, generated_at: "2026-09-02T00:30:00.000Z",
+      students: [
+        { github_login: "ada", repo_name: REPO, preserved_sha: "a".repeat(40) },
+        { github_login: "bob" },
+      ],
+    },
+  });
+  mkdirSync(join(dir, "overrides", ID), { recursive: true });
+  const manual = (login, earned) => JSON.stringify({
+    schema_version: 1, assignment_id: ID, github_login: login,
+    overrides: [{ type: "manual_score", value: { earned, total: 20 }, reason: "oral exam", overridden_by: "lecturer1", overridden_at: "2026-09-02T09:00:00.000Z" }],
+  });
+  writeFileSync(join(dir, "overrides", ID, "ada.json"), manual("ada", 18));
+  writeFileSync(join(dir, "overrides", ID, "bob.json"), manual("bob", 9));
+  try {
+    await withApi(dir, {}, (res, state) => {
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      const doc = summaryAt(dir);
+      assert.ok(doc, `no summary written: ${res.stdout}`);
+      const by = Object.fromEntries(doc.students.map((s) => [s.login, s]));
+      assert.equal(by.ada.earned_points, 18, "the score by hand, not the run's 12");
+      assert.equal(by.ada.score_source, "manual");
+      assert.equal(by.ada.decided_by.reason, "oral exam");
+      assert.equal(by.bob.earned_points, 9, "no repository, still graded by hand");
+      assert.ok(!state.calls.some((c) => c.includes("/check-runs")), "a score by hand reads nothing");
+      assert.equal(validateAgainst("grading-summary", doc).valid, true);
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("AN ASSIGNMENT THAT GRADES NOTHING IS NOT TOUCHED", async () => {
   // The permissive answer here names every student in the cohort as a grading
   // failure on an assignment that has never graded anything. Same judge the

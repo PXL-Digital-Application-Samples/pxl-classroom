@@ -112,7 +112,15 @@ async function setup(page, { swapped = false } = {}) {
     if (ROOT[repo]) {
       const page = Number(url.searchParams.get('page') || 1);
       const headers = { link: `<https://api.github.com/repos/${ORG}/${repo}/commits?sha=main&per_page=1&page=4>; rel="last"`, 'access-control-expose-headers': 'Link' };
-      const row = page === 4 ? { sha: 'r'.repeat(40), commit: { tree: { sha: ROOT[repo] } } } : { sha: 'n'.repeat(40), commit: { tree: { sha: 'tip' } } };
+      // The first commit as GitHub returns a GENERATED one (measured on the
+      // testbed): no parent, the App's bot as author, web-flow as committer,
+      // verified. Only that is trusted as starter code (rootCommit).
+      const generated = {
+        sha: 'r'.repeat(40), parents: [],
+        author: { login: 'pxl-classroom-provisioner[bot]' }, committer: { login: 'web-flow' },
+        commit: { tree: { sha: ROOT[repo] }, verification: { verified: true, reason: 'valid' } },
+      };
+      const row = page === 4 ? generated : { sha: 'n'.repeat(40), commit: { tree: { sha: 'tip' } } };
       return route.fulfill({ status: 200, headers, body: JSON.stringify([row]) });
     }
     return route.fallback();

@@ -32,8 +32,8 @@ import { displayLogins, indexByLogin, normalizeLogin } from "../lib/github-login
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { normalizeRosterMode } from "../lib/roster-mode.mjs";
 import { assignmentAdmitsStudent, restrictsCohort } from "../lib/cohort.mjs";
-import { CLAIM_ADDRESS_FORMAT, CONTROL_REPO } from "../lib/deployment.mjs";
-import { addressFormatAllowed, resolveAddressFormat } from "../lib/claim.mjs";
+import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, CONTROL_REPO } from "../lib/deployment.mjs";
+import { addressFormatAllowed, domainAllowed, resolveAddressFormat, resolveClaimDomains } from "../lib/claim.mjs";
 import { teamRepresentative } from "../lib/team-representative.mjs";
 
 async function setOutput(name, value) {
@@ -155,7 +155,17 @@ async function main() {
   const claims = await readDirJsonFiles(join(dataDir, "students", "claims"));
   const claimById = new Map(claims.filter((c) => Number.isInteger(c?.github_id)).map((c) => [c.github_id, c]));
   const claimByLogin = indexByLogin(claims);
-  const addressFormat = resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT);
+  // Judged against THIS assignment's rules today, never against the flag the
+  // binding was written with: the binding is org-wide and may come from an
+  // assignment with other domains, and the hub re-asks by today's rules.
+  // The form only where the address is the student's own word - `open`. Under
+  // `claim` the roster registered it and the gate admits it whatever its form;
+  // under `enforced` no address was asked for. Flagging either would prompt a
+  // lecturer to chase students the gate never asks again.
+  const claimDomains = resolveClaimDomains(assignment, CLAIM_DOMAINS);
+  const addressFormat = normalizeRosterMode(assignment.roster_mode) === "open"
+    ? resolveAddressFormat(assignment, CLAIM_ADDRESS_FORMAT)
+    : null;
 
   // Load repository records
   const repos = await readDirJsonFiles(
@@ -621,13 +631,14 @@ async function main() {
       claim_verified: currentClaim ? Boolean(currentClaim.claim_verified) : (acceptance?.claim_verified ?? null),
       // Null, not true, when there is no claim: "inside the allowed domains" is
       // a statement about an address, and there is no address to make it about.
-      claim_domain_allowed: currentClaim
-        ? currentClaim.domain_allowed !== false
-        : (acceptance?.claimed_email ? acceptance.claim_domain_allowed !== false : null),
+      claim_domain_allowed: (currentClaim?.email ?? acceptance?.claimed_email)
+        ? domainAllowed(currentClaim?.email ?? acceptance.claimed_email, claimDomains)
+        : null,
       // Whether that address has the FORM deployment.yml asks for (firstname.lastname
       // at PXL). Computed now, against today's rule, so a binding confirmed
       // before the rule is flagged without rewriting anything. Null with no
-      // address, and TRUE where no form is required - nothing to flag.
+      // address, and TRUE where no form is required - nothing to flag (which
+      // includes every mode but `open`, above).
       claim_format_allowed: (currentClaim?.email ?? acceptance?.claimed_email)
         ? addressFormatAllowed(currentClaim?.email ?? acceptance.claimed_email, addressFormat)
         : null,
