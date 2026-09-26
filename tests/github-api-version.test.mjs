@@ -52,3 +52,29 @@ test("the CLI's client actually SENDS the header, on every request", async () =>
   await octokit.request("GET /rate_limit");
   assert.equal(seen?.get("x-github-api-version"), GITHUB_API_VERSION);
 });
+
+// Counts what reaches the transport for one request answered `status`.
+async function attemptsFor(status) {
+  const { makeOctokit } = await import("../cli/src/lib/octokit.mjs");
+  let calls = 0;
+  const fetch = async () => {
+    calls++;
+    return new Response(JSON.stringify({ message: `HTTP ${status}` }), { status, headers: { "content-type": "application/json" } });
+  };
+  const octokit = makeOctokit({ token: "test", fetch, retryBaseMs: 1 });
+  await assert.rejects(octokit.rest.issues.create({ owner: "o", repo: "r", title: "t" }), (e) => e.status === status);
+  return calls;
+}
+
+test("the CLI asks a refused request ONCE: a 4xx is an answer, not a blip", async () => {
+  // `request: { retries: 3 }` made the retry plugin skip its never-retry list,
+  // so a live 422 on issues.create was sent four times.
+  for (const status of [400, 401, 403, 404, 410, 422, 451]) {
+    assert.equal(await attemptsFor(status), 1, `HTTP ${status} was retried`);
+  }
+});
+
+test("the CLI still retries a 5xx three times", async () => {
+  assert.equal(await attemptsFor(500), 4);
+  assert.equal(await attemptsFor(502), 4);
+});
