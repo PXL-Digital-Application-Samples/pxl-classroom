@@ -112,6 +112,7 @@ export type Claim = {
     email?: string;
     claimed_at?: string;
   }>;
+  claimed_through?: "claim" | "open" | "confirm";
 };
 
 /** One element of `Claim.history`. */

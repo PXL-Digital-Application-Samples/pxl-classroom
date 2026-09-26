@@ -112,6 +112,8 @@ globalThis.fetch = async (input, init = {}) => {
   if (m) return contents(m[1]);
 
   if (path === "/user") return json(200, { login: "lecturer", id: 7 });
+  // `roster reset-attempts` looks the account id up; alice is 1001, as her claim says.
+  if (path === "/users/alice") return json(200, { login: "alice", id: 1001 });
   // The git-data read path commitWithRebase walks before writing: ref -> commit
   // -> tree. Serving these is what lets the WET run reach the POSTs.
   if (/\/git\/ref\//.test(path)) return json(200, { object: { sha: "head-sha" } });

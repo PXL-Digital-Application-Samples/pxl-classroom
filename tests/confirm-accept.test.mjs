@@ -19,7 +19,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -446,13 +446,50 @@ test("REUSE: bound and in the cohort is accepted without asking again (the ordin
   assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
 });
 
-test("REUSE: bound, on the roster, NOT in this assignment's cohort is refused - and COUNTED", () => {
-  // Counted since review 2026-09-26: the binding may have been written by the
-  // confirm link precisely to ask this.
-  const dir = makeDir({ over: { ...claimMode, cohort: ["num:0888"] }, roster: namedRoster, claims: [namedBinding()] });
-  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
-  assert.equal(res.outputs.outcome, "rejected:not-in-cohort");
-  assert.ok(existsSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`)), "counted");
+test("REUSE: bound, on the roster, NOT in this cohort - COUNTED only when the binding is a guess (claimed_through)", () => {
+  // Counted since review 2026-09-26 when the confirm link (or open enrolment)
+  // wrote the binding: it may have been written precisely to ask this. NOT
+  // counted when the claim gate wrote it (third review): that binding is the
+  // student's own, and the wrong section's link five times used to block them
+  // in every assignment.
+  const attemptsFile = (dir) => join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`);
+  const over = { ...claimMode, cohort: ["num:0888"] };
+  for (const through of ["confirm", "open"]) {
+    const dir = makeDir({ over, roster: namedRoster, claims: [namedBinding({ claimed_through: through })] });
+    assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:not-in-cohort");
+    assert.ok(existsSync(attemptsFile(dir)), `counted when written by ${through}`);
+  }
+  for (const through of ["claim", undefined]) {
+    const dir = makeDir({ over, roster: namedRoster, claims: [namedBinding({ claimed_through: through })] });
+    for (let i = 0; i < 6; i++) {
+      assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:not-in-cohort", "never blocked");
+    }
+    assert.ok(!existsSync(attemptsFile(dir)), `not counted when ${through ?? "absent (before the field)"}`);
+  }
+});
+
+test("REUSE: a success clears a counter, and refreshes a renamed login", () => {
+  // Third review: kept, four old typos left a student one event from being
+  // blocked in every assignment; and the binding kept a login unlink keys on.
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [namedBinding({ github_login: "old-name" })] });
+  mkdirSync(join(dir, "students", "claim-attempts"), { recursive: true });
+  const attempts = join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`);
+  writeFileSync(attempts, JSON.stringify({ schema_version: 1, failures: 4, first_at: "2026-09-26T00:00:00Z", last_at: "2026-09-26T00:00:00Z" }));
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
+  assert.ok(!existsSync(attempts), "cleared");
+  assert.equal(readClaim(dir).github_login, LOGIN);
+});
+
+test("claimed_through records which path wrote the binding", () => {
+  const gate = makeDir({ over: claimMode, roster: namedRoster });
+  assert.equal(run(gate, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNamed }).outputs.outcome, "accepted");
+  assert.equal(readClaim(gate).claimed_through, "claim");
+  const link = makeDir({ over: claimMode, roster: namedRoster });
+  run(link, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed }));
+  assert.equal(readClaim(link).claimed_through, "confirm");
+  const open = makeDir({ over: { roster_mode: "open", max_acceptances: 50 } });
+  run(open, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNamed });
+  assert.equal(readClaim(open).claimed_through, "open");
 });
 
 test("THE CONFIRM-THEN-ACCEPT LOOP (review 2026-09-26): each probe costs an attempt, and a spent account stays blocked", () => {
@@ -486,9 +523,11 @@ test("TAKEN asks who was FIRST among every holder, and a tie has exactly one win
   assert.equal(run(makeDir({ over: claimMode, roster: namedRoster, claims: tieWins }), { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
 });
 
-test("CORRECTING AWAY AND BACK keeps the account's place: who was first is who held the address first (history)", () => {
-  // Review 2026-09-26: A holds X, corrects to Y, back to X - and B, who
-  // confirmed X in between, became "first" because A's claimed_at reset.
+test("CORRECTING AWAY AND BACK gives up the place: first holder is CONTINUOUS holding, and a lecturer unlinks to fix it", () => {
+  // Third review, 2026-09-26: counting the earliest time an account EVER held
+  // an address let anyone confirm a classmate's address through the free link,
+  // move away, and later take it back from the student who claimed it in
+  // between. Letting an address go gives up the place; `history` is a record.
   const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [namedBinding({ claimed_at: "2026-09-01T00:00:00.000Z" })] });
   assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offRoster })).outputs.outcome, "confirmed", "away to another address");
   // B confirms X while A is away (a separate account's binding, written directly).
@@ -497,7 +536,17 @@ test("CORRECTING AWAY AND BACK keeps the account's place: who was first is who h
   assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed })).outputs.outcome, "confirmed", "and back");
   const rec = readClaim(dir);
   assert.deepEqual(rec.history.map((h) => h.email), ["alice.peeters@student.pxl.be", "mal.lory@student.pxl.be"]);
-  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted", "A held it first, since 09-01");
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:claim-taken", "B has held it without a break since 09-15");
+  // The override: the lecturer unlinks B (deletes the binding), and A is in.
+  rmSync(join(dir, "students", "claims", "555.json"));
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted", "after the lecturer unlinks the squatter");
+});
+
+test("OPEN: a number-form binding the ROSTER registers is not asked again", () => {
+  // Third review: the gate and the confirm link exempt a registered address
+  // from the form; `open` re-asked it for an address the student does not have.
+  const dir = makeDir({ over: { roster_mode: "open", max_acceptances: 50, require_claim: true }, roster: numberRoster, claims: [numberBinding()] });
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
 });
 
 test("THE CONFIRM LINK accepts a number-form address the ROSTER registers, as acceptance does", () => {

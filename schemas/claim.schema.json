@@ -77,7 +77,12 @@
           "claimed_at": { "type": "string", "format": "date-time" }
         }
       },
-      "description": "Every earlier binding of this account, oldest first, at most 20 - `replaces` is only the last one. Read for WHO WAS FIRST to hold an address (acceptance/accept.mjs `holdersOf`): an account that corrected away from an address and back keeps the time it first held it, rather than losing to whoever confirmed the address in between. Absent on a first binding."
+      "description": "Every earlier binding of this account, oldest first, at most 20 - `replaces` is only the last one. A RECORD of what the account said, never a claim on anything: who was first to hold an address counts continuous holding only (lib/claim.mjs `heldSince`), because an earliest-ever time let an address given up be taken back from the student who claimed it in between. Absent on a first binding."
+    },
+    "claimed_through": {
+      "type": "string",
+      "enum": ["claim", "open", "confirm"],
+      "description": "Which path wrote the binding: the claim gate (roster and cohort checked), open enrolment, or the confirm-email link (neither checked, and free). A refusal on a binding the claim gate did NOT write is a guess and is counted against the attempt limit; one on a gate-admitted binding is not (acceptance/accept.mjs). Absent on bindings written before the field: treated as gate-admitted."
     }
   }
 }

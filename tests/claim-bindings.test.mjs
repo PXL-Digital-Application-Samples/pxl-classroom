@@ -136,17 +136,18 @@ test("a claim with no address at all is an orphan rather than silently dropped",
   assert.equal(orphanClaims(roster({ email: "a@student.pxl.be" }), [{ github_login: "x", github_id: 1 }]).length, 1);
 });
 
-test("two claims on one address are both kept and reported", () => {
-  // accept.mjs refuses to create this (rejected:claim-taken), so it means a
-  // hand-edited or restored file. Keeping whichever was read last would hide a
-  // real fault behind a plausible answer.
-  const dup = indexClaims([
-    claim("alice-pxl", 111, "shared@student.pxl.be"),
-    claim("bob-pxl", 222, "shared@student.pxl.be"),
-  ]);
-  assert.equal(dup.duplicates.length, 1);
-  assert.equal(dup.duplicates[0].claims.length, 2);
-  assert.equal(dup.byEmail.get("shared@student.pxl.be").github_login, "alice-pxl", "first wins, as acceptance does");
+test("two claims on one address are both reported, and the binding shown is the FIRST HOLDER in any listing order", () => {
+  // Open enrolment and the confirm link record duplicates rather than refuse.
+  // The column showed whichever file was listed first while acceptance admitted
+  // the first holder (third review, 2026-09-26) - one question, two answers.
+  const early = { ...claim("bob-pxl", 222, "shared@student.pxl.be"), claimed_at: "2026-09-01T00:00:00.000Z" };
+  const late = { ...claim("alice-pxl", 111, "shared@student.pxl.be"), claimed_at: "2026-09-10T00:00:00.000Z" };
+  for (const list of [[early, late], [late, early]]) {
+    const dup = indexClaims(list);
+    assert.equal(dup.duplicates.length, 1);
+    assert.equal(dup.duplicates[0].claims.length, 2);
+    assert.equal(dup.byEmail.get("shared@student.pxl.be").github_login, "bob-pxl", "the first holder, as acceptance does");
+  }
 });
 
 // --- summary -----------------------------------------------------------------

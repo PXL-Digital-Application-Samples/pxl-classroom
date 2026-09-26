@@ -35,7 +35,7 @@ import {
   decryptClaimWithAnyKey,
   claimPrivateKeys,
   domainAllowed,
-  heldSince,
+  byFirstHolder,
   normalizeEmail,
   recordFailedAttempt,
   resolveClaimDomains,
@@ -108,10 +108,14 @@ function validate(assignmentId, login, id) {
 // The checks are therefore ordered cheapest-refusal-first, and the two that
 // cost nothing at all come before anything is decrypted or read:
 //
-//   1. already claimed  - idempotent, no re-prompt, no counter touched
-//   2. attempts spent   - refuse before decrypting, before reading the roster
+//   1. attempts spent   - refuse before anything, the reuse below included
+//   2. already claimed  - reused through the roster, cohort and first-holder
+//                         checks; a refusal counts only on a binding the claim
+//                         gate did not write (`claimed_through`), and a reuse
+//                         clears the counter like any success
 //   3. no payload       - does NOT count; an absent claim is a stale link or a
-//                         client that did not prompt, not a guess
+//                         client that did not prompt, not a guess - except on
+//                         top of an unchecked binding the roster does not hold
 //   4. decrypt          - counts
 //   5. author mismatch  - counts; this is the replay check
 //   6. domain           - counts
@@ -178,12 +182,21 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     await writeFile(attemptsFile, JSON.stringify(recordFailedAttempt(attempts, iso), null, 2) + "\n");
   };
 
+  // COUNT GUESSES ONLY. A binding the claim gate admitted (roster and cohort
+  // checked) is the student's own - refusing it on the wrong section's link
+  // five times used to lock them out of every assignment, including ones they
+  // had accepted (third review, 2026-09-26). A binding the confirm link or open
+  // enrolment wrote was never checked, so a refusal on it answers a guess and
+  // counts. Absent `claimed_through` is a binding from before the field.
+  const gateAdmitted = existing?.claimed_through === undefined || existing?.claimed_through === "claim";
+  const countIfGuess = async () => {
+    if (!gateAdmitted) await countFailure();
+  };
+
   const existingEntry = existing?.email ? rosterEntryForEmail(roster, existing.email) : null;
   if (existingEntry && domainAllowed(existing.email, rules.domains)) {
     if (!assignmentAdmitsStudent(assignment, existingEntry)) {
-      // Counted, like step 7b: the binding may have been written by the
-      // confirm link to probe exactly this.
-      await countFailure();
+      await countIfGuess();
       await reject(
         CLAIM_REJECTIONS.NOT_IN_COHORT,
         `${existing.email} is registered for this course, but this assignment is not for them. ` +
@@ -192,14 +205,22 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     }
     // FIRST HOLDER wins, among every binding of this address (holdersOf).
     const first = (await holdersOf(dataDir, existing.email))[0];
-    if (first && first.github_id !== githubId) {
-      await countFailure();
+    if (first && Number(first.github_id) !== Number(githubId)) {
+      await countIfGuess();
       await reject(
         CLAIM_REJECTIONS.TAKEN,
         `${existing.email} has already been claimed by another GitHub account. If that was not you, tell your lecturer - they can unlink it.`,
       );
     }
     log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
+    // A SUCCESS CLEARS THE COUNTER, this path too: kept, four old typos left a
+    // student one event from being blocked in every assignment.
+    if (existsSync(attemptsFile)) await rm(attemptsFile);
+    // The login is REFRESHED (the schema says so): a renamed account kept its
+    // old login in the binding, which `unlink --login` and the report key on.
+    if (existing.github_login !== login) {
+      await writeFile(claimFile, JSON.stringify({ ...existing, github_login: login }, null, 2) + "\n");
+    }
     // domainAllowed is true by construction on this path. Stated rather than
     // left undefined so both gates return the same shape.
     return { email: existing.email, verified: Boolean(existing.claim_verified), domainAllowed: true, reused: true };
@@ -217,7 +238,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     // ("asked again") says the confirmed address is not registered, which is
     // the probe the counter exists to limit (the page always sends an
     // address under `claim`, so a legitimate acceptance does not land here).
-    if (replacing) await countFailure();
+    if (replacing) await countIfGuess();
     await reject(
       CLAIM_REJECTIONS.NO_CLAIM,
       `this assignment needs your ${INSTITUTION} email address, and the acceptance did not carry one. Open the invitation link again and confirm your address.`,
@@ -345,6 +366,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     now: iso,
     replaces: replacing ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
     previous: replacing,
+    through: "claim",
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
@@ -428,13 +450,19 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   // said they were (a wrong but well-formed address, one the roster does not
   // hold): it replaces the binding. Reused, the link could never fix it.
   const correcting = voice === "confirm" && env("CLAIM_PAYLOAD", "").trim() !== "";
-  if (existing?.email && bindingMeetsRules(existing, rules) && !correcting) return reuse();
+  // An address the ROSTER registers meets the form whatever it looks like, as
+  // at the claim gate and in the confirm refusal below: re-asking a student
+  // registered as `12345678@` for an address they do not have is a loop.
+  const meetsRules = (b) =>
+    bindingMeetsRules(b, rules) ||
+    Boolean(b?.email && domainAllowed(b.email, rules.domains) && rosterEntryForEmail(roster, b.email));
+  if (existing?.email && meetsRules(existing) && !correcting) return reuse();
   const replacing = existing?.email ? existing : null;
   if (replacing && !env("CLAIM_PAYLOAD", "").trim() && !required) return reuse();
   if (replacing) {
     log("claim", {
       ok: true,
-      note: correcting && bindingMeetsRules(existing, rules)
+      note: correcting && meetsRules(existing)
         ? `@${login} was bound to ${replacing.email} and is confirming an address again - a correction`
         : `@${login} was bound to ${replacing.email}, which no longer meets the rules - asking again`,
     });
@@ -525,7 +553,7 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   // unattended nightly (verifiedOnly) would keep holding that roster row.
   const sameAddress = existing?.email && normalizeEmail(opened.email) === normalizeEmail(existing.email);
   const nowVerified = env("CLAIM_VERIFIED", "") === "true" && existing?.claim_verified !== true;
-  if (sameAddress && bindingMeetsRules(existing, rules) && !nowVerified) {
+  if (sameAddress && meetsRules(existing) && !nowVerified) {
     return reuse();
   }
 
@@ -580,6 +608,10 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
     domainAllowed: domainOk,
     replaces: replacing && !sameAddress ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
     previous: replacing,
+    // The same address upgraded to verified keeps which path checked it: the
+    // gate's roster check still stands. A new address is this path's own.
+    // Absent stays absent (a binding from before the field).
+    through: sameAddress ? (existing.claimed_through ?? null) : voice === "confirm" ? "confirm" : "open",
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
@@ -625,10 +657,7 @@ async function holdersOf(dataDir, email) {
       // student who has done nothing wrong.
     }
   }
-  // Since when THIS account has held the address, its history included: an
-  // account that corrected away and back keeps its place (heldSince).
-  const at = (r) => heldSince(r, email) || "￿";
-  return out.sort((a, b) => at(a).localeCompare(at(b)) || (Number(a.github_id) || 0) - (Number(b.github_id) || 0));
+  return out.sort(byFirstHolder(email));
 }
 
 /**

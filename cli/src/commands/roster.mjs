@@ -39,7 +39,7 @@ import {
   claimPromoteCommitMessage,
   claimPromotionChangesAnything,
 } from "../../../lib/promote-roster.mjs";
-import { CONTROL_REPO, getAssignment, listAcceptances, listClaims, deleteClaim } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, listAcceptances, listClaims, deleteClaim, resetClaimAttempts } from "../lib/control-repo.mjs";
 // The one join between a claim and a roster entry. Four surfaces read it; see
 // lib/claim-bindings.mjs for why it is not written out per surface.
 import {
@@ -48,7 +48,8 @@ import {
   claimSummary,
   describeBinding,
 } from "../../../lib/claim-bindings.mjs";
-import { normalizeEmail } from "../../../lib/claim.mjs";
+import { claimAttemptsPath, normalizeEmail, resolveAddressFormat } from "../../../lib/claim.mjs";
+import { CLAIM_ADDRESS_FORMAT } from "../../../lib/deployment.mjs";
 import { rowsToRoster } from "../../../lib/roster-csv.mjs";
 
 function csvToRoster(csvText, filename) {
@@ -294,6 +295,11 @@ export function registerRosterCommand(program) {
 
       if (wanted.length === 0) {
         process.stdout.write(`No claim binding for ${opts.login ? `@${opts.login}` : opts.email} in ${org}.\n`);
+        // A student blocked by failed attempts usually has NO binding - that is
+        // why they are blocked - so "nothing to unlink" must not be a dead end.
+        if (opts.login) {
+          process.stdout.write(`If they are blocked by failed attempts: pxl-classroom roster reset-attempts --login ${opts.login}\n`);
+        }
         return;
       }
 
@@ -337,6 +343,45 @@ export function registerRosterCommand(program) {
     });
 
   roster
+    .command("reset-attempts")
+    .description("Clear a student's failed-attempt counter so they can confirm an address again. Keeps any binding.")
+    .option("--org <login>", "GitHub org login (defaults to last used)")
+    .requiredOption("--login <username>", "GitHub account whose counter to clear")
+    .option("--dry-run", "Show what would be removed without deleting", false)
+    .action(async (opts) => {
+      const org = resolveOrg(opts.org);
+      const octokit = makeOctokit();
+      // The counter is keyed by the immutable account id, and a blocked student
+      // usually has no binding to read it from - so GitHub is asked.
+      let githubId;
+      try {
+        const res = await octokit.request("GET /users/{username}", { username: opts.login });
+        githubId = res.data?.id;
+      } catch (e) {
+        process.stderr.write(`Could not look up @${opts.login} on GitHub (HTTP ${e.status ?? "?"}).\n`);
+        process.exit(1);
+      }
+      if (!Number.isInteger(githubId)) {
+        process.stderr.write(`GitHub returned no account id for @${opts.login}.\n`);
+        process.exit(1);
+      }
+      if (opts.dryRun) {
+        process.stdout.write(`Would clear ${claimAttemptsPath(githubId)} in ${org} (--dry-run; nothing deleted).\n`);
+        return;
+      }
+      const removed = await resetClaimAttempts(octokit, {
+        org,
+        githubId,
+        message: `Reset failed claim attempts for @${opts.login}`,
+      });
+      process.stdout.write(
+        removed
+          ? `Cleared the failed-attempt counter for @${opts.login}. They can confirm an address again.\n`
+          : `@${opts.login} has no failed-attempt counter in ${org} - nothing was blocking them there.\n`,
+      );
+    });
+
+  roster
     .command("promote")
     .description("Fold student identities into the roster: --assignment for open-mode acceptances, --claims for claim bindings.")
     .option("--assignment <id>", "Assignment whose acceptances to promote (roster_mode: open)")
@@ -366,7 +411,12 @@ export function registerRosterCommand(program) {
           process.exit(1);
         }
         const { roster: existing } = await fetchExistingRoster(octokit, { org });
-        const plan = planClaimPromotion({ claims: records, roster: existing, actor: "pxl-classroom-cli" });
+        const plan = planClaimPromotion({
+          claims: records,
+          roster: existing,
+          actor: "pxl-classroom-cli",
+          format: resolveAddressFormat(null, CLAIM_ADDRESS_FORMAT),
+        });
 
         for (const w of plan.warnings) process.stdout.write(`  ! ${w.message}\n`);
         if (!plan.ok) {

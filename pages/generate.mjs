@@ -229,8 +229,8 @@ async function main() {
       // Under `claim` the ROSTER decides, and the hub admits an address it
       // registers whatever its form - so a page filtering by form would hide
       // the one address that can get in from a student registered as
-      // `12345678@`. Off on the page; the hub still refuses, uncounted, an
-      // unregistered address without the form.
+      // `12345678@`. Off on the page; the hub still refuses an unregistered
+      // address without the form, and counts it as a failed attempt.
       claim_address_format: def.claim_address_format === false || normalizeRosterMode(def.roster_mode) === "claim" ? false : undefined,
       // WHETHER THE STUDENT IS ASKED FOR AN ADDRESS AT ALL, under `open`.
       //

@@ -591,6 +591,9 @@ export async function setupStandardMockRoutes(page, {
   // A record given as the string 'UNREADABLE' is served as a 500, so a spec can
   // reproduce the partial read that must refuse an unlink.
   claims = null,
+  // Failed-attempt counters (students/claim-attempts/<github_id>.json), keyed
+  // by github_id. Absent is 404, the ordinary case.
+  claimAttempts = {},
   // Every acceptance title the SPA posted, with the verdict the REAL broker
   // verifier gave it: { ok, reason, title, assignmentId, signed }. Pass an
   // array to assert on the seam directly; the fixture rejects an unverifiable
@@ -949,6 +952,12 @@ export async function setupStandardMockRoutes(page, {
         // Return 204 if starred, 404 otherwise
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
       }
+    } else if (/\/users\/[^/?#]+(\?|$)/.test(url)) {
+      // GET /users/{login} - another account, not the signed-in one. Caught by
+      // the `/user` branch below before this existed, which answered every
+      // lookup with the CURRENT user's id.
+      const login = decodeURIComponent(url.match(/\/users\/([^/?#]+)/)[1]);
+      await route.fulfill({ status: 200, body: JSON.stringify({ login, id: personaId(login) }) });
     } else if (url.includes('/user')) {
       await route.fulfill({
         status: 200,
@@ -1294,7 +1303,16 @@ export async function setupStandardMockRoutes(page, {
       } else if (url.includes('/pxl-classroom-control/contents/students/claim-attempts/')) {
         // The counter unlink also clears. Absent is the ordinary case - a
         // student who never failed has no file - and deleteFile treats a 404 as
-        // "nothing to delete", so this must 404 rather than error.
+        // "nothing to delete", so this must 404 rather than error. A spec seeds
+        // one through `claimAttempts` (keyed by github_id).
+        const id = (url.match(/claim-attempts\/(\d+)\.json/) || [])[1];
+        if (id && claimAttempts[id]) {
+          await route.fulfill({
+            status: 200,
+            body: JSON.stringify({ content: Buffer.from(JSON.stringify(claimAttempts[id])).toString('base64'), encoding: 'base64', sha: `attempts_sha_${id}` }),
+          });
+          return;
+        }
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
         return;
       } else if (/\/pxl-classroom-control\/contents\/acceptances\/[^/?#]+(\?|$)/.test(url)) {

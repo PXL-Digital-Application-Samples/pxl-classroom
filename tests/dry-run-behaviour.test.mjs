@@ -193,6 +193,16 @@ const CASES = [
     argv: ["roster", "unlink", "--login", "alice", "--org", ORG, "--force"],
   },
   {
+    name: "roster reset-attempts",
+    id: "roster.mjs:reset-attempts",
+    // A counter to clear, so the wet run has a DELETE to make.
+    repo: () => ({
+      ...controlRepo(),
+      "students/claim-attempts/1001.json": JSON.stringify({ schema_version: 1, failures: 5, first_at: "2026-01-02T00:00:00Z", last_at: "2026-01-02T00:00:00Z" }),
+    }),
+    argv: ["roster", "reset-attempts", "--login", "alice", "--org", ORG],
+  },
+  {
     name: "roster import",
     id: "roster.mjs:import",
     // The CSV carries a student the stored roster does not have, so there is a

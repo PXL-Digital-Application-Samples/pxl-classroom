@@ -102,14 +102,30 @@ test("a claim naming a different account than the roster holds is left alone", (
   );
 });
 
-test("an address two accounts claim is left alone", () => {
+test("an address two accounts claim folds its FIRST HOLDER - the account acceptance admits", () => {
+  // Third review, 2026-09-26: duplicates are ordinary (open enrolment and the
+  // confirm link record them), and holding them left the roster disagreeing
+  // with acceptance for ever.
   const dir = control({
     students: [{ email: "dup@student.pxl.be", full_name: "Dup" }],
-    claims: [claim("one", 1, "dup@student.pxl.be"), claim("two", 2, "dup@student.pxl.be")],
+    claims: [
+      claim("later", 1, "dup@student.pxl.be", { claimed_at: "2026-09-05T10:00:00.000Z" }),
+      claim("first", 2, "dup@student.pxl.be"),
+    ],
   });
 
   run(dir);
-  assert.equal(rosterOf(dir).students[0].github_login ?? null, null, "picking a winner silently is the bug");
+  assert.equal(rosterOf(dir).students[0].github_login, "first");
+});
+
+test("an address without the required form is never written into a row", () => {
+  const dir = controlRaw({
+    rosterYaml: `schema_version: 2\nstudents:\n  - student_number: "9"\n    github_login: numbered\n    github_id: 9\n`,
+    claims: [claim("numbered", 9, "12345678@student.pxl.be")],
+  });
+  const out = run(dir);
+  assert.equal(rosterOf(dir).students[0].email ?? null, null);
+  assert.match(out, /required form/);
 });
 
 test("--dry-run writes nothing at all", () => {

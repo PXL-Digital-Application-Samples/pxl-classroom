@@ -38,6 +38,8 @@ import { stringify as yamlStringify } from "yaml";
 import { loadYaml } from "../lib/yaml.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { claimPromotionChangesAnything, planClaimPromotion } from "../lib/promote-roster.mjs";
+import { resolveAddressFormat } from "../lib/claim.mjs";
+import { CLAIM_ADDRESS_FORMAT } from "../lib/deployment.mjs";
 
 function arg(name, fallback = "") {
   const i = process.argv.indexOf(`--${name}`);
@@ -83,6 +85,7 @@ async function main() {
     roster,
     actor: "nightly",
     verifiedOnly: true,
+    format: resolveAddressFormat(null, CLAIM_ADDRESS_FORMAT),
   });
 
   if (!plan.ok) {
@@ -92,7 +95,7 @@ async function main() {
   }
 
   const { updated, identified, readdressed, unverified, conflicts, ambiguous } = plan;
-  const held = unverified.length + conflicts.length + ambiguous.length + plan.readdressHeld.length;
+  const held = unverified.length + conflicts.length + ambiguous.length + plan.readdressHeld.length + plan.outsideDomains.length + plan.wrongForm.length;
   const changes = updated.length + identified.length + readdressed.length;
 
   // ALL THREE DIRECTIONS, through the one predicate that says so. This checked

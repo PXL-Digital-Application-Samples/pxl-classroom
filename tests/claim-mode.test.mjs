@@ -153,11 +153,12 @@ test("a missing payload and a missing hub key never spend a student's attempts",
   // may increment.
   // ONE exception, and it is not a deployment fault: no payload on top of a
   // binding the roster does not hold is the second half of the confirm-link
-  // probe (review 2026-09-26), and the page always sends an address.
+  // probe (review 2026-09-26), and the page always sends an address. Counted
+  // only when that binding is a guess (countIfGuess: not gate-written).
   const noPayload = body.slice(body.indexOf("if (!payload)"), body.indexOf("const privateKeys"));
-  const counted = noPayload.split("countFailure").length - 1;
+  const counted = noPayload.split(/countFailure|countIfGuess/).length - 1;
   assert.equal(counted, 1, "exactly one counted case in the no-payload branch");
-  assert.match(noPayload, /if \(replacing\) await countFailure\(\);/, "and only on top of an unregistered binding");
+  assert.match(noPayload, /if \(replacing\) await countIfGuess\(\);/, "and only on top of an unregistered, unchecked binding");
 
   // The hub holds a LIST of keys since rotation became possible, so "no key" is
   // an empty list rather than a falsy string. Same branch, same rule.

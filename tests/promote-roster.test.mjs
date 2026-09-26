@@ -43,6 +43,7 @@ import {
   PROMOTED_SOURCE,
 } from "../lib/roster-entries.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
+import { resolveAddressFormat } from "../lib/claim.mjs";
 
 // ROSTER_SOURCES was exported and imported by nobody, while isPromotedEntry
 // compared against the literal "accepted" - a constant describing a rule it did
@@ -789,12 +790,13 @@ test("verifiedOnly does not rescue a conflict or an ambiguity", () => {
   assert.equal(conflicting.stats.updated, 0);
   assert.equal(conflicting.stats.conflicts, 1);
 
+  // Two claims for ONE account (by id) is still ambiguous: which address is it?
   const ambiguousPlan = planClaimPromotion({
-    roster: claimRoster({ email: "alice@student.pxl.be" }),
-    claims: [claimRec("one", 1, "alice@student.pxl.be"), claimRec("two", 2, "alice@student.pxl.be")],
+    roster: claimRoster({ github_login: "one", github_id: 1 }),
+    claims: [claimRec("one", 1, "a@student.pxl.be"), claimRec("one", 1, "b@student.pxl.be")],
     verifiedOnly: true,
   });
-  assert.equal(ambiguousPlan.stats.updated, 0);
+  assert.equal(ambiguousPlan.stats.identified, 0);
   assert.equal(ambiguousPlan.stats.ambiguous, 1);
 });
 
@@ -850,15 +852,42 @@ test("a claim agreeing with the roster changes nothing and is not a conflict", (
   assert.equal(claimPromotionChangesAnything(plan), false);
 });
 
-test("an address claimed twice is left alone rather than picking a winner", () => {
-  // accept.mjs refuses to create this, so it is a hand-edited or restored file.
-  const plan = planClaimPromotion({
+test("an address claimed twice folds its FIRST HOLDER - the account acceptance admits - in any listing order", () => {
+  // Duplicates are ordinary: open enrolment and the confirm link record them.
+  // Holding every one as ambiguous left the roster disagreeing with acceptance
+  // for ever (third review, 2026-09-26).
+  const first = { ...claimRec("first", 222, "shared@student.pxl.be"), claimed_at: "2026-09-01T10:00:00.000Z" };
+  const later = { ...claimRec("later", 111, "shared@student.pxl.be"), claimed_at: "2026-09-02T10:00:00.000Z" };
+  for (const claims of [[first, later], [later, first]]) {
+    const plan = planClaimPromotion({ roster: claimRoster({ email: "shared@student.pxl.be" }), claims });
+    assert.equal(plan.stats.updated, 1);
+    assert.equal(plan.stats.ambiguous, 0);
+    assert.equal(plan.nextRoster.students[0].github_login, "first");
+  }
+  // Equal times: the lower id, so exactly one account is first.
+  const tie = planClaimPromotion({
     roster: claimRoster({ email: "shared@student.pxl.be" }),
-    claims: [claimRec("first", 111, "shared@student.pxl.be"), claimRec("second", 222, "shared@student.pxl.be")],
+    claims: [claimRec("high", 222, "shared@student.pxl.be"), claimRec("low", 111, "shared@student.pxl.be")],
   });
-  assert.equal(plan.stats.updated, 0);
-  assert.equal(plan.stats.ambiguous, 1);
-  assert.equal(plan.nextRoster.students[0].github_login, undefined);
+  assert.equal(tie.nextRoster.students[0].github_login, "low");
+});
+
+test("an address WITHOUT the required form is never written into the roster (third review, 2026-09-26)", () => {
+  // Once in the roster it is a REGISTERED address, which the claim gate admits
+  // whatever its form - so open enrolment's `12345678@` would become a door.
+  const format = resolveAddressFormat(null, { pattern: "^[a-z]+\\.[a-z]+$", example: "firstname.lastname" });
+  const numberForm = { ...claimRec("stu", 5, "12345678@student.pxl.be"), domain_allowed: true };
+  const plan = planClaimPromotion({ roster: claimRoster({ github_login: "stu", github_id: 5 }), claims: [numberForm], format });
+  assert.equal(plan.stats.identified, 0);
+  assert.equal(plan.stats.wrong_form, 1);
+  assert.equal(plan.nextRoster.students[0].email, undefined);
+  assert.ok(plan.warnings.some((w) => w.code === "claim-wrong-form"));
+  // The name form is written.
+  const named = { ...claimRec("stu", 5, "ann.peeters@student.pxl.be"), domain_allowed: true };
+  const ok = planClaimPromotion({ roster: claimRoster({ github_login: "stu", github_id: 5 }), claims: [named], format });
+  assert.equal(ok.stats.identified, 1);
+  // No format given: any form, as before.
+  assert.equal(planClaimPromotion({ roster: claimRoster({ github_login: "stu", github_id: 5 }), claims: [numberForm] }).stats.identified, 1);
 });
 
 test("an orphan claim adds nobody", () => {

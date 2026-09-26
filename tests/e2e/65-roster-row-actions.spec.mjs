@@ -22,7 +22,7 @@
 // their email. Most of that vocabulary was the model's words leaking out.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, personaId, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 import { PROMOTED_SOURCE } from '../../lib/roster-entries.mjs';
 
 // A promoted row that knows nothing, one the harvest has filled in, and an
@@ -38,10 +38,10 @@ const ROSTER = [
   { student_number: '0123456', full_name: 'Alice Example', email: 'alice@student.pxl.be', class_group: '3A' },
 ];
 
-async function openRoster(page, { roster = ROSTER, claims = undefined, assignments = {} } = {}) {
+async function openRoster(page, { roster = ROSTER, claims = undefined, claimAttempts = undefined, assignments = {} } = {}) {
   const contentWrites = [];
   await injectAuth(page, LECTURER);
-  await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments, roster, contentWrites, claims });
+  await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments, roster, contentWrites, claims, claimAttempts });
   await page.goto(`/dashboard/${ORG}/admin`);
   await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
   await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
@@ -142,6 +142,31 @@ test.describe('65 - the row menu', () => {
     await openRoster(page);
     await menuFor(page, 'afx42').click();
     await expect(page.locator('.row-menu')).not.toContainText(/remove .*github account/i);
+  });
+
+  test('CLEAR FAILED ATTEMPTS works on a row with NO link - the state a blocked student is in (third review, 2026-09-26)', async ({ page }) => {
+    // Forget clears the counter too, but is offered only where there is a
+    // binding, and a student blocked by failed attempts usually has none. Before
+    // this the only way was the command line.
+    const blockedId = personaId('alice-gh');
+    await openRoster(page, {
+      claims: [],
+      claimAttempts: { [blockedId]: { schema_version: 1, failures: 5, first_at: '2026-09-26T00:00:00Z', last_at: '2026-09-26T00:00:00Z' } },
+    });
+    page.once('dialog', (d) => d.accept('@alice-gh'));
+    const deleted = page.waitForRequest((r) => r.method() === 'DELETE' && r.url().includes(`students/claim-attempts/${blockedId}.json`));
+    await menuFor(page, 'Alice Example').click();
+    await item(page, /Clear failed attempts/).click();
+    await deleted;
+    await expect(page.getByText(/Cleared\. @alice-gh can confirm an address again/)).toBeVisible();
+  });
+
+  test('...and says so when there was nothing to clear, rather than claiming it cleared something', async ({ page }) => {
+    await openRoster(page, { claims: [] });
+    page.once('dialog', (d) => d.accept('alice-gh'));
+    await menuFor(page, 'Alice Example').click();
+    await item(page, /Clear failed attempts/).click();
+    await expect(page.getByText(/had no failed attempts in this organization/)).toBeVisible();
   });
 });
 

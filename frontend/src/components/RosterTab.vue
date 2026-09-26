@@ -556,6 +556,23 @@
                           </span>
                         </button>
 
+                        <!-- The other half of the override. A student blocked by
+                             failed attempts usually has NO link - that is why
+                             they are blocked - so Forget is not offered, and
+                             this was only possible from the command line. -->
+                        <button
+                          class="row-menu-item"
+                          type="button"
+                          role="menuitem"
+                          :disabled="resettingAttempts"
+                          @click="fromRowMenu(() => resetAttempts(s, bindingFor(s)))"
+                        >
+                          <span class="row-menu-title">Clear failed attempts&hellip;</span>
+                          <span class="row-menu-note">
+                            For a student told they tried too many addresses. Asks for their GitHub account.
+                          </span>
+                        </button>
+
                         <button
                           class="row-menu-item row-menu-item-danger"
                           type="button"
@@ -850,10 +867,10 @@ import { rosterClassGroups, classGroupChips, studentInClassGroup } from '../lib/
 import { assignmentStateLabel } from '../lib/status-labels.js'
 import { getToken, getUser } from '../lib/auth.js'
 import HelpButton from './HelpButton.vue'
-import { commitFile, getRepoContent, listRepoDir, listClaims, deleteFile } from '../lib/api.js'
+import { commitFile, getRepoContent, listRepoDir, listClaims, deleteFile, ghApi } from '../lib/api.js'
 // The one join between a claim and a roster entry. See lib/claim-bindings.mjs.
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
-import { normalizeEmail, domainAllowed } from '../lib/claim.js'
+import { normalizeEmail, domainAllowed, resolveAddressFormat } from '../lib/claim.js'
 import { harvestPlan, applyHarvest } from '../lib/roster-harvest.js'
 // The SAME planner the nightly runs. Imported, never re-implemented: a review
 // list computed a second way could show a lecturer something different from
@@ -870,7 +887,7 @@ import RosterCell from './RosterCell.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
-import { CLAIM_DOMAINS } from '../lib/deployment.js'
+import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS } from '../lib/deployment.js'
 
 // The worked examples on this tab - a CSV placeholder, the email field's
 // placeholder and the downloadable sample roster - all showed
@@ -2041,6 +2058,7 @@ const claimReview = computed(() => {
     claims: claims.value,
     roster: existingRoster.value,
     verifiedOnly: true,
+    format: resolveAddressFormat(null, CLAIM_ADDRESS_FORMAT),
   })
   return plan?.ok ? plan : null
 })
@@ -2089,6 +2107,18 @@ const heldClaims = computed(() => {
       full_name: o.full_name,
       login: o.claim_login,
       reason: 'verified by GitHub, but outside the allowed domains',
+      githubId: o.github_id ?? null,
+      canLink: false,
+    })),
+    // The same for an address without the required form (`12345678@`): once in
+    // the roster it would be a registered address, which acceptance lets
+    // anyone claim whatever its form.
+    ...(p.wrongForm ?? []).map((o) => ({
+      key: `f:${o.email}`,
+      email: o.email,
+      full_name: o.full_name,
+      login: o.claim_login,
+      reason: `not the ${CLAIM_ADDRESS_FORMAT?.example ?? 'required'}@ form of the address`,
       githubId: o.github_id ?? null,
       canLink: false,
     })),
@@ -2328,6 +2358,41 @@ async function confirmUnlink(student, binding) {
     toast.error(`Could not unlink: ${e?.message || e}`)
   } finally {
     unlinking.value = false
+  }
+}
+
+const resettingAttempts = ref(false)
+
+// Clears students/claim-attempts/<github_id>.json and nothing else - a binding
+// is kept. The counter is keyed by the account id, and a blocked student
+// usually has no binding to read it from, so the lecturer names the account
+// (the refusal they were shown names it too) and GitHub supplies the id.
+async function resetAttempts(student, binding) {
+  const suggested = binding?.login || student.github_login || ''
+  const typed = window.prompt(
+    `Clear the failed-attempt counter for ${student.full_name || student.email || 'this student'}?\n\n` +
+    `Their GitHub account:`,
+    suggested,
+  )
+  const login = String(typed ?? '').trim().replace(/^@/, '')
+  if (!login) return
+  resettingAttempts.value = true
+  try {
+    const token = getToken()
+    const user = await ghApi(token, 'GET', `/users/${encodeURIComponent(login)}`)
+    if (!user.ok || !Number.isInteger(user.data?.id)) {
+      toast.error(user.status === 404 ? `There is no GitHub account @${login}.` : `Could not look up @${login} (HTTP ${user.status}).`)
+      return
+    }
+    const res = await deleteFile(
+      token, props.org, controlRepo, `students/claim-attempts/${user.data.id}.json`,
+      `Reset failed claim attempts for @${user.data.login}`,
+    )
+    if (res.ok) toast.success(`Cleared. @${user.data.login} can confirm an address again.`)
+    else if (res.status === 404) toast.info(`@${user.data.login} had no failed attempts in this organization - nothing was blocking them here.`)
+    else toast.error(`Could not clear the counter for @${user.data.login} (HTTP ${res.status}).`)
+  } finally {
+    resettingAttempts.value = false
   }
 }
 

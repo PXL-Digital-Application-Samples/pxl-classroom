@@ -294,9 +294,18 @@ export async function listClaims(octokit, { org }) {
  * A missing file is success, not an error: unlink has to be re-runnable after a
  * half-completed one, and "there is no binding" is the state being asked for.
  */
+/** Delete only the failed-attempt counter; true when there was one. */
+export async function resetClaimAttempts(octokit, { org, githubId, message }) {
+  return (await deleteControlFiles(octokit, { org, paths: [claimAttemptsPath(githubId)], message })).length > 0;
+}
+
 export async function deleteClaim(octokit, { org, githubId, message }) {
+  return deleteControlFiles(octokit, { org, paths: [claimPath(githubId), claimAttemptsPath(githubId)], message });
+}
+
+async function deleteControlFiles(octokit, { org, paths, message }) {
   const removed = [];
-  for (const path of [claimPath(githubId), claimAttemptsPath(githubId)]) {
+  for (const path of paths) {
     let sha;
     try {
       const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
