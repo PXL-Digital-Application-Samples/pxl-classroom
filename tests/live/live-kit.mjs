@@ -10,6 +10,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { signAcceptanceTitle } from "../../lib/acceptance-signature.mjs";
+import { GITHUB_API_VERSION } from "../../lib/github-api-version.mjs";
 
 export const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -65,7 +66,7 @@ export async function api(path, { token, method = "GET", body } = {}) {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
+      "X-GitHub-Api-Version": GITHUB_API_VERSION,
       "User-Agent": "pxl-classroom-live",
       ...(body ? { "Content-Type": "application/json" } : {}),
     },

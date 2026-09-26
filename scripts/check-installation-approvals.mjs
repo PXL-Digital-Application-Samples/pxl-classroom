@@ -31,6 +31,7 @@ import { readFile } from "node:fs/promises";
 import { generateAppJwt } from "../lib/app-jwt.mjs";
 import { installationApprovalGaps } from "../lib/audit.mjs";
 import { parseYaml } from "../lib/yaml.mjs";
+import { GITHUB_API_VERSION } from "../lib/github-api-version.mjs";
 
 const apiUrl = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/$/, "");
 const PARTICIPATING_FILE = process.env.PARTICIPATING_FILE || "participating-orgs.yml";
@@ -55,7 +56,7 @@ try {
 
 const headers = {
   accept: "application/vnd.github+json",
-  "x-github-api-version": "2022-11-28",
+  "x-github-api-version": GITHUB_API_VERSION,
   "user-agent": "pxl-classroom-installation-approvals",
   authorization: `Bearer ${jwt}`,
 };

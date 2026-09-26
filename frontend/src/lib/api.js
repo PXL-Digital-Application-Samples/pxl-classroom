@@ -10,6 +10,7 @@ import { toast } from './toast.js'
 import { teamsDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { commitWithRebase, commitFailureMessage } from '../../../lib/gittree.mjs'
 import { conflictAction, isShaConflict, REFUSE } from '../../../lib/write-conflict.mjs'
+import { GITHUB_API_VERSION } from '../../../lib/github-api-version.mjs'
 
 const API_BASE = 'https://api.github.com'
 
@@ -81,7 +82,7 @@ export async function ghApi(token, method, path, body = null, options = {}) {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
+      'X-GitHub-Api-Version': GITHUB_API_VERSION,
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -409,7 +410,7 @@ export async function getRepoContent(token, owner, repo, path) {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.raw',
-          'X-GitHub-Api-Version': '2022-11-28',
+          'X-GitHub-Api-Version': GITHUB_API_VERSION,
         },
         cache: 'no-store',
       },
@@ -789,7 +790,7 @@ export async function listOrgRepos(token, org, prefix = '', { failFast = false }
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
+        'X-GitHub-Api-Version': GITHUB_API_VERSION,
       },
     }, { timeoutMs: READ_TIMEOUT_MS })
     if (!res.ok) {

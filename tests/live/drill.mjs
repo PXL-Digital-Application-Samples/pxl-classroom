@@ -138,9 +138,11 @@ async function dispatch(workflow, inputs) {
     method: "POST",
     body: { ref: "main", inputs },
   });
-  if (res.status === 204) ok(`dispatched ${workflow} ${JSON.stringify(inputs)}`);
+  // Any success: 204 under the old API version, 200 with the run's details
+  // under the current one (lib/github-api-version.mjs).
+  if (res.ok) ok(`dispatched ${workflow} ${JSON.stringify(inputs)}`);
   else bad(`could not dispatch ${workflow}: HTTP ${res.status} ${res.data?.message ?? ""}`);
-  return res.status === 204;
+  return res.ok;
 }
 
 async function runsSince(workflow, since) {

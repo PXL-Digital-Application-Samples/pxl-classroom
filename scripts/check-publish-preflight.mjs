@@ -53,6 +53,7 @@ import {
   templateHasCommits,
 } from "../lib/template-source.mjs";
 import { assignmentFreezePlanFinding, FREE_PLAN } from "../lib/audit.mjs";
+import { GITHUB_API_VERSION } from "../lib/github-api-version.mjs";
 
 const API = process.env.GITHUB_API_URL || "https://api.github.com";
 
@@ -70,7 +71,7 @@ async function gh(token, path) {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
+      "X-GitHub-Api-Version": GITHUB_API_VERSION,
     },
   });
 }

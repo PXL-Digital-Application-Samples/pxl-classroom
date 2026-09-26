@@ -9,14 +9,24 @@ import { retry } from "@octokit/plugin-retry";
 
 const RetryOctokit = Octokit.plugin(retry);
 import { requireToken } from "./auth.mjs";
+import { GITHUB_API_VERSION } from "../../../lib/github-api-version.mjs";
 
 const USER_AGENT = "pxl-classroom-cli/0.1.0";
 
-export function makeOctokit({ token } = {}) {
+/** `fetch`: a stand-in transport, so a test can see what goes on the wire. */
+export function makeOctokit({ token, fetch } = {}) {
   const t = token ?? requireToken().access_token;
-  return new RetryOctokit({
+  const octokit = new RetryOctokit({
     auth: t,
     userAgent: USER_AGENT,
-    request: { retries: 3 },
+    request: { retries: 3, ...(fetch ? { fetch } : {}) },
   });
+  // THE SAME API VERSION AS EVERYTHING ELSE (lib/github-api-version.mjs). The
+  // CLI sent none, so it got GitHub's default and warned on every issue it
+  // created. Octokit has no default-headers option, so a hook sets it on
+  // every request - including the retries the plugin makes.
+  octokit.hook.before("request", (options) => {
+    options.headers = { ...options.headers, "x-github-api-version": GITHUB_API_VERSION };
+  });
+  return octokit;
 }
