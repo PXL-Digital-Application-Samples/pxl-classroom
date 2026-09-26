@@ -48,8 +48,16 @@
           },
           "score_source": {
             "type": "string",
-            "enum": ["annotation-json", "points", "conclusion"],
-            "description": "Where the number came from. `conclusion` means no reporter annotation was found and the grade is all-or-nothing, which is not the same kind of fact as a parsed score."
+            "enum": ["annotation-json", "points", "conclusion", "manual"],
+            "description": "Where the number came from. `conclusion` means no reporter annotation was found and the grade is all-or-nothing, which is not the same kind of fact as a parsed score. `manual` is a score a lecturer set by hand (`decided_by`)."
+          },
+          "graded_sha": {
+            "type": ["string", "null"],
+            "description": "The commit whose grading run the score was read from. Null for a manual score."
+          },
+          "decided_by": {
+            "$ref": "#/definitions/decision",
+            "description": "Present when a LECTURER decided this row rather than the rules: a chosen commit or a score by hand (overrides/, lib/grade-override.mjs). Absent is the rules."
           },
           "hand_ins": { "$ref": "#/definitions/hand_ins" }
         }
@@ -70,6 +78,17 @@
     }
   },
   "definitions": {
+    "decision": {
+      "type": "object",
+      "required": ["kind", "by", "at", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["commit", "score"], "description": "`commit`: graded on a commit the lecturer chose. `score`: a score set by hand." },
+        "by": { "type": "string", "minLength": 1 },
+        "at": { "type": "string", "format": "date-time" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
     "hand_ins": {
       "type": "object",
       "description": "The hand-in count under `submission_marker.max_hand_ins`, as lib/submission-marker.mjs `selectHandIn` decided it at `graded_at`. Absent when the assignment has no cap. On a failed row too: a student whose graded hand-in has no run still used 3 of 2.",

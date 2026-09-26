@@ -69,7 +69,11 @@ test("both writers build the row with the same function, not two literals", () =
     ["the Admin Panel", read("frontend/src/views/AssignmentDetailView.vue")],
     ["pxl-classroom grade", read("cli/src/commands/grade.mjs")],
   ]) {
-    assert.match(src, /gradedRowFromCheckRun\(/, `${name} must build its Actions row with the shared builder`);
+    // Directly, or through lib/grade-cohort.mjs `rowFromOutcome`, which is the
+    // shared builder one level up (it calls gradedRowFromCheckRun, and the
+    // manual-score builder beside it) - the page moved there so a chosen
+    // commit or a score by hand is recorded as the cohort grader records it.
+    assert.match(src, /gradedRowFromCheckRun\(|rowFromOutcome\(/, `${name} must build its Actions row with the shared builder`);
     assert.match(src, /buildGradingSummary\(/, `${name} must build the envelope with the shared builder`);
     assert.match(src, /lib\/grading-summary\.mjs/, `${name} must import it rather than restate it`);
   }

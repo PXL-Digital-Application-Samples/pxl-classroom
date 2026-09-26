@@ -6,4 +6,4 @@
 // partial result being written over real grades - lived INSIDE
 // AssignmentDetailView.vue, where nothing could import it and no test could run
 // it. `scripts/grade-at-deadline.mjs` needs the same answers.
-export { gradeCohort, gradeStudent, gradingCommitFor, readScoreAtCommit, teamOf } from '../../../lib/grade-cohort.mjs'
+export { gradeCohort, gradeStudent, gradingCommitFor, readScoreAtCommit, rowFromOutcome, teamOf } from '../../../lib/grade-cohort.mjs'

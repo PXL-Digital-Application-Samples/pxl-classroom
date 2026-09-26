@@ -223,7 +223,8 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     const { contentWrites } = await setup(page, { malformedOverride: true });
     await page.getByRole('button', { name: /More/ }).first().click();
     await page.locator('[role="menuitem"]', { hasText: /scores|Re-grade|Read/i }).first().click();
-    await expect(page.locator('.toast', { hasText: "Could not read the students' extra hand-ins" }).first()).toBeVisible();
+    await expect(page.locator('.toast', { hasText: "Could not read the students' overrides" }).first()).toBeVisible();
+    await expect(page.locator('.toast', { hasText: 'extra hand-ins that were not read would count against the student' }).first()).toBeVisible();
     expect(lastWrite(contentWrites, summaryPath)).toBeUndefined();
   });
 

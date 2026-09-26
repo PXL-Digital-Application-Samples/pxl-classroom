@@ -192,7 +192,14 @@ export type GradingSummary = {
     graded_at?: string;
     ci_status?: string;
     ci_run_url?: string;
-    score_source?: "annotation-json" | "points" | "conclusion";
+    score_source?: "annotation-json" | "points" | "conclusion" | "manual";
+    graded_sha?: string;
+    decided_by?: {
+      kind?: "commit" | "score";
+      by?: string;
+      at?: string;
+      reason?: string;
+    };
     hand_ins?: {
       used?: number;
       allowed?: number;
@@ -338,7 +345,7 @@ export type Override = {
   assignment_id?: string;
   github_login?: string;
   overrides?: Array<{
-    type?: "github_login" | "acceptance_state" | "repository" | "deadline_extension" | "hand_in_allowance" | "submission_sha" | "late_status" | "exemption" | "annotation";
+    type?: "github_login" | "acceptance_state" | "repository" | "deadline_extension" | "hand_in_allowance" | "submission_sha" | "manual_score" | "late_status" | "exemption" | "annotation";
     value?: unknown;
     reason?: string;
     overridden_by?: string;

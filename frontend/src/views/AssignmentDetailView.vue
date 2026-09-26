@@ -1259,7 +1259,7 @@ import {
 import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../../../lib/report-csv.mjs'
 import { isGitHubNoreplyAddress } from '../../../lib/github-noreply.mjs'
 // The shape of grading/<id>/summary.json, shared with `pxl-classroom grade`.
-import { gradedRowFromCheckRun, buildGradingSummary } from '../../../lib/grading-summary.mjs'
+import { buildGradingSummary } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
@@ -1273,7 +1273,7 @@ import { validateAgainst } from '../lib/validate.js'
 // answers - and this view only asks it questions.
 import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
-import { gradeCohort, gradeStudent, gradingCommitFor, teamOf } from '../lib/grade-cohort.js'
+import { gradeCohort, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -3562,12 +3562,17 @@ function mergeGradesIntoReport() {
  * `overrides/` - so it is not read over a list that could not be read whole.
  * Says why and returns false; true when there is no cap or nothing is missing.
  */
+// ON EVERY ASSIGNMENT now, not only under a hand-in cap: the same files hold
+// the lecturer's grading decisions (a chosen commit, a score by hand -
+// lib/grade-override.mjs), and grading without them would overwrite those in
+// the summary with whatever the rules pick.
 function capAllowancesReadable() {
+  if (!overridesProblem.value) return true
   const marker = readSubmissionMarker(assignment.value)
-  if (marker?.maxHandIns == null || !overridesProblem.value) return true
   toast.error(
-    `Could not read the students' extra hand-ins (${overridesProblem.value}), so no score was read: ` +
-      'with this assignment\'s hand-in limit, a grant that was not read would count against the student. Reload and try again.',
+    `Could not read the students' overrides (${overridesProblem.value}), so no score was read: ` +
+      (marker?.maxHandIns != null ? 'extra hand-ins that were not read would count against the student, and ' : '') +
+      'a grading decision you made (a chosen commit, a score by hand) would be overwritten. Reload and try again.',
   )
   return false
 }
@@ -3693,7 +3698,7 @@ async function regradeStudent(student) {
       team: teamOf(student, report.value?.students || []),
     })
 
-    if (outcome.verdict !== 'graded') {
+    if (outcome.verdict !== 'graded' && outcome.verdict !== 'manual') {
       // Not a zero and not a failure of this button: it looked and there was no
       // score there. Say which, and change nothing. Under a cap the count it
       // found is still news - it is what a lecturer who just granted extra
@@ -3701,17 +3706,13 @@ async function regradeStudent(student) {
       const count = outcome.handIns?.allowed
         ? ` They made ${outcome.handIns.used} hand-in${outcome.handIns.used === 1 ? '' : 's'} of ${outcome.handIns.allowed} allowed.`
         : ''
-      toast.error(`No score read for ${student.github_login}: ${outcome.reason}.${count} Their earlier result is unchanged.`)
+      toast.error(`No score read for ${student.github_login}: ${rowFromOutcome(student.github_login, outcome).failed.reason}.${count} Their earlier result is unchanged.`)
       return
     }
 
-    const row = gradedRowFromCheckRun({
-      login: student.github_login,
-      parsed: outcome.parsed,
-      run: outcome.run,
-      fallbackTotal: autogradeTotalPoints.value,
-      handIns: outcome.handIns,
-    })
+    // The same row the cohort grader writes (lib/grade-cohort.mjs), so a
+    // chosen commit or a score by hand is recorded identically by both.
+    const { graded: row } = rowFromOutcome(student.github_login, outcome, autogradeTotalPoints.value)
     const prev = autogradeSummary.value
     const login = String(student.github_login).toLowerCase()
     const summaryDoc = buildGradingSummary({

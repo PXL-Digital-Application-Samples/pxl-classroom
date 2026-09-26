@@ -28,8 +28,10 @@ import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-ru
 import {
   gradedRowFromCheckRun,
   gradedRowFromLocalRun,
+  gradedRowFromManualScore,
   buildGradingSummary,
 } from "../../../lib/grading-summary.mjs";
+import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
 import { resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
@@ -224,9 +226,10 @@ export function registerGradeCommand(program) {
       // Per-student hand-in allowances, only where a cap exists. A read that
       // fails throws and stops the run: grading without them would ignore the
       // very hand-ins a lecturer granted.
-      const overrides = marker?.maxHandIns != null
-        ? await listOverrides(octokit, { org, assignmentId: opts.assignment })
-        : [];
+      // Read ALWAYS now, not only under a cap: a lecturer's decision (a chosen
+      // commit, a score by hand - lib/grade-override.mjs) lives here too, and a
+      // CLI run that ignored one would overwrite it in the summary.
+      const overrides = await listOverrides(octokit, { org, assignmentId: opts.assignment });
 
       // ONE commit's worth of reading, so it can be done twice - at the
       // preserved commit, and again at the hand-in commit when the first says
@@ -284,7 +287,23 @@ export function registerGradeCommand(program) {
         let ciRow = null;
         // The hand-in count under a cap, carried to the summary row.
         let handIns = null;
-        if (s.team_slug && teamResultsCache.has(s.team_slug)) {
+        // A LECTURER'S DECISION FIRST, as every other grader does.
+        const decision = gradeDecisionFor(s.github_login, { overrides, team: teamOf(s, eligible) });
+        if (decision?.kind === "score") {
+          process.stdout.write(`  = ${s.github_login}: ${decision.earned}/${decision.total} set by hand by @${decision.by} - not graded\n`);
+          summary.graded.push(gradedRowFromManualScore({ login: s.github_login, decision }));
+          return;
+        }
+        if (decision?.kind === "commit" && !isGitHubActions) {
+          // The local runner grades the PRESERVED submission, checked out from
+          // the archive at one commit. Grading something else here while the
+          // lecturer chose ${sha} would be the opposite of their decision.
+          const reason = `@${decision.by} chose commit ${decision.sha.slice(0, 7)}, and the local runner only grades the preserved submission - read that commit's result on the assignment page instead`;
+          process.stderr.write(`  ! ${s.github_login}: ${reason}\n`);
+          summary.failed.push({ login: s.github_login, reason });
+          return;
+        }
+        if (s.team_slug && !decision && teamResultsCache.has(s.team_slug)) {
           const cached = teamResultsCache.get(s.team_slug);
           result = {
             ...cached,
@@ -300,7 +319,13 @@ export function registerGradeCommand(program) {
             // commit: the fallback carried the deadline bound and the direct
             // read never did.
             let outcome;
-            if (marker) {
+            if (decision?.kind === "commit") {
+              // The rules are the lecturer's to skip; the run is not.
+              outcome = await readScoreAtCommit(s, decision.sha);
+              if (outcome.verdict !== "graded") {
+                outcome = { ...outcome, reason: `the commit @${decision.by} chose (${decision.sha.slice(0, 7)}) cannot be read: ${outcome.reason}` };
+              }
+            } else if (marker) {
               // The same decision the Admin Panel and the nightly make - which
               // hand-in counts, under the cap and this student's allowance -
               // from lib/grade-cohort.mjs rather than a third walk written here.
@@ -451,6 +476,8 @@ export function registerGradeCommand(program) {
                   fallbackTotal: totalFallback,
                   gradedAt: result.graded_at,
                   handIns,
+                  gradedSha: result.archive_sha ?? null,
+                  decidedBy: decisionRecord(decision),
                 })
               : gradedRowFromLocalRun({
                   login: s.github_login,

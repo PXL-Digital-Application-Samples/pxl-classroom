@@ -34,18 +34,53 @@
         "type": "object",
         "required": ["type", "reason", "overridden_by", "overridden_at"],
         "additionalProperties": false,
-        "if": { "properties": { "type": { "const": "hand_in_allowance" } } },
-        "then": {
-          "required": ["value"],
-          "properties": {
-            "value": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 50,
-              "description": "EXTRA hand-ins on top of the assignment's `submission_marker.max_hand_ins`, not a new total, so a later change to the cap still composes. 0 revokes an earlier grant; the list is append-only and the last entry is in force (lib/hand-in-allowance.mjs)."
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "const": "hand_in_allowance" } } },
+            "then": {
+              "required": ["value"],
+              "properties": {
+                "value": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 50,
+                  "description": "EXTRA hand-ins on top of the assignment's `submission_marker.max_hand_ins`, not a new total, so a later change to the cap still composes. 0 revokes an earlier grant; the list is append-only and the last entry is in force (lib/hand-in-allowance.mjs)."
+                }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "submission_sha" } } },
+            "then": {
+              "required": ["value"],
+              "properties": {
+                "value": {
+                  "type": ["string", "null"],
+                  "pattern": "^[0-9a-f]{40}$",
+                  "description": "The commit a lecturer chose to grade this student on, overriding the rules (deadline, hand-in cap, which hand-in counts). null returns them to the rules. Append-only, the last entry is in force (lib/grade-override.mjs). For a team repository it is written on every member."
+                }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "manual_score" } } },
+            "then": {
+              "required": ["value"],
+              "properties": {
+                "value": {
+                  "type": ["object", "null"],
+                  "required": ["earned", "total"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "earned": { "type": "number", "minimum": 0 },
+                    "total": { "type": "number", "exclusiveMinimum": 0 }
+                  },
+                  "description": "A score a lecturer set by hand. It wins over any grading result until removed (null). lib/grade-override.mjs refuses earned > total."
+                }
+              }
             }
           }
-        },
+        ],
         "properties": {
           "type": {
             "type": "string",
@@ -56,6 +91,7 @@
               "deadline_extension",
               "hand_in_allowance",
               "submission_sha",
+              "manual_score",
               "late_status",
               "exemption",
               "annotation"
