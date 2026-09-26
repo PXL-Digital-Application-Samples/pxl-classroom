@@ -777,6 +777,27 @@ test("a rebuild from nothing but a Refresh observation keeps the student's commi
   assert.equal(tom.commit_count, 3);
 });
 
+test("a late count belongs to the commit it was counted at: a Refresh that saw a NEW commit clears it, one that saw the same keeps it", async () => {
+  // Review 2026-09-26: the nightly counted 0 late commits after the deadline,
+  // the student pushed late, a Refresh (which does not count) saw the new
+  // commit - and the rebuilt report said "0 late commits" beside it.
+  const { snapshotObservation } = await import("../lib/observation.mjs");
+  const obs = (sha, observedAt, lateCommitCount) => snapshotObservation({
+    assignmentId: "test-asgn", login: "tom", repoId: 7, ref: "refs/heads/main",
+    commit: { sha: sha.padEnd(40, "0"), commit: { message: "work", committer: { date: observedAt }, author: { name: "Tom" } } },
+    commitCount: 3, lateCommitCount, observedAt, collectionType: lateCommitCount == null ? "manual" : "scheduled",
+  });
+  const run = (observations) => runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "tom", status: "provisioned" }],
+    repositories: [{ github_login: "tom", repo_name: "TestOrg/test-asgn-tom", repo_id: 7 }],
+    observations: { tom: observations },
+  }).students.find((s) => s.github_login === "tom");
+  const nightly = obs("aaaaaaa", "2026-09-11T01:00:00.000Z", 0);
+  assert.equal(run([nightly, obs("bbbbbbb", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, null, "a new commit, not counted");
+  assert.equal(run([nightly, obs("aaaaaaa", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, 0, "the same commit keeps its count");
+});
+
 // Under `open` the roster invites nobody, so its students are not this
 // assignment's population (PXL-Automation-II / 2627-pe-1-test-1, 2026-09-26:
 // last year's promoted exam cohort listed as "No submission" on a new open

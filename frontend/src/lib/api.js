@@ -452,7 +452,7 @@ export async function listRepoDir(token, owner, repo, path) {
 /**
  * Create or update a file in a repository.
  */
-export async function commitFile(token, owner, repo, path, contentStr, message, { baseContent } = {}) {
+export async function commitFile(token, owner, repo, path, contentStr, message, { baseContent, expectedSha } = {}) {
   // Base64 encode unicode properly
   const base64Content = btoa(unescape(encodeURIComponent(contentStr)))
 
@@ -460,6 +460,17 @@ export async function commitFile(token, owner, repo, path, contentStr, message, 
     const body = { message, content: base64Content }
     if (sha) body.sha = sha
     return ghApi(token, 'PUT', `/repos/${owner}/${repo}/contents/${path}`, body)
+  }
+
+  // THE VERSION THE CALLER READ (`expectedSha`; null = "the file did not
+  // exist"). Written against exactly that, and a conflict is RETURNED, never
+  // retried here: the caller merges again from a fresh read. Without it the
+  // sha is fetched afresh below, which is the other writer's if they wrote in
+  // between - and the PUT then replaces their change without a conflict.
+  if (expectedSha !== undefined) {
+    const res = await put(expectedSha || undefined)
+    // A missing sha where a file now exists (someone created it) is also a 422.
+    return res.ok || !isShaConflict(res) ? res : { ...res, conflict: true }
   }
   const head = async () => {
     const res = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)

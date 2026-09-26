@@ -94,7 +94,7 @@ test("a student's start is the newest per-student record that REACHED them", () 
     record({ template_sha: LAB3, synced_at: "2026-09-25T11:40:00Z" }, [row("ada")]),
     record({ template_sha: LAB4, synced_at: "2026-09-25T13:00:00Z" }, [row("ada", "skipped-up-to-date", "synced")]),
   ];
-  assert.deepEqual(startingPointFor({ login: "ADA", records }), { sha: LAB4, source: "synced" });
+  assert.deepEqual(startingPointFor({ login: "ADA", records }), { sha: LAB4, source: "synced", repo: "Org/tpl" });
 });
 
 test("records that are NOT evidence of where a student is are ignored", () => {
@@ -410,6 +410,49 @@ async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, r
   });
 }
 
+test("SWITCHED TWICE (A -> B -> C): planned from B's commit - B's own files removed if untouched, updated if untouched, a PR if edited", async () => {
+  // Review 2026-09-26: from their first commit (A), B's files were in neither
+  // A nor C, so they were never removed, and an untouched B copy of a file C
+  // changed came as a pull request.
+  const B_SHA = "b".repeat(40);
+  const B_TREE = new Map([["README.md", "b-readme"], ["b-only.md", "b"], ["lab.md", "b-lab"], [".gitignore", "gi"]]);
+  const trees = { [`Org/tpl@${NEW_HEAD}`]: NEW_TREE, [`Org/tpl@${NEW_PARENT}`]: NEW_PARENT_TREE, [`Org/tplB@${B_SHA}`]: B_TREE };
+  const readTree = async (r, ref) => {
+    const t = trees[`${r}@${ref}`];
+    if (!t) throw new Error(`no tree ${r}@${ref}`);
+    return t;
+  };
+  const record = {
+    per_student_range: true, all_files: true, template_repo: "Org/tplB", template_sha: B_SHA, synced_at: "2026-09-20T00:00:00Z",
+    results: [{ github_login: "swap", outcome: "auto-merged", from_source: "first-commit" }],
+  };
+  const studentTree = new Map([...B_TREE, ["lab.md", "my work"]]);
+  const res = await planStudent({
+    login: "swap", studentRepo: "Org/labs-swap", studentTree, readTree, root: async () => ({ treeSha: "first-tree", generated: true }),
+    templateFullName: "Org/tpl", headSha: NEW_HEAD, headTree: NEW_TREE,
+    templateCommits: [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }, { sha: NEW_PARENT, treeSha: "t8", date: "2026-09-25T19:00:00Z" }],
+    records: [record], fallbackSha: NEW_PARENT, selected: ["*"], historyComplete: true,
+  });
+  assert.equal(res.source, "other-template");
+  assert.equal(res.from, B_SHA);
+  const clean = res.plan.clean.map((c) => `${c.action} ${c.path}`);
+  assert.ok(clean.includes("delete b-only.md"), "B's own untouched file is removed");
+  assert.ok(clean.includes("write README.md"), "an untouched B copy is updated in place, not a pull request");
+  assert.ok(clean.includes("write PROCEDURE.md"));
+  assert.deepEqual(res.plan.conflicts, [{ path: "lab.md", action: "delete" }], "their edited B file: offered, never removed on main");
+  assert.ok(!res.paths.includes(".gitignore"), "identical in B and C: nothing to do");
+});
+
+test("a sync record from another template counts as evidence next time, on the same terms as first-commit", async () => {
+  const { startingPointFor } = await import("../lib/starter-sync.mjs");
+  const rec = (files_kept) => ({
+    per_student_range: true, all_files: true, template_repo: "Org/tpl", template_sha: NEW_HEAD, synced_at: "2026-09-26T00:00:00Z",
+    results: [{ github_login: "swap", outcome: "auto-merged", from_source: "other-template", ...(files_kept ? { files_kept } : {}) }],
+  });
+  assert.equal(startingPointFor({ login: "swap", records: [rec(0)] }).source, "synced");
+  assert.equal(startingPointFor({ login: "swap", records: [rec(2)], fallbackSha: NEW_PARENT }).source, "unknown");
+});
+
 // --- review 2026-09-26: a first commit nobody proved was starter code -----------
 
 test("generatedFromTemplate: the MEASURED shape of a provisioned repository's first commit, and what a student can make", async () => {
@@ -552,7 +595,7 @@ test("THE REPORT, second half: after a clean first-commit sync, a later change t
   // The switch sync ran at NEW_PARENT and left nothing behind; the template
   // then changed classroom.yml in NEW_HEAD.
   const clean = record({ template_sha: NEW_PARENT }, [{ ...row("swap", "auto-merged", "first-commit"), files_kept: 0 }]);
-  assert.deepEqual(startingPointFor({ login: "swap", records: [clean] }), { sha: NEW_PARENT, source: "synced" });
+  assert.deepEqual(startingPointFor({ login: "swap", records: [clean] }), { sha: NEW_PARENT, source: "synced", repo: "Org/tpl" });
   const student = new Map(NEW_PARENT_TREE); // exactly what that sync delivered
   const res = await swapped(student, { records: [clean] });
   assert.equal(res.source, "synced");
@@ -623,7 +666,7 @@ test("SWAPPED TEMPLATE: THE OLD FALLBACK would have missed exactly the three fil
 
 test("a sync from their first commit reached everything, so it is evidence next time", () => {
   const r = record({ template_sha: NEW_HEAD }, [row("swap", "merged-and-pr", "first-commit")]);
-  assert.deepEqual(startingPointFor({ login: "swap", records: [r] }), { sha: NEW_HEAD, source: "synced" });
+  assert.deepEqual(startingPointFor({ login: "swap", records: [r] }), { sha: NEW_HEAD, source: "synced", repo: "Org/tpl" });
 });
 
 test("a template file DELETED since their start is removed if untouched, offered if edited", async () => {

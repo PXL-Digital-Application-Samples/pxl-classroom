@@ -316,6 +316,7 @@ async function main() {
     // means "not known" - an assignment collected before the field existed, or
     // a count the API would not answer - and is deliberately distinct from 0.
     let latestLateCommitCount = null;
+    let lateCountSha = null;
     let latestCommitMessage = null;
     let latestAuthorName = null;
     let latestAuthorEmail = null;
@@ -337,8 +338,16 @@ async function main() {
       if (obs.commit_date) {
         latestCommitDate = obs.commit_date;
       }
+      // A late count is a count AT ONE COMMIT. A later observation that did
+      // not count (a Refresh writes null) but saw a NEW commit makes the old
+      // number wrong - "0 late commits" beside a late push. Carried forward
+      // only while the observed commit is the one it was counted at.
       if (obs.late_commit_count != null) {
         latestLateCommitCount = obs.late_commit_count;
+        lateCountSha = obs.sha ?? null;
+      } else if (obs.sha && lateCountSha && obs.sha !== lateCountSha) {
+        latestLateCommitCount = null;
+        lateCountSha = null;
       }
       if (obs.commit_message) {
         latestCommitMessage = obs.commit_message;

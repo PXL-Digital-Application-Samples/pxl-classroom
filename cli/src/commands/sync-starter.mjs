@@ -18,7 +18,7 @@ import { withConcurrency } from "../lib/worker-pool.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { listTemplateCommits, planStudent, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
-import { issueAssignees, loginsByRepo } from "../../../lib/sync-issue.mjs";
+import { issueAssignees, loginsByRepo, oneRecordPerRepo } from "../../../lib/sync-issue.mjs";
 import {
   changedPaths,
   outcomeFor,
@@ -146,14 +146,22 @@ export function registerSyncStarterCommand(program) {
         "You changed these files, so they were not overwritten. Review the diff and merge when you are ready.",
       ].join("\n");
 
-      process.stdout.write(`Processing ${records.length} student repositories (concurrency ${CONCURRENCY})...\n`);
+      // ONE REPOSITORY, ONE PLAN. A team is several records naming one
+      // repository; planned concurrently, each member's worker read the open
+      // pull requests before the other's existed and opened its own - and,
+      // with issue assignment, emailed every member once per member. The
+      // repository is planned once, through its first member; the issue is
+      // still assigned to all of them (loginsByRepo).
+      const perRepo = oneRecordPerRepo(records, (rec) => repoOnly(rec.doc.repo_name));
+      const shared = records.length - perRepo.length;
+      process.stdout.write(`Processing ${perRepo.length} student repositories (concurrency ${CONCURRENCY})${shared ? `; ${shared} team member(s) share one of them` : ""}...\n`);
 
       let autoMerged = 0;
       let prOpened = 0;
       let skipped = 0;
       let failed = 0;
 
-      const results = await withConcurrency(records, CONCURRENCY, async (rec) => {
+      const results = await withConcurrency(perRepo, CONCURRENCY, async (rec) => {
         const login = rec.doc.github_login;
         const repoName = repoOnly(rec.doc.repo_name);
 
@@ -288,7 +296,9 @@ export function registerSyncStarterCommand(program) {
             `${res.plan.kept?.length ? `, ${res.plan.kept.length} kept` : ""}` +
             (res.source === "first-commit"
               ? " - from their own first commit (created from a different template)"
-              : ` - from ${res.from ? res.from.slice(0, 7) : "nothing"}${res.source === "unknown" ? " (start unknown: this commit only)" : ""}`)
+              : res.source === "other-template"
+                ? ` - from ${res.from.slice(0, 7)} of the template this assignment used before`
+                : ` - from ${res.from ? res.from.slice(0, 7) : "nothing"}${res.source === "unknown" ? " (start unknown: this commit only)" : ""}`)
           : "";
         if (res.outcome === "auto-merged" || res.outcome === "merged-and-pr") autoMerged++;
         if (res.outcome === "pr-opened" || res.outcome === "merged-and-pr") prOpened++;

@@ -401,7 +401,9 @@ async function main() {
       const fromNote =
         source === "first-commit"
           ? "from their own first commit - created from a different template"
-          : `from ${from ? from.slice(0, 7) : "nothing"}${source === "unknown" ? ", start unknown - this commit only" : ""}`;
+          : source === "other-template"
+            ? `from ${from.slice(0, 7)} of the template this assignment used before`
+            : `from ${from ? from.slice(0, 7) : "nothing"}${source === "unknown" ? ", start unknown - this commit only" : ""}`;
 
       if (outcome === "skipped-up-to-date") {
         console.log(

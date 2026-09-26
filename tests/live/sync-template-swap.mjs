@@ -25,6 +25,10 @@
 //                deleted on main. Both start `first-commit`.
 //   2 evidence   one more template commit. Round 1's record is where they
 //                are now (`synced`), so only the new file is sent.
+//   3 again      the assignment moves to a THIRD template. Their last sync
+//                came from the second, so that commit is the base
+//                (`other-template`): the second template's own files are
+//                removed, the third's added, theirs left alone.
 //
 // Fixtures are reset each run and earlier records of this probe cleared. The
 // probe assignment is a draft. No issue is opened.
@@ -55,6 +59,10 @@ const NEW1 = { "README.md": `# PE 1 ${stamp}\n`, ".gitignore": `*.tfstate\n# ${s
 const NEW2 = { ...NEW1, ".gitattributes": `* text=auto eol=lf\n# ${stamp}\n`, "infra/README.md": `infra ${stamp}\n` };
 const NEW3 = { ...NEW2, ".github/workflows/classroom.yml": `name: grade # ${stamp}\non: push\njobs: {}\n`, "PROCEDURE.md": `procedure ${stamp}\n` };
 const NEW4 = { ...NEW3, "infra/main.tf": `# main ${stamp}\n` };
+// A THIRD template (round 3): shares README and .gitignore with the second,
+// adds one file of its own, and has none of the rest.
+const TPL_C = "pxl-swap-probe-template-c";
+const THIRD = { "README.md": NEW1["README.md"], ".gitignore": NEW1[".gitignore"], "c-only.md": `third ${stamp}\n` };
 
 async function must(res, what) {
   if (!res.ok) die(`${what}: HTTP ${res.status} ${res.data?.message ?? ""}`);
@@ -237,6 +245,30 @@ async function main() {
   expectRow("2 evidence", r2, "worked", { outcome: "auto-merged", merged: 1, conflicted: 0, from: n3, source: "synced" });
   await expectExactly("2 evidence", "fresh", NEW4, n4, ["README.md"], ["notes.md"]);
   await expectExactly("2 evidence", "worked", NEW4, n4, ["README.md"], ["notes.md"]);
+
+  // --- 3: switched AGAIN --------------------------------------------------------
+  // The assignment moves to a third template. Their last sync came from the
+  // second one, at n4 - exactly what they hold - so that is the base
+  // (`other-template`): its own files are removed on main, the third's new
+  // file added, and what is theirs (README, notes.md) left alone.
+  await ensureRepo(TPL_C);
+  const c1 = await commitFiles(TPL_C, THIRD, [], "Initial commit");
+  await resetMain(TPL_C, c1);
+  await commitWithRebase({
+    token, owner: org, repo: CONTROL_REPO, branch: "main", message: `Live test fixture: ${ID} switches template again`,
+    changes: [{ path: `assignments/${ID}.yml`, content: stringify({ ...assignment, template: { owner: org, repository: TPL_C } }) }],
+  });
+  const r3 = await syncAndWait("3 switched again");
+  const gone = Object.keys(NEW4).filter((p) => !(p in THIRD));
+  for (const who of ["fresh", "worked"]) {
+    expectRow("3 switched again", r3, who, { outcome: "auto-merged", merged: gone.length + 1, conflicted: 0, from: n4, source: "other-template" });
+    const [mine, third] = [await treeOf(STUDENTS[who]), await treeOf(TPL_C, c1)];
+    const left = gone.filter((p) => mine.has(p));
+    const missingC = mine.get("c-only.md") !== third.get("c-only.md");
+    const theirs = ["README.md", "notes.md"].filter((p) => !mine.has(p));
+    if (left.length || missingC || theirs.length) r.bad(`3 switched again: ${who} still has [${left}], c-only ${missingC ? "missing" : "ok"}, lost [${theirs}]`);
+    else r.ok(`3 switched again: ${who} lost the second template's ${gone.length} file(s), gained the third's, kept their own`);
+  }
 
   console.log(`\n${r.failures() ? `${r.failures()} FAILED` : "all good"}\n`);
   process.exit(r.failures() ? 1 : 0);

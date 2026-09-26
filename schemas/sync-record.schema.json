@@ -193,8 +193,8 @@
           },
           "from_source": {
             "type": "string",
-            "enum": ["synced", "generated", "first-commit", "unknown"],
-            "description": "How the start was known: an earlier per-student sync that reached them; the template commit whose tree their repository's first commit carries; `first-commit` - no commit of THIS template matches (the assignment's template was changed after they accepted), so the range started from their own first commit's files; or `unknown` - not even that could be read, they were sent only this commit's changes, and this record does not count as evidence of where they are."
+            "enum": ["synced", "generated", "first-commit", "other-template", "unknown"],
+            "description": "How the start was known: an earlier per-student sync that reached them; the template commit whose tree their repository's first commit carries; `first-commit` - no commit of THIS template matches (the assignment's template was changed after they accepted), so the range started from their own first commit's files; `other-template` - their last sync came from an EARLIER template (switched twice), so the range started from that template's commit, `from_sha`; or `unknown` - not even that could be read, they were sent only this commit's changes, and this record does not count as evidence of where they are."
           },
           "files_kept": {
             "type": "integer",

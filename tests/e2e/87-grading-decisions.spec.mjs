@@ -212,6 +212,84 @@ test.describe('87 - grading decisions', () => {
 
   // --- review 2026-09-26 ------------------------------------------------------
 
+  test('TWO LECTURERS AT ONCE: a decision written against a version someone else just changed is merged, never lost', async ({ page }) => {
+    // Review 2026-09-26: the write fetched the file's sha afresh - the other
+    // lecturer's - and replaced their entry without a conflict.
+    await setup(page);
+    const theirs = { type: 'hand_in_allowance', value: 1, reason: 'crashed lab', overridden_by: 'lecturer2', overridden_at: '2026-10-01T13:00:00.000Z' };
+    const doc = (entries) => ({ schema_version: 1, assignment_id: ID, github_login: LOGIN, overrides: entries });
+    let version = 1;
+    let stored = doc([]);
+    const puts = [];
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64');
+    await page.route(new RegExp(`/contents/${overridePath.replace(/[/.]/g, '\\$&')}`), async (route) => {
+      const req = route.request();
+      if (req.method() === 'GET') {
+        return route.fulfill({ status: 200, body: JSON.stringify({ content: b64(stored), sha: `v${version}` }) });
+      }
+      const body = req.postDataJSON();
+      puts.push(body.sha);
+      if (body.sha !== `v${version}`) return route.fulfill({ status: 409, body: JSON.stringify({ message: 'is at v2 but expected v1' }) });
+      if (version === 1) {
+        // The other lecturer wins the race: their entry lands, the version moves.
+        stored = doc([theirs]);
+        version = 2;
+        return route.fulfill({ status: 409, body: JSON.stringify({ message: 'is at v2 but expected v1' }) });
+      }
+      stored = JSON.parse(Buffer.from(body.content, 'base64').toString('utf8'));
+      return route.fulfill({ status: 200, body: JSON.stringify({ content: { sha: `v${++version}` } }) });
+    });
+    await openActions(page);
+    await grading(page).locator('summary', { hasText: 'Set score by hand' }).click();
+    await grading(page).getByLabel('Score', { exact: true }).fill('8');
+    await grading(page).getByLabel('Out of').fill('10');
+    await grading(page).getByLabel(/Reason \(recorded with the score\)/).fill('Oral defence');
+    await grading(page).getByRole('button', { name: 'Set score' }).click();
+    await expect.poll(() => stored.overrides.length, { timeout: 15000 }).toBe(2);
+    expect(stored.overrides.map((e) => e.type)).toEqual(['hand_in_allowance', 'manual_score']);
+    expect(puts).toEqual(['v1', 'v2'], 'written against the version read, then re-read and re-merged');
+  });
+
+  test('the CSV export says which commit was graded and who decided it, when and why', async ({ page }) => {
+    // Review 2026-09-26: on the screen and in the grading summary, but not in
+    // the spreadsheet a grade dispute is read from.
+    const decided = {
+      ...summary,
+      students: [{ ...summary.students[0], earned_points: 6, graded_sha: sha(6), decided_by: { kind: 'commit', by: 'lecturer1', at: '2026-10-01T14:00:00.000Z', reason: 'wifi, then late' } }],
+    };
+    await setup(page, { startSummary: decided });
+    await page.getByRole('button', { name: /Export/ }).first().click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('.export-dropdown-item', { hasText: 'Export CSV' }).click(),
+    ]);
+    const { readFileSync } = await import('node:fs');
+    const csv = readFileSync(await download.path(), 'utf8').replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '');
+    const [header, row] = csv.trim().split('\n');
+    const split = (line) => {
+      const out = [];
+      let cur = '';
+      let quoted = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (quoted && ch === '"' && line[i + 1] === '"') { cur += '"'; i++; continue; }
+        if (ch === '"') { quoted = !quoted; continue; }
+        if (ch === ',' && !quoted) { out.push(cur); cur = ''; continue; }
+        cur += ch;
+      }
+      out.push(cur);
+      return out;
+    };
+    const cols = split(header);
+    const cells = split(row);
+    const cell = (name) => cells[cols.indexOf(name)];
+    expect(cell('graded_sha')).toBe(sha(6));
+    expect(cell('grade_decision')).toBe('chosen commit');
+    expect(cell('grade_decision_by')).toBe('lecturer1');
+    expect(cell('grade_decision_at')).toBe('2026-10-01T14:00:00.000Z');
+    expect(cell('grade_decision_reason')).toBe('wifi, then late');
+  });
+
   test('WHILE A SCORE BY HAND IS IN FORCE, choosing a commit is replaced by why it would not count', async ({ page }) => {
     const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
     await setup(page, { overrides: [manual] });

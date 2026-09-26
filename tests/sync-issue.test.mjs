@@ -1,7 +1,7 @@
 // Who a starter sync's tracking issue is assigned to: lib/sync-issue.mjs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { issueAssignees, loginsByRepo, MAX_ASSIGNEES } from "../lib/sync-issue.mjs";
+import { issueAssignees, loginsByRepo, MAX_ASSIGNEES, oneRecordPerRepo } from "../lib/sync-issue.mjs";
 
 const rec = (login, repo) => ({ github_login: login, repo_name: repo });
 
@@ -32,6 +32,24 @@ test("never more than GitHub's ten", () => {
   assert.equal(MAX_ASSIGNEES, 10);
   assert.equal(out.length, 10);
   assert.equal(out[0], "m13", "the record's own student is never the one cut");
+});
+
+test("ONE RECORD PER REPOSITORY: a team is planned once, through its first member; no-repository rows are kept", () => {
+  // Review 2026-09-26: the CLI planned each member of a team concurrently,
+  // and each opened its own pull request in the one repository.
+  const recs = [
+    { login: "ann", repo: "Org/grp-a" }, { login: "ben", repo: "org/GRP-A" },
+    { login: "cas", repo: "Org/solo" }, { login: "dee", repo: null }, { login: "eve", repo: null },
+  ];
+  assert.deepEqual(oneRecordPerRepo(recs, (r) => r.repo).map((r) => r.login), ["ann", "cas", "dee", "eve"]);
+  assert.deepEqual(oneRecordPerRepo(null, (r) => r), []);
+});
+
+test("the CLI sync plans per repository, not per record", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../cli/src/commands/sync-starter.mjs", import.meta.url), "utf8");
+  assert.match(src, /withConcurrency\(perRepo,/);
+  assert.match(src, /oneRecordPerRepo\(records,/);
 });
 
 test("a record whose repository nobody else names still assigns its own login", () => {

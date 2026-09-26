@@ -3525,6 +3525,10 @@ const DISPLAY_ONLY_ROW_FIELDS = [
   // badge; the grading summary is where it lives.
   'graded_sha',
   'grade_decided_by',
+  'grade_decision',
+  'grade_decision_by',
+  'grade_decision_at',
+  'grade_decision_reason',
   // The hand-in count and its exception, joined for the CSV export from the
   // grading summary and `overrides/` - both of which already hold them.
   'hand_ins_used',
@@ -3596,6 +3600,12 @@ function mergeGradesIntoReport() {
     // Which commit, and whether a lecturer - not the rules - decided it.
     s.graded_sha = g?.graded_sha ?? null
     s.grade_decided_by = g?.decided_by ?? null
+    // Flat, for the CSV export (lib/report-csv.mjs): a spreadsheet cannot
+    // read the object above.
+    s.grade_decision = g?.decided_by ? (g.decided_by.kind === 'score' ? 'score by hand' : 'chosen commit') : null
+    s.grade_decision_by = g?.decided_by?.by ?? null
+    s.grade_decision_at = g?.decided_by?.at ?? null
+    s.grade_decision_reason = g?.decided_by?.reason ?? null
 
     // The hand-in count under a cap - from a failed row too, where the graded
     // hand-in had no run but the count is still the count - and the exception
@@ -4169,35 +4179,57 @@ const actionHandIns = computed(() => {
 async function appendOverrides(student, entries, message) {
   const token = getToken()
   const path = overridePath(props.assignmentId, student.github_login)
-  let existing = []
+  // WRITTEN AGAINST THE VERSION THAT WAS READ, and on a conflict read again
+  // and append again. Two lecturers deciding about one student at once used
+  // to lose one decision: the write fetched the file's sha afresh, which was
+  // the other lecturer's, and replaced their entry without a conflict. An
+  // append is a merge, so re-reading and appending again loses nothing.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const read = await readOverrideFile(token, path)
+    if (!read.ok) {
+      // Not "there is none": writing over a document that could not be read
+      // would erase whatever it held.
+      toast.error(`Could not read ${student.github_login}'s existing exceptions (${read.message}), so nothing was changed.`)
+      return false
+    }
+    const doc = {
+      schema_version: 1,
+      assignment_id: props.assignmentId,
+      github_login: student.github_login,
+      overrides: [...read.existing, ...entries],
+    }
+    const { valid, errors } = await validateAgainst('override', doc)
+    if (!valid) {
+      toast.error('The exception failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
+      return false
+    }
+    const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(doc, null, 2) + '\n', message, { expectedSha: read.sha })
+    if (res.ok) {
+      overridesByLogin.value.set(student.github_login, doc)
+      overridesByLogin.value = new Map(overridesByLogin.value)
+      return true
+    }
+    if (!res.conflict) {
+      toast.error(`Saving the exception failed: ${res.data?.message || 'unknown error'}`)
+      return false
+    }
+  }
+  toast.error(`${student.github_login}'s exceptions kept changing while this was saved - someone else is editing them. Nothing was changed; try again.`)
+  return false
+}
+
+/** One student's override file with the version it was read at: sha null when there is none. */
+async function readOverrideFile(token, path) {
+  const res = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${path}`)
+  if (res.status === 404) return { ok: true, existing: [], sha: null }
+  if (!res.ok || !res.data?.content) return { ok: false, message: res.data?.message || `HTTP ${res.status}` }
   try {
-    const text = await getRepoContent(token, props.org, config.controlRepo, path)
-    if (text) existing = JSON.parse(text).overrides || []
+    const bin = atob(String(res.data.content).replace(/\n/g, ''))
+    const text = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+    return { ok: true, existing: JSON.parse(text).overrides || [], sha: res.data.sha }
   } catch (e) {
-    // Not "there is none": writing over a document that could not be read
-    // would erase whatever it held.
-    toast.error(`Could not read ${student.github_login}'s existing exceptions (${e.message}), so nothing was changed.`)
-    return false
+    return { ok: false, message: e.message }
   }
-  const doc = {
-    schema_version: 1,
-    assignment_id: props.assignmentId,
-    github_login: student.github_login,
-    overrides: [...existing, ...entries],
-  }
-  const { valid, errors } = await validateAgainst('override', doc)
-  if (!valid) {
-    toast.error('The exception failed validation: ' + errors.map((e) => `${e.instancePath} ${e.message}`).join('; '))
-    return false
-  }
-  const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(doc, null, 2) + '\n', message)
-  if (!res.ok) {
-    toast.error(`Saving the exception failed: ${res.data?.message || 'unknown error'}`)
-    return false
-  }
-  overridesByLogin.value.set(student.github_login, doc)
-  overridesByLogin.value = new Map(overridesByLogin.value)
-  return true
 }
 
 /**

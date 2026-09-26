@@ -676,7 +676,7 @@ async function findCatchUpFiles() {
   for (const s of (props.students || []).filter((x) => x.repo_name && studentTrees.value.has(x.repo_name))) {
     const { paths, source } = await planFor(s, ['*'])
     if (source === 'unknown') unknown++
-    if (source === 'first-commit') other.push(s.github_login)
+    if (source === 'first-commit' || source === 'other-template') other.push(s.github_login)
     for (const p of paths) {
       if (listed.has(p)) continue
       behind.set(p, (behind.get(p) || 0) + 1)
