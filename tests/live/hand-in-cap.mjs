@@ -20,6 +20,8 @@
 //   5 force-push   the branch rewritten without any hand-in: the run history
 //                  still counts 4, hand-in 2 is still graded and still scores
 //   6 no cap       the same repository without a cap: the last hand-in (4)
+//   7 runs deleted every run of hand-in 1 deleted: the push log still counts
+//                  it, and hand-in 2 is still graded
 //
 // Commit dates are set explicitly one minute apart, hours in the past. The
 // late case does NOT use them: lateness is when GitHub recorded the push (the
@@ -220,7 +222,19 @@ async function main() {
   // history is not read without a cap, so the rewritten branch has none).
   await push(H[3].sha);
   await expectGraded("6 no cap", { cap: null, want: h4, score: 4 });
-  void h1;
+
+  // 7 runs deleted: a repository admin deletes every run of hand-in 1. The
+  // push log still says a push ended on it, so it still uses its place and
+  // hand-in 2 is still the one graded (2026-09-27).
+  const h1Runs = runs.filter((x) => x.head_sha === h1.sha);
+  for (const run of h1Runs) {
+    const del = await api(`/repos/${FULL}/actions/runs/${run.id}`, { token, method: "DELETE" });
+    if (del.status !== 204) r.bad(`7 runs deleted: could not delete run ${run.id} (HTTP ${del.status})`);
+  }
+  const left = (await must(await api(`/repos/${FULL}/actions/runs?event=push&per_page=100`, { token }), "runs")).workflow_runs;
+  if (left.some((x) => x.head_sha === h1.sha)) r.bad("7 runs deleted: hand-in 1 still has a run");
+  else r.ok(`7 runs deleted: ${h1Runs.length} run(s) of hand-in 1 are gone`);
+  await expectGraded("7 runs deleted", { cap: 2, want: h2, used: 4, ignored: [[h3, "over-limit"], [h4, "over-limit"]], score: 2 });
 
   console.log(`\n${r.failures() ? `${r.failures()} FAILED` : "all good"}\n`);
   process.exit(r.failures() ? 1 : 0);
