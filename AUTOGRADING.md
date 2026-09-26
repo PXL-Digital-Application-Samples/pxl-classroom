@@ -61,7 +61,8 @@ The limit decides what is **graded**, not what a student can do: pushes and work
 - **A grading run the student starts themselves counts as a hand-in.** The grading workflow can be started from the repository's Actions tab, and a student is usually admin of their own repository. Each such run uses a place and is never the one graded, and it is listed as *a grading run the student started*. Runs you start with **Grade this commit now** are yours and count for nothing.
 - Every hand-in that does not count is listed under the Autograder results by name, with the reason: *hand-in 6 of 5 at 11:42 (a1b2c3d) ignored: over the limit*, or *after the deadline*. Nothing is dropped silently.
 - The results table and **Export CSV** show each student's count: **6 / 5** means six on-time hand-ins were made and the limit is five, so the sixth was not counted. Late ones are not in the first number.
-- A student cannot reset the count by rewriting their branch. Hand-ins are also counted from GitHub's record of the pushes, so one removed from the branch still counts and is listed as *no longer on the branch*. Only deleting those records too would hide it - on purpose, and visibly in the repository's history.
+- **A hand-in is a commit that started a grading run.** GitHub runs the workflow only for the newest commit of a push, so a hand-in message on an earlier commit of the same push was never graded and does not use a place.
+- A student cannot reset the count by rewriting their branch: hand-ins are counted from GitHub's record of the runs, so one removed from the branch still counts and is listed as *no longer on the branch*. Deleting a hand-in's runs does make it stop counting - accepted, because counting commits that were never graded cost students places for nothing.
 
 **One student may hand in more.** Open their row → **Hand-ins**:
 

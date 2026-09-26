@@ -4,8 +4,8 @@
 // student's own starting point up to one template commit (the newest, or
 // --commit): straight onto their submission branch for every file they have
 // not touched, and onto a `starter-update-<ts>` branch with a pull request for
-// the ones they have. It writes NO sync record, so a later sync cannot tell
-// what this one delivered - the Admin Panel's Sync Starter Code does.
+// the ones they have. It writes the same sync record the workflow does
+// (lib/sync-record.mjs, `via: "cli"`), so a later sync knows what it delivered.
 //
 // The plan comes from lib/starter-sync.mjs, shared with scripts/sync-starter.mjs
 // and the Admin Panel's pre-flight, so all three classify a student the same
@@ -16,12 +16,15 @@
 
 import { resolveOrg } from "../lib/org.mjs";
 import { makeOctokit } from "../lib/octokit.mjs";
-import { getAssignment, listRepoRecords, listSyncRecords } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, listRepoRecords, listSyncRecords } from "../lib/control-repo.mjs";
+import { validateAgainst } from "../lib/validate.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
 import { submissionBranch } from "../../../lib/submission-marker.mjs";
+import { buildSyncRecord, generateSyncId, syncRow } from "../../../lib/sync-record.mjs";
+import { sameLogin } from "../../../lib/github-login.mjs";
 import { issueAssignees, loginsByRepo, oneRecordPerRepo } from "../../../lib/sync-issue.mjs";
 import {
   changedPaths,
@@ -29,6 +32,7 @@ import {
   syncMarker,
   findExistingSyncPr,
   readTemplateCommit,
+  selectionIsAll,
   startingPointFor,
 } from "../../../lib/starter-sync.mjs";
 
@@ -175,18 +179,56 @@ export function registerSyncStarterCommand(program) {
       let skipped = 0;
       let failed = 0;
 
+      // THE SYNC RECORD, as the workflow writes it (lib/sync-record.mjs). The
+      // CLI wrote none, so nothing could say what a CLI sync delivered: the
+      // next sync started those students earlier, and a file it had delivered
+      // and the student had since edited came back as a pull request offering
+      // the version they already had (2026-09-27). Written at the START - and
+      // if that write fails nothing is sent - and at the end. Never on a dry run.
+      const recordPath = (id) => `syncs/${opts.assignment}/${id}.json`;
+      const syncId = generateSyncId();
+      const startedAt = new Date().toISOString();
+      const appliedPaths = new Set();
+      let syncedBy = "unknown";
+      const recordOf = (status, rows) => buildSyncRecord({
+        syncId, assignmentId: opts.assignment, startedAt, syncedBy, status, via: "cli",
+        totalStudents: records.length, remaining: 0, templateRepo: templateFullName, templateSha,
+        templateBaseSha: parentSha, appliedPaths, allFiles: selectionIsAll(requested),
+        prTitle: syncTitle, prBody: syncBody, createdIssues: Boolean(opts.issue), results: rows,
+      });
+      const writeRecord = async (doc, message) => {
+        const { valid, errors } = validateAgainst("sync-record", doc);
+        if (!valid) throw new Error(`the sync record does not match its schema: ${JSON.stringify(errors?.slice(0, 3))}`);
+        await commitWithRebase(octokit, {
+          owner: org, repo: CONTROL_REPO, branch: "main", message,
+          changes: [{ path: recordPath(syncId), content: JSON.stringify(doc, null, 2) + "\n" }],
+        });
+      };
+      if (!opts.dryRun) {
+        try {
+          syncedBy = (await octokit.request("GET /user")).data.login || "unknown";
+        } catch { /* recorded as unknown */ }
+        try {
+          await writeRecord(recordOf("running", []), `Start starter code sync for ${opts.assignment} (CLI)`);
+        } catch (e) {
+          process.stderr.write(`Nothing was sent: the start of this sync could not be recorded (${e.message}).\n`);
+          process.exit(1);
+        }
+      }
+
       const results = await withConcurrency(perRepo, CONCURRENCY, async (rec) => {
         const login = rec.doc.github_login;
         const repoName = repoOnly(rec.doc.repo_name);
+        const teamSlug = rec.doc.team_slug || null;
 
         if (!repoName) {
-          return { login, outcome: "skipped-no-repo" };
+          return { login, teamSlug, repoFull: "unknown", outcome: "skipped-no-repo" };
         }
 
+        const studentFullName = `${org}/${repoName}`;
         try {
-          const studentFullName = `${org}/${repoName}`;
           const studentTree = await readStudentTree(studentFullName, branch);
-          const { from, source, plan } = await planStudent({
+          const { from, source, plan, at } = await planStudent({
             login,
             studentRepo: studentFullName,
             studentTree,
@@ -203,10 +245,11 @@ export function registerSyncStarterCommand(program) {
           });
           const outcome = outcomeFor(plan);
 
+          const base = { login, teamSlug, repoFull: studentFullName, outcome, plan, from, source, at };
           if (opts.dryRun || outcome === "skipped-up-to-date") {
             // Dry-run is sacred: no API writes, no PRs, no commits. Everything
             // above this line is a read.
-            return { login, outcome, plan, from, source, dryRun: opts.dryRun };
+            return { ...base, dryRun: opts.dryRun };
           }
 
           const toChanges = async (entries) => {
@@ -220,7 +263,7 @@ export function registerSyncStarterCommand(program) {
             return out;
           };
 
-          const row = { login, outcome, plan, from, source };
+          const row = { ...base };
 
           if (plan.clean.length > 0) {
             const commit = await commitWithRebase(octokit, {
@@ -307,9 +350,41 @@ export function registerSyncStarterCommand(program) {
 
           return row;
         } catch (err) {
-          return { login, outcome: "failed", error: err.message };
+          return { login, teamSlug, repoFull: studentFullName, outcome: "failed", error: err.message };
         }
       });
+
+      // The record's rows: every student, a team's members each under their
+      // own login (the next sync reads each member's own start).
+      if (!opts.dryRun) {
+        const rowOf = (res) => {
+          if (!res.plan) {
+            return { github_login: res.login, repo_name: res.repoFull, ...(res.teamSlug ? { team_slug: res.teamSlug } : {}), outcome: res.outcome, ...(res.error ? { error: res.error } : {}) };
+          }
+          if (res.outcome !== "failed") for (const e of [...res.plan.clean, ...res.plan.conflicts]) appliedPaths.add(e.path);
+          return {
+            ...syncRow({ login: res.login, repoName: res.repoFull, teamSlug: res.teamSlug, outcome: res.outcome, from: res.from, source: res.source, at: res.at, plan: res.plan }),
+            ...(res.sha ? { commit_sha: res.sha } : {}),
+            ...(res.prNumber ? { pr_number: res.prNumber, pr_url: res.prUrl } : {}),
+            ...(res.issueError ? { issue_error: res.issueError } : {}),
+          };
+        };
+        const rows = [];
+        for (const res of results.filter(Boolean)) {
+          const row = rowOf(res);
+          rows.push(row);
+          const mates = records.filter((r) => !sameLogin(r.doc.github_login, res.login) &&
+            repoOnly(r.doc.repo_name) && res.repoFull.toLowerCase() === `${org}/${repoOnly(r.doc.repo_name)}`.toLowerCase());
+          for (const m of mates) rows.push({ ...row, github_login: m.doc.github_login, ...(m.doc.team_slug ? { team_slug: m.doc.team_slug } : {}) });
+        }
+        try {
+          await writeRecord(recordOf("completed", rows), `Record starter code sync for ${opts.assignment} (CLI)`);
+        } catch (e) {
+          // The students were changed; say that the record of it is missing.
+          process.stderr.write(`The sync ran, but its record could not be written (${e.message}): the next sync will not know what this one delivered.\n`);
+          process.exitCode = 1;
+        }
+      }
 
       process.stdout.write("\nResults:\n");
       for (const res of results) {

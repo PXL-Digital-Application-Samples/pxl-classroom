@@ -538,6 +538,7 @@ export type SyncRecord = {
   template_base_sha?: string;
   selected_files?: string[];
   status?: "running" | "completed" | "stopped";
+  via?: "cli";
   run_id?: number;
   run_url?: string;
   started_at?: string;

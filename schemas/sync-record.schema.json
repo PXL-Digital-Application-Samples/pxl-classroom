@@ -66,6 +66,11 @@
       "enum": ["running", "completed", "stopped"],
       "description": "Where the run is. `running` is written when it STARTS, and again as it goes, so a run that is cut off still leaves a record of who it reached; a record left at `running` whose run has ended is a run that died, which lib/sync-status.mjs asks the run itself about. `stopped` is the sync stopping itself at its time budget with `remaining` students not reached. ABSENT on records written before 2026-09-25, which were only ever written at the end, and means `completed`. No default, for the reason `per_student_range` gives."
     },
+    "via": {
+      "type": "string",
+      "enum": ["cli"],
+      "description": "`cli`: written by `pxl-classroom sync-starter`, with no workflow run behind it, so a `running` record cannot be checked against one. ABSENT for the workflow. No default."
+    },
     "run_id": {
       "type": "integer",
       "description": "The hub Actions run that did this sync - what a record left at `running` is checked against."

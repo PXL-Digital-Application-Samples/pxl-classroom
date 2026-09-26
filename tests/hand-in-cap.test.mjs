@@ -811,6 +811,23 @@ test("A GRADING RUN THE STUDENT STARTED counts as a hand-in: it uses a slot and 
   assert.equal(none.handIns.length, 2);
 });
 
+test("A HAND-IN IS A COMMIT THAT STARTED A GRADING RUN: one that was not the newest of its push uses no place (2026-09-27)", async () => {
+  // Hand-in 2 carries the message but was pushed together with a later
+  // commit, so GitHub never ran the workflow for it.
+  const get = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 2, min: 20 }, { n: 3, min: 30 }] });
+  const withoutTwo = async (path) => {
+    const res = await get(path);
+    if (path.includes("event=push")) return { ...res, data: { workflow_runs: res.data.workflow_runs.filter((r) => r.head_sha !== sha(2)) } };
+    return res;
+  };
+  const listed = await listHandIns(withoutTwo, { repoFullName: REPO, branch: "main", marker: marker() });
+  assert.deepEqual(listed.handIns.map((h) => h.sha), [sha(1), sha(3)]);
+  const r = selectHandIn(listed.handIns, { until: DEADLINE, limit: 2 });
+  assert.equal(r.commit.sha, sha(3), "hand-in 3 is the second that ran, so it is inside a limit of 2");
+  // Without the run history the branch is all there is, as before.
+  assert.equal((await listHandIns(withoutTwo, { repoFullName: REPO, branch: "main", marker: marker(), withRuns: false })).handIns.length, 3);
+});
+
 test("a dispatch is never the graded hand-in, even when it is the last valid one", () => {
   const r = selectHandIn([h(1, 10), { ...h(2, 20), dispatched: true, onBranch: false }], { until: DEADLINE, limit: 5 });
   assert.equal(r.commit.sha, sha(1));

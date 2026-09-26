@@ -61,12 +61,17 @@ function extra(path) {
     if (/\/pulls$/.test(path)) return json(200, []);
   }
   if (fixture.caseId === "sync-starter") {
-    if (/\/repos\/[^/]+\/starter\/commits$/.test(path)) return json(200, [{ sha: "tpl-sha" }]);
+    // Real-shaped commit ids: the CLI writes a sync record now, and the schema
+    // requires 40 hex characters - a fake id failed validation and the wet
+    // run stopped before sending anything.
+    const TPL = "a".repeat(40);
+    const PARENT = "b".repeat(40);
+    if (/\/repos\/[^/]+\/starter\/commits$/.test(path)) return json(200, [{ sha: TPL }]);
     if (/\/repos\/[^/]+\/starter\/commits\/[^/]+$/.test(path)) {
       return json(200, {
-        sha: "tpl-sha",
+        sha: TPL,
         commit: { message: "Update starter" },
-        parents: [{ sha: "tpl-parent" }],
+        parents: [{ sha: PARENT }],
         files: [{ filename: "README.md", status: "modified" }],
       });
     }
@@ -77,8 +82,8 @@ function extra(path) {
     //   student main     README.md -> blob-old  (untouched: updated in place)
     const tree = (sha) =>
       json(200, { sha: "t", truncated: false, tree: [{ path: "README.md", type: "blob", mode: "100644", sha }] });
-    if (/\/git\/trees\/tpl-sha/.test(path)) return tree("blob-new");
-    if (/\/git\/trees\/tpl-parent/.test(path)) return tree("blob-old");
+    if (path.includes(`/starter/git/trees/${TPL}`)) return tree("blob-new");
+    if (path.includes(`/starter/git/trees/${PARENT}`)) return tree("blob-old");
     if (/\/git\/trees\//.test(path)) return tree("blob-old");
     if (/\/git\/blobs\//.test(path)) return json(200, { content: b64("hello"), encoding: "base64", sha: "blob-new" });
     if (/\/pulls$/.test(path)) return json(200, []);

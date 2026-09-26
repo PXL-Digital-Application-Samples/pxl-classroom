@@ -19,7 +19,6 @@ import { CONTROL_REPO } from "../lib/deployment.mjs";
 import {
   changedPaths,
   outcomeFor,
-  summarize,
   syncMarker,
   findExistingSyncPr,
   readTemplateCommit,
@@ -30,6 +29,7 @@ import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReade
 import { issueAssignees, loginsByRepo, oneRecordPerRepo } from "../lib/sync-issue.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
 import { submissionBranch } from "../lib/submission-marker.mjs";
+import { buildSyncRecord, generateSyncId, syncRow } from "../lib/sync-record.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -56,14 +56,6 @@ const FLUSH_MS = 2 * 60_000;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function generateSyncId() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const ts = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `sync-${ts}-${rand}`;
 }
 
 // The transport lib/starter-sync-cohort.mjs reads through: gh() already
@@ -275,37 +267,13 @@ async function main() {
   // timeout stopped left no record at all of the students it had already
   // changed, and nothing on screen could say a sync was running, had stopped,
   // or how far it got (.NET Advanced, 2026-09-25).
-  const buildRecord = (status, remaining) => ({
-    schema_version: 1,
-    sync_id: syncId,
-    assignment_id: cfg.assignmentId,
-    synced_at: startedAt,
-    synced_by: cfg.actor,
-    status,
-    ...(runId ? { run_id: runId } : {}),
-    ...(runUrl ? { run_url: runUrl } : {}),
-    started_at: startedAt,
-    ...(status === "running" ? {} : { finished_at: new Date().toISOString() }),
-    total_students: repoFiles.length,
-    ...(status === "running" ? {} : { remaining }),
-    template_repo: templateFullName,
-    template_sha: templateSha,
-    ...(parentSha ? { template_base_sha: parentSha } : {}),
-    // The paths actually applied to anyone, not the raw request. `["*"]` used
-    // to be recorded verbatim while the operation merged the whole template
-    // tree regardless of what was ticked.
-    selected_files: [...appliedPaths].sort(),
-    // What makes this record evidence of where each student now is
-    // (lib/starter-sync.mjs `startingPointFor`): ranges were per student, and
-    // nothing in them was left out on purpose. A partial record is evidence
-    // too - for exactly the students in `results`.
-    per_student_range: true,
-    all_files: allFiles,
-    pr_title: syncTitle,
-    pr_body: syncBody,
-    created_issues: cfg.createIssue,
-    summary: summarize(results),
-    results,
+  // lib/sync-record.mjs, shared with the CLI. A partial record is evidence
+  // too - for exactly the students in `results`.
+  const buildRecord = (status, remaining) => buildSyncRecord({
+    syncId, assignmentId: cfg.assignmentId, startedAt, syncedBy: cfg.actor, status, runId, runUrl,
+    totalStudents: repoFiles.length, remaining, templateRepo: templateFullName, templateSha,
+    templateBaseSha: parentSha, appliedPaths, allFiles, prTitle: syncTitle, prBody: syncBody,
+    createdIssues: cfg.createIssue, results,
   });
 
   const recordPath = `syncs/${cfg.assignmentId}/${syncId}.json`;
@@ -398,8 +366,8 @@ async function main() {
     }
 
     const studentFullName = `${cfg.org}/${repoName}`;
-    const row = { github_login: login, repo_name: studentFullName };
-    if (teamSlug) row.team_slug = teamSlug;
+    // Named before the plan, so a failure while planning still has a row.
+    let row = { github_login: login, repo_name: studentFullName, ...(teamSlug ? { team_slug: teamSlug } : {}) };
 
     try {
       const studentTree = await readStudentTree(studentFullName, branch);
@@ -419,13 +387,7 @@ async function main() {
         historyComplete: listed.ok && listed.complete,
       });
       const outcome = outcomeFor(plan);
-      row.outcome = outcome;
-      row.from_sha = from || null;
-      row.from_source = source;
-      if (at) row.at_sha = at;
-      row.files_merged = plan.clean.length;
-      row.files_conflicted = plan.conflicts.length;
-      if (plan.kept.length) row.files_kept = plan.kept.length;
+      row = syncRow({ login, repoName: studentFullName, teamSlug, outcome, from, source, at, plan });
       for (const e of [...plan.clean, ...plan.conflicts]) appliedPaths.add(e.path);
       const fromNote =
         source === "first-commit"
