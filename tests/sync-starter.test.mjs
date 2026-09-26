@@ -334,6 +334,46 @@ test("added, deleted and renamed paths are planned correctly", () => {
 // 4. Selection, outcomes, summary
 // -----------------------------------------------------------------------------
 
+test("FILE MODES: an executable stays executable, a symlink a link, and a mode-only difference is repaired on main (third review, 2026-09-26)", async () => {
+  const { treeReader, treeValue, blobOf, modeOf } = await import("../lib/starter-sync-cohort.mjs");
+  const read = treeReader(async () => ({
+    status: 200,
+    data: { truncated: false, tree: [
+      { path: "gradlew", type: "blob", mode: "100755", sha: "g1" },
+      { path: "link", type: "blob", mode: "120000", sha: "l1" },
+      { path: "README.md", type: "blob", mode: "100644", sha: "r1" },
+    ] },
+  }));
+  const tree = await read("Org/tpl", "x");
+  assert.equal(tree.get("gradlew"), "g1@100755");
+  assert.equal(tree.get("link"), "l1@120000");
+  assert.equal(tree.get("README.md"), "r1", "a plain file is its blob alone, as before");
+  assert.equal(blobOf("g1@100755"), "g1");
+  assert.equal(modeOf("g1@100755"), "100755");
+  assert.equal(modeOf("r1"), "100644");
+  assert.equal(treeValue("g1", "100644"), "g1");
+  // An earlier sync wrote gradlew as a plain file: same content, lost the bit.
+  const plan = planStarterSync({
+    headTree: new Map([["gradlew", "g1@100755"]]),
+    baseTree: new Map([["gradlew", "g0@100755"]]),
+    studentTree: new Map([["gradlew", "g1"]]),
+    paths: ["gradlew"],
+  });
+  assert.deepEqual(plan.clean, [{ path: "gradlew", action: "write" }], "repaired, not a pull request");
+  // Both writers send the mode with the content.
+  for (const file of ["scripts/sync-starter.mjs", "cli/src/commands/sync-starter.mjs"]) {
+    assert.match(readFileSync(join(process.cwd(), file), "utf8"), /mode: modeOf\(headTree\.get\(path\)\)/, file);
+  }
+});
+
+test("every sync surface reads and writes the SUBMISSION branch, never a hard-coded main (third review)", () => {
+  for (const file of ["scripts/sync-starter.mjs", "cli/src/commands/sync-starter.mjs", "frontend/src/components/StarterSyncModal.vue"]) {
+    const src = stripComments(readFileSync(join(process.cwd(), file), "utf8"));
+    assert.match(src, /submissionBranch\(/, file);
+    assert.doesNotMatch(src, /readStudentTree\([^)]*["']main["']\)|rootCommit\([^)]*["']main["']\)|heads\/main|base: ["']main["']/, file);
+  }
+});
+
 test("changedPaths includes a rename's previous filename", () => {
   const files = [
     { filename: "src/new_name.py", previous_filename: "src/old_name.py", status: "renamed" },
@@ -905,12 +945,17 @@ test("a group repository's issue is assigned to every member, once", async () =>
     env: { CREATE_ISSUE: "true" }, behind: true, issues,
   });
   assert.equal(res.status, 0, res.stdout + res.stderr);
-  // The stub does not remember the first commit, so each member's record syncs
-  // the shared repository again; every issue it opens names the whole team,
-  // with the record's own member first.
-  assert.ok(issues.length >= 1);
+  // ONE PLAN PER REPOSITORY (third review, 2026-09-26): planned per member,
+  // the stub - which does not remember the first commit, like a stale tree
+  // cache - synced the shared repository three times and opened three issues,
+  // emailing every member three times.
+  assert.equal(issues.length, 1, "one issue for the one repository");
   assert.deepEqual([...issues[0].assigned].sort(), ["ann", "ben", "cas"]);
   assert.equal(issues[0].assigned[0], "ann");
+  // Every member still has a row: the next sync reads each member's own.
+  assert.deepEqual(res.record.results.map((r) => r.github_login).sort(), ["ann", "ben", "cas"]);
+  assert.ok(res.record.results.every((r) => r.outcome === "auto-merged" && r.at_sha === "a".repeat(40)));
+  assert.equal(validateSyncRecord(res.record), true, JSON.stringify(validateSyncRecord.errors));
 });
 
 test("an account GitHub will not assign is left off, the issue stands, and the log says who", async () => {

@@ -24,10 +24,12 @@ import {
   findExistingSyncPr,
   readTemplateCommit,
   selectionIsAll,
+  startingPointFor,
 } from "../lib/starter-sync.mjs";
-import { listTemplateCommits, planStudent, rootCommit, treeReader } from "../lib/starter-sync-cohort.mjs";
-import { issueAssignees, loginsByRepo } from "../lib/sync-issue.mjs";
+import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../lib/starter-sync-cohort.mjs";
+import { issueAssignees, loginsByRepo, oneRecordPerRepo } from "../lib/sync-issue.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
+import { submissionBranch } from "../lib/submission-marker.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -128,6 +130,11 @@ async function main() {
 
   const templateFullName = `${tplOwner}/${tplRepo}`;
   console.log(`[sync] Template repository: ${templateFullName}`);
+  // THE SUBMISSION BRANCH, which is the template's default and the only branch
+  // a student repository gets. `main` was written into every read and write,
+  // so on a `master` template every student read 404 and was reported failed
+  // (third review, 2026-09-26).
+  const branch = submissionBranch(assignment);
 
   // 2. The commit being synced, and the one before it. The newest, unless the
   //    lecturer named one (lib/starter-sync.mjs `readTemplateCommit` says why).
@@ -188,7 +195,7 @@ async function main() {
   const contentByPath = new Map();
   const contentOf = async (path) => {
     if (!contentByPath.has(path)) {
-      const sha = headTree.get(path);
+      const sha = blobOf(headTree.get(path));
       const blob = await gh("GET", `/repos/${templateFullName}/git/blobs/${sha}`, null, { token: cfg.token });
       if (!blob.ok) throw new Error(`could not read ${path} from the template (HTTP ${blob.status})`);
       // Kept as a Buffer so binary starter files (images, fixtures, archives)
@@ -222,12 +229,37 @@ async function main() {
   } catch {
     console.log(`[sync] No repositories directory for ${cfg.assignmentId}`);
   }
-  // Who shares each repository, for assigning its tracking issue: a group
-  // repository has a record per member. Read once, up front; a record that
-  // cannot be read here fails in the loop below, where it is reported.
-  const byRepo = loginsByRepo(await Promise.all(
-    repoFiles.map((f) => readFile(join(reposDir, f), "utf8").then(JSON.parse).catch(() => null)),
-  ));
+  // Every repository record, read once, up front. One that cannot be read is
+  // REPORTED as a failed row rather than thrown: one unreadable record used to
+  // stop the run partway, after some students had been changed, with no
+  // record of who (accept.mjs guards the same file type for the same reason).
+  const recs = [];
+  const unreadableRows = [];
+  for (const file of repoFiles) {
+    try {
+      recs.push(JSON.parse(await readFile(join(reposDir, file), "utf8")));
+    } catch (err) {
+      // Named <login>.json, so the filename still identifies the student.
+      const named = file.replace(/\.json$/, "");
+      console.log(`[fail] ${named}: repository record is unreadable - ${err.message}`);
+      unreadableRows.push({ github_login: named, repo_name: "unknown", outcome: "failed", error: `repository record unreadable: ${err.message}` });
+    }
+  }
+  // Who shares each repository, for assigning its tracking issue.
+  const byRepo = loginsByRepo(recs);
+  // ONE REPOSITORY, ONE PLAN - as the CLI already did. A team is a record per
+  // member naming one repository, and planned per member the second plan read
+  // the tree as it was before the first member's commit: the same files were
+  // written again as an empty commit, and without a pull request a second
+  // tracking issue emailed every member again (third review, 2026-09-26).
+  // Planned through the member whose start is best known; every member still
+  // gets a row, because the next sync reads each member's own.
+  const repoKey = (rec) => String(rec?.repo_name || "").split("/").pop();
+  const perRepo = oneRecordPerRepo(
+    recs,
+    repoKey,
+    (rec) => (startingPointFor({ login: rec.github_login, records }).source === "synced" ? 1 : 0),
+  );
 
   const syncId = generateSyncId();
   const results = [];
@@ -327,38 +359,34 @@ async function main() {
     flushedAt = done;
   };
 
+  results.push(...unreadableRows);
+  // The other members of the repository `rec` was planned through - each gets
+  // the same row under their own login.
+  const teammates = (rec) => recs.filter((o) => o !== rec && repoKey(o) && repoKey(o).toLowerCase() === repoKey(rec).toLowerCase());
   let remaining = 0;
-  for (const [index, file] of repoFiles.entries()) {
+  for (const [index, rec] of perRepo.entries()) {
     // The sync stops ITSELF before the job's timeout does, so that it can say
     // where it stopped: a job the timeout kills writes nothing afterwards.
+    // Counted in STUDENTS, the unit `total_students` is in.
     if (Date.now() - t0 > cfg.budgetMs) {
-      remaining = repoFiles.length - index;
+      remaining = perRepo.slice(index).reduce((n, r) => n + 1 + teammates(r).length, 0);
       console.log(`[stop] time budget reached with ${remaining} student(s) not yet reached - run the sync again to finish them`);
       break;
     }
     await maybeFlush();
-    // OUTSIDE the per-student try below, which is what made it fatal: one
-    // unreadable repository record threw out of main(), so the run stopped
-    // partway and the sync record was never written - after some students had
-    // already had a commit pushed to their main and a pull request opened. The
-    // one document that says which students got the correction is exactly what
-    // was lost. accept.mjs guards the same file type for the same reason.
-    let rec;
-    try {
-      rec = JSON.parse(await readFile(join(reposDir, file), "utf8"));
-    } catch (err) {
-      // The record is named <login>.json, so the filename still identifies the
-      // student even when its contents do not.
-      const named = file.replace(/\.json$/, "");
-      console.log(`[fail] ${named}: repository record is unreadable - ${err.message}`);
-      results.push({
-        github_login: named,
-        repo_name: "unknown",
-        outcome: "failed",
-        error: `repository record unreadable: ${err.message}`,
-      });
-      continue;
+    const pushed = results.length;
+    await syncOne(rec);
+    // Every other member of a shared repository: the same outcome, their login.
+    for (const mate of teammates(rec)) {
+      for (const row of results.slice(pushed)) {
+        if (sameLogin(row.github_login, rec.github_login)) results.push({ ...row, github_login: mate.github_login, ...(mate.team_slug ? { team_slug: mate.team_slug } : {}) });
+      }
     }
+    // Rate-limit throttle
+    await sleep(300);
+  }
+
+  async function syncOne(rec) {
     const login = rec.github_login;
     const teamSlug = rec.team_slug;
     const repoNameFull = rec.repo_name;
@@ -366,7 +394,7 @@ async function main() {
 
     if (!repoName) {
       results.push({ github_login: login, team_slug: teamSlug, repo_name: "unknown", outcome: "skipped-no-repo" });
-      continue;
+      return;
     }
 
     const studentFullName = `${cfg.org}/${repoName}`;
@@ -374,13 +402,13 @@ async function main() {
     if (teamSlug) row.team_slug = teamSlug;
 
     try {
-      const studentTree = await readStudentTree(studentFullName, "main");
-      const { from, source, plan } = await planStudent({
+      const studentTree = await readStudentTree(studentFullName, branch);
+      const { from, source, plan, at } = await planStudent({
         login,
         studentRepo: studentFullName,
         studentTree,
         readTree: readTemplateTree,
-        root: () => rootCommit(get, studentFullName, "main"),
+        root: () => rootCommit(get, studentFullName, branch),
         templateFullName,
         headSha: templateSha,
         headTree,
@@ -394,6 +422,7 @@ async function main() {
       row.outcome = outcome;
       row.from_sha = from || null;
       row.from_source = source;
+      if (at) row.at_sha = at;
       row.files_merged = plan.clean.length;
       row.files_conflicted = plan.conflicts.length;
       if (plan.kept.length) row.files_kept = plan.kept.length;
@@ -413,13 +442,16 @@ async function main() {
         );
         results.push(row);
         await sleep(200);
-        continue;
+        return;
       }
 
       const toChanges = async (entries) => {
         const out = [];
         for (const { path, action } of entries) {
-          out.push({ path, content: action === "delete" ? null : await contentOf(path) });
+          // With its MODE: an executable stays executable, a symlink a link.
+          out.push(action === "delete"
+            ? { path, content: null }
+            : { path, content: await contentOf(path), mode: modeOf(headTree.get(path)) });
         }
         return out;
       };
@@ -431,7 +463,7 @@ async function main() {
           apiBase: process.env.GITHUB_API_URL || undefined,
           owner: cfg.org,
           repo: repoName,
-          branch: "main",
+          branch,
           message: `Update starter code from template: ${commitMsgTitle}`,
           changes: await toChanges(plan.clean),
         });
@@ -453,12 +485,12 @@ async function main() {
           console.log(`[pr-exists] ${login}: #${existing.number} already open for this update`);
           results.push(row);
           await sleep(300);
-          continue;
+          return;
         }
 
         const branchName = `starter-update-${Date.now().toString(36)}`;
-        const head = await gh("GET", `/repos/${studentFullName}/git/ref/heads/main`, null, { token: cfg.token });
-        if (!head.ok) throw new Error(`could not read main (HTTP ${head.status})`);
+        const head = await gh("GET", `/repos/${studentFullName}/git/ref/heads/${encodeURIComponent(branch)}`, null, { token: cfg.token });
+        if (!head.ok) throw new Error(`could not read ${branch} (HTTP ${head.status})`);
 
         const ref = await gh("POST", `/repos/${studentFullName}/git/refs`, {
           ref: `refs/heads/${branchName}`,
@@ -480,13 +512,29 @@ async function main() {
           title: syncTitle,
           body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
           head: branchName,
-          base: "main",
+          base: branch,
         }, { token: cfg.token });
         if (!prRes.ok) throw new Error(`could not open the sync PR (HTTP ${prRes.status}): ${prRes.data?.message || ""}`);
 
         row.pr_number = prRes.data.number;
         row.pr_url = prRes.data.html_url;
         console.log(`[pr-opened] ${login}: #${prRes.data.number} for ${plan.conflicts.length} file(s) (${prRes.data.html_url})`);
+
+        // An OLDER sync's pull request is superseded by this one - this range
+        // starts from where the student is and carries every file that one did
+        // at a newer version. Left open, the two touched the same files and
+        // conflicted (third review, 2026-09-26). Closed only where it is still
+        // only ours: one commit, the sync's own. One the student pushed to is
+        // their work and stays.
+        for (const old of openPulls) {
+          if (!/<!-- pxl-starter-sync: [0-9a-f]{40} -->/.test(old?.body || "") || old.number === prRes.data.number) continue;
+          const detailRes = await gh("GET", `/repos/${studentFullName}/pulls/${old.number}`, null, { token: cfg.token });
+          if (!detailRes.ok || detailRes.data?.commits !== 1) continue;
+          await gh("POST", `/repos/${studentFullName}/issues/${old.number}/comments`, { body: `Superseded by #${prRes.data.number}, which carries the newer starter code.` }, { token: cfg.token });
+          const closed = await gh("PATCH", `/repos/${studentFullName}/pulls/${old.number}`, { state: "closed" }, { token: cfg.token });
+          if (closed.ok) console.log(`[pr-closed] ${login}: #${old.number} superseded by #${prRes.data.number}`);
+          else console.log(`[warn] ${login}: could not close the superseded #${old.number} (HTTP ${closed.status})`);
+        }
       }
 
       if (cfg.createIssue) {
@@ -533,9 +581,6 @@ async function main() {
       console.log(`[fail] ${login}: ${err.message}`);
       results.push({ ...row, outcome: "failed", error: err.message });
     }
-
-    // Rate-limit throttle
-    await sleep(300);
   }
 
   // 4. The final record. NOT best effort: this is the one that says the run

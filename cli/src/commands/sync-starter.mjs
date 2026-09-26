@@ -1,8 +1,11 @@
 // PXL Classroom - CLI sync-starter command.
 //
-// Copies the changes from ONE template commit into student repositories:
-// straight onto `main` for every file the student has not touched, and onto a
-// `starter-update-<ts>` branch with a pull request for the ones they have.
+// Sends each student repository what it is missing of the template, from the
+// student's own starting point up to one template commit (the newest, or
+// --commit): straight onto their submission branch for every file they have
+// not touched, and onto a `starter-update-<ts>` branch with a pull request for
+// the ones they have. It writes NO sync record, so a later sync cannot tell
+// what this one delivered - the Admin Panel's Sync Starter Code does.
 //
 // The plan comes from lib/starter-sync.mjs, shared with scripts/sync-starter.mjs
 // and the Admin Panel's pre-flight, so all three classify a student the same
@@ -17,7 +20,8 @@ import { getAssignment, listRepoRecords, listSyncRecords } from "../lib/control-
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
-import { listTemplateCommits, planStudent, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
+import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
+import { submissionBranch } from "../../../lib/submission-marker.mjs";
 import { issueAssignees, loginsByRepo, oneRecordPerRepo } from "../../../lib/sync-issue.mjs";
 import {
   changedPaths,
@@ -45,10 +49,10 @@ function pad(str, len) {
 export function registerSyncStarterCommand(program) {
   program
     .command("sync-starter")
-    .description("Copy the latest template commit's changes into student repositories")
+    .description("Send each student repository what it is missing of the template, up to its newest commit (or --commit)")
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .requiredOption("--assignment <id>", "Assignment ID")
-    .option("--files <list>", "Comma-separated list of file paths to sync (defaults to all files the commit changed)", "*")
+    .option("--files <list>", "Comma-separated list of file paths to sync (defaults to every file each student is behind on)", "*")
     .option("--title <title>", "Custom PR / commit title")
     .option("--message <msg>", "Custom instructions or description")
     .option("--issue", "Create tracking issue in student repositories", true)
@@ -69,6 +73,9 @@ export function registerSyncStarterCommand(program) {
       }
 
       process.stdout.write(`Template repository: ${tplOwner}/${tplRepo}\n`);
+      // The submission branch - the template's default, and the only branch a
+      // student repository gets - never a hard-coded `main`.
+      const branch = submissionBranch(assignment);
 
       // 1. The commit being synced, and the one before it. The newest unless
       //    --commit names one (lib/starter-sync.mjs `readTemplateCommit`).
@@ -125,7 +132,7 @@ export function registerSyncStarterCommand(program) {
       const contentByPath = new Map();
       const contentOf = async (path) => {
         if (!contentByPath.has(path)) {
-          const { data: blob } = await octokit.rest.git.getBlob({ owner: tplOwner, repo: tplRepo, file_sha: headTree.get(path) });
+          const { data: blob } = await octokit.rest.git.getBlob({ owner: tplOwner, repo: tplRepo, file_sha: blobOf(headTree.get(path)) });
           contentByPath.set(path, Buffer.from(blob.content || "", blob.encoding || "base64"));
         }
         return contentByPath.get(path);
@@ -178,13 +185,13 @@ export function registerSyncStarterCommand(program) {
 
         try {
           const studentFullName = `${org}/${repoName}`;
-          const studentTree = await readStudentTree(studentFullName, "main");
+          const studentTree = await readStudentTree(studentFullName, branch);
           const { from, source, plan } = await planStudent({
             login,
             studentRepo: studentFullName,
             studentTree,
             readTree: readTemplateTree,
-            root: () => rootCommit(get, studentFullName, "main"),
+            root: () => rootCommit(get, studentFullName, branch),
             templateFullName,
             headSha: templateSha,
             headTree,
@@ -205,7 +212,10 @@ export function registerSyncStarterCommand(program) {
           const toChanges = async (entries) => {
             const out = [];
             for (const { path, action } of entries) {
-              out.push({ path, content: action === "delete" ? null : await contentOf(path) });
+              // With its mode: an executable stays executable, a symlink a link.
+              out.push(action === "delete"
+                ? { path, content: null }
+                : { path, content: await contentOf(path), mode: modeOf(headTree.get(path)) });
             }
             return out;
           };
@@ -216,7 +226,7 @@ export function registerSyncStarterCommand(program) {
             const commit = await commitWithRebase(octokit, {
               owner: org,
               repo: repoName,
-              branch: "main",
+              branch,
               message: `Update starter code from template: ${commitHeadline}`,
               changes: await toChanges(plan.clean),
             });
@@ -243,7 +253,7 @@ export function registerSyncStarterCommand(program) {
             }
 
             const branchName = `starter-update-${Date.now().toString(36)}`;
-            const { data: head } = await octokit.rest.git.getRef({ owner: org, repo: repoName, ref: "heads/main" });
+            const { data: head } = await octokit.rest.git.getRef({ owner: org, repo: repoName, ref: `heads/${branch}` });
             await octokit.rest.git.createRef({
               owner: org,
               repo: repoName,
@@ -263,13 +273,17 @@ export function registerSyncStarterCommand(program) {
               title: syncTitle,
               body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
               head: branchName,
-              base: "main",
+              base: branch,
             });
             row.prNumber = prData.number;
             row.prUrl = prData.html_url;
           }
 
-          if (opts.issue) {
+          // The NOTIFICATION failing is not the SYNC failing: by here the
+          // commit and the pull request have landed. A thrown create (issues
+          // disabled: 410) reported a synced student as failed (third review,
+          // 2026-09-26); it is said as what it is, as the workflow does.
+          if (opts.issue) try {
             const { data: issue } = await octokit.rest.issues.create({
               owner: org,
               repo: repoName,
@@ -287,6 +301,8 @@ export function registerSyncStarterCommand(program) {
               await octokit.rest.issues.addAssignees({ owner: org, repo: repoName, issue_number: issue.number, assignees })
                 .catch((e) => process.stdout.write(`  ! ${login}: issue not assigned (${e.status || e.message})\n`));
             }
+          } catch (e) {
+            row.issueError = `HTTP ${e.status ?? "?"}${e.message ? `: ${e.message}` : ""}`;
           }
 
           return row;
@@ -324,6 +340,7 @@ export function registerSyncStarterCommand(program) {
             : "";
           const sha = res.sha ? ` ${res.sha.slice(0, 7)}` : "";
           process.stdout.write(`  + ${pad(res.login, 20)} ${res.outcome}${sha}${pr} - ${files}\n`);
+          if (res.issueError) process.stdout.write(`    (the notification issue could not be created: ${res.issueError} - they have not been told)\n`);
         }
       }
 

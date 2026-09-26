@@ -126,8 +126,15 @@ test.describe('82 - The sync dialog follows the run it started', () => {
     await page.locator('.modal.card.modal-wide button', { hasText: /Apply Starter Update/i }).click();
     await expect(panel(page)).toHaveAttribute('data-state', 'waiting');
     state.run = { status: 'completed', conclusion: 'failure' };
+    // One read of "no record" is not believed - the listing can lag a fresh
+    // write (third review, 2026-09-26). Three in a row are.
     await tick(page);
-    await expect(panel(page)).toHaveAttribute('data-state', 'ended-before-start');
+    await expect(panel(page)).toHaveAttribute('data-state', 'unknown');
+    // Each check has to finish before the clock is moved for the next one.
+    await expect.poll(async () => {
+      await tick(page);
+      return panel(page).getAttribute('data-state');
+    }, { timeout: 15_000 }).toBe('ended-before-start');
     await expect(panel(page)).toContainText('The run failed before it started syncing');
     await expect(panel(page)).toContainText('Nothing was sent to any student');
   });

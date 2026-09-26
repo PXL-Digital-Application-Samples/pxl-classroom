@@ -342,6 +342,7 @@ import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { ghApi, getRepoContent, dispatchWorkflowRun } from '../lib/api.js'
 import { activeSyncRun, describeFollow } from '../../../lib/sync-status.mjs'
+import { submissionBranch } from '../../../lib/submission-marker.mjs'
 import {
   changedPaths, outcomeFor, listTemplateCommits, planStudent, rootCommit, treeReader,
 } from '../lib/starter-sync.js'
@@ -624,7 +625,7 @@ async function runPreFlightScan() {
     while (cursor < activeStudents.length) {
       const s = activeStudents[cursor++]
       try {
-        studentTrees.value.set(s.repo_name, await readStudentTree(s.repo_name, 'main'))
+        studentTrees.value.set(s.repo_name, await readStudentTree(s.repo_name, submissionBranch(props.assignment)))
       } catch (err) {
         // Unreadable is its own answer, and it is not "no changes needed".
         unreadable.value.set(s.repo_name, err.message)
@@ -643,7 +644,7 @@ async function runPreFlightScan() {
 /** One student's plan under `selected`, through the planner the workflow uses. */
 function planFor(s, selected) {
   const repo = s.repo_name
-  if (!rootCache.has(repo)) rootCache.set(repo, rootCommit(get, repo, 'main'))
+  if (!rootCache.has(repo)) rootCache.set(repo, rootCommit(get, repo, submissionBranch(props.assignment)))
   return planStudent({
     login: s.github_login,
     studentRepo: repo,
@@ -749,6 +750,11 @@ async function handleDispatchSync() {
       pr_title: customPrTitle.value,
       pr_body: customPrBody.value,
       create_issue: String(createIssue.value),
+      // THE COMMIT THAT WAS PREVIEWED. Left out, the workflow synced whatever
+      // was newest when it ran - a template pushed to between opening this and
+      // pressing the button sent a commit nobody saw, under a pull request
+      // body naming the old one (third review, 2026-09-26).
+      template_commit: targetSha.value,
     }
 
     const res = await dispatchWorkflowRun(token, config.hubOwner, config.hubRepo, 'sync-starter-code.yml', inputs)
@@ -813,35 +819,49 @@ const followPercent = computed(() => {
   return p?.total ? Math.round((p.reached / p.total) * 100) : 0
 })
 
-/** This run's record, found by `run_id` among the newest few - or null. */
+/**
+ * This run's record, found by `run_id` among the newest few. `{ record, read }`:
+ * `read: false` is a read that FAILED, which is not "there is none" - the
+ * follow used to say "Nothing was sent to any student" over one (third
+ * review, 2026-09-26).
+ */
 async function findRunRecord(runId) {
   if (followRecordPath) {
     try {
       const text = await getRepoContent(getToken(), props.org, config.controlRepo, followRecordPath)
-      return text ? JSON.parse(text) : null
+      return text ? { record: JSON.parse(text), read: true } : { record: null, read: false }
     } catch {
-      return null
+      return { record: null, read: false }
     }
   }
   const listing = await get(`/repos/${props.org}/${config.controlRepo}/contents/syncs/${props.assignment.id}`)
-  if (!listing.ok || !Array.isArray(listing.data)) return null
+  // 404: no sync of this assignment has recorded anything - an answer.
+  if (listing.status === 404) return { record: null, read: true }
+  if (!listing.ok || !Array.isArray(listing.data)) return { record: null, read: false }
   const newest = listing.data
     .filter((f) => f.type === 'file' && f.name.endsWith('.json'))
     .sort((a, b) => b.name.localeCompare(a.name))
     .slice(0, 3)
+  let read = true
   for (const f of newest) {
     try {
       const doc = JSON.parse(await getRepoContent(getToken(), props.org, config.controlRepo, f.path))
       if (doc?.run_id === runId) {
         followRecordPath = f.path
-        return doc
+        return { record: doc, read: true }
       }
     } catch {
-      /* not this one */
+      // Unreadable: it may be this run's.
+      read = false
     }
   }
-  return null
+  return { record: null, read }
 }
+
+// "No record" is believed only when it is seen on several checks in a row:
+// the directory listing is served from a cache that can lag a fresh write.
+const ABSENT_CHECKS_BEFORE_BELIEVED = 3
+let absentChecks = 0
 
 async function followTick() {
   followTimer = null
@@ -853,15 +873,21 @@ async function followTick() {
   // next check is still scheduled.
   let run = null
   let record = null
+  let recordRead = false
   try {
     const runRes = await get(`/repos/${config.hubOwner}/${config.hubRepo}/actions/runs/${runId}`)
     run = runRes.ok ? runRes.data : null
-    record = await findRunRecord(runId)
+    const found = await findRunRecord(runId)
+    record = found.record
+    // Counted only once the run is over: absent while it runs is "not yet".
+    const over = run && !['queued', 'in_progress', 'waiting', 'requested', 'pending'].includes(run.status)
+    absentChecks = over && found.read && !found.record ? absentChecks + 1 : 0
+    recordRead = found.read && absentChecks >= ABSENT_CHECKS_BEFORE_BELIEVED
   } catch {
     run = null
   }
   if (followStopped) return
-  followView.value = describeFollow({ run, record })
+  followView.value = describeFollow({ run, record, recordRead: record ? true : recordRead })
   lastChecked.value = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   if (followView.value.done) {
     emit('settled')
@@ -874,6 +900,7 @@ function startFollowing(run) {
   following.value = run
   followView.value = null
   followRecordPath = null
+  absentChecks = 0
   followStopped = false
   if (followTimer) clearTimeout(followTimer)
   followTick()

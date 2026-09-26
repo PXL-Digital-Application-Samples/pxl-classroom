@@ -262,6 +262,54 @@ async function plan(login, { studentTree, records = [], roots = {}, commitCounts
   return { ...res, calls };
 }
 
+// --- third review, 2026-09-26 ------------------------------------------------
+
+test("A SYNC OF AN OLDER COMMIT leaves a student ahead WHERE THEY ARE - `at` says so, and the next sync starts there", async () => {
+  // Re-sending lab 3 to those who missed it recorded everyone else at lab 3,
+  // and the next sync filed lab 4's files as theirs for good.
+  const { get } = fakeGitHub({ roots: { "labs-zed": "tree-4" }, commitCounts: { "labs-zed": 3 } });
+  const res = await planStudent({
+    login: "zed", studentTree: TREES[LAB4], readTree: treeReader(get),
+    root: () => rootTreeSha(get, "Org/labs-zed", "main"), templateFullName: "Org/tpl",
+    headSha: LAB3, headTree: TREES[LAB3], templateCommits: COMMITS, records: [], fallbackSha: LAB2,
+    selected: ["*"], historyComplete: true,
+  });
+  assert.equal(res.at, LAB4, "held at lab 4, not moved to the older target");
+  assert.deepEqual(res.plan.clean, []);
+  // The record row carries it, and the next start reads it over the target.
+  const records = [record({ template_sha: LAB3 }, [{ ...row("zed", "skipped-up-to-date", "generated"), at_sha: LAB4 }])];
+  assert.equal(startingPointFor({ login: "zed", records }).sha, LAB4);
+  // An older row without the field reads as the target, as before.
+  assert.equal(startingPointFor({ login: "zed", records: [record({ template_sha: LAB3 }, [row("zed")])] }).sha, LAB3);
+  // An ordinary sync leaves them AT its target.
+  const ordinary = await plan("ada", { studentTree: TREES[LAB2], roots: { "labs-ada": "tree-2" }, commitCounts: { "labs-ada": 2 } });
+  assert.equal(ordinary.at, LAB4);
+});
+
+test("A FILE AN EARLIER, NON-EVIDENCE SYNC DELIVERED at the target's version, then edited, is theirs - never a PR undoing the edit", async () => {
+  // A partial sync (a file unticked) is not evidence of where they are, so the
+  // plan starts from their generated commit - and their edit of the file that
+  // sync delivered came back as a pull request resetting it.
+  const partial = record({ template_sha: LAB3, all_files: false, selected_files: ["Lab03/Program.cs"] }, [row("ada", "auto-merged", "generated")]);
+  const studentTree = new Map([...TREES[LAB2], ["Lab03/Program.cs", "their-l3"]]);
+  const res = await plan("ada", { studentTree, records: [partial], roots: { "labs-ada": "tree-2" }, commitCounts: { "labs-ada": 5 } });
+  assert.equal(res.source, "generated", "the partial record is still not evidence of where they are");
+  assert.deepEqual(res.plan.conflicts, []);
+  assert.deepEqual(res.plan.kept, ["Lab03/Program.cs"]);
+  assert.deepEqual(res.plan.clean.map((c) => c.path), ["Lab03/Tests.cs", "Lab04/Program.cs"], "what it did not deliver is still sent");
+  // Delivered at a DIFFERENT version than the target's: the target's is new to
+  // them, so it is still offered.
+  const older = record({ template_sha: LAB3, all_files: false, selected_files: ["Lab03/Program.cs"] }, [row("ada", "auto-merged", "generated")]);
+  const saved = TREES[LAB4].get("Lab03/Program.cs");
+  TREES[LAB4].set("Lab03/Program.cs", "l3-fixed");
+  try {
+    const again = await plan("ada", { studentTree, records: [older], roots: { "labs-ada": "tree-2" }, commitCounts: { "labs-ada": 5 } });
+    assert.deepEqual(again.plan.conflicts.map((c) => c.path), ["Lab03/Program.cs"]);
+  } finally {
+    TREES[LAB4].set("Lab03/Program.cs", saved);
+  }
+});
+
 test("THE CASE: generated at lab 2, lab 3 never arrived, lab 4 did - lab 3 is sent now", async () => {
   // What 43 students of .NET Advanced held on 2026-09-25 at 14:30.
   const studentTree = new Map([...TREES[LAB2], ["Lab02/Program.cs", "their-work"], ["Lab04/Program.cs", "l4"]]);
@@ -298,11 +346,18 @@ test("generated at lab 4: nothing to send, and their own work in lab 3 is not of
   assert.deepEqual(res.plan.conflicts, []);
 });
 
-test("generated at lab 2 and ALREADY caught up by hand: everything up to date, an edit kept", async () => {
+test("generated at lab 2 and ALREADY caught up by hand: the one file that differs is a pull request, never silently skipped", async () => {
+  // From a KNOWN start (generated at lab 2), lab 3's Program.cs cannot have
+  // come from the template, so their copy is not proof they received it - it
+  // may be a file of their own with the same name, and "kept" meant the
+  // template's version was never sent, for good (third review, 2026-09-26). A
+  // pull request loses nothing: they close it if it is theirs.
   const studentTree = new Map([...TREES[LAB4], ["Lab03/Program.cs", "their-lab3"]]);
   const res = await plan("dee", { studentTree, roots: { "labs-dee": "tree-2" }, commitCounts: { "labs-dee": 30 } });
-  assert.equal(outcomeFor(res.plan), "skipped-up-to-date");
-  assert.deepEqual(res.plan.kept, ["Lab03/Program.cs"]);
+  assert.equal(outcomeFor(res.plan), "pr-opened");
+  assert.deepEqual(res.plan.conflicts.map((c) => c.path), ["Lab03/Program.cs"]);
+  assert.deepEqual(res.plan.kept, []);
+  assert.equal(res.plan.clean.length, 0, "everything else is already up to date");
 });
 
 test("unticking a catch-up file leaves it out, and only it", async () => {

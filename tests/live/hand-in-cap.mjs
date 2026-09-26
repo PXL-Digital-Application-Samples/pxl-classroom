@@ -21,11 +21,14 @@
 //                  still counts 4, hand-in 2 is still graded and still scores
 //   6 no cap       the same repository without a cap: the last hand-in (4)
 //
-// Commit dates are set explicitly one minute apart, so the late case does not
-// depend on how fast the pushes went.
+// Commit dates are set explicitly one minute apart, hours in the past. The
+// late case does NOT use them: lateness is when GitHub recorded the push (the
+// run's created_at, lib/submission-marker.mjs `handInTime`), so the deadline
+// is placed between the runs of hand-ins 2 and 3 - which also proves that a
+// commit DATED before the deadline but pushed after it is late.
 
 import { resolveHandIn, readScoreAtCommit } from "../../lib/grade-cohort.mjs";
-import { readSubmissionMarker } from "../../lib/submission-marker.mjs";
+import { PUSH_TO_RUN_ALLOWANCE_MS, readSubmissionMarker } from "../../lib/submission-marker.mjs";
 import { allowanceEntry } from "../../lib/hand-in-allowance.mjs";
 import { validateAgainst } from "../../lib/validate.mjs";
 import { api, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
@@ -198,9 +201,14 @@ async function main() {
   await expectGraded("2 exception +5", { cap: 2, overrides: [overrideDoc([grant(1, at(10)), grant(5, at(11))])], want: h4, used: 4, ignored: [], score: 4 });
   // 3 revoked
   await expectGraded("3 revoked", { cap: 2, overrides: [overrideDoc([grant(1, at(10)), grant(5, at(11)), grant(0, at(12))])], want: h2, used: 4, ignored: [[h3, "over-limit"], [h4, "over-limit"]], score: 2 });
-  // 4 late: deadline between hand-in 2 (08:03) and 3 (08:04)
+  // 4 late: deadline between hand-in 2's push and hand-in 3's, as GitHub
+  // recorded them (the earliest run of each), less the allowance for a run
+  // starting after its push.
+  const pushedAt = (h) => Math.min(...runs.filter((x) => x.head_sha === h.sha).map((x) => Date.parse(x.created_at)));
+  const between = (pushedAt(h2) + pushedAt(h3)) / 2 - PUSH_TO_RUN_ALLOWANCE_MS;
+  if (!(pushedAt(h3) > pushedAt(h2))) r.bad(`4 late: hand-in 3's run did not start after hand-in 2's - cannot place a deadline between them`);
   await expectGraded("4 late + exception", {
-    cap: 2, overrides: [overrideDoc([grant(5, at(11))])], deadline: at(3.5), want: h2, used: 2,
+    cap: 2, overrides: [overrideDoc([grant(5, at(11))])], deadline: new Date(between).toISOString(), want: h2, used: 2,
     ignored: [[h3, "late"], [h4, "late"]], score: 2,
   });
   // 5 force-push: the branch no longer carries any hand-in.

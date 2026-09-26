@@ -563,6 +563,7 @@ export type SyncRecord = {
     outcome?: "auto-merged" | "pr-opened" | "merged-and-pr" | "skipped-up-to-date" | "skipped-no-repo" | "failed";
     files_merged?: number;
     files_conflicted?: number;
+    at_sha?: string;
     from_sha?: string;
     from_source?: "synced" | "generated" | "first-commit" | "other-template" | "unknown";
     files_kept?: number;

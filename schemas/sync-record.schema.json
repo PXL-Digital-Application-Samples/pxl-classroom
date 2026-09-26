@@ -186,6 +186,11 @@
             "minimum": 0,
             "description": "Files the student had changed, offered as a pull request instead."
           },
+          "at_sha": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "The template commit this student HOLDS after the sync - `template_sha`, except where the sync named an older commit than they already had (never-backwards): then it is where they were, and stayed. The next sync starts them here (lib/starter-sync.mjs `startingPointFor`); absent on rows written before 2026-09-26, read as `template_sha`."
+          },
           "from_sha": {
             "type": ["string", "null"],
             "pattern": "^[0-9a-f]{40}$",

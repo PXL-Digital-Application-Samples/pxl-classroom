@@ -207,6 +207,31 @@ test("FOLLOW: the run ended before recording anything - nothing was sent, stop c
   assert.equal(describeFollow({ run: { status: "completed", conclusion: "cancelled" } }).title, "The run was cancelled before it started syncing");
 });
 
+test("FOLLOW: no record is 'nothing was sent' only when it was READ - and never for a run that succeeded (third review, 2026-09-26)", () => {
+  const failed = { status: "completed", conclusion: "failure", html_url: "https://x/run" };
+  // The read failed: not an answer.
+  const unread = describeFollow({ run: failed, record: null, recordRead: false });
+  assert.equal(unread.state, "unknown");
+  assert.equal(unread.done, false);
+  assert.doesNotMatch(unread.detail, /Nothing was sent/);
+  // A run that SUCCEEDED wrote a record before it sent anything: not seeing it
+  // is a read that has not caught up.
+  const ok = describeFollow({ run: { status: "completed", conclusion: "success" }, record: null });
+  assert.equal(ok.state, "unknown");
+  assert.equal(ok.done, false);
+  assert.match(ok.title, /finished, and its record could not be read yet/);
+  // Read, absent, and the run failed: then it is the answer.
+  assert.equal(describeFollow({ run: failed, record: null, recordRead: true }).state, "ended-before-start");
+});
+
+test("COMPLETED: a student with no repository is not 'already had it' (third review)", () => {
+  const rec = record();
+  rec.results = [...rec.results, { github_login: "norepo", repo_name: "unknown", outcome: "skipped-no-repo" }];
+  rec.total_students = rec.results.length;
+  const v = describeSyncStatus({ record: rec, templateHeadSha: HEAD });
+  assert.equal(v.detail, "1 updated, 2 already had it, 1 had no repository to update.");
+});
+
 test("FOLLOW: an unreadable run is unknown and keeps checking - never 'done'", () => {
   const v = describeFollow({ run: null, record: null });
   assert.equal(v.state, "unknown");

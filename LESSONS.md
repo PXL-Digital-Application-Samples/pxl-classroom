@@ -2582,3 +2582,11 @@ The rest of the grading findings were one shape: a limit read from something the
 
 Three were the edge of a decision's reach. The nightly refused to replace any summary that named a lecturer, so one Re-grade all from the page froze the cohort's grades against every later grant; only a local runner's result is irreproducible. The CLI's archive queue dropped a student with a chosen commit and no preserved submission from a summary it replaces whole. The page said "nothing to grade" over a cohort of scores by hand, because it asked its own question instead of the grader's (`gradeQueue`).
 
+### A record of a delivery says where the recipient ended up, and what it delivered - an aim is not an arrival.
+
+2026-09-26, night. The third review of the starter sync found its records answering the wrong question. A row said "this sync reached them" and the next sync read that as "they hold its commit". That is true for an ordinary sync and false for the case `template_commit` was built for: re-sending lab 3 to the 43 students who missed it left the other 68, already at lab 4, where they were - correctly - and recorded them at lab 3, so the next sync started them there and filed lab 4's files as their own work, for good. Each row now carries `at_sha`, where the sync left that student.
+
+The same shape one level down: a partial sync (a file unticked) is rightly not evidence of where a student is, so the next sync started from their generated commit - and a file the partial sync had delivered, then edited by the student, came back as a pull request offering to reset their edit to the version they already had. The record said which files it applied and at which template commit; nothing asked it. `kept` had the mirror defect: "an added file they already have is theirs" is a guess that fits only an unknown start, and applied to a known one it meant the template's file was never sent.
+
+The rest were a hard-coded `main` in every read and write (a `master` template failed every student), file modes dropped on read and reset on write (`gradlew` arrived unrunnable, a symlink became a text file), the workflow planning a team repository once per member (empty commits and an issue per member), a dialog that previewed one commit and let the workflow pick the newest, and a follow that read a failed record read as "nothing was sent".
+
