@@ -35,6 +35,7 @@ import {
   decryptClaimWithAnyKey,
   claimPrivateKeys,
   domainAllowed,
+  heldSince,
   normalizeEmail,
   recordFailedAttempt,
   resolveClaimDomains,
@@ -343,6 +344,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     assignmentId,
     now: iso,
     replaces: replacing ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
+    previous: replacing,
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
@@ -577,6 +579,7 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
     now: sameAddress ? (existing.claimed_at || iso) : iso,
     domainAllowed: domainOk,
     replaces: replacing && !sameAddress ? { email: replacing.email, claimed_at: replacing.claimed_at } : null,
+    previous: replacing,
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
@@ -622,7 +625,9 @@ async function holdersOf(dataDir, email) {
       // student who has done nothing wrong.
     }
   }
-  const at = (r) => (typeof r?.claimed_at === "string" && r.claimed_at ? r.claimed_at : "￿");
+  // Since when THIS account has held the address, its history included: an
+  // account that corrected away and back keeps its place (heldSince).
+  const at = (r) => heldSince(r, email) || "￿";
   return out.sort((a, b) => at(a).localeCompare(at(b)) || (Number(a.github_id) || 0) - (Number(b.github_id) || 0));
 }
 

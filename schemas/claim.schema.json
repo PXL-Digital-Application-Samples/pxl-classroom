@@ -64,6 +64,20 @@
         "claimed_at": { "type": "string", "format": "date-time" }
       },
       "description": "The binding this one replaced, when the student confirmed again because their earlier address no longer met the rules (lib/claim.mjs `bindingMeetsRules` - a `12345678@` address once deployment.yml asks for `firstname.lastname@`). Kept so the history of who this account said it was survives the rewrite, and so the roster can follow a row whose address came from the replaced claim. Absent on a first binding."
+    },
+    "history": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "claimed_at"],
+        "properties": {
+          "email": { "type": "string" },
+          "claimed_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "Every earlier binding of this account, oldest first, at most 20 - `replaces` is only the last one. Read for WHO WAS FIRST to hold an address (acceptance/accept.mjs `holdersOf`): an account that corrected away from an address and back keeps the time it first held it, rather than losing to whoever confirmed the address in between. Absent on a first binding."
     }
   }
 }

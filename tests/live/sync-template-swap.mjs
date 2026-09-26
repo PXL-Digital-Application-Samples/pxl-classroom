@@ -21,7 +21,7 @@
 //                README and a notes file. Nothing proves their first commit
 //                was starter code, so: every new file arrives directly, the
 //                README (which no version of THIS template ever had) is a
-//                pull request for both, and notes.md is left alone - never
+//                pull request for both, and so is removing notes.md - never
 //                deleted on main. Both start `first-commit`.
 //   2 evidence   one more template commit. Round 1's record is where they
 //                are now (`synced`), so only the new file is sent.
@@ -222,17 +222,18 @@ async function main() {
 
   // --- 1: swap ------------------------------------------------------------------
   const r1 = await syncAndWait("1 swap");
-  // Both: the 5 files they lack written, the old README offered as a pull
-  // request, notes.md left alone.
-  const f = expectRow("1 swap", r1, "fresh", { outcome: "merged-and-pr", merged: 5, conflicted: 1, from: null, source: "first-commit" });
+  // Both: the 5 files they lack written on main; the old README and the
+  // removal of notes.md offered as ONE pull request - notes.md stays on main.
+  const f = expectRow("1 swap", r1, "fresh", { outcome: "merged-and-pr", merged: 5, conflicted: 2, from: null, source: "first-commit" });
   await expectExactly("1 swap", "fresh", NEW3, n3, ["README.md"], ["notes.md"]);
-  const w = expectRow("1 swap", r1, "worked", { outcome: "merged-and-pr", merged: 5, conflicted: 1, from: null, source: "first-commit" });
+  const w = expectRow("1 swap", r1, "worked", { outcome: "merged-and-pr", merged: 5, conflicted: 2, from: null, source: "first-commit" });
   await expectExactly("1 swap", "worked", NEW3, n3, ["README.md"], ["notes.md"]);
   for (const [who, row] of [["fresh", f], ["worked", w]]) {
     if (!row?.pr_number) { r.bad(`1 swap: ${who} has no pull request`); continue; }
     const files = await must(await api(`/repos/${org}/${STUDENTS[who]}/pulls/${row.pr_number}/files`, { token }), "pr files");
-    if (files.length === 1 && files[0].filename === "README.md") r.ok(`1 swap: ${who}'s pull request #${row.pr_number} carries README.md only`);
-    else r.bad(`1 swap: ${who}'s pull request carries ${files.map((x) => x.filename)}`);
+    const got = files.map((x) => `${x.filename}:${x.status}`).sort().join(",");
+    if (got === "README.md:modified,notes.md:removed") r.ok(`1 swap: ${who}'s pull request #${row.pr_number} carries the README and removing notes.md - nothing else`);
+    else r.bad(`1 swap: ${who}'s pull request carries ${got}`);
     await api(`/repos/${org}/${STUDENTS[who]}/pulls/${row.pr_number}`, { token, method: "PATCH", body: { state: "closed" } });
   }
 

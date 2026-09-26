@@ -528,7 +528,10 @@ test("FORCE-PUSHED HISTORY: their own first commit is never trusted - no solutio
   assert.ok(!res.plan.clean.some((c) => c.path === "README.md"), "their README is not written over on main");
   assert.deepEqual(res.plan.conflicts.filter((c) => c.path === "README.md"), [{ path: "README.md", action: "write" }], "offered as a pull request");
   assert.ok(!res.plan.clean.some((c) => c.path === "notes.md"), "not deleted on main");
-  assert.ok(!res.plan.conflicts.some((c) => c.path === "notes.md"), "and not even proposed - no template ever had it");
+  // Proposed as a pull request: it was in their first commit, so it may be an
+  // old template's file or theirs, and only they can say (dropped instead, an
+  // old template's files stayed in such repositories for good).
+  assert.deepEqual(res.plan.conflicts.filter((c) => c.path === "notes.md"), [{ path: "notes.md", action: "delete" }]);
   assert.ok(!res.plan.kept.includes("notes.md"), "not 'kept': that would make the record no evidence, and every later sync would start over");
   assert.ok(res.plan.clean.some((c) => c.path === ".gitignore" && c.action === "write"), "a file they do not have is still added");
 });

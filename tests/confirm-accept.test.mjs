@@ -486,6 +486,20 @@ test("TAKEN asks who was FIRST among every holder, and a tie has exactly one win
   assert.equal(run(makeDir({ over: claimMode, roster: namedRoster, claims: tieWins }), { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
 });
 
+test("CORRECTING AWAY AND BACK keeps the account's place: who was first is who held the address first (history)", () => {
+  // Review 2026-09-26: A holds X, corrects to Y, back to X - and B, who
+  // confirmed X in between, became "first" because A's claimed_at reset.
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [namedBinding({ claimed_at: "2026-09-01T00:00:00.000Z" })] });
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offRoster })).outputs.outcome, "confirmed", "away to another address");
+  // B confirms X while A is away (a separate account's binding, written directly).
+  const squatter = { ...namedBinding(), github_login: "squatter", github_id: 555, claimed_at: "2026-09-15T00:00:00.000Z" };
+  writeFileSync(join(dir, "students", "claims", "555.json"), JSON.stringify(squatter));
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed })).outputs.outcome, "confirmed", "and back");
+  const rec = readClaim(dir);
+  assert.deepEqual(rec.history.map((h) => h.email), ["alice.peeters@student.pxl.be", "mal.lory@student.pxl.be"]);
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted", "A held it first, since 09-01");
+});
+
 test("THE CONFIRM LINK accepts a number-form address the ROSTER registers, as acceptance does", () => {
   // Review 2026-09-26: the page offers it under `claim`, acceptance admits
   // it, and the confirm link refused it for its form.

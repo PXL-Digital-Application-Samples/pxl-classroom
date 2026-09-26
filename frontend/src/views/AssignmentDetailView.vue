@@ -3752,6 +3752,49 @@ async function saveGradingSummary(token, summaryDoc, message) {
 }
 
 /**
+ * Write a summary built by `build(base)` from the summary AS IT IS ON THE
+ * CONTROL REPOSITORY, against that exact version; on a conflict read, rebuild
+ * and try again (three times, with a pause for a stale read to catch up).
+ * `fallback` is the page's copy, used only when there is no summary yet.
+ *
+ * @returns {Promise<{ok: boolean, message?: string}>}
+ */
+async function saveSummaryMerging(token, build, fallback, message) {
+  const path = `grading/${props.assignmentId}/summary.json`
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const cur = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${path}`)
+    let base = fallback
+    let sha = null
+    if (cur.ok && cur.data?.content) {
+      try {
+        const bin = atob(String(cur.data.content).replace(/\n/g, ''))
+        base = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))))
+        sha = cur.data.sha
+      } catch {
+        return { ok: false, message: 'The grade summary on record could not be read, so nothing was overwritten.' }
+      }
+    } else if (cur.status !== 404) {
+      return { ok: false, message: `The grade summary on record could not be read (HTTP ${cur.status}), so nothing was overwritten.` }
+    }
+    const summaryDoc = build(base)
+    const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
+    if (!valid) {
+      console.error('grading summary failed schema', errors)
+      return { ok: false, message: 'The grade summary came out malformed and was not saved. Nothing was overwritten.' }
+    }
+    const res = await commitFile(token, props.org, config.controlRepo, path, JSON.stringify(summaryDoc, null, 2) + '\n', message, { expectedSha: sha })
+    if (res.ok) {
+      autogradeSummary.value = summaryDoc
+      mergeGradesIntoReport()
+      return { ok: true }
+    }
+    if (!res.conflict) return { ok: false, message: `Save failed: ${res.data?.message || 'unknown error'}` }
+    await new Promise((resolve) => setTimeout(resolve, 800 * attempt))
+  }
+  return { ok: false, message: 'The grade summary kept changing while this was saved - someone else is grading. Nothing was changed; try again.' }
+}
+
+/**
  * ONE student, from their row. Chasing one is the ordinary case; re-grading
  * forty to fix one is not an answer.
  *
@@ -3880,26 +3923,24 @@ async function regradeStudent(student, { afterDecision = false } = {}) {
     // The same row the cohort grader writes (lib/grade-cohort.mjs), so a
     // chosen commit or a score by hand is recorded identically by both.
     const { graded: row, failed: why } = rowFromOutcome(student.github_login, outcome, autogradeTotalPoints.value)
-    const summaryDoc = buildGradingSummary({
+    // MERGED INTO THE SUMMARY AS IT IS NOW, written against that version, and
+    // re-read and merged again on a conflict - the pattern the overrides use.
+    // Merged into the page's copy (`prev`) with a freshly fetched version, a
+    // team's second member - saved right after the first - hit the Contents
+    // API's stale read and failed, or wrote over a save made meanwhile by
+    // another tab or the nightly (review 2026-09-26).
+    const merged = (base) => buildGradingSummary({
       assignmentId: props.assignmentId,
       gradedBy: user.value?.login,
       runner: 'github_actions',
-      students: [...(prev?.students || []).filter((s) => String(s.login).toLowerCase() !== login), ...(row ? [row] : [])],
+      students: [...(base?.students || []).filter((s) => String(s.login).toLowerCase() !== login), ...(row ? [row] : [])],
       // This student's reason is replaced either way: by nothing when they now
       // have a score, by the new reason when they do not. Everybody else's stands.
-      failed: [...(prev?.failed || []).filter((f) => String(f.login).toLowerCase() !== login), ...(why ? [why] : [])],
+      failed: [...(base?.failed || []).filter((f) => String(f.login).toLowerCase() !== login), ...(why ? [why] : [])],
     })
-
-    const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
-    if (!valid) {
-      console.error('grading summary failed schema', errors)
-      toast.error('The grade summary came out malformed and was not saved. Nothing was overwritten.')
-      return
-    }
-
-    const saved = await saveGradingSummary(token, summaryDoc, `Re-grade ${student.github_login} for ${props.assignmentId}`)
+    const saved = await saveSummaryMerging(token, merged, prev, `Re-grade ${student.github_login} for ${props.assignmentId}`)
     if (!saved.ok) {
-      toast.error(`Save failed: ${saved.data?.message}`)
+      toast.error(saved.message)
       return
     }
     if (row) toast.success(`${student.github_login}: ${row.earned_points}/${row.total_points}.`)

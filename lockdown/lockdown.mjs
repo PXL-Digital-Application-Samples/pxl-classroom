@@ -40,6 +40,7 @@ import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
 import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
+import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -272,29 +273,20 @@ async function readSentinelStop() {
     return null;
   }
 
-  let earliest = null;
+  // Which timelines count, and the earliest - a cohort can be armed more than
+  // once, and the earliest instant that actually fired is when writes first
+  // stopped - is lib/sentinel-window.mjs `sentinelStoppedAt`, the judge the
+  // Admin Panel's permission plan asks too.
+  const timelines = [];
   for (const name of names) {
     if (!/^sentinel-.*\.json$/.test(name)) continue;
     try {
-      const doc = JSON.parse(await readFile(join(dir, name), "utf8"));
-      if (doc?.outcome !== "fired" || !doc?.deadline_at) continue;
-      // `fired` is about the sentinel, `due` is about THIS assignment: a
-      // sentinel fires for its group while one member has been extended past
-      // the instant, and that member's timeline records its own later deadline
-      // with `due: false`. Crediting that would claim writes stopped at an
-      // instant where this cohort was deliberately left alone. Absent is a
-      // timeline written before the field existed, when firing did mean stopped.
-      if (doc?.due === false) continue;
-      const at = new Date(doc.deadline_at);
-      if (Number.isNaN(at.getTime())) continue;
-      // A cohort can be armed more than once - a deadline moved forward, say.
-      // The earliest instant that actually fired is when writes first stopped.
-      if (!earliest || at < earliest) earliest = at;
+      timelines.push(JSON.parse(await readFile(join(dir, name), "utf8")));
     } catch (e) {
       console.error(`Unreadable sentinel timeline ${name}: ${e.message}`);
     }
   }
-  return earliest ? earliest.toISOString() : null;
+  return sentinelStoppedAt(timelines);
 }
 
 // --- Phase 0: plan -----------------------------------------------------------

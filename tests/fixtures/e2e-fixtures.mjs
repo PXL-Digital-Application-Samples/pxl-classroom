@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import { stringify as yamlStringify, parse as yamlParse } from 'yaml';
 import { validateAgainst } from '../../lib/validate.mjs';
 import { MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
-import { generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync, createHash } from 'node:crypto'
+
+/** A stand-in for a file's blob sha: the same text, the same sha. */
+const contentSha = (text) => createHash('sha1').update(String(text)).digest('hex')
 import { signInviteToken, generateKeyPair, inviteFileFor } from '../../lib/invite-token.mjs'
 import { linkSecretFrom } from '../../lib/invite-token-format.mjs'
 import { ROSTER_SCHEMA_VERSION } from '../../lib/roster-entries.mjs'
@@ -1147,6 +1150,19 @@ export async function setupStandardMockRoutes(page, {
         const match = url.match(/\/contents\/(.+)$/);
         const path = match ? decodeURIComponent(match[1]) : 'file';
         let violation = null;
+        // The grading summary checks the sha a write names, like GitHub: a
+        // write against an older version is a 409, which is what
+        // saveSummaryMerging exists to re-read and merge on.
+        const summaryPath = path.split('?')[0].match(/^grading\/([^/]+)\/summary\.json$/);
+        if (summaryPath) {
+          const body = route.request().postDataJSON();
+          const current = dynamicFiles.get(`grading/${summaryPath[1]}/summary.json`)
+            ?? (gradingSummaries[summaryPath[1]] ? JSON.stringify(gradingSummaries[summaryPath[1]]) : null);
+          if (body?.sha && current != null && body.sha !== contentSha(current)) {
+            await route.fulfill({ status: 409, body: JSON.stringify({ message: `grading summary is at ${contentSha(current).slice(0, 7)} but expected ${String(body.sha).slice(0, 7)}` }) });
+            return;
+          }
+        }
         try {
           const postData = route.request().postDataJSON();
           if (postData?.content) {
@@ -1207,10 +1223,13 @@ export async function setupStandardMockRoutes(page, {
       if (url.includes('/pxl-classroom-control/contents/grading/')) {
         const match = url.match(/\/grading\/([^/?#]+)\/summary\.json/);
         const asgnId = match ? match[1] : null;
-        const doc = asgnId && gradingSummaries[asgnId] ? gradingSummaries[asgnId] : null;
-        if (doc) {
-          const contentBase64 = Buffer.from(JSON.stringify(doc)).toString('base64');
-          await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+        // What the page wrote last, like GitHub - not the seed for ever - with
+        // a sha of its content, so a write against an older one is a conflict.
+        const written = asgnId ? dynamicFiles.get(`grading/${asgnId}/summary.json`) : null;
+        const text = written ?? (asgnId && gradingSummaries[asgnId] ? JSON.stringify(gradingSummaries[asgnId]) : null);
+        if (text) {
+          const contentBase64 = Buffer.from(text).toString('base64');
+          await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: contentSha(text) }) });
         } else {
           await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
         }
@@ -1395,7 +1414,18 @@ export async function setupStandardMockRoutes(page, {
         }
         await route.fulfill({ status: 200, body: JSON.stringify(fileList) });
         return;
-      } else if (/\/pxl-classroom-control\/contents\/lockdowns\/[^/?#]+\/lockdown-record\.json/.test(url)) {
+      } else if (/\/pxl-classroom-control\/contents\/lockdowns\/[^/?#]+\/?(\?.*)?$/.test(url)) {
+        // The FOLDER, like GitHub: what was written under it, or 404 - the
+        // permission plan reads the sentinel's timelines out of it.
+        const dir = decodeURIComponent(url.match(/\/contents\/(lockdowns\/[^/?#]+)/)[1]);
+        const files = [...dynamicFiles.keys()].filter((p) => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/'));
+        if (!files.length) {
+          await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+          return;
+        }
+        await route.fulfill({ status: 200, body: JSON.stringify(files.map((p) => ({ name: p.split('/').pop(), path: p, type: 'file' }))) });
+        return;
+      } else if (/\/pxl-classroom-control\/contents\/lockdowns\/[^/?#]+\/(lockdown-record|sentinel-[^/?#]+)\.json/.test(url)) {
         // Like GitHub: the record a spec wrote, or 404. The catch-all's `200 {}`
         // is a file that exists and cannot be read - which the Admin Panel's
         // permission plan rightly refuses on (review 2026-09-26).

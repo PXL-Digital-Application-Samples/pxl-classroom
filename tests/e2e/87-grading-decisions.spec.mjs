@@ -250,6 +250,39 @@ test.describe('87 - grading decisions', () => {
     expect(puts).toEqual(['v1', 'v2'], 'written against the version read, then re-read and re-merged');
   });
 
+  test('THE SUMMARY TOO: a score saved against a version someone else just changed is merged, never lost', async ({ page }) => {
+    // Review 2026-09-26: merged into the page's copy with a freshly fetched
+    // sha, a team's second member (or another tab) could replace a row saved
+    // a moment before. Now: read, merge, write against THAT version, retry.
+    await setup(page);
+    const other = { login: 'someone-else', earned_points: 4, total_points: 10, ci_status: 'success', score_source: 'annotation-json', graded_at: '2026-10-01T13:00:00.000Z' };
+    let version = 1;
+    let stored = summary;
+    const puts = [];
+    await page.route(new RegExp(`/contents/${summaryPath.replace(/[/.]/g, '\\$&')}`), async (route) => {
+      const req = route.request();
+      if (req.method() === 'GET') {
+        return route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(stored)).toString('base64'), sha: `s${version}` }) });
+      }
+      const body = req.postDataJSON();
+      puts.push(body.sha);
+      if (version === 1) {
+        stored = { ...stored, students: [...stored.students, other] };
+        version = 2;
+        return route.fulfill({ status: 409, body: JSON.stringify({ message: 'is at s2 but expected s1' }) });
+      }
+      if (body.sha !== `s${version}`) return route.fulfill({ status: 409, body: JSON.stringify({ message: 'stale' }) });
+      stored = JSON.parse(Buffer.from(body.content, 'base64').toString('utf8'));
+      version++;
+      return route.fulfill({ status: 200, body: JSON.stringify({ content: { sha: `s${version}` } }) });
+    });
+    await openActions(page);
+    await grading(page).getByRole('button', { name: 'Read score again' }).click();
+    await expect.poll(() => puts.length, { timeout: 15000 }).toBe(2);
+    await expect.poll(() => stored.students.map((s) => s.login).sort().join(',')).toBe([LOGIN, 'someone-else'].sort().join(','));
+    expect(puts).toEqual(['s1', 's2'], 'written against the version read, then re-read and re-merged');
+  });
+
   test('the CSV export says which commit was graded and who decided it, when and why', async ({ page }) => {
     // Review 2026-09-26: on the screen and in the grading summary, but not in
     // the spreadsheet a grade dispute is read from.

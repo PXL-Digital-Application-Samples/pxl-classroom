@@ -83,6 +83,24 @@ test("A LOCK THAT EXISTS WINS over a later deadline: an extension granted after 
   }
 });
 
+test("THE SENTINEL'S STOP is a lock: before the nightly writes a lock record, an extended deadline still changes nobody", () => {
+  // Review 2026-09-26: the sentinel stops writes at the instant and writes no
+  // lock record; a deadline extended in the minutes before finalize read
+  // "future deadline, no lock", and Apply unlocked the cohort.
+  const fired = { outcome: "fired", deadline_at: "2026-09-30T00:00:00Z" };
+  const plan = planPermissionApply({
+    records: [rec("ann"), rec("ben")], assignment: A("2026-12-01T00:00:00Z"),
+    sentinelTimelines: [fired], reopened: ["ben"], now: NOW,
+  });
+  assert.deepEqual(plan.apply.map((x) => x.login), ["ben"], "a repository a lecturer reopened still follows");
+  assert.deepEqual(plan.skip, [{ login: "ann", repo: "Org/pe-ann", reason: "locked" }]);
+  // Not a stop: gave up, or fired for a group while THIS assignment was extended past it.
+  for (const t of [{ outcome: "gave-up:runtime", deadline_at: "2026-09-30T00:00:00Z" }, { ...fired, due: false }]) {
+    const p = planPermissionApply({ records: [rec("ann")], assignment: A("2026-12-01T00:00:00Z"), sentinelTimelines: [t], now: NOW });
+    assert.equal(p.apply.length, 1, JSON.stringify(t));
+  }
+});
+
 test("a lock and a deadline moved LATER: locked, not applied", () => {
   const plan = planPermissionApply({
     records: [rec("ann")], assignment: A("2026-12-01T00:00:00Z"),

@@ -43,13 +43,17 @@ test("ONE RECORD PER REPOSITORY: a team is planned once, through its first membe
   ];
   assert.deepEqual(oneRecordPerRepo(recs, (r) => r.repo).map((r) => r.login), ["ann", "cas", "dee", "eve"]);
   assert.deepEqual(oneRecordPerRepo(null, (r) => r), []);
+  // The member whose start is best known plans it, in the team's place.
+  const ranked = oneRecordPerRepo(recs, (r) => r.repo, (r) => (r.login === "ben" ? 1 : 0));
+  assert.deepEqual(ranked.map((r) => r.login), ["ben", "cas", "dee", "eve"]);
 });
 
 test("the CLI sync plans per repository, not per record", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../cli/src/commands/sync-starter.mjs", import.meta.url), "utf8");
   assert.match(src, /withConcurrency\(perRepo,/);
-  assert.match(src, /oneRecordPerRepo\(records,/);
+  assert.match(src, /oneRecordPerRepo\(\s*records,/);
+  assert.match(src, /startingPointFor\(\{ login: rec\.doc\.github_login, records: syncRecords \}\)/, "ranked by whose start is known");
 });
 
 test("a record whose repository nobody else names still assigns its own login", () => {

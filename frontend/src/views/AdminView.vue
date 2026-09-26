@@ -4513,6 +4513,26 @@ async function readPermissionPlan(id, doc = null) {
       return { ok: false }
     }
   }
+  // The SENTINEL'S timelines, beside the lock record: it stops writes at the
+  // instant and writes no lock record, so until the nightly finalizes this is
+  // the only record the cohort is stopped. Unreadable refuses, like the lock.
+  const sentinelTimelines = []
+  const lockDir = lockdownRecordPath(id).replace(/\/[^/]+$/, '')
+  let lockFiles = []
+  try {
+    lockFiles = await listRepoDir(token, props.org, config.controlRepo, lockDir)
+  } catch (e) {
+    if (e?.status !== 404) return { ok: false }
+  }
+  for (const f of lockFiles.filter((x) => x.type === 'file' && /^sentinel-.*\.json$/.test(x.name))) {
+    try {
+      const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+      if (!text) return { ok: false }
+      sentinelTimelines.push(JSON.parse(text))
+    } catch {
+      return { ok: false }
+    }
+  }
   const overrides = await readJsonDir(token, overridesDir(id))
   const reopened = await readJsonDir(token, unlockedDir(id))
   return {
@@ -4524,6 +4544,7 @@ async function readPermissionPlan(id, doc = null) {
       overrides: overrides.docs,
       reopened: reopened.docs.map((d) => d?.github_login).filter(Boolean),
       lockRecord,
+      sentinelTimelines,
     }),
   }
 }

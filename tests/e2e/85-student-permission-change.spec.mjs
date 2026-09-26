@@ -165,6 +165,23 @@ test.describe('85 - changing Student permission after students accepted', () => 
     await expect(n).not.toHaveClass(/is-success/);
   });
 
+  test('THE SENTINEL STOPPED WRITES and no lock record exists yet: an extended deadline still changes nobody - review 2026-09-26', async ({ page }) => {
+    // The sentinel writes only its timeline; the lock record comes with the
+    // nightly's finalize. In between, "future deadline, no lock" unlocked.
+    const timeline = { outcome: 'fired', deadline_at: new Date(Date.now() - 3600_000).toISOString(), due: true };
+    const { grants } = await openEditor(page);
+    // After the fixture's routes: the most recently registered route wins.
+    await page.route(/\/pxl-classroom-control\/contents\/lockdowns\/[^/?#]+\/?(\?.*)?$/, (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify([{ name: 'sentinel-x.json', path: `lockdowns/${ID}/sentinel-x.json`, type: 'file' }]) }));
+    await page.route(/\/pxl-classroom-control\/contents\/lockdowns\/[^/]+\/sentinel-x\.json/, (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(timeline)).toString('base64'), encoding: 'base64', sha: 't1' }) }));
+    await saveAs(page, 'maintain');
+    const n = notice(page);
+    await expect(n).toContainText('2 students are past their deadline or locked, and keep admin');
+    await expect(n.getByRole('button', { name: /Apply/ })).toHaveCount(0);
+    expect(grants).toHaveLength(0);
+  });
+
   test('past the deadline nobody is changed, and the notice says why', async ({ page }) => {
     const { grants } = await openEditor(page, {
       assignment: liveAssignment({ deadline_at: new Date(Date.now() - 3600_000).toISOString() }),

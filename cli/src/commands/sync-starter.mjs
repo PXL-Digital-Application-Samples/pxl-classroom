@@ -25,6 +25,7 @@ import {
   syncMarker,
   findExistingSyncPr,
   readTemplateCommit,
+  startingPointFor,
 } from "../../../lib/starter-sync.mjs";
 
 const CONCURRENCY = 4;
@@ -152,7 +153,13 @@ export function registerSyncStarterCommand(program) {
       // with issue assignment, emailed every member once per member. The
       // repository is planned once, through its first member; the issue is
       // still assigned to all of them (loginsByRepo).
-      const perRepo = oneRecordPerRepo(records, (rec) => repoOnly(rec.doc.repo_name));
+      // Through the member whose start is BEST KNOWN: a reached sync record
+      // (`synced`) outranks no record at all.
+      const perRepo = oneRecordPerRepo(
+        records,
+        (rec) => repoOnly(rec.doc.repo_name),
+        (rec) => (startingPointFor({ login: rec.doc.github_login, records: syncRecords }).source === "synced" ? 1 : 0),
+      );
       const shared = records.length - perRepo.length;
       process.stdout.write(`Processing ${perRepo.length} student repositories (concurrency ${CONCURRENCY})${shared ? `; ${shared} team member(s) share one of them` : ""}...\n`);
 

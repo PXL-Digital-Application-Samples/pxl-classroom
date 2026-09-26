@@ -108,7 +108,14 @@ export type Claim = {
     email?: string;
     claimed_at?: string;
   };
+  history?: Array<{
+    email?: string;
+    claimed_at?: string;
+  }>;
 };
+
+/** One element of `Claim.history`. */
+export type ClaimHistory = NonNullable<Claim["history"]>[number];
 
 /** The cross-assignment roll-up at reports/dashboard.json, and the only file the org overview reads (schemas/dashboard.schema.json) */
 export type Dashboard = {
