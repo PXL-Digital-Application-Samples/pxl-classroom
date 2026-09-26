@@ -154,6 +154,29 @@ test("commitWithRebase: non-FF triggers rebase retry, succeeds on second attempt
   assert.equal(refReads.length, 2, "must re-read ref after non-FF");
 });
 
+test("commitWithRebase: the BARE 'Reference cannot be updated' (a concurrent write) re-reads and retries", async () => {
+  // Measured 2026-09-26: a live drill committing to the same control
+  // repository at the same moment; the next attempt, from a fresh read, went
+  // through. A reason after the colon (below) is still a real refusal.
+  const { fetchImpl, calls } = makeMockFetch({
+    "GET /repos/{owner}/{repo}/git/ref/{ref}": [refRes("parent-1"), refRes("parent-2")],
+    "GET /repos/{owner}/{repo}/git/commits/{commit_sha}": [commitRes("parent-1", "tree-1"), commitRes("parent-2", "tree-2")],
+    "POST /repos/{owner}/{repo}/git/blobs": [blobRes("blob-x"), blobRes("blob-x")],
+    "POST /repos/{owner}/{repo}/git/trees": [treeRes("new-tree-1"), treeRes("new-tree-2")],
+    "POST /repos/{owner}/{repo}/git/commits": [commitRes("commit-1", "new-tree-1"), commitRes("commit-2", "new-tree-2")],
+    "PATCH /repos/{owner}/{repo}/git/refs/{ref}": [
+      { status: 422, body: { message: "Reference cannot be updated" } },
+      updateOk("commit-2"),
+    ],
+  });
+  const res = await commitWithRebase({
+    fetch: fetchImpl, token: "t", owner: "o", repo: "r", message: "m",
+    changes: [{ path: "x", content: "y" }], baseBackoffMs: 1,
+  });
+  assert.equal(res.commitSha, "commit-2");
+  assert.equal(calls.filter((c) => c.path.includes("/git/ref/")).length, 2, "re-read the ref before retrying");
+});
+
 test("commitWithRebase: real 422 (not non-FF) is thrown immediately", async () => {
   const { fetchImpl, calls } = makeMockFetch({
     "GET /repos/{owner}/{repo}/git/ref/{ref}": refRes("parent-sha"),

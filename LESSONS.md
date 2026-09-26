@@ -2549,3 +2549,5 @@ The general form: an early return is a claim that everything below it has alread
 
 The version was a date literal in eight places, and the CLI - the client that warned - sent none at all, so it ran on whatever GitHub's default was. Both are the same defect this repository records most often: one fact in several places, and a place that silently holds a different one. It is one constant now, the CLI sends it through a request hook (Octokit has no default-headers option), and a test fails on any other spelling and on a CLI request without it.
 
+The live proof found one more thing, unrelated to the version: a commit to the testbed control repository failed with a bare 422 "Reference cannot be updated" while a drill was writing to the same repository. Measured separately, a fast-forward and a non-fast-forward behave identically under both versions, so it was the race - and `commitWithRebase` retried only "Update is not a fast forward", so a concurrent write made it give up where re-reading would have succeeded (the retry did). The bare message now re-reads like a non-fast-forward; one carrying a reason ("...: malformed ref") is still a refusal.
+
