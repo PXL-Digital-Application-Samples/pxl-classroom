@@ -35,7 +35,7 @@ import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format
 import { REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 import { signAcceptanceTitle, PURPOSE } from "../../lib/acceptance-signature.mjs";
-import { encryptClaim, claimPath } from "../../lib/claim.mjs";
+import { encryptClaim, claimPath, claimAttemptsPath } from "../../lib/claim.mjs";
 import { rejectionDedupKey, TRACKING_LABEL } from "../../lib/rejection-notice.mjs";
 import { accounts, api, checkAccounts, decode, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
 
@@ -109,7 +109,11 @@ async function main() {
   if (r.failures()) die("accounts not usable");
 
   const claimFile = claimPath(STUDENT_A.id);
-  const original = { claim: await readControl(claimFile), roster: await readControl("students/roster.yml") };
+  // The ATTEMPT COUNTER too: the refusals this probe provokes are counted
+  // (review 2026-09-26), and left behind they would block the test student
+  // after a few runs.
+  const attemptsFile = claimAttemptsPath(STUDENT_A.id);
+  const original = { claim: await readControl(claimFile), roster: await readControl("students/roster.yml"), attempts: await readControl(attemptsFile) };
   if (!original.roster.ok) die("the testbed has no roster to extend");
   const tpl = await lect(`/repos/${ORG}/${TEMPLATE}`);
   if (!tpl.ok) die(`template ${ORG}/${TEMPLATE}: HTTP ${tpl.status}`);
@@ -222,6 +226,7 @@ async function main() {
     // Always put the student's own binding and the roster back.
     const restore = [{ path: "students/roster.yml", content: original.roster.text }];
     restore.push({ path: claimFile, content: original.claim.ok ? original.claim.text : null });
+    restore.push({ path: attemptsFile, content: original.attempts.ok ? original.attempts.text : null });
     // Closed, with its deadline behind it, so `drill.mjs cleanup` - which
     // refuses a live drill on purpose - deletes it.
     const current = await readControl(`assignments/${id}.yml`);
