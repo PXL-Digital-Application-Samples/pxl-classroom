@@ -1455,7 +1455,13 @@ export async function setupStandardMockRoutes(page, {
             return;
           }
         }
-        await route.fulfill({ status: 200, body: JSON.stringify([]) });
+        // NOTHING HERE IS A 404, because that is what GitHub answers for a
+        // directory with no files in it. This answered `200 []`, which no real
+        // control repository ever does - so when the page began refusing to
+        // grade on an override read that "failed", every spec stayed green
+        // while every real assignment without overrides was refused
+        // (2026-09-26). A mock must give the answer the API gives.
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
         return;
       } else if (url.includes('/pxl-classroom-control/contents/assignments.yml') || url.includes('/pxl-classroom-control/contents/roster.yml')) {
         await route.fulfill({ status: 200, body: JSON.stringify({ content: '', encoding: 'base64' }) });

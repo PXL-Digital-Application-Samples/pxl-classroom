@@ -3008,8 +3008,17 @@ async function loadOverrides(token) {
     }))
     overridesByLogin.value = map
   } catch (e) {
-    console.error('Failed to load overrides:', e)
-    problem = e.message || String(e)
+    // NO DIRECTORY IS NO OVERRIDES - the ordinary state of an assignment
+    // nobody has granted anything on (GitHub answers 404 for a path with no
+    // files). It is not a failed read. Treating it as one refused "Read score
+    // again" on every such assignment once the refusal stopped being limited
+    // to hand-in caps (2026-09-26); only a real failure is a problem.
+    if (e?.status === 404) {
+      overridesByLogin.value = new Map()
+    } else {
+      console.error('Failed to load overrides:', e)
+      problem = e.message || String(e)
+    }
   }
   overridesProblem.value = problem
   // The exception columns are joined from these; a merge that ran before they

@@ -181,6 +181,12 @@
           </template>
           by @{{ decision.by }} on {{ formatDate(decision.at) }}: "{{ decision.reason }}"
         </p>
+        <!-- The decision and the score on record can disagree until the score
+             is read again (a read that failed, a decision made elsewhere).
+             Said, rather than left for the reader to spot two commit ids. -->
+        <p v-if="decisionNotRead" class="text-sm text-warning">
+          The score above was not read on that commit yet - use Read score again.
+        </p>
 
         <!-- Where there is nothing to read, the reason REPLACES the buttons
              (DESIGN.md §1.5): a disabled control explains nothing. A score by
@@ -210,20 +216,22 @@
 
         <details class="manual-score" :open="decision?.kind === 'score'">
           <summary>Set score by hand</summary>
+          <!-- `.field` + `<label for>`: the dialog's own field vocabulary, so
+               these read at the size every other label here does. -->
           <div class="manual-score-fields">
-            <label class="field">
-              <span>Score</span>
-              <input v-model="manual.earned" type="number" min="0" step="any" class="form-control manual-number" aria-label="Score" />
-            </label>
-            <label class="field">
-              <span>out of</span>
-              <input v-model="manual.total" type="number" min="0" step="any" class="form-control manual-number" aria-label="Out of" />
-            </label>
+            <div class="field">
+              <label for="manual-earned">Score</label>
+              <input id="manual-earned" v-model="manual.earned" type="number" min="0" step="any" class="form-control manual-number" />
+            </div>
+            <div class="field">
+              <label for="manual-total">Out of</label>
+              <input id="manual-total" v-model="manual.total" type="number" min="0" step="any" class="form-control manual-number" />
+            </div>
           </div>
-          <label class="field">
-            <span>Reason (recorded with the score)</span>
-            <textarea v-model="manual.reason" rows="2" placeholder="Oral defence / the grading run failed for a reason outside the student's control"></textarea>
-          </label>
+          <div class="field">
+            <label for="manual-reason">Reason (recorded with the score)</label>
+            <textarea id="manual-reason" v-model="manual.reason" rows="2" placeholder="Oral defence / the grading run failed for a reason outside the student's control"></textarea>
+          </div>
           <p v-if="manual.reason.trim() && manualProblem" class="form-hint text-danger">{{ manualProblem }}</p>
           <button
             class="btn"
@@ -236,10 +244,10 @@
         <!-- Undoing a decision is its own act with its own reason, recorded
              like the decision was. -->
         <div v-if="decision" class="field">
-          <label>Reason for going back</label>
-          <input v-model="undoReason" type="text" class="form-control" placeholder="Decided after the appeal" />
+          <label for="undo-reason">Reason for going back</label>
+          <input id="undo-reason" v-model="undoReason" type="text" class="form-control" placeholder="Decided after the appeal" />
           <button
-            class="btn-link"
+            class="btn-link undo-decision"
             type="button"
             :disabled="busy || !undoReason.trim()"
             @click="emit('decide', { type: decision.kind === 'score' ? 'manual_score' : 'submission_sha', value: null, reason: undoReason.trim() })"
@@ -335,6 +343,10 @@ const props = defineProps({
 const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins', 'choose-commit', 'decide'])
 
 const decision = computed(() => props.grading?.decision || null)
+// A chosen commit whose score has not been read on it yet.
+const decisionNotRead = computed(() =>
+  decision.value?.kind === 'commit' && props.grading?.current && props.grading.current.graded_sha !== decision.value.sha,
+)
 
 // The score-by-hand form, seeded with the score in force or the total the
 // assignment grades out of, so a lecturer edits rather than retypes.
@@ -405,6 +417,17 @@ function requestClose() {
 }
 .manual-score {
   margin-top: var(--space-sm);
+}
+/* The disclosure's heading at the size of the text around it, not the
+   browser's 1rem - it is a line in this section, not a new one. */
+.manual-score > summary {
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: var(--space-xs);
+}
+.undo-decision {
+  align-self: flex-start;
 }
 .manual-score-fields {
   display: flex;

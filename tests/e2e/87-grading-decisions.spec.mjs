@@ -102,6 +102,18 @@ async function openActions(page) {
 }
 
 test.describe('87 - grading decisions', () => {
+  test('THE REGRESSION: an assignment nobody granted anything on (no overrides folder, a 404) still grades', async ({ page }) => {
+    // Seen live 2026-09-26: "Could not read the students' overrides (Not
+    // Found), so no score was read". A folder that does not exist is "no
+    // overrides", not a failed read.
+    const { contentWrites } = await setup(page);
+    await openActions(page);
+    await grading(page).getByRole('button', { name: 'Read score again' }).click();
+    await expect.poll(() => !!lastWrite(contentWrites, summaryPath), { timeout: 15000 }).toBe(true);
+    await expect(page.locator('.toast', { hasText: 'Could not read the students\' overrides' })).toHaveCount(0);
+    expect(lastSummary(contentWrites).students[0].earned_points).toBe(5);
+  });
+
   test('three actions, and what is in force said first', async ({ page }) => {
     await setup(page);
     await openActions(page);

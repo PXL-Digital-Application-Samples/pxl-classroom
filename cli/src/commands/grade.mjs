@@ -272,8 +272,10 @@ export function registerGradeCommand(program) {
         if (!parsed.graded) {
           return {
             verdict: "not-run",
-            reason: marker
-              ? `the grading workflow was ${parsed.conclusion || "not run"} at commit ${short} - it only runs on a commit whose message is "${marker.value}"`
+            // Only a SKIPPED run is explained by the hand-in gate; a cancelled
+            // hand-in is still a hand-in (lib/grade-cohort.mjs says the same).
+            reason: marker && parsed.conclusion === "skipped"
+              ? `the grading workflow was skipped at commit ${short} - it only runs on a commit whose message is "${marker.value}"`
               : `the grading run at commit ${short} was ${parsed.conclusion || "never completed"}, so it carries no score`,
           };
         }

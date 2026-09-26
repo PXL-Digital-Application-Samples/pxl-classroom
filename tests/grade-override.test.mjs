@@ -135,6 +135,22 @@ test("RE-GRADE ALL keeps every decision - the reason they are stored rather than
   assert.equal(v.valid, true, JSON.stringify(v.errors));
 });
 
+test("a CANCELLED hand-in is not explained by the hand-in gate; a SKIPPED run is", async () => {
+  // The dialog showed "cancelled at commit 02a... - it only runs on a commit
+  // whose message is ..." about a hand-in: false, it IS a hand-in.
+  const { readScoreAtCommit } = await import("../lib/grade-cohort.mjs");
+  const at = (conclusion) => async () => ({
+    ok: true, status: 200,
+    data: { check_runs: [{ name: "grading", status: "completed", conclusion, output: { annotations_count: 0 } }] },
+  });
+  const cancelled = await readScoreAtCommit(at("cancelled"), { repoFullName: "Org/r", sha: SHA_A, marker });
+  assert.equal(cancelled.verdict, "not-run");
+  assert.doesNotMatch(cancelled.reason, /only runs on a commit/);
+  assert.match(cancelled.reason, /was cancelled, so it carries no score/);
+  const skipped = await readScoreAtCommit(at("skipped"), { repoFullName: "Org/r", sha: SHA_A, marker });
+  assert.match(skipped.reason, /skipped at commit aaaaaaa - it only runs on a commit whose message is "hand in"/);
+});
+
 test("without a decision nothing changes, except that the graded commit is now recorded", async () => {
   const out = await gradeStudent(fakeGitHub(), { row: { ...row, latest_observed_sha: SHA_A }, overrides: [] });
   const { graded } = rowFromOutcome("kim", out, 10);

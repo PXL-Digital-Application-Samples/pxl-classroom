@@ -41,8 +41,15 @@
               <code class="mono">{{ r.sha.slice(0, 7) }}</code>
               <span class="text-secondary">{{ r.date ? formatDate(r.date) : 'unknown time' }}</span>
               <span v-if="!marker" class="commit-message">{{ r.message }}</span>
-              <span v-for="f in r.flags" :key="f" class="commit-flag text-sm">{{ f }}</span>
-              <span v-if="r.sha === currentSha" class="commit-flag text-sm">graded now</span>
+              <!-- Status dots, not coloured words (DESIGN.md §1.3/§4): late and
+                   over the limit need a look; "graded now" is the state in
+                   force, not a warning. -->
+              <span v-for="f in r.flags" :key="f" class="status-indicator text-sm">
+                <span class="status-dot dot-warning"></span><span>{{ f }}</span>
+              </span>
+              <span v-if="r.sha === currentSha" class="status-indicator text-sm">
+                <span class="status-dot dot-success"></span><span>graded now</span>
+              </span>
               <span class="commit-result">
                 <template v-if="r.result.state === 'loading'"><span class="spinner-sm"></span></template>
                 <template v-else-if="r.result.state === 'graded'"><strong>{{ r.result.earned }}/{{ r.result.total }}</strong></template>
@@ -326,9 +333,6 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.commit-flag {
-  color: var(--accent-yellow);
 }
 .commit-result {
   margin-left: auto;
