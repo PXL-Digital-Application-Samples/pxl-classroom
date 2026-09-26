@@ -75,9 +75,18 @@ const get = async (path) => {
 const request = async (method, path) => api(path, { token, method });
 
 async function ensureRepo() {
+  // A FRESH repository every run. The cap counts the push RUN HISTORY as well
+  // as the branch (so a force-push cannot reset it), and that history cannot
+  // be rewritten: a second run in the same repository counted the first run's
+  // four hand-ins too (used 8, measured 2026-09-26). Only this probe's own
+  // fixture is deleted.
   const got = await api(`/repos/${FULL}`, { token });
-  if (got.ok) return got.data;
-  if (got.status !== 404) die(`could not read ${FULL}: HTTP ${got.status}`);
+  if (got.ok) {
+    if (got.data?.description !== "tests/live/hand-in-cap.mjs") die(`${FULL} exists and is not this probe's fixture - not deleting it`);
+    const del = await api(`/repos/${FULL}`, { token, method: "DELETE" });
+    if (del.status !== 204) die(`could not delete the previous fixture ${FULL}: HTTP ${del.status} (the token needs delete_repo)`);
+    r.note(`deleted the previous ${FULL}`);
+  } else if (got.status !== 404) die(`could not read ${FULL}: HTTP ${got.status}`);
   const made = await must(
     await api(`/orgs/${org}/repos`, { token, method: "POST", body: { name: REPO, private: true, auto_init: true, description: "tests/live/hand-in-cap.mjs" } }),
     `create ${FULL}`,

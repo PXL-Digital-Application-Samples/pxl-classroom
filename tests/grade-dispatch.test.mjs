@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 import {
   GRADE_DISPATCH_INPUT, dispatchGrading, findGradingWorkflow, gradeRunTitle, hasGradeDispatch, readRunScore,
 } from "../lib/grade-dispatch.mjs";
@@ -135,6 +135,17 @@ test("the entry is ALL THREE parts: a workflow with the input but no checkout or
   assert.equal(hasGradeDispatch(whole.replace(/run-name:.*\n/, "")), false, "no title: readRunScore would refuse the run");
   assert.equal(hasGradeDispatch(whole.replace(/ref: .*\n/, "")), false, "no checkout of the input: it would grade the tip");
   assert.equal(hasGradeDispatch("on:\n  workflow_dispatch:\n    inputs:\n      grade_sha: {}\n"), false);
+  assert.equal(hasGradeDispatch("not: [yaml"), false, "unparseable is not available");
+});
+
+test("a FOLDED run-name is still the entry - measured: yaml.stringify wraps it across lines", () => {
+  // The live probe re-serialised the generated workflow and got
+  //   run-name: ${{ ... format('Grade {0} (PXL
+  //     Classroom)', inputs.grade_sha) || ... }}
+  // which a text check reported as "cannot grade a chosen commit yet".
+  const folded = stringify(parse(buildStarterWorkflow()), { lineWidth: 40 });
+  assert.match(folded, /run-name: [^\n]*\n {2}\S/, "the fixture really is folded");
+  assert.equal(hasGradeDispatch(folded), true);
 });
 
 test("findGradingWorkflow prefers the one with the entry, then the reporter - never a workflow that merely says 'grading'", async () => {

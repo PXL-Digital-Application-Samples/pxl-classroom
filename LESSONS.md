@@ -2537,4 +2537,6 @@ Every read of a commit's result by the rules now drops dispatched runs (`without
 
 **Grading.** The nightly read decisions only under a hand-in cap; a dispatched run that was later deleted blocked the whole cohort without naming anyone; the new dispatch filter needed a permission the nightly's fallback token lacks. Each is small; together they are the difference between "every grader honours a decision" and what was true.
 
+The live run of the fixes found two more, both in the tests' own assumptions. The tightened "does this workflow carry the whole entry" check grepped the text, and `yaml.stringify` had folded the long `run-name` across two lines - valid YAML, reported as "cannot grade a chosen commit yet"; it parses the document now. And the hand-in cap probe, run twice in one repository, counted the first run's hand-ins too: the cap counts the push run history precisely so a force-push cannot reset it, and that history cannot be rewritten, so the probe now deletes and recreates its own fixture.
+
 The general form: an early return is a claim that everything below it has already been checked, and that claim goes stale when a second writer appears or an input is reused for a purpose it was not proven for. When adding a writer or a shortcut, list the checks it skips and who ran them.
