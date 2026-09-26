@@ -226,6 +226,18 @@
             <span class="summary-value stat-red">{{ noSubCount }}</span>
             <span class="summary-label">No submission</span>
           </div>
+          <!-- Only once somebody HAS a score: before that a 0 would read as
+               "graded, and nobody passed". Computed from the rows the table
+               shows, so Refresh, Re-grade all and a single re-grade move it
+               the moment they land. -->
+          <div
+            v-if="gradedCount > 0"
+            class="summary-card card"
+            :title="`${gradedCount} of ${report.students.length} students have a score`"
+          >
+            <span class="summary-value">{{ gradedCount }}</span>
+            <span class="summary-label">Graded</span>
+          </div>
         </div>
 
         <!-- Where the last starter sync stands - running, stopped part-way,
@@ -1294,7 +1306,7 @@ import {
 import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../../../lib/report-csv.mjs'
 import { isGitHubNoreplyAddress } from '../../../lib/github-noreply.mjs'
 // The shape of grading/<id>/summary.json, shared with `pxl-classroom grade`.
-import { buildGradingSummary } from '../../../lib/grading-summary.mjs'
+import { buildGradingSummary, countGraded } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
 import { addCollaborator, getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
@@ -1482,6 +1494,9 @@ function startDailyWatch() {
         try {
           report.value = JSON.parse(content)
           if (report.value.live_refreshed_at) liveRefreshedAt.value = report.value.live_refreshed_at
+          // The new rows carry no grades (they live in the summary): joined
+          // again, or the scores and the Graded card vanished until a reload.
+          mergeGradesIntoReport()
           dailyWatch.value = ''
           toast.success('Report ready.')
           return
@@ -1507,6 +1522,8 @@ function stopDailyWatch() {
 const onTimeCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'on-time').length || 0)
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
 const noSubCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'no-submission').length || 0)
+// Students with a score, from the grades joined onto the rows (lib/grading-summary.mjs).
+const gradedCount = computed(() => countGraded(report.value?.students))
 const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
 
 // Three separate questions, and conflating them is what hid scores from every
@@ -4560,7 +4577,9 @@ main { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
 
 .summary-row {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* One equal column per card: five, or six once there is a Graded card. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: var(--space-md);
   margin-bottom: var(--space-lg);
 }
@@ -5050,7 +5069,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 
 @media (max-width: 768px) {
-  .summary-row { grid-template-columns: repeat(2, 1fr); }
+  .summary-row { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }
   .actions-bar { flex-direction: column; align-items: stretch; }
   /* Stacking the bar is not enough: each row is itself a flex line of buttons
      ("Copy invitation link" alone is ~150px), and without wrapping it pushed

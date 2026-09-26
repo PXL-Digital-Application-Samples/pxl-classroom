@@ -347,3 +347,49 @@ test.describe('87 - grading decisions', () => {
     expect(doc.failed.find((f) => f.login === LOGIN)?.reason).toMatch(/cancelled/);
   });
 });
+
+// --- the Graded count (2026-09-27) ------------------------------------------
+//
+// A sixth card on the assignment page and a stat on the overview's card, shown
+// only once somebody has a score, and moved by a re-grade without a reload.
+
+const gradedCard = (page) => page.locator('.summary-card', { hasText: 'Graded' });
+
+test.describe('87 - the Graded count', () => {
+  test('the assignment page shows how many students have a score', async ({ page }) => {
+    await setup(page);
+    await expect(gradedCard(page)).toBeVisible();
+    await expect(gradedCard(page).locator('.summary-value')).toHaveText('1');
+  });
+
+  test('NOBODY GRADED: no card - a 0 would read as graded and nobody passed', async ({ page }) => {
+    await setup(page, { startSummary: { ...summary, students: [] } });
+    await expect(page.locator('.summary-card', { hasText: 'No submission' })).toBeVisible();
+    await expect(gradedCard(page)).toHaveCount(0);
+  });
+
+  test('a RE-GRADE moves it at once, with no reload', async ({ page }) => {
+    const { contentWrites } = await setup(page, { startSummary: { ...summary, students: [] } });
+    await expect(gradedCard(page)).toHaveCount(0);
+    await openActions(page);
+    await grading(page).getByRole('button', { name: 'Read score again' }).click();
+    await expect.poll(() => !!lastWrite(contentWrites, summaryPath), { timeout: 15000 }).toBe(true);
+    await expect(gradedCard(page).locator('.summary-value')).toHaveText('1');
+  });
+
+  test('the overview card carries it too, from the grade summary - and not where nobody is graded', async ({ page }) => {
+    const OTHER = 'lab-without-grades';
+    await injectAuth(page, LECTURER);
+    const card = (id, title) => ({ title, state: 'closed', deadline_at: DEADLINE, accepted: 1, on_time: 1, late: 0, no_submission: 0 });
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment, [OTHER]: { ...assignment, id: OTHER, title: 'Lab without grades' } },
+      reports: { dashboard: { schema_version: 1, generated_at: '2026-10-01T13:00:00.000Z', assignments: { [ID]: card(ID, 'Cloud Exam'), [OTHER]: card(OTHER, 'Lab without grades') } } },
+      gradingSummaries: { [ID]: summary },
+    });
+    await page.goto(`/dashboard/${ORG}`);
+    const graded = page.locator('.assignment-card', { hasText: 'Cloud Exam' });
+    await expect(graded.locator('.stat', { hasText: 'Graded' }).locator('.stat-value')).toHaveText('1', { timeout: 15000 });
+    await expect(page.locator('.assignment-card', { hasText: 'Lab without grades' }).locator('.stat', { hasText: 'Graded' })).toHaveCount(0);
+  });
+});
