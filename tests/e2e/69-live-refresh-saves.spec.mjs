@@ -64,22 +64,29 @@ const report = () => ({
   ],
 });
 
-async function openDetail(page) {
-  const contentWrites = [];
+// ONE COMMIT, through the Git Data API, since 2026-09-26: the report and one
+// observation per refreshed student travel together (lib/observation.mjs), so
+// the writes are read from `gitCommits` - each commit with its files.
+async function openDetail(page, { withRepoId = false } = {}) {
+  const gitCommits = [];
+  const r = report();
+  if (withRepoId) r.students[0].repo_id = 424242;
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
     assignments: { [ID]: assignment() },
-    reports: { [ID]: report() },
-    contentWrites,
+    reports: { [ID]: r },
+    gitCommits,
   });
   await page.goto(`/dashboard/${ORG}/${ID}`);
   await expect(page.locator('.cohort-table, table').first()).toBeVisible({ timeout: 15000 });
-  return { contentWrites };
+  return { contentWrites: gitCommits };
 }
 
 const refreshButton = (page) => page.getByRole('button', { name: /^Refresh$/i }).first();
-const reportWrites = (w) => w.filter((x) => x.path === `reports/${ID}.json`);
+const liveCommits = (commits) => commits.filter((c) => c.message === `Live refresh: ${ID}`);
+const reportWrites = (commits) =>
+  liveCommits(commits).flatMap((c) => c.files).filter((f) => f.path === `reports/${ID}.json`);
 
 test.describe('69 - a live refresh writes what it shows', () => {
   test('THE REGRESSION: pressing Refresh commits the report', async ({ page }) => {
@@ -103,6 +110,32 @@ test.describe('69 - a live refresh writes what it shows', () => {
     expect(written.assignment_id).toBe(ID);
     expect(written.live_refreshed_at, 'the saved report carries the refresh').toBeTruthy();
     expect(written.live_refreshed_by).toBe(LECTURER.login);
+  });
+
+  test('WHAT A REBUILD READS: an observation per student rides in the same commit, so a later rebuild keeps the refresh', async ({ page }) => {
+    // 2026-09-26, PXL-Automation-II / 2627-pe-1-test-1: Refresh wrote the
+    // report only, and a rebuild half an hour later - which reads
+    // observations and nothing else - put the row back to "No submission".
+    const { contentWrites } = await openDetail(page, { withRepoId: true });
+    await refreshButton(page).click();
+    await expect.poll(() => reportWrites(contentWrites).length, { timeout: 20000 }).toBe(1);
+    const [commit] = liveCommits(contentWrites);
+    const obs = commit.files.filter((f) => f.path.startsWith(`observations/${ID}/alice-dev/`));
+    expect(obs, 'one observation, in the SAME commit as the report').toHaveLength(1);
+    // The fixture refuses a write that fails its schema, so reaching here
+    // means it validated; these are the fields the rebuild classifies on.
+    const doc = JSON.parse(obs[0].content);
+    expect(doc).toMatchObject({ type: 'snapshot', assignment_id: ID, github_login: 'alice-dev', repo_id: 424242, collection_type: 'manual' });
+    expect(doc.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(obs[0].path).toBe(`observations/${ID}/alice-dev/${doc.observed_at.replace(/[:.]/g, '-')}.json`);
+  });
+
+  test('a row with no repository id is refreshed and saved, with no observation it could not make valid', async ({ page }) => {
+    const { contentWrites } = await openDetail(page);
+    await refreshButton(page).click();
+    await expect.poll(() => reportWrites(contentWrites).length, { timeout: 20000 }).toBe(1);
+    const [commit] = liveCommits(contentWrites);
+    expect(commit.files.filter((f) => f.path.startsWith('observations/'))).toHaveLength(0);
   });
 
   test('it does not report success it did not have', async ({ page }) => {

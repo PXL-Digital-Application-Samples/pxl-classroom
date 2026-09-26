@@ -11,7 +11,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { isGitHubNoreplyAddress } from "../lib/github-noreply.mjs";
+import { commitAuthor, snapshotObservation } from "../lib/observation.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -270,8 +270,6 @@ async function main() {
 
         const latestCommit = commits[0];
         const sha = latestCommit.sha;
-        const commitDate = latestCommit.commit?.committer?.date || latestCommit.commit?.author?.date || null;
-        const commitMessage = latestCommit.commit?.message || null;
 
         let commitCount = commits.length;
         const link = commitRes.headers?.get?.("link");
@@ -280,17 +278,8 @@ async function main() {
           if (m) commitCount = parseInt(m[1], 10);
         }
 
-        let authorName = latestCommit.commit?.author?.name || null;
-        let authorEmail = latestCommit.commit?.author?.email || null;
-
-        const isBotName = (str) => {
-          if (!str) return false;
-          const s = str.toLowerCase();
-          return s.includes("[bot]") || s.includes("provisioner") || s === "github" || s === "web-flow";
-        };
-
-        if (isBotName(authorName)) authorName = null;
-        if (isGitHubNoreplyAddress(authorEmail)) authorEmail = null;
+        // The same filter the assignment page's Refresh applies (lib/observation.mjs).
+        let { name: authorName, email: authorEmail } = commitAuthor(latestCommit);
 
         if (!authorName || !authorEmail) {
           try {
@@ -320,24 +309,19 @@ async function main() {
         }
 
         const now = new Date().toISOString();
-        const observation = {
-          schema_version: 1,
-          type: "snapshot",
-          assignment_id: assignmentId,
-          github_login: login,
-          repo_id: repoRes.data.id,
-          observed_at: now,
+        const observation = snapshotObservation({
+          assignmentId,
+          login,
+          repoId: repoRes.data.id,
           ref: submissionRef,
-          sha: sha,
-          commit_count: commitCount,
-          commit_date: commitDate,
-          late_commit_count: lateCommitCount,
-          commit_message: commitMessage,
-          author_name: authorName,
-          author_email: authorEmail,
-          observer_run: cfg.runUrl,
-          collection_type: env("COLLECTION_TYPE", "scheduled"),
-        };
+          commit: latestCommit,
+          commitCount,
+          lateCommitCount,
+          author: { name: authorName, email: authorEmail },
+          observedAt: now,
+          observerRun: cfg.runUrl,
+          collectionType: env("COLLECTION_TYPE", "scheduled"),
+        });
 
         // Validate before writing. This sits inside the per-student try, so a
         // document that does not match its schema fails THAT student and the

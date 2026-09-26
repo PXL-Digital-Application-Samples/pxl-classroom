@@ -1203,8 +1203,9 @@ import HelpButton from '../components/HelpButton.vue'
 import {
   assignmentPath, reportPath, teamsDir,
   repositoriesDir, repositoryPath, overridesDir, overridePath,
-  lockdownRecordPath, unlockRecordPath,
+  lockdownRecordPath, unlockRecordPath, observationPath,
 } from '../../../lib/control-layout.mjs'
+import { snapshotObservation, isBotAuthorName } from '../../../lib/observation.mjs'
 import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from '../lib/repo-unlock.js'
 import { releaseSubmissionLock, removeRepoFromOrgLock } from '../../../lib/submission-lock.mjs'
 import AuthCard from '../components/AuthCard.vue'
@@ -2090,12 +2091,6 @@ const roster = computed(() => Array.from(rosterByLogin.value.values()))
 const userProfilesByLogin = ref(new Map())
 
 
-function isBot(str) {
-  if (!str) return false
-  const s = str.toLowerCase()
-  return s.includes('[bot]') || s.includes('provisioner') || s === 'github' || s === 'web-flow'
-}
-
 function studentTooltip(s) {
   const roster = rosterByLogin.value.get(s.github_login?.toLowerCase())
   const profile = userProfilesByLogin.value.get(s.github_login?.toLowerCase())
@@ -2106,7 +2101,7 @@ function studentTooltip(s) {
 
   // Name from roster, GitHub public profile, or non-bot Git commit author
   let fullName = s.full_name || roster?.full_name || profile?.name
-  if (!fullName && s.author_name && !isBot(s.author_name)) {
+  if (!fullName && s.author_name && !isBotAuthorName(s.author_name)) {
     fullName = s.author_name
   }
   if (fullName && fullName.toLowerCase() === s.github_login.toLowerCase()) {
@@ -2364,7 +2359,7 @@ const filteredStudents = computed(() => {
       // `additionalProperties: false` - so `s.name` and `roster.name` were
       // always undefined. Harmless in an `||` chain, unlike the `s.status`
       // that made the accepted count wrong, but the same mis-spelling.
-      const fullName = (s.full_name || roster?.full_name || profile?.name || (!isBot(s.author_name) ? s.author_name : '') || '').toLowerCase()
+      const fullName = (s.full_name || roster?.full_name || profile?.name || (!isBotAuthorName(s.author_name) ? s.author_name : '') || '').toLowerCase()
       const email = (s.email || roster?.email || s.author_email || profile?.email || '').toLowerCase()
       const studentNr = (s.student_number || roster?.student_number || '').toLowerCase()
       const classGroup = (s.class_group || roster?.class_group || '').toLowerCase()
@@ -3141,6 +3136,9 @@ function clearFilters() {
   statusFilter.value = ''
 }
 
+// What one Refresh saw, one observation per student, stored beside the report.
+let refreshObservations = []
+
 // Returns true when the row was refreshed, false on any API failure - the
 // caller counts failures so a partial refresh is never presented (or saved)
 // as a complete one.
@@ -3150,7 +3148,10 @@ async function refreshOne(token, s) {
     return true
   }
   try {
-    const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?per_page=1`)
+    // The SUBMISSION branch, as the nightly collector reads it - not whatever
+    // the repository's default happens to be.
+    const branch = submissionBranch(assignment.value)
+    const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?sha=${encodeURIComponent(branch)}&per_page=1`)
     if (!res.ok) return false
 
     s.commit_count = totalFromLinkHeader(res.headers, res.data)
@@ -3158,6 +3159,21 @@ async function refreshOne(token, s) {
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
       const sha = commit.sha
+      // Evidence the next rebuild of the report reads, exactly as the
+      // collector writes it (lib/observation.mjs). Without a repository id
+      // there is no valid observation, and the report keeps the row as seen.
+      if (Number.isInteger(s.repo_id)) {
+        refreshObservations.push(snapshotObservation({
+          assignmentId: props.assignmentId,
+          login: s.github_login,
+          repoId: s.repo_id,
+          ref: assignment.value?.submission_ref || `refs/heads/${branch}`,
+          commit,
+          commitCount: s.commit_count,
+          observedAt: new Date().toISOString(),
+          collectionType: 'manual',
+        }))
+      }
       const commitDate = commit.commit?.committer?.date || commit.commit?.author?.date || null
       const commitMessage = commit.commit?.message || null
 
@@ -3178,7 +3194,7 @@ async function refreshOne(token, s) {
 
       const authorName = commit.commit?.author?.name || null
       const authorEmail = commit.commit?.author?.email || null
-      if (authorName && authorName !== s.github_login && !isBot(authorName)) {
+      if (authorName && authorName !== s.github_login && !isBotAuthorName(authorName)) {
         s.author_name = authorName
       }
       if (authorEmail && !isGitHubNoreplyAddress(authorEmail)) {
@@ -3256,6 +3272,7 @@ async function refreshLiveStatus() {
   refreshingLive.value = true
   totalStudentsToRefresh.value = queue.length
   refreshedStudentsCount.value = 0
+  refreshObservations = []
 
   let cursor = 0
   let failedCount = 0
@@ -3344,9 +3361,22 @@ async function refreshLiveStatus() {
       return
     }
     const reportBody = JSON.stringify(storable, null, 2) + '\n'
-    const reportRes = await commitFile(token, props.org, config.controlRepo, reportFile, reportBody, `Live refresh: ${props.assignmentId}`)
+    // The observations go in the SAME commit as the report. A rebuild reads
+    // observations and nothing else, so a report saved without them was undone
+    // by the next save anywhere in the Admin Panel (lib/observation.mjs). One
+    // that fails its schema is not written - the report still is, and the next
+    // nightly collects that student as before.
+    const changes = [{ path: reportFile, content: reportBody }]
+    let unrecorded = 0
+    for (const obs of refreshObservations) {
+      const check = await validateAgainst('observation', obs)
+      if (!check.valid) { unrecorded++; continue }
+      changes.push({ path: observationPath(props.assignmentId, obs.github_login, obs.observed_at), content: JSON.stringify(obs, null, 2) + '\n' })
+    }
+    if (unrecorded) console.warn(`${unrecorded} refreshed observation(s) failed their schema and were not stored`)
+    const reportRes = await commitFiles(token, props.org, config.controlRepo, changes, `Live refresh: ${props.assignmentId}`)
     if (!reportRes.ok) {
-      toast.error(`Refreshed locally but save failed: ${reportRes.data?.message || 'unknown error'}`)
+      toast.error(`Refreshed locally but save failed: ${reportRes.error || 'unknown error'}`)
       return
     }
     await syncDashboardAggregate(token)

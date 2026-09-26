@@ -676,6 +676,29 @@ test("roster student who didn't accept appears as no-submission", () => {
   assert.equal(dave.full_name, "Dave");
 });
 
+// THE SCREENSHOT, 2026-09-26: Refresh saw d5bcbae, an unrelated save rebuilt
+// the report from observations - of which there were none - and the row went
+// back to "No submission, no commits". Refresh now stores the observation it
+// made (lib/observation.mjs); a rebuild from that alone keeps the commit.
+test("a rebuild from nothing but a Refresh observation keeps the student's commit", async () => {
+  const { snapshotObservation } = await import("../lib/observation.mjs");
+  const obs = snapshotObservation({
+    assignmentId: "test-asgn", login: "tom", repoId: 7, ref: "refs/heads/main",
+    commit: { sha: "d5bcbae".padEnd(40, "0"), commit: { message: "work", committer: { date: "2026-09-05T10:00:00Z" }, author: { name: "Tom" } } },
+    commitCount: 3, observedAt: "2026-09-05T10:30:00.000Z", collectionType: "manual",
+  });
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "tom", status: "provisioned" }],
+    repositories: [{ github_login: "tom", repo_name: "TestOrg/test-asgn-tom", repo_id: 7 }],
+    observations: { tom: [obs] },
+  });
+  const tom = report.students.find((s) => s.github_login === "tom");
+  assert.equal(tom.latest_observed_sha, obs.sha);
+  assert.equal(tom.submission_status, "on-time");
+  assert.equal(tom.commit_count, 3);
+});
+
 // Under `open` the roster invites nobody, so its students are not this
 // assignment's population (PXL-Automation-II / 2627-pe-1-test-1, 2026-09-26:
 // last year's promoted exam cohort listed as "No submission" on a new open
